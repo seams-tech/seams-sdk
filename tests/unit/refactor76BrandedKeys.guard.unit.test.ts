@@ -342,6 +342,130 @@ test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
     expect(serverAuthService).toContain('formatSigningSessionSealShamirPrimeB64uForWire');
   });
 
+  test('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', () => {
+    const domainIds = readRepoSource('packages/shared-ts/src/utils/domainIds.ts');
+    const walletCapabilityBindings = readRepoSource(
+      'packages/shared-ts/src/utils/walletCapabilityBindings.ts',
+    );
+    const registrationIntent = readRepoSource('packages/shared-ts/src/utils/registrationIntent.ts');
+    const serverTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
+    const serverAuthService = readRepoSource('packages/sdk-server-ts/src/core/AuthService.ts');
+    const thresholdSigning = readRepoSource(
+      'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+    );
+    const clientHssLifecycle = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
+    );
+    const serverTypecheck = readRepoSource(
+      'packages/sdk-server-ts/src/core/keyMaterialBrands.typecheck.ts',
+    );
+    const sdkTypecheck = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts',
+    );
+
+    expect(domainIds).toContain("WebAuthnRpId = DomainId<'WebAuthnRpId'>");
+    expect(domainIds).toContain('parseWebAuthnRpId');
+    expect(walletCapabilityBindings).toContain('export type RpId = WebAuthnRpId');
+    expect(registrationIntent).toContain('export type NearEd25519SigningKeyId');
+    expect(registrationIntent).toContain('parseNearEd25519SigningKeyId');
+    expect(registrationIntent).toContain('formatNearEd25519SigningKeyIdForWire');
+    expect(registrationIntent).toContain('rpId: WebAuthnRpId;');
+    expect(registrationIntent).toContain('rpId?: never;');
+    const nearEd25519Parser = sourceBetween(
+      registrationIntent,
+      'export function parseNearEd25519SigningKeyId(value: unknown): NearEd25519SigningKeyId',
+      'export function formatNearEd25519SigningKeyIdForWire',
+    );
+    expect(nearEd25519Parser).toContain("typeof value !== 'string'");
+    expect(nearEd25519Parser).not.toContain('String(value ??');
+    const generatedKeyDigestInput = sourceBetween(
+      registrationIntent,
+      'export type GeneratedImplicitNearEd25519SigningKeyDigestInput =',
+      'export async function computeGeneratedImplicitNearEd25519SigningKeyId',
+    );
+    expect(generatedKeyDigestInput).toContain('rpId: WebAuthnRpId;');
+    const registrationKeyDigestInput = sourceBetween(
+      registrationIntent,
+      'export async function computeRegistrationNearEd25519SigningKeyId(input:',
+      'export function implicitNearAccountProvisioning',
+    );
+    expect(registrationKeyDigestInput).toContain('rpId: WebAuthnRpId;');
+
+    const registrationScopeType = sourceBetween(
+      serverTypes,
+      'export type ThresholdEd25519RegistrationAccountScope =',
+      'export interface ThresholdEd25519HssClientInputs',
+    );
+    expect(registrationScopeType).toContain(
+      'nearEd25519SigningKeyId: NearEd25519SigningKeyId',
+    );
+    expect(registrationScopeType).not.toContain('walletKeyId: string');
+    expect(serverTypes).toContain('rpId: WebAuthnRpId');
+    expect(serverTypes).toContain('wallet_key_id: NearEd25519SigningKeyId');
+
+    expect(serverAuthService).toContain('requireWebAuthnRpId');
+    expect(serverAuthService).toContain(
+      'function isHostWithinRpId(host: string, rpId: WebAuthnRpId)',
+    );
+    expect(serverAuthService).not.toContain(
+      'function isHostWithinRpId(host: string, rpId: string)',
+    );
+    const registrationVerificationHelper = sourceBetween(
+      serverAuthService,
+      'private async verifyRegistrationCredentialForIntent(input:',
+      'private async verifyRegistrationAuthorityForIntent',
+    );
+    expect(registrationVerificationHelper).toContain('rpId: WebAuthnRpId;');
+    expect(registrationVerificationHelper).not.toContain('rpId: string;');
+    const liteVerificationHelper = sourceBetween(
+      serverAuthService,
+      'async verifyWebAuthnAuthenticationLite(input:',
+      'async listWebAuthnAuthenticatorsForUser',
+    );
+    expect(liteVerificationHelper).toContain('rpId: WebAuthnRpId;');
+    expect(liteVerificationHelper).not.toContain('rpId: string;');
+    expect(serverAuthService).toContain("requireWebAuthnRpId(input.intent.rpId, 'registration authority rpId')");
+    expect(serverAuthService).toContain(
+      "requireWebAuthnRpId(input.intent.rpId, 'add-auth-method authority rpId')",
+    );
+    expect(serverAuthService).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
+    expect(serverAuthService).not.toContain('wallet_key_id: registrationAccountScope.walletKeyId');
+    expect(thresholdSigning).toContain('parseWebAuthnRpIdField');
+    expect(thresholdSigning).toContain('parseNearEd25519SigningKeyIdField');
+    expect(thresholdSigning).not.toContain('registrationAccountScope.value.walletKeyId');
+    expect(thresholdSigning).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
+    const serverHssDigestHelper = sourceBetween(
+      thresholdSigning,
+      'private async expectedThresholdEd25519HssApplicationBindingDigestB64u(input:',
+      'private async validateThresholdEd25519HssSessionScope',
+    );
+    expect(serverHssDigestHelper).toContain(
+      'nearEd25519SigningKeyId: NearEd25519SigningKeyId;',
+    );
+    expect(serverHssDigestHelper).not.toContain('nearEd25519SigningKeyId: unknown');
+    expect(serverHssDigestHelper).not.toContain('nearEd25519SigningKeyIdFromString(String(');
+    const clientHssBindingInput = sourceBetween(
+      clientHssLifecycle,
+      'type ThresholdEd25519HssBindingFactsInput =',
+      'function normalizeThresholdEd25519HssBindingFacts',
+    );
+    expect(clientHssBindingInput).toContain(
+      'nearEd25519SigningKeyId: NearEd25519SigningKeyId;',
+    );
+    expect(clientHssBindingInput).not.toContain('NearEd25519SigningKeyId | string');
+    const clientHssBindingNormalizer = sourceBetween(
+      clientHssLifecycle,
+      'function normalizeThresholdEd25519HssBindingFacts',
+      'async function buildThresholdEd25519HssCanonicalContext',
+    );
+    expect(clientHssBindingNormalizer).not.toContain('nearEd25519SigningKeyIdFromString(String(');
+
+    for (const source of [serverTypecheck, sdkTypecheck]) {
+      expect(source).toContain('acceptsWebAuthnRpId(nearEd25519SigningKeyId)');
+      expect(source).toContain('acceptsNearEd25519SigningKeyId(webAuthnRpId)');
+    }
+  });
+
   test('valid signing-session seal key ids use explicit domain names in active defaults', () => {
     const serverIndex = readRepoSource('apps/web-server/src/index.ts');
     const generateKeys = readRepoSource(

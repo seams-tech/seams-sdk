@@ -179,7 +179,7 @@ async function readEd25519WorkerOperationTrace(
 function isEd25519HssRouteUrl(urlRaw: string): boolean {
   const url = String(urlRaw || '').toLowerCase();
   return (
-    url.includes('/v2/router-ab/ed25519/hss/') ||
+    url.includes('/router-ab/ed25519/hss/') ||
     url.includes('/registration/threshold-ed25519/hss/') ||
     (url.includes('threshold-ed25519') && url.includes('/hss/'))
   );
@@ -511,7 +511,7 @@ async function readEd25519ServerBudgetEvidence(args: {
   }
 
   try {
-    const response = await fetch(`${args.budgetStatusBaseUrl}/session/signing-budget/status`, {
+    const response = await fetch(`${args.budgetStatusBaseUrl}/router-ab/wallet-budget/status`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

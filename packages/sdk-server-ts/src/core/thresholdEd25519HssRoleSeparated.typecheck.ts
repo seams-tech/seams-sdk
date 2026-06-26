@@ -7,6 +7,7 @@ import type {
   WalletRegistrationFinalizeRequest,
   WalletRegistrationHssRespondRequest,
 } from './types';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 const serverVisibleClientRequest = {
   clientRequestMessageB64u: 'client-request-message',
@@ -72,11 +73,10 @@ void ({
 const sponsoredRegistrationAccountScope: ThresholdEd25519RegistrationAccountScope = {
   kind: 'sponsored_named_registration_scope',
   walletId: 'alice.near',
-  walletKeyId: 'alice.near',
   intentDigestB64u: 'intent-digest',
   signingRootId: 'project:env',
   signingRootVersion: 'v1',
-  nearEd25519SigningKeyId: 'alice.near',
+  nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('alice.near'),
   signerSlot: 1,
   keyPurpose: 'near-ed25519',
   keyVersion: 'v1',
@@ -87,14 +87,14 @@ const sponsoredRegistrationAccountScope: ThresholdEd25519RegistrationAccountScop
 
 void ({
   registrationAccountScope: sponsoredRegistrationAccountScope,
-  wallet_key_id: 'wallet.example.test',
+  wallet_key_id: sponsoredRegistrationAccountScope.nearEd25519SigningKeyId,
   ceremonyHandle: 'ceremony',
   clientRequest: serverVisibleClientRequest,
 } satisfies ThresholdEd25519HssRoleSeparatedRespondForRegistrationRequest);
 
 void ({
   registrationAccountScope: sponsoredRegistrationAccountScope,
-  wallet_key_id: 'wallet.example.test',
+  wallet_key_id: sponsoredRegistrationAccountScope.nearEd25519SigningKeyId,
   ceremonyHandle: 'ceremony',
   clientRequest: {
     clientRequestMessageB64u: 'client-request-message',

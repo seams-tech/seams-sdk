@@ -1,6 +1,6 @@
 import {
   parseRouterAbPublicKeysetV2,
-  ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
+  ROUTER_AB_PUBLIC_KEYSET_PATH,
   type RouterAbPublicKeysetV2,
 } from '@shared/utils/routerAbPublicKeyset';
 import { buildRelayerJsonGetRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
@@ -19,7 +19,7 @@ export async function fetchRouterAbPublicKeysetV2(args: {
   }
   const base = normalizeRelayerBaseUrl(requireNonEmptyString(args.relayerUrl, 'relayerUrl'));
   const response = await fetch(
-    `${base}${ROUTER_AB_PUBLIC_KEYSET_PATH_V2}`,
+    `${base}${ROUTER_AB_PUBLIC_KEYSET_PATH}`,
     buildRelayerJsonGetRequestInit(),
   );
   if (!response.ok) {

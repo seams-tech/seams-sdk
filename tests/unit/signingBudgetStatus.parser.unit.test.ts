@@ -67,7 +67,6 @@ type WalletBudgetStatusFixtureInput = {
   thresholdSessionId: string;
   signingGrantId: string;
   userId: string;
-  relayerKeyId: string;
   participantIds: number[];
   expiresAtMs: number;
   remainingUses: number;
@@ -90,7 +89,7 @@ function makeWalletBudgetStatus(
     committedRemainingUses: input.remainingUses,
     reservedUses: 0,
     availableUses: input.remainingUses,
-    relayerKeyId: input.relayerKeyId,
+    relayerKeyId: 'wallet-signing-budget',
     participantIds: input.participantIds,
   };
   switch (input.curve) {
@@ -150,11 +149,12 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
         wallet_key_id: 'wallet-key-ecdsa',
+        wallet_id: 'wallet-ecdsa',
+        ecdsa_threshold_key_id: 'ehss-key-1',
+        signing_root_id: 'signing-root-1',
+        signing_root_version: 'v1',
         context: {
-          wallet_id: 'wallet-ecdsa',
-          ecdsa_threshold_key_id: 'ehss-key-1',
-          signing_root_id: 'signing-root-1',
-          signing_root_version: 'v1',
+          application_binding_digest_b64u: b64u(Array.from({ length: 32 }, () => 7)),
         },
         public_identity: {
           context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
@@ -228,7 +228,6 @@ test.describe('signing budget status parser', () => {
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
           walletKeyId: 'wallet-key-ecdsa',
-          relayerKeyId: 'ecdsa-relayer-1',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -269,7 +268,6 @@ test.describe('signing budget status parser', () => {
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
           walletKeyId: 'wallet-key-ecdsa',
-          relayerKeyId: 'ecdsa-relayer-1',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -310,7 +308,6 @@ test.describe('signing budget status parser', () => {
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           rpId: 'example.localhost',
-          relayerKeyId: 'ed25519-relayer-1',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -371,7 +368,42 @@ test.describe('signing budget status parser', () => {
           signingGrantId: 'shared-signing-grant',
           userId: 'wallet-ecdsa',
           rpId: 'example.localhost',
-          relayerKeyId: 'ed25519-relayer-1',
+          participantIds: [1, 2],
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+        }),
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('wallet_budget_forbidden');
+  });
+
+  test('rejects wallet budget status from another threshold session', async () => {
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer wrong-wallet-budget-threshold-session' },
+      session: makeSession(makeEd25519Claims()),
+      sessionPolicy: makePolicy({
+        thresholdStatuses: [
+          makeThresholdStatus({
+            curve: 'ed25519',
+            thresholdSessionId: 'threshold-session-ed25519',
+            userId: 'wallet-ed25519',
+            rpId: 'example.localhost',
+            relayerKeyId: 'ed25519-relayer-1',
+            participantIds: [1, 2],
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 4,
+          }),
+        ],
+        walletBudgetStatus: makeWalletBudgetStatus({
+          curve: 'ed25519',
+          thresholdSessionId: 'different-threshold-session-ed25519',
+          signingGrantId: 'signing-grant-ed25519',
+          userId: 'wallet-ed25519',
+          rpId: 'example.localhost',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -413,7 +445,6 @@ test.describe('signing budget status parser', () => {
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           rpId: 'example.localhost',
-          relayerKeyId: 'ed25519-relayer-1',
           participantIds: [1, 2],
           expiresAtMs: nowMs - 1,
           remainingUses: 3,
@@ -453,7 +484,6 @@ test.describe('signing budget status parser', () => {
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           rpId: 'example.localhost',
-          relayerKeyId: 'ed25519-relayer-1',
           participantIds: [1, 2],
           expiresAtMs: nowMs + 60_000,
           remainingUses: 3,
@@ -542,11 +572,10 @@ test.describe('signing budget status parser', () => {
         thresholdStatuses: [],
         walletBudgetStatus: makeWalletBudgetStatus({
           curve: 'ed25519',
-          thresholdSessionId: 'wallet-signing:signing-grant-ed25519',
+          thresholdSessionId: 'threshold-session-ed25519',
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           rpId: 'example.localhost',
-          relayerKeyId: 'ed25519-relayer-1',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -606,11 +635,10 @@ test.describe('signing budget status parser', () => {
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
           curve: 'ed25519',
-          thresholdSessionId: 'wallet-signing:signing-grant-ed25519',
+          thresholdSessionId: 'threshold-session-ed25519',
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
           rpId: 'example.localhost',
-          relayerKeyId: 'ed25519-relayer-1',
           participantIds: [7, 8],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -643,11 +671,10 @@ test.describe('signing budget status parser', () => {
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
           curve: 'ecdsa',
-          thresholdSessionId: 'wallet-signing:signing-grant-ecdsa',
+          thresholdSessionId: 'threshold-session-ecdsa',
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
           walletKeyId: 'wallet-key-ecdsa',
-          relayerKeyId: 'wrong-relayer-key',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,

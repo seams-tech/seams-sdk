@@ -59,12 +59,12 @@ export async function mockRelayServer(page: Page, options: RelayMockOptions = {}
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: false,
-        error: 'Mock relay failure',
+        error: 'Mock Router failure',
       }),
     });
   });
 
-  printLog('intercept', `relay server mock installed`, {
+  printLog('intercept', `Router server mock installed`, {
     scope: 'relay',
     step: 'ready',
   });

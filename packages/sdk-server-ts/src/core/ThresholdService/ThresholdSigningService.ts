@@ -8,8 +8,16 @@ import {
   type EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { computeSdkEd25519HssApplicationBindingDigestB64u } from '@shared/threshold/ed25519HssBinding';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
-import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseWalletId,
+  parseWebAuthnRpId,
+  type WalletId,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
+import {
+  parseNearEd25519SigningKeyId,
+  type NearEd25519SigningKeyId,
+} from '@shared/utils/registrationIntent';
 import { isObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
@@ -622,7 +630,6 @@ function summarizeThresholdEd25519HssCeremonyRecordBytes(
     base.nearEd25519SigningKeyIdBytes = utf8Bytes(
       record.registrationAccountScope.nearEd25519SigningKeyId,
     );
-    base.walletKeyIdBytes = utf8Bytes(record.registrationAccountScope.walletKeyId);
   }
   if ('evaluationResult' in record && record.evaluationResult) {
     base.evaluationResultBytes = evaluationResultBytes;
@@ -1070,6 +1077,35 @@ function parseThresholdEd25519HssCanonicalContext(
   };
 }
 
+function parseNearEd25519SigningKeyIdField(
+  raw: unknown,
+  fieldName: string,
+): ParseResult<NearEd25519SigningKeyId> {
+  try {
+    return { ok: true, value: parseNearEd25519SigningKeyId(raw) };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message:
+        error instanceof Error ? `${fieldName}: ${error.message}` : `${fieldName} is invalid`,
+    };
+  }
+}
+
+function parseWebAuthnRpIdField(
+  raw: unknown,
+  fieldName: string,
+): ParseResult<WebAuthnRpId> {
+  const parsed = parseWebAuthnRpId(raw);
+  if (parsed.ok) return { ok: true, value: parsed.value };
+  return {
+    ok: false,
+    code: 'invalid_body',
+    message: `${fieldName}: ${parsed.error.message}`,
+  };
+}
+
 function parseThresholdEd25519RegistrationAccountScope(
   raw: unknown,
 ): ParseResult<ThresholdEd25519RegistrationAccountScope> {
@@ -1089,11 +1125,21 @@ function parseThresholdEd25519RegistrationAccountScope(
       message: 'registrationAccountScope.rpId is not valid for Ed25519 HSS',
     };
   }
-  const walletKeyId = toOptionalTrimmedString(raw.walletKeyId);
+  if (toOptionalTrimmedString(raw.walletKeyId)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registrationAccountScope.walletKeyId is not valid for Ed25519 HSS',
+    };
+  }
   const intentDigestB64u = toOptionalTrimmedString(raw.intentDigestB64u);
   const signingRootId = toOptionalTrimmedString(raw.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
-  const nearEd25519SigningKeyId = toOptionalTrimmedString(raw.nearEd25519SigningKeyId);
+  const nearEd25519SigningKeyId = parseNearEd25519SigningKeyIdField(
+    raw.nearEd25519SigningKeyId,
+    'registrationAccountScope.nearEd25519SigningKeyId',
+  );
+  if (!nearEd25519SigningKeyId.ok) return nearEd25519SigningKeyId;
   const keyPurpose = toOptionalTrimmedString(raw.keyPurpose);
   const keyVersion = toOptionalTrimmedString(raw.keyVersion);
   const signerSlot = Number(raw.signerSlot);
@@ -1101,11 +1147,9 @@ function parseThresholdEd25519RegistrationAccountScope(
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
   if (
     !walletId ||
-    !walletKeyId ||
     !intentDigestB64u ||
     !signingRootId ||
     !signingRootVersion ||
-    !nearEd25519SigningKeyId ||
     !keyPurpose ||
     !keyVersion ||
     !Number.isSafeInteger(signerSlot) ||
@@ -1119,16 +1163,15 @@ function parseThresholdEd25519RegistrationAccountScope(
       ok: false,
       code: 'invalid_body',
       message:
-        'registrationAccountScope requires walletId, walletKeyId, intentDigestB64u, signingRootId, signingRootVersion, nearEd25519SigningKeyId, signerSlot, keyPurpose, keyVersion, derivationVersion, and participantIds',
+        'registrationAccountScope requires walletId, intentDigestB64u, signingRootId, signingRootVersion, nearEd25519SigningKeyId, signerSlot, keyPurpose, keyVersion, derivationVersion, and participantIds',
     };
   }
   const common = {
     walletId,
-    walletKeyId,
     intentDigestB64u,
     signingRootId,
     signingRootVersion,
-    nearEd25519SigningKeyId,
+    nearEd25519SigningKeyId: nearEd25519SigningKeyId.value,
     signerSlot,
     keyPurpose,
     keyVersion,
@@ -1212,7 +1255,6 @@ function thresholdEd25519RegistrationAccountScopesEqual(
   if (
     left.kind !== right.kind ||
     left.walletId !== right.walletId ||
-    left.walletKeyId !== right.walletKeyId ||
     left.intentDigestB64u !== right.intentDigestB64u ||
     left.signingRootId !== right.signingRootId ||
     left.signingRootVersion !== right.signingRootVersion ||
@@ -1628,7 +1670,7 @@ export class ThresholdSigningService {
   private readonly verifyWebAuthnAuthenticationLite:
     | ((request: {
         userId: string;
-        rpId: string;
+        rpId: WebAuthnRpId;
         expectedChallenge: string;
         expected_origin: string;
         webauthn_authentication: WebAuthnAuthenticationCredential;
@@ -1723,7 +1765,7 @@ export class ThresholdSigningService {
     ensureSignerWasm: () => Promise<void>;
     verifyWebAuthnAuthenticationLite?: (request: {
       userId: string;
-      rpId: string;
+      rpId: WebAuthnRpId;
       expectedChallenge: string;
       expected_origin: string;
       webauthn_authentication: WebAuthnAuthenticationCredential;
@@ -2621,68 +2663,70 @@ export class ThresholdSigningService {
       thresholdSessionId: string;
     };
   }): string {
-    void input.binding;
-    return walletSigningBudgetSessionId(input.signingGrantId);
+    return walletSigningBudgetSessionId({
+      curve: input.binding.curve,
+      signingGrantId: input.signingGrantId,
+    });
   }
 
-	  private async ensureSigningGrantBudget(
-	    input: {
-	      signingGrantId: string;
-	      userId: string;
-	      participantIds: number[];
-	      ttlMs: number;
-	      remainingUses: number;
-	      refreshExisting?: boolean;
-	    } & (
-	      | {
-	          binding: {
-	            curve: 'ed25519';
-	            thresholdSessionId: string;
-	          };
-	          rpId: string;
-	          walletKeyId?: never;
-	        }
-	      | {
-	          binding: {
-	            curve: 'ecdsa';
-	            thresholdSessionId: string;
-	          };
-	          walletKeyId: string;
-	          rpId?: never;
-	        }
-	    ),
-	  ): Promise<
+  private async ensureSigningGrantBudget(
+    input: {
+      signingGrantId: string;
+      userId: string;
+      participantIds: number[];
+      ttlMs: number;
+      remainingUses: number;
+      refreshExisting?: boolean;
+    } & (
+      | {
+          binding: {
+            curve: 'ed25519';
+            thresholdSessionId: string;
+          };
+          rpId: string;
+          walletKeyId?: never;
+        }
+      | {
+          binding: {
+            curve: 'ecdsa';
+            thresholdSessionId: string;
+          };
+          walletKeyId: string;
+          rpId?: never;
+        }
+    ),
+  ): Promise<
     | { ok: true; expiresAtMs: number; participantIds: number[] }
     | { ok: false; code: string; message: string }
   > {
-	    const binding = {
-	      curve: input.binding.curve,
-	      thresholdSessionId: toOptionalTrimmedString(input.binding.thresholdSessionId) || '',
-	    };
-	    const budgetScopeId =
-	      input.binding.curve === 'ecdsa'
-	        ? toOptionalTrimmedString(input.walletKeyId)
-	        : toOptionalTrimmedString(input.rpId);
-	    const budgetScopeLabel = input.binding.curve === 'ecdsa' ? 'walletKeyId' : 'rpId';
-	    const sessionId = this.walletSigningBudgetSessionId({
-	      signingGrantId: input.signingGrantId,
-	      binding,
+    const binding = {
+      curve: input.binding.curve,
+      thresholdSessionId: toOptionalTrimmedString(input.binding.thresholdSessionId) || '',
+    };
+    const budgetScopeId =
+      input.binding.curve === 'ecdsa'
+        ? toOptionalTrimmedString(input.walletKeyId)
+        : toOptionalTrimmedString(input.rpId);
+    const budgetScopeLabel = input.binding.curve === 'ecdsa' ? 'walletKeyId' : 'rpId';
+    const sessionId = this.walletSigningBudgetSessionId({
+      signingGrantId: input.signingGrantId,
+      binding,
     });
     if (!binding.thresholdSessionId) {
       return {
         ok: false,
         code: 'invalid_body',
-	        message: 'signing grant budget binding thresholdSessionId is required',
-	      };
-	    }
-	    if (!budgetScopeId) {
-	      return {
-	        ok: false,
-	        code: 'invalid_body',
-	        message: `signing grant budget ${budgetScopeLabel} is required`,
-	      };
-	    }
-	    if (!sessionId) {
+        message: 'signing grant budget binding thresholdSessionId is required',
+      };
+    }
+    if (!budgetScopeId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `signing grant budget ${budgetScopeLabel} is required`,
+      };
+    }
+    if (!sessionId) {
       return {
         ok: false,
         code: 'invalid_body',
@@ -2703,12 +2747,12 @@ export class ThresholdSigningService {
         };
       }
       if (walletBudgetScopeId(existingSession.budgetScope) !== budgetScopeId) {
-	        return {
-	          ok: false,
-	          code: 'unauthorized',
-	          message: `signingGrantId already exists for a different ${budgetScopeLabel}`,
-	        };
-	      }
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: `signingGrantId already exists for a different ${budgetScopeLabel}`,
+        };
+      }
       if (
         !walletBudgetBindingMatches({
           record: existingSession,
@@ -4343,9 +4387,11 @@ export class ThresholdSigningService {
             message: 'expected_origin is required for threshold-ed25519 passkey session mint',
           };
         }
+        const webAuthnRpId = parseWebAuthnRpIdField(rpId, 'sessionPolicy.rpId');
+        if (!webAuthnRpId.ok) return webAuthnRpId;
         const verification = await this.verifyWebAuthnAuthenticationLite!({
           userId: walletId,
-          rpId,
+          rpId: webAuthnRpId.value,
           expectedChallenge,
           expected_origin: parsedRequest.value.expectedOrigin,
           webauthn_authentication: walletAuthProof.value.webauthnAuthentication,
@@ -4454,12 +4500,12 @@ export class ThresholdSigningService {
   }
 
   private async expectedThresholdEd25519HssApplicationBindingDigestB64u(input: {
-    nearEd25519SigningKeyId: unknown;
+    nearEd25519SigningKeyId: NearEd25519SigningKeyId;
     signingRootId: unknown;
     signingRootVersion: unknown;
   }): Promise<string> {
     return await computeSdkEd25519HssApplicationBindingDigestB64u({
-      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(String(input.nearEd25519SigningKeyId || '')),
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
       signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
       signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
     });
@@ -4515,8 +4561,19 @@ export class ThresholdSigningService {
       };
     }
     const claimSigningRoot = resolveEcdsaSigningRootFromScope(input.claims.runtimePolicyScope);
-    const nearEd25519SigningKeyId = toOptionalTrimmedString(input.claims.nearEd25519SigningKeyId);
-    if (!claimSigningRoot?.signingRootId || !claimSigningRoot.signingRootVersion || !nearEd25519SigningKeyId) {
+    if (!claimSigningRoot?.signingRootId || !claimSigningRoot.signingRootVersion) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Wallet Session is missing Ed25519 HSS binding facts',
+      };
+    }
+    let nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+    try {
+      nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(
+        input.claims.nearEd25519SigningKeyId,
+      );
+    } catch {
       return {
         ok: false,
         code: 'unauthorized',
@@ -4797,15 +4854,19 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const walletKeyId = toOptionalTrimmedString(rec.wallet_key_id);
-      if (!walletKeyId) {
-        return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
-      }
-      if (registrationAccountScope.value.walletKeyId !== walletKeyId) {
+      const requestNearEd25519SigningKeyId = parseNearEd25519SigningKeyIdField(
+        rec.wallet_key_id,
+        'wallet_key_id',
+      );
+      if (!requestNearEd25519SigningKeyId.ok) return requestNearEd25519SigningKeyId;
+      if (
+        registrationAccountScope.value.nearEd25519SigningKeyId !==
+        requestNearEd25519SigningKeyId.value
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.walletKeyId does not match wallet_key_id',
+          message: 'registrationAccountScope.nearEd25519SigningKeyId does not match wallet_key_id',
         };
       }
       const nearEd25519SigningKeyId = registrationAccountScope.value.nearEd25519SigningKeyId;
@@ -5041,15 +5102,19 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const walletKeyId = toOptionalTrimmedString(rec.wallet_key_id);
-      if (!walletKeyId) {
-        return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
-      }
-      if (registrationAccountScope.value.walletKeyId !== walletKeyId) {
+      const requestNearEd25519SigningKeyId = parseNearEd25519SigningKeyIdField(
+        rec.wallet_key_id,
+        'wallet_key_id',
+      );
+      if (!requestNearEd25519SigningKeyId.ok) return requestNearEd25519SigningKeyId;
+      if (
+        registrationAccountScope.value.nearEd25519SigningKeyId !==
+        requestNearEd25519SigningKeyId.value
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.walletKeyId does not match wallet_key_id',
+          message: 'registrationAccountScope.nearEd25519SigningKeyId does not match wallet_key_id',
         };
       }
       const nearEd25519SigningKeyId = registrationAccountScope.value.nearEd25519SigningKeyId;
@@ -5261,15 +5326,21 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const walletKeyId = toOptionalTrimmedString(rec.wallet_key_id);
-      if (!walletKeyId) {
-        return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
-      }
-      if (registrationAccountScope.value.walletKeyId !== walletKeyId) {
+      const requestNearEd25519SigningKeyId = parseNearEd25519SigningKeyIdField(
+        rec.wallet_key_id,
+        'wallet_key_id',
+      );
+      if (!requestNearEd25519SigningKeyId.ok) return requestNearEd25519SigningKeyId;
+      const rpId = parseWebAuthnRpIdField(rec.rpId, 'rpId');
+      if (!rpId.ok) return rpId;
+      if (
+        registrationAccountScope.value.nearEd25519SigningKeyId !==
+        requestNearEd25519SigningKeyId.value
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.walletKeyId does not match wallet_key_id',
+          message: 'registrationAccountScope.nearEd25519SigningKeyId does not match wallet_key_id',
         };
       }
       const nearEd25519SigningKeyId = registrationAccountScope.value.nearEd25519SigningKeyId;
@@ -5350,7 +5421,7 @@ export class ThresholdSigningService {
           walletId: registrationAccountScope.value.walletId,
           nearAccountId: resolvedNearAccountId.value,
           nearEd25519SigningKeyId,
-          rpId: registrationAccountScope.value.walletKeyId,
+          rpId: rpId.value,
           publicKey: registrationMaterial.publicKey,
           relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
           relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,

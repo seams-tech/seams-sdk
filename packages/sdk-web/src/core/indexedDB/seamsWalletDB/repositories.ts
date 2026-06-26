@@ -1,4 +1,5 @@
 import { toTrimmedString } from '@shared/utils/validation';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
@@ -218,6 +219,12 @@ const DEFAULT_NONCE_LANE_LOCK_WAIT_TIMEOUT_MS = 3_000;
 const DEFAULT_NONCE_LANE_LOCK_POLL_MS = 25;
 const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState';
 const DEFAULT_WALLET_RP_ID = 'local';
+
+function requireWebAuthnRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 const CHAIN_ACCOUNT_PROJECTION_SIGNER_SLOT = 0;
 
 export class SeamsWalletDBConstraintError extends Error {
@@ -642,7 +649,7 @@ function passkeyBindingFromAuthenticator(
     status: 'active',
     localStatus: 'synced',
     walletId: walletIdFromString(normalized.profileId),
-    rpId: DEFAULT_WALLET_RP_ID,
+    rpId: requireWebAuthnRpId(DEFAULT_WALLET_RP_ID),
     credentialIdB64u: normalized.credentialId,
     credentialPublicKeyB64u,
     counter: 0,

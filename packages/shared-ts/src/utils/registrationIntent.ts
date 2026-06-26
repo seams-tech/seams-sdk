@@ -6,12 +6,13 @@ import type {
   OrgId,
   ProviderSubject,
   WalletId,
+  WebAuthnRpId,
 } from './domainIds';
 import { parseWalletId } from './domainIds';
 import { base64UrlEncode } from './encoders';
 import type { ImplicitNearAccountId, NamedNearAccountId } from './near';
 
-export type { WalletId } from './domainIds';
+export type { WalletId, WebAuthnRpId } from './domainIds';
 export type { ImplicitNearAccountId, NamedNearAccountId, NearAccountId } from './near';
 
 export type RegistrationIntentGrant = string & {
@@ -117,7 +118,7 @@ export type RegistrationAuthority =
   | {
       kind: 'passkey';
       walletId: WalletId;
-      rpId: string;
+      rpId: WebAuthnRpId;
       credentialIdB64u: string;
       credentialPublicKeyB64u: string;
       counter: number;
@@ -232,7 +233,7 @@ export type WalletAuthMethodRecord =
       kind: 'passkey';
       status: 'active' | 'revoked';
       walletId: WalletId;
-      rpId: string;
+      rpId: WebAuthnRpId;
       credentialIdB64u: string;
       credentialPublicKeyB64u: string;
       counter: number;
@@ -461,6 +462,19 @@ export function nearEd25519SigningKeyIdFromString(value: string): NearEd25519Sig
   return normalized as NearEd25519SigningKeyId;
 }
 
+export function parseNearEd25519SigningKeyId(value: unknown): NearEd25519SigningKeyId {
+  if (typeof value !== 'string') {
+    throw new Error('nearEd25519SigningKeyId must be a string');
+  }
+  return nearEd25519SigningKeyIdFromString(value);
+}
+
+export function formatNearEd25519SigningKeyIdForWire(
+  value: NearEd25519SigningKeyId,
+): string {
+  return value;
+}
+
 export function nearEd25519SigningKeyIdFromWalletId(walletId: WalletId): NearEd25519SigningKeyId {
   return nearEd25519SigningKeyIdFromString(String(walletId));
 }
@@ -468,7 +482,7 @@ export function nearEd25519SigningKeyIdFromWalletId(walletId: WalletId): NearEd2
 export type GeneratedImplicitNearEd25519SigningKeyDigestInput = {
   kind: 'generated_implicit_near_ed25519_signing_key_v1';
   walletId: GeneratedImplicitWalletId;
-  rpId: string;
+  rpId: WebAuthnRpId;
   signingRootId: string;
   signingRootVersion: string;
   signerSlot: number;
@@ -499,7 +513,7 @@ export async function computeGeneratedImplicitNearEd25519SigningKeyId(
 
 export async function computeRegistrationNearEd25519SigningKeyId(input: {
   walletId: WalletId;
-  rpId: string;
+  rpId: WebAuthnRpId;
   signingRootId: string;
   signingRootVersion: string;
   ed25519: ThresholdEd25519RegistrationSpec;

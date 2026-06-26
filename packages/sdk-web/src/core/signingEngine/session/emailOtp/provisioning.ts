@@ -10,7 +10,7 @@ import { runThresholdEd25519HssCeremonyWithMaterialHandle } from '@/core/signing
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import { ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 } from '@shared/utils/signingSessionSeal';
+import { ROUTER_AB_ED25519_WALLET_SESSION_PATH } from '@shared/utils/signingSessionSeal';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier } from '@/core/types/signer-worker';
@@ -262,7 +262,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     remainingUses: input.remainingUses,
   });
   const minted = await postJsonExpectOk({
-    url: joinUrlPath(relayerUrl, ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2),
+    url: joinUrlPath(relayerUrl, ROUTER_AB_ED25519_WALLET_SESSION_PATH),
     headers: { Authorization: `Bearer ${routeAuthJwt}` },
     credentials: 'include',
     operation: 'Email OTP threshold-ed25519 session reconstruction mint',

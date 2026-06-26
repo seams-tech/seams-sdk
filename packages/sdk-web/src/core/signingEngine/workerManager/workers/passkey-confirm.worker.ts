@@ -24,7 +24,7 @@ import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { WALLET_SESSION_SEAL_BASE_PATH_V2 } from '@shared/utils/signingSessionSeal';
+import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
 import {
   joinNormalizedUrl,
   normalizeNonNegativeInteger,
@@ -115,7 +115,7 @@ const signingSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | E
 const signingSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
 const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS Client Signer');
-const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH_V2;
+const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH;
 type NearSeedExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
   { chain: 'near'; artifactKind: 'near-ed25519-seed-v1' }

@@ -1,14 +1,14 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import {
-  ROUTER_AB_ED25519_HEALTH_PATH_V2,
-  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+  ROUTER_AB_ED25519_HEALTH_PATH,
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
+  ROUTER_AB_ED25519_HSS_PREPARE_PATH,
+  ROUTER_AB_ED25519_HSS_RESPOND_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
+  ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import { resolveThresholdScheme } from '../../relay';
@@ -173,8 +173,8 @@ export function registerThresholdEd25519Routes(
 
   // Threshold Ed25519 (2-party) routes (scaffolding).
   // These routes establish the relayer as a co-signer and will eventually run a 2-round FROST flow.
-  router.get(ROUTER_AB_ED25519_HEALTH_PATH_V2, async (req: Request, res: Response) => {
-    await handle(ctx, req, res, ROUTER_AB_ED25519_HEALTH_PATH_V2, {}, async () => {
+  router.get(ROUTER_AB_ED25519_HEALTH_PATH, async (req: Request, res: Response) => {
+    await handle(ctx, req, res, ROUTER_AB_ED25519_HEALTH_PATH, {}, async () => {
       const resolved = resolveThresholdScheme(
         ctx.opts.threshold,
         THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
@@ -189,14 +189,14 @@ export function registerThresholdEd25519Routes(
     });
   });
 
-  router.post(ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_WALLET_SESSION_PATH, async (req: Request, res: Response) => {
     const parsedBody = parseThresholdEd25519SessionRouteRequest(req.body);
     const body = parsedBody.ok ? parsedBody.request : null;
     await handle(
       ctx,
       req,
       res,
-      ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+      ROUTER_AB_ED25519_WALLET_SESSION_PATH,
       {
         relayerKeyId: body?.relayerKeyId,
         sessionPolicy: body?.sessionPolicy ? { version: body.sessionPolicy.version } : undefined,
@@ -389,13 +389,13 @@ export function registerThresholdEd25519Routes(
   });
 
   router.post(
-    ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+    ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
     async (req: Request, res: Response) => {
       await handleRouterAbEd25519NormalSigningRoute(
         ctx,
         req,
         res,
-        ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+        ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
         ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         'prepare',
       );
@@ -403,31 +403,31 @@ export function registerThresholdEd25519Routes(
   );
 
   router.post(
-    ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
+    ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
     async (req: Request, res: Response) => {
       await handleRouterAbEd25519NormalSigningRoute(
         ctx,
         req,
         res,
-        ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
+        ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
         ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.presignPoolPrepare,
         'presign-pool-prepare',
       );
     },
   );
 
-  router.post(ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_NORMAL_SIGNING_PATH, async (req: Request, res: Response) => {
     await handleRouterAbEd25519NormalSigningRoute(
       ctx,
       req,
       res,
-      ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+      ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
       ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
       'finalize',
     );
   });
 
-  router.post(ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_HSS_PREPARE_PATH, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
     const parsedBody = parseThresholdEd25519HssPrepareWithSessionRouteRequest(bodyUnknown);
@@ -435,7 +435,7 @@ export function registerThresholdEd25519Routes(
       ctx,
       req,
       res,
-      ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
+      ROUTER_AB_ED25519_HSS_PREPARE_PATH,
       {
         relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
         keyPurpose:
@@ -474,7 +474,7 @@ export function registerThresholdEd25519Routes(
     );
   });
 
-  router.post(ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_HSS_FINALIZE_PATH, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
     const parsedBody = parseThresholdEd25519HssFinalizeWithSessionRouteRequest(bodyUnknown);
@@ -482,7 +482,7 @@ export function registerThresholdEd25519Routes(
       ctx,
       req,
       res,
-      ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
+      ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
       {
         relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
         keyPurpose:
@@ -521,7 +521,7 @@ export function registerThresholdEd25519Routes(
     );
   });
 
-  router.post(ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_HSS_RESPOND_PATH, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
     const parsedBody = parseThresholdEd25519HssRespondWithSessionRouteRequest(bodyUnknown);
@@ -529,7 +529,7 @@ export function registerThresholdEd25519Routes(
       ctx,
       req,
       res,
-      ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
+      ROUTER_AB_ED25519_HSS_RESPOND_PATH,
       {
         ceremonyHandle: typeof body.ceremonyHandle === 'string' ? body.ceremonyHandle : undefined,
       },

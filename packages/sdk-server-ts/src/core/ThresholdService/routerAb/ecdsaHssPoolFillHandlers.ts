@@ -2,8 +2,8 @@ import type { NormalizedLogger } from '../../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
   parseRouterAbEcdsaHssNormalSigningScopeV1,
   type RouterAbEcdsaHssNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaHss';
@@ -913,7 +913,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     let response: Response;
     try {
       response = await fetch(
-        `${input.ownerRelayerUrl}${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1}`,
+        `${input.ownerRelayerUrl}${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH}`,
         {
           method: 'POST',
           headers,
@@ -1369,7 +1369,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           return {
             ok: false,
             code: 'stale_session_state',
-            message: `Router A/B ECDSA-HSS pool-fill owner forwarding limit exceeded; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1}`,
+            message: `Router A/B ECDSA-HSS pool-fill owner forwarding limit exceeded; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
           };
         }
 
@@ -1386,7 +1386,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           return {
             ok: false,
             code: 'stale_session_state',
-            message: `Router A/B ECDSA-HSS pool-fill owner unavailable on this coordinator; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1}`,
+            message: `Router A/B ECDSA-HSS pool-fill owner unavailable on this coordinator; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
           };
         }
         if (!authorizationHeader && !cookieHeader) {
@@ -1400,7 +1400,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           return {
             ok: false,
             code: 'stale_session_state',
-            message: `Router A/B ECDSA-HSS pool-fill owner forwarding missing session auth; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1}`,
+            message: `Router A/B ECDSA-HSS pool-fill owner forwarding missing session auth; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
           };
         }
 
@@ -1436,7 +1436,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         return {
           ok: false,
           code: 'stale_session_state',
-          message: `Router A/B ECDSA-HSS pool-fill owner forward failed; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1}`,
+          message: `Router A/B ECDSA-HSS pool-fill owner forward failed; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
         };
       }
 
@@ -1475,7 +1475,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         return {
           ok: false,
           code: 'stale_session_state',
-          message: `Router A/B ECDSA-HSS pool-fill live session unavailable; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1}`,
+          message: `Router A/B ECDSA-HSS pool-fill live session unavailable; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
         };
       }
       perf.presign_live_cache_hit = 1;

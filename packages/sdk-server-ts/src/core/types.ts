@@ -29,11 +29,13 @@ import type {
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
+  NearEd25519SigningKeyId,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
   WalletAuthMethodTarget,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   CreateHostedSigningRootShareResolverInput,
   SigningRootShareDecryptAdapter,
@@ -88,11 +90,10 @@ export type ThresholdEd25519RegistrationAccountScope =
   | {
       kind: 'generated_implicit_registration_scope';
       walletId: string;
-      walletKeyId: string;
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
-      nearEd25519SigningKeyId: string;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       signerSlot: number;
       keyPurpose: string;
       keyVersion: string;
@@ -104,11 +105,10 @@ export type ThresholdEd25519RegistrationAccountScope =
   | {
       kind: 'sponsored_named_registration_scope';
       walletId: string;
-      walletKeyId: string;
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
-      nearEd25519SigningKeyId: string;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       signerSlot: number;
       keyPurpose: string;
       keyVersion: string;
@@ -120,11 +120,10 @@ export type ThresholdEd25519RegistrationAccountScope =
   | {
       kind: 'known_account_registration_scope';
       walletId: string;
-      walletKeyId: string;
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
-      nearEd25519SigningKeyId: string;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       signerSlot: number;
       keyPurpose: string;
       keyVersion: string;
@@ -209,7 +208,7 @@ export interface ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest {
 
 export interface ThresholdEd25519HssRoleSeparatedRespondForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  wallet_key_id: string;
+  wallet_key_id: NearEd25519SigningKeyId;
   ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
@@ -1036,7 +1035,7 @@ export interface ThresholdEd25519HssPrepareWithSessionRequest {
 
 export interface ThresholdEd25519HssPrepareForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  wallet_key_id: string;
+  wallet_key_id: NearEd25519SigningKeyId;
   context: ThresholdEd25519HssCanonicalContext;
 }
 
@@ -1047,7 +1046,7 @@ export interface ThresholdEd25519HssRespondWithSessionRequest {
 
 export interface ThresholdEd25519HssRespondForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  wallet_key_id: string;
+  wallet_key_id: NearEd25519SigningKeyId;
   ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
@@ -1139,7 +1138,8 @@ export type ThresholdEd25519HssFinalizeAccountResolution =
 
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  wallet_key_id: string;
+  wallet_key_id: NearEd25519SigningKeyId;
+  rpId: WebAuthnRpId;
   ceremonyHandle: string;
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
   accountResolution: ThresholdEd25519HssFinalizeAccountResolution;

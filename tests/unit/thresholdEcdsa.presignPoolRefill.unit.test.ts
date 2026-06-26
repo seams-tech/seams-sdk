@@ -16,8 +16,8 @@ import {
   signRouterAbEcdsaHssDigestWithPool,
 } from '@/core/signingEngine/routerAb/ecdsaHss/presignaturePool';
 import {
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
   routerAbEcdsaHssContextBindingB64uV1,
   routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
   routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
@@ -227,7 +227,7 @@ function installThresholdEcdsaFetchMock(args?: {
       });
     }
 
-    if (path.endsWith(ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1)) {
+    if (path.endsWith(ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH)) {
       counters.presignInit += 1;
       counters.presignInitPaths.push(path);
       counters.presignInitBodies.push(JSON.parse(String(init?.body || '{}')));
@@ -261,7 +261,7 @@ function installThresholdEcdsaFetchMock(args?: {
       );
     }
 
-    if (path.endsWith(ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1)) {
+    if (path.endsWith(ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH)) {
       counters.presignStep += 1;
       counters.presignStepPaths.push(path);
       return new Response(
@@ -280,7 +280,7 @@ function installThresholdEcdsaFetchMock(args?: {
       );
     }
 
-    if (path.endsWith('/v1/hss/ecdsa/sign/prepare')) {
+    if (path.endsWith('/router-ab/ecdsa-hss/sign/prepare')) {
       counters.routerPrepare += 1;
       const body = JSON.parse(String(init?.body || '{}')) as RouterAbEcdsaHssEvmDigestSigningRequestV1Wire;
       return new Response(
@@ -310,7 +310,7 @@ function installThresholdEcdsaFetchMock(args?: {
       );
     }
 
-    if (path.endsWith('/v1/hss/ecdsa/sign')) {
+    if (path.endsWith('/router-ab/ecdsa-hss/sign')) {
       counters.routerFinalize += 1;
       const body = JSON.parse(
         String(init?.body || '{}'),
@@ -513,10 +513,10 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
       expect(refill.ok).toBe(true);
       expect(fetchMock.counters.presignInitBodies).toHaveLength(1);
       expect(fetchMock.counters.presignInitPaths).toEqual([
-        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
       ]);
       expect(fetchMock.counters.presignStepPaths).toEqual([
-        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
       ]);
       expect(fetchMock.counters.presignInitBodies[0]).toMatchObject({
         keyHandle: ECDSA_KEY_HANDLE,
@@ -632,10 +632,10 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
       expect(fetchMock.counters.presignInit).toBe(1);
       expect(fetchMock.counters.presignStep).toBe(1);
       expect(fetchMock.counters.presignInitPaths).toEqual([
-        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
       ]);
       expect(fetchMock.counters.presignStepPaths).toEqual([
-        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
       ]);
       expect(fetchMock.counters.routerPrepare).toBe(1);
       expect(fetchMock.counters.routerFinalize).toBe(1);

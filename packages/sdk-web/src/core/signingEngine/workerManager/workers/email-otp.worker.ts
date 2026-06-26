@@ -41,7 +41,7 @@ import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationInt
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   EMAIL_OTP_HKDF_SALTS,
-  WALLET_SESSION_SEAL_BASE_PATH_V2,
+  WALLET_SESSION_SEAL_BASE_PATH,
   emailOtpEd25519RestoreInfoFields,
   emailOtpSigningSessionRestoreRootInfoFields,
   emailOtpThresholdEd25519HssInfoFields,
@@ -402,7 +402,7 @@ const signingSessionSealRemoveInFlight = new Map<
   string,
   Promise<EmailOtpEcdsaWarmSessionRehydrateResult>
 >();
-const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH_V2;
+const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH;
 
 function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
   sealedSecretB64u: string;

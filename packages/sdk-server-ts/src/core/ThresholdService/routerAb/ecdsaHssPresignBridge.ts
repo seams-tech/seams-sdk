@@ -11,8 +11,8 @@ import {
 import { postRouterAbInternalServiceJson } from './internalServiceHttp';
 export { ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1 } from './internalServiceHttp';
 
-export const CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1 =
-  '/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH =
+  '/router-ab/signing-worker/ecdsa-hss/presignature-pool/put' as const;
 
 export type RouterAbEcdsaHssPresignaturePoolFillInput = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
@@ -84,7 +84,7 @@ export type RouterAbEcdsaHssPresignaturePoolFillHttpResult =
 function privatePoolFillUrl(signingWorkerBaseUrl: string): string {
   const base = signingWorkerBaseUrl.trim().replace(/\/+$/, '');
   if (!base) throw new Error('signingWorkerBaseUrl is required');
-  return `${base}${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1}`;
+  return `${base}${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH}`;
 }
 
 function errorMessage(error: unknown): string {

@@ -25,42 +25,21 @@ function listRepoSourceFiles(relativePath: string): string[] {
   });
 }
 
-const currentRouterAbV1RouteLiterals = [
-  '/v1/hss/ecdsa/register',
-  '/v1/hss/ecdsa/export',
-  '/v1/hss/ecdsa/recover',
-  '/v1/hss/ecdsa/refresh',
-  '/v1/hss/ecdsa/healthz',
-  '/v1/hss/ecdsa/key-identities',
-  '/v1/hss/ecdsa/bootstrap',
-  '/v1/hss/ecdsa/export/share',
-  '/v1/hss/ecdsa/sign/prepare',
-  '/v1/hss/ecdsa/sign',
-  '/router-ab/v1/signing-worker/sign/prepare',
-  '/router-ab/v1/signing-worker/sign/presign-pool/prepare',
-  '/router-ab/v1/signing-worker/sign/presign-pool',
-  '/router-ab/v1/signing-worker/sign',
-  '/router-ab/v1/signing-worker/ecdsa-hss/sign/prepare',
-  '/router-ab/v1/signing-worker/ecdsa-hss/sign',
-  '/v1/hss/ecdsa/presignature-pool/fill/init',
-  '/v1/hss/ecdsa/presignature-pool/fill/step',
-  '/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put',
-] as const;
-
-function extractRouterAbV1RouteLiterals(source: string): string[] {
+function extractLegacyRouterAbRouteLiterals(source: string): string[] {
   const routes: string[] = [];
-  const literalPattern = /(['"`])([^'"`]*(?:\/v1\/hss|\/router-ab\/v1)[^'"`]*)\1/g;
+  const literalPattern =
+    /(['"`])([^'"`]*(?:\/v1\/hss|\/router-ab\/v1|\/router-ab\/do\/v1|\/session\/signing-budget)[^'"`]*)\1/g;
   let match: RegExpExecArray | null;
   while ((match = literalPattern.exec(source))) {
     const literal = match[2] || '';
     const hssIndex = literal.indexOf('/v1/hss');
     const privateIndex = literal.indexOf('/router-ab/v1');
+    const durableObjectIndex = literal.indexOf('/router-ab/do/v1');
+    const walletBudgetIndex = literal.indexOf('/session/signing-budget');
     const pathStart =
-      hssIndex >= 0 && privateIndex >= 0
-        ? Math.min(hssIndex, privateIndex)
-        : hssIndex >= 0
-          ? hssIndex
-          : privateIndex;
+      [hssIndex, privateIndex, durableObjectIndex, walletBudgetIndex]
+        .filter((index) => index >= 0)
+        .sort((a, b) => a - b)[0] ?? -1;
     if (pathStart < 0) continue;
     const route = literal.slice(pathStart).split(/\s/)[0];
     if (route) routes.push(route);
@@ -132,11 +111,11 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     const routerOriginBlock = routerOriginMatch?.[0] || '';
     const forbiddenMarkers = [
       '@router_ab_public_signing',
-      '/v2/router-ab/ed25519/sign',
-      '/v1/hss/ecdsa/sign',
+      '/router-ab/ed25519/sign',
+      '/router-ab/ecdsa-hss/sign',
       'handle @router_ab',
-      'handle_path /v2/router-ab',
-      'handle_path /v1/hss/ecdsa',
+      'handle_path /router-ab',
+      'handle_path /router-ab/ecdsa-hss',
     ] as const;
     const offenders = forbiddenMarkers.filter((marker) => routerOriginBlock.includes(marker));
     const proxyCount = [...routerOriginBlock.matchAll(/\breverse_proxy\b/g)].length;
@@ -204,7 +183,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(singleQuotedFieldValues(staleWorkerRolesSource, 'role')).toEqual(['router']);
     expect(source).toContain('const routerServerPort = 9090;');
     expect(source).toContain('const routerServerPublicPort = 9444;');
-    expect(source).toContain("spawn('pnpm', ['run', 'server']");
+    expect(source).toContain("spawn('pnpm', ['run', 'router:server']");
     expect(source).toContain("spawn('pnpm', ['run', 'caddy']");
     expect(source).toContain('const panes = [routerServerPane, ...workerPanes];');
     expect([...source.matchAll(/role: 'router-server'/g)]).toHaveLength(1);
@@ -277,8 +256,8 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(sources[0].source).toContain('buildRelayerJsonPostRequestInit');
     expect(relayerHttpSource).toContain("credentials: 'omit'");
     expect(relayerHttpSource).toContain('Authorization: `Bearer');
-    expect(sources[0].source).toContain("path: '/v2/router-ab/ed25519/sign/prepare'");
-    expect(sources[0].source).toContain("path: '/v2/router-ab/ed25519/sign'");
+    expect(sources[0].source).toContain("path: '/router-ab/ed25519/sign/prepare'");
+    expect(sources[0].source).toContain("path: '/router-ab/ed25519/sign'");
     expect(sources[0].source).not.toContain("'/v1/hss/sign/prepare'");
     expect(sources[0].source).not.toContain("'/v1/hss/sign'");
     expect(sources[1].source).not.toContain('walletSessionCredentialFromWalletSessionState');
@@ -472,16 +451,16 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       'record.clientVerifyingShareB64u',
     ] as const) {
       if (statusReaderSource.includes(marker)) {
-        offenders.push(`warmCapabilities/statusReader.ts reads raw Ed25519 material field ${marker}`);
+        offenders.push(
+          `warmCapabilities/statusReader.ts reads raw Ed25519 material field ${marker}`,
+        );
       }
     }
 
     expect(offenders, offenders.join('\n')).toEqual([]);
     expect(statusReaderSource).toContain('classifyRouterAbEd25519PersistedSigningRecord(record)');
     expect(
-      readRepoSource(
-        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
-      ),
+      readRepoSource('packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts'),
     ).toContain('resolveEcdsaSigningMaterialPlan');
   });
 
@@ -662,9 +641,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     if (!authPlanSource.includes('classifyRouterAbEd25519PersistedSigningRecord(record)')) {
       offenders.push('Ed25519 material auth plan does not classify records');
     }
-    if (
-      !preConfirmReadinessSource.includes('requireOrRestoreRouterAbEd25519WalletSessionState')
-    ) {
+    if (!preConfirmReadinessSource.includes('requireOrRestoreRouterAbEd25519WalletSessionState')) {
       offenders.push('Ed25519 pre-confirm readiness does not use shared material restore');
     }
     if (authPlanSource.includes('ed25519WorkerMaterialHandle')) {
@@ -1072,7 +1049,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-  test('Router A/B v1 route literals stay confined to current protocol contracts', () => {
+  test('Router A/B legacy route literals are rejected from active source', () => {
     const scannedPaths = [
       ...listRepoSourceFiles('packages/shared-ts/src'),
       ...listRepoSourceFiles('packages/sdk-web/src/core/rpcClients/relayer'),
@@ -1083,12 +1060,11 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     ].filter(
       (relativePath) => relativePath !== 'tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts',
     );
-    const allowed = new Set<string>(currentRouterAbV1RouteLiterals);
     const offenders = scannedPaths.flatMap((relativePath) => {
       const source = readRepoSource(relativePath);
-      return extractRouterAbV1RouteLiterals(source)
-        .filter((route) => !allowed.has(route))
-        .map((route) => `${relativePath} contains unclassified Router A/B v1 route ${route}`);
+      return extractLegacyRouterAbRouteLiterals(source).map(
+        (route) => `${relativePath} contains legacy Router A/B route ${route}`,
+      );
     });
 
     expect(offenders, offenders.join('\n')).toEqual([]);
@@ -1115,8 +1091,12 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     );
 
     expect(forwardThenCommitHelper).toContain('await postRouterAbSigningWorkerJson({');
-    expect(forwardThenCommitHelper).toContain('await input.threshold.releaseRouterAbNormalSigningBudget({');
-    expect(forwardThenCommitHelper).toContain('input.threshold.commitRouterAbNormalSigningBudget(input.budget)');
+    expect(forwardThenCommitHelper).toContain(
+      'await input.threshold.releaseRouterAbNormalSigningBudget({',
+    );
+    expect(forwardThenCommitHelper).toContain(
+      'input.threshold.commitRouterAbNormalSigningBudget(input.budget)',
+    );
 
     expect(ed25519Core).toContain("if (input.phase === 'prepare')");
     expect(ed25519Core).toContain('threshold.reserveRouterAbNormalSigningBudget({');
@@ -1180,9 +1160,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     );
     expect(constructorSource).not.toContain('touchConfirm?.consumeWarmSessionUses');
     expect(constructorSource).not.toContain('consumeEmailOtpWarmSessionUses');
-    expect(constructorSource).not.toContain(
-      'markThresholdEd25519EmailOtpSessionConsumedForWallet',
-    );
+    expect(constructorSource).not.toContain('markThresholdEd25519EmailOtpSessionConsumedForWallet');
     expect(source).not.toContain('hasSigningGrantConsumeDeps(');
     expect(syncSource).toContain('this.readWalletBudgetStatus(args.budgetStatusCheck)');
     expect(syncSource).not.toContain('consumeSigningGrantUse(');

@@ -25,6 +25,13 @@ import {
   type RegistrationSignerSelection,
 } from '@shared/utils/registrationIntent';
 import { parseNamedNearAccountId } from '@shared/utils/near';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+
+function requireWebAuthnRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 class FakeDurableObjectStub {
   private readonly records = new Map<string, { value: unknown; expiresAtMs?: number }>();
@@ -174,7 +181,7 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
     authority: {
       kind: 'passkey',
       walletId: INTENT.walletId,
-      rpId: INTENT.rpId,
+      rpId: requireWebAuthnRpId(INTENT.rpId),
       credentialIdB64u: 'credential',
       credentialPublicKeyB64u: 'public-key',
       counter: 0,

@@ -144,8 +144,8 @@ export default {
 - GET `/session/state` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
 - POST `/session/revoke` — rotates app-session version and clears session cookie
 - GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials) + sealed-refresh capabilities payload
-- POST `/v2/wallet-session/seal/apply-server-seal` — optional signing-session sealed-refresh route
-- POST `/v2/wallet-session/seal/remove-server-seal` — optional signing-session sealed-refresh route
+- POST `/wallet-session/seal/apply-server-seal` — optional signing-session sealed-refresh route
+- POST `/wallet-session/seal/remove-server-seal` — optional signing-session sealed-refresh route
 
 ## Sessions
 

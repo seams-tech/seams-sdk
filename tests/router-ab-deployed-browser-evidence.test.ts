@@ -3,8 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const PREPARE_PATH = '/v2/router-ab/ed25519/sign/prepare';
-const FINALIZE_PATH = '/v2/router-ab/ed25519/sign';
+const PREPARE_PATH = '/router-ab/ed25519/sign/prepare';
+const FINALIZE_PATH = '/router-ab/ed25519/sign';
 const CORS_HEADER_NAMES = [
   'access-control-allow-origin',
   'access-control-allow-methods',

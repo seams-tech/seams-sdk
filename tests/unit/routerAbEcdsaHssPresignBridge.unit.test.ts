@@ -8,7 +8,7 @@ import {
 } from '@shared/utils/routerAbEcdsaHss';
 import {
   buildRouterAbEcdsaHssPresignaturePoolPutRequest,
-  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
+  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
   putRouterAbEcdsaHssPresignaturePoolFill,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
 } from '@server/core/ThresholdService/routerAb/ecdsaHssPresignBridge';
@@ -202,7 +202,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     expect(result.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(
-      `https://signing-worker.example/base${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1}`,
+      `https://signing-worker.example/base${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH}`,
     );
     expect(calls[0].init.method).toBe('POST');
     expect(calls[0].init.headers).toEqual({
@@ -253,7 +253,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       ok: false,
       code: 'network_error',
       message:
-        'pool-fill request to http://127.0.0.1:9093/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put failed: fetch failed',
+        'pool-fill request to http://127.0.0.1:9093/router-ab/signing-worker/ecdsa-hss/presignature-pool/put failed: fetch failed',
     });
   });
 

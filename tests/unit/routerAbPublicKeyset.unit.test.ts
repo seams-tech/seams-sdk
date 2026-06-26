@@ -97,7 +97,7 @@ test.describe('Router A/B public keyset boundary', () => {
       await expect(
         fetchRouterAbPublicKeysetV2({ relayerUrl: 'https://relay.example/' }),
       ).resolves.toEqual(keyset);
-      expect(requests).toEqual(['https://relay.example/v2/router-ab/keyset']);
+      expect(requests).toEqual(['https://relay.example/router-ab/keyset']);
     } finally {
       globalThis.fetch = originalFetch;
     }

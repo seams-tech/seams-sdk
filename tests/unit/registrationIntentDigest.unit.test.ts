@@ -16,6 +16,7 @@ import {
   type ThresholdEd25519RegistrationSpec,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseNamedNearAccountId } from '../../packages/shared-ts/src/utils/near';
+import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   computeAddSignerIntentDigest,
   computeRegistrationIntentDigest,
@@ -33,6 +34,12 @@ function namedProvisioning(accountId: string) {
   const parsed = parseNamedNearAccountId(accountId);
   if (!parsed.ok) throw new Error(parsed.message);
   return sponsoredNamedNearAccountProvisioning(parsed.value);
+}
+
+function webAuthnRpId(value: string) {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 const ed25519Spec: ThresholdEd25519RegistrationSpec = {
@@ -61,6 +68,7 @@ const baseIntent: RegistrationIntentV1 = {
   },
   nonceB64u: 'nonce',
 };
+const baseWebAuthnRpId = webAuthnRpId(baseIntent.rpId);
 
 const generatedImplicitWalletId = requireGeneratedImplicitWalletId('frost-vermillion-k7p9m2');
 
@@ -174,21 +182,21 @@ test.describe('registration intent digest canonicalization', () => {
   test('derives implicit NEAR Ed25519 signing key from pre-finalize registration scope', async () => {
     const keyScope = await computeRegistrationNearEd25519SigningKeyId({
       walletId: generatedImplicitWalletId,
-      rpId: baseIntent.rpId,
+      rpId: baseWebAuthnRpId,
       signingRootId: 'project_1:env_1',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
     });
     const sameKeyScope = await computeRegistrationNearEd25519SigningKeyId({
       walletId: generatedImplicitWalletId,
-      rpId: baseIntent.rpId,
+      rpId: baseWebAuthnRpId,
       signingRootId: 'project_1:env_1',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
     });
     const differentKeyScope = await computeRegistrationNearEd25519SigningKeyId({
       walletId: generatedImplicitWalletId,
-      rpId: baseIntent.rpId,
+      rpId: baseWebAuthnRpId,
       signingRootId: 'project_1:env_2',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
@@ -223,7 +231,7 @@ test.describe('registration intent digest canonicalization', () => {
     await expect(
       computeRegistrationNearEd25519SigningKeyId({
         walletId: baseIntent.walletId,
-        rpId: baseIntent.rpId,
+        rpId: baseWebAuthnRpId,
         signingRootId: 'project_1:env_1',
         signingRootVersion,
         ed25519: ed25519Spec,

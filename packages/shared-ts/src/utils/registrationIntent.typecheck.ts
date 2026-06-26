@@ -16,6 +16,7 @@ import {
   parseEmailOtpChallengeId,
   parseOrgId,
   parseProviderSubject,
+  parseWebAuthnRpId,
 } from './domainIds';
 import { parseNamedNearAccountId } from './near';
 
@@ -30,6 +31,7 @@ const emailOtpChallengeId = unwrapDomainId(parseEmailOtpChallengeId('challenge')
 const orgId = unwrapDomainId(parseOrgId('org_test'));
 const appSessionVersion = unwrapDomainId(parseAppSessionVersion('app-session-v1'));
 const namedNearAccountId = unwrapDomainId(parseNamedNearAccountId('alice.testnet'));
+const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 
 const passkeyAuthMethod = {
   kind: 'passkey',
@@ -224,7 +226,7 @@ void ({
   kind: 'passkey',
   status: 'active',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
+  rpId: webAuthnRpId,
   credentialIdB64u: 'credential',
   credentialPublicKeyB64u: 'public-key',
   counter: 0,
@@ -289,8 +291,8 @@ const emailOtpAuthMethodWithRpId = {
   registrationAuthorityId: 'challenge',
   createdAtMs: 1,
   updatedAtMs: 1,
-  rpId: 'wallet.example.test',
   // @ts-expect-error Email OTP auth-method records do not carry passkey RP scope.
+  rpId: 'wallet.example.test',
 } satisfies WalletAuthMethodRecord;
 void emailOtpAuthMethodWithRpId;
 

@@ -4,18 +4,18 @@ export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as c
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND =
   'router_ab_ed25519_normal_signing_v1' as const;
-export const ROUTER_AB_ED25519_HEALTH_PATH_V2 = '/v2/router-ab/ed25519/healthz' as const;
-export const ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 =
-  '/v2/router-ab/wallet-session/ed25519' as const;
-export const ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2 = '/v2/router-ab/ed25519/hss/prepare' as const;
-export const ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2 = '/v2/router-ab/ed25519/hss/respond' as const;
-export const ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2 = '/v2/router-ab/ed25519/hss/finalize' as const;
-export const ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2 =
-  '/v2/router-ab/ed25519/sign/prepare' as const;
-export const ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2 =
-  '/v2/router-ab/ed25519/sign/presign-pool/prepare' as const;
-export const ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2 = '/v2/router-ab/ed25519/sign' as const;
-export const WALLET_SESSION_SEAL_BASE_PATH_V2 = '/v2/wallet-session/seal' as const;
+export const ROUTER_AB_ED25519_HEALTH_PATH = '/router-ab/ed25519/healthz' as const;
+export const ROUTER_AB_ED25519_WALLET_SESSION_PATH =
+  '/router-ab/wallet-session/ed25519' as const;
+export const ROUTER_AB_ED25519_HSS_PREPARE_PATH = '/router-ab/ed25519/hss/prepare' as const;
+export const ROUTER_AB_ED25519_HSS_RESPOND_PATH = '/router-ab/ed25519/hss/respond' as const;
+export const ROUTER_AB_ED25519_HSS_FINALIZE_PATH = '/router-ab/ed25519/hss/finalize' as const;
+export const ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH =
+  '/router-ab/ed25519/sign/prepare' as const;
+export const ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH =
+  '/router-ab/ed25519/sign/presign-pool/prepare' as const;
+export const ROUTER_AB_ED25519_NORMAL_SIGNING_PATH = '/router-ab/ed25519/sign' as const;
+export const WALLET_SESSION_SEAL_BASE_PATH = '/wallet-session/seal' as const;
 
 export const PASSKEY_PRF_FIRST_SALT_V1 = new Uint8Array([
   0x40, 0x0c, 0x31, 0x8b, 0x66, 0x95, 0x97, 0x36, 0x59, 0xa1, 0x69, 0x8a, 0xe5, 0x80, 0xdf, 0xd8,

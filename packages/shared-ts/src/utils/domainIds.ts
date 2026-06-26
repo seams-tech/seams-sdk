@@ -44,6 +44,10 @@ export type OrgId = DomainId<'OrgId'>;
 // bind to it so old app sessions cannot consume new challenges.
 export type AppSessionVersion = DomainId<'AppSessionVersion'>;
 
+// WebAuthn relying-party id. This belongs to passkey/WebAuthn auth scope and
+// must not be used as a wallet, NEAR account, or signing-key identity.
+export type WebAuthnRpId = DomainId<'WebAuthnRpId'>;
+
 // Client signing grant id. This groups one local approval/session
 // budget and can cover multiple threshold-session ids.
 export type SigningGrantId = DomainId<'SigningGrantId'>;
@@ -184,6 +188,14 @@ export function parseOrgId(raw: unknown): DomainIdParseResult<OrgId> {
 
 export function parseAppSessionVersion(raw: unknown): DomainIdParseResult<AppSessionVersion> {
   return parseDomainId(raw, 'appSessionVersion');
+}
+
+export function parseWebAuthnRpId(raw: unknown): DomainIdParseResult<WebAuthnRpId> {
+  return parseDomainId(raw, 'rpId');
+}
+
+export function formatWebAuthnRpIdForWire(value: WebAuthnRpId): string {
+  return value;
 }
 
 export function parseSigningGrantId(

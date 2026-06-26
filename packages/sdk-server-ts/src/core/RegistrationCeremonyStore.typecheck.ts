@@ -7,6 +7,7 @@ import {
   type AddAuthMethodIntentV1,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   ConsumedAddAuthMethodIntent,
   ConsumedRegistrationIntent,
@@ -39,6 +40,13 @@ import type {
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
+function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid type fixture domain id');
+  return result.value;
+}
+
+const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
+
 const intent = {
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
@@ -61,7 +69,7 @@ const intent = {
 const passkeyAuthority = {
   kind: 'passkey',
   walletId: intent.walletId,
-  rpId: intent.rpId,
+  rpId: webAuthnRpId,
   credentialIdB64u: 'credential',
   credentialPublicKeyB64u: 'public-key',
   counter: 0,
@@ -536,7 +544,7 @@ void ({
   authority: {
     kind: 'passkey',
     walletId: intent.walletId,
-    rpId: intent.rpId,
+    rpId: webAuthnRpId,
     credentialIdB64u: 'credential',
   },
 } satisfies StoredWalletAddAuthMethodCeremony);

@@ -768,10 +768,7 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
       record.budget_reservation_id,
       'budget_reservation_id',
     ),
-    budget_operation_id: requireNonEmptyString(
-      record.budget_operation_id,
-      'budget_operation_id',
-    ),
+    budget_operation_id: requireNonEmptyString(record.budget_operation_id, 'budget_operation_id'),
     budget_status: parseBudgetStatus(record.budget_status, 'budget_status'),
     signing_payload_digest: parseDigest32(record.signing_payload_digest, 'signing_payload_digest'),
     round1_binding_digest: parseDigest32(record.round1_binding_digest, 'round1_binding_digest'),
@@ -901,9 +898,7 @@ function requirePresignPoolResponseMatchesRequest(args: {
   const rejectedIds = new Set<string>();
   args.response.rejected_client_presign_ids.forEach((clientPresignId, index) => {
     if (!offeredIds.has(clientPresignId)) {
-      throw new Error(
-        `rejected_client_presign_ids[${index}] is not in request.client_offers`,
-      );
+      throw new Error(`rejected_client_presign_ids[${index}] is not in request.client_offers`);
     }
     if (acceptedIds.has(clientPresignId)) {
       throw new Error(`rejected_client_presign_ids[${index}] was already accepted`);
@@ -958,7 +953,8 @@ function parseRouterAbSigningErrorPayload(bodyText: string): RouterAbSigningErro
   if (!bodyText.trim()) return null;
   try {
     const parsed = JSON.parse(bodyText) as unknown;
-    const record = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    const record =
+      parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
     if (!record) return null;
     const code = String(record.code || '').trim();
     const message = String(record.message || '').trim();
@@ -981,11 +977,7 @@ function routerAbSigningBudgetErrorPrefix(code: string): string | null {
   }
 }
 
-function routerAbSigningHttpError(args: {
-  path: string;
-  status: number;
-  bodyText: string;
-}): Error {
+function routerAbSigningHttpError(args: { path: string; status: number; bodyText: string }): Error {
   const payload = parseRouterAbSigningErrorPayload(args.bodyText);
   const budgetPrefix = payload ? routerAbSigningBudgetErrorPrefix(payload.code) : null;
   if (payload && budgetPrefix) {
@@ -1004,11 +996,11 @@ function routerAbSigningHttpError(args: {
 async function postRouterAbNormalSigningJson<T>(args: {
   relayServerUrl: string;
   path:
-    | '/v2/router-ab/ed25519/sign/prepare'
-    | '/v2/router-ab/ed25519/sign/presign-pool/prepare'
-    | '/v2/router-ab/ed25519/sign'
-    | '/v1/hss/ecdsa/sign/prepare'
-    | '/v1/hss/ecdsa/sign';
+    | '/router-ab/ed25519/sign/prepare'
+    | '/router-ab/ed25519/sign/presign-pool/prepare'
+    | '/router-ab/ed25519/sign'
+    | '/router-ab/ecdsa-hss/sign/prepare'
+    | '/router-ab/ecdsa-hss/sign';
   credential: RouterAbWalletSessionCredential;
   body: unknown;
   parse: (value: unknown) => T | Promise<T>;
@@ -1016,7 +1008,9 @@ async function postRouterAbNormalSigningJson<T>(args: {
   if (typeof fetch !== 'function') {
     throw new Error('fetch is not available for Router A/B normal-signing request');
   }
-  const base = normalizeRelayerBaseUrl(requireNonEmptyString(args.relayServerUrl, 'relayServerUrl'));
+  const base = normalizeRelayerBaseUrl(
+    requireNonEmptyString(args.relayServerUrl, 'relayServerUrl'),
+  );
   const response = await fetch(
     `${base}${args.path}`,
     buildRouterAbRequestInit({ credential: args.credential, body: args.body }),
@@ -1039,7 +1033,7 @@ export async function prepareRouterAbNormalSigningV2(args: {
 }): Promise<RouterAbNormalSigningPrepareResponseV1Wire> {
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/v2/router-ab/ed25519/sign/prepare',
+    path: '/router-ab/ed25519/sign/prepare',
     credential: args.credential,
     body: args.request,
     parse: parsePrepareResponse,
@@ -1054,7 +1048,7 @@ export async function prepareRouterAbEcdsaHssEvmDigestSigningV1(args: {
   await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(args.request);
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/v1/hss/ecdsa/sign/prepare',
+    path: '/router-ab/ecdsa-hss/sign/prepare',
     credential: args.credential,
     body: args.request,
     parse: (value) =>
@@ -1069,7 +1063,7 @@ export async function prepareRouterAbNormalSigningPresignPoolV2(args: {
 }): Promise<RouterAbEd25519PresignPoolPrepareResponseV2Wire> {
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/v2/router-ab/ed25519/sign/presign-pool/prepare',
+    path: '/router-ab/ed25519/sign/presign-pool/prepare',
     credential: args.credential,
     body: args.request,
     parse: (value) => parsePresignPoolPrepareResponseForRequest(args.request, value),
@@ -1083,7 +1077,7 @@ export async function finalizeRouterAbNormalSigningV2(args: {
 }): Promise<RouterAbNormalSigningResponseV1Wire> {
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/v2/router-ab/ed25519/sign',
+    path: '/router-ab/ed25519/sign',
     credential: args.credential,
     body: args.request,
     parse: parseNormalSigningResponse,
@@ -1101,7 +1095,7 @@ export async function finalizeRouterAbEcdsaHssEvmDigestSigningV1(args: {
   await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(coreRequest);
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/v1/hss/ecdsa/sign',
+    path: '/router-ab/ecdsa-hss/sign',
     credential: args.credential,
     body: args.request,
     parse: (value) =>
@@ -1116,7 +1110,7 @@ export async function finalizeRouterAbNormalSigningPresignPoolHitV2(args: {
 }): Promise<RouterAbNormalSigningResponseV1Wire> {
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/v2/router-ab/ed25519/sign',
+    path: '/router-ab/ed25519/sign',
     credential: args.credential,
     body: args.request,
     parse: parseNormalSigningResponse,

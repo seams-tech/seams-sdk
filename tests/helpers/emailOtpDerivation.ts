@@ -4,7 +4,7 @@ export const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1 = 'seams/email-otp/root/v1';
 export const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1 =
   'seams/email-otp/threshold-client-share/v1';
 export const EMAIL_OTP_UNLOCK_AUTH_SALT_V1 = 'seams/email-otp/unlock-auth/v1';
-export const EMAIL_OTP_ECDSA_DERIVATION_PATH_V1 = 'evm-signing';
+export const EMAIL_OTP_ECDSA_DERIVATION_PATH = 'evm-signing';
 
 const HKDF_SHA256_LENGTH = 32;
 const textEncoder = new TextEncoder();
@@ -214,7 +214,7 @@ export async function deriveEmailOtpEcdsaClientRootShare32FromSecret32(args: {
   });
   const info = encodeEmailOtpTuple([
     String(args.userId || '').trim(),
-    String(args.derivationPath || EMAIL_OTP_ECDSA_DERIVATION_PATH_V1).trim(),
+    String(args.derivationPath || EMAIL_OTP_ECDSA_DERIVATION_PATH).trim(),
   ]);
   try {
     return await hkdfSha256({

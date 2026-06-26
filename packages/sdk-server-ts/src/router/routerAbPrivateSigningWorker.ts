@@ -44,36 +44,36 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 const ED25519_SIGNING_PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
 
-const PRIVATE_ED25519_SIGNING_PREPARE_PATH_V1 = '/router-ab/v1/signing-worker/sign/prepare';
-const PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1 =
-  '/router-ab/v1/signing-worker/sign/presign-pool/prepare';
-const PRIVATE_ED25519_SIGNING_PRESIGN_POOL_FINALIZE_PATH_V1 =
-  '/router-ab/v1/signing-worker/sign/presign-pool';
-const PRIVATE_ED25519_SIGNING_FINALIZE_PATH_V1 = '/router-ab/v1/signing-worker/sign';
-const PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH_V1 =
-  '/router-ab/v1/signing-worker/ecdsa-hss/sign/prepare';
-const PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH_V1 = '/router-ab/v1/signing-worker/ecdsa-hss/sign';
+const PRIVATE_ED25519_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/sign/prepare';
+const PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH =
+  '/router-ab/signing-worker/sign/presign-pool/prepare';
+const PRIVATE_ED25519_SIGNING_PRESIGN_POOL_FINALIZE_PATH =
+  '/router-ab/signing-worker/sign/presign-pool';
+const PRIVATE_ED25519_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/sign';
+const PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH =
+  '/router-ab/signing-worker/ecdsa-hss/sign/prepare';
+const PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/ecdsa-hss/sign';
 
 export type RouterAbEd25519PrivateSigningPath =
-  | typeof PRIVATE_ED25519_SIGNING_PREPARE_PATH_V1
-  | typeof PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1
-  | typeof PRIVATE_ED25519_SIGNING_PRESIGN_POOL_FINALIZE_PATH_V1
-  | typeof PRIVATE_ED25519_SIGNING_FINALIZE_PATH_V1;
+  | typeof PRIVATE_ED25519_SIGNING_PREPARE_PATH
+  | typeof PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH
+  | typeof PRIVATE_ED25519_SIGNING_PRESIGN_POOL_FINALIZE_PATH
+  | typeof PRIVATE_ED25519_SIGNING_FINALIZE_PATH;
 
 export const ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS = {
-  prepare: PRIVATE_ED25519_SIGNING_PREPARE_PATH_V1,
-  presignPoolPrepare: PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1,
-  presignPoolFinalize: PRIVATE_ED25519_SIGNING_PRESIGN_POOL_FINALIZE_PATH_V1,
-  finalize: PRIVATE_ED25519_SIGNING_FINALIZE_PATH_V1,
+  prepare: PRIVATE_ED25519_SIGNING_PREPARE_PATH,
+  presignPoolPrepare: PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH,
+  presignPoolFinalize: PRIVATE_ED25519_SIGNING_PRESIGN_POOL_FINALIZE_PATH,
+  finalize: PRIVATE_ED25519_SIGNING_FINALIZE_PATH,
 } as const;
 
 export type RouterAbEcdsaHssPrivateSigningPath =
-  | typeof PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH_V1
-  | typeof PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH_V1;
+  | typeof PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH
+  | typeof PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH;
 
 export const ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS = {
-  prepare: PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH_V1,
-  finalize: PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH_V1,
+  prepare: PRIVATE_ECDSA_HSS_SIGNING_PREPARE_PATH,
+  finalize: PRIVATE_ECDSA_HSS_SIGNING_FINALIZE_PATH,
 } as const;
 
 export type RouterAbSigningWorkerJsonResult =
@@ -349,8 +349,7 @@ function signingPayloadDigestFromWire(value: unknown): string {
 
 const ED25519_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ed25519_budget_request_digest_v1';
 const ECDSA_HSS_BUDGET_OPERATION_ID_VERSION_V1 = 'router_ab_ecdsa_hss_budget_operation_id_v1';
-const ECDSA_HSS_BUDGET_REQUEST_DIGEST_VERSION_V1 =
-  'router_ab_ecdsa_hss_budget_request_digest_v1';
+const ECDSA_HSS_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ecdsa_hss_budget_request_digest_v1';
 
 async function ed25519SigningPayloadDigestB64u(value: unknown): Promise<string> {
   const payload = isPlainObject(value) ? value : null;
@@ -725,14 +724,9 @@ export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody(input: {
       }),
     };
   }
-  const publicRequest = parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(
-    input.body,
-  );
-  const request = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
-    publicRequest,
-  );
-  const requestDigest =
-    await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(request);
+  const publicRequest = parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
+  const request = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(publicRequest);
+  const requestDigest = await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(request);
   return {
     request,
     trusted_admission: ecdsaHssTrustedAdmission({

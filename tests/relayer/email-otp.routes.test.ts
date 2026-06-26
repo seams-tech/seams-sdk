@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { signSecp256k1Recoverable } from '@server/core/ThresholdService/ethSignerWasm';
+import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import {
   createInMemoryConsoleWebhookService,
   createRelayRouter,
@@ -244,11 +245,12 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
       wallet_key_id: args.walletKeyId,
+      wallet_id: args.walletId,
+      ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
+      signing_root_id: 'email-otp-signing-root-1',
+      signing_root_version: DEFAULT_RUNTIME_POLICY_SCOPE.signingRootVersion,
       context: {
-        wallet_id: args.walletId,
-        ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
-        signing_root_id: 'email-otp-signing-root-1',
-        signing_root_version: DEFAULT_RUNTIME_POLICY_SCOPE.signingRootVersion,
+        application_binding_digest_b64u: b64u(Array.from({ length: 32 }, () => 7)),
       },
       public_identity: {
         context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
@@ -331,7 +333,7 @@ function makeSigningSessionStatusPolicy(args?: {
     walletKeyId,
     participantIds,
   });
-  const makeWalletBudgetStatus = (id: string, recordRelayerKeyId: string) => ({
+  const makeWalletBudgetStatus = () => ({
     kind: 'wallet_budget' as const,
     curve: 'ecdsa' as const,
     thresholdSessionId: sessionId,
@@ -339,14 +341,14 @@ function makeSigningSessionStatusPolicy(args?: {
     userId,
     expiresAtMs,
     remainingUses: 7,
-    relayerKeyId: recordRelayerKeyId,
+    relayerKeyId: 'wallet-signing-budget',
     walletKeyId,
     participantIds,
   });
-  const walletBudgetId = `wallet-signing:${signingGrantId}`;
+  const walletBudgetId = walletSigningBudgetSessionId({ curve: 'ecdsa', signingGrantId });
   const statusById: Record<string, any | null> = {
     [sessionId]: makeThresholdStatus(sessionId, relayerKeyId),
-    [walletBudgetId]: makeWalletBudgetStatus(walletBudgetId, relayerKeyId),
+    [walletBudgetId]: makeWalletBudgetStatus(),
     ...(args?.statusById || {}),
   };
   return {
@@ -386,8 +388,12 @@ function makeSigningSessionStatusPolicy(args?: {
       signingGrantId: string;
       thresholdSessionId: string;
     }) => {
-      args?.onStatusRead?.(`wallet-signing:${requestedSigningGrantId}`);
-      const walletStatus = statusById[`wallet-signing:${requestedSigningGrantId}`] || null;
+      const walletBudgetId = walletSigningBudgetSessionId({
+        curve: 'ecdsa',
+        signingGrantId: requestedSigningGrantId,
+      });
+      args?.onStatusRead?.(walletBudgetId);
+      const walletStatus = statusById[walletBudgetId] || null;
       return walletStatus?.kind === 'wallet_budget' ? walletStatus : null;
     },
     consumeUseCount: async ({
@@ -1251,7 +1257,7 @@ test.describe('Email OTP routes', () => {
         challengeId,
       });
       expect(statusReads).toContain('ecdsa-session-1');
-      expect(statusReads).toContain('wallet-signing:signing-grant-1');
+      expect(statusReads).toContain('wallet-signing:ecdsa:signing-grant-1');
       expect(consumeUseCountCalls).toEqual([]);
     } finally {
       await srv.close();
@@ -1443,7 +1449,10 @@ test.describe('Email OTP routes', () => {
             }))?.[0] as any),
             remainingUses: 0,
           },
-          'wallet-signing:exhausted-signing-grant': {
+          [walletSigningBudgetSessionId({
+            curve: 'ecdsa',
+            signingGrantId: 'exhausted-signing-grant',
+          })]: {
             ...(await exhaustedSessionStatus.getWalletBudgetStatus?.({
               curve: 'ecdsa',
               signingGrantId: 'exhausted-signing-grant',

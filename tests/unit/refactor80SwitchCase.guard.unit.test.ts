@@ -442,13 +442,13 @@ test('Refactor 80 threshold ECDSA key-identity route parses body at the boundary
   );
   const expressRoute = sourceRange(
     expressSource,
-    'router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1',
-    '  router.post(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1',
+    'router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH',
+    '  router.post(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH',
   );
   const cloudflareRoute = sourceRange(
     cloudflareSource,
-    'if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1)',
-    '  if (pathname === ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1)',
+    'if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH)',
+    '  if (pathname === ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH)',
   );
 
   expect(parserSource).toContain('export function parseRouterAbEcdsaHssKeyIdentitiesRequest');
@@ -579,11 +579,11 @@ test('Refactor 80 threshold and session exchange routes parse commands before se
   const expressPoolFill = sourceRange(
     expressEcdsa,
     'async function handleRouterAbEcdsaHssPoolFillInitRoute',
-    '  router.post(\n    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1',
+    '  router.post(\n    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH',
   );
   const cloudflarePoolFill = sourceRange(
     cloudflareEcdsa,
-    'if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1)',
+    'if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH)',
     '  return null;',
   );
   for (const source of [expressPoolFill, cloudflarePoolFill]) {

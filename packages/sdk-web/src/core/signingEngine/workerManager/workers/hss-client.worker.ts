@@ -870,7 +870,7 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
 
   try {
     const startedAt = nowMs();
-    assertNoPrfSecretsInSignerPayload(eventData);
+    assertNoPrfSecretsInSignerPayload(eventData, requestType);
     const response = await handleHssClientMessage(eventData);
     const completedAt = nowMs();
     self.postMessage({
@@ -966,12 +966,8 @@ self.onunhandledrejection = (event) => {
   event.preventDefault();
 };
 
-function assertNoPrfSecretsInSignerPayload(data: unknown): void {
-  const payload =
-    data && typeof data === 'object' ? (data as { payload?: unknown }).payload : undefined;
-  if (!payload || typeof payload !== 'object') return;
-  const payloadRecord = payload as Record<string, unknown>;
-  const forbiddenKeys = [
+function forbiddenSecretFieldsForHssWorkerRequest(requestType: number): string[] {
+  const fields = [
     'prfOutput',
     'prf_output',
     'prfFirst',
@@ -987,7 +983,20 @@ function assertNoPrfSecretsInSignerPayload(data: unknown): void {
     secretB64uField('seed'),
     secretB64uField('signingShare32'),
   ];
-  for (const key of forbiddenKeys) {
+  switch (requestType) {
+    case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:
+      return fields.filter((field) => field !== secretB64uField('prfFirst'));
+    default:
+      return fields;
+  }
+}
+
+function assertNoPrfSecretsInSignerPayload(data: unknown, requestType: number): void {
+  const payload =
+    data && typeof data === 'object' ? (data as { payload?: unknown }).payload : undefined;
+  if (!payload || typeof payload !== 'object') return;
+  const payloadRecord = payload as Record<string, unknown>;
+  for (const key of forbiddenSecretFieldsForHssWorkerRequest(requestType)) {
     if (payloadRecord[key] !== undefined) {
       throw new Error(`Forbidden secret field in signer payload: ${key}`);
     }

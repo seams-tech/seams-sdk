@@ -269,7 +269,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(url), init: init || {} });
-      if (String(url).endsWith('/v1/hss/ecdsa/sign/prepare')) {
+      if (String(url).endsWith('/router-ab/ecdsa-hss/sign/prepare')) {
         return new Response(JSON.stringify(preparedResponse), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -301,8 +301,8 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     }
 
     expect(calls.map((call) => call.url)).toEqual([
-      'https://router.example/base/v1/hss/ecdsa/sign/prepare',
-      'https://router.example/base/v1/hss/ecdsa/sign',
+      'https://router.example/base/router-ab/ecdsa-hss/sign/prepare',
+      'https://router.example/base/router-ab/ecdsa-hss/sign',
     ]);
     expect(calls[0].init.credentials).toBe('omit');
     expect(calls[0].init.headers).toEqual({

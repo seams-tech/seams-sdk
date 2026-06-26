@@ -18,7 +18,7 @@ import {
  * Wallet-origin helper:
  * - build a threshold session policy (and digest)
  * - collect a WebAuthn assertion with challenge = `sessionPolicyDigest32`
- * - mint a Wallet Session JWT via `POST /v2/router-ab/wallet-session/ed25519`
+ * - mint a Wallet Session JWT via `POST /router-ab/wallet-session/ed25519`
  *
  * Notes:
  * - This function is intentionally standard-WebAuthn (no contract verifier).

@@ -1,4 +1,10 @@
-import { parseWalletId, type WalletId } from './domainIds';
+import {
+  formatWebAuthnRpIdForWire,
+  parseWalletId,
+  parseWebAuthnRpId,
+  type WalletId,
+  type WebAuthnRpId,
+} from './domainIds';
 import {
   parseImplicitNearAccountId,
   parseNamedNearAccountId,
@@ -10,9 +16,8 @@ import {
   type NearEd25519SigningKeyId,
 } from './registrationIntent';
 
-export type RpId = string & {
-  readonly __rpIdBrand: 'RpId';
-};
+export type { WebAuthnRpId };
+export type RpId = WebAuthnRpId;
 
 export type WalletIdentity = {
   readonly walletId: WalletId;
@@ -119,9 +124,13 @@ function missingObject(typeName: string): WalletCapabilityBindingParseResult<nev
 }
 
 export function parseRpId(raw: unknown): WalletCapabilityBindingParseResult<RpId> {
-  const parsed = parseStringField(raw, 'rpId');
-  if (!parsed.ok) return parsed;
-  return { ok: true, value: parsed.value as RpId };
+  const parsed = parseWebAuthnRpId(raw);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  return { ok: true, value: parsed.value };
+}
+
+export function formatRpIdForWire(value: RpId): string {
+  return formatWebAuthnRpIdForWire(value);
 }
 
 export function walletIdentityFromRaw(

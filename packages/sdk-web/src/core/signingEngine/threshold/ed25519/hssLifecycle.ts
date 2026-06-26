@@ -7,9 +7,9 @@ import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/cred
 import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
-  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
+  ROUTER_AB_ED25519_HSS_PREPARE_PATH,
+  ROUTER_AB_ED25519_HSS_RESPOND_PATH,
 } from '@shared/utils/signingSessionSeal';
 import {
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm,
@@ -46,7 +46,7 @@ import {
   parseSdkEcdsaHssSigningRootId,
   parseSdkEcdsaHssSigningRootVersion,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import { nearEd25519SigningKeyIdFromString, type NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 
 export type ThresholdEd25519LifecycleDeps = {
   signingKeyOps: Pick<
@@ -249,7 +249,7 @@ function jsonBytes(value: unknown): number {
 }
 
 type ThresholdEd25519HssBindingFactsInput = {
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId | string;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signingRootId: string;
   signingRootVersion: string;
 };
@@ -258,7 +258,7 @@ function normalizeThresholdEd25519HssBindingFacts(
   input: ThresholdEd25519HssBindingFactsInput,
 ): SdkEd25519HssBindingFacts {
   return {
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(String(input.nearEd25519SigningKeyId || '')),
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
     signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
   };
@@ -662,7 +662,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
     });
 
     const fetchStartedAt = Date.now();
-    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2}`, {
+    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_PREPARE_PATH}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -778,7 +778,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
     });
 
     const fetchStartedAt = Date.now();
-    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2}`, {
+    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_RESPOND_PATH}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -877,7 +877,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
     };
 
     const fetchStartedAt = Date.now();
-    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2}`, {
+    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_FINALIZE_PATH}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

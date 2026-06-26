@@ -32,6 +32,11 @@ import {
   parseSigningSessionSealKeyVersion,
   parseSigningSessionSealShamirPrimeB64u,
 } from './keyMaterialBrands';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseNearEd25519SigningKeyId,
+  type NearEd25519SigningKeyId,
+} from '@shared/utils/registrationIntent';
 
 const ed25519 = parseEd25519HssKeyVersion('threshold-ed25519-hss-v1');
 const ecdsa = parseEcdsaHssKeyVersion('ecdsa-hss-material-test-v1');
@@ -43,6 +48,10 @@ const ecdsaRelayerKeyId = parseEcdsaRelayerKeyId('ecdsa-relayer-key-id');
 const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId('ecdsa-threshold-key-id');
 const ecdsaKeyHandle = parseEcdsaKeyHandle('ecdsa-key-handle');
 const shamirPrime = parseSigningSessionSealShamirPrimeB64u('signing-session-shamir-prime');
+const webAuthnRpIdResult = parseWebAuthnRpId('wallet.example.test');
+if (!webAuthnRpIdResult.ok) throw new Error(webAuthnRpIdResult.error.message);
+const webAuthnRpId = webAuthnRpIdResult.value;
+const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId('ed25519ks_fixture');
 
 function acceptsEd25519(value: Ed25519HssKeyVersion) {
   return formatEd25519HssKeyVersionForWire(value);
@@ -84,6 +93,14 @@ function acceptsShamirPrime(value: SigningSessionSealShamirPrimeB64u) {
   return formatSigningSessionSealShamirPrimeB64uForWire(value);
 }
 
+function acceptsWebAuthnRpId(value: WebAuthnRpId) {
+  return value;
+}
+
+function acceptsNearEd25519SigningKeyId(value: NearEd25519SigningKeyId) {
+  return value;
+}
+
 acceptsEd25519(ed25519);
 acceptsEcdsa(ecdsa);
 acceptsSeal(seal);
@@ -94,6 +111,8 @@ acceptsEcdsaRelayerKeyId(ecdsaRelayerKeyId);
 acceptsEcdsaThresholdKeyId(ecdsaThresholdKeyId);
 acceptsEcdsaKeyHandle(ecdsaKeyHandle);
 acceptsShamirPrime(shamirPrime);
+acceptsWebAuthnRpId(webAuthnRpId);
+acceptsNearEd25519SigningKeyId(nearEd25519SigningKeyId);
 
 // @ts-expect-error Ed25519 HSS key versions cannot be used as seal KEK versions.
 acceptsSeal(ed25519);
@@ -118,3 +137,9 @@ acceptsEcdsaThresholdKeyId(ecdsaKeyHandle);
 
 // @ts-expect-error raw strings must be parsed at a boundary before core use.
 acceptsEcdsaRelayerKeyId('ecdsa-relayer-key-id');
+
+// @ts-expect-error NEAR Ed25519 signing-key ids are not WebAuthn RP ids.
+acceptsWebAuthnRpId(nearEd25519SigningKeyId);
+
+// @ts-expect-error WebAuthn RP ids are not NEAR Ed25519 signing-key ids.
+acceptsNearEd25519SigningKeyId(webAuthnRpId);

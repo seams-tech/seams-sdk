@@ -6,8 +6,8 @@ import {
   type AppOrWalletSessionAuth,
 } from '@shared/utils/sessionTokens';
 import {
-  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
   parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
   type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
@@ -612,7 +612,7 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
           }
         : bodyBase;
     const response = await fetch(
-      `${base}${ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1}`,
+      `${base}${ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH}`,
       buildRelayRequestInit({
         auth: args.auth,
         publishableKeyAuth:
@@ -696,7 +696,7 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
       clientSessionId: requireNonEmptyString(args.clientSessionId, 'clientSessionId'),
     };
     const response = await fetch(
-      `${base}${ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1}`,
+      `${base}${ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH}`,
       buildRelayRequestInit({
         auth: args.auth,
         body,

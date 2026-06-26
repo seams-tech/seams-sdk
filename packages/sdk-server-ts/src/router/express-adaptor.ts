@@ -29,9 +29,9 @@ export type {
 } from './relay';
 export {
   parseRouterAbPublicKeysetV2,
-  ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
+  ROUTER_AB_PUBLIC_KEYSET_PATH,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
-  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
+  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
 } from '@shared/utils/routerAbPublicKeyset';
 export type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 export type {

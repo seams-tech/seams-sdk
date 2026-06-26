@@ -1071,7 +1071,7 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
 export async function handleSigningBudgetStatus(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/session/signing-budget/status') return null;
+  if (ctx.method !== 'POST' || ctx.pathname !== '/router-ab/wallet-budget/status') return null;
   try {
     const { signingGrantId: expectedSigningGrantId, thresholdSessionId } =
       parseWalletSigningBudgetStatusExpectations(await readJson(ctx.request));

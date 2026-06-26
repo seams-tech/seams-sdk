@@ -57,11 +57,12 @@ function makeThresholdSessionClaims(input?: { userId?: string; signingGrantId?: 
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
         wallet_key_id: FRONTEND_ORIGIN.replace('https://', ''),
+        wallet_id: userId,
+        ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
+        signing_root_id: 'signing-root-1',
+        signing_root_version: 'v1',
         context: {
-          wallet_id: userId,
-          ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
-          signing_root_id: 'signing-root-1',
-          signing_root_version: 'v1',
+          application_binding_digest_b64u: b64u(Array.from({ length: 32 }, () => 7)),
         },
         public_identity: {
           context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
@@ -130,7 +131,7 @@ function makePolicy(
   const walletBudgetStatus = {
     kind: 'wallet_budget' as const,
     curve: 'ecdsa' as const,
-    thresholdSessionId: `wallet-signing:${signingGrantId}`,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId,
     userId: sessionUserId,
     expiresAtMs,
@@ -212,7 +213,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -244,7 +245,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -292,12 +293,12 @@ test.describe('signing-session seal routes', () => {
     const srv = await startExpressRouter(router);
     try {
       const [applyA, applyB] = await Promise.all([
-        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+        fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
         }),
-        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+        fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
@@ -312,12 +313,12 @@ test.describe('signing-session seal routes', () => {
       expect(applyCalls).toBe(1);
 
       const [removeA, removeB] = await Promise.all([
-        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+        fetchJson(`${srv.baseUrl}/wallet-session/seal/remove-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
         }),
-        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+        fetchJson(`${srv.baseUrl}/wallet-session/seal/remove-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
@@ -392,7 +393,7 @@ test.describe('signing-session seal routes', () => {
             : {
                 kind: 'wallet_budget',
                 curve: 'ecdsa',
-                thresholdSessionId: `wallet-signing:${signingGrantId}`,
+                thresholdSessionId: THRESHOLD_SESSION_ID,
                 signingGrantId,
                 userId: USER_ID,
                 expiresAtMs: Date.now() + 60_000,
@@ -448,7 +449,7 @@ test.describe('signing-session seal routes', () => {
         getWalletBudgetStatus: async () => ({
           kind: 'wallet_budget',
           curve: 'ecdsa',
-          thresholdSessionId: `wallet-signing:${signingGrantId}`,
+          thresholdSessionId: THRESHOLD_SESSION_ID,
           signingGrantId,
           userId: USER_ID,
           expiresAtMs: Date.now() + 60_000,
@@ -506,7 +507,7 @@ test.describe('signing-session seal routes', () => {
         getWalletBudgetStatus: async () => ({
           kind: 'wallet_budget',
           curve: 'ecdsa',
-          thresholdSessionId: `wallet-signing:${signingGrantId}`,
+          thresholdSessionId: THRESHOLD_SESSION_ID,
           signingGrantId,
           userId: USER_ID,
           expiresAtMs: Date.now() + 60_000,
@@ -689,7 +690,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -727,7 +728,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/remove-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -759,14 +760,14 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const first = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const first = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
       });
       expect(first.status).toBe(200);
 
-      const second = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const second = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -793,7 +794,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/remove-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -822,7 +823,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -860,7 +861,7 @@ test.describe('signing-session seal routes', () => {
 
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/v2/wallet-session/seal/remove-server-seal',
+      path: '/wallet-session/seal/remove-server-seal',
       origin: FRONTEND_ORIGIN,
       body: makeBody(),
     });
@@ -897,7 +898,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const applied = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const applied = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -912,7 +913,7 @@ test.describe('signing-session seal routes', () => {
       expect(applied.json?.keyVersion).toBe(keyVersion);
       expect(applied.json?.ciphertext).not.toBe(plaintextCiphertextB64u);
 
-      const removed = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+      const removed = await fetchJson(`${srv.baseUrl}/wallet-session/seal/remove-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -954,7 +955,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/remove-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -995,7 +996,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(

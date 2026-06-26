@@ -181,6 +181,7 @@ import {
   parseProviderSubject,
   parseVerifiedGoogleEmail,
   parseWalletId,
+  parseWebAuthnRpId,
   type AppSessionVersion,
   type ChallengeSubjectId,
   type EmailOtpChallengeId,
@@ -190,6 +191,7 @@ import {
   type ProviderSubject,
   type VerifiedGoogleEmail,
   type WalletId,
+  type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import {
   addAuthMethodIntentGrantFromString,
@@ -750,8 +752,18 @@ type ResolvedEd25519SignerBinding =
       nearEd25519SigningKeyId: WalletRegistrationNearEd25519SigningKeyId;
     };
 
-function knownAccountNearEd25519SigningKeyIdFromNearAccountId(nearAccountId: string): string {
-  return String(nearAccountId);
+function knownAccountNearEd25519SigningKeyIdFromNearAccountId(
+  nearAccountId: string,
+): NearEd25519SigningKeyId {
+  return nearEd25519SigningKeyIdFromString(nearAccountId);
+}
+
+function requireWebAuthnRpId(value: unknown, fieldName: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) {
+    throw new Error(`${fieldName}: ${parsed.error.message}`);
+  }
+  return parsed.value;
 }
 
 function knownAccountEd25519SignerBindingFromScope(input: {
@@ -889,9 +901,9 @@ function originHostnameOrEmpty(origin: string): string {
   }
 }
 
-function isHostWithinRpId(host: string, rpId: string): boolean {
+function isHostWithinRpId(host: string, rpId: WebAuthnRpId): boolean {
   const h = (host || '').toLowerCase();
-  const r = (rpId || '').toLowerCase();
+  const r = String(rpId).toLowerCase();
   if (!h || !r) return false;
   if (
     (process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1') &&
@@ -1213,7 +1225,7 @@ function thresholdEd25519RegistrationAccountScope(input: {
   intentDigestB64u: string;
   signingRootId: string;
   signingRootVersion: string;
-  nearEd25519SigningKeyId: string;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
   keyPurpose: string;
   keyVersion: string;
@@ -1221,14 +1233,12 @@ function thresholdEd25519RegistrationAccountScope(input: {
   participantIds: number[];
   accountProvisioning: RegistrationNearAccountProvisioning;
 }): ThresholdEd25519RegistrationAccountScope {
-  const nearEd25519SigningKeyId = String(input.nearEd25519SigningKeyId);
   const common = {
     walletId: String(input.walletId),
-    walletKeyId: nearEd25519SigningKeyId,
     intentDigestB64u: input.intentDigestB64u,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
-    nearEd25519SigningKeyId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     signerSlot: input.signerSlot,
     keyPurpose: input.keyPurpose,
     keyVersion: input.keyVersion,
@@ -1272,7 +1282,6 @@ function thresholdEd25519KnownAccountRegistrationScope(input: {
   return {
     kind: 'known_account_registration_scope',
     walletId: String(input.walletId),
-    walletKeyId: nearEd25519SigningKeyId,
     intentDigestB64u: input.intentDigestB64u,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
@@ -1328,9 +1337,10 @@ async function registrationIntentNearEd25519SigningKeyId(input: {
   if (input.intent.signerSelection.mode === 'ecdsa_only') {
     throw new Error('Ed25519 registration key scope requires an Ed25519 signer selection');
   }
+  const rpId = requireWebAuthnRpId(input.intent.rpId, 'registration Ed25519 signing-key rpId');
   return await computeRegistrationNearEd25519SigningKeyId({
     walletId: input.intent.walletId,
-    rpId: input.intent.rpId,
+    rpId,
     signingRootId: registrationIntentSigningRootId({
       signingRootId: input.signingRootId,
       intent: input.intent,
@@ -5738,7 +5748,7 @@ export class AuthService {
     webauthnRegistration: unknown;
     expectedChallenge: string;
     expectedOrigin: string;
-    rpId: string;
+    rpId: WebAuthnRpId;
   }): Promise<
     | {
         ok: true;
@@ -5837,11 +5847,12 @@ export class AuthService {
   > {
     switch (input.intent.authMethod.kind) {
       case 'passkey': {
+        const rpId = requireWebAuthnRpId(input.intent.rpId, 'registration authority rpId');
         const verified = await this.verifyRegistrationCredentialForIntent({
           webauthnRegistration: input.webauthnRegistration,
           expectedChallenge: input.registrationIntentDigestB64u,
           expectedOrigin: input.expectedOrigin,
-          rpId: input.intent.rpId,
+          rpId,
         });
         if (!verified.ok) return verified;
         return {
@@ -5849,7 +5860,7 @@ export class AuthService {
           authority: {
             kind: 'passkey',
             walletId: input.intent.walletId,
-            rpId: input.intent.rpId,
+            rpId,
             credentialIdB64u: verified.credential.credentialIdB64u,
             credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
             counter: verified.credential.counter,
@@ -6461,7 +6472,9 @@ export class AuthService {
       intentDigestB64u: input.scope.registrationIntentDigestB64u,
       signingRootId: input.scope.signingRootId,
       signingRootVersion: input.scope.signingRootVersion,
-      nearEd25519SigningKeyId: input.scope.nearEd25519SigningKeyId,
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+        input.scope.nearEd25519SigningKeyId,
+      ),
       signerSlot: input.scope.signerSlot,
       keyPurpose: input.scope.keyPurpose,
       keyVersion: input.scope.keyVersion,
@@ -6475,7 +6488,7 @@ export class AuthService {
       signingRootVersion: input.scope.signingRootVersion,
       request: {
         registrationAccountScope,
-        wallet_key_id: registrationAccountScope.walletKeyId,
+        wallet_key_id: registrationAccountScope.nearEd25519SigningKeyId,
         context: await thresholdEd25519HssContextFromRegistrationAccountScope(
           registrationAccountScope,
         ),
@@ -7350,7 +7363,7 @@ export class AuthService {
 
   private buildPasskeyWalletAuthMethodRecord(input: {
     walletId: WalletId;
-    rpId: string;
+    rpId: WebAuthnRpId;
     credentialIdB64u: string;
     credentialPublicKeyB64u: string;
     counter: number;
@@ -7442,6 +7455,7 @@ export class AuthService {
   ): RegistrationAuthorityPersistenceRecords {
     switch (input.authority.kind) {
       case 'passkey': {
+        const rpId = requireWebAuthnRpId(input.rpId, 'registration authority persistence rpId');
         const webAuthnAuthenticatorRecord: WebAuthnAuthenticatorRecord = {
           version: 'webauthn_authenticator_v1',
           credentialIdB64u: input.authority.credentialIdB64u,
@@ -7454,7 +7468,7 @@ export class AuthService {
           ? [
               {
                 version: 'webauthn_credential_binding_v1',
-                rpId: input.rpId,
+                rpId,
                 credentialIdB64u: input.authority.credentialIdB64u,
                 userId: input.walletId,
                 nearAccountId: input.ed25519.nearAccountId,
@@ -7481,7 +7495,7 @@ export class AuthService {
           walletAuthMethods: [
             this.buildPasskeyWalletAuthMethodRecord({
               walletId: input.walletId,
-              rpId: input.rpId,
+              rpId,
               credentialIdB64u: input.authority.credentialIdB64u,
               credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
               counter: input.authority.counter,
@@ -8310,6 +8324,7 @@ export class AuthService {
                 accountProvisioning: ed25519.accountProvisioning,
               }),
               wallet_key_id: nearEd25519SigningKeyId,
+              rpId: requireWebAuthnRpId(ceremony.intent.rpId, 'registration finalize rpId'),
               ceremonyHandle: combinedSignerState.ed25519.ceremonyHandle,
               evaluationResult: ed25519FinalizeRequest.evaluationResult,
               accountResolution: {
@@ -8779,25 +8794,26 @@ export class AuthService {
           orgId: ceremony.orgId,
           request: {
             registrationAccountScope: thresholdEd25519RegistrationAccountScope({
-            walletId: ceremony.intent.walletId,
-            intentDigestB64u: ceremony.digestB64u,
-            signingRootId: registrationIntentSigningRootId({
-              signingRootId: ceremony.signingRootId,
-              intent: ceremony.intent,
+              walletId: ceremony.intent.walletId,
+              intentDigestB64u: ceremony.digestB64u,
+              signingRootId: registrationIntentSigningRootId({
+                signingRootId: ceremony.signingRootId,
+                intent: ceremony.intent,
+              }),
+              signingRootVersion: registrationIntentSigningRootVersion({
+                signingRootVersion: ceremony.signingRootVersion,
+                intent: ceremony.intent,
+              }),
+              nearEd25519SigningKeyId,
+              signerSlot: ed25519.signerSlot,
+              keyPurpose: ed25519.keyPurpose,
+              keyVersion: ed25519.keyVersion,
+              derivationVersion: ed25519.derivationVersion,
+              participantIds: ed25519.participantIds,
+              accountProvisioning: ed25519.accountProvisioning,
             }),
-            signingRootVersion: registrationIntentSigningRootVersion({
-              signingRootVersion: ceremony.signingRootVersion,
-              intent: ceremony.intent,
-            }),
-            nearEd25519SigningKeyId,
-            signerSlot: ed25519.signerSlot,
-            keyPurpose: ed25519.keyPurpose,
-            keyVersion: ed25519.keyVersion,
-            derivationVersion: ed25519.derivationVersion,
-            participantIds: ed25519.participantIds,
-            accountProvisioning: ed25519.accountProvisioning,
-          }),
             wallet_key_id: nearEd25519SigningKeyId,
+            rpId: requireWebAuthnRpId(ceremony.intent.rpId, 'registration finalize rpId'),
             ceremonyHandle: ed25519SignerState.ceremonyHandle,
             evaluationResult: ed25519FinalizeRequest.evaluationResult,
             accountResolution: {
@@ -9261,7 +9277,7 @@ export class AuthService {
           ...(signingRootVersion ? { signingRootVersion } : {}),
           request: {
             registrationAccountScope,
-            wallet_key_id: registrationAccountScope.walletKeyId,
+            wallet_key_id: registrationAccountScope.nearEd25519SigningKeyId,
             context: await thresholdEd25519HssContextFromRegistrationAccountScope(
               registrationAccountScope,
             ),
@@ -9405,15 +9421,16 @@ export class AuthService {
   > {
     switch (input.authority.kind) {
       case 'passkey': {
+        const rpId = requireWebAuthnRpId(input.intent.rpId, 'add-auth-method authority rpId');
         const verified = await this.verifyRegistrationCredentialForIntent({
           webauthnRegistration: input.authority.webauthnRegistration,
           expectedChallenge: input.expectedDigestB64u,
           expectedOrigin: input.expectedOrigin,
-          rpId: input.intent.rpId,
+          rpId,
         });
         if (!verified.ok) return verified;
         const duplicateCredential = await input.walletAuthMethodStore.getPasskey({
-          rpId: input.intent.rpId,
+          rpId,
           credentialIdB64u: verified.credential.credentialIdB64u,
         });
         if (duplicateCredential) {
@@ -9428,7 +9445,7 @@ export class AuthService {
           authority: {
             kind: 'passkey',
             walletId: input.intent.walletId,
-            rpId: input.intent.rpId,
+            rpId,
             credentialIdB64u: verified.credential.credentialIdB64u,
             credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
             counter: verified.credential.counter,
@@ -10097,7 +10114,8 @@ export class AuthService {
         orgId: ceremony.orgId,
         request: {
           registrationAccountScope,
-          wallet_key_id: registrationAccountScope.walletKeyId,
+          wallet_key_id: registrationAccountScope.nearEd25519SigningKeyId,
+          rpId: requireWebAuthnRpId(ceremony.intent.rpId, 'add-signer finalize rpId'),
           ceremonyHandle: ceremony.signerState.ceremonyHandle,
           evaluationResult: request.ed25519.evaluationResult,
           accountResolution: {
@@ -10368,7 +10386,7 @@ export class AuthService {
    */
   async verifyWebAuthnAuthenticationLite(input: {
     userId: string;
-    rpId: string;
+    rpId: WebAuthnRpId;
     expectedChallenge: string;
     webauthn_authentication: WebAuthnAuthenticationCredential;
     expected_origin: string;
@@ -10377,7 +10395,7 @@ export class AuthService {
       await this._ensureSignerAndRelayerAccount();
 
       const userId = String(input.userId || '').trim();
-      const rpId = String(input.rpId || '').trim();
+      const rpId = input.rpId;
       const expectedChallenge = String(input.expectedChallenge || '').trim();
       const expectedOrigin = toOptionalTrimmedString(input.expected_origin);
       const cred = input.webauthn_authentication as any;
@@ -10389,8 +10407,6 @@ export class AuthService {
           code: 'invalid_body',
           message: 'Missing userId',
         };
-      if (!rpId)
-        return { success: false, verified: false, code: 'invalid_body', message: 'Missing rpId' };
       if (!expectedChallenge)
         return {
           success: false,
@@ -10798,7 +10814,7 @@ export class AuthService {
       }
       const verification = await this.verifyWebAuthnAuthenticationLite({
         userId: record.userId,
-        rpId: record.rpId,
+        rpId: requireWebAuthnRpId(record.rpId, 'login challenge rpId'),
         expectedChallenge: record.challengeB64u,
         webauthn_authentication: request?.webauthn_authentication as any,
         expected_origin: expectedOrigin,
@@ -15082,7 +15098,7 @@ export class AuthService {
       }
       const verification = await this.verifyWebAuthnAuthenticationLite({
         userId: binding.userId,
-        rpId: binding.rpId,
+        rpId: requireWebAuthnRpId(binding.rpId, 'sync credential binding rpId'),
         expectedChallenge: challenge.challengeB64u,
         webauthn_authentication: request?.webauthn_authentication as any,
         expected_origin: expectedOrigin,
@@ -15397,7 +15413,8 @@ export class AuthService {
         };
       }
       const originHost = originHostnameOrEmpty(clientData.origin);
-      if (!isHostWithinRpId(originHost, rpId)) {
+      const webAuthnRpId = requireWebAuthnRpId(rpId, 'email recovery registration rpId');
+      if (!isHostWithinRpId(originHost, webAuthnRpId)) {
         return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
       }
 
@@ -15423,7 +15440,7 @@ export class AuthService {
         response: cred,
         expectedChallenge,
         expectedOrigin: expectedOriginStrict,
-        expectedRPID: rpId,
+        expectedRPID: webAuthnRpId,
         requireUserVerification: false,
       });
       if (!registration?.verified) {

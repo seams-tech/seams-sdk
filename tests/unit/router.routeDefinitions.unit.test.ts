@@ -14,11 +14,11 @@ import {
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import {
-  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_HSS_HEALTH_PATH,
 } from '@shared/utils/routerAbEcdsaHss';
-import { WALLET_SESSION_SEAL_BASE_PATH_V2 } from '@shared/utils/signingSessionSeal';
+import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
 
 const THRESHOLD_CONTINUATION_ROUTE_IDS = [
   'threshold_ed25519_sign_init',
@@ -88,7 +88,7 @@ test.describe('route definition scaffolding', () => {
       enableSigningSessionSeal: true,
       enableReadyz: true,
       enableSponsoredEvmCall: true,
-      signingSessionSealBasePath: WALLET_SESSION_SEAL_BASE_PATH_V2,
+      signingSessionSealBasePath: WALLET_SESSION_SEAL_BASE_PATH,
       sessionStatePath: '/session/state',
       signedDelegatePath: '/signed-delegate',
       sponsoredEvmCallPath: '/sponsorships/evm/call',
@@ -166,9 +166,9 @@ test.describe('route definition scaffolding', () => {
     expect(sessionState?.aliases).toBeUndefined();
 
     const routePaths = routes.map((route) => route.path);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_HEALTH_PATH);
     expect(routePaths).not.toContain('/threshold-ed25519/session');
     expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/init');
     expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/finalize');
@@ -184,7 +184,7 @@ test.describe('route definition scaffolding', () => {
     expect(wellKnown?.aliases).toEqual(['/.well-known/webauthn/']);
 
     const prfApply = routes.find((route) => route.id === 'signing_session_seal_apply_server_seal');
-    expect(prfApply?.path).toBe(`${WALLET_SESSION_SEAL_BASE_PATH_V2}/apply-server-seal`);
+    expect(prfApply?.path).toBe(`${WALLET_SESSION_SEAL_BASE_PATH}/apply-server-seal`);
 
     const apiCredentialRoutes = routes.filter((route) => route.auth.plane === 'api_credentials');
     expect(apiCredentialRoutes.length).toBeGreaterThan(0);

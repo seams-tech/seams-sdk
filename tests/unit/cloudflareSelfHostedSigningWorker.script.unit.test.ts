@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
-import { ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
-import { ROUTER_AB_ED25519_HEALTH_PATH_V2 } from '../../packages/shared-ts/src/utils/signingSessionSeal';
+import { ROUTER_AB_ECDSA_HSS_HEALTH_PATH } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import { ROUTER_AB_ED25519_HEALTH_PATH } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
 import {
@@ -238,7 +238,7 @@ test('hosted and self-host Cloudflare routers preserve threshold health route pa
     logger: console,
   });
 
-  for (const path of [ROUTER_AB_ED25519_HEALTH_PATH_V2, ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1]) {
+  for (const path of [ROUTER_AB_ED25519_HEALTH_PATH, ROUTER_AB_ECDSA_HSS_HEALTH_PATH]) {
     const hostedResult = await responseSnapshot(
       await hosted(new Request(`https://hosted.example.test${path}`), {}, fakeCtx),
     );

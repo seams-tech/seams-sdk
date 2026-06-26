@@ -1,4 +1,21 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+function readRepoSource(relativePath: string): string {
+  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+}
+
+function sourceBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  expect(startIndex, `Missing source marker ${start}`).toBeGreaterThanOrEqual(0);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  expect(endIndex, `Missing source marker ${end}`).toBeGreaterThan(startIndex);
+  return source.slice(startIndex, endIndex);
+}
 
 test.describe('signer worker JS guards – PRF rejection', () => {
   test.beforeEach(async ({ page }) => {
@@ -114,4 +131,24 @@ test.describe('signer worker JS guards – PRF rejection', () => {
     const errorText = String((res as any)?.response?.error || combined);
     expect(errorText).toContain('Forbidden secret field');
   });
+});
+
+test('HSS client worker allows prfFirstB64u only for Ed25519 HSS client-input derivation', () => {
+  const source = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/workerManager/workers/hss-client.worker.ts',
+  );
+  const fieldPolicy = sourceBetween(
+    source,
+    'function forbiddenSecretFieldsForHssWorkerRequest',
+    'function assertNoPrfSecretsInSignerPayload',
+  );
+  const derivationCase = sourceBetween(
+    fieldPolicy,
+    'case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:',
+    'default:',
+  );
+
+  expect(derivationCase).toContain("field !== secretB64uField('prfFirst')");
+  expect(fieldPolicy).toContain("'prfOutput'");
+  expect(fieldPolicy).toContain("secretB64uField('prfFirst')");
 });

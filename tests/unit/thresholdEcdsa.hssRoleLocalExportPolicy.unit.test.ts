@@ -562,7 +562,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
 
   test('keeps Express export-share request log metadata on an explicit allowlist', () => {
     const source = readFileSync(EXPRESS_THRESHOLD_ECDSA_ROUTE_URL, 'utf8');
-    const routeStart = source.indexOf('ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1');
+    const routeStart = source.indexOf('ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH');
     expect(routeStart).toBeGreaterThan(-1);
     const routeLogMeta = source.slice(routeStart, source.indexOf('async () =>', routeStart));
     expect(routeLogMeta).toContain('walletId');

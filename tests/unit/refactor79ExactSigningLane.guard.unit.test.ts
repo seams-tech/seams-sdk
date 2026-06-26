@@ -406,12 +406,29 @@ test('Refactor 79 Ed25519 registration HSS scope keeps passkey rpId out of walle
     'function parseThresholdEd25519RegistrationAccountScope',
     'function thresholdEd25519RegistrationAccountScopesEqual',
   );
+  const finalizeRequestType = sourceRangeBetween(
+    serverTypes,
+    'export interface ThresholdEd25519HssFinalizeForRegistrationRequest',
+    'export type ThresholdEd25519HssFinalizeWithSessionResponse',
+  );
 
-  expect(scopeType).toContain('walletKeyId: string;');
+  expect(scopeType).toContain('nearEd25519SigningKeyId: NearEd25519SigningKeyId;');
+  expect(scopeType).not.toContain('walletKeyId: string;');
   expect(scopeType).not.toContain('rpId: string;');
-  expect(registrationScopeBuilder).toContain('walletKeyId: nearEd25519SigningKeyId');
-  expect(parser).toContain('const walletKeyId = toOptionalTrimmedString(raw.walletKeyId);');
-  expect(parser).toContain('registrationAccountScope.rpId is not valid for Ed25519 HSS');
+  expect(finalizeRequestType).toContain('wallet_key_id: NearEd25519SigningKeyId;');
+  expect(finalizeRequestType).toContain('rpId: WebAuthnRpId;');
+  expect(finalizeRequestType).not.toContain('rpId: string;');
+  expect(registrationScopeBuilder).toContain(
+    'nearEd25519SigningKeyId: input.nearEd25519SigningKeyId',
+  );
+  expect(registrationScopeBuilder).not.toContain('walletKeyId: nearEd25519SigningKeyId');
+  expect(parser).toContain('registrationAccountScope.walletKeyId is not valid for Ed25519 HSS');
+  expect(parser).toContain('parseNearEd25519SigningKeyIdField(');
+  expect(thresholdService).toContain('parseWebAuthnRpIdField(');
+  expect(thresholdService).toContain(
+    'registrationAccountScope.nearEd25519SigningKeyId does not match wallet_key_id',
+  );
+  expect(thresholdService).not.toContain('registrationAccountScope.value.walletKeyId');
 });
 
 test('Refactor 79 timestamp authority selectors stay explicitly inventoried', () => {
@@ -722,6 +739,7 @@ test('Refactor 79 ECDSA MPC sessions are native wallet-key records', () => {
   expect(serviceSource).not.toContain('toThresholdEcdsaMpcSessionRecord');
   expect(serviceSource).not.toContain('walletKeyId: record.rpId');
   expect(serviceSource).not.toContain('rpId: record.walletKeyId');
+  expect(serviceSource).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
 });
 
 test('Refactor 79 normalized server ECDSA records do not expose walletSessionUserId', () => {

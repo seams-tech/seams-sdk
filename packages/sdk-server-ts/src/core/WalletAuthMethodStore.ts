@@ -13,6 +13,7 @@ import {
   type PgQueryExecutor,
 } from '../storage/postgres';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   walletIdFromString,
   type WalletAuthMethodRecord as SharedWalletAuthMethodRecord,
@@ -87,10 +88,12 @@ export function normalizeWalletAuthMethod(
     return null;
   }
   if (kind === 'passkey') {
+    const parsedRpId = parseWebAuthnRpId(raw.rpId);
+    if (!parsedRpId.ok) return null;
     const credentialIdB64u = trimString(raw.credentialIdB64u);
     const credentialPublicKeyB64u = trimString(raw.credentialPublicKeyB64u);
     const counter = Math.floor(Number(raw.counter));
-    if (!rpId || !credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
+    if (!credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
       return null;
     }
     return {
@@ -98,7 +101,7 @@ export function normalizeWalletAuthMethod(
       kind: 'passkey',
       status,
       walletId,
-      rpId,
+      rpId: parsedRpId.value,
       credentialIdB64u,
       credentialPublicKeyB64u,
       counter,

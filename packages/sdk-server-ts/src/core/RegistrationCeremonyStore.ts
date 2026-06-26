@@ -32,6 +32,7 @@ import {
   parseOrgId,
   parseProviderSubject,
   parseWalletId,
+  parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 import type { NormalizedLogger } from './logger';
@@ -1366,19 +1367,20 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
     typeof value.walletId === 'string' && value.walletId.trim()
       ? (value.walletId as WalletId)
       : null;
-  const rpId = typeof value.rpId === 'string' && value.rpId.trim() ? value.rpId : null;
   const registrationIntentDigestB64u =
     typeof value.registrationIntentDigestB64u === 'string' &&
     value.registrationIntentDigestB64u.trim()
       ? value.registrationIntentDigestB64u
       : null;
-  if (!walletId || !rpId || !registrationIntentDigestB64u) return null;
+  if (!walletId || !registrationIntentDigestB64u) return null;
 
   switch (value.kind) {
     case 'passkey': {
       if (hasDefinedField(value, 'emailHashHex') || hasDefinedField(value, 'challengeId')) {
         return null;
       }
+      const rpId = parseWebAuthnRpId(value.rpId);
+      if (!rpId.ok) return null;
       const credentialIdB64u =
         typeof value.credentialIdB64u === 'string' && value.credentialIdB64u.trim()
           ? value.credentialIdB64u
@@ -1394,7 +1396,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
       return {
         kind: 'passkey',
         walletId,
-        rpId,
+        rpId: rpId.value,
         credentialIdB64u,
         credentialPublicKeyB64u,
         counter,
@@ -1403,6 +1405,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
     }
     case 'email_otp': {
       if (
+        hasDefinedField(value, 'rpId') ||
         hasDefinedField(value, 'credentialIdB64u') ||
         hasDefinedField(value, 'credentialPublicKeyB64u') ||
         hasDefinedField(value, 'counter')

@@ -2,14 +2,14 @@ import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import {
-  ROUTER_AB_ED25519_HEALTH_PATH_V2,
-  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+  ROUTER_AB_ED25519_HEALTH_PATH,
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
+  ROUTER_AB_ED25519_HSS_PREPARE_PATH,
+  ROUTER_AB_ED25519_HSS_RESPOND_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
+  ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
 import { resolveThresholdScheme } from '../../relay';
 import {
@@ -83,7 +83,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
 export async function handleThresholdEd25519(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
-  if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH_V2) {
+  if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
     const resolved = resolveThresholdScheme(
       ctx.opts.threshold,
       THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
@@ -102,13 +102,13 @@ export async function handleThresholdEd25519(
 
   const pathname = ctx.pathname;
   if (
-    pathname !== ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 &&
-    pathname !== ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2 &&
-    pathname !== ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2 &&
-    pathname !== ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2 &&
-    pathname !== ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2 &&
-    pathname !== ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2 &&
-    pathname !== ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2
+    pathname !== ROUTER_AB_ED25519_WALLET_SESSION_PATH &&
+    pathname !== ROUTER_AB_ED25519_HSS_PREPARE_PATH &&
+    pathname !== ROUTER_AB_ED25519_HSS_FINALIZE_PATH &&
+    pathname !== ROUTER_AB_ED25519_HSS_RESPOND_PATH &&
+    pathname !== ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH &&
+    pathname !== ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH &&
+    pathname !== ROUTER_AB_ED25519_NORMAL_SIGNING_PATH
   ) {
     return null;
   }
@@ -120,7 +120,7 @@ export async function handleThresholdEd25519(
       : {};
 
   switch (pathname) {
-    case ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2:
+    case ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH:
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
@@ -128,7 +128,7 @@ export async function handleThresholdEd25519(
         phase: 'prepare',
       });
 
-    case ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2:
+    case ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH:
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
@@ -136,7 +136,7 @@ export async function handleThresholdEd25519(
         phase: 'presign-pool-prepare',
       });
 
-    case ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2:
+    case ROUTER_AB_ED25519_NORMAL_SIGNING_PATH:
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
@@ -158,7 +158,7 @@ export async function handleThresholdEd25519(
   const ed25519 = resolved.scheme;
 
   switch (pathname) {
-    case ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2: {
+    case ROUTER_AB_ED25519_WALLET_SESSION_PATH: {
       const session = ctx.opts.session;
       if (!session) {
         ctx.logger.warn('[threshold-ed25519] request', {
@@ -391,7 +391,7 @@ export async function handleThresholdEd25519(
       );
       return res;
     }
-    case ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2: {
+    case ROUTER_AB_ED25519_HSS_PREPARE_PATH: {
       const startedAt = Date.now();
       const b = (body || {}) as Record<string, unknown>;
       const parsedBody = parseThresholdEd25519HssPrepareWithSessionRouteRequest(body);
@@ -443,7 +443,7 @@ export async function handleThresholdEd25519(
       });
       return json(result, { status: thresholdEd25519StatusCode(result) });
     }
-    case ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2: {
+    case ROUTER_AB_ED25519_HSS_FINALIZE_PATH: {
       const startedAt = Date.now();
       const b = (body || {}) as Record<string, unknown>;
       const parsedBody = parseThresholdEd25519HssFinalizeWithSessionRouteRequest(body);
@@ -495,7 +495,7 @@ export async function handleThresholdEd25519(
       });
       return json(result, { status: thresholdEd25519StatusCode(result) });
     }
-    case ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2: {
+    case ROUTER_AB_ED25519_HSS_RESPOND_PATH: {
       const startedAt = Date.now();
       const b = (body || {}) as Record<string, unknown>;
       const parsedBody = parseThresholdEd25519HssRespondWithSessionRouteRequest(body);

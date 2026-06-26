@@ -381,7 +381,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
 
       expect(result.status).toBe(200);
       expect(fetchCalls).toEqual([
-        'https://signing-worker.internal/router-ab/v1/signing-worker/sign/presign-pool',
+        'https://signing-worker.internal/router-ab/signing-worker/sign/presign-pool',
       ]);
       expect(harness.reserveCalls).toEqual([
         {
@@ -483,7 +483,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         },
       });
       expect(fetchCalls).toEqual([
-        'https://signing-worker.internal/router-ab/v1/signing-worker/sign/prepare',
+        'https://signing-worker.internal/router-ab/signing-worker/sign/prepare',
       ]);
       expect(harness.reserveCalls).toHaveLength(1);
       expect(harness.releaseCalls).toEqual([
@@ -591,7 +591,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         },
       });
       expect(fetchCalls).toEqual([
-        'https://signing-worker.internal/router-ab/v1/signing-worker/sign',
+        'https://signing-worker.internal/router-ab/signing-worker/sign',
       ]);
       expect(harness.validateCalls).toEqual([
         {

@@ -11,17 +11,19 @@ import {
 export const ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1 = 'evm-family' as const;
 export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1 =
   'router_ab_ecdsa_hss_normal_signing_v1' as const;
-export const ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1 = '/v1/hss/ecdsa/healthz' as const;
-export const ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1 = '/v1/hss/ecdsa/key-identities' as const;
-export const ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1 = '/v1/hss/ecdsa/bootstrap' as const;
-export const ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1 = '/v1/hss/ecdsa/export/share' as const;
-export const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1 =
-  '/v1/hss/ecdsa/presignature-pool/fill/init' as const;
-export const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1 =
-  '/v1/hss/ecdsa/presignature-pool/fill/step' as const;
-export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1 =
-  '/v1/hss/ecdsa/sign/prepare' as const;
-export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1 = '/v1/hss/ecdsa/sign' as const;
+export const ROUTER_AB_ECDSA_HSS_HEALTH_PATH = '/router-ab/ecdsa-hss/healthz' as const;
+export const ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH =
+  '/router-ab/ecdsa-hss/key-identities' as const;
+export const ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH = '/router-ab/ecdsa-hss/bootstrap' as const;
+export const ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH =
+  '/router-ab/ecdsa-hss/export/share' as const;
+export const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH =
+  '/router-ab/ecdsa-hss/presignature-pool/fill/init' as const;
+export const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH =
+  '/router-ab/ecdsa-hss/presignature-pool/fill/step' as const;
+export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH =
+  '/router-ab/ecdsa-hss/sign/prepare' as const;
+export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH = '/router-ab/ecdsa-hss/sign' as const;
 const ECDSA_HSS_CONTEXT_DOMAIN_TAG_V1 = 'ecdsa-hss:context:v4' as const;
 const ECDSA_HSS_CONTEXT_BINDING_DOMAIN_V1 = 'ecdsa-hss:role-local:v2:context-binding' as const;
 const ECDSA_HSS_SCHEME_ID_V1 = 'ecdsa-hss-v4' as const;
@@ -1199,11 +1201,7 @@ function parseRouterAbEcdsaHssBudgetStatusV1(
   label: string,
 ): RouterAbEcdsaHssBudgetStatusV1Wire {
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'committed_remaining_uses',
-    'reserved_uses',
-    'available_uses',
-  ]);
+  requireExactKeys(record, label, ['committed_remaining_uses', 'reserved_uses', 'available_uses']);
   return {
     committed_remaining_uses: requireNonNegativeInteger(
       record.committed_remaining_uses,

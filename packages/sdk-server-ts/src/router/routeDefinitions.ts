@@ -5,28 +5,28 @@ import {
   resolveSigningSessionSealBasePath,
 } from '../threshold/session/signingSessionSeal';
 import {
-  ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
-  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
+  ROUTER_AB_PUBLIC_KEYSET_PATH,
+  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
 } from '@shared/utils/routerAbPublicKeyset';
 import {
-  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_HSS_HEALTH_PATH,
+  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
 } from '@shared/utils/routerAbEcdsaHss';
 import {
-  ROUTER_AB_ED25519_HEALTH_PATH_V2,
-  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+  ROUTER_AB_ED25519_HEALTH_PATH,
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
+  ROUTER_AB_ED25519_HSS_PREPARE_PATH,
+  ROUTER_AB_ED25519_HSS_RESPOND_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
+  ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
 import {
   API_CREDENTIAL_ROUTE_SCOPES,
@@ -1373,15 +1373,15 @@ export function createRelayRouteDefinitions(
     publicRoute(
       'relay_router_ab_public_keyset',
       'GET',
-      ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
+      ROUTER_AB_PUBLIC_KEYSET_PATH,
       'Router A/B public deployment keyset',
       { plane: 'public', rationale: 'Public key discovery endpoints are intentionally public.' },
       [],
       { kind: 'none' },
       [
-        ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
-        `${ROUTER_AB_PUBLIC_KEYSET_PATH_V2}/`,
-        `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2}/`,
+        ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
+        `${ROUTER_AB_PUBLIC_KEYSET_PATH}/`,
+        `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH}/`,
       ],
     ),
     apiCredentialRoute(
@@ -1743,7 +1743,7 @@ export function createRelayRouteDefinitions(
     publicRoute(
       'router_ab_ed25519_healthz',
       'GET',
-      ROUTER_AB_ED25519_HEALTH_PATH_V2,
+      ROUTER_AB_ED25519_HEALTH_PATH,
       'Router A/B Ed25519 health probe',
       {
         plane: 'public',
@@ -1754,7 +1754,7 @@ export function createRelayRouteDefinitions(
     publicRoute(
       'router_ab_ed25519_wallet_session',
       'POST',
-      ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+      ROUTER_AB_ED25519_WALLET_SESSION_PATH,
       'Issue Router A/B Ed25519 Wallet Session',
       {
         plane: 'public',
@@ -1767,7 +1767,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ed25519_hss_prepare',
       'POST',
-      ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
+      ROUTER_AB_ED25519_HSS_PREPARE_PATH,
       'Prepare Router A/B Ed25519 HSS relay ceremony step',
       'ed25519',
       ['threshold', 'session'],
@@ -1775,7 +1775,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ed25519_hss_respond',
       'POST',
-      ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
+      ROUTER_AB_ED25519_HSS_RESPOND_PATH,
       'Respond to Router A/B Ed25519 HSS client request',
       'ed25519',
       ['threshold', 'session'],
@@ -1783,7 +1783,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ed25519_hss_finalize',
       'POST',
-      ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
+      ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
       'Finalize Router A/B Ed25519 HSS server ceremony step',
       'ed25519',
       ['threshold', 'session'],
@@ -1791,7 +1791,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ed25519_sign_prepare',
       'POST',
-      ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+      ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B Ed25519 normal signing',
       'ed25519',
       ['threshold', 'session'],
@@ -1799,7 +1799,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ed25519_sign_presign_pool_prepare',
       'POST',
-      ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
+      ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
       'Prepare Router A/B Ed25519 presign-pool signing',
       'ed25519',
       ['threshold', 'session'],
@@ -1807,7 +1807,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ed25519_sign_finalize',
       'POST',
-      ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+      ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
       'Finalize Router A/B Ed25519 normal signing',
       'ed25519',
       ['threshold', 'session'],
@@ -1815,7 +1815,7 @@ export function createRelayRouteDefinitions(
     publicRoute(
       'router_ab_ecdsa_hss_healthz',
       'GET',
-      ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_HEALTH_PATH,
       'Router A/B ECDSA-HSS health probe',
       {
         plane: 'public',
@@ -1826,7 +1826,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_key_identities',
       'POST',
-      ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
       'Resolve Router A/B ECDSA-HSS key identities for an active Wallet Session',
       'ed25519',
       ['threshold', 'session'],
@@ -1834,7 +1834,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_bootstrap',
       'POST',
-      ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
       'Bootstrap Router A/B ECDSA-HSS material',
       'ecdsa',
       ['threshold', 'session'],
@@ -1842,7 +1842,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_export_share',
       'POST',
-      ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
       'Release an authorized Router A/B ECDSA-HSS export share',
       'ecdsa',
       ['threshold', 'session'],
@@ -1850,7 +1850,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_sign_prepare',
       'POST',
-      ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B ECDSA-HSS normal signing',
       'ecdsa',
       ['threshold', 'session'],
@@ -1858,7 +1858,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_sign_finalize',
       'POST',
-      ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
       'Finalize Router A/B ECDSA-HSS normal signing',
       'ecdsa',
       ['threshold', 'session'],
@@ -1866,7 +1866,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_presignature_pool_fill_init',
       'POST',
-      ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
       'Begin Router A/B ECDSA-HSS presignature pool-fill session',
       'ecdsa',
       ['threshold', 'session'],
@@ -1874,7 +1874,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_presignature_pool_fill_step',
       'POST',
-      ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
       'Continue Router A/B ECDSA-HSS presignature pool-fill session',
       'ecdsa',
       ['threshold', 'session'],
@@ -1925,7 +1925,7 @@ export function createRelayRouteDefinitions(
     thresholdSessionRoute(
       'session_signing_budget_status',
       'POST',
-      '/session/signing-budget/status',
+      '/router-ab/wallet-budget/status',
       'Read signing grant budget status',
       'ed25519',
       ['session'],

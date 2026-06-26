@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1,
-  EMAIL_OTP_ECDSA_DERIVATION_PATH_V1,
+  EMAIL_OTP_ECDSA_DERIVATION_PATH,
   EMAIL_OTP_THRESHOLD_ROOT_SALT_V1,
   EMAIL_OTP_UNLOCK_AUTH_SALT_V1,
   deriveEmailOtpEcdsaClientRootShare32FromSecret32,
@@ -82,7 +82,7 @@ test.describe('Email OTP derivation', () => {
     );
     const walletId = 'alice.testnet';
     const userId = 'alice.testnet';
-    const ecdsaInfo = Buffer.from(encodeEmailOtpTuple([userId, EMAIL_OTP_ECDSA_DERIVATION_PATH_V1]));
+    const ecdsaInfo = Buffer.from(encodeEmailOtpTuple([userId, EMAIL_OTP_ECDSA_DERIVATION_PATH]));
     const unlockInfo = Buffer.from(encodeEmailOtpTuple([walletId]));
     const expectedEcdsa = base64UrlEncode(
       hkdfSync(

@@ -49,7 +49,7 @@ export function installBrowserSigningBudgetStatusReader(): () => void {
         };
       }
 
-      const response = await fetch(`${relayerUrl}/session/signing-budget/status`, {
+      const response = await fetch(`${relayerUrl}/router-ab/wallet-budget/status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

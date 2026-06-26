@@ -7,17 +7,17 @@ import {
 } from '../../ror/normalize';
 import { resolveRorRpId } from '../../ror/provider';
 import {
-  ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
-  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
+  ROUTER_AB_PUBLIC_KEYSET_PATH,
+  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
 } from '@shared/utils/routerAbPublicKeyset';
 
 export async function handleWellKnown(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (
-    ctx.pathname === ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2 ||
-    ctx.pathname === `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2}/` ||
-    ctx.pathname === ROUTER_AB_PUBLIC_KEYSET_PATH_V2 ||
-    ctx.pathname === `${ROUTER_AB_PUBLIC_KEYSET_PATH_V2}/`
+    ctx.pathname === ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH ||
+    ctx.pathname === `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH}/` ||
+    ctx.pathname === ROUTER_AB_PUBLIC_KEYSET_PATH ||
+    ctx.pathname === `${ROUTER_AB_PUBLIC_KEYSET_PATH}/`
   ) {
     const keyset = ctx.opts.routerAbPublicKeyset;
     if (!keyset) {

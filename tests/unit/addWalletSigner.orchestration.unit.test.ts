@@ -740,7 +740,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
     const path = url.pathname;
     paths.push(path);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    if (path === '/v2/router-ab/keyset') {
+    if (path === '/router-ab/keyset') {
       return jsonResponse({
         keyset_version: 'router_ab_keyset_v2',
         signer_envelope_hpke: {
@@ -938,6 +938,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         ok: true,
         walletId: responseWalletId,
         rpId: RP_ID,
+        authMethod: {
+          kind: 'passkey',
+          credentialIdB64u: 'registration-credential-id',
+          credentialPublicKeyB64u: 'registration-credential-public-key',
+          counter: 0,
+        },
       };
       if (body.ed25519) {
         const nearAccountId =
@@ -1435,7 +1441,7 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
     });
     expect(fetchMock.paths).toEqual([
-      '/v2/router-ab/keyset',
+      '/router-ab/keyset',
       '/v1/registration/bootstrap-grants',
       '/wallets/register/intent',
       '/wallets/register/prepare',

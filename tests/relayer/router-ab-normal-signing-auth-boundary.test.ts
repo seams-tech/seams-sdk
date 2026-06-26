@@ -7,9 +7,9 @@ import type {
 } from '@server/router/express-adaptor';
 import { deriveRouterAbEcdsaHssBudgetOperationId } from '@server/router/routerAbPrivateSigningWorker';
 import {
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
 } from '@shared/utils/signingSessionSeal';
 import {
@@ -17,8 +17,8 @@ import {
   buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
   routerAbEcdsaHssContextBindingB64uV1,
   routerAbEcdsaHssStableKeyContextFromSdkFactsV1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
 } from '@shared/utils/routerAbEcdsaHss';
 import {
@@ -55,35 +55,35 @@ function walletIdForFixture(value: unknown): WalletId {
 const NORMAL_SIGNING_ROUTES = [
   {
     label: 'Ed25519 prepare',
-    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
     message: 'Missing or invalid Wallet Session JWT',
     legacyKind: 'threshold_ed25519_session_v1',
     legacyMessage: 'Invalid Router A/B Wallet Session claims',
   },
   {
     label: 'Ed25519 presign-pool prepare',
-    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
+    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
     message: 'Missing or invalid Wallet Session JWT',
     legacyKind: 'threshold_ed25519_session_v1',
     legacyMessage: 'Invalid Router A/B Wallet Session claims',
   },
   {
     label: 'Ed25519 finalize',
-    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
     message: 'Missing or invalid Wallet Session JWT',
     legacyKind: 'threshold_ed25519_session_v1',
     legacyMessage: 'Invalid Router A/B Wallet Session claims',
   },
   {
     label: 'ECDSA-HSS prepare',
-    path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+    path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
     message: 'Missing or invalid Wallet Session token',
     legacyKind: 'threshold_ecdsa_session_v2',
     legacyMessage: 'Invalid Wallet Session token claims',
   },
   {
     label: 'ECDSA-HSS finalize',
-    path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+    path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
     message: 'Missing or invalid Wallet Session token',
     legacyKind: 'threshold_ecdsa_session_v2',
     legacyMessage: 'Invalid Wallet Session token claims',
@@ -707,10 +707,10 @@ async function ecdsaFinalizeBudgetCase(input: {
   return {
     label: input.label,
     token: input.token,
-    path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+    path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
     body,
     claims,
-    privatePath: '/router-ab/v1/signing-worker/ecdsa-hss/sign',
+    privatePath: '/router-ab/signing-worker/ecdsa-hss/sign',
     budget: {
       curve: 'ecdsa-hss',
       phase: 'finalize',
@@ -736,10 +736,10 @@ async function routerAbBudgetFinalizationCases(): Promise<
   const ed25519Case = {
     label: 'Ed25519 final signing',
     token: 'router-ab-budget-ed25519',
-    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
     body: ed25519NormalSigningBody(ed25519RequestId),
     claims: ROUTER_AB_ED25519_CLAIMS,
-    privatePath: '/router-ab/v1/signing-worker/sign',
+    privatePath: '/router-ab/signing-worker/sign',
     budget: {
       curve: 'ed25519' as const,
       phase: 'finalize' as const,
@@ -927,7 +927,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
     };
     for (const route of ECDSA_HSS_NORMAL_SIGNING_ROUTES) {
       const body =
-        route.path === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1
+        route.path === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH
           ? buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
               scope: driftedScope,
               requestId: 'router-ab-ecdsa-hss-scope-drift-prepare',
@@ -1006,7 +1006,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
 
     for (const route of ECDSA_HSS_NORMAL_SIGNING_ROUTES) {
       const body =
-        route.path === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1
+        route.path === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH
           ? buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
               scope: ECDSA_HSS_SCOPE,
               requestId: 'router-ab-ecdsa-hss-expired-prepare',
@@ -1052,9 +1052,9 @@ test.describe('Router A/B normal signing auth boundary', () => {
   test('forwards successful Ed25519 normal-signing routes to exact private worker paths', async () => {
     const cases = [
       {
-        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
         body: ed25519NormalSigningBody('router-ab-ed25519-private-prepare'),
-        privatePath: '/router-ab/v1/signing-worker/sign/prepare',
+        privatePath: '/router-ab/signing-worker/sign/prepare',
         budgetStatus: {
           committed_remaining_uses: 3,
           reserved_uses: 1,
@@ -1062,20 +1062,20 @@ test.describe('Router A/B normal signing auth boundary', () => {
         },
       },
       {
-        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
+        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
         body: ed25519NormalSigningBody('router-ab-ed25519-private-presign-pool-prepare', {
           generation: 1,
           client_offers: [],
         }),
-        privatePath: '/router-ab/v1/signing-worker/sign/presign-pool/prepare',
+        privatePath: '/router-ab/signing-worker/sign/presign-pool/prepare',
       },
       {
-        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
         body: ed25519NormalSigningBody('router-ab-ed25519-private-finalize'),
-        privatePath: '/router-ab/v1/signing-worker/sign',
+        privatePath: '/router-ab/signing-worker/sign',
       },
       {
-        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
         body: ed25519NormalSigningBody('router-ab-ed25519-private-pool-finalize', {
           pool_binding: {
             server_round1_handle: 'router-ab-ed25519-private-pool-finalize-server-round-1',
@@ -1084,7 +1084,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
             },
           },
         }),
-        privatePath: '/router-ab/v1/signing-worker/sign/presign-pool',
+        privatePath: '/router-ab/signing-worker/sign/presign-pool',
       },
     ];
 
@@ -1260,7 +1260,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
       async () => ({ ok: true as const, claims: ROUTER_AB_ED25519_CLAIMS }),
       async (srv) => {
         const first = await fetchJson(
-          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2}`,
+          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH}`,
           {
             method: 'POST',
             headers: {
@@ -1271,7 +1271,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           },
         );
         const replay = await fetchJson(
-          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2}`,
+          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH}`,
           {
             method: 'POST',
             headers: {
@@ -1300,7 +1300,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
         });
 
         const presignPoolFirst = await fetchJson(
-          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2}`,
+          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH}`,
           {
             method: 'POST',
             headers: {
@@ -1311,7 +1311,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           },
         );
         const presignPoolReplay = await fetchJson(
-          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2}`,
+          `${srv.baseUrl}${ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH}`,
           {
             method: 'POST',
             headers: {
@@ -1363,7 +1363,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
       async () => ({ ok: true as const, claims: ecdsaReplayClaims }),
       async (srv) => {
         const first = await fetchJson(
-          `${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1}`,
+          `${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH}`,
           {
             method: 'POST',
             headers: {
@@ -1374,7 +1374,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           },
         );
         const replay = await fetchJson(
-          `${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1}`,
+          `${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH}`,
           {
             method: 'POST',
             headers: {
@@ -1425,7 +1425,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
     const testCases = [
       {
         label: 'Ed25519 prepare quota',
-        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
         claims: ROUTER_AB_ED25519_CLAIMS,
         body: {
           scope: {
@@ -1452,7 +1452,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
       },
       {
         label: 'Ed25519 finalize abuse',
-        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+        path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
         claims: ROUTER_AB_ED25519_CLAIMS,
         body: {
           scope: {
@@ -1479,7 +1479,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
       },
       {
         label: 'ECDSA-HSS prepare quota',
-        path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+        path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
         claims: ecdsaClaims,
         body: buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
           scope: ecdsaScope,
@@ -1505,7 +1505,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
       },
       {
         label: 'ECDSA-HSS finalize abuse',
-        path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+        path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
         claims: ecdsaClaims,
         body: buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
           scope: ecdsaScope,

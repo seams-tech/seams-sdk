@@ -1,7 +1,7 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 import {
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
   type RouterAbEcdsaHssNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaHss';
 import { fetchRouterAbEcdsaHssJson } from './httpRequest';
@@ -171,7 +171,7 @@ export async function routerAbEcdsaHssPresignaturePoolFillInit(
 ): Promise<RouterAbEcdsaHssPoolFillProgress & { presignSessionId?: string }> {
   return postEcdsaPresignInit({
     ...args,
-    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
   });
 }
 
@@ -280,6 +280,6 @@ export async function routerAbEcdsaHssPresignaturePoolFillStep(
 ): Promise<RouterAbEcdsaHssPoolFillProgress> {
   return postEcdsaPresignStep({
     ...args,
-    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
   });
 }

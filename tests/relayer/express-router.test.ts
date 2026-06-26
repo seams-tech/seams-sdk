@@ -3836,7 +3836,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/signing-budget/status: stale threshold session returns typed not_found', async () => {
+  test('POST /router-ab/wallet-budget/status: stale threshold session returns typed not_found', async () => {
     const session = makeSessionAdapter({
       parse: async () => ({
         ok: true,
@@ -3879,7 +3879,7 @@ test.describe('relayer router (express) – P0', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/wallet-budget/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer stale-token' },
         body: JSON.stringify({
@@ -3900,7 +3900,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/signing-budget/status: selects matching ECDSA row when threshold id collides across curves', async () => {
+  test('POST /router-ab/wallet-budget/status: selects matching ECDSA row when threshold id collides across curves', async () => {
     const { claims, wrongCurveStatus, ecdsaStatus, walletBudgetStatus } =
       buildEcdsaCurveCollisionBudgetStatusFixture('express');
     const session = makeSessionAdapter({
@@ -3925,7 +3925,7 @@ test.describe('relayer router (express) – P0', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/wallet-budget/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
@@ -3949,7 +3949,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/signing-budget/status: exhausted wallet budget returns exhausted projection', async () => {
+  test('POST /router-ab/wallet-budget/status: exhausted wallet budget returns exhausted projection', async () => {
     const { claims, ecdsaStatus, walletBudgetStatus } =
       buildEcdsaCurveCollisionBudgetStatusFixture('express-exhausted', {
         walletRemainingUses: 0,
@@ -3979,7 +3979,7 @@ test.describe('relayer router (express) – P0', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/wallet-budget/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
@@ -4003,7 +4003,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/signing-budget/status: expired wallet session returns typed not_found', async () => {
+  test('POST /router-ab/wallet-budget/status: expired wallet session returns typed not_found', async () => {
     const { claims, ecdsaStatus, walletBudgetStatus } =
       buildEcdsaCurveCollisionBudgetStatusFixture('express-expired', {
         claimExpiresAtMs: Date.now() - 1_000,
@@ -4030,7 +4030,7 @@ test.describe('relayer router (express) – P0', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/wallet-budget/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
@@ -4051,7 +4051,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/signing-budget/status: mismatched threshold session is rejected', async () => {
+  test('POST /router-ab/wallet-budget/status: mismatched threshold session is rejected', async () => {
     const { claims, ecdsaStatus, walletBudgetStatus } =
       buildEcdsaCurveCollisionBudgetStatusFixture('express-threshold-mismatch');
     const session = makeSessionAdapter({
@@ -4076,7 +4076,7 @@ test.describe('relayer router (express) – P0', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/wallet-budget/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
@@ -4095,7 +4095,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/signing-budget/status: wrong-curve-only status material is rejected', async () => {
+  test('POST /router-ab/wallet-budget/status: wrong-curve-only status material is rejected', async () => {
     const { claims, wrongCurveStatus } =
       buildEcdsaCurveCollisionBudgetStatusFixture('express-reject');
     const session = makeSessionAdapter({
@@ -4118,7 +4118,7 @@ test.describe('relayer router (express) – P0', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/wallet-budget/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({

@@ -285,7 +285,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
     clientRootShare32B64u: args.clientRootShare32B64u,
   });
 
-  const bootstrap = await fetchJson(`${args.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+  const bootstrap = await fetchJson(`${args.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
     method: 'POST',
     headers: hssJsonHeaders(args.rpId),
     body: JSON.stringify({
@@ -369,7 +369,7 @@ async function stagedExplicitExportThresholdEcdsa(args: {
     hssClientSharePublicKey33B64u: string;
     clientShareRetryCounter: number;
   };
-  const exportedShare = await fetchJson(`${args.baseUrl}/v1/hss/ecdsa/export/share`, {
+  const exportedShare = await fetchJson(`${args.baseUrl}/router-ab/ecdsa-hss/export/share`, {
     method: 'POST',
     headers: hssJsonHeaders(args.rpId, args.jwt),
     body: JSON.stringify(exportRequest),
@@ -619,7 +619,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInit = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
+      const presignInit = await fetchJson(`${srvA.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/init`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -634,7 +634,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(presignSessionId).toBeTruthy();
 
       // Call non-owner coordinator. It must forward over real HTTP to coordinator-a.
-      const forwardedStep = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
+      const forwardedStep = await fetchJson(`${srvB.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/step`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -759,7 +759,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         bootstrapJson: bootstrap.json || {},
       });
 
-      const exportedShare = await fetchJson(`${srv.baseUrl}/v1/hss/ecdsa/export/share`, {
+      const exportedShare = await fetchJson(`${srv.baseUrl}/router-ab/ecdsa-hss/export/share`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, appSessionJwt),
         body: JSON.stringify(request),
@@ -809,7 +809,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         bootstrapJson: bootstrap.json || {},
       });
 
-      const exportedShare = await fetchJson(`${srv.baseUrl}/v1/hss/ecdsa/export/share`, {
+      const exportedShare = await fetchJson(`${srv.baseUrl}/router-ab/ecdsa-hss/export/share`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -869,7 +869,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(ethereumAddress).toBeTruthy();
       expect(ecdsaJwt).toBeTruthy();
 
-      const firstPresignInit = await fetchJson(`${srv.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
+      const firstPresignInit = await fetchJson(`${srv.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/init`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, ecdsaJwt),
         body: JSON.stringify({
@@ -997,7 +997,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInitA = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
+      const presignInitA = await fetchJson(`${srvA.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/init`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -1014,7 +1014,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       // Simulate owner restart by dropping live presign sessions while keeping durable records.
       handlerA.livePresignSessionById.clear();
 
-      const staleStep = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
+      const staleStep = await fetchJson(`${srvB.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/step`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -1026,13 +1026,13 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(staleStep.status, staleStep.text).toBe(409);
       expect(staleStep.json?.ok).toBe(false);
       expect(String(staleStep.json?.code || '')).toBe('stale_session_state');
-      expect(String(staleStep.json?.message || '')).toContain('/v1/hss/ecdsa/presignature-pool/fill/init');
+      expect(String(staleStep.json?.message || '')).toContain('/router-ab/ecdsa-hss/presignature-pool/fill/init');
 
       const stalePersisted = await handlerA.poolFillSessionStore.getSession(staleSessionId);
       expect(stalePersisted).toBeNull();
 
       // Client recovers by creating a fresh presign session.
-      const recoveredInit = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
+      const recoveredInit = await fetchJson(`${srvB.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/init`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -1047,7 +1047,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(recoveredSessionId).toBeTruthy();
       expect(recoveredSessionId).not.toBe(staleSessionId);
 
-      const recoveredStep = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
+      const recoveredStep = await fetchJson(`${srvB.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/step`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -1128,7 +1128,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInit = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
+      const presignInit = await fetchJson(`${srvA.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/init`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -1142,7 +1142,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const presignSessionId = String(presignInit.json?.presignSessionId || '');
       expect(presignSessionId).toBeTruthy();
 
-      const step = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
+      const step = await fetchJson(`${srvB.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/step`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -1232,7 +1232,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInit = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
+      const presignInit = await fetchJson(`${srvA.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/init`, {
         method: 'POST',
         headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
@@ -1246,7 +1246,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const presignSessionId = String(presignInit.json?.presignSessionId || '');
       expect(presignSessionId).toBeTruthy();
 
-      const step = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
+      const step = await fetchJson(`${srvB.baseUrl}/router-ab/ecdsa-hss/presignature-pool/fill/step`, {
         method: 'POST',
         headers: {
           ...hssJsonHeaders(rpId, jwt),

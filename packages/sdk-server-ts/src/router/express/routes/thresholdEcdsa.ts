@@ -20,6 +20,7 @@ import {
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../commonRouterUtils';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
@@ -27,14 +28,14 @@ import {
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
-  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_HSS_HEALTH_PATH,
+  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
 } from '@shared/utils/routerAbEcdsaHss';
 import {
   signingRootScopeFromRuntimePolicyScope,
@@ -316,10 +317,14 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     ) {
       return { ok: false, code: 'identity_mismatch', message: 'signing root mismatch' };
     }
+    const rpId = parseWebAuthnRpId(passkeyAuthorization.rpId);
+    if (!rpId.ok) {
+      return { ok: false, code: 'invalid_body', message: rpId.error.message };
+    }
     const expectedChallenge = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
       walletId: request.walletId,
       walletKeyId: request.walletKeyId,
-      rpId: passkeyAuthorization.rpId,
+      rpId: rpId.value,
       ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
       signingRootId: request.signingRootId,
       signingRootVersion: request.signingRootVersion,
@@ -334,7 +339,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     });
     const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
       userId: request.walletId,
-      rpId: passkeyAuthorization.rpId,
+      rpId: rpId.value,
       expectedChallenge,
       expected_origin: expectedOrigin,
       webauthn_authentication: passkeyAuthorization.webauthn_authentication,
@@ -577,8 +582,8 @@ export function registerThresholdEcdsaRoutes(
 ): void {
   ctx.logger.info('[threshold-ecdsa] routes', { enabled: Boolean(ctx.opts.threshold) });
 
-  router.get(ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1, async (req: Request, res: Response) => {
-    await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1, {}, async () => {
+  router.get(ROUTER_AB_ECDSA_HSS_HEALTH_PATH, async (req: Request, res: Response) => {
+    await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_HEALTH_PATH, {}, async () => {
       const resolved = resolveThresholdScheme(
         ctx.opts.threshold,
         THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
@@ -595,8 +600,8 @@ export function registerThresholdEcdsaRoutes(
     });
   });
 
-  router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, async (req: Request, res: Response) => {
-    await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, {}, async () => {
+  router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH, async (req: Request, res: Response) => {
+    await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH, {}, async () => {
       const parsed = parseRouterAbEcdsaHssKeyIdentitiesRequest(req.body || {});
       if (!parsed.ok) return parsed.body;
       if (parsed.request.sessionKind === 'cookie') {
@@ -636,13 +641,13 @@ export function registerThresholdEcdsaRoutes(
     });
   });
 
-  router.post(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH, async (req: Request, res: Response) => {
     const body = req.body || {};
     await handle(
       ctx,
       req,
       res,
-      ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
       thresholdEcdsaRouteDiagnosticMetadata(body, [
         'walletId',
         'walletKeyId',
@@ -749,13 +754,13 @@ export function registerThresholdEcdsaRoutes(
     );
   });
 
-  router.post(ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH, async (req: Request, res: Response) => {
     const body = req.body || {};
     await handle(
       ctx,
       req,
       res,
-      ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+      ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
       thresholdEcdsaRouteDiagnosticMetadata(body, [
         'walletId',
         'walletKeyId',
@@ -928,35 +933,35 @@ export function registerThresholdEcdsaRoutes(
   }
 
   router.post(
-    ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+    ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
     async (req: Request, res: Response) => {
       await handleRouterAbEcdsaHssNormalSigningRoute({
         ctx,
         req,
         res,
-        routePath: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+        routePath: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
         privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
       });
     },
   );
 
-  router.post(ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1, async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH, async (req: Request, res: Response) => {
     await handleRouterAbEcdsaHssNormalSigningRoute({
       ctx,
       req,
       res,
-      routePath: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+      routePath: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
       privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.finalize,
       phase: 'finalize',
     });
   });
 
   router.post(
-    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
     async (req: Request, res: Response) => {
       await handleRouterAbEcdsaHssPoolFillInitRoute(
-        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
         req,
         res,
       );
@@ -964,10 +969,10 @@ export function registerThresholdEcdsaRoutes(
   );
 
   router.post(
-    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
     async (req: Request, res: Response) => {
       await handleRouterAbEcdsaHssPoolFillStepRoute(
-        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
         req,
         res,
       );

@@ -1,5 +1,6 @@
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { isObject, validateNearAccountId } from '@shared/utils/validation';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   CreateRegistrationFlowEventInput,
   RegistrationFlowEvent,
@@ -124,6 +125,12 @@ import { parseEd25519HssKeyVersion } from '@/core/signingEngine/session/keyMater
 export const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
 export const WALLET_IFRAME_TRANSPORT_TIMING_LABEL =
   '[Registration] wallet iframe transport timing summary';
+
+function requireWebAuthnRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 export function isRegistrationBenchmarkDiagnosticsEnabled(): boolean {
   const globalFlag = (
@@ -1139,7 +1146,7 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
   }
   return await computeRegistrationNearEd25519SigningKeyId({
     walletId: intent.walletId,
-    rpId: intent.rpId,
+    rpId: requireWebAuthnRpId(intent.rpId),
     signingRootId: deriveSigningRootId(runtimePolicyScope),
     signingRootVersion: runtimePolicyScope.signingRootVersion,
     ed25519: intent.signerSelection.ed25519,

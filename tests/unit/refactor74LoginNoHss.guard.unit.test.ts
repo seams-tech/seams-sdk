@@ -1021,7 +1021,7 @@ function preparedIssuerCallSitesStayBehindServerAuthorizedContexts(): void {
   for (const marker of [
     'routeAuth.jwt',
     'buildEd25519SessionPolicy',
-    'ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2',
+    'ROUTER_AB_ED25519_WALLET_SESSION_PATH',
     'parseRouterAbEd25519NormalSigningState',
     'signingGrantId',
     'signingWorkerId',

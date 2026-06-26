@@ -314,7 +314,7 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
   signingGrantId: string;
 }): Promise<TrustedBudgetStatusFetchResult> {
   const response = await fetch(
-    joinNormalizedUrl(args.auth.relayerUrl, '/session/signing-budget/status'),
+    joinNormalizedUrl(args.auth.relayerUrl, '/router-ab/wallet-budget/status'),
     {
       method: 'POST',
       headers: {

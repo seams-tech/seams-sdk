@@ -257,7 +257,7 @@ test.describe('Router A/B normal-signing response validation', () => {
 
     expect(parsed).toEqual(response);
     expect(calls.map((call) => call.url)).toEqual([
-      'https://router.example/base/v2/router-ab/ed25519/sign/presign-pool/prepare',
+      'https://router.example/base/router-ab/ed25519/sign/presign-pool/prepare',
     ]);
     expect(calls[0].init.credentials).toBe('omit');
     expect(calls[0].init.headers).toEqual({

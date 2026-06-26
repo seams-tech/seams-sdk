@@ -141,6 +141,7 @@ function walletBudgetMatches(
     status &&
       status.kind === 'wallet_budget' &&
       status.signingGrantId === auth.signingGrantId &&
+      status.thresholdSessionId === auth.thresholdSessionId &&
       status.userId === auth.userId &&
       statusMatchesAuthScope(auth, status) &&
       sameParticipants(auth.participantIds, status.participantIds),

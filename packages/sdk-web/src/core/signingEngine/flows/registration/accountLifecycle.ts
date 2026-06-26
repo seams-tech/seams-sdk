@@ -1,5 +1,6 @@
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { WalletId } from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { compactImplicitNearAccountId } from '@shared/utils/near';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
@@ -144,6 +145,12 @@ const WALLET_SUBJECT_CHAIN_ID_KEY = 'wallet';
 const WALLET_SUBJECT_ACCOUNT_MODEL = 'wallet';
 const THRESHOLD_ECDSA_ACCOUNT_MODEL = 'threshold-ecdsa';
 const LOCAL_WALLET_AUTH_RP_ID = 'local';
+
+function requireWebAuthnRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 function verifiedCredentialPublicKeyBytes(value: string, field: string): Uint8Array {
   const credentialPublicKeyB64u = String(value || '').trim();
@@ -557,7 +564,7 @@ function passkeyAuthMethod(args: {
     status: 'active',
     localStatus: 'synced',
     walletId: args.walletId,
-    rpId: LOCAL_WALLET_AUTH_RP_ID,
+    rpId: requireWebAuthnRpId(LOCAL_WALLET_AUTH_RP_ID),
     credentialIdB64u: args.credentialId,
     credentialPublicKeyB64u: base64UrlEncode(args.credentialPublicKey),
     counter: 0,

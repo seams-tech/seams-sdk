@@ -49,7 +49,7 @@ test.describe('Router A/B public keyset routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/router-ab/keyset`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/keyset`, {
         method: 'GET',
         headers: { Origin: ALLOWED_ORIGIN },
       });
@@ -60,7 +60,7 @@ test.describe('Router A/B public keyset routes', () => {
       expect(res.headers.get('access-control-allow-origin')).toBe(ALLOWED_ORIGIN);
       expect(res.headers.get('vary')).toContain('Origin');
 
-      const preflight = await fetchJson(`${srv.baseUrl}/v2/router-ab/keyset`, {
+      const preflight = await fetchJson(`${srv.baseUrl}/router-ab/keyset`, {
         method: 'OPTIONS',
         headers: {
           Origin: ALLOWED_ORIGIN,
@@ -81,7 +81,7 @@ test.describe('Router A/B public keyset routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v2/router-ab/keyset`, {
+      const res = await fetchJson(`${srv.baseUrl}/router-ab/keyset`, {
         method: 'GET',
         headers: { Origin: ALLOWED_ORIGIN },
       });
@@ -130,7 +130,7 @@ test.describe('Router A/B public keyset routes', () => {
 
     const res = await callCf(handler, {
       method: 'GET',
-      path: '/v2/router-ab/keyset',
+      path: '/router-ab/keyset',
       origin: ALLOWED_ORIGIN,
     });
     expect(res.status).toBe(404);

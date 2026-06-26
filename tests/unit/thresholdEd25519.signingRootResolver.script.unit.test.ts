@@ -46,11 +46,10 @@ function createRegistrationAccountScopeFixture(): ThresholdEd25519RegistrationAc
   return {
     kind: 'generated_implicit_registration_scope',
     walletId: 'alice.near',
-    walletKeyId: 'alice.near',
     intentDigestB64u: 'intent-digest',
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: 'v1',
-    nearEd25519SigningKeyId: 'alice.near',
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('alice.near'),
     signerSlot: 1,
     keyPurpose: 'wallet',
     keyVersion: 'v1',
@@ -166,7 +165,7 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
     signingRootId: SIGNING_ROOT_ID,
     request: {
       registrationAccountScope,
-      wallet_key_id: 'example.localhost',
+      wallet_key_id: registrationAccountScope.nearEd25519SigningKeyId,
       context,
     },
   });
@@ -185,7 +184,7 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
     signingRootId: `${PROJECT_ID}:staging`,
     request: {
       registrationAccountScope,
-      wallet_key_id: 'example.localhost',
+      wallet_key_id: registrationAccountScope.nearEd25519SigningKeyId,
       context,
     },
   });

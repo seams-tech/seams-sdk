@@ -161,8 +161,14 @@ test('threshold-ed25519 passkey session mint creates wallet budgets per signing 
   const secondSessionId = 'tsess-wallet-budget-refresh-2';
   const firstSigningGrantId = 'wsess-wallet-budget-refresh-1';
   const secondSigningGrantId = 'wsess-wallet-budget-refresh-2';
-  const firstWalletBudgetSessionId = walletSigningBudgetSessionId(firstSigningGrantId);
-  const secondWalletBudgetSessionId = walletSigningBudgetSessionId(secondSigningGrantId);
+  const firstWalletBudgetSessionId = walletSigningBudgetSessionId({
+    curve: 'ed25519',
+    signingGrantId: firstSigningGrantId,
+  });
+  const secondWalletBudgetSessionId = walletSigningBudgetSessionId({
+    curve: 'ed25519',
+    signingGrantId: secondSigningGrantId,
+  });
 
   await mintSession(firstSessionId, firstSigningGrantId, 2);
   expect(await walletBudgetSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({

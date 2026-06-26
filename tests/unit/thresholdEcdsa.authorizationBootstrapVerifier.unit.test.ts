@@ -126,7 +126,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
 
     globalThis.fetch = async (input, init) => {
       const url = String(input);
-      if (url.endsWith('/v2/router-ab/keyset')) {
+      if (url.endsWith('/router-ab/keyset')) {
         return new Response(
           JSON.stringify({
             keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -167,7 +167,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
-      if (url.endsWith('/v1/hss/ecdsa/bootstrap')) {
+      if (url.endsWith('/router-ab/ecdsa-hss/bootstrap')) {
         const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
         const participantIds = Array.isArray(body.participantIds)
           ? body.participantIds.map((participantId) => Number(participantId))
@@ -464,7 +464,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     globalThis.fetch = async (input, init) => {
       const url = String(input);
       requests.push(url);
-      if (url.includes('/v1/hss/ecdsa/bootstrap')) {
+      if (url.includes('/router-ab/ecdsa-hss/bootstrap')) {
         bootstrapBodies.push(JSON.parse(String(init?.body || '{}')) as Record<string, unknown>);
       }
       return new Response(

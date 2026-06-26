@@ -1,5 +1,5 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
-import { ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 } from '@shared/utils/signingSessionSeal';
+import { ROUTER_AB_ED25519_WALLET_SESSION_PATH } from '@shared/utils/signingSessionSeal';
 import {
   type Ed25519SessionPolicy,
   type ThresholdRuntimePolicyScope,
@@ -236,7 +236,7 @@ export async function mintEd25519WalletSession(args: {
   }>;
 
   try {
-    const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2}`;
+    const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`;
     const appSessionJwt =
       args.auth.kind === 'app_session_jwt'
         ? String(args.auth.appSessionJwt || '').trim() || undefined

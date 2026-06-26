@@ -217,7 +217,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -256,7 +256,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -287,7 +287,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -323,7 +323,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -402,7 +402,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       }),
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -438,7 +438,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -486,7 +486,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -521,7 +521,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     });
     try {
       for (const field of forbiddenFields) {
-        const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+        const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
           method: 'POST',
           headers: PASSKEY_BOOTSTRAP_HEADERS,
           body: JSON.stringify(await makeBootstrapBody({ [field]: 'secret-material' })),
@@ -549,7 +549,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     });
     try {
       for (const hssClientSharePublicKey33B64u of malformedPublicKeys) {
-        const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+        const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
           method: 'POST',
           headers: PASSKEY_BOOTSTRAP_HEADERS,
           body: JSON.stringify(await makeBootstrapBody({ hssClientSharePublicKey33B64u })),

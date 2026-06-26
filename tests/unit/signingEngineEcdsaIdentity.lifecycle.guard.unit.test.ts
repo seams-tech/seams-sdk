@@ -187,7 +187,7 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
       'metadata.thresholdOwnerAddress',
       'metadata.ownerAddress',
       'const records = inventory.records',
-      '/v1/hss/ecdsa/key-identities',
+      '/router-ab/ecdsa-hss/key-identities',
     ]) {
       if (loginSource.includes(forbidden)) {
         offenders.push(`login unlock path contains raw boundary token ${forbidden}`);

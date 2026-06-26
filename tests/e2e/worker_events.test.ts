@@ -411,15 +411,15 @@ test.describe('Worker Communication Protocol', () => {
     expect(failedIdx).toBeGreaterThan(firstNonTerminalIdx);
   });
 
-  // happy-path login: seed registration via relay mock and assert full login phase progression
+  // happy-path login: seed registration via Router mock and assert full login phase progression
   test('Progress Messages - Login success after registration', async ({ page }) => {
     const USE_RELAY_SERVER =
       process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';
-    // This test requires a real relay server so the atomic registration can
+    // This test requires a real Router server so the atomic registration can
     // actually create the account on-chain. Without it, the registration step
     // cannot verify the access key on-chain and subsequent login will fail.
     if (!USE_RELAY_SERVER) {
-      test.skip(true, 'Requires relay server for on-chain registration verification');
+      test.skip(true, 'Requires Router server for on-chain registration verification');
     }
     const resultPromise = page.evaluate(
       async ({ useServer }) => {

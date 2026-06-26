@@ -13,7 +13,7 @@ import { SECP256K1_ORDER } from '../../packages/shared-ts/src/threshold/secp256k
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/schemeIds';
 import { RouterAbEcdsaHssPoolFillHandlers } from '../../packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers';
 import {
-  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
+  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPresignBridge';
 import {
@@ -633,7 +633,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     > = [];
     const fetchImpl: typeof fetch = async (url, init) => {
       expect(String(url)).toBe(
-        `https://signing-worker.internal${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1}`,
+        `https://signing-worker.internal${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH}`,
       );
       const headers = new Headers(init?.headers);
       expect(headers.get(ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1)).toBe('signing-worker-private');
@@ -918,7 +918,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     });
     expect(step.ok).toBe(false);
     expect(step.code).toBe('stale_session_state');
-    expect(String(step.message || '')).toContain('/v1/hss/ecdsa/presignature-pool/fill/init');
+    expect(String(step.message || '')).toContain('/router-ab/ecdsa-hss/presignature-pool/fill/init');
     expect(await sharedPresignSessionStore.getSession(presignSessionId)).toBeNull();
   });
 
@@ -1018,7 +1018,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     let forwardedCount = 0;
     globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       forwardedCount += 1;
-      expect(String(url)).toBe('https://relay-a.internal/v1/hss/ecdsa/presignature-pool/fill/step');
+      expect(String(url)).toBe('https://relay-a.internal/router-ab/ecdsa-hss/presignature-pool/fill/step');
       const headers = new Headers(init?.headers);
       const payload = JSON.parse(String(init?.body || '{}'));
       const result = await handlerA.routerAbEcdsaHssPresignaturePoolFillStep({

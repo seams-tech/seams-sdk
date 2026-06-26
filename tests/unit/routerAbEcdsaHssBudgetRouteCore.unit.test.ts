@@ -547,7 +547,7 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
         },
       });
       expect(fetchCalls).toEqual([
-        'https://signing-worker.internal/router-ab/v1/signing-worker/ecdsa-hss/sign',
+        'https://signing-worker.internal/router-ab/signing-worker/ecdsa-hss/sign',
       ]);
       expect(forwardedBodies).toHaveLength(1);
       expect(forwardedBodies[0]).toMatchObject({

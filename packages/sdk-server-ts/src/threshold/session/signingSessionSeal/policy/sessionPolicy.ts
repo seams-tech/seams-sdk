@@ -248,7 +248,10 @@ function normalizeWalletBudgetStatusAcrossStores(
   stores: readonly WalletSigningBudgetSessionStore[],
 ): Promise<SigningSessionSealWalletBudgetStatus | null> {
   return (async () => {
-    const thresholdSessionId = walletSigningBudgetSessionId(input.signingGrantId);
+    const thresholdSessionId = walletSigningBudgetSessionId({
+      curve: input.curve,
+      signingGrantId: input.signingGrantId,
+    });
     for (const store of stores) {
       const normalized = normalizeWalletBudgetStatus(
         input,

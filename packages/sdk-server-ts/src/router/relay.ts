@@ -489,7 +489,7 @@ export interface RelayRouterOptions {
    * - POST `<basePath>/apply-server-seal`
    * - POST `<basePath>/remove-server-seal`
    *
-   * Default `basePath` is `/v2/wallet-session/seal`.
+   * Default `basePath` is `/wallet-session/seal`.
    */
   signingSessionSeal?: SigningSessionSealRoutesOptions | null;
   /**

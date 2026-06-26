@@ -20,6 +20,7 @@ import {
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../commonRouterUtils';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
@@ -27,14 +28,14 @@ import {
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
-  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_HSS_HEALTH_PATH,
+  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
 } from '@shared/utils/routerAbEcdsaHss';
 import {
   signingRootScopeFromRuntimePolicyScope,
@@ -288,10 +289,14 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     ) {
       return { ok: false, code: 'identity_mismatch', message: 'signing root mismatch' };
     }
+    const rpId = parseWebAuthnRpId(passkeyAuthorization.rpId);
+    if (!rpId.ok) {
+      return { ok: false, code: 'invalid_body', message: rpId.error.message };
+    }
     const expectedChallenge = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
       walletId: request.walletId,
       walletKeyId: request.walletKeyId,
-      rpId: passkeyAuthorization.rpId,
+      rpId: rpId.value,
       ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
       signingRootId: request.signingRootId,
       signingRootVersion: request.signingRootVersion,
@@ -306,7 +311,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     });
     const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
       userId: request.walletId,
-      rpId: passkeyAuthorization.rpId,
+      rpId: rpId.value,
       expectedChallenge,
       expected_origin: expectedOrigin,
       webauthn_authentication: passkeyAuthorization.webauthn_authentication,
@@ -438,7 +443,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
 const presignPriorityGate = new PresignPriorityGate();
 
 export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise<Response | null> {
-  if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1) {
+  if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ECDSA_HSS_HEALTH_PATH) {
     const resolved = resolveThresholdScheme(
       ctx.opts.threshold,
       THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
@@ -462,13 +467,13 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
 
   const pathname = ctx.pathname;
   if (
-    pathname !== ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1 &&
-    pathname !== ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1 &&
-    pathname !== ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1 &&
-    pathname !== ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1 &&
-    pathname !== ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1 &&
-    pathname !== ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1 &&
-    pathname !== ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1
+    pathname !== ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH &&
+    pathname !== ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH &&
+    pathname !== ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH &&
+    pathname !== ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH &&
+    pathname !== ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH &&
+    pathname !== ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH &&
+    pathname !== ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH
   ) {
     return null;
   }
@@ -490,7 +495,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
   const scheme = resolved.scheme;
 
-  if (pathname === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1) {
+  if (pathname === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH) {
     return handleRouterAbEcdsaHssNormalSigningRoute({
       ctx,
       body,
@@ -499,7 +504,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     });
   }
 
-  if (pathname === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1) {
+  if (pathname === ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH) {
     return handleRouterAbEcdsaHssNormalSigningRoute({
       ctx,
       body,
@@ -508,7 +513,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     });
   }
 
-  if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1) {
+  if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH) {
     const parsed = parseRouterAbEcdsaHssKeyIdentitiesRequest(body);
     if (!parsed.ok) {
       return json(parsed.body, { status: thresholdEcdsaStatusCode(parsed.body) });
@@ -556,7 +561,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     );
   }
 
-  if (pathname === ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1) {
+  if (pathname === ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH) {
     if (parseSessionKind(body) === 'cookie') {
       const result = {
         ok: false,
@@ -671,7 +676,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     return json(signedResult, { status: thresholdEcdsaStatusCode(signedResult) });
   }
 
-  if (pathname === ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1) {
+  if (pathname === ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH) {
     if (parseSessionKind(body) === 'cookie') {
       const result = {
         ok: false,
@@ -714,7 +719,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     return json(result, { status: thresholdEcdsaStatusCode(result) });
   }
 
-  if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1) {
+  if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH) {
     const parsedBody = parseRouterAbEcdsaHssPoolFillInitRouteRequest(body);
     const requestTag = parsedBody.ok ? parsedBody.request.requestTag : undefined;
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
@@ -737,7 +742,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       gateTicket.release();
     }
   }
-  if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1) {
+  if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH) {
     const parsedBody = parseRouterAbEcdsaHssPoolFillStepRouteRequest(body);
     const requestTag = parsedBody.ok ? parsedBody.request.requestTag : undefined;
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));

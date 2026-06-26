@@ -6,12 +6,12 @@ import {
   THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
 } from '@server/core/ThresholdService/schemes/schemeIds';
 import {
-  ROUTER_AB_ED25519_HEALTH_PATH_V2,
-  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
-  ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
-  ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+  ROUTER_AB_ED25519_HEALTH_PATH,
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
+  ROUTER_AB_ED25519_HSS_PREPARE_PATH,
+  ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1 } from '@shared/utils/routerAbEcdsaHss';
+import { ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH } from '@shared/utils/routerAbEcdsaHss';
 import {
   callCf,
   fetchJson,
@@ -123,7 +123,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2}`, {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(routerAbEd25519WalletSessionCookieBody()),
@@ -159,7 +159,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const res = await callCf(handler, {
       method: 'POST',
-      path: ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+      path: ROUTER_AB_ED25519_WALLET_SESSION_PATH,
       body: routerAbEd25519WalletSessionCookieBody(),
     });
 
@@ -191,7 +191,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2}`, {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HSS_PREPARE_PATH}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,7 +233,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const res = await callCf(handler, {
       method: 'POST',
-      path: ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
+      path: ROUTER_AB_ED25519_HSS_PREPARE_PATH,
       headers: { Authorization: 'Bearer router-ab-wallet-session' },
       body: { sessionKind: 'cookie' },
     });
@@ -264,7 +264,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2}`, {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HSS_FINALIZE_PATH}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -311,7 +311,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const res = await callCf(handler, {
       method: 'POST',
-      path: ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
+      path: ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
       headers: { Authorization: 'Bearer app-session' },
       body: {
         kind: 'email_otp_registration',
@@ -344,7 +344,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1}`, {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -383,7 +383,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const res = await callCf(handler, {
       method: 'POST',
-      path: ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
+      path: ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
       headers: { Authorization: 'Bearer router-ab-wallet-session' },
       body: { sessionKind: 'cookie', keyTargets: [] },
     });
@@ -414,7 +414,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2}`, {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HSS_PREPARE_PATH}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -448,7 +448,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1}`, {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -476,7 +476,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     const router = createRelayRouter(service, { threshold: threshold as any });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HEALTH_PATH_V2}`, {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HEALTH_PATH}`, {
         method: 'GET',
       });
       expect(res.status).toBe(404);
@@ -495,7 +495,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     });
     const service = makeFakeAuthService();
     const handler = createCloudflareRouter(service, { threshold: threshold as any });
-    const res = await callCf(handler, { method: 'GET', path: ROUTER_AB_ED25519_HEALTH_PATH_V2 });
+    const res = await callCf(handler, { method: 'GET', path: ROUTER_AB_ED25519_HEALTH_PATH });
     expect(res.status).toBe(404);
     expect(res.json?.ok).toBe(false);
     expect(res.json?.code).toBe('not_found');

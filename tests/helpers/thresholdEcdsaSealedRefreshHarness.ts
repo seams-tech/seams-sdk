@@ -327,7 +327,7 @@ async function installThresholdRegistrationBootstrapMock(
             remainingUses,
           });
           await threshold.walletSessionStore.putSession(
-            walletSigningBudgetSessionId(signingGrantId),
+            walletSigningBudgetSessionId({ curve: 'ed25519', signingGrantId }),
             {
               ...sessionRecord,
               walletBudgetBinding: {
@@ -795,7 +795,7 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
       relayUpstreamBaseUrl: server.baseUrl,
       threshold,
     });
-    await targetPage.route(`${relayerUrl}/v2/wallet-session/seal/**`, async (route) => {
+    await targetPage.route(`${relayerUrl}/wallet-session/seal/**`, async (route) => {
       const url = route.request().url();
       if (url.endsWith('/apply-server-seal')) {
         signingSessionSealRouteCounts.applyServerSealCalls += 1;

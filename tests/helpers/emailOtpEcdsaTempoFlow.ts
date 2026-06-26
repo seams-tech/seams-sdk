@@ -282,7 +282,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
     },
   });
   await page.route(
-    `${harness.baseUrl}/v2/router-ab/ed25519/hss/finalize`,
+    `${harness.baseUrl}/router-ab/ed25519/hss/finalize`,
     async (route) => {
       const req = route.request();
       if (req.method().toUpperCase() !== 'POST') {
@@ -860,7 +860,7 @@ export async function runEmailOtpEcdsaTempoFlow(
             evaluatorDriverStateB64u: string;
           };
           clientOtOfferMessageB64u: string;
-        }>('/v2/router-ab/ed25519/hss/prepare', registrationBase),
+        }>('/router-ab/ed25519/hss/prepare', registrationBase),
       );
       const ceremonyHandle = String(prepared.ceremonyHandle || '').trim();
       const preparedSession = prepared.preparedSession;
@@ -911,7 +911,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         postRegistrationHssJson<{
           contextBindingB64u: string;
           serverInputDeliveryB64u: string;
-        }>('/v2/router-ab/ed25519/hss/respond', {
+        }>('/router-ab/ed25519/hss/respond', {
           ...registrationBase,
           ceremonyHandle,
           clientRequest: {
@@ -948,7 +948,7 @@ export async function runEmailOtpEcdsaTempoFlow(
           publicKey: string;
           relayerKeyId: string;
           keyVersion: string;
-        }>('/v2/router-ab/ed25519/hss/finalize', {
+        }>('/router-ab/ed25519/hss/finalize', {
           ...registrationBase,
           ceremonyHandle,
           evaluationResult: {

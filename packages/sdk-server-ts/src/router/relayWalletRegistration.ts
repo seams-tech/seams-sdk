@@ -86,6 +86,7 @@ import {
   type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
 import { parseNamedNearAccountId } from '@shared/utils/near';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   normalizeRuntimePolicyScope,
@@ -145,6 +146,17 @@ function requireWebAuthnExpectedOrigin(
       'forbidden',
       'Origin header is required and must be a valid exact origin',
     ),
+  };
+}
+
+function requireWebAuthnRpId(
+  raw: unknown,
+): { ok: true; rpId: WebAuthnRpId } | { ok: false; response: RouteResponse<RouteErrorBody> } {
+  const parsed = parseWebAuthnRpId(raw);
+  if (parsed.ok) return { ok: true, rpId: parsed.value };
+  return {
+    ok: false,
+    response: routeError(400, 'invalid_body', parsed.error.message),
   };
 }
 
@@ -2390,9 +2402,11 @@ export async function handleRelayWalletAddSignerStart(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
+    const parsedRpId = requireWebAuthnRpId(parsedBody.value.intent.rpId);
+    if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       userId: walletId,
-      rpId: parsedBody.value.intent.rpId,
+      rpId: parsedRpId.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
@@ -2572,9 +2586,11 @@ export async function handleRelayWalletAddAuthMethodStart(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
+    const parsedRpId = requireWebAuthnRpId(parsedBody.value.intent.rpId);
+    if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       userId: walletId,
-      rpId: parsedBody.value.intent.rpId,
+      rpId: parsedRpId.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
@@ -2651,9 +2667,11 @@ export async function handleRelayWalletRevokeAuthMethod(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
+    const parsedRpId = requireWebAuthnRpId(parsedBody.value.rpId);
+    if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       userId: walletId,
-      rpId: parsedBody.value.rpId,
+      rpId: parsedRpId.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
@@ -2710,9 +2728,11 @@ export async function handleRelayWalletEcdsaKeyFactsInventory(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
+    const parsedRpId = requireWebAuthnRpId(parsedBody.value.rpId);
+    if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       userId: walletId,
-      rpId: parsedBody.value.rpId,
+      rpId: parsedRpId.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,

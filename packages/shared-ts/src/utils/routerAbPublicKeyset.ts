@@ -1,6 +1,6 @@
 export const ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 = 'router_ab_keyset_v2' as const;
-export const ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2 = '/.well-known/router-ab/keyset' as const;
-export const ROUTER_AB_PUBLIC_KEYSET_PATH_V2 = '/v2/router-ab/keyset' as const;
+export const ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH = '/.well-known/router-ab/keyset' as const;
+export const ROUTER_AB_PUBLIC_KEYSET_PATH = '/router-ab/keyset' as const;
 
 export type RouterAbSignerRoleV1 = 'signer_a' | 'signer_b';
 

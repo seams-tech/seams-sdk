@@ -22,7 +22,7 @@ import {
   ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
 } from '@server/router/routerAbPrivateSigningWorker';
 import {
-  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
+  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
 } from '@server/core/ThresholdService/routerAb/ecdsaHssPresignBridge';
 import { makeSessionAdapter, startExpressRouter } from '../relayer/helpers';
@@ -498,7 +498,7 @@ export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
     try {
       const method = String(req.method || '').toUpperCase();
       const path = String(req.path || req.url || '').split('?')[0] || '';
-      if (!path.startsWith('/router-ab/v1/signing-worker/')) {
+      if (!path.startsWith('/router-ab/signing-worker/')) {
         next();
         return;
       }
@@ -526,7 +526,7 @@ export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
         return;
       }
 
-      if (path === CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1) {
+      if (path === CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH) {
         const request = parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1(req.body);
         const stored = !presignatures.has(request.server_presignature_id);
         if (stored) presignatures.set(request.server_presignature_id, request);

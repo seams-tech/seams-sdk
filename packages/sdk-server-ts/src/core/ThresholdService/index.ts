@@ -81,6 +81,14 @@ export {
   type SealSigningRootSecretShareWireInput,
 } from './signingRootSecretSealing';
 export {
+  createSigningRootSecretShareKekResolver,
+  type CloudflareSecretsStoreSecretBinding,
+  type SigningRootEncodedKekMaterialEncoding,
+  type SigningRootExternalKmsKekClient,
+  type SigningRootExternalKmsKekResolutionResult,
+  type SigningRootKekProvider,
+} from './signingRootKekProvider';
+export {
   createConfiguredSigningRootShareResolver,
 } from './signingRootSecretConfig';
 export {
