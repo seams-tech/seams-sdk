@@ -398,7 +398,7 @@ The relay stores WebAuthn authenticators (credential public keys + counters) and
 For local dev, prefer Postgres (durable; also persists threshold session/auth KV):
 
 ```bash
-# from examples/relay-server
+# from apps/web-server
 pnpm run postgres:up
 
 # optional: bootstrap split DB users + databases + grants
@@ -426,7 +426,7 @@ CONSOLE_POSTGRES_MIGRATION_URL=postgres://seams_console_migrator:seams_console_m
 Alternatively, run Redis and set `REDIS_URL`:
 
 ```bash
-# from examples/relay-server
+# from apps/web-server
 docker compose -f docker-compose.redis.yml up -d
 ```
 

@@ -7,7 +7,7 @@
     using the factory in:
       client/src/theme/base-styles.js (createThemeTokens)
     and emitted for Lit components by:
-      - node sdk/scripts/codegen/generate-w3a-components-css.mjs (dev/local)
+      - node packages/sdk-web/scripts/codegen/generate-w3a-components-css.mjs (dev/local)
       - sdk/rolldown.config.ts (build: emits dist/esm/sdk/w3a-components.css)
 
   - Components load tokens by ensuring w3a-components.css is present once

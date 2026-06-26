@@ -285,13 +285,13 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   }, [relayerBaseUrl]);
 
   const onRegister = async () => {
-    const result = await registerPasskey(targetAccountId, {
+    const result = await registerPasskey({
       onEvent: handleRegistrationEvent,
     });
 
     if (result.success && result.nearAccountId) {
       const tx = result.transactionId ? ` tx: ${result.transactionId}` : '';
-      toast.success(`Registration completed: ${tx}`, { id: 'registration' });
+      toast.success(`Registration completed: ${result.walletId}${tx}`, { id: 'registration' });
       props.onLoggedIn?.(result.nearAccountId);
       return result;
     } else {

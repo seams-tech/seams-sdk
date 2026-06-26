@@ -4,7 +4,7 @@
  *
  * - Generates a fresh Ed25519 keypair (NEAR format)
  * - Calls the NEAR testnet faucet to create and fund a new account
- * - Writes/updates examples/relay-server/.env with required variables
+ * - Writes/updates apps/web-server/.env with required variables
  *
  * Idempotent: if a valid .env already exists with required values, it skips work.
  */
@@ -13,14 +13,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
-// Local deps from passkey-sdk package
+// Local deps from the SDK workspace.
 import bs58 from 'bs58';
 import * as ed from '@noble/ed25519';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(path.join(__dirname, '../..'));
-const RELAY_DIR = path.join(ROOT, 'examples', 'relay-server');
+const RELAY_DIR = path.join(ROOT, 'apps', 'web-server');
 const DOTENV_PATH = path.join(RELAY_DIR, '.env');
 // Allow overriding artifact paths via env to keep workspace clean (e.g., playwright-report)
 const DEFAULT_CACHE_FILE = path.join(RELAY_DIR, '.provision-cache.json');

@@ -131,7 +131,7 @@ pnpm -C tests run test:signers:gates
 Threshold ECDSA lane-key queue matrix (Refactor 22):
 
 ```bash
-(pnpm -C sdk run build:prepare) \
+(pnpm -C packages/sdk-web run build:prepare) \
   && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.commitQueue.unit.test.ts --reporter=line \
   && pnpm -C tests exec playwright test ./e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts -g "same-tab refresh reuses sealed PRF session without extra TouchID prompt" --reporter=line \
   && pnpm -C tests exec playwright test ./unit/reportTempoBroadcastFailure.unit.test.ts ./unit/evmSigning.noncePrefetch.unit.test.ts --reporter=line
@@ -148,7 +148,7 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
 Manual build without tests:
 
 ```bash
-pnpm -C sdk build
+pnpm -C packages/sdk-web build
 ```
 
 ## Suite Quick Reference

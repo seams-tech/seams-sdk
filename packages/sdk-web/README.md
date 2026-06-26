@@ -175,7 +175,7 @@ export default defineConfig({
 });
 ```
 
-See `apps/web-client` and `apps/docs` for full app examples.
+See `apps/seams-site` and `apps/docs` for full app examples.
 
 ## Stable API Surfaces
 

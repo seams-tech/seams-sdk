@@ -9601,15 +9601,8 @@ pub fn cloudflare_ecdsa_hss_stable_key_context_v1(
     context: &RouterAbEcdsaHssStableKeyContextV1,
 ) -> RouterAbProtocolResult<EcdsaHssStableKeyContext> {
     context.validate()?;
-    let ecdsa_context = EcdsaHssStableKeyContext::new(
-        context.wallet_id.clone(),
-        context.rp_id.clone(),
-        context.ecdsa_threshold_key_id.clone(),
-        context.signing_root_id.clone(),
-        context.signing_root_version.clone(),
-        context.key_purpose.clone(),
-        context.key_version.clone(),
-    );
+    let ecdsa_context =
+        EcdsaHssStableKeyContext::new(*context.context_binding_digest()?.as_bytes());
     ecdsa_context.validate().map_err(map_ecdsa_hss_error_v1)?;
     Ok(ecdsa_context)
 }

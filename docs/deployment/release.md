@@ -13,7 +13,7 @@ pnpm check
 pnpm build:sdk-prod
 pnpm test:lite
 pnpm test:signers:gates
-pnpm -C sdk test:relayer
+pnpm -C packages/sdk-web test:relayer
 ```
 
 For changes touching threshold signing or Postgres-backed relay behavior, also
@@ -22,14 +22,14 @@ run:
 ```bash
 pnpm test:threshold-core
 pnpm test:threshold-ed25519:active-path
-pnpm -C examples/relay-server run postgres:setup:split
+pnpm -C apps/web-server run postgres:setup:split
 ```
 
 ## Version And Tag
 
 ```bash
-# Edit sdk/package.json version first.
-git add sdk/package.json
+# Edit packages/sdk-web/package.json version first.
+git add packages/sdk-web/package.json
 git commit -m "release: vX.Y.Z"
 git tag vX.Y.Z -m "release: vX.Y.Z"
 ```
@@ -65,7 +65,7 @@ npm publish remains manual:
 npm login --scope=@seams-sdk --registry=https://registry.npmjs.org
 pnpm install --frozen-lockfile
 pnpm build:sdk-prod
-cd sdk
+cd packages/sdk-web
 npm publish --access public
 ```
 
@@ -83,12 +83,6 @@ Production Pages:
 gh workflow run deploy-pages.yml --ref main -f target=all -f deploy_environment=production
 ```
 
-Production relay:
-
-```bash
-gh workflow run deploy-relay.yml --ref main -f target=production
-```
-
 For staging validation, use `--ref dev` and `staging`.
 
 ## Release Verification
@@ -101,7 +95,7 @@ Check:
 - App Pages and wallet Pages are on the same commit.
 - `/sdk/wallet-iframe-host-runtime.js` and `/sdk/workers/near-signer.worker.js`
   load from the wallet origin.
-- Relay health and registration/signing flows work against the deployed relay.
+- Registration/signing smoke paths work against the deployed Router A/B workers.
 
 ## Rollback
 

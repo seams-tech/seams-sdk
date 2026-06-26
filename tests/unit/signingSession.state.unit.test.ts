@@ -271,7 +271,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../apps/web-client/src/flows/demo/hooks/useDemoThresholdAccountState.ts',
+        '../apps/seams-site/src/flows/demo/hooks/useDemoThresholdAccountState.ts',
       ),
       'utf8',
     );

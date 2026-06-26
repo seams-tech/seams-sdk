@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { ensurePostgresSchema } from '../../packages/sdk-server-ts/dist/esm/storage/postgres.js';
 
-const envFile = String(process.env.ENV_FILE || './examples/relay-server/.env').trim();
+const envFile = String(process.env.ENV_FILE || './apps/web-server/.env').trim();
 dotenv.config({ path: envFile });
 
 const postgresUrl = String(process.env.POSTGRES_URL || '').trim();

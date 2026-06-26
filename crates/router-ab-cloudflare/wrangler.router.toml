@@ -1,4 +1,4 @@
-name = "router-ab-strict-router"
+name = "router-ab-router"
 main = "build/router/worker/shim.mjs"
 compatibility_date = "2026-06-12"
 workers_dev = true
@@ -34,15 +34,15 @@ new_sqlite_classes = [
 
 [[services]]
 binding = "SIGNER_A"
-service = "router-ab-strict-signer-a"
+service = "router-ab-signer-a"
 
 [[services]]
 binding = "SIGNER_B"
-service = "router-ab-strict-signer-b"
+service = "router-ab-signer-b"
 
 [[services]]
 binding = "SIGNING_WORKER"
-service = "router-ab-strict-signing-worker"
+service = "router-ab-signing-worker"
 
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -81,7 +81,7 @@ SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 # Deployment targets keep Worker names and service bindings explicit.
 [env.staging]
-name = "router-ab-strict-router-staging"
+name = "router-ab-router-staging"
 workers_dev = true
 
 [[env.staging.durable_objects.bindings]]
@@ -110,15 +110,15 @@ class_name = "RouterAbRouterWalletBudgetDurableObject"
 
 [[env.staging.services]]
 binding = "SIGNER_A"
-service = "router-ab-strict-signer-a-staging"
+service = "router-ab-signer-a-staging"
 
 [[env.staging.services]]
 binding = "SIGNER_B"
-service = "router-ab-strict-signer-b-staging"
+service = "router-ab-signer-b-staging"
 
 [[env.staging.services]]
 binding = "SIGNING_WORKER"
-service = "router-ab-strict-signing-worker-staging"
+service = "router-ab-signing-worker-staging"
 
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -156,7 +156,7 @@ SIGNER_B_PEER_BINDING = "SIGNER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 [env.production]
-name = "router-ab-strict-router-prod"
+name = "router-ab-router-prod"
 workers_dev = true
 
 [[env.production.durable_objects.bindings]]
@@ -185,15 +185,15 @@ class_name = "RouterAbRouterWalletBudgetDurableObject"
 
 [[env.production.services]]
 binding = "SIGNER_A"
-service = "router-ab-strict-signer-a-prod"
+service = "router-ab-signer-a-prod"
 
 [[env.production.services]]
 binding = "SIGNER_B"
-service = "router-ab-strict-signer-b-prod"
+service = "router-ab-signer-b-prod"
 
 [[env.production.services]]
 binding = "SIGNING_WORKER"
-service = "router-ab-strict-signing-worker-prod"
+service = "router-ab-signing-worker-prod"
 
 [env.production.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"

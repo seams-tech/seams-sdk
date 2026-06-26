@@ -2,7 +2,7 @@
 export type CfEnv = object;
 
 /**
- * Convenience env shape matching the `examples/relay-cloudflare-worker` configuration.
+ * Convenience env shape for Cloudflare-hosted router deployments.
  * This is optional — you can define your own `Env` type with different binding names.
  */
 export interface RelayCloudflareWorkerEnv {

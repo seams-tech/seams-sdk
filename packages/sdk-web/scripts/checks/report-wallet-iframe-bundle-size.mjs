@@ -3,9 +3,9 @@
  * Report wallet iframe boot-path, worker, and WASM sizes.
  *
  * Usage:
- *   pnpm -C sdk build:prod
- *   pnpm -C sdk check:bundle-size
- *   pnpm -C sdk check:bundle-size -- --budget walletHostGzip=100000 --budget ecdsaWasmGzip=1500000
+ *   pnpm -C packages/sdk-web build:prod
+ *   pnpm -C packages/sdk-web check:bundle-size
+ *   pnpm -C packages/sdk-web check:bundle-size -- --budget walletHostGzip=100000 --budget ecdsaWasmGzip=1500000
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -269,7 +269,7 @@ if (jsonOutput) {
     console.warn(
       `\n[report-wallet-iframe-bundle-size] Missing build outputs:\n${missing
         .map((p) => `  - ${p}`)
-        .join('\n')}\n\nRun 'pnpm -C sdk build:prod' before using this report in CI.`,
+        .join('\n')}\n\nRun 'pnpm -C packages/sdk-web build:prod' before using this report in CI.`,
     );
   }
 }

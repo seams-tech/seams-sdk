@@ -52,7 +52,7 @@ const sessionIdPublicSurfaceRoots = [
   'packages/sdk-server-ts/src',
   'packages/sdk-web/src',
   'packages/shared-ts/src',
-  'apps/web-client/src/flows/demo',
+  'apps/seams-site/src/flows/demo',
 ] as const;
 const sessionIdBoundaryRoots = [
   'apps/docs/src/concepts',
@@ -60,7 +60,7 @@ const sessionIdBoundaryRoots = [
   'wasm/near_signer/src',
 ] as const;
 const classifiedSessionIdPublicSurfaceFiles: Record<string, SessionIdSurfaceClassification> = {
-  'apps/web-client/src/flows/demo/hooks/useDemoSigningSession.ts':
+  'apps/seams-site/src/flows/demo/hooks/useDemoSigningSession.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-server-ts/src/core/RecoveryExecutionStore.ts':
     'keep_app_device_or_recovery_session',

@@ -125,7 +125,7 @@ function assertSourceOwnership(expectations: readonly SourceOwnershipExpectation
 
 test.describe('Router A/B normal-signing SDK source guards', () => {
   test('local Caddy keeps the Router origin on one upstream', () => {
-    const source = readRepoSource('apps/web-client/Caddyfile');
+    const source = readRepoSource('apps/seams-site/Caddyfile');
     const routerOriginMatch = source.match(/localhost:9444\s*\{[\s\S]*?\n\}/);
     expect(routerOriginMatch, 'localhost:9444 site block is required').not.toBeNull();
 
@@ -150,8 +150,8 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     const sources = [
       'README.md',
       'docs/router-a-b-local-dev.md',
-      'apps/web-client/README.md',
-      'apps/web-client/env.example',
+      'apps/seams-site/README.md',
+      'apps/seams-site/env.example',
     ].map((relativePath) => ({
       relativePath,
       source: readRepoSource(relativePath),
@@ -169,7 +169,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     });
 
     expect(offenders, offenders.join('\n')).toEqual([]);
-    expect(readRepoSource('apps/web-client/Caddyfile')).toContain('reverse_proxy 127.0.0.1:9090');
+    expect(readRepoSource('apps/seams-site/Caddyfile')).toContain('reverse_proxy 127.0.0.1:9090');
   });
 
   test('pnpm router launches one public Router server and three private workers', () => {

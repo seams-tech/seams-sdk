@@ -92,17 +92,17 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         wrangler: include_str!("../../router-ab-cloudflare/wrangler.router.toml"),
     };
     router.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=router");
-    router.assert_wrangler("name = \"router-ab-strict-router\"");
+    router.assert_wrangler("name = \"router-ab-router\"");
     router.assert_wrangler("[env.staging]");
-    router.assert_wrangler("name = \"router-ab-strict-router-staging\"");
-    router.assert_wrangler("service = \"router-ab-strict-signer-a-staging\"");
-    router.assert_wrangler("service = \"router-ab-strict-signer-b-staging\"");
-    router.assert_wrangler("service = \"router-ab-strict-signing-worker-staging\"");
+    router.assert_wrangler("name = \"router-ab-router-staging\"");
+    router.assert_wrangler("service = \"router-ab-signer-a-staging\"");
+    router.assert_wrangler("service = \"router-ab-signer-b-staging\"");
+    router.assert_wrangler("service = \"router-ab-signing-worker-staging\"");
     router.assert_wrangler("[env.production]");
-    router.assert_wrangler("name = \"router-ab-strict-router-prod\"");
-    router.assert_wrangler("service = \"router-ab-strict-signer-a-prod\"");
-    router.assert_wrangler("service = \"router-ab-strict-signer-b-prod\"");
-    router.assert_wrangler("service = \"router-ab-strict-signing-worker-prod\"");
+    router.assert_wrangler("name = \"router-ab-router-prod\"");
+    router.assert_wrangler("service = \"router-ab-signer-a-prod\"");
+    router.assert_wrangler("service = \"router-ab-signer-b-prod\"");
+    router.assert_wrangler("service = \"router-ab-signing-worker-prod\"");
     router.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     router.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     router.assert_wrangler("binding = \"SIGNER_A\"");
@@ -129,11 +129,11 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         wrangler: include_str!("../../router-ab-cloudflare/wrangler.signer-a.toml"),
     };
     deriver_a.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=deriver-a");
-    deriver_a.assert_wrangler("name = \"router-ab-strict-signer-a\"");
-    deriver_a.assert_wrangler("name = \"router-ab-strict-signer-a-staging\"");
-    deriver_a.assert_wrangler("service = \"router-ab-strict-signer-b-staging\"");
-    deriver_a.assert_wrangler("name = \"router-ab-strict-signer-a-prod\"");
-    deriver_a.assert_wrangler("service = \"router-ab-strict-signer-b-prod\"");
+    deriver_a.assert_wrangler("name = \"router-ab-signer-a\"");
+    deriver_a.assert_wrangler("name = \"router-ab-signer-a-staging\"");
+    deriver_a.assert_wrangler("service = \"router-ab-signer-b-staging\"");
+    deriver_a.assert_wrangler("name = \"router-ab-signer-a-prod\"");
+    deriver_a.assert_wrangler("service = \"router-ab-signer-b-prod\"");
     deriver_a.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     deriver_a.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     deriver_a.assert_wrangler("binding = \"SIGNER_B\"");
@@ -161,11 +161,11 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         wrangler: include_str!("../../router-ab-cloudflare/wrangler.signer-b.toml"),
     };
     deriver_b.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=deriver-b");
-    deriver_b.assert_wrangler("name = \"router-ab-strict-signer-b\"");
-    deriver_b.assert_wrangler("name = \"router-ab-strict-signer-b-staging\"");
-    deriver_b.assert_wrangler("service = \"router-ab-strict-signer-a-staging\"");
-    deriver_b.assert_wrangler("name = \"router-ab-strict-signer-b-prod\"");
-    deriver_b.assert_wrangler("service = \"router-ab-strict-signer-a-prod\"");
+    deriver_b.assert_wrangler("name = \"router-ab-signer-b\"");
+    deriver_b.assert_wrangler("name = \"router-ab-signer-b-staging\"");
+    deriver_b.assert_wrangler("service = \"router-ab-signer-a-staging\"");
+    deriver_b.assert_wrangler("name = \"router-ab-signer-b-prod\"");
+    deriver_b.assert_wrangler("service = \"router-ab-signer-a-prod\"");
     deriver_b.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     deriver_b.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     deriver_b.assert_wrangler("binding = \"SIGNER_A\"");
@@ -193,9 +193,9 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         wrangler: include_str!("../../router-ab-cloudflare/wrangler.signing-worker.toml"),
     };
     signing_worker.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=signing-worker");
-    signing_worker.assert_wrangler("name = \"router-ab-strict-signing-worker\"");
-    signing_worker.assert_wrangler("name = \"router-ab-strict-signing-worker-staging\"");
-    signing_worker.assert_wrangler("name = \"router-ab-strict-signing-worker-prod\"");
+    signing_worker.assert_wrangler("name = \"router-ab-signing-worker\"");
+    signing_worker.assert_wrangler("name = \"router-ab-signing-worker-staging\"");
+    signing_worker.assert_wrangler("name = \"router-ab-signing-worker-prod\"");
     signing_worker.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     signing_worker.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     signing_worker.assert_wrangler(

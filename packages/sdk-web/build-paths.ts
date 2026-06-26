@@ -38,9 +38,9 @@ export const BUILD_PATHS = {
 
   // Frontend deployment paths
   FRONTEND: {
-    ROOT: '../../apps/web-client/src/public',
-    SDK: '../../apps/web-client/src/public/sdk',
-    WORKERS: '../../apps/web-client/src/public/sdk/workers',
+    ROOT: '../../apps/seams-site/src/public',
+    SDK: '../../apps/seams-site/src/public/sdk',
+    WORKERS: '../../apps/seams-site/src/public/sdk/workers',
   },
 
   // Runtime paths (used by workers and tests)

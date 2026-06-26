@@ -1,7 +1,7 @@
 /*
   Export Private Key viewer structural and visual styles.
   Reads theme tokens from w3a-components.css (generated from palette.json).
-  See client/src/theme/base-styles.js and sdk/scripts/codegen/generate-w3a-components-css.mjs.
+  See client/src/theme/base-styles.js and packages/sdk-web/scripts/codegen/generate-w3a-components-css.mjs.
 */
 
 :host {

@@ -3,7 +3,7 @@
 The SDK has two deployment outputs:
 
 - npm package `@seams/sdk`
-- runtime bundles from `sdk/dist` served by Pages at `/sdk/*` and optionally
+- runtime bundles from `packages/sdk-web/dist` served by Pages at `/sdk/*` and optionally
   published to Cloudflare R2
 
 The runtime bundles are commit-built artifacts. Keep the Pages deploy and R2
@@ -21,10 +21,10 @@ pnpm build:sdk-prod
 
 Main outputs:
 
-- `sdk/dist/esm/sdk/*`
-- `sdk/dist/workers/*`
-- `sdk/dist/esm/wasm/*`
-- `sdk/dist/esm/server/*`
+- `packages/sdk-web/dist/esm/sdk/*`
+- `packages/sdk-web/dist/workers/*`
+- `packages/sdk-web/dist/esm/wasm/*`
+- `packages/sdk-web/dist/esm/server/*`
 
 ## Pages Runtime Assets
 
@@ -32,14 +32,14 @@ Main outputs:
 
 ```bash
 pnpm build:sdk-prod
-pnpm -C examples/seams-site build
+pnpm -C apps/seams-site exec vite build
 ```
 
 Then it copies runtime assets into the Pages output:
 
 ```bash
-sdk/dist/esm/sdk/       -> examples/seams-site/dist/sdk/
-sdk/dist/workers/       -> examples/seams-site/dist/sdk/workers/
+packages/sdk-web/dist/esm/sdk/       -> apps/seams-site/dist/sdk/
+packages/sdk-web/dist/workers/       -> apps/seams-site/dist/sdk/workers/
 ```
 
 Use `VITE_SDK_BASE_PATH=/sdk` unless you intentionally serve the SDK under a
@@ -62,7 +62,7 @@ gh workflow run deploy-pages.yml --ref dev -f target=wallet -f deploy_environmen
 
 ## R2 Runtime Publish
 
-`publish-sdk-r2.yml` publishes signed `sdk/dist` bundles to R2.
+`publish-sdk-r2.yml` publishes signed `packages/sdk-web/dist` bundles to R2.
 
 Default prefixes:
 
@@ -105,7 +105,7 @@ SDK runtime deploy path for the same commit.
 ```bash
 pnpm install --frozen-lockfile
 pnpm build:sdk-prod
-cd sdk
+cd packages/sdk-web
 npm publish --access public
 ```
 

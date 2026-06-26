@@ -5,7 +5,6 @@ packages:
   - packages/shared-ts
   - voiceId
   - apps/web-server
-  - apps/web-client
+  - apps/seams-site
   - apps/docs
-  - examples/relay-cloudflare-worker
   - examples/self-host-cloudflare-worker

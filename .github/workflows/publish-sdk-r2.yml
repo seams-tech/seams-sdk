@@ -44,6 +44,7 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      SDK_DIST_DIR: packages/sdk-web/dist
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -78,21 +79,21 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Build SDK (sdk, production)
+      - name: Build SDK (production)
         run: pnpm build:sdk-prod
 
       # For workflow_dispatch runs, execute the same test suite as CI before publishing.
       - name: Install Playwright (Chromium + system deps)
         if: github.event_name == 'workflow_dispatch'
-        run: pnpm -C sdk exec playwright install --with-deps chromium
+        run: pnpm -C tests exec playwright install --with-deps chromium
 
       - name: Type-check SDK
         if: github.event_name == 'workflow_dispatch'
-        run: pnpm -C sdk type-check
+        run: pnpm -C packages/sdk-web type-check
 
       - name: Assert generated palette CSS
         if: github.event_name == 'workflow_dispatch'
-        run: node sdk/scripts/checks/assert-palette-css.mjs
+        run: node packages/sdk-web/scripts/checks/assert-palette-css.mjs
 
       - name: Run wallet-iframe tests
         if: github.event_name == 'workflow_dispatch'
@@ -100,25 +101,25 @@ jobs:
           USE_RELAY_SERVER: '1'
           NO_CADDY: '1'
           VITE_WALLET_DEV_CSP: 'strict'
-        run: pnpm -C sdk test:wallet-iframe
+        run: pnpm -C packages/sdk-web test:wallet-iframe
 
       - name: Run lit-components tests
         if: github.event_name == 'workflow_dispatch'
         env:
           NO_CADDY: '1'
           VITE_WALLET_DEV_CSP: 'strict'
-        run: pnpm -C sdk test:lit-components
+        run: pnpm -C packages/sdk-web test:lit-components
 
       - name: Run unit tests
         if: github.event_name == 'workflow_dispatch'
         env:
           NO_CADDY: '1'
           VITE_WALLET_DEV_CSP: 'strict'
-        run: pnpm -C sdk test:unit
+        run: pnpm -C packages/sdk-web test:unit
 
       - name: Run relayer (server) tests
         if: github.event_name == 'workflow_dispatch'
-        run: pnpm -C sdk test:relayer
+        run: pnpm -C packages/sdk-web test:relayer
 
       - name: Validate R2 secrets are present
         run: |
@@ -130,7 +131,7 @@ jobs:
 
       - name: Generate sha256 manifest (sorted)
         run: |
-          cd sdk/dist
+          cd "$SDK_DIST_DIR"
           find . -type f \
             ! -name "manifest.json" \
             ! -name "manifest.sig" \
@@ -138,7 +139,7 @@ jobs:
 
       - name: Convert manifest to JSON
         run: |
-          cd sdk/dist
+          cd "$SDK_DIST_DIR"
           python3 - <<'PY'
           import json, pathlib
           entries = []
@@ -158,7 +159,7 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: 'true'
         run: |
-          cd sdk/dist
+          cd "$SDK_DIST_DIR"
           cosign sign-blob --yes --output-signature manifest.sig manifest.json
 
       - name: Install AWS CLI (via pip)
@@ -186,14 +187,17 @@ jobs:
           PREFIX="${BASE_PREFIX}/${PUBLISH_SHA}"
           echo "Publishing to s3://$R2_BUCKET/$PREFIX" >&2
 
-          aws s3 sync sdk/dist "s3://$R2_BUCKET/$PREFIX" \
-            --endpoint-url "$R2_ENDPOINT" --delete
+          aws s3 sync "$SDK_DIST_DIR" "s3://$R2_BUCKET/$PREFIX" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --delete
 
-          for f in $(find sdk/dist -name "*.wasm" -type f); do
-            key=${f#sdk/dist/}
+          find "$SDK_DIST_DIR" -name "*.wasm" -type f -print0 | while IFS= read -r -d '' f; do
+            key=${f#${SDK_DIST_DIR}/}
             aws s3 cp "$f" "s3://$R2_BUCKET/$PREFIX/$key" \
               --endpoint-url "$R2_ENDPOINT" \
               --content-type application/wasm \
+              --cache-control "public, max-age=31536000, immutable" \
               --metadata-directive REPLACE
           done
 
@@ -210,14 +214,17 @@ jobs:
             PREFIX="releases/${TAG}"
             echo "Publishing tag alias to s3://$R2_BUCKET/$PREFIX" >&2
 
-            aws s3 sync sdk/dist "s3://$R2_BUCKET/$PREFIX" \
-              --endpoint-url "$R2_ENDPOINT" --delete
+            aws s3 sync "$SDK_DIST_DIR" "s3://$R2_BUCKET/$PREFIX" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --cache-control "public, max-age=31536000, immutable" \
+              --delete
 
-            for f in $(find sdk/dist -name "*.wasm" -type f); do
-              key=${f#sdk/dist/}
+            find "$SDK_DIST_DIR" -name "*.wasm" -type f -print0 | while IFS= read -r -d '' f; do
+              key=${f#${SDK_DIST_DIR}/}
               aws s3 cp "$f" "s3://$R2_BUCKET/$PREFIX/$key" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --content-type application/wasm \
+                --cache-control "public, max-age=31536000, immutable" \
                 --metadata-directive REPLACE
             done
           done

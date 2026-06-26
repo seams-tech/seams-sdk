@@ -46,7 +46,7 @@ test.describe('refactor 67 folder reorg guards', () => {
       'packages/sdk-web',
       'packages/sdk-server-ts',
       'packages/shared-ts',
-      'apps/web-client',
+      'apps/seams-site',
       'apps/web-server',
       'apps/docs',
     ]) {
@@ -55,7 +55,7 @@ test.describe('refactor 67 folder reorg guards', () => {
 
     expect(workspace).not.toMatch(/^\s*-\s*sdk\s*$/m);
     expect(workspace).not.toContain('packages/sdk-runtime-ts');
-    expect(workspace).not.toContain('examples/seams-site');
+    expect(workspace).not.toContain('apps/web-client');
     expect(workspace).not.toContain('examples/relay-server');
     expect(workspace).not.toContain('examples/seams-docs');
   });
@@ -75,7 +75,7 @@ test.describe('refactor 67 folder reorg guards', () => {
   test('keeps deployable apps from importing package implementation source', () => {
     const violations: string[] = [];
     for (const file of [
-      ...listSourceFiles('apps/web-client'),
+      ...listSourceFiles('apps/seams-site'),
       ...listSourceFiles('apps/web-server'),
     ]) {
       const source = readRepoFile(file);

@@ -28,7 +28,7 @@ pnpm run server
 
 ## Repo Layout
 
-- `apps/web-client`: local app, wallet origin, and Caddy config.
+- `apps/seams-site`: local app, wallet origin, and Caddy config.
 - `apps/web-server`: relay/server runtime.
 - `apps/docs`: documentation site.
 - `packages/sdk-web`: browser SDK package.

@@ -6,7 +6,7 @@
   client/src/theme/base-styles.js. The stylesheet is ensured by the component
   loader (see css/css-loader.ts). To modify colors, edit palette.json or
   adjust alias mappings in base-styles.js, then regenerate via:
-    - node sdk/scripts/codegen/generate-w3a-components-css.mjs (dev)
+    - node packages/sdk-web/scripts/codegen/generate-w3a-components-css.mjs (dev)
     - or build, which emits dist/esm/sdk/w3a-components.css
 */
 

@@ -102,8 +102,8 @@ jobs:
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
-      - name: Generate WASM TypeScript types (wasm-pack)
-        run: pnpm -C sdk exec bash ./scripts/codegen/generate-types.sh
+      - name: Build WASM packages
+        run: pnpm build:wasm
 
       - name: Check (lint + format + type-check)
         run: pnpm check
@@ -115,13 +115,13 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install Playwright (Chromium + system deps)
-        run: pnpm -C sdk exec playwright install --with-deps chromium
+        run: pnpm -C tests exec playwright install --with-deps chromium
 
       - name: Build SDK (production)
         run: pnpm build:sdk-prod
 
       - name: Assert generated palette CSS
-        run: node sdk/scripts/checks/assert-palette-css.mjs
+        run: node packages/sdk-web/scripts/checks/assert-palette-css.mjs
 
       - name: Run lite SDK tests
         run: pnpm test:lite
@@ -130,7 +130,7 @@ jobs:
         run: pnpm test:signers:gates
 
       - name: Run relayer (server) tests
-        run: pnpm -C sdk test:relayer
+        run: pnpm -C packages/sdk-web test:relayer
 
   signer-parity-swift:
     runs-on: macos-latest
@@ -195,8 +195,8 @@ jobs:
       - name: Install dependencies (workspace)
         run: pnpm install --frozen-lockfile
 
-      - name: Prepare SDK dist for relay-server scripts
-        run: pnpm -s server:prepare-sdk
+      - name: Prepare SDK dist for web-server scripts
+        run: pnpm -C packages/sdk-web run build:prepare
 
       - name: Run split-domain Postgres bootstrap+migrate+verify smoke
         env:
@@ -204,11 +204,11 @@ jobs:
           POSTGRES_MIGRATION_URL: postgres://seams_signer_migrator:seams_signer_migrator@127.0.0.1:5432/seams_signer
           CONSOLE_POSTGRES_URL: postgres://seams_console:seams_console@127.0.0.1:5432/seams_console
           CONSOLE_POSTGRES_MIGRATION_URL: postgres://seams_console_migrator:seams_console_migrator@127.0.0.1:5432/seams_console
-        run: pnpm -C examples/relay-server run postgres:setup:split
+        run: pnpm -C apps/web-server run postgres:setup:split
 
       - name: Teardown relay-server Postgres compose stack
         if: always()
-        run: pnpm -C examples/relay-server run postgres:down
+        run: pnpm -C apps/web-server run postgres:down
 
   threshold-signing-core:
     runs-on: ubuntu-latest
@@ -272,13 +272,13 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install Playwright (Chromium + system deps)
-        run: pnpm -C sdk exec playwright install --with-deps chromium
+        run: pnpm -C tests exec playwright install --with-deps chromium
 
       - name: Build SDK (production)
         run: pnpm build:sdk-prod
 
       - name: Smoke check eth_signer runtime loading (Node + Workers)
-        run: pnpm -C sdk smoke:eth-signer:runtimes
+        run: pnpm -C packages/sdk-web smoke:eth-signer:runtimes
 
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
@@ -309,5 +309,5 @@ jobs:
           name: threshold-core-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
-            sdk/playwright-report
-            sdk/test-results
+            packages/sdk-web/playwright-report
+            packages/sdk-web/test-results

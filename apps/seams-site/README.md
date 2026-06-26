@@ -1,4 +1,4 @@
-# Wallet Secure Dev Server (examples/vite-secure)
+# Seams Site Dev Server
 
 This app runs a dedicated wallet/service origin for local development. It serves a cross-origin WalletIframe page that hosts the Seams SDK, wasm signers, and related workers. The Vite dev plugin `@seams/sdk/plugins/vite` wires up the service route and SDK assets.
 
@@ -7,17 +7,17 @@ This app runs a dedicated wallet/service origin for local development. It serves
 - Wallet origin (via Caddy): `https://localhost:8443`
 - Router API origin (via Caddy): `https://localhost:9444`
 - Service path: `/wallet-service`
-- SDK assets base: `/sdk/*` (served from `passkey-sdk/dist` in the workspace)
+- SDK assets base: `/sdk/*` (served from `packages/sdk-web/dist` in the workspace)
 
 ## Usage
 
 - In one terminal, build or watch the SDK so `dist/` exists:
-  - Watch: `pnpm -C passkey-sdk dev`
-  - One-off build: `pnpm -C passkey-sdk build`
+  - Watch: `pnpm -C packages/sdk-web dev`
+  - One-off build: `pnpm -C packages/sdk-web build`
 - In another terminal, start this dev server:
 
 ```
-pnpm -C examples/vite-secure dev
+pnpm -C apps/seams-site dev
 ```
 
 - This command runs `docs:build` before starting Vite so the `/docs` route always serves the latest static output.
@@ -34,7 +34,7 @@ Open:
 
 - The route `/wallet-service` is provided by the Vite plugin and loads `/sdk/wallet-iframe-host-runtime.js`.
 - The dev server includes cross-origin isolation headers (COEP/COOP) and a WebAuthn `Permissions-Policy` (via `server.headers` and Caddy). Avoid setting conflicting headers in multiple places.
-- The `/sdk/*` path is mapped by the plugin to the workspace `passkey-sdk/dist` (zero-copy). Keep the SDK in `dev` or re-run `build` after changes.
+- The `/sdk/*` path is mapped by the plugin to the workspace `packages/sdk-web/dist` (zero-copy). Keep the SDK in `dev` or re-run `build` after changes.
 - Docs are served from the VitePress dev server at `https://docs.localhost`.
 
 ### Dashboard inline modal scrolling

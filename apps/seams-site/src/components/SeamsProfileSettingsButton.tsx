@@ -37,7 +37,7 @@ export const SeamsProfileSettingsButton: React.FC<SeamsProfileSettingsButtonProp
       });
       return;
     }
-    if (event.phase === LinkDeviceEventPhase.STEP_08_COMPLETED && event.status === 'succeeded') {
+    if (event.status === 'succeeded') {
       toast.success(event.message || 'Device linking complete!', { id: 'device-linking' });
       return;
     }
@@ -97,9 +97,6 @@ export const SeamsProfileSettingsButton: React.FC<SeamsProfileSettingsButtonProp
           }
           deviceLinkingScannerParams={{
             fundingAmount: '0.05',
-            onDeviceLinked: (result: any) => {
-              toast.success(`Device linked successfully to ${result.linkedToAccount}!`);
-            },
             onError: (error: Error) => {
               console.error('Device linking error:', error);
               toast.dismiss('device-linking');

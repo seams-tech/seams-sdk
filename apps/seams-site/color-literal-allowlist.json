@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedBy": "sdk/scripts/check-site-css-colors.mjs",
+  "generatedBy": "packages/sdk-web/scripts/check-site-css-colors.mjs",
   "files": {
-    "examples/seams-site/src/app.css": ["#12161d", "#171b22", "#2a2f38", "#f3f5f8", "#fff"],
-    "examples/seams-site/src/components/ArrowRightAnim.css": [],
-    "examples/seams-site/src/components/Carousel/CarouselStyles.css": [],
-    "examples/seams-site/src/components/DemoPage.css": [],
-    "examples/seams-site/src/components/EmailRecoveryFields.css": [],
-    "examples/seams-site/src/components/Footer.css": [
+    "apps/seams-site/src/app.css": ["#12161d", "#171b22", "#2a2f38", "#f3f5f8", "#fff"],
+    "apps/seams-site/src/components/ArrowRightAnim.css": [],
+    "apps/seams-site/src/components/Carousel/CarouselStyles.css": [],
+    "apps/seams-site/src/components/DemoPage.css": [],
+    "apps/seams-site/src/components/EmailRecoveryFields.css": [],
+    "apps/seams-site/src/components/Footer.css": [
       "#000",
       "#0b1522",
       "#0d1725",
@@ -28,9 +28,9 @@
       "rgba(17, 32, 52, 0.45)",
       "rgba(255, 255, 255, 0.7)"
     ],
-    "examples/seams-site/src/components/GlassBorder.css": [],
-    "examples/seams-site/src/components/LoadingButton.css": [],
-    "examples/seams-site/src/components/Navbar/Navbar.css": [
+    "apps/seams-site/src/components/GlassBorder.css": [],
+    "apps/seams-site/src/components/LoadingButton.css": [],
+    "apps/seams-site/src/components/Navbar/Navbar.css": [
       "#000",
       "#66a3ff",
       "#e3eaf4",
@@ -56,15 +56,15 @@
       "rgba(0, 0, 0, 0.78)",
       "rgba(15, 23, 42, 0.2)"
     ],
-    "examples/seams-site/src/components/PasskeyLoginMenu.css": [],
-    "examples/seams-site/src/components/Select.css": [
+    "apps/seams-site/src/components/PasskeyLoginMenu.css": [],
+    "apps/seams-site/src/components/Select.css": [
       "#0b0c10",
       "rgba(0,0,0,0.2)",
       "rgba(0,0,0,0.35)"
     ],
-    "examples/seams-site/src/components/SyncAccount.css": [],
-    "examples/seams-site/src/components/Toaster.css": ["#fff"],
-    "examples/seams-site/src/layout.css": [
+    "apps/seams-site/src/components/SyncAccount.css": [],
+    "apps/seams-site/src/components/Toaster.css": ["#fff"],
+    "apps/seams-site/src/layout.css": [
       "#000",
       "#1f2d3a",
       "#425a76",
@@ -154,13 +154,13 @@
       "rgba(0, 0, 0, 0.78)",
       "rgba(15, 23, 42, 0.2)"
     ],
-    "examples/seams-site/src/styles/contact-page.css": [
+    "apps/seams-site/src/styles/contact-page.css": [
       "#6f809c",
       "#8797b1",
       "#cf3a3a",
       "#ffffff"
     ],
-    "examples/seams-site/src/styles/dashboard-page.css": [
+    "apps/seams-site/src/styles/dashboard-page.css": [
       "#2f3240",
       "#4d73ff",
       "#6d7290",
@@ -185,7 +185,7 @@
       "#ffffff",
       "rgba(15, 23, 42, 0.34)"
     ],
-    "examples/seams-site/src/styles/pricing-page.css": [
+    "apps/seams-site/src/styles/pricing-page.css": [
       "#0f172a",
       "#4338ca",
       "#475569",
@@ -195,7 +195,7 @@
       "#ffffff",
       "rgba(15, 23, 42, 0.3)"
     ],
-    "examples/seams-site/src/styles/security-diagrams.css": ["#000", "#8ea8c6", "#b18897"],
-    "examples/seams-site/src/styles/site-pages.css": []
+    "apps/seams-site/src/styles/security-diagrams.css": ["#000", "#8ea8c6", "#b18897"],
+    "apps/seams-site/src/styles/site-pages.css": []
   }
 }

@@ -20,7 +20,7 @@ export default [
       '**/test-results/**',
       'wasm/**/pkg/**',
       'wasm/**/target/**',
-      'examples/seams-site/public/**',
+      'apps/seams-site/public/**',
     ],
   },
 

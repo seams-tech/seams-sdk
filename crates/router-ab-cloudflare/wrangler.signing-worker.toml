@@ -1,4 +1,4 @@
-name = "router-ab-strict-signing-worker"
+name = "router-ab-signing-worker"
 main = "build/signing-worker/worker/shim.mjs"
 compatibility_date = "2026-06-12"
 workers_dev = false
@@ -25,7 +25,7 @@ SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
 
 [env.staging]
-name = "router-ab-strict-signing-worker-staging"
+name = "router-ab-signing-worker-staging"
 workers_dev = false
 
 [[env.staging.durable_objects.bindings]]
@@ -42,7 +42,7 @@ SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
 
 [env.production]
-name = "router-ab-strict-signing-worker-prod"
+name = "router-ab-signing-worker-prod"
 workers_dev = false
 
 [[env.production.durable_objects.bindings]]

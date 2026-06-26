@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
-const caddyfilePath = path.join(repoRoot, 'apps/web-client/Caddyfile');
+const caddyfilePath = path.join(repoRoot, 'apps/seams-site/Caddyfile');
 const publicOrigin = process.env.ROUTER_AB_PUBLIC_ROUTER_ORIGIN || 'https://localhost:9444';
 const expectedUpstream = process.env.ROUTER_AB_LOCAL_ROUTER_UPSTREAM || '127.0.0.1:9090';
 
@@ -86,7 +86,7 @@ function extractCaddySiteBlock(source, siteLabel) {
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === `${siteLabel} {`);
   if (start < 0) {
-    throw new Error(`apps/web-client/Caddyfile is missing ${siteLabel} site block`);
+    throw new Error(`apps/seams-site/Caddyfile is missing ${siteLabel} site block`);
   }
 
   let depth = 0;

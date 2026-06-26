@@ -3,11 +3,10 @@
 This repo deploys these hosted surfaces:
 
 - SDK runtime bundles in Cloudflare R2.
-- App and wallet Pages projects from `examples/seams-site`.
-- Relay Worker from `examples/relay-cloudflare-worker`.
+- App and wallet Pages projects from `apps/seams-site`.
 - Router A/B Workers from `crates/router-ab-cloudflare`.
 
-The relay also needs durable persistence. Use split Postgres databases for
+The web server needs durable persistence. Use split Postgres databases for
 signer/runtime state and console/control-plane state.
 
 ## GitHub Environments
@@ -24,16 +23,14 @@ environment.
 
 | Secret                                          | Used by                         | Notes                                                                                  |
 | ----------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                          | Pages, relay, Router A/B deploy | Needs Pages deploy, Worker deploy, Worker secrets, and Email Routing permissions.      |
-| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, relay, Router A/B deploy | Cloudflare account id.                                                                 |
-| `CLOUDFLARE_ZONE_ID`                            | relay deploy                    | Required only when the workflow should manage Email Routing.                           |
+| `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy        | Needs Pages deploy, Worker deploy, and Worker secrets permissions.                    |
+| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy        | Cloudflare account id.                                                                 |
 | `CF_PAGES_PROJECT_VITE`                         | Pages deploy                    | Cloudflare Pages project for the app/site surface.                                     |
 | `CF_PAGES_PROJECT_WALLET`                       | Pages deploy                    | Cloudflare Pages project for the wallet origin.                                        |
 | `R2_ENDPOINT`                                   | SDK R2 publish                  | S3-compatible R2 endpoint URL.                                                         |
 | `R2_BUCKET`                                     | SDK R2 publish                  | Bucket that stores `releases/*` and `releases-dev/*`.                                  |
 | `R2_ACCESS_KEY_ID`                              | SDK R2 publish                  | R2 access key with write access to the SDK bucket.                                     |
 | `R2_SECRET_ACCESS_KEY`                          | SDK R2 publish                  | R2 secret access key.                                                                  |
-| `THRESHOLD_ED25519_MASTER_SECRET_B64U`          | relay deploy                    | Optional. When present, the relay workflow writes it as a Worker secret before deploy. |
 | `SIGNER_A_ROOT_SHARE_WIRE_SECRET`               | Router A/B deploy               | Deriver A root-share wire secret. Written to the Deriver A Worker environment.         |
 | `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver A signer-envelope HPKE private key.                                            |
 | `SIGNER_A_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver A private key for A/B peer messages.                                           |
@@ -46,7 +43,6 @@ environment.
 
 | Variable                                                 | Used by           | Notes                                                                        |
 | -------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------- |
-| `RECOVER_EMAIL_RECIPIENT`                                | relay deploy      | Email address routed to the relay Worker.                                    |
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                        |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.  |
 | `ROUTER_AB_JWT_JWKS_URL`                                 | Router A/B deploy | JWKS URL used by Router JWT verification.                                    |
@@ -90,8 +86,8 @@ It deploys branch alias `dev` for staging and `main` for production.
 
 The workflow copies SDK runtime assets into the Pages output:
 
-- `sdk/dist/esm/sdk/*` -> `examples/seams-site/dist/sdk/*`
-- `sdk/dist/workers/*` -> `examples/seams-site/dist/sdk/workers/*`
+- `packages/sdk-web/dist/esm/sdk/*` -> `apps/seams-site/dist/sdk/*`
+- `packages/sdk-web/dist/workers/*` -> `apps/seams-site/dist/sdk/workers/*`
 
 That means Pages serves the same runtime assets at `/sdk/*` that were built
 for the commit being deployed.
@@ -109,51 +105,6 @@ If the bucket is public or proxied, configure cache rules outside this repo.
 Keep immutable SHA prefixes cacheable; keep mutable aliases such as tag prefixes
 easy to invalidate.
 
-## Relay Worker
-
-Worker configuration lives in
-`examples/relay-cloudflare-worker/wrangler.toml`.
-
-Wrangler environments:
-
-- `staging` deploys `w3a-relay-staging`
-- `production` deploys `w3a-relay-prod`
-
-Before the first deploy, set Worker secrets for each Wrangler environment:
-
-```bash
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put RELAYER_PRIVATE_KEY --env staging
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SHAMIR_P_B64U --env staging
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_E_S_B64U --env staging
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_D_S_B64U --env staging
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_ROOT_SECRET_SHARE_KEK_B64U --env staging
-
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put RELAYER_PRIVATE_KEY --env production
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SHAMIR_P_B64U --env production
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_E_S_B64U --env production
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_D_S_B64U --env production
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_ROOT_SECRET_SHARE_KEK_B64U --env production
-```
-
-Generate seal keys with:
-
-```bash
-pnpm signing-session-seal:keygen
-```
-
-If cron-backed console jobs use Postgres from the Worker, store database URLs as
-Worker secrets with the same names the Worker reads:
-
-```bash
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put BILLING_POSTGRES_URL --env staging
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL --env staging
-pnpm -C examples/relay-cloudflare-worker exec wrangler secret put WEBHOOK_RETRY_POSTGRES_URL --env staging
-```
-
-Repeat for production. Enable cron jobs by editing the relevant `*_ENABLED`,
-`*_CRONS`, namespace, and org-id vars in `wrangler.toml` or by managing them in
-Cloudflare.
-
 ## Router A/B Workers
 
 Router A/B Worker configuration lives in:
@@ -167,8 +118,8 @@ Wrangler environments:
 
 | Target       | Router                            | Deriver A                           | Deriver B                           | SigningWorker                             |
 | ------------ | --------------------------------- | ----------------------------------- | ----------------------------------- | ----------------------------------------- |
-| `staging`    | `router-ab-strict-router-staging` | `router-ab-strict-signer-a-staging` | `router-ab-strict-signer-b-staging` | `router-ab-strict-signing-worker-staging` |
-| `production` | `router-ab-strict-router-prod`    | `router-ab-strict-signer-a-prod`    | `router-ab-strict-signer-b-prod`    | `router-ab-strict-signing-worker-prod`    |
+| `staging`    | `router-ab-router-staging` | `router-ab-signer-a-staging` | `router-ab-signer-b-staging` | `router-ab-signing-worker-staging` |
+| `production` | `router-ab-router-prod`    | `router-ab-signer-a-prod`    | `router-ab-signer-b-prod`    | `router-ab-signing-worker-prod`    |
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
 work without environment configuration. The `deploy-router-ab` workflow injects
@@ -282,7 +233,7 @@ Runtime roles need DML only. Migrator roles own DDL.
 ### Local Split Setup
 
 ```bash
-pnpm -C examples/relay-server run postgres:setup:split
+pnpm -C apps/web-server run postgres:setup:split
 ```
 
 That command starts local Postgres, creates split databases and roles, runs
@@ -291,16 +242,16 @@ migrations, and verifies grants. It prints suggested `.env` values.
 To run steps separately:
 
 ```bash
-pnpm -C examples/relay-server run postgres:up
-pnpm -C examples/relay-server run postgres:bootstrap:split
-pnpm -C examples/relay-server run postgres:migrate:all
-pnpm -C examples/relay-server run postgres:verify:split
+pnpm -C apps/web-server run postgres:up
+pnpm -C apps/web-server run postgres:bootstrap:split
+pnpm -C apps/web-server run postgres:migrate:all
+pnpm -C apps/web-server run postgres:verify:split
 ```
 
 To stop local Postgres:
 
 ```bash
-pnpm -C examples/relay-server run postgres:down
+pnpm -C apps/web-server run postgres:down
 ```
 
 ### Production Migration
@@ -310,7 +261,7 @@ Provision production databases and roles with your DBA/IaC path, then run:
 ```bash
 POSTGRES_MIGRATION_URL=postgresql://... \
 CONSOLE_POSTGRES_MIGRATION_URL=postgresql://... \
-pnpm -C examples/relay-server run postgres:migrate:all
+pnpm -C apps/web-server run postgres:migrate:all
 ```
 
 Set runtime URLs on the relay host:
@@ -337,7 +288,7 @@ For an existing single-database install:
 MONOLITH_POSTGRES_URL=postgresql://.../seams \
 POSTGRES_MIGRATION_URL=postgresql://.../seams_signer \
 CONSOLE_POSTGRES_MIGRATION_URL=postgresql://.../seams_console \
-pnpm -C examples/relay-server run postgres:migrate:split-from-monolith
+pnpm -C apps/web-server run postgres:migrate:split-from-monolith
 ```
 
 After migration, update runtime URLs to point at the split databases.

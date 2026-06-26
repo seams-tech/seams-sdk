@@ -66,8 +66,8 @@ cloudflare_workers:
     dispatch_role: router
     wrangler_config: crates/router-ab-cloudflare/wrangler.router.toml
     worker_names:
-      staging: router-ab-strict-router-staging
-      production: router-ab-strict-router-prod
+      staging: router-ab-router-staging
+      production: router-ab-router-prod
     durable_objects:
       ROUTER_REPLAY_DO: RouterAbRouterReplayDurableObject
       ROUTER_LIFECYCLE_DO: RouterAbRouterLifecycleDurableObject
@@ -96,8 +96,8 @@ cloudflare_workers:
     dispatch_role: deriver-a
     wrangler_config: crates/router-ab-cloudflare/wrangler.signer-a.toml
     worker_names:
-      staging: router-ab-strict-signer-a-staging
-      production: router-ab-strict-signer-a-prod
+      staging: router-ab-signer-a-staging
+      production: router-ab-signer-a-prod
     durable_objects:
       SIGNER_A_ROOT_SHARE_DO: RouterAbSignerARootShareDurableObject
     service_bindings:
@@ -119,8 +119,8 @@ cloudflare_workers:
     dispatch_role: deriver-b
     wrangler_config: crates/router-ab-cloudflare/wrangler.signer-b.toml
     worker_names:
-      staging: router-ab-strict-signer-b-staging
-      production: router-ab-strict-signer-b-prod
+      staging: router-ab-signer-b-staging
+      production: router-ab-signer-b-prod
     durable_objects:
       SIGNER_B_ROOT_SHARE_DO: RouterAbSignerBRootShareDurableObject
     service_bindings:
@@ -142,8 +142,8 @@ cloudflare_workers:
     dispatch_role: signing-worker
     wrangler_config: crates/router-ab-cloudflare/wrangler.signing-worker.toml
     worker_names:
-      staging: router-ab-strict-signing-worker-staging
-      production: router-ab-strict-signing-worker-prod
+      staging: router-ab-signing-worker-staging
+      production: router-ab-signing-worker-prod
     durable_objects:
       SIGNING_WORKER_SERVER_OUTPUT_DO: RouterAbSigningWorkerServerOutputDurableObject
     service_bindings: {}

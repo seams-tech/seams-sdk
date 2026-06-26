@@ -42,9 +42,9 @@ CRITICAL_DIRS=(
 )
 
 # Frontend deployment paths (used only for local dev/test copying)
-FRONTEND_ROOT="../../apps/web-client/src/public"
-FRONTEND_SDK="../../apps/web-client/src/public/sdk"
-FRONTEND_WORKERS="../../apps/web-client/src/public/sdk/workers"
+FRONTEND_ROOT="../../apps/seams-site/src/public"
+FRONTEND_SDK="../../apps/seams-site/src/public/sdk"
+FRONTEND_WORKERS="../../apps/seams-site/src/public/sdk/workers"
 
 # Runtime paths (used by workers and tests)
 RUNTIME_SDK_BASE="/sdk"

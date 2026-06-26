@@ -105,16 +105,16 @@ jobs:
           VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
           VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
           VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
-        run: pnpm -C examples/seams-site build
+        run: pnpm -C apps/seams-site exec vite build
 
       - name: Copy SDK runtime assets into Pages output
         run: |
           set -euo pipefail
-          test -d sdk/dist/esm/sdk
-          mkdir -p examples/seams-site/dist/sdk examples/seams-site/dist/sdk/workers
-          rsync -av --delete sdk/dist/esm/sdk/ examples/seams-site/dist/sdk/
-          if [ -d sdk/dist/workers ]; then
-            rsync -av --delete sdk/dist/workers/ examples/seams-site/dist/sdk/workers/
+          test -d packages/sdk-web/dist/esm/sdk
+          mkdir -p apps/seams-site/dist/sdk apps/seams-site/dist/sdk/workers
+          rsync -av --delete packages/sdk-web/dist/esm/sdk/ apps/seams-site/dist/sdk/
+          if [ -d packages/sdk-web/dist/workers ]; then
+            rsync -av --delete packages/sdk-web/dist/workers/ apps/seams-site/dist/sdk/workers/
           fi
 
       - name: Deploy app to Cloudflare Pages
@@ -124,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1)
-          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/seams-site/dist \
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH"
 
@@ -135,6 +135,6 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1)
-          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/seams-site/dist \
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH"
