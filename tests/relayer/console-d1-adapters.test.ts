@@ -39,12 +39,15 @@ import type {
   WebhookDispatchRequest,
   WebhookDispatchResult,
 } from '../../packages/sdk-server-ts/src/console/webhooks/service';
+import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
+import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   recordSponsoredExecution,
   type RecordSponsoredExecutionInput,
@@ -3164,6 +3167,134 @@ test.describe('D1 adapter contracts', () => {
       expect(duplicate.id).toBe(first.id);
       expect(duplicate.feeAmount).toBe(first.feeAmount);
       expect(page.items).toHaveLength(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('signer wallet metadata and auth methods are scoped by tenant environment', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const walletId = walletIdFromString('wallet-d1-metadata');
+      const scope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+      };
+      const otherEnvScope = {
+        ...scope,
+        envId: 'env-development',
+      };
+      const walletStore = new D1WalletStore(scope);
+      const otherWalletStore = new D1WalletStore({
+        ...otherEnvScope,
+        ensureSchema: false,
+      });
+      const authMethodStore = new D1WalletAuthMethodStore(scope);
+      const otherAuthMethodStore = new D1WalletAuthMethodStore({
+        ...otherEnvScope,
+        ensureSchema: false,
+      });
+
+      await walletStore.putSubject({
+        version: 'wallet_v1',
+        walletId,
+        rpId: 'app.seams.test',
+        createdAtMs: 1000,
+        updatedAtMs: 2000,
+      });
+      await walletStore.putSigner({
+        version: 'wallet_signer_ed25519_v1',
+        walletId,
+        rpId: 'app.seams.test',
+        signerId: 'ed25519:wallet-d1-metadata:1',
+        nearAccountId: 'wallet-d1-metadata.testnet',
+        nearEd25519SigningKeyId: 'near-ed25519-key-1',
+        signerSlot: 1,
+        publicKey: 'ed25519:public-key-1',
+        relayerKeyId: 'relayer-key-1',
+        keyVersion: 'signer-key-v1',
+        recoveryExportCapable: true,
+        createdAtMs: 1000,
+        updatedAtMs: 2000,
+      });
+      await authMethodStore.put({
+        version: 'wallet_auth_method_v1',
+        kind: 'passkey',
+        status: 'active',
+        walletId,
+        rpId: 'app.seams.test',
+        credentialIdB64u: 'credential-d1-wallet',
+        credentialPublicKeyB64u: 'public-key-d1-wallet',
+        counter: 3,
+        createdAtMs: 3000,
+        updatedAtMs: 3000,
+      });
+      await authMethodStore.put({
+        version: 'wallet_auth_method_v1',
+        kind: 'email_otp',
+        status: 'active',
+        walletId,
+        emailHashHex: '0123456789abcdef',
+        registrationAuthorityId: 'registration-authority-d1',
+        createdAtMs: 4000,
+        updatedAtMs: 4000,
+      });
+
+      await expect(walletStore.getWallet({ walletId })).resolves.toMatchObject({
+        version: 'wallet_v1',
+        walletId,
+        rpId: 'app.seams.test',
+      });
+      await expect(otherWalletStore.getWallet({ walletId })).resolves.toBeNull();
+      await expect(
+        authMethodStore.getPasskey({
+          rpId: 'app.seams.test',
+          credentialIdB64u: 'credential-d1-wallet',
+        }),
+      ).resolves.toMatchObject({
+        kind: 'passkey',
+        walletId,
+        credentialIdB64u: 'credential-d1-wallet',
+      });
+      await expect(
+        authMethodStore.getEmailOtp({
+          walletId,
+          emailHashHex: '0123456789abcdef',
+        }),
+      ).resolves.toMatchObject({
+        kind: 'email_otp',
+        walletId,
+        emailHashHex: '0123456789abcdef',
+      });
+      await expect(
+        otherAuthMethodStore.getPasskey({
+          rpId: 'app.seams.test',
+          credentialIdB64u: 'credential-d1-wallet',
+        }),
+      ).resolves.toBeNull();
+
+      const authMethods = await authMethodStore.listForWallet({
+        walletId,
+        rpId: 'app.seams.test',
+      });
+      expect(authMethods.map((record) => record.kind)).toEqual(['passkey', 'email_otp']);
+
+      const signerRow = await temp.database
+        .prepare(
+          `SELECT COUNT(*) AS signer_count
+             FROM signer_wallet_signers
+            WHERE namespace = ?
+              AND org_id = ?
+              AND project_id = ?
+              AND env_id = ?
+              AND wallet_id = ?`,
+        )
+        .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId, walletId)
+        .first<SqliteJsonRow>();
+      expect(Number(signerRow?.signer_count)).toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

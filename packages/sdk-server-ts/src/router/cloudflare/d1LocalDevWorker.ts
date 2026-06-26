@@ -17,6 +17,9 @@ import { ensureConsoleSponsorshipSpendCapD1Schema } from '../../console/sponsors
 import { ensureConsoleTeamRbacD1Schema } from '../../console/teamRbac/d1';
 import { ensureConsoleWalletsD1Schema } from '../../console/wallets/d1';
 import { ensureConsoleWebhooksD1Schema } from '../../console/webhooks/d1';
+import { ensureSigningRootSecretShareD1Schema } from '../../core/ThresholdService';
+import { ensureWalletAuthMethodStoreD1Schema } from '../../core/WalletAuthMethodStore';
+import { ensureWalletStoreD1Schema } from '../../core/WalletStore';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import type { CfExecutionContext } from './cloudflare.types';
 import { ThresholdStoreDurableObject } from './durableObjects/thresholdStore';
@@ -56,11 +59,16 @@ async function assertSignerD1Schema(database: D1DatabaseLike): Promise<void> {
       `SELECT COUNT(*) AS table_count
          FROM sqlite_master
         WHERE type = 'table'
-          AND name = 'signer_signing_root_secret_shares'`,
+          AND name IN (
+            'signer_signing_root_secret_shares',
+            'signer_wallets',
+            'signer_wallet_signers',
+            'signer_wallet_auth_methods'
+          )`,
     )
     .first<TableCountRow>();
-  if (parseReadyTableCount(row) !== 1) {
-    throw new Error('local SIGNER_DB migration has not created signer_signing_root_secret_shares');
+  if (parseReadyTableCount(row) !== 4) {
+    throw new Error('local SIGNER_DB migration has not created all required signer tables');
   }
 }
 
@@ -82,6 +90,9 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureConsoleSponsorshipSpendCapD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleSponsoredCallD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleRuntimeSnapshotsD1Schema({ database: env.CONSOLE_DB });
+  await ensureSigningRootSecretShareD1Schema({ database: env.SIGNER_DB });
+  await ensureWalletStoreD1Schema({ database: env.SIGNER_DB });
+  await ensureWalletAuthMethodStoreD1Schema({ database: env.SIGNER_DB });
   await assertSignerD1Schema(env.SIGNER_DB);
 }
 

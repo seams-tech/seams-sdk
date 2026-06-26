@@ -95,8 +95,8 @@ Completed so far:
   bootstrap tokens, billing account/ledger settlement, prepaid billing
   reservations, sponsorship spend caps, sponsored call records, runtime
   snapshot storage/outbox, webhook endpoint/delivery persistence, compact
-  observability incident/request-rollup storage, and sealed signing-root secret
-  shares.
+  observability incident/request-rollup storage, signer wallet metadata/auth
+  method storage, and sealed signing-root secret shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
 - Wired D1 org/project/env, Team RBAC, account/profile, policies, API keys,
@@ -120,7 +120,8 @@ Completed so far:
   reservation atomicity, sponsorship spend-cap atomic
   reservation/settlement/release, sponsored-call idempotency, atomic sponsored
   gas settlement, observability event dedupe/redaction, compact request
-  rollups, observability tenant scoping, and signer secret tenant scoping.
+  rollups, observability tenant scoping, signer wallet metadata/auth-method
+  tenant scoping, and signer secret tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
@@ -338,7 +339,7 @@ Current Postgres coupling is concentrated in:
 | --- | --- | --- | --- |
 | WebAuthn | `webauthn_authenticators`, `webauthn_credential_bindings`, `webauthn_challenges` | `SIGNER_DB` D1 | Tenant/project/env scope must be explicit where custody state is environment-specific. |
 | Registration | `wallet_registration_intents`, `wallet_registration_ceremonies` | `SIGNER_DB` D1 | Expiring records with tenant-first indexes and cleanup job. |
-| Wallet metadata | `wallets`, `wallet_auth_methods`, `wallet_signers` | `SIGNER_DB` D1 | Queryable durable signer metadata. Keep wallet ID, org, project, env, RP ID, and chain identity required. |
+| Wallet metadata | `wallets`, `wallet_auth_methods`, `wallet_signers` | `SIGNER_DB` D1 | D1 wallet and wallet-auth-method adapters, append-only migration, explicit `kind: 'd1'` factory selectors, tenant/project/env-scoped options, local smoke coverage, and tenant-scoping contract tests are in place. Keep wallet ID, org, project, env, RP ID, and chain identity required. |
 | Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts` | `SIGNER_DB` D1 | Challenge/grant expiry stays adapter-owned. Store JSON as `TEXT` and normalize lookup columns. |
 | Threshold key metadata | `threshold_ed25519_keys`, `threshold_ecdsa_keys` | `SIGNER_DB` D1 | Durable metadata and public identifiers only. Secret shares stay application-encrypted. |
 | Sealed signing-root shares | `signing_root_secret_shares`, `signer_signing_root_secret_shares` | `SIGNER_DB` D1 | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. |
@@ -371,9 +372,10 @@ Before D1 staging, these adapters must exist behind domain-store ports:
   billing ledger sponsored settlement, prepaid reservations, sponsorship spend
   caps, sponsored calls, runtime snapshots, compact observability
   read/ingestion services, and the webhook route service.
-- Signer D1: WebAuthn, registration ceremonies, wallet metadata, auth methods,
-  email OTP, recovery, identity links, app sessions, threshold key metadata,
-  and sealed signing-root secret shares.
+- Signer D1 remaining: WebAuthn, registration ceremonies, email OTP, recovery,
+  identity links, app sessions, and threshold key metadata.
+- Signer D1 in place: wallet metadata, wallet auth methods, and sealed
+  signing-root secret shares.
 - Durable Objects: signing-session use counts, wallet signing budgets,
   idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
   sessions, normal-signing admission quotas, and signing-root coordination.
@@ -801,9 +803,8 @@ Status: in progress.
 Work:
 
 - Finish the remaining console D1 adapter work for webhook retry dispatch.
-- Finish remaining signer D1 adapters for wallet metadata, wallet auth,
-  WebAuthn, email OTP, recovery, identity links, app sessions, and threshold key
-  metadata.
+- Finish remaining signer D1 adapters for WebAuthn, registration ceremonies,
+  email OTP, recovery, identity links, app sessions, and threshold key metadata.
 - Finish Durable Object adapters for signer admission, budgets, replay guards,
   presignature pools, and signing-root coordination.
 - Keep the KEK provider boundary narrow: Cloudflare Secrets Store for hosted
@@ -922,13 +923,16 @@ Completed:
 9. Add compact D1 observability incident events, event dedupe, ingest
    rate-limit windows, request rollups, dashboard reads, local smoke coverage,
    and tenant-scoped adapter tests.
+10. Add D1 signer wallet metadata and wallet-auth-method stores, append-only
+    signer migration, local smoke coverage, explicit D1 factory selectors, and
+    tenant-scoped adapter tests.
 
 Next:
 
 1. Continue Step 3 by adding the remaining console D1 adapter work: webhook
    retry dispatch.
-2. Continue Step 3 by adding the remaining signer D1 metadata adapters: wallet
-   metadata, wallet auth, WebAuthn, email OTP, recovery, identity links, app
+2. Continue Step 3 by adding the remaining signer D1 metadata adapters:
+   WebAuthn, registration ceremonies, email OTP, recovery, identity links, app
    sessions, and threshold key metadata.
 3. Finish the Durable Object adapter and test slice for normal-signing
    admission, budget, replay, presignature, and signing-root coordination.

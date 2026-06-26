@@ -113,13 +113,36 @@ export {
   inferNearRecoveryChainIdKey,
 } from './core/recoveryExecutionRecords';
 export {
+  D1WalletAuthMethodStore,
   createWalletAuthMethodStore,
+  ensureWalletAuthMethodStoreD1Schema,
   normalizeWalletAuthMethod,
   putWalletAuthMethodWithExecutor,
   resolveWalletAuthMethodStoreNamespace,
+  WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL,
+  type D1WalletAuthMethodStoreOptions,
+  type D1WalletAuthMethodStoreSchemaOptions,
   type WalletAuthMethodRecord,
   type WalletAuthMethodStore,
 } from './core/WalletAuthMethodStore';
+export {
+  D1WalletStore,
+  WALLET_STORE_D1_SCHEMA_SQL,
+  buildWalletEcdsaSignerRecord,
+  buildWalletEd25519SignerId,
+  createWalletStore,
+  ensureWalletStoreD1Schema,
+  putWalletRecordWithExecutor,
+  putWalletSignerRecordWithExecutor,
+  resolveWalletStoreNamespace,
+  type D1WalletStoreOptions,
+  type D1WalletStoreSchemaOptions,
+  type WalletEcdsaSignerRecord,
+  type WalletEd25519SignerRecord,
+  type WalletRecord,
+  type WalletSignerRecord,
+  type WalletStore,
+} from './core/WalletStore';
 export {
   NEAR_EMAIL_RECOVERY_ACTION,
   markTrackedRecoverySessionVerified,

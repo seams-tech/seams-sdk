@@ -16,6 +16,8 @@ import {
   getPostgresUrlFromConfig,
   type PgQueryExecutor,
 } from '../storage/postgres';
+import { formatD1ExecStatement } from '../storage/d1Sql';
+import type { D1DatabaseLike } from '../storage/tenantRoute';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 
 export type WalletRecord = {
@@ -66,6 +68,118 @@ export interface WalletStore {
   putSubject(record: WalletRecord): Promise<void>;
   putSigner(record: WalletSignerRecord): Promise<void>;
   putSigners(records: readonly WalletSignerRecord[]): Promise<void>;
+}
+
+export interface D1WalletStoreSchemaOptions {
+  readonly database: D1DatabaseLike;
+}
+
+export interface D1WalletStoreOptions {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema?: boolean;
+}
+
+type NormalizedD1WalletStoreOptions = {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema: boolean;
+};
+
+type D1WalletStoreScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+type D1WalletRow = {
+  readonly record_json?: unknown;
+};
+
+export const WALLET_STORE_D1_SCHEMA_SQL = Object.freeze([
+  `
+    CREATE TABLE IF NOT EXISTS signer_wallets (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      wallet_id TEXT NOT NULL,
+      rp_id TEXT NOT NULL,
+      record_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (namespace, org_id, project_id, env_id, wallet_id),
+      CHECK (length(wallet_id) > 0),
+      CHECK (length(rp_id) > 0),
+      CHECK (json_valid(record_json)),
+      CHECK (created_at_ms >= 0),
+      CHECK (updated_at_ms >= created_at_ms)
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_wallets_rp_idx
+      ON signer_wallets (namespace, org_id, project_id, env_id, rp_id, created_at_ms)
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS signer_wallet_signers (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      wallet_id TEXT NOT NULL,
+      signer_family TEXT NOT NULL,
+      signer_id TEXT NOT NULL,
+      chain_target_key TEXT,
+      record_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        signer_family,
+        signer_id
+      ),
+      CHECK (length(wallet_id) > 0),
+      CHECK (signer_family IN ('ed25519', 'ecdsa')),
+      CHECK (length(signer_id) > 0),
+      CHECK (json_valid(record_json)),
+      CHECK (created_at_ms >= 0),
+      CHECK (updated_at_ms >= created_at_ms)
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_wallet_signers_wallet_idx
+      ON signer_wallet_signers (namespace, org_id, project_id, env_id, wallet_id, signer_family)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_wallet_signers_chain_target_idx
+      ON signer_wallet_signers (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        signer_family,
+        chain_target_key
+      )
+  `,
+] as const);
+
+export async function ensureWalletStoreD1Schema(
+  options: D1WalletStoreSchemaOptions,
+): Promise<void> {
+  for (const statement of WALLET_STORE_D1_SCHEMA_SQL) {
+    await options.database.exec(formatD1ExecStatement(statement));
+  }
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -133,6 +247,78 @@ function parseWalletRecord(raw: unknown): WalletRecord | null {
     createdAtMs,
     updatedAtMs,
   };
+}
+
+function assertNeverWalletSignerRecord(record: never): never {
+  throw new Error(`Unexpected wallet signer record: ${JSON.stringify(record)}`);
+}
+
+function parseD1RecordJson(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
+  return (
+    isObject(value) &&
+    typeof value.prepare === 'function' &&
+    typeof value.batch === 'function' &&
+    typeof value.exec === 'function'
+  );
+}
+
+function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
+  if (isD1DatabaseLike(config.database)) return config.database;
+  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
+  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
+  return null;
+}
+
+function requireD1ScopeString(input: unknown, field: string): string {
+  const normalized = toOptionalTrimmedString(input);
+  if (!normalized) throw new Error(`${field} is required for D1 wallet store`);
+  return normalized;
+}
+
+function normalizeD1WalletStoreOptions(
+  input: D1WalletStoreOptions,
+): NormalizedD1WalletStoreOptions {
+  return {
+    database: input.database,
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.orgId, 'orgId'),
+    projectId: requireD1ScopeString(input.projectId, 'projectId'),
+    envId: requireD1ScopeString(input.envId, 'envId'),
+    ensureSchema: input.ensureSchema !== false,
+  };
+}
+
+function d1ScopeFromConfig(input: {
+  readonly config: Record<string, unknown>;
+  readonly namespace: string;
+}): Omit<D1WalletStoreOptions, 'database'> {
+  return {
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.config.orgId || input.config.ORG_ID, 'orgId'),
+    projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
+    envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
+  };
+}
+
+function ensureWalletSignerRecord(record: WalletSignerRecord): WalletSignerRecord {
+  switch (record.version) {
+    case 'wallet_signer_ed25519_v1':
+    case 'wallet_signer_ecdsa_v1':
+      if (!toOptionalTrimmedString(record.walletId)) throw new Error('walletId is required');
+      if (!toOptionalTrimmedString(record.signerId)) throw new Error('signerId is required');
+      return record;
+    default:
+      return assertNeverWalletSignerRecord(record);
+  }
 }
 
 export function buildWalletEd25519SignerId(input: {
@@ -259,6 +445,153 @@ class InMemoryWalletStore implements WalletStore {
   }
 }
 
+export class D1WalletStore implements WalletStore {
+  readonly adapterKind = 'd1';
+  private readonly database: D1DatabaseLike;
+  private readonly scope: D1WalletStoreScope;
+  private readonly ensureSchemaOnUse: boolean;
+  private schemaReady = false;
+
+  constructor(input: D1WalletStoreOptions) {
+    const normalized = normalizeD1WalletStoreOptions(input);
+    this.database = normalized.database;
+    this.scope = {
+      namespace: normalized.namespace,
+      orgId: normalized.orgId,
+      projectId: normalized.projectId,
+      envId: normalized.envId,
+    };
+    this.ensureSchemaOnUse = normalized.ensureSchema;
+  }
+
+  private async ensureSchema(): Promise<void> {
+    if (!this.ensureSchemaOnUse || this.schemaReady) return;
+    await ensureWalletStoreD1Schema({ database: this.database });
+    this.schemaReady = true;
+  }
+
+  async getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const row = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM signer_wallets
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+          LIMIT 1`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+      )
+      .first<D1WalletRow>();
+    return parseWalletRecord(parseD1RecordJson(row?.record_json));
+  }
+
+  async putSubject(record: WalletRecord): Promise<void> {
+    await this.ensureSchema();
+    const parsed = parseWalletRecord(record);
+    if (!parsed) throw new Error('Invalid wallet record');
+    await this.database
+      .prepare(
+        `INSERT INTO signer_wallets (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          wallet_id,
+          rp_id,
+          record_json,
+          created_at_ms,
+          updated_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (namespace, org_id, project_id, env_id, wallet_id)
+        DO UPDATE SET
+          rp_id = EXCLUDED.rp_id,
+          record_json = EXCLUDED.record_json,
+          created_at_ms = MIN(signer_wallets.created_at_ms, EXCLUDED.created_at_ms),
+          updated_at_ms = MAX(signer_wallets.updated_at_ms, EXCLUDED.updated_at_ms)`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        parsed.walletId,
+        parsed.rpId,
+        JSON.stringify(parsed),
+        parsed.createdAtMs,
+        parsed.updatedAtMs,
+      )
+      .run();
+  }
+
+  async putSigner(record: WalletSignerRecord): Promise<void> {
+    await this.ensureSchema();
+    const parsed = ensureWalletSignerRecord(record);
+    await this.database
+      .prepare(
+        `INSERT INTO signer_wallet_signers (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          wallet_id,
+          signer_family,
+          signer_id,
+          chain_target_key,
+          record_json,
+          created_at_ms,
+          updated_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          wallet_id,
+          signer_family,
+          signer_id
+        )
+        DO UPDATE SET
+          chain_target_key = EXCLUDED.chain_target_key,
+          record_json = EXCLUDED.record_json,
+          created_at_ms = MIN(signer_wallet_signers.created_at_ms, EXCLUDED.created_at_ms),
+          updated_at_ms = MAX(signer_wallet_signers.updated_at_ms, EXCLUDED.updated_at_ms)`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        parsed.walletId,
+        signerFamily(parsed),
+        parsed.signerId,
+        recordChainTargetKey(parsed),
+        JSON.stringify(parsed),
+        parsed.createdAtMs,
+        parsed.updatedAtMs,
+      )
+      .run();
+  }
+
+  async putSigners(records: readonly WalletSignerRecord[]): Promise<void> {
+    for (const record of records) {
+      await this.putSigner(record);
+    }
+  }
+}
+
 class PostgresWalletStore implements WalletStore {
   private readonly poolPromise: ReturnType<typeof getPostgresPool>;
 
@@ -374,6 +707,17 @@ export function createWalletStore(input: {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const prefix = resolveWalletStoreNamespace(config);
   const kind = toOptionalTrimmedString(config.kind);
+  if (kind === 'd1') {
+    const database = resolveD1DatabaseFromConfig(config);
+    if (!database) {
+      throw new Error('[wallet] D1 store selected but no D1 database was provided');
+    }
+    input.logger.info('[wallet] Using D1 store');
+    return new D1WalletStore({
+      database,
+      ...d1ScopeFromConfig({ config, namespace: prefix }),
+    });
+  }
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {
