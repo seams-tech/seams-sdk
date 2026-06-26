@@ -822,6 +822,7 @@ export type {
   CloudflareD1ConsoleAdapterOptions,
   CloudflareD1ConsoleRouteOptions,
   CloudflareD1ConsoleRouterStorageOptions,
+  CloudflareD1RelayRouterStorageOptions,
   CloudflareD1ConsoleServiceBundle,
   CloudflareD1ConsoleServiceBundleOptions,
   CloudflareD1ConsoleStorageBindingNames,
@@ -831,6 +832,7 @@ export type {
 } from './cloudflare/d1ConsoleServices';
 export {
   asConsoleRouterOptions,
+  asRelayRouterOptions,
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1SigningRootSecretAdapters,
 } from './cloudflare/d1ConsoleServices';

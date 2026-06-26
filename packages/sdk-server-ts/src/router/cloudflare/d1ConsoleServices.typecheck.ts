@@ -1,6 +1,7 @@
 import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
 import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
 import type { ConsoleRouterOptions } from '../console';
+import type { RelayRouterOptions } from '../relay';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
   type D1DatabaseLike,
@@ -9,11 +10,14 @@ import {
 } from '../../storage/tenantRoute';
 import type {
   CloudflareD1ConsoleRouterStorageOptions,
+  CloudflareD1RelayRouterStorageOptions,
+  CloudflareD1ConsoleServiceBundle,
   CloudflareD1ConsoleServiceBundleOptions,
   CloudflareD1SigningRootSecretAdapterOptions,
 } from './d1ConsoleServices';
 import {
   asConsoleRouterOptions,
+  asRelayRouterOptions,
   createCloudflareD1SigningRootSecretAdapters,
 } from './d1ConsoleServices';
 
@@ -161,10 +165,21 @@ const missingNamespace: CloudflareD1ConsoleServiceBundleOptions = {
 };
 
 declare const routerStorageOptions: CloudflareD1ConsoleRouterStorageOptions;
+declare const relayStorageOptions: CloudflareD1RelayRouterStorageOptions;
+declare const serviceBundle: CloudflareD1ConsoleServiceBundle;
 
 const consoleOptions: ConsoleRouterOptions = {
   ...asConsoleRouterOptions(routerStorageOptions),
   healthz: true,
+};
+
+const relayOptions: RelayRouterOptions = {
+  ...asRelayRouterOptions(relayStorageOptions),
+  healthz: true,
+};
+
+const relayOptionsFromBundle: RelayRouterOptions = {
+  ...asRelayRouterOptions(serviceBundle.relayRouterOptions),
 };
 
 void bundleOptions;
@@ -174,3 +189,5 @@ void missingSignerSecretEnvId;
 void missingSignerBindings;
 void missingNamespace;
 void consoleOptions;
+void relayOptions;
+void relayOptionsFromBundle;

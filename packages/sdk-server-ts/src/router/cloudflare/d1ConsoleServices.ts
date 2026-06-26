@@ -95,6 +95,11 @@ import {
   createD1ConsoleRuntimeSnapshotService,
   type ConsoleRuntimeSnapshotService,
 } from '../../console/runtimeSnapshots';
+import type { RouterAbNormalSigningAdmissionAdapter } from '../routerAbPrivateSigningWorker';
+import {
+  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  createRouterAbNormalSigningAdmissionAdapter,
+} from '../routerAbNormalSigningAdmissionStore';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
   type CloudflareTenantStorageRoute,
@@ -184,6 +189,10 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
 }
 
+export interface CloudflareD1RelayRouterStorageOptions {
+  readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
+}
+
 export interface CloudflareD1ConsoleServiceBundle {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
@@ -206,6 +215,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
   readonly consoleRouterOptions: CloudflareD1ConsoleRouterStorageOptions;
+  readonly relayRouterOptions: CloudflareD1RelayRouterStorageOptions;
 }
 
 export interface CloudflareD1SigningRootSecretAdapterOptions {
@@ -736,6 +746,19 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   };
 }
 
+function createCloudflareD1RelayRouterStorageOptions(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): CloudflareD1RelayRouterStorageOptions {
+  const admissionStore = createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore({
+    namespace: options.thresholdStore,
+    storageNamespace: options.namespace,
+  });
+  return {
+    routerAbNormalSigningAdmission:
+      createRouterAbNormalSigningAdmissionAdapter(admissionStore),
+  };
+}
+
 export async function createCloudflareD1ConsoleServiceBundle(
   options: CloudflareD1ConsoleServiceBundleOptions,
 ): Promise<CloudflareD1ConsoleServiceBundle> {
@@ -786,6 +809,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     sponsoredCalls,
     runtimeSnapshots,
   });
+  const relayRouterOptions = createCloudflareD1RelayRouterStorageOptions(normalized);
   return {
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
@@ -808,11 +832,18 @@ export async function createCloudflareD1ConsoleServiceBundle(
     sponsoredCalls,
     runtimeSnapshots,
     consoleRouterOptions,
+    relayRouterOptions,
   };
 }
 
 export function asConsoleRouterOptions(
   input: CloudflareD1ConsoleRouterStorageOptions,
 ): CloudflareD1ConsoleRouterStorageOptions {
+  return input;
+}
+
+export function asRelayRouterOptions(
+  input: CloudflareD1RelayRouterStorageOptions,
+): CloudflareD1RelayRouterStorageOptions {
   return input;
 }

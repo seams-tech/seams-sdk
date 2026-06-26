@@ -141,6 +141,8 @@ Completed so far:
 - Added Cloudflare Durable Object normal-signing admission storage and contract
   coverage for atomic quota reservation, project-policy decisions, and abuse
   decisions.
+- Wired the Cloudflare D1/DO service bundle to expose relay router options with
+  the Durable Object normal-signing admission adapter selected by default.
 - Added D1 sponsored gas settlement finalization for prepaid EVM calls. The
   D1 path batches reservation settlement, billing ledger debit, and
   sponsored-call record insertion, and requires the sponsored-call idempotency
@@ -154,8 +156,8 @@ Remaining before D1 staging:
 
 - Finish only the console and signer D1 adapters required by the first staging
   dashboard, signer, sponsored gas, billing, and reconciliation flows.
-- Add the remaining coordination tests and route wiring required by staging
-  signer flows.
+- Add the remaining local default D1/DO wiring, smoke coverage, and coordination
+  tests required by staging signer flows.
 - Add local Wrangler/Miniflare smoke coverage for every required D1 table.
 - Add staging import, restore, and R2 export drills.
 - Keep the Postgres escape hatch as a typed full-family contract until a tenant
@@ -400,8 +402,8 @@ Before D1 staging, these adapters must exist behind domain-store ports:
   replay records, signing-session use counts, wallet signing budgets,
   idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
   sessions, normal-signing admission storage, and signing-root coordination.
-- Durable Objects remaining for staging: route wiring and any missing contract
-  coverage for the signer admission, budget, replay, presignature, and
+- Durable Objects remaining for staging: any missing local default wiring and
+  contract coverage for the signer admission, budget, replay, presignature, and
   signing-root paths used by sponsored gas signing.
 - Postgres escape hatch: matching full-family ports, schemas, migrations, and
   shared contract tests before any production tenant can select Postgres.
@@ -856,8 +858,8 @@ Work:
   disabled at the route and service layers.
 - Add threshold public-key metadata D1 tables only if a dashboard lookup
   requirement appears.
-- Wire the normal-signing admission Durable Object store into the Cloudflare
-  runtime configuration for staging routes.
+- Keep the Cloudflare service-bundle relay options wired to the Durable Object
+  normal-signing admission store.
 - Audit existing Durable Object stores for signer budgets, replay guards,
   presignature pools, and signing-root coordination. Add contract tests only
   for missing staging-required behavior.
@@ -974,9 +976,9 @@ Proceed in this order:
 2. Finalize D1 schemas and Durable Object ownership boundaries only for the
    staging-required dashboard, signer, sponsored gas, billing, and
    reconciliation flows.
-3. Wire the remaining D1/DO adapters behind existing domain-store ports. The
-   known next gap is selecting the Durable Object normal-signing admission store
-   in the Cloudflare staging runtime.
+3. Wire any remaining D1/DO adapters behind existing domain-store ports. The
+   known next gap is making the local Wrangler/Miniflare development path select
+   the D1/DO bundle by default for staging-required relay and console flows.
 4. Make local development run on Wrangler/Miniflare D1 and local Durable Object
    storage by default for staging-required flows.
 5. Port staging-required persistence tests to the D1/DO adapters and keep pure

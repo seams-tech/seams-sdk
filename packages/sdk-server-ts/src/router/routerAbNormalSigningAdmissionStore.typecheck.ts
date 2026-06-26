@@ -1,8 +1,23 @@
+import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type {
+  CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningQuotaDecision,
 } from './routerAbNormalSigningAdmissionStore';
+
+declare const thresholdStore: CloudflareDurableObjectNamespaceLike;
+
+const cloudflareDoAdmissionOptions: CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions =
+  {
+    namespace: thresholdStore,
+    storageNamespace: 'seams',
+  };
+
+// @ts-expect-error Durable Object admission stores require a storage namespace.
+const missingStorageNamespace: CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions = {
+  namespace: thresholdStore,
+};
 
 // @ts-expect-error Accepted quota decisions must carry the admitted request id.
 const invalidAcceptedQuota: RouterAbNormalSigningQuotaDecision = { kind: 'accepted' };
@@ -27,3 +42,5 @@ void invalidAcceptedQuota;
 void invalidReuseQuota;
 void invalidRejectedProjectPolicy;
 void invalidRateLimitedAbuse;
+void cloudflareDoAdmissionOptions;
+void missingStorageNamespace;
