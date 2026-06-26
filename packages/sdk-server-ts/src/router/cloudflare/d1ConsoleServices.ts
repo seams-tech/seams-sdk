@@ -63,6 +63,10 @@ import {
   type ConsoleSponsoredCallService,
 } from '../../console/sponsoredCalls';
 import {
+  createD1ConsoleSponsorshipSpendCapService,
+  type ConsoleSponsorshipSpendCapService,
+} from '../../console/sponsorshipSpendCaps';
+import {
   createD1ConsoleTeamRbacService,
   type ConsoleTeamRbacService,
 } from '../../console/teamRbac';
@@ -166,6 +170,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
+  readonly spendCaps: ConsoleSponsorshipSpendCapService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
   readonly consoleRouterOptions: CloudflareD1ConsoleRouterStorageOptions;
@@ -523,6 +528,17 @@ async function createCloudflareD1SponsoredCalls(
   });
 }
 
+async function createCloudflareD1SpendCaps(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleSponsorshipSpendCapService> {
+  return await createD1ConsoleSponsorshipSpendCapService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
 async function createCloudflareD1RuntimeSnapshots(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleRuntimeSnapshotService> {
@@ -629,6 +645,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
   const bootstrapTokens = await createCloudflareD1BootstrapTokens(normalized);
   const billing = await createCloudflareD1Billing(normalized);
   const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
+  const spendCaps = await createCloudflareD1SpendCaps(normalized);
   const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
   const runtimeSnapshots = await createCloudflareD1RuntimeSnapshots(normalized);
   const consoleRouterOptions = createCloudflareD1ConsoleRouterStorageOptions({
@@ -661,6 +678,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     audit,
     billing,
     prepaidReservations,
+    spendCaps,
     sponsoredCalls,
     runtimeSnapshots,
     consoleRouterOptions,

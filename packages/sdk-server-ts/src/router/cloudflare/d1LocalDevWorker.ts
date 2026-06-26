@@ -11,6 +11,7 @@ import { ensureConsoleOrgProjectEnvD1Schema } from '../../console/orgProjectEnv/
 import { ensureConsolePolicyD1Schema } from '../../console/policies/d1';
 import { ensureConsoleRuntimeSnapshotsD1Schema } from '../../console/runtimeSnapshots/d1';
 import { ensureConsoleSponsoredCallD1Schema } from '../../console/sponsoredCalls/d1';
+import { ensureConsoleSponsorshipSpendCapD1Schema } from '../../console/sponsorshipSpendCaps/d1';
 import { ensureConsoleTeamRbacD1Schema } from '../../console/teamRbac/d1';
 import { ensureConsoleWalletsD1Schema } from '../../console/wallets/d1';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
@@ -72,6 +73,7 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureConsoleBootstrapTokensD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBillingD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBillingPrepaidReservationD1Schema({ database: env.CONSOLE_DB });
+  await ensureConsoleSponsorshipSpendCapD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleSponsoredCallD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleRuntimeSnapshotsD1Schema({ database: env.CONSOLE_DB });
   await assertSignerD1Schema(env.SIGNER_DB);

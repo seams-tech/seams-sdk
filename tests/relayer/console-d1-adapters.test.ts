@@ -22,6 +22,7 @@ import {
 } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/types';
 import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/d1';
+import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/sdk-server-ts/src/console/sponsorshipSpendCaps/d1';
 import { createD1ConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/d1';
 import { createD1ConsoleWalletService } from '../../packages/sdk-server-ts/src/console/wallets/d1';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
@@ -1903,6 +1904,200 @@ test.describe('D1 adapter contracts', () => {
       expect(settled?.reservation.releasedMinor).toBe(125);
       expect(settled?.summary.reservedMinor).toBe(0);
       expect(settled?.summary.activeReservationCount).toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('sponsorship spend caps reserve and settle through trigger-backed D1 windows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      let nowMsValue = Date.parse('2026-06-27T04:00:00.000Z');
+      const service = await createD1ConsoleSponsorshipSpendCapService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date(nowMsValue),
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-spend-caps-primary',
+        actorUserId: 'user-d1-spend-caps-primary',
+        roles: ['admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-spend-caps-secondary',
+        actorUserId: 'user-d1-spend-caps-secondary',
+        roles: ['admin'],
+      };
+
+      const first = await service.reserve(primaryCtx, {
+        sourceEventId: 'spend-cap-reservation-1',
+        environmentId: 'env-d1-spend-caps-prod',
+        policyId: 'policy-d1-sponsored-gas',
+        chainId: 8453,
+        mode: 'CHAIN_TOTAL',
+        period: 'MONTHLY',
+        capMinor: 1_000,
+        estimatedSpendMinor: 400,
+      });
+      expect(first.reservation).toMatchObject({
+        orgId: primaryCtx.orgId,
+        status: 'RESERVED',
+        accountRef: null,
+        requestedMinor: 400,
+        windowStartAt: '2026-06-01T00:00:00.000Z',
+        windowEndAt: '2026-07-01T00:00:00.000Z',
+      });
+      expect(first.usage).toMatchObject({
+        reservedMinor: 400,
+        settledMinor: 0,
+        availableMinor: 600,
+      });
+
+      const duplicate = await service.reserve(primaryCtx, {
+        sourceEventId: 'spend-cap-reservation-1',
+        environmentId: 'env-d1-spend-caps-prod',
+        policyId: 'policy-d1-sponsored-gas',
+        chainId: 8453,
+        mode: 'CHAIN_TOTAL',
+        period: 'MONTHLY',
+        capMinor: 1_000,
+        estimatedSpendMinor: 900,
+      });
+      expect(duplicate.reservation.id).toBe(first.reservation.id);
+      expect(duplicate.usage).toMatchObject({
+        reservedMinor: 400,
+        settledMinor: 0,
+        availableMinor: 600,
+      });
+
+      await expect(
+        service.getReservationBySourceEventId(secondaryCtx, 'spend-cap-reservation-1'),
+      ).resolves.toBeNull();
+      await expect(
+        service.getWindowUsage(secondaryCtx, {
+          environmentId: 'env-d1-spend-caps-prod',
+          policyId: 'policy-d1-sponsored-gas',
+          chainId: 8453,
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          at: new Date('2026-06-27T04:00:00.000Z'),
+        }),
+      ).resolves.toBeNull();
+
+      let exceededError: unknown = null;
+      try {
+        await service.reserve(primaryCtx, {
+          sourceEventId: 'spend-cap-reservation-2',
+          environmentId: 'env-d1-spend-caps-prod',
+          policyId: 'policy-d1-sponsored-gas',
+          chainId: 8453,
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capMinor: 1_000,
+          estimatedSpendMinor: 700,
+        });
+      } catch (error: unknown) {
+        exceededError = error;
+      }
+      expect(errorCode(exceededError)).toBe('spend_cap_exceeded');
+      await expect(
+        service.getReservationBySourceEventId(primaryCtx, 'spend-cap-reservation-2'),
+      ).resolves.toBeNull();
+
+      nowMsValue = Date.parse('2026-06-27T04:05:00.000Z');
+      const settled = await service.settle(primaryCtx, {
+        sourceEventId: 'spend-cap-reservation-1',
+        settledSpendMinor: 250,
+      });
+      expect(settled?.reservation).toMatchObject({
+        status: 'SETTLED',
+        settledMinor: 250,
+        releasedMinor: 150,
+        updatedAt: '2026-06-27T04:05:00.000Z',
+      });
+      expect(settled?.usage).toMatchObject({
+        reservedMinor: 0,
+        settledMinor: 250,
+        availableMinor: 750,
+      });
+
+      await expect(
+        service.settle(primaryCtx, {
+          sourceEventId: 'spend-cap-reservation-1',
+          settledSpendMinor: 250,
+        }),
+      ).resolves.toMatchObject({
+        reservation: expect.objectContaining({ status: 'SETTLED' }),
+        usage: expect.objectContaining({ settledMinor: 250 }),
+      });
+      await expect(
+        service.settle(primaryCtx, {
+          sourceEventId: 'spend-cap-reservation-1',
+          settledSpendMinor: 300,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_state' });
+
+      await expect(
+        service.release(primaryCtx, { sourceEventId: 'spend-cap-reservation-1' }),
+      ).resolves.toMatchObject({
+        reservation: expect.objectContaining({ status: 'SETTLED' }),
+        usage: expect.objectContaining({ settledMinor: 250 }),
+      });
+
+      nowMsValue = Date.parse('2026-06-27T04:10:00.000Z');
+      const walletBucket = await service.reserve(primaryCtx, {
+        sourceEventId: 'spend-cap-wallet-1',
+        environmentId: 'env-d1-spend-caps-prod',
+        policyId: 'policy-d1-sponsored-gas',
+        accountRef: 'wallet-d1-alpha',
+        chainId: 8453,
+        mode: 'WALLET_CHAIN_TOTAL',
+        period: 'MONTHLY',
+        capMinor: 500,
+        estimatedSpendMinor: 200,
+      });
+      expect(walletBucket.reservation.accountRef).toBe('wallet-d1-alpha');
+      expect(walletBucket.usage).toMatchObject({
+        reservedMinor: 200,
+        settledMinor: 0,
+        availableMinor: 300,
+      });
+
+      nowMsValue = Date.parse('2026-06-27T04:11:00.000Z');
+      const released = await service.release(primaryCtx, {
+        sourceEventId: 'spend-cap-wallet-1',
+      });
+      expect(released?.reservation).toMatchObject({
+        status: 'RELEASED',
+        releasedMinor: 200,
+        updatedAt: '2026-06-27T04:11:00.000Z',
+      });
+      expect(released?.usage).toMatchObject({
+        reservedMinor: 0,
+        settledMinor: 0,
+        availableMinor: 500,
+      });
+
+      await expect(
+        service.settle(primaryCtx, {
+          sourceEventId: 'spend-cap-wallet-1',
+          settledSpendMinor: 100,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_state' });
+
+      await expect(
+        service.reserve(primaryCtx, {
+          sourceEventId: 'spend-cap-wallet-missing-account',
+          environmentId: 'env-d1-spend-caps-prod',
+          policyId: 'policy-d1-sponsored-gas',
+          chainId: 8453,
+          mode: 'WALLET_CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capMinor: 500,
+          estimatedSpendMinor: 100,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

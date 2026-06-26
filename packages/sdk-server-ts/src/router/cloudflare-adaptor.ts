@@ -458,6 +458,10 @@ export type {
 export type {
   ConsoleSponsorshipSpendCapContext,
   ConsoleSponsorshipSpendCapService,
+  ConsoleSponsorshipSpendCapD1Runtime,
+  ConsoleSponsorshipSpendCapD1Service,
+  D1ConsoleSponsorshipSpendCapSchemaOptions,
+  D1ConsoleSponsorshipSpendCapServiceOptions,
   InMemoryConsoleSponsorshipSpendCapServiceOptions,
   PostgresConsoleSponsorshipSpendCapSchemaOptions,
   PostgresConsoleSponsorshipSpendCapServiceOptions,
@@ -701,6 +705,11 @@ export {
   ConsoleWebhookError,
 } from '../console/webhooks';
 export {
+  CONSOLE_SPONSORSHIP_SPEND_CAP_D1_RUNTIME,
+  CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL,
+  createD1ConsoleSponsorshipSpendCapService,
+  ensureConsoleSponsorshipSpendCapD1Schema,
+  getConsoleSponsorshipSpendCapD1Runtime,
   createInMemoryConsoleSponsorshipSpendCapService,
   ensureConsoleSponsorshipSpendCapPostgresSchema,
   createPostgresConsoleSponsorshipSpendCapService,
