@@ -87,49 +87,38 @@ export type CurrentSealedSessionRecordClassification = {
   record: CurrentSealedSessionRecord;
 };
 
-export type DeleteRequiredSealedSessionRecordClassification = {
-  kind: 'delete_required';
-  storeKey: string | null;
-  walletId: string | null;
-  reason: SealedSessionRecordClassificationReason;
-  safeSummary: Record<string, unknown>;
-};
+type NonCurrentSealedSessionRecordClassificationKind =
+  | 'delete_required'
+  | 'rebuild_required'
+  | 'user_action_required'
+  | 'malformed';
 
-export type RebuildRequiredSealedSessionRecordClassification = {
-  kind: 'rebuild_required';
-  storeKey: string | null;
-  walletId: string | null;
-  reason: SealedSessionRecordClassificationReason;
-  safeSummary: Record<string, unknown>;
-};
-
-export type UserActionRequiredSealedSessionRecordClassification = {
-  kind: 'user_action_required';
-  storeKey: string | null;
-  walletId: string | null;
-  reason: SealedSessionRecordClassificationReason;
-  safeSummary: Record<string, unknown>;
-};
-
-export type MalformedSealedSessionRecordClassification = {
-  kind: 'malformed';
-  storeKey: string | null;
-  walletId: string | null;
-  reason: SealedSessionRecordClassificationReason;
-  safeSummary: Record<string, unknown>;
-};
+type NonCurrentSealedSessionRecordClassification = {
+  [K in NonCurrentSealedSessionRecordClassificationKind]: {
+    kind: K;
+    storeKey: string | null;
+    walletId: string | null;
+    reason: SealedSessionRecordClassificationReason;
+    safeSummary: Record<string, unknown>;
+  };
+}[NonCurrentSealedSessionRecordClassificationKind];
 
 export type SealedSessionRecordClassification =
   | CurrentSealedSessionRecordClassification
-  | DeleteRequiredSealedSessionRecordClassification
-  | RebuildRequiredSealedSessionRecordClassification
-  | UserActionRequiredSealedSessionRecordClassification
-  | MalformedSealedSessionRecordClassification;
+  | NonCurrentSealedSessionRecordClassification;
 
-export class SealedSessionRecordUserActionRequiredError extends Error {
-  readonly classification: UserActionRequiredSealedSessionRecordClassification;
+class SealedSessionRecordUserActionRequiredError extends Error {
+  readonly classification: Extract<
+    NonCurrentSealedSessionRecordClassification,
+    { kind: 'user_action_required' }
+  >;
 
-  constructor(classification: UserActionRequiredSealedSessionRecordClassification) {
+  constructor(
+    classification: Extract<
+      NonCurrentSealedSessionRecordClassification,
+      { kind: 'user_action_required' }
+    >,
+  ) {
     super(
       `[SigningSessionSealedStore] sealed session record requires user action: ${classification.reason}`,
     );
@@ -148,9 +137,7 @@ export type SigningSessionSealedRecordFilter =
       authMethod: 'passkey' | 'email_otp';
       curve: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
-    };
-
-export type ListExactSigningSessionSealedRecordsForWalletFilter = SigningSessionSealedRecordFilter;
+};
 
 export type ListEcdsaSigningSessionSealedRecordsForWalletFilter = {
   authMethod?: 'passkey' | 'email_otp';
@@ -203,31 +190,6 @@ export type BuildCurrentEcdsaSealedSessionRecordInput =
 export type BuildCurrentSealedSessionRecordInput =
   | BuildCurrentEd25519SealedSessionRecordInput
   | BuildCurrentEcdsaSealedSessionRecordInput;
-
-export type BuildCurrentSealedSessionRecordBaseInput = {
-  thresholdSessionId: string;
-  sealedSecretB64u: string;
-  authMethod: 'passkey' | 'email_otp';
-  signingGrantId: string;
-  thresholdSessionIds?: {
-    ed25519?: string;
-    ecdsa?: string;
-  };
-  subjectId?: string;
-  walletId?: string;
-  userId?: string;
-  signingRootId?: string;
-  signingRootVersion?: string;
-  relayerUrl?: string;
-  keyVersion?: string;
-  shamirPrimeB64u?: string;
-  ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
-  ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
-  issuedAtMs?: number;
-  expiresAtMs: number;
-  remainingUses: number;
-  updatedAtMs?: number;
-};
 
 export type SealedStoreResolvedSigningSessionIdentity =
   | {
@@ -1061,10 +1023,10 @@ function buildSealedSessionSafeSummary(
 }
 
 function classifyNonCurrentRecord(
-  kind: Exclude<SealedSessionRecordClassification['kind'], 'current'>,
+  kind: NonCurrentSealedSessionRecordClassificationKind,
   obj: RawSealedSessionRecord | null,
   reason: SealedSessionRecordClassificationReason,
-): Exclude<SealedSessionRecordClassification, CurrentSealedSessionRecordClassification> {
+): NonCurrentSealedSessionRecordClassification {
   return {
     kind,
     storeKey: normalizeOptionalNonEmptyString(obj?.storeKey) || null,
@@ -1649,7 +1611,7 @@ export async function readExactSealedSession(
 
 export async function listExactSealedSessionsForWallet(args: {
   walletId: string;
-  filter: ListExactSigningSessionSealedRecordsForWalletFilter;
+  filter: SigningSessionSealedRecordFilter;
 }): Promise<CurrentSealedSessionRecord[]> {
   const walletId = normalizeOptionalNonEmptyString(args.walletId);
   if (!walletId) return [];

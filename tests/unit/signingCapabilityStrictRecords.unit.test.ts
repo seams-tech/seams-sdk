@@ -247,7 +247,7 @@ function makeEcdsaRecord(
 ): ThresholdEcdsaSessionRecord {
   return {
     walletId: ecdsaWalletId,
-    authMetadata: { walletKeyId: 'localhost' },
+    walletKeyId: 'localhost',
     chainTarget: ecdsaChainTarget,
     relayerUrl: 'https://router.example.test',
     keyHandle: ecdsaKeyHandle,

@@ -261,7 +261,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp' as const,
     keyHandle,
-    authMetadata: { walletKeyId: RP_ID },
+    walletKeyId: RP_ID,
   };
   return runtimeValidatedExportRecord({
     ...record,
@@ -307,7 +307,7 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     updatedAtMs: 1_800_000_000_000,
     source: 'registration' as const,
     keyHandle,
-    authMetadata: { walletKeyId: RP_ID },
+    walletKeyId: RP_ID,
   };
   return runtimeValidatedExportRecord({
     ...record,

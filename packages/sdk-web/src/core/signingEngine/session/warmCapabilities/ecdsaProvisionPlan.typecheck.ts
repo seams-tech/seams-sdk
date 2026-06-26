@@ -113,7 +113,7 @@ const invalidReconnectKeyRefThresholdSessionAuth = {
 void invalidReconnectKeyRefThresholdSessionAuth;
 const reconnectRecord = {
   walletId: toWalletId('alice.testnet'),
-  authMetadata: { walletKeyId: 'example.localhost' },
+  walletKeyId: 'example.localhost',
   chainTarget,
   relayerUrl: 'https://relayer.test',
   keyHandle,

@@ -324,7 +324,7 @@ function recordForChainTarget(
 ): PasskeyEcdsaSessionRecord {
   return markRuntimeValidated({
     walletId: input.walletId,
-    authMetadata: { walletKeyId },
+    walletKeyId,
     chainTarget: materialChainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),

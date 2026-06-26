@@ -142,7 +142,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
 
 	    upsertRestoredThresholdEcdsaSessionRecord({
 	      walletId: toWalletId(args.walletId),
-	      authMetadata: { walletKeyId: ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId },
+	      walletKeyId: ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
 	      chainTarget: args.record.chainTarget,
       relayerUrl: args.record.relayerUrl,
       keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),

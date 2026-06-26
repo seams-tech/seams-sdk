@@ -70,7 +70,7 @@ function ecdsaEmailOtpRecord(args: {
   const chainTarget = args.chainTarget || EVM_TARGET;
   return {
     walletId: WALLET_ID,
-    authMetadata: { walletKeyId: 'localhost' },
+    walletKeyId: 'localhost',
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle,

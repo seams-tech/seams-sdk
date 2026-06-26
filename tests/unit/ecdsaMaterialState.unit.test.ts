@@ -289,7 +289,7 @@ function makeRecord(
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    authMetadata: { walletKeyId: 'example.localhost' },
+    walletKeyId: 'example.localhost',
     ...overrides,
   };
 }
@@ -327,7 +327,7 @@ function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'e
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    authMetadata: { walletKeyId: 'example.localhost' },
+    walletKeyId: 'example.localhost',
     emailOtpAuthContext: {
       authMethod: 'email_otp',
       policy: 'per_operation',

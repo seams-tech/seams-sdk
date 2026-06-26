@@ -91,7 +91,7 @@ function ecdsaRecord(args: {
   const chainTarget = args.chainTarget || EVM_CHAIN_TARGET;
   const common = {
     walletId: WALLET_ID,
-    authMetadata: { walletKeyId: 'localhost' },
+    walletKeyId: 'localhost',
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-post-sign'),

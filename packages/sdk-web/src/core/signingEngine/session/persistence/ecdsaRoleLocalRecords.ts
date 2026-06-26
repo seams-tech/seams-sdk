@@ -39,8 +39,6 @@ export type EcdsaRoleLocalExportMaterial = {
   contextBinding32B64u: string;
 };
 
-export type EcdsaRoleLocalWorkerExportMaterial = EcdsaRoleLocalExportMaterial;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -501,13 +499,6 @@ function thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
   };
 }
 
-export function parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial(
-  input: unknown,
-): EcdsaRoleLocalWorkerExportMaterial {
-  const record = parseRawThresholdEcdsaSessionRecord(input);
-  return thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(record);
-}
-
 function cleanupInputFromLookup(args: {
   lookup: LoadEcdsaRoleLocalReadyRecordInput;
   reason: string;
@@ -556,7 +547,7 @@ export function parseRawEcdsaRoleLocalRecord(input: {
   }
 }
 
-export function serializeEcdsaRoleLocalPublicFacts(
+function serializeEcdsaRoleLocalPublicFacts(
   facts: EcdsaRoleLocalPublicFacts,
 ): Record<string, unknown> {
   return {

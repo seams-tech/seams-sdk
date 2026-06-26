@@ -282,7 +282,7 @@ function makeEmailOtpEcdsaRecordForSelection(args: {
   const ethereumAddress = '0x'.padEnd(42, 'a') as `0x${string}`;
   return {
     walletId: TEST_SUBJECT_ID,
-    authMetadata: { walletKeyId: 'localhost' },
+    walletKeyId: 'localhost',
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle,
@@ -1954,7 +1954,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
         walletId: 'alice.testnet' as any,
-        authMetadata: { walletKeyId: 'localhost' },
+        walletKeyId: 'localhost',
         chainTarget: TEMPO_CHAIN_TARGET,
         relayerUrl: 'https://relay.example',
         keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
@@ -2058,7 +2058,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
         walletId: 'alice.testnet' as any,
-        authMetadata: { walletKeyId: 'localhost' },
+        walletKeyId: 'localhost',
         chainTarget: tempoChainTarget,
         relayerUrl: 'https://relay.example',
         keyHandle,

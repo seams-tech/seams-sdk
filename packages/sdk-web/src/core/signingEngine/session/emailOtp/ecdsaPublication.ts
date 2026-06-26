@@ -9,7 +9,6 @@ import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/ses
 import {
   readExactSealedSession,
   type BuildCurrentSealedSessionRecordInput,
-  type BuildCurrentSealedSessionRecordBaseInput,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {

@@ -16,7 +16,6 @@ import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signin
 import type { ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier } from '@/core/types/signer-worker';
 import type {
   BuildCurrentSealedSessionRecordInput,
-  BuildCurrentSealedSessionRecordBaseInput,
   SigningSessionRestoreLeaseHandle,
   SigningSessionSealedRecordFilter,
   SigningSessionSealedStoreRecord,

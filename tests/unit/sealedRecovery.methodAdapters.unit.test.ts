@@ -113,7 +113,7 @@ function makeEmailOtpEcdsaCurrentRecord(
   return {
     source: 'email_otp',
     walletId: 'alice.testnet',
-    authMetadata: { walletKeyId: EMAIL_OTP_WALLET_KEY_ID },
+    walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle: 'key-handle-ecdsa',
@@ -185,7 +185,7 @@ function makePasskeyEcdsaCurrentRecord(
   return {
     source: 'login',
     walletId: 'alice.testnet',
-    authMetadata: { walletKeyId: 'wallet-key-passkey' },
+    walletKeyId: 'wallet-key-passkey',
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle: 'key-handle-passkey-ecdsa',

@@ -96,7 +96,7 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
   record: Pick<
     ThresholdEcdsaSessionRecord,
     | 'walletId'
-    | 'authMetadata'
+    | 'walletKeyId'
     | 'ecdsaThresholdKeyId'
     | 'signingRootId'
     | 'signingRootVersion'
@@ -141,7 +141,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-step-up');
   const record: ThresholdEcdsaSessionRecord = {
     walletId: toWalletId('alice.testnet'),
-    authMetadata: { walletKeyId: 'example.localhost' },
+    walletKeyId: 'example.localhost',
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
     keyHandle,
@@ -436,7 +436,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
             }),
 	            keygen: {
 	              ok: true,
-	              walletKeyId: refreshedRecord.authMetadata.walletKeyId,
+	              walletKeyId: refreshedRecord.walletKeyId,
 	              chainId: CHAIN_TARGET.chainId,
 	            },
             session: {

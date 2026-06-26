@@ -51,9 +51,8 @@ Current child owners are explicit folders:
   restore orchestration,
   rejected-record reporting,
   and generic readback verification.
-- `sealedRecovery/*` must not accept `SigningSessionSealedStoreRecord` or
-  `BuildCurrentSealedSessionRecordBaseInput` except at the explicit raw
-  normalization boundary.
+- `sealedRecovery/*` must not accept `SigningSessionSealedStoreRecord` except
+  at the explicit raw normalization boundary.
 - Method folders consume the same sealed-recovery orchestration boundary:
   passkey reconnect/restore-before-claim goes through
   `sealedRecovery/restoreCoordinator.ts`, while Email OTP reuses

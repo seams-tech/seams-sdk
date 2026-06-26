@@ -19,7 +19,6 @@ import {
   parseEcdsaRoleLocalReadyRecord,
   parseRawEcdsaRoleLocalRecord,
   parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
-  parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
@@ -169,7 +168,7 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
   const source = String(overrides.source || 'registration');
   return {
     walletId,
-    authMetadata: { walletKeyId },
+    walletKeyId,
     chainTarget,
     relayerUrl: 'https://relayer.example',
     keyHandle,
@@ -497,16 +496,6 @@ test.describe('ECDSA role-local record boundary parser', () => {
       kind: 'cleanup_only_raw_role_local_record_v1',
       reason: 'malformed_record',
     });
-  });
-
-  test('parses worker export material at the boundary for current browser worker calls', () => {
-    const material =
-      parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial(rawSessionRecord());
-    expect(material.readyRecord.publicFacts.relayerPublicKey33B64u).toBe(relayerPublicKey33B64u);
-    expect(material.readyRecord.publicFacts.hssClientSharePublicKey33B64u).toBe(
-      hssClientSharePublicKey33B64u,
-    );
-    expect('roleLocalState' in material).toBe(false);
   });
 
   test('round-trips persisted ready records through the browser durable store', async () => {

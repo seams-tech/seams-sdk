@@ -98,13 +98,9 @@ import {
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
-export type ThresholdEcdsaSessionAuthMetadata = {
-  walletKeyId: string;
-};
-
 type ThresholdEcdsaSessionRecordCore = {
   walletId: WalletId;
-  authMetadata: ThresholdEcdsaSessionAuthMetadata;
+  walletKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   keyHandle: EvmFamilyEcdsaKeyHandle;
@@ -452,15 +448,17 @@ function isExactEcdsaSigningLaneLookupKey(
   );
 }
 
-function normalizeThresholdEcdsaSessionAuthMetadata(
-  value: unknown,
-): ThresholdEcdsaSessionAuthMetadata | null {
+function normalizeThresholdEcdsaSessionWalletKeyId(value: Record<string, unknown>): string | null {
+  const direct = normalizeOptionalNonEmptyString(value.walletKeyId);
+  if (direct) return direct;
   const obj =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
+    value.authMetadata &&
+    typeof value.authMetadata === 'object' &&
+    !Array.isArray(value.authMetadata)
+      ? (value.authMetadata as Record<string, unknown>)
       : null;
   const walletKeyId = normalizeOptionalNonEmptyString(obj?.walletKeyId);
-  return walletKeyId ? { walletKeyId } : null;
+  return walletKeyId || null;
 }
 
 export function thresholdEcdsaRecordRpId(record: ThresholdEcdsaSessionRecord): string {
@@ -1187,8 +1185,7 @@ function normalizeStoredVerifiedPublicFacts(args: {
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const walletId = toWalletId(String(obj.walletId || '').trim());
-  const authMetadata = normalizeThresholdEcdsaSessionAuthMetadata(obj.authMetadata);
-  const walletKeyId = authMetadata?.walletKeyId || '';
+  const walletKeyId = normalizeThresholdEcdsaSessionWalletKeyId(obj) || '';
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
@@ -1315,7 +1312,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   }
   const sharedRecord = {
     walletId,
-    authMetadata: { walletKeyId },
+    walletKeyId,
     relayerUrl,
     keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
     ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({
@@ -2428,7 +2425,7 @@ function buildEcdsaRecordFromBootstrap(
 
   return normalizeThresholdEcdsaSessionRecord({
     walletId,
-    authMetadata: { walletKeyId: args.bootstrap.keygen.walletKeyId },
+    walletKeyId: args.bootstrap.keygen.walletKeyId,
     chainTarget: args.chainTarget,
     relayerUrl: keyRef.relayerUrl,
     keyHandle,

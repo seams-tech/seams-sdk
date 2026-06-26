@@ -34,8 +34,8 @@ import {
 import type { RequestEmailOtpChallengeArgs } from './exportRecoveryRuntime';
 import type { ExportEd25519SeedWithAuthorizationArgs } from './exportRecoveryRuntime';
 import {
-  parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
-  type EcdsaRoleLocalWorkerExportMaterial,
+  parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
+  type EcdsaRoleLocalExportMaterial,
 } from '../persistence/ecdsaRoleLocalRecords';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
 
@@ -93,7 +93,7 @@ export type EmailOtpEcdsaAuthorizedExportStepUpInput = EmailOtpEcdsaExportBaseIn
   record: ThresholdEcdsaSessionRecord;
   shamirPrimeB64u: string;
   keyHandle: string;
-  roleLocalMaterial: EcdsaRoleLocalWorkerExportMaterial;
+  roleLocalMaterial: EcdsaRoleLocalExportMaterial;
 };
 
 type EmailOtpEcdsaFreshExportSubjectInput =
@@ -201,7 +201,7 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
     authLane?: EmailOtpAuthLane;
   },
 ): EmailOtpEcdsaAuthorizedExportStepUpInput {
-  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial(
+  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
     args.record,
   );
   const providedAuthLane = args.authLane;

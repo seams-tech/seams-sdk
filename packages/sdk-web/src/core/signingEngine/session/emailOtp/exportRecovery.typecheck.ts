@@ -6,7 +6,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
-import type { EcdsaRoleLocalWorkerExportMaterial } from '../persistence/ecdsaRoleLocalRecords';
+import type { EcdsaRoleLocalExportMaterial } from '../persistence/ecdsaRoleLocalRecords';
 import type {
   EmailOtpEcdsaAuthorizedExportStepUpInput,
   EmailOtpEcdsaFreshLoginExportStepUpInput,
@@ -16,7 +16,7 @@ declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const routePlan: EmailOtpRoutePlan;
 declare const record: ThresholdEcdsaSessionRecord;
-declare const roleLocalMaterial: EcdsaRoleLocalWorkerExportMaterial;
+declare const roleLocalMaterial: EcdsaRoleLocalExportMaterial;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 

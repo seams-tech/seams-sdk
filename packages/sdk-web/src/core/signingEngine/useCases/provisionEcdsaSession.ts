@@ -1383,7 +1383,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
     },
 	    keygen: {
 	      ok: true,
-	      walletKeyId: record.authMetadata.walletKeyId,
+	      walletKeyId: record.walletKeyId,
 	      ecdsaThresholdKeyId,
       relayerKeyId,
       clientVerifyingShareB64u,

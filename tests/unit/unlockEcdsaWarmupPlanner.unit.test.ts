@@ -132,7 +132,7 @@ function parseKeyFactsInventoryRequired(
 function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaSessionRecord {
   return {
     walletId: WALLET_ID,
-    authMetadata: { walletKeyId: 'wallet-key-unlock-warmup' },
+    walletKeyId: 'wallet-key-unlock-warmup',
     chainTarget: active.chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: active.walletKey.keyHandle,

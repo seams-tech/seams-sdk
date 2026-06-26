@@ -304,7 +304,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
     updatedAtMs: 1_800_000_000_000,
     source: 'login' as const,
     keyHandle: keyHandleForRecord,
-    authMetadata: { walletKeyId: WALLET_KEY_ID },
+    walletKeyId: WALLET_KEY_ID,
   };
   return record;
 }
