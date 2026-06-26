@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
@@ -64,13 +65,13 @@ function bootstrap(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId('alice.testnet'),
-      walletKeyId: 'wallet-key-bootstrap-persistence',
-      rpId: 'localhost',
+      walletKeyId: requireWalletKeyId('wallet-key-bootstrap-persistence'),
       chainTarget: EVM_TARGET,
       keyHandle,
       ecdsaThresholdKeyId,
       signingRootId: 'signing-root-1',
       signingRootVersion: 'signing-root-v1',
+      applicationBindingDigestB64u: VALID_SHARE_32_B64U,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -111,7 +112,7 @@ function bootstrap(args: {
       ethereumAddress: args.ownerAddress,
       keyHandle,
       ecdsaThresholdKeyId,
-      walletKeyId: 'localhost',
+      walletKeyId: requireWalletKeyId('wallet-key-bootstrap-persistence'),
       relayerKeyId: 'relayer-key-1',
       relayerVerifyingShareB64u: VALID_RELAYER_PUBLIC_KEY_B64U,
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,

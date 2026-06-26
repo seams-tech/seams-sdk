@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
@@ -67,7 +68,7 @@ const TEST_WEBAUTHN_CREDENTIAL = {
 } satisfies WebAuthnAuthenticationCredential;
 const THRESHOLD_OWNER_ADDRESS = `0x${'11'.repeat(20)}` as const;
 const TEST_PASSKEY_CREDENTIAL_ID_B64U = TEST_WEBAUTHN_CREDENTIAL.rawId;
-const WALLET_KEY_ID = 'wallet-key-step-up-provision';
+const WALLET_KEY_ID = requireWalletKeyId('wallet-key-step-up-provision');
 const PASSKEY_AUTH = {
   kind: 'passkey',
   rpId: toRpId('example.localhost'),
@@ -141,7 +142,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-step-up');
   const record: ThresholdEcdsaSessionRecord = {
     walletId: toWalletId('alice.testnet'),
-    walletKeyId: 'example.localhost',
+    walletKeyId: WALLET_KEY_ID,
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
     keyHandle,

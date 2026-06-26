@@ -41,7 +41,6 @@ export type ThresholdEd25519SessionRouteCommand = {
     | {
         kind: 'passkey';
         webauthnAuthentication: WebAuthnAuthenticationCredential;
-        expectedOriginRaw: string;
       };
   sessionKind?: 'jwt';
 };
@@ -51,7 +50,6 @@ const SESSION_KEYS = [
   'sessionPolicy',
   'runtimeEnvironmentId',
   'webauthn_authentication',
-  'expected_origin',
   'sessionKind',
 ] as const;
 
@@ -288,7 +286,6 @@ export function parseThresholdEd25519SessionRouteRequest(
         ? {
             kind: 'passkey',
             webauthnAuthentication,
-            expectedOriginRaw: optionalStringField(raw, 'expected_origin') || '',
           }
         : { kind: 'signed_session_header' },
       ...(optionalSessionKind(raw) ? { sessionKind: 'jwt' } : {}),

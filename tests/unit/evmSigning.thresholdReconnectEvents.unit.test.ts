@@ -58,7 +58,6 @@ test.describe('EVM family threshold reconnect events', () => {
     }
     const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: staleRecord,
-      walletKeyId: roleLocalRecord.publicFacts.walletKeyId,
     });
     const lane = requireResolvedEvmFamilyEcdsaSigningLane({
       lane: buildEvmTransactionSigningLane({

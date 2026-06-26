@@ -1435,7 +1435,6 @@ export async function toVerifiedEcdsaPublicFactsFromDurableRecord(args: {
 
 export function buildEvmFamilyEcdsaKeyIdentityFromRecord(args: {
   record: ThresholdEcdsaSessionRecord;
-  walletKeyId?: unknown;
   trustedOwnerAddress?: unknown;
 }): EvmFamilyEcdsaKeyIdentity {
   const thresholdOwnerAddress = normalizeThresholdOwnerAddress(args.record.ethereumAddress);
@@ -1453,16 +1452,7 @@ export function buildEvmFamilyEcdsaKeyIdentityFromRecord(args: {
   const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
     record: args.record,
   });
-  const walletKeyId = args.walletKeyId
-    ? normalizeWalletKeyId(args.walletKeyId)
-    : deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-        walletId: args.record.walletId,
-        ecdsaThresholdKeyId,
-        signingRootId: signingRootBinding.signingRootId,
-        signingRootVersion: signingRootBinding.signingRootVersion,
-        participantIds: args.record.participantIds,
-        thresholdOwnerAddress,
-      });
+  const walletKeyId = normalizeWalletKeyId(args.record.walletKeyId);
   return buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.record.walletId,
     walletKeyId,
@@ -1632,17 +1622,28 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
   try {
     recordKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: input.record,
-      walletKeyId: input.expected.walletKeyId,
     });
   } catch {
     return { kind: 'identity_mismatch', reason: staleReason('invalid_identity') };
   }
 
   const expectedWalletId = toWalletId(input.expected.walletId);
+  const expectedWalletKeyId = normalizeWalletKeyId(input.expected.walletKeyId);
   if (String(recordKey.walletId) !== String(expectedWalletId)) {
     return {
       kind: 'identity_mismatch',
       reason: mismatch('wallet_mismatch', 'walletId', expectedWalletId, recordKey.walletId),
+    };
+  }
+  if (String(recordKey.walletKeyId) !== String(expectedWalletKeyId)) {
+    return {
+      kind: 'identity_mismatch',
+      reason: mismatch(
+        'wallet_key_mismatch',
+        'walletKeyId',
+        expectedWalletKeyId,
+        recordKey.walletKeyId,
+      ),
     };
   }
   if (!thresholdEcdsaChainTargetsEqual(input.record.chainTarget, input.expected.chainTarget)) {

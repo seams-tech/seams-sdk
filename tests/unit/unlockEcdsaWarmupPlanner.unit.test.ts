@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import {
   buildSharedKeyTargetCompletion,
   configuredTargetThresholdEcdsaWarmKey,
@@ -132,7 +133,7 @@ function parseKeyFactsInventoryRequired(
 function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaSessionRecord {
   return {
     walletId: WALLET_ID,
-    walletKeyId: 'wallet-key-unlock-warmup',
+    walletKeyId: requireWalletKeyId('wallet-key-unlock-warmup'),
     chainTarget: active.chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: active.walletKey.keyHandle,

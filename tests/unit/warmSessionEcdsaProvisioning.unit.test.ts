@@ -65,11 +65,9 @@ function createEnvelope(): WarmSessionEnvelope {
   });
   const evmKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
     record: evmRecord,
-    walletKeyId: evmRecord.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
   });
   const tempoKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
     record: tempoRecord,
-    walletKeyId: tempoRecord.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
   });
   const evmAuth = passkeyAuthFromRecord(evmRecord);
   const tempoAuth = passkeyAuthFromRecord(tempoRecord);

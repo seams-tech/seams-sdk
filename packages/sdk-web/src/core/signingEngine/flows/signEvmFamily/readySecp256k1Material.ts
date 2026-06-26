@@ -1,6 +1,6 @@
+import { assertMatchingWalletKeyId, requireWalletKeyId } from '@shared/signing-lanes';
 import {
   buildKnownReadyThresholdEcdsaSessionPolicy,
-  buildEvmFamilyEcdsaKeyIdentityFromRecord,
   buildReadyEcdsaSignerSession,
   buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord,
   toVerifiedEcdsaPublicFactsFromRecord,
@@ -32,20 +32,19 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
   requestLabel: unknown;
   walletKeyId: unknown;
 }): Promise<ReadySecp256k1SigningMaterial> {
-  const walletKeyId = String(args.walletKeyId || '').trim();
-  if (!walletKeyId) {
-    throw new Error('[multichain] Missing walletKeyId for threshold-ecdsa signing');
-  }
-  const recordKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
-    record: args.record,
-    walletKeyId,
+  const walletKeyId = requireWalletKeyId(args.walletKeyId, 'threshold-ecdsa signing walletKeyId');
+  assertMatchingWalletKeyId({
+    expected: walletKeyId,
+    actual: args.record.walletKeyId,
+    actualLabel: 'threshold-ecdsa session record walletKeyId',
+    message: '[multichain] threshold-ecdsa walletKeyId mismatch; reconnect threshold session',
   });
-  const recordWalletKeyId = String(
-    args.record.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId || recordKey.walletKeyId,
-  ).trim();
-  if (recordWalletKeyId !== walletKeyId) {
-    throw new Error('[multichain] threshold-ecdsa walletKeyId mismatch; reconnect threshold session');
-  }
+  assertMatchingWalletKeyId({
+    expected: walletKeyId,
+    actual: args.record.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
+    actualLabel: 'threshold-ecdsa role-local publicFacts walletKeyId',
+    message: '[multichain] threshold-ecdsa walletKeyId mismatch; reconnect threshold session',
+  });
   const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
   if (requestChain && args.record.chainTarget.kind !== requestChain) {
     throw new Error('[multichain] threshold-ecdsa chain mismatch; reconnect threshold session');

@@ -167,7 +167,7 @@ test.describe('threshold ecdsa postgres records', () => {
       parseCurrentRouterAbEcdsaHssPoolFillSessionRow({
         recordJson: {
           expiresAtMs: 999_999,
-          userId: 'alice.testnet',
+          walletId: 'alice.testnet',
           walletKeyId: 'wallet-key-alice',
           relayerKeyId: 'relayer-key',
           presignPoolKey: 'keyHandle:threshold-key',

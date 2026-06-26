@@ -316,11 +316,39 @@ test('Refactor 79 ECDSA keygen and session envelopes expose walletKeyId rather t
     if (/authMetadata\.rpId\b/.test(source)) {
       violations.push(`${relativePath}: authMetadata.rpId read`);
     }
+    if (/authMetadata\.walletKeyId\b/.test(source)) {
+      violations.push(`${relativePath}: deleted authMetadata.walletKeyId read`);
+    }
     if (/authMetadata:\s*\{\s*rpId\b/.test(source)) {
       violations.push(`${relativePath}: authMetadata writes rpId`);
     }
+    if (/authMetadata:\s*\{\s*walletKeyId\b/.test(source)) {
+      violations.push(`${relativePath}: authMetadata writes deleted walletKeyId`);
+    }
   }
 
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Refactor 79 ECDSA role-local public facts exclude auth fields', () => {
+  const roleLocalSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.ts',
+  );
+  const parsePublicFactsSource = sourceRangeBetween(
+    roleLocalSource,
+    'function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {',
+    'export function buildEcdsaRoleLocalPublicFacts(input: unknown):',
+  );
+  expect(parsePublicFactsSource).toContain('input.rpId !== undefined');
+  expect(parsePublicFactsSource).toContain('auth fields are not publicFacts');
+
+  const violations: string[] = [];
+  for (const relativePath of productionSdkTypeScriptFiles()) {
+    const source = readRepoSource(relativePath);
+    if (/buildEcdsaRoleLocalPublicFacts\(\{[\s\S]{0,320}\brpId\b/.test(source)) {
+      violations.push(`${relativePath}: ECDSA public facts include rpId`);
+    }
+  }
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
@@ -713,7 +741,28 @@ test('Refactor 79 normalized server ECDSA records do not expose walletSessionUse
   const validationSource = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
   );
-  expect(validationSource).toContain('toOptionalString(raw.walletSessionUserId)');
+  const ecdsaValidationRanges = [
+    sourceRangeBetween(
+      validationSource,
+      'export function parseThresholdEcdsaMpcSessionRecord(',
+      'export type ParsedThresholdEd25519SigningSessionRecord =',
+    ),
+    sourceRangeBetween(
+      validationSource,
+      'export function parseEcdsaWalletSessionRecord(',
+      'export type ParsedWalletSigningBudgetSessionRecord =',
+    ),
+    sourceRangeBetween(
+      validationSource,
+      'export function parseRouterAbEcdsaHssPoolFillSessionRecord(',
+      'type EcdsaWalletSessionClaimsForKind<',
+    ),
+  ];
+  for (const source of ecdsaValidationRanges) {
+    expect(source).not.toContain('walletSessionUserId');
+    expect(source).not.toContain('toOptionalString(raw.userId)');
+  }
+  expect(validationSource).not.toContain('const walletKeyId = toOptionalString(raw.walletKeyId)');
 });
 
 test('Refactor 79 canonical NEAR Ed25519 signer binding rejects signer slot zero', () => {

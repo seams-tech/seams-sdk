@@ -515,7 +515,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.nearAccountId),
       walletKeyId,
-      rpId,
       chainTarget,
       keyHandle,
       ecdsaThresholdKeyId,
@@ -1240,7 +1239,6 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
                 kind: 'passkey_ecdsa_session_provision',
                 key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
                   record,
-                  walletKeyId: record.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
                 }),
                 chainTarget,
                 sessionIdentity: identity,

@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import {
   AuthService,
   createEd25519WalletSessionStore,
+  createWalletSigningBudgetSessionStore,
   createInMemoryConsoleSponsorshipSpendCapService,
   createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
@@ -1270,6 +1271,11 @@ async function main() {
       logger: console,
       isNode: true,
     });
+    const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
+      config: thresholdStore,
+      logger: console,
+      isNode: true,
+    });
 
     const limiterKind = parseSigningSessionSealLimiterKind(
       env.SIGNING_SESSION_SEAL_RATE_LIMIT_KIND,
@@ -1321,7 +1327,7 @@ async function main() {
       sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
         ed25519Stores: [walletSessionStore],
         ecdsaStores: [ecdsaWalletSessionStore],
-        walletBudgetStores: [walletSessionStore],
+        walletBudgetStores: [walletBudgetSessionStore],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: keyVersion,

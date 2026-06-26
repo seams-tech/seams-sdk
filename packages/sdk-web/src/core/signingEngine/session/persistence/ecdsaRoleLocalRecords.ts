@@ -32,7 +32,7 @@ import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import { parseWalletKeyId } from '@shared/signing-lanes';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 
 export type EcdsaRoleLocalExportMaterial = {
   readyRecord: EcdsaRoleLocalReadyRecord;
@@ -150,9 +150,7 @@ function parseCredentialIdB64u(value: unknown, field = 'credentialIdB64u'): Cred
 }
 
 function toWalletKeyId(value: unknown) {
-  const parsed = parseWalletKeyId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
+  return requireWalletKeyId(value);
 }
 
 function parseAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
@@ -245,6 +243,13 @@ function readyRecordFromParts(args: {
 function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   if (!isRecord(input)) {
     throw new Error('[platform][ecdsa-role-local] publicFacts must be an object');
+  }
+  if (
+    input.rpId !== undefined ||
+    input.credentialIdB64u !== undefined ||
+    input.authSubjectId !== undefined
+  ) {
+    throw new Error('[platform][ecdsa-role-local] auth fields are not publicFacts');
   }
   if (Number(input.clientParticipantId) !== 1) {
     throw new Error('[platform][ecdsa-role-local] clientParticipantId must be 1');

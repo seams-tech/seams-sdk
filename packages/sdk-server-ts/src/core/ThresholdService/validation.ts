@@ -20,6 +20,7 @@ import {
   THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
   THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND,
 } from '@shared/utils/sessionTokens';
+import { parseWalletKeyIdOrNull } from '@shared/signing-lanes';
 import {
   parseRouterAbEcdsaHssNormalSigningStateV1,
   parseRouterAbEcdsaHssNormalSigningScopeV1,
@@ -415,7 +416,7 @@ export function parseEcdsaHssClientBootstrapRequest(
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local') return null;
   if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
   const walletId = toOptionalString(raw.walletId);
-  const walletKeyId = toOptionalString(raw.walletKeyId);
+  const walletKeyId = parseWalletKeyIdOrNull(raw.walletKeyId);
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
@@ -574,7 +575,7 @@ export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportSha
   if (hasForbiddenFields(raw, ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local-export') return null;
   const walletId = toOptionalString(raw.walletId);
-  const walletKeyId = toOptionalString(raw.walletKeyId);
+  const walletKeyId = parseWalletKeyIdOrNull(raw.walletKeyId);
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
@@ -630,7 +631,7 @@ export function parseEcdsaHssRoleLocalKeyRecord(raw: unknown): EcdsaHssRoleLocal
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const keyHandle = toOptionalString(raw.keyHandle);
   const walletId = toOptionalString(raw.walletId);
-  const walletKeyId = toOptionalString(raw.walletKeyId);
+  const walletKeyId = parseWalletKeyIdOrNull(raw.walletKeyId);
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
@@ -811,8 +812,8 @@ export function parseThresholdEcdsaMpcSessionRecord(
   const purpose = toOptionalString(raw.purpose);
   const intentDigestB64u = toOptionalString(raw.intentDigestB64u);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
-  const walletId = toOptionalString(raw.walletId) || toOptionalString(raw.walletSessionUserId);
-  const walletKeyId = toOptionalString(raw.walletKeyId);
+  const walletId = toOptionalString(raw.walletId);
+  const walletKeyId = parseWalletKeyIdOrNull(raw.walletKeyId);
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -1067,8 +1068,8 @@ export function parseEcdsaWalletSessionRecord(
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const walletId = toOptionalString(raw.walletId) || toOptionalString(raw.walletSessionUserId);
-  const walletKeyId = toOptionalString(raw.walletKeyId);
+  const walletId = toOptionalString(raw.walletId);
+  const walletKeyId = parseWalletKeyIdOrNull(raw.walletKeyId);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
@@ -1111,7 +1112,7 @@ function parseWalletSigningBudgetScope(
     return rpId ? { kind, rpId } : null;
   }
   if (kind === 'wallet_key') {
-    const walletKeyId = toOptionalString(raw.walletKeyId);
+    const walletKeyId = parseWalletKeyIdOrNull(raw.walletKeyId);
     return walletKeyId ? { kind, walletKeyId } : null;
   }
   return null;
@@ -1225,11 +1226,8 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
 ): ParsedRouterAbEcdsaHssPoolFillSessionRecord | null {
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
-  const walletId =
-    toOptionalString(raw.walletId) ||
-    toOptionalString(raw.walletSessionUserId) ||
-    toOptionalString(raw.userId);
-  const walletKeyId = toOptionalString(raw.walletKeyId);
+  const walletId = toOptionalString(raw.walletId);
+  const walletKeyId = parseWalletKeyIdOrNull(raw.walletKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const presignPoolKey = toOptionalString(raw.presignPoolKey);
   const ownerInstanceId = toOptionalString(raw.ownerInstanceId);
@@ -1732,7 +1730,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
   const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const walletKeyId = toOptionalString((raw as { walletKeyId?: unknown }).walletKeyId);
+  const walletKeyId = parseWalletKeyIdOrNull((raw as { walletKeyId?: unknown }).walletKeyId);
   if (
     !sub ||
     !walletId ||

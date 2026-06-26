@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { getWalletSession, unlock } from '@/SeamsWeb/operations/auth/login';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
@@ -86,7 +87,7 @@ function canonicalEcdsaRecord(overrides?: Record<string, unknown>): Record<strin
     clientVerifyingShareB64u: 'AQ',
     participantIds: [1, 2],
     ethereumAddress: `0x${'aa'.repeat(20)}`,
-    walletKeyId: 'example.localhost',
+    walletKeyId: requireWalletKeyId('wallet-key-login-threshold-warm'),
     rpId: 'example.localhost',
     thresholdSessionKind: 'jwt',
     walletSessionJwt: 'jwt-ecdsa',
@@ -2260,7 +2261,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     );
 
     expect(result.success).toBe(false);
-    expect(String(result.error || '')).toContain('ambiguous shared key handles');
+    expect(String(result.error || '')).toContain('duplicate shared key handles');
     expect(bootstrapCalls).toBe(0);
   });
 

@@ -95,12 +95,17 @@ import {
   parseEcdsaRoleLocalReadyRecord,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
 } from './ecdsaRoleLocalRecords';
+import {
+  assertMatchingWalletKeyId,
+  parseWalletKeyIdOrNull,
+  type WalletKeyId,
+} from '@shared/signing-lanes';
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
 type ThresholdEcdsaSessionRecordCore = {
   walletId: WalletId;
-  walletKeyId: string;
+  walletKeyId: WalletKeyId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   keyHandle: EvmFamilyEcdsaKeyHandle;
@@ -446,19 +451,6 @@ function isExactEcdsaSigningLaneLookupKey(
     (input as { kind?: unknown }).kind === 'exact_signing_lane' &&
     (input as { signer?: { kind?: unknown } }).signer?.kind === 'evm_family_ecdsa_signer'
   );
-}
-
-function normalizeThresholdEcdsaSessionWalletKeyId(value: Record<string, unknown>): string | null {
-  const direct = normalizeOptionalNonEmptyString(value.walletKeyId);
-  if (direct) return direct;
-  const obj =
-    value.authMetadata &&
-    typeof value.authMetadata === 'object' &&
-    !Array.isArray(value.authMetadata)
-      ? (value.authMetadata as Record<string, unknown>)
-      : null;
-  const walletKeyId = normalizeOptionalNonEmptyString(obj?.walletKeyId);
-  return walletKeyId || null;
 }
 
 export function thresholdEcdsaRecordRpId(record: ThresholdEcdsaSessionRecord): string {
@@ -1182,10 +1174,81 @@ function normalizeStoredVerifiedPublicFacts(args: {
   }
 }
 
+function ecdsaParticipantIdsKey(participantIds: readonly number[]): string {
+  const parts: string[] = [];
+  for (const participantId of participantIds) {
+    parts.push(String(Number(participantId)));
+  }
+  return parts.join(',');
+}
+
+function assertEcdsaRoleLocalPublicFactMatches(args: {
+  field: string;
+  actual: string;
+  expected: string;
+}): void {
+  if (args.actual !== args.expected) {
+    throw new Error(
+      `Invalid threshold ECDSA canonical session record: role-local publicFacts ${args.field} mismatch`,
+    );
+  }
+}
+
+function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
+  readyRecord: EcdsaRoleLocalReadyRecord;
+  walletId: WalletId;
+  walletKeyId: WalletKeyId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion?: string;
+  participantIds: readonly number[];
+  ethereumAddress: string;
+}): void {
+  const facts = args.readyRecord.publicFacts;
+  const expectedSigningRootVersion = args.signingRootVersion || 'default';
+  assertMatchingWalletKeyId({
+    expected: args.walletKeyId,
+    actual: facts.walletKeyId,
+    actualLabel: 'role-local publicFacts walletKeyId',
+    message:
+      'Invalid threshold ECDSA canonical session record: role-local publicFacts walletKeyId mismatch',
+  });
+  const checks: Array<[string, string, string]> = [
+    ['walletId', String(facts.walletId), String(args.walletId)],
+    ['keyHandle', String(facts.keyHandle), args.keyHandle],
+    ['ecdsaThresholdKeyId', String(facts.ecdsaThresholdKeyId), args.ecdsaThresholdKeyId],
+    ['signingRootId', String(facts.signingRootId), args.signingRootId],
+    ['signingRootVersion', String(facts.signingRootVersion), expectedSigningRootVersion],
+    [
+      'participantIds',
+      ecdsaParticipantIdsKey(facts.participantIds),
+      ecdsaParticipantIdsKey(args.participantIds),
+    ],
+    [
+      'ethereumAddress',
+      String(facts.ethereumAddress).toLowerCase(),
+      args.ethereumAddress.toLowerCase(),
+    ],
+  ];
+  for (const [field, actual, expected] of checks) {
+    assertEcdsaRoleLocalPublicFactMatches({ field, actual, expected });
+  }
+  if (!thresholdEcdsaChainTargetsEqual(facts.chainTarget, args.chainTarget)) {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: role-local publicFacts chainTarget mismatch',
+    );
+  }
+}
+
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const walletId = toWalletId(String(obj.walletId || '').trim());
-  const walletKeyId = normalizeThresholdEcdsaSessionWalletKeyId(obj) || '';
+  if (obj.authMetadata !== undefined && obj.authMetadata !== null) {
+    throw new Error('Invalid threshold ECDSA canonical session record: deleted authMetadata');
+  }
+  const walletKeyId = parseWalletKeyIdOrNull(obj.walletKeyId);
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
@@ -1277,6 +1340,18 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
       'Invalid threshold ECDSA canonical session record: missing role-local ready record (ecdsaRoleLocalReadyRecord)',
     );
   }
+  assertEcdsaRoleLocalReadyRecordMatchesSessionRecord({
+    readyRecord: ecdsaRoleLocalReadyRecord,
+    walletId,
+    walletKeyId,
+    chainTarget,
+    keyHandle,
+    ecdsaThresholdKeyId,
+    signingRootId: signingRootBinding.signingRootId,
+    signingRootVersion: signingRootBinding.signingRootVersion,
+    participantIds,
+    ethereumAddress,
+  });
   if (thresholdSessionKind === 'jwt' && !walletSessionJwt) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing walletSessionJwt');
   }
@@ -1364,7 +1439,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
 
 function formatMissingThresholdEcdsaCanonicalRecordFields(args: {
   relayerUrl: string;
-  walletKeyId: string;
+  walletKeyId: WalletKeyId | null;
   keyHandle: string | null | undefined;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;

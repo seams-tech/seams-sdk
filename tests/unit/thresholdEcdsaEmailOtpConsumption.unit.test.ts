@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
@@ -70,7 +71,7 @@ function ecdsaEmailOtpRecord(args: {
   const chainTarget = args.chainTarget || EVM_TARGET;
   return {
     walletId: WALLET_ID,
-    walletKeyId: 'localhost',
+    walletKeyId: requireWalletKeyId('wallet-key-email-otp-consumption'),
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle,
@@ -90,7 +91,6 @@ function ecdsaEmailOtpRecord(args: {
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: WALLET_ID,
         walletKeyId: 'wallet-key-email-otp-consumption',
-        rpId: 'localhost',
         chainTarget,
         keyHandle,
         ecdsaThresholdKeyId,
@@ -159,9 +159,18 @@ function withSigningRootVersion(
   record: ThresholdEcdsaSessionRecord,
   signingRootVersion: string,
 ): ThresholdEcdsaSessionRecord {
+  const readyRecord = buildEcdsaRoleLocalReadyRecord({
+    stateBlob: record.ecdsaRoleLocalReadyRecord.stateBlob,
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      ...record.ecdsaRoleLocalReadyRecord.publicFacts,
+      signingRootVersion,
+    }),
+    authMethod: record.ecdsaRoleLocalReadyRecord.authMethod,
+  });
   return {
     ...record,
     signingRootVersion,
+    ecdsaRoleLocalReadyRecord: readyRecord,
   };
 }
 

@@ -62,6 +62,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 const walletId = toWalletId('wallet.testnet');
 const rpId = toRpId('localhost');
 const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-role-local'));
+const otherWalletKeyId = parsedDomain(parseWalletKeyId('wallet-key-role-local-other'));
 const keyHandle = 'ecdsa-key-handle';
 const passkeyCredentialIdB64u = 'passkey-credential-id';
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ehss-key');
@@ -225,6 +226,43 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
     expect(ready.publicFacts.hssClientSharePublicKey33B64u).toBe(hssClientSharePublicKey33B64u);
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
+  });
+
+  test('rejects auth fields inside ECDSA role-local public facts', () => {
+    expect(() =>
+      buildEcdsaRoleLocalPublicFacts({
+        ...publicFacts(),
+        rpId,
+      }),
+    ).toThrow(/auth fields are not publicFacts/);
+  });
+
+  test('rejects deleted nested wallet-key metadata on ECDSA session records', () => {
+    expect(() =>
+      parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+        rawSessionRecord({
+          authMetadata: { walletKeyId },
+        }),
+      ),
+    ).toThrow(/deleted authMetadata/);
+  });
+
+  test('rejects ECDSA session records whose role-local wallet key disagrees', () => {
+    const mismatchedReadyRecord = buildEcdsaRoleLocalReadyRecord({
+      ...readyRecord(),
+      publicFacts: buildEcdsaRoleLocalPublicFacts({
+        ...publicFacts(),
+        walletKeyId: otherWalletKeyId,
+      }),
+    });
+
+    expect(() =>
+      parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+        rawSessionRecord({
+          ecdsaRoleLocalReadyRecord: mismatchedReadyRecord,
+        }),
+      ),
+    ).toThrow(/walletKeyId mismatch/);
   });
 
   test('restored passkey ECDSA records are written to the active session index', () => {

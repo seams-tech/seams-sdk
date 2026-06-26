@@ -3,6 +3,7 @@ import { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/e
 import { requestEmailOtpExportAuthorization } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/exportAuthorization';
 import { toAuthorizingSigningGrantId } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
@@ -247,7 +248,6 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.walletId),
       walletKeyId: `wallet-key-${args.walletId}`,
-      rpId: args.rpId,
       chainTarget: args.chainTarget,
       keyHandle: args.keyHandle,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
@@ -282,7 +282,7 @@ function makeEmailOtpEcdsaRecordForSelection(args: {
   const ethereumAddress = '0x'.padEnd(42, 'a') as `0x${string}`;
   return {
     walletId: TEST_SUBJECT_ID,
-    walletKeyId: 'localhost',
+    walletKeyId: requireWalletKeyId(`wallet-key-${TEST_SUBJECT_ID}`),
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle,
@@ -589,7 +589,7 @@ function createCoordinator(overrides?: {
         participantIds: [1, 3],
         backendBinding: TEST_ECDSA_BACKEND_BINDING,
       },
-      keygen: { ok: true, walletKeyId: 'example.com' },
+      keygen: { ok: true, walletKeyId: 'wallet-key-example' },
       session: {
         ok: true,
         sessionId: thresholdSessionId,
@@ -671,7 +671,7 @@ function createCoordinator(overrides?: {
               signingGrantId: call.request.payload.restore.signingGrantId,
               walletSessionJwt: call.request.payload.transport.walletSessionJwt,
             },
-            keygen: { ok: true, walletKeyId: 'example.com' },
+            keygen: { ok: true, walletKeyId: 'wallet-key-example' },
             session: {
               ok: true,
               sessionId: call.request.payload.restore.sessionId,
@@ -1724,7 +1724,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 participantIds: [1, 3],
                 backendBinding: TEST_ECDSA_BACKEND_BINDING,
               },
-              keygen: { ok: true, walletKeyId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'wallet-key-example' },
               session: {
                 ok: true,
                 sessionId: 'ecdsa-session',
@@ -1954,7 +1954,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
         walletId: 'alice.testnet' as any,
-        walletKeyId: 'localhost',
+        walletKeyId: requireWalletKeyId('wallet-key-alice.testnet'),
         chainTarget: TEMPO_CHAIN_TARGET,
         relayerUrl: 'https://relay.example',
         keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
@@ -2058,7 +2058,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
         walletId: 'alice.testnet' as any,
-        walletKeyId: 'localhost',
+        walletKeyId: requireWalletKeyId('wallet-key-alice.testnet'),
         chainTarget: tempoChainTarget,
         relayerUrl: 'https://relay.example',
         keyHandle,
@@ -2194,7 +2194,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: { ok: true, walletKeyId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'wallet-key-example' },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -2335,7 +2335,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: { ok: true, walletKeyId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'wallet-key-example' },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -2625,7 +2625,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: { ok: true, walletKeyId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'wallet-key-example' },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -2869,7 +2869,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: 'wallet-session-1',
                 walletSessionJwt: 'threshold-session-jwt',
               },
-              keygen: { ok: true, walletKeyId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'wallet-key-example' },
               session: {
                 ok: true,
                 sessionId: 'ecdsa-session',

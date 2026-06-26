@@ -170,7 +170,6 @@ function publicFacts(target: ThresholdEcdsaChainTarget) {
   return buildEcdsaRoleLocalPublicFacts({
     walletId,
       walletKeyId,
-    rpId,
     chainTarget: target,
     keyHandle: 'ecdsa-key-handle',
     ecdsaThresholdKeyId,

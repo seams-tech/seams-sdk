@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import { toAccountId } from '@/core/types/accountIds';
@@ -67,7 +68,7 @@ const contextBinding32B64u = base64UrlEncode(new Uint8Array(32).fill(8));
 const stateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(9));
 const passkeyCredentialIdB64u = 'restorable-passkey-credential';
 const rpId = toRpId('example.localhost');
-const walletKeyId = 'wallet-key-restorable';
+const walletKeyId = requireWalletKeyId('wallet-key-restorable');
 const passkeyAuth = {
   kind: 'passkey',
   rpId,

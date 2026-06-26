@@ -79,7 +79,6 @@ const ROLE_LOCAL_READY_RECORD = buildEcdsaRoleLocalReadyRecord({
   publicFacts: buildEcdsaRoleLocalPublicFacts({
     walletId: SUBJECT_ID,
     walletKeyId: WALLET_KEY_ID,
-    rpId: RP_ID,
     chainTarget: EVM_TARGET,
     keyHandle: 'key-handle-ready-flow',
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,

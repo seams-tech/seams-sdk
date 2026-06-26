@@ -1872,7 +1872,6 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           publicFacts: ecdsaRoleLocalMod.buildEcdsaRoleLocalPublicFacts({
             walletId: 'alice.testnet',
             walletKeyId: 'wallet-key-router-ab-ed25519',
-            rpId: 'example.localhost',
             chainTarget,
             keyHandle: 'key-handle-ecdsa',
             ecdsaThresholdKeyId: 'ecdsa-key-id',

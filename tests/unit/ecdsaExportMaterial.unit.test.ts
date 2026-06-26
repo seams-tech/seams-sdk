@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   toWalletId,
@@ -45,7 +46,7 @@ import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../../packag
 
 const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'localhost';
-const WALLET_KEY_ID = 'wallet-key-export';
+const WALLET_KEY_ID = requireWalletKeyId('wallet-key-export');
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const PASSKEY_EXPORT_CREDENTIAL_ID_B64U = 'export-passkey-credential';
@@ -261,7 +262,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp' as const,
     keyHandle,
-    walletKeyId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
   };
   return runtimeValidatedExportRecord({
     ...record,
@@ -307,7 +308,7 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     updatedAtMs: 1_800_000_000_000,
     source: 'registration' as const,
     keyHandle,
-    walletKeyId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
   };
   return runtimeValidatedExportRecord({
     ...record,
@@ -317,7 +318,7 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
 }
 
 async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<ExactEcdsaExportLane> {
-  const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, walletKeyId: WALLET_KEY_ID });
+  const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record });
   const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
   return {
     curve: 'ecdsa',

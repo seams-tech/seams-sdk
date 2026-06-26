@@ -2,6 +2,7 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
@@ -50,6 +51,7 @@ const signingKeyContextWithSigningRoot = {
 } satisfies EcdsaSigningKeyContext;
 void signingKeyContextWithSigningRoot;
 const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-1');
+const walletKeyId = requireWalletKeyId('wallet-key-reconnect');
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const emailOtpWorkerHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
@@ -113,7 +115,7 @@ const invalidReconnectKeyRefThresholdSessionAuth = {
 void invalidReconnectKeyRefThresholdSessionAuth;
 const reconnectRecord = {
   walletId: toWalletId('alice.testnet'),
-  walletKeyId: 'example.localhost',
+  walletKeyId,
   chainTarget,
   relayerUrl: 'https://relayer.test',
   keyHandle,
@@ -136,7 +138,6 @@ const reconnectRecord = {
 } satisfies ThresholdEcdsaSessionRecord;
 const exactKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
   record: reconnectRecord,
-  walletKeyId: reconnectRecord.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
 });
 
 void buildPasskeyEcdsaSessionProvision({

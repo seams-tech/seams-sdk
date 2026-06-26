@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
@@ -54,7 +55,7 @@ const STATE_BLOB_B64U = base64UrlEncode(new Uint8Array(64).fill(9));
 const OWNER_ADDRESS = `0x${'aa'.repeat(20)}`;
 const SIGNING_ROOT_ID = 'project:env';
 const SIGNING_ROOT_VERSION = 'v1';
-const WALLET_KEY_ID = 'wallet-key-material-state';
+const WALLET_KEY_ID = requireWalletKeyId('wallet-key-material-state');
 const PASSKEY_CREDENTIAL_ID = 'credential-material-state';
 const PASSKEY_AUTH = {
   kind: 'passkey',
@@ -289,7 +290,7 @@ function makeRecord(
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    walletKeyId: 'example.localhost',
+    walletKeyId: WALLET_KEY_ID,
     ...overrides,
   };
 }
@@ -327,7 +328,7 @@ function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'e
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    walletKeyId: 'example.localhost',
+    walletKeyId: WALLET_KEY_ID,
     emailOtpAuthContext: {
       authMethod: 'email_otp',
       policy: 'per_operation',

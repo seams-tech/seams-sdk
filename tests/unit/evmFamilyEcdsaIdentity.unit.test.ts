@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
@@ -65,8 +66,8 @@ const WALLET_ID = toWalletId('alice.testnet');
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
 const RP_ID = 'localhost';
-const WALLET_KEY_ID = 'wallet-key-alice';
-const OTHER_WALLET_KEY_ID = 'wallet-key-other';
+const WALLET_KEY_ID = requireWalletKeyId('wallet-key-alice');
+const OTHER_WALLET_KEY_ID = requireWalletKeyId('wallet-key-other');
 const PASSKEY_CREDENTIAL_ID = 'credential-passkey';
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const OTHER_VALID_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -82,6 +83,7 @@ type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 
 type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 type PasskeyRecordFixtureInput = {
   walletId?: PasskeyEcdsaSessionRecord['walletId'];
+  walletKeyId?: PasskeyEcdsaSessionRecord['walletKeyId'];
   chainTarget?: PasskeyEcdsaSessionRecord['chainTarget'];
   keyHandle?: PasskeyEcdsaSessionRecord['keyHandle'];
   ecdsaThresholdKeyId?: PasskeyEcdsaSessionRecord['ecdsaThresholdKeyId'];
@@ -127,7 +129,7 @@ const TEMPO_TARGET: ThresholdEcdsaChainTarget = {
 function makeRoleLocalReadyRecord(
   args: {
     walletId?: typeof WALLET_ID;
-    walletKeyId?: typeof WALLET_KEY_ID;
+    walletKeyId?: string;
     keyHandle?: string;
     chainTarget?: ThresholdEcdsaChainTarget;
     ecdsaThresholdKeyId?: string;
@@ -205,6 +207,7 @@ function makeRuntimePolicyScopeForSigningRoot(input: {
 function makeRouterAbEcdsaHssNormalSigningState(
   input: {
     walletId?: string;
+    walletKeyId?: string;
     ecdsaThresholdKeyId?: string;
     signingRootId?: string;
     signingRootVersion?: string;
@@ -218,7 +221,7 @@ function makeRouterAbEcdsaHssNormalSigningState(
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
-      wallet_key_id: WALLET_KEY_ID,
+      wallet_key_id: input.walletKeyId ?? WALLET_KEY_ID,
       wallet_id: input.walletId ?? WALLET_ID,
       ecdsa_threshold_key_id: input.ecdsaThresholdKeyId ?? 'ehss-shared-key',
       signing_root_id: input.signingRootId ?? 'project:dev',
@@ -248,6 +251,7 @@ function makeRouterAbEcdsaHssNormalSigningState(
 
 function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionRecord {
   const keyHandleForRecord = input.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-shared');
+  const walletKeyId = input.walletKeyId ?? WALLET_KEY_ID;
   const record = {
     walletId: input.walletId ?? WALLET_ID,
     chainTarget: input.chainTarget ?? EVM_TARGET,
@@ -259,7 +263,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
     clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
     ecdsaRoleLocalReadyRecord: makeRoleLocalReadyRecord({
       walletId: input.walletId ?? WALLET_ID,
-      walletKeyId: WALLET_KEY_ID,
+      walletKeyId,
       keyHandle: keyHandleForRecord,
       chainTarget: input.chainTarget ?? EVM_TARGET,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? 'ehss-shared-key',
@@ -291,6 +295,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
     ethereumAddress: input.ethereumAddress ?? OWNER_ADDRESS,
     routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState({
       walletId: input.walletId ?? WALLET_ID,
+      walletKeyId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? 'ehss-shared-key',
       signingRootId: input.signingRootId ?? 'project:dev',
       signingRootVersion: input.signingRootVersion ?? 'default',
@@ -304,7 +309,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
     updatedAtMs: 1_800_000_000_000,
     source: 'login' as const,
     keyHandle: keyHandleForRecord,
-    walletKeyId: WALLET_KEY_ID,
+    walletKeyId,
   };
   return record;
 }
@@ -409,7 +414,6 @@ test.describe('EVM-family ECDSA identity', () => {
         thresholdSessionId: 'threshold-session-evm',
         signingGrantId: 'wallet-session-evm',
       }),
-      walletKeyId: WALLET_KEY_ID,
     });
     const tempoKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord({
@@ -417,7 +421,6 @@ test.describe('EVM-family ECDSA identity', () => {
         thresholdSessionId: 'threshold-session-tempo',
         signingGrantId: 'wallet-session-tempo',
       }),
-      walletKeyId: WALLET_KEY_ID,
     });
 
     expect(evmKey.ecdsaThresholdKeyId).toBe(tempoKey.ecdsaThresholdKeyId);
@@ -428,7 +431,6 @@ test.describe('EVM-family ECDSA identity', () => {
   test('normalizes participant order before fingerprinting shared key identity', () => {
     const recordKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord({ participantIds: [2, 1] }),
-      walletKeyId: WALLET_KEY_ID,
     });
     const keyRefKey = buildEvmFamilyEcdsaKeyIdentityFromKeyRef({
       keyRef: makeKeyRef({ participantIds: [1, 2] }),
@@ -875,13 +877,11 @@ test.describe('EVM-family ECDSA identity', () => {
   test('changes the shared fingerprint when stable EVM-family key fields change', () => {
     const baseKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord(),
-      walletKeyId: WALLET_KEY_ID,
     });
     const baseFingerprint = deriveEvmFamilyKeyFingerprint(baseKey);
     const variants = [
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
-        record: makeRecord(),
-        walletKeyId: OTHER_WALLET_KEY_ID,
+        record: makeRecord({ walletKeyId: OTHER_WALLET_KEY_ID }),
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({
@@ -890,23 +890,18 @@ test.describe('EVM-family ECDSA identity', () => {
             signingRootId: 'project:other',
           }),
         }),
-        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ signingRootVersion: 'v2' }),
-        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ participantIds: [1, 2, 3] }),
-        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ ecdsaThresholdKeyId: 'ehss-other-key' }),
-        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-        walletKeyId: WALLET_KEY_ID,
       }),
     ];
 
@@ -945,7 +940,6 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(() =>
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-        walletKeyId: WALLET_KEY_ID,
         trustedOwnerAddress: OWNER_ADDRESS,
       }),
     ).toThrow(/persisted owner address mismatches trusted EVM-family key material/);
@@ -1017,8 +1011,7 @@ test.describe('EVM-family ECDSA identity', () => {
       }),
     );
 
-    expect(String(readModel.key.walletKeyId)).toMatch(/^wallet-key:evm-family:/);
-    expect(String(readModel.key.walletKeyId)).toContain('alice.testnet');
+    expect(String(readModel.key.walletKeyId)).toBe(WALLET_KEY_ID);
     expect('rpId' in readModel.key).toBe(false);
     expect(readModel.key.keyScope).toBe('evm-family');
     expect(readModel.key.participantIds.map(Number)).toEqual([1, 2]);
@@ -1049,8 +1042,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(lane?.key.participantIds.map(Number)).toEqual([1, 2]);
     expect(lane?.lane.key).toBe(lane?.key);
     expect(lane?.lane.thresholdSessionId).toBe('threshold-session-1');
-    expect(String(lane?.key.walletKeyId)).toMatch(/^wallet-key:evm-family:/);
-    expect(String(lane?.key.walletKeyId)).toContain('alice.testnet');
+    expect(String(lane?.key.walletKeyId)).toBe(WALLET_KEY_ID);
     expect('rpId' in (lane?.key || {})).toBe(false);
   });
 
@@ -1282,6 +1274,7 @@ test.describe('EVM-family ECDSA identity', () => {
           runtimePolicyScope,
           signingRootId: 'project-client-conflict:dev',
           chainTarget: TEMPO_TARGET,
+          walletKeyId: OTHER_WALLET_KEY_ID,
           keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-conflicting'),
           ecdsaThresholdKeyId: 'ehss-conflicting-key',
           thresholdSessionId: 'threshold-session-second-key',

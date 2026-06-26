@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
@@ -56,7 +57,7 @@ const ecdsaChainTarget: ThresholdEcdsaChainTarget = {
   networkSlug: 'tempo-strict',
 };
 const ecdsaThresholdKeyId = 'ecdsa-strict-threshold-key';
-const ecdsaWalletKeyId = 'wallet-key-strict-ecdsa';
+const ecdsaWalletKeyId = requireWalletKeyId('wallet-key-strict-ecdsa');
 const ecdsaSigningRootId = 'proj_strict:dev';
 const ecdsaSigningRootVersion = '1';
 const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-strict-threshold-key');
@@ -64,6 +65,7 @@ const ecdsaOwnerAddress = `0x${'42'.repeat(20)}`;
 const ecdsaClientPublicKeyB64u = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const ecdsaRelayerPublicKeyB64u = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const ecdsaContextBindingB64u = base64UrlEncode(new Uint8Array(32).fill(7));
+const ecdsaApplicationBindingDigestB64u = base64UrlEncode(new Uint8Array(32).fill(9));
 const ecdsaStateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(8));
 const passkeyAuth = {
   kind: 'passkey' as const,
@@ -221,12 +223,12 @@ function makeEcdsaRoleLocalReadyRecord() {
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: ecdsaWalletId,
       walletKeyId: ecdsaWalletKeyId,
-      rpId: 'localhost',
       chainTarget: ecdsaChainTarget,
       keyHandle: ecdsaKeyHandle,
       ecdsaThresholdKeyId,
       signingRootId: ecdsaSigningRootId,
       signingRootVersion: ecdsaSigningRootVersion,
+      applicationBindingDigestB64u: ecdsaApplicationBindingDigestB64u,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -247,7 +249,7 @@ function makeEcdsaRecord(
 ): ThresholdEcdsaSessionRecord {
   return {
     walletId: ecdsaWalletId,
-    walletKeyId: 'localhost',
+    walletKeyId: ecdsaWalletKeyId,
     chainTarget: ecdsaChainTarget,
     relayerUrl: 'https://router.example.test',
     keyHandle: ecdsaKeyHandle,

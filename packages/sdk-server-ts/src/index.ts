@@ -20,6 +20,7 @@ export {
   createThresholdEd25519SessionStore,
   createEd25519WalletSessionStore,
   createEcdsaWalletSessionStore,
+  createWalletSigningBudgetSessionStore,
   CloudflareDurableObjectSigningRootSecretStore,
   createConfiguredSigningRootShareResolver,
   createHostedSigningRootShareResolver,

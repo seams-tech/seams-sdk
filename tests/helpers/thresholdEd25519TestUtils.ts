@@ -157,6 +157,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
   svc: ThresholdSigningService;
   sessionStore: ReturnType<typeof createThresholdEd25519SessionStore>;
   walletSessionStore: Ed25519WalletSessionStore;
+  walletBudgetSessionStore: ReturnType<typeof createWalletSigningBudgetSessionStore>;
 } {
   const logger = normalizeLogger(input.logger || silentLogger());
   const sessionStore = createThresholdEd25519SessionStore({

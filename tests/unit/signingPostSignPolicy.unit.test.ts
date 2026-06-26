@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { requireWalletKeyId } from '@shared/signing-lanes';
 import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -54,7 +55,6 @@ function roleLocalReadyRecordForPostSign(args: {
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: WALLET_ID,
       walletKeyId: 'wallet-key-post-sign',
-      rpId: 'localhost',
       chainTarget: args.chainTarget,
       keyHandle,
       ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -91,7 +91,7 @@ function ecdsaRecord(args: {
   const chainTarget = args.chainTarget || EVM_CHAIN_TARGET;
   const common = {
     walletId: WALLET_ID,
-    walletKeyId: 'localhost',
+    walletKeyId: requireWalletKeyId('wallet-key-post-sign'),
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-post-sign'),

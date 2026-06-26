@@ -5,7 +5,6 @@ function validThresholdEd25519SessionBody(): Record<string, unknown> {
   return {
     relayerKeyId: 'ed25519:relayer',
     sessionKind: 'jwt',
-    expected_origin: 'http://localhost',
     sessionPolicy: {
       version: 'threshold_session_v1',
       walletId: 'frost-vermillion-k7p9m2',
@@ -35,6 +34,19 @@ test('threshold-ed25519 session route rejects body-owned app session claims', ()
   if (!parsed.ok) {
     expect(parsed.body.message).toContain('Unsupported threshold-ed25519 session field');
     expect(parsed.body.message).toContain('appSessionClaims');
+  }
+});
+
+test('threshold-ed25519 session route rejects body-owned expected origin', () => {
+  const parsed = parseThresholdEd25519SessionRouteRequest({
+    ...validThresholdEd25519SessionBody(),
+    expected_origin: 'http://localhost',
+  });
+
+  expect(parsed.ok).toBe(false);
+  if (!parsed.ok) {
+    expect(parsed.body.message).toContain('Unsupported threshold-ed25519 session field');
+    expect(parsed.body.message).toContain('expected_origin');
   }
 });
 
