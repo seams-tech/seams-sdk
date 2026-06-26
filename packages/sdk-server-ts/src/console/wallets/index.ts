@@ -27,6 +27,20 @@ export {
   createPostgresConsoleWalletService,
 } from './postgres';
 
+export type {
+  ConsoleWalletsD1Runtime,
+  ConsoleWalletsD1Service,
+  D1ConsoleWalletSchemaOptions,
+  D1ConsoleWalletServiceOptions,
+} from './d1';
+export {
+  CONSOLE_WALLETS_D1_RUNTIME,
+  CONSOLE_WALLETS_D1_SCHEMA_SQL,
+  ensureConsoleWalletsD1Schema,
+  getConsoleWalletsD1Runtime,
+  createD1ConsoleWalletService,
+} from './d1';
+
 export { parseListConsoleWalletsRequest, parseSearchConsoleWalletsRequest } from './requests';
 
 export { ConsoleWalletError, isConsoleWalletError } from './errors';

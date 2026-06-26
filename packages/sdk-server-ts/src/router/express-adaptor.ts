@@ -253,6 +253,10 @@ export type {
 export type {
   ConsoleWalletsContext,
   ConsoleWalletService,
+  ConsoleWalletsD1Runtime,
+  ConsoleWalletsD1Service,
+  D1ConsoleWalletSchemaOptions,
+  D1ConsoleWalletServiceOptions,
   InMemoryConsoleWalletServiceOptions,
   PostgresConsoleWalletSchemaOptions,
   PostgresConsoleWalletServiceOptions,
@@ -595,6 +599,11 @@ export {
   ConsoleAccountError,
 } from '../console/account';
 export {
+  CONSOLE_WALLETS_D1_RUNTIME,
+  CONSOLE_WALLETS_D1_SCHEMA_SQL,
+  createD1ConsoleWalletService,
+  ensureConsoleWalletsD1Schema,
+  getConsoleWalletsD1Runtime,
   createInMemoryConsoleWalletService,
   ensureConsoleWalletsPostgresSchema,
   createPostgresConsoleWalletService,

@@ -67,6 +67,10 @@ import {
   type ConsoleTeamRbacService,
 } from '../../console/teamRbac';
 import {
+  createD1ConsoleWalletService,
+  type ConsoleWalletService,
+} from '../../console/wallets';
+import {
   createD1ConsoleRuntimeSnapshotService,
   type ConsoleRuntimeSnapshotService,
 } from '../../console/runtimeSnapshots';
@@ -138,6 +142,7 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
   readonly approvals: ConsoleApprovalService;
   readonly audit: ConsoleAuditService;
@@ -154,6 +159,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
   readonly approvals: ConsoleApprovalService;
   readonly bootstrapTokens: ConsoleBootstrapTokenService;
@@ -451,6 +457,17 @@ async function createCloudflareD1Policies(
   });
 }
 
+async function createCloudflareD1Wallets(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleWalletService> {
+  return await createD1ConsoleWalletService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
 async function createCloudflareD1ApiKeys(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleApiKeyService> {
@@ -565,6 +582,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
   readonly approvals: ConsoleApprovalService;
   readonly audit: ConsoleAuditService;
@@ -580,6 +598,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
     teamRbac: input.teamRbac,
     account: input.account,
     policies: input.policies,
+    wallets: input.wallets,
     apiKeys: input.apiKeys,
     approvals: input.approvals,
     audit: input.audit,
@@ -603,6 +622,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
   });
   const policies = await createCloudflareD1Policies(normalized);
+  const wallets = await createCloudflareD1Wallets(normalized);
   const apiKeys = await createCloudflareD1ApiKeys(normalized);
   const approvals = await createCloudflareD1Approvals(normalized);
   const audit = await createCloudflareD1Audit(normalized);
@@ -618,6 +638,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
     account,
     policies,
+    wallets,
     apiKeys,
     approvals,
     audit,
@@ -633,6 +654,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
     account,
     policies,
+    wallets,
     apiKeys,
     approvals,
     bootstrapTokens,

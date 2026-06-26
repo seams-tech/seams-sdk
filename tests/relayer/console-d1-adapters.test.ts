@@ -23,6 +23,7 @@ import {
 import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/types';
 import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/d1';
 import { createD1ConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/d1';
+import { createD1ConsoleWalletService } from '../../packages/sdk-server-ts/src/console/wallets/d1';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   D1DatabaseLike,
@@ -633,6 +634,206 @@ test.describe('D1 adapter contracts', () => {
         duplicateOrganizationError = error;
       }
       expect(errorCode(duplicateOrganizationError)).toBe('organization_already_exists');
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('wallet index adapter scopes tenants and paginates filtered D1 rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      let nowMsValue = Date.parse('2026-06-27T00:30:00.000Z');
+      const service = await createD1ConsoleWalletService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date(nowMsValue),
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-wallets-primary',
+        actorUserId: 'user-d1-wallets-primary',
+        roles: ['admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-wallets-secondary',
+        actorUserId: 'user-d1-wallets-secondary',
+        roles: ['admin'],
+      };
+      const upsertWallet = service.upsertWallet;
+      if (!upsertWallet) throw new Error('D1 wallet adapter must expose wallet upsert');
+
+      const alpha = await upsertWallet(primaryCtx, {
+        id: 'wallet-d1-shared',
+        projectId: 'project-d1-wallets',
+        environmentId: 'env-d1-wallets-prod',
+        userId: 'user-alpha',
+        externalRefId: 'external-alpha',
+        address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        chain: 'Ethereum',
+        walletType: 'EOA',
+        status: 'ACTIVE',
+        policyId: 'policy-alpha',
+        balanceMinor: 500,
+        lastActivityAt: '2026-06-27T00:31:00.000Z',
+        createdAt: '2026-06-27T00:30:00.000Z',
+        updatedAt: '2026-06-27T00:31:00.000Z',
+      });
+      expect(alpha).toMatchObject({
+        id: 'wallet-d1-shared',
+        orgId: primaryCtx.orgId,
+        chain: 'Ethereum',
+        walletType: 'EOA',
+        status: 'ACTIVE',
+        balanceMinor: 500,
+        lastActivityAt: '2026-06-27T00:31:00.000Z',
+      });
+
+      await upsertWallet(primaryCtx, {
+        id: 'wallet-d1-beta',
+        projectId: 'project-d1-wallets',
+        environmentId: 'env-d1-wallets-prod',
+        userId: 'user-beta',
+        externalRefId: 'external-beta',
+        address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        chain: 'Base',
+        walletType: 'SMART',
+        status: 'FROZEN',
+        policyId: 'policy-beta',
+        balanceMinor: 2_500,
+        lastActivityAt: '2026-06-27T00:35:00.000Z',
+        createdAt: '2026-06-27T00:32:00.000Z',
+        updatedAt: '2026-06-27T00:35:00.000Z',
+      });
+      await upsertWallet(primaryCtx, {
+        id: 'wallet-d1-gamma',
+        projectId: 'project-d1-wallets',
+        environmentId: 'env-d1-wallets-dev',
+        userId: 'user-gamma',
+        externalRefId: 'external-gamma',
+        address: '0xcccccccccccccccccccccccccccccccccccccccc',
+        chain: 'NEAR',
+        walletType: 'EOA',
+        status: 'ARCHIVED',
+        balanceMinor: 1_000,
+        lastActivityAt: null,
+        createdAt: '2026-06-27T00:34:00.000Z',
+        updatedAt: '2026-06-27T00:36:00.000Z',
+      });
+      const secondaryWallet = await upsertWallet(secondaryCtx, {
+        id: 'wallet-d1-shared',
+        projectId: 'project-d1-wallets-other',
+        environmentId: 'env-d1-wallets-other-prod',
+        userId: 'user-secondary',
+        externalRefId: 'external-secondary',
+        address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        chain: 'Ethereum',
+        walletType: 'EOA',
+        status: 'ACTIVE',
+        balanceMinor: 9_999,
+      });
+      expect(secondaryWallet.orgId).toBe(secondaryCtx.orgId);
+
+      await expect(service.getWallet(primaryCtx, 'wallet-d1-shared')).resolves.toMatchObject({
+        orgId: primaryCtx.orgId,
+        userId: 'user-alpha',
+      });
+      await expect(service.getWallet(secondaryCtx, 'wallet-d1-shared')).resolves.toMatchObject({
+        orgId: secondaryCtx.orgId,
+        userId: 'user-secondary',
+      });
+      await expect(service.listWallets(secondaryCtx)).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 'wallet-d1-shared' })],
+      });
+
+      await expect(
+        service.listWallets(primaryCtx, {
+          environmentId: 'env-d1-wallets-prod',
+          chain: 'Base',
+          walletType: 'SMART',
+          status: 'FROZEN',
+          policyId: 'policy-beta',
+          userId: 'user-beta',
+          externalRefId: 'external-beta',
+        }),
+      ).resolves.toEqual({
+        items: [expect.objectContaining({ id: 'wallet-d1-beta' })],
+      });
+      await expect(
+        service.searchWallets(primaryCtx, {
+          q: 'BBBB',
+          limit: 10,
+        }),
+      ).resolves.toEqual({
+        items: [expect.objectContaining({ id: 'wallet-d1-beta' })],
+      });
+      await expect(
+        service.searchWallets(primaryCtx, {
+          q: 'external-gamma',
+          limit: 10,
+        }),
+      ).resolves.toEqual({
+        items: [expect.objectContaining({ id: 'wallet-d1-gamma' })],
+      });
+
+      const firstBalancePage = await service.listWallets(primaryCtx, {
+        sortBy: 'balance',
+        sortOrder: 'desc',
+        limit: 2,
+      });
+      expect(firstBalancePage.items.map((wallet) => wallet.id)).toEqual([
+        'wallet-d1-beta',
+        'wallet-d1-gamma',
+      ]);
+      expect(firstBalancePage.nextCursor).toBeTruthy();
+      const secondBalancePage = await service.listWallets(primaryCtx, {
+        sortBy: 'balance',
+        sortOrder: 'desc',
+        limit: 2,
+        cursor: firstBalancePage.nextCursor,
+      });
+      expect(secondBalancePage.items.map((wallet) => wallet.id)).toEqual(['wallet-d1-shared']);
+
+      await expect(
+        service.listWallets(primaryCtx, {
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+          cursor: firstBalancePage.nextCursor,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_query' });
+
+      nowMsValue = Date.parse('2026-06-27T00:40:00.000Z');
+      const updatedAlpha = await upsertWallet(primaryCtx, {
+        id: 'wallet-d1-shared',
+        projectId: 'project-d1-wallets',
+        environmentId: 'env-d1-wallets-prod',
+        userId: 'user-alpha',
+        externalRefId: 'external-alpha',
+        address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        chain: 'Ethereum',
+        walletType: 'EOA',
+        status: 'ARCHIVED',
+        balanceMinor: 750,
+        lastActivityAt: '2026-06-27T00:39:00.000Z',
+      });
+      expect(updatedAlpha).toMatchObject({
+        id: 'wallet-d1-shared',
+        status: 'ARCHIVED',
+        balanceMinor: 750,
+        createdAt: '2026-06-27T00:30:00.000Z',
+        updatedAt: '2026-06-27T00:40:00.000Z',
+      });
+
+      await expect(
+        upsertWallet(primaryCtx, {
+          id: 'wallet-d1-conflict',
+          projectId: 'project-d1-wallets',
+          environmentId: 'env-d1-wallets-prod',
+          userId: 'user-conflict',
+          externalRefId: 'external-conflict',
+          address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          chain: 'Base',
+        }),
+      ).rejects.toMatchObject({ code: 'wallet_address_conflict' });
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
