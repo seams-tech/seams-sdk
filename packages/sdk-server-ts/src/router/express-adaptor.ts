@@ -293,6 +293,10 @@ export type {
 export type {
   ConsoleApiKeysContext,
   ConsoleApiKeyService,
+  ConsoleApiKeysD1Runtime,
+  ConsoleApiKeysD1Service,
+  D1ConsoleApiKeysSchemaOptions,
+  D1ConsoleApiKeysServiceOptions,
   InMemoryConsoleApiKeyServiceOptions,
   PostgresConsoleApiKeySchemaOptions,
   PostgresConsoleApiKeyServiceOptions,
@@ -586,6 +590,11 @@ export {
 } from '../console/policies/postgres';
 export { isConsolePolicyError, ConsolePolicyError } from '../console/policies/errors';
 export {
+  CONSOLE_API_KEYS_D1_RUNTIME,
+  CONSOLE_API_KEYS_D1_SCHEMA_SQL,
+  createD1ConsoleApiKeyService,
+  ensureConsoleApiKeysD1Schema,
+  getConsoleApiKeysD1Runtime,
   createInMemoryConsoleApiKeyService,
   ensureConsoleApiKeysPostgresSchema,
   createPostgresConsoleApiKeyService,

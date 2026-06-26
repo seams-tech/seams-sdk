@@ -26,6 +26,10 @@ import {
   type ConsoleAccountService,
 } from '../../console/account';
 import {
+  createD1ConsoleApiKeyService,
+  type ConsoleApiKeyService,
+} from '../../console/apiKeys';
+import {
   createD1ConsoleBillingService,
   type BillingProviderAdapters,
   type ConsoleBillingService,
@@ -122,6 +126,7 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly apiKeys: ConsoleApiKeyService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
@@ -135,6 +140,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly apiKeys: ConsoleApiKeyService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
@@ -428,6 +434,17 @@ async function createCloudflareD1Policies(
   });
 }
 
+async function createCloudflareD1ApiKeys(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleApiKeyService> {
+  return await createD1ConsoleApiKeyService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
 async function createCloudflareD1SponsoredCalls(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleSponsoredCallService> {
@@ -498,6 +515,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly apiKeys: ConsoleApiKeyService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
@@ -510,6 +528,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
     teamRbac: input.teamRbac,
     account: input.account,
     policies: input.policies,
+    apiKeys: input.apiKeys,
     billing: input.billing,
     prepaidReservations: input.prepaidReservations,
     sponsoredCalls: input.sponsoredCalls,
@@ -530,6 +549,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
   });
   const policies = await createCloudflareD1Policies(normalized);
+  const apiKeys = await createCloudflareD1ApiKeys(normalized);
   const billing = await createCloudflareD1Billing(normalized);
   const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
   const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
@@ -541,6 +561,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
     account,
     policies,
+    apiKeys,
     billing,
     prepaidReservations,
     sponsoredCalls,
@@ -553,6 +574,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
     account,
     policies,
+    apiKeys,
     billing,
     prepaidReservations,
     sponsoredCalls,

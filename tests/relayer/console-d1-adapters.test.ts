@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
+import { createD1ConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys/d1';
 import {
   createD1ConsoleBillingService,
   runD1ConsoleBillingMonthlyFinalization,
@@ -629,6 +630,163 @@ test.describe('D1 adapter contracts', () => {
         duplicateOrganizationError = error;
       }
       expect(errorCode(duplicateOrganizationError)).toBe('organization_already_exists');
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('API key adapter scopes tenants and authenticates hashed D1 credentials', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      let nowMsValue = Date.parse('2026-06-27T01:00:00.000Z');
+      const service = await createD1ConsoleApiKeyService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date(nowMsValue),
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-api-keys-primary',
+        actorUserId: 'user-d1-api-keys-primary',
+        roles: ['admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-api-keys-secondary',
+        actorUserId: 'user-d1-api-keys-secondary',
+        roles: ['admin'],
+      };
+
+      const createdSecretKey = await service.createApiKey(primaryCtx, {
+        kind: 'secret_key',
+        name: 'D1 Server Key',
+        environmentId: 'env-d1-api-prod',
+        scopes: ['wallets.read', 'accounts.create'],
+        ipAllowlist: ['203.0.113.0/24'],
+      });
+      expect(createdSecretKey.secret).toMatch(/^sk_/);
+      await expect(service.listApiKeys(primaryCtx)).resolves.toHaveLength(1);
+      await expect(service.listApiKeys(secondaryCtx)).resolves.toHaveLength(0);
+      await expect(
+        service.updateApiKey(secondaryCtx, createdSecretKey.apiKey.id, {
+          name: 'Cross Tenant Rename',
+        }),
+      ).resolves.toBeNull();
+
+      const authenticateApiKey = service.authenticateApiKey;
+      if (!authenticateApiKey) throw new Error('D1 API key adapter must expose secret auth');
+      const authOk = await authenticateApiKey({
+        secret: createdSecretKey.secret,
+        endpoint: '/v1/wallets',
+        requiredScopes: ['wallets.read'],
+        sourceIp: '203.0.113.42',
+        environmentId: 'env-d1-api-prod',
+      });
+      expect(authOk.ok).toBe(true);
+      if (!authOk.ok) throw new Error(authOk.message);
+      expect(authOk.apiKey.endpointUsageCounts['/v1/wallets']).toBe(1);
+      expect(authOk.apiKey.lastUsedAt).toBe('2026-06-27T01:00:00.000Z');
+
+      nowMsValue = Date.parse('2026-06-27T01:01:00.000Z');
+      const scopeDenied = await authenticateApiKey({
+        secret: createdSecretKey.secret,
+        endpoint: '/v1/wallets/signers',
+        requiredScopes: ['wallets.signers.create'],
+        sourceIp: '203.0.113.42',
+        environmentId: 'env-d1-api-prod',
+      });
+      expect(scopeDenied).toMatchObject({
+        ok: false,
+        status: 403,
+        code: 'secret_key_forbidden_scope',
+      });
+      const afterScopeDenied = await service.listApiKeys(primaryCtx);
+      expect(afterScopeDenied[0]?.anomalyFlags).toContain('auth.scope_denied');
+
+      const updatedSecretKey = await service.updateApiKey(primaryCtx, createdSecretKey.apiKey.id, {
+        name: 'D1 Server Key Renamed',
+        scopes: ['wallets.read'],
+        ipAllowlist: ['203.0.113.42'],
+      });
+      expect(updatedSecretKey).toMatchObject({
+        id: createdSecretKey.apiKey.id,
+        name: 'D1 Server Key Renamed',
+        scopes: ['wallets.read'],
+        ipAllowlist: ['203.0.113.42'],
+      });
+
+      const rotatedSecretKey = await service.rotateApiKey(primaryCtx, createdSecretKey.apiKey.id);
+      expect(rotatedSecretKey?.apiKey.secretVersion).toBe(2);
+      expect(rotatedSecretKey?.secret).toMatch(/^sk_/);
+      expect(rotatedSecretKey?.secret).not.toBe(createdSecretKey.secret);
+      const staleSecretAuth = await authenticateApiKey({
+        secret: createdSecretKey.secret,
+        endpoint: '/v1/wallets',
+        requiredScopes: ['wallets.read'],
+        sourceIp: '203.0.113.42',
+        environmentId: 'env-d1-api-prod',
+      });
+      expect(staleSecretAuth).toMatchObject({
+        ok: false,
+        status: 401,
+        code: 'secret_key_invalid',
+      });
+
+      const createdPublishableKey = await service.createApiKey(primaryCtx, {
+        kind: 'publishable_key',
+        name: 'D1 Browser Key',
+        environmentId: 'env-d1-api-prod',
+        allowedOrigins: ['https://app.example.com'],
+        rateLimitBucket: 'browser-default',
+        quotaBucket: 'prepaid-default',
+        riskPolicy: { mode: 'standard' },
+        paymentPolicy: { billing: 'prepaid' },
+      });
+      expect(createdPublishableKey.secret).toMatch(/^pk_/);
+
+      const authenticatePublishableKey = service.authenticatePublishableKey;
+      if (!authenticatePublishableKey) {
+        throw new Error('D1 API key adapter must expose publishable auth');
+      }
+      nowMsValue = Date.parse('2026-06-27T01:02:00.000Z');
+      const publishableAuthOk = await authenticatePublishableKey({
+        secret: createdPublishableKey.secret,
+        origin: 'https://app.example.com',
+        environmentId: 'env-d1-api-prod',
+      });
+      expect(publishableAuthOk.ok).toBe(true);
+      if (!publishableAuthOk.ok) throw new Error(publishableAuthOk.message);
+      expect(publishableAuthOk.apiKey.lastUsedAt).toBe('2026-06-27T01:02:00.000Z');
+
+      const blockedOrigin = await authenticatePublishableKey({
+        secret: createdPublishableKey.secret,
+        origin: 'https://evil.example.com',
+        environmentId: 'env-d1-api-prod',
+      });
+      expect(blockedOrigin).toMatchObject({
+        ok: false,
+        status: 403,
+        code: 'publishable_key_origin_blocked',
+      });
+
+      const revoked = await service.revokeApiKey(primaryCtx, createdPublishableKey.apiKey.id, {
+        reason: 'credential_rotation',
+      });
+      expect(revoked.apiKey).toMatchObject({
+        id: createdPublishableKey.apiKey.id,
+        status: 'REVOKED',
+        revokedReason: 'credential_rotation',
+      });
+      await expect(
+        service.rotateApiKey(primaryCtx, createdPublishableKey.apiKey.id),
+      ).rejects.toMatchObject({ code: 'api_key_revoked' });
+
+      const deleted = await service.deleteApiKey(primaryCtx, createdPublishableKey.apiKey.id);
+      expect(deleted).toMatchObject({
+        deleted: true,
+        apiKey: expect.objectContaining({ id: createdPublishableKey.apiKey.id }),
+      });
+      const remaining = await service.listApiKeys(primaryCtx);
+      expect(remaining.map((apiKey) => apiKey.id)).toEqual([createdSecretKey.apiKey.id]);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

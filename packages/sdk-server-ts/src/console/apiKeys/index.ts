@@ -35,6 +35,20 @@ export {
   createPostgresConsoleApiKeyService,
 } from './postgres';
 
+export type {
+  ConsoleApiKeysD1Runtime,
+  ConsoleApiKeysD1Service,
+  D1ConsoleApiKeysSchemaOptions,
+  D1ConsoleApiKeysServiceOptions,
+} from './d1';
+export {
+  CONSOLE_API_KEYS_D1_RUNTIME,
+  CONSOLE_API_KEYS_D1_SCHEMA_SQL,
+  ensureConsoleApiKeysD1Schema,
+  getConsoleApiKeysD1Runtime,
+  createD1ConsoleApiKeyService,
+} from './d1';
+
 export {
   parseCreateConsoleApiKeyRequest,
   parseRevokeConsoleApiKeyRequest,
