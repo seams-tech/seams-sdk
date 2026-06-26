@@ -67,11 +67,26 @@ import { createD1ConsoleWalletService } from '../../console/wallets/d1';
 import type { ConsoleWalletService } from '../../console/wallets/service';
 import { createD1ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/service';
+import type {
+  RelayApiKeyAuthAdapter,
+  RelayBootstrapGrantBroker,
+  RelayPublishableKeyAuthAdapter,
+  RelayRouterOptions,
+  RelayUsageMeterAdapter,
+} from '../relay';
+import {
+  createRelayApiKeyAuthAdapter,
+  createRelayBillingUsageMeterAdapter,
+  createRelayPublishableKeyAuthAdapter,
+} from '../relayApiKeyAuth';
+import { createRelayBootstrapGrantBroker } from '../bootstrapGrantBroker';
 import type { RouterAbNormalSigningAdmissionAdapter } from '../routerAbPrivateSigningWorker';
 import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from '../routerAbNormalSigningAdmissionStore';
+import type { SponsoredEvmCallExecutorConfig } from '../../sponsorship/evmRelay';
+import type { SponsorshipSpendPricingService } from '../../sponsorship/spendCaps';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
   type CloudflareTenantStorageRoute,
@@ -92,6 +107,8 @@ const DEFAULT_THRESHOLD_STORE_BINDING_NAME = 'THRESHOLD_STORE';
 const DEFAULT_ROUTE_VERSION = 1;
 const DEFAULT_TOPOLOGY: CloudflareTenantTopology = 'shared';
 const DEFAULT_JURISDICTION: TenantDataJurisdiction = 'automatic';
+const DEFAULT_SIGNED_DELEGATE_ROUTE = '/signed-delegate';
+const DEFAULT_BOOTSTRAP_GRANT_TOKEN_TTL_MS = 60_000;
 
 export interface CloudflareD1ConsoleStorageBindings {
   readonly consoleDatabase: D1DatabaseLike;
@@ -131,6 +148,10 @@ export interface CloudflareD1ConsoleAdapterOptions {
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
+  readonly signedDelegateRoute?: string;
+  readonly bootstrapGrantTokenTtlMs?: number;
+  readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
+  readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
 }
 
 export interface CloudflareD1ConsoleServiceBundleOptions {
@@ -162,6 +183,17 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
 }
 
 export interface CloudflareD1RelayRouterStorageOptions {
+  readonly signedDelegate: NonNullable<RelayRouterOptions['signedDelegate']>;
+  readonly sponsorship: NonNullable<RelayRouterOptions['sponsorship']>;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+  readonly apiKeyAuth: RelayApiKeyAuthAdapter;
+  readonly publishableKeyAuth: RelayPublishableKeyAuthAdapter;
+  readonly apiKeyUsageMeter: RelayUsageMeterAdapter;
+  readonly bootstrapGrantBroker: RelayBootstrapGrantBroker;
+  readonly bootstrapTokenStore: ConsoleBootstrapTokenService;
+  readonly sponsoredEvmCall: NonNullable<RelayRouterOptions['sponsoredEvmCall']>;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly wallets: ConsoleWalletService;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
 }
 
@@ -238,6 +270,10 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions {
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
+  readonly signedDelegateRoute: string;
+  readonly bootstrapGrantTokenTtlMs: number;
+  readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
+  readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
 }
 
 function normalizeRequiredString(input: string | undefined, fallback: string, field: string): string {
@@ -254,6 +290,22 @@ function normalizeNamespace(input: string): string {
     throw new Error('D1 console storage namespace is required');
   }
   return namespace;
+}
+
+function normalizeSignedDelegateRoute(input: string | undefined): string {
+  const route = String(input || DEFAULT_SIGNED_DELEGATE_ROUTE).trim();
+  if (!route.startsWith('/') || route === '/') {
+    throw new Error('D1 relay signedDelegateRoute must be an absolute non-root path');
+  }
+  return route;
+}
+
+function normalizeBootstrapGrantTokenTtlMs(input: number | undefined): number {
+  const ttlMs = Number(input || DEFAULT_BOOTSTRAP_GRANT_TOKEN_TTL_MS);
+  if (!Number.isSafeInteger(ttlMs) || ttlMs < 1_000) {
+    throw new Error('D1 relay bootstrapGrantTokenTtlMs must be at least 1000');
+  }
+  return ttlMs;
 }
 
 function requireSigningRootAdapterString(input: unknown, field: string): string {
@@ -396,6 +448,12 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
     runtimeSnapshotRetentionPruneIntervalMs:
       options.adapters?.runtimeSnapshotRetentionPruneIntervalMs,
     runtimeSnapshotRetentionBatchSize: options.adapters?.runtimeSnapshotRetentionBatchSize,
+    signedDelegateRoute: normalizeSignedDelegateRoute(options.adapters?.signedDelegateRoute),
+    bootstrapGrantTokenTtlMs: normalizeBootstrapGrantTokenTtlMs(
+      options.adapters?.bootstrapGrantTokenTtlMs,
+    ),
+    sponsorshipPricing: options.adapters?.sponsorshipPricing,
+    sponsoredEvmCallConfig: options.adapters?.sponsoredEvmCallConfig,
   };
 }
 
@@ -718,14 +776,67 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   };
 }
 
-function createCloudflareD1RelayRouterStorageOptions(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
-): CloudflareD1RelayRouterStorageOptions {
+function createCloudflareD1RelayRouterStorageOptions(input: {
+  readonly options: NormalizedCloudflareD1ConsoleServiceBundleOptions;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly wallets: ConsoleWalletService;
+  readonly apiKeys: ConsoleApiKeyService;
+  readonly bootstrapTokens: ConsoleBootstrapTokenService;
+  readonly billing: ConsoleBillingService;
+  readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
+  readonly spendCaps: ConsoleSponsorshipSpendCapService;
+  readonly sponsoredCalls: ConsoleSponsoredCallService;
+  readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+}): CloudflareD1RelayRouterStorageOptions {
+  const { options } = input;
   const admissionStore = createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore({
     namespace: options.thresholdStore,
     storageNamespace: options.namespace,
   });
   return {
+    signedDelegate: {
+      route: options.signedDelegateRoute,
+      billing: input.billing,
+      ledger: input.sponsoredCalls,
+      runtimeSnapshots: input.runtimeSnapshots,
+    },
+    sponsorship: {
+      spendCaps: input.spendCaps,
+      pricing: options.sponsorshipPricing || null,
+      prepaidReservations: input.prepaidReservations,
+    },
+    observabilityIngestion: input.observabilityIngestion,
+    apiKeyAuth: createRelayApiKeyAuthAdapter(input.apiKeys),
+    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(input.apiKeys),
+    apiKeyUsageMeter: createRelayBillingUsageMeterAdapter(input.billing, {
+      orgProjectEnv: input.orgProjectEnv,
+      wallets: input.wallets,
+    }),
+    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+      apiKeys: input.apiKeys,
+      tokenStore: input.bootstrapTokens,
+      orgProjectEnv: input.orgProjectEnv,
+      tokenTtlMs: options.bootstrapGrantTokenTtlMs,
+      rateLimitsByBucket: {
+        default: { windowMs: 60_000, maxIssued: 60 },
+        default_web_v1: { windowMs: 60_000, maxIssued: 60 },
+      },
+      quotasByBucket: {
+        default: { maxIssued: 1_000 },
+        free_registrations_v1: { maxIssued: 100_000 },
+      },
+    }),
+    bootstrapTokenStore: input.bootstrapTokens,
+    sponsoredEvmCall: {
+      apiKeys: input.apiKeys,
+      billing: input.billing,
+      ledger: input.sponsoredCalls,
+      runtimeSnapshots: input.runtimeSnapshots,
+      config: options.sponsoredEvmCallConfig || null,
+    },
+    orgProjectEnv: input.orgProjectEnv,
+    wallets: input.wallets,
     routerAbNormalSigningAdmission:
       createRouterAbNormalSigningAdmissionAdapter(admissionStore),
   };
@@ -781,7 +892,19 @@ export async function createCloudflareD1ConsoleServiceBundle(
     sponsoredCalls,
     runtimeSnapshots,
   });
-  const relayRouterOptions = createCloudflareD1RelayRouterStorageOptions(normalized);
+  const relayRouterOptions = createCloudflareD1RelayRouterStorageOptions({
+    options: normalized,
+    orgProjectEnv,
+    wallets,
+    apiKeys,
+    bootstrapTokens,
+    billing,
+    prepaidReservations,
+    spendCaps,
+    sponsoredCalls,
+    runtimeSnapshots,
+    observabilityIngestion,
+  });
   return {
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,

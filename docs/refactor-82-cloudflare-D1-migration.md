@@ -146,6 +146,11 @@ Completed so far:
   decisions.
 - Wired the Cloudflare D1/DO service bundle to expose relay router options with
   the Durable Object normal-signing admission adapter selected by default.
+- Expanded the Cloudflare D1/DO service bundle relay options to use the same D1
+  services for API-key auth, publishable-key auth, usage metering, bootstrap
+  grants, signed delegate billing/ledger hooks, sponsorship reservations/spend
+  caps, sponsored EVM call billing/ledger hooks, wallet reads, org/project/env
+  lookup, runtime snapshots, and observability ingestion.
 - Added D1 sponsored gas settlement finalization for prepaid EVM calls. The
   D1 path batches reservation settlement, billing ledger debit, and
   sponsored-call record insertion, and requires the sponsored-call idempotency
@@ -863,6 +868,10 @@ Work:
   requirement appears.
 - Keep the Cloudflare service-bundle relay options wired to the Durable Object
   normal-signing admission store.
+- Keep the Cloudflare service-bundle relay options wired to D1-backed billing,
+  prepaid reservations, sponsorship spend caps, sponsored-call records, API
+  keys, bootstrap tokens, wallet indexes, runtime snapshots, and observability
+  ingestion.
 - Audit existing Durable Object stores for signer budgets, replay guards,
   presignature pools, and signing-root coordination. Add contract tests only
   for missing staging-required behavior.
@@ -984,11 +993,14 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports. The
    local Wrangler/Miniflare readiness path now validates required D1 tables and
    DO-backed normal-signing admission without Postgres modules.
-4. Make local development run on Wrangler/Miniflare D1 and local Durable Object
+4. Split any remaining mixed Postgres/D1 import barrels needed by Cloudflare
+   Worker staging so D1/DO bundle imports do not pull Postgres modules into the
+   Worker bundle.
+5. Make local development run on Wrangler/Miniflare D1 and local Durable Object
    storage by default for the full dashboard/signer application path.
-5. Port staging-required persistence tests to the D1/DO adapters and keep pure
+6. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
-6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
+7. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
    tests, sponsored gas reconciliation checks, signer custody checks, and backup
    drills pass.
 

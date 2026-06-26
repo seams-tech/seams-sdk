@@ -188,6 +188,21 @@ function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
 
 test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into relay options', async () => {
   const database = new FakeD1Database();
+  const sponsorshipPricing = {
+    async estimateSponsoredExecutionSpend() {
+      return {
+        estimatedSpendMinor: 1,
+        pricingVersion: 'test-pricing-v1',
+      };
+    },
+    async finalizeSponsoredExecutionSpend() {
+      return {
+        settledSpendMinor: 1,
+        pricingVersion: 'test-pricing-v1',
+        usedEstimatedFallback: false,
+      };
+    },
+  };
   const bundle = await createCloudflareD1ConsoleServiceBundle({
     bindings: {
       consoleDatabase: database,
@@ -200,6 +215,9 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
     },
     adapters: {
       ensureSchema: false,
+      signedDelegateRoute: '/d1-signed-delegate',
+      sponsorshipPricing,
+      sponsoredEvmCallConfig: null,
     },
   });
 
@@ -208,6 +226,34 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
 
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
+  expect(bundle.relayRouterOptions.signedDelegate).toMatchObject({
+    route: '/d1-signed-delegate',
+    billing: bundle.billing,
+    ledger: bundle.sponsoredCalls,
+    runtimeSnapshots: bundle.runtimeSnapshots,
+  });
+  expect(bundle.relayRouterOptions.sponsorship).toMatchObject({
+    spendCaps: bundle.spendCaps,
+    pricing: sponsorshipPricing,
+    prepaidReservations: bundle.prepaidReservations,
+  });
+  expect(bundle.relayRouterOptions.sponsoredEvmCall).toMatchObject({
+    apiKeys: bundle.apiKeys,
+    billing: bundle.billing,
+    ledger: bundle.sponsoredCalls,
+    runtimeSnapshots: bundle.runtimeSnapshots,
+    config: null,
+  });
+  expect(bundle.relayRouterOptions.bootstrapTokenStore).toBe(bundle.bootstrapTokens);
+  expect(bundle.relayRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
+  expect(bundle.relayRouterOptions.wallets).toBe(bundle.wallets);
+  expect(bundle.relayRouterOptions.observabilityIngestion).toBe(bundle.observabilityIngestion);
+  expect(typeof bundle.relayRouterOptions.apiKeyAuth.authenticate).toBe('function');
+  expect(typeof bundle.relayRouterOptions.publishableKeyAuth.authenticate).toBe('function');
+  expect(typeof bundle.relayRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
+  expect(typeof bundle.relayRouterOptions.bootstrapGrantBroker.authenticatePublishableKey).toBe(
+    'function',
+  );
 });
 
 test('local D1 Worker ready smoke validates D1 tables and DO admission', async () => {
