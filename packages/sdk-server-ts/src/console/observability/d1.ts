@@ -14,7 +14,7 @@ import type {
   ConsoleObservabilityService,
   InMemoryConsoleObservabilityServiceOptions,
 } from './service';
-import type { ConsoleObservabilityIngestionService } from './incidentIngest';
+import type { ConsoleObservabilityIngestionService } from './ingestionService';
 import type {
   ConsoleObservabilityEvent,
   ConsoleObservabilityEventEnvelope,

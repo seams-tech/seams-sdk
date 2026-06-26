@@ -3,8 +3,8 @@ import {
   buildWebhookDeadLetterObservabilityEvent,
   buildWebhookEndpointDegradedObservabilityEvent,
   buildWebhookRetryExhaustedObservabilityEvent,
-  type ConsoleObservabilityIngestionService,
-} from '../observability';
+} from '../observability/adapters';
+import type { ConsoleObservabilityIngestionService } from '../observability/ingestionService';
 import type { ConsoleWebhooksContext } from './types';
 
 export const DEFAULT_CONSOLE_WEBHOOK_ENDPOINT_DEGRADED_THRESHOLD = 3;

@@ -5,7 +5,7 @@ import {
   buildBillingBalanceTransitionObservabilityEvent,
   buildBillingSponsorshipBlockedObservabilityEvent,
 } from '../console/observability/adapters';
-import type { ConsoleObservabilityIngestionService } from '../console/observability/incidentIngest';
+import type { ConsoleObservabilityIngestionService } from '../console/observability/ingestionService';
 import type { ConsoleWebhookService } from '../console/webhooks/service';
 import type { NormalizedRouterLogger } from './logger';
 

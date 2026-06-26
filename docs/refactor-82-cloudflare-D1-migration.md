@@ -190,6 +190,12 @@ Completed so far:
 - Pointed Cloudflare router session-seal handling and route definition path
   builders at session-seal transport leaves so Worker routes do not link the
   Postgres idempotency backend exports from the session-seal barrel.
+- Added a Cloudflare runtime dependency guard that walks runtime imports from
+  the Worker entrypoints and fails on Postgres storage, console Postgres
+  adapters, mixed console barrels, and the session-seal index barrel.
+- Split the remaining transitive Worker-path imports in onboarding, gas
+  sponsorship, prepaid balance, spend-cap enforcement, webhook observability,
+  and observability ingestion so the guard passes against the current graph.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
 - Added persisted D1 monthly usage statements, MAW debit reconciliation, and
@@ -1032,6 +1038,8 @@ Completed baseline:
   request, error, type, and D1 leaves directly instead of mixed console barrels.
 - A runtime import scan over non-Express router modules reports no console
   barrel imports or re-exports. Express remains the Node/Postgres-facing path.
+- `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` now enforces
+  the no-Postgres Worker runtime graph from the Cloudflare entrypoints.
 
 Proceed in this order:
 

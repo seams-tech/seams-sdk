@@ -50,7 +50,7 @@ import {
   createD1ConsoleObservabilityIngestionService,
   createD1ConsoleObservabilityService,
 } from '../../console/observability/d1';
-import type { ConsoleObservabilityIngestionService } from '../../console/observability/incidentIngest';
+import type { ConsoleObservabilityIngestionService } from '../../console/observability/ingestionService';
 import type { ConsoleObservabilityService } from '../../console/observability/service';
 import type { ConsoleObservabilityMetadataRedactionPolicy } from '../../console/observability/types';
 import { createD1ConsolePolicyService } from '../../console/policies/d1';

@@ -47,6 +47,8 @@ export type { PostgresConsoleObservabilityServiceOptions } from './queries';
 export { createPostgresConsoleObservabilityService } from './queries';
 export type {
   ConsoleObservabilityIngestionService,
+} from './ingestionService';
+export type {
   PostgresConsoleObservabilityIngestionServiceOptions,
 } from './incidentIngest';
 export { createPostgresConsoleObservabilityIngestionService } from './incidentIngest';

@@ -1,16 +1,16 @@
-import type { ConsoleBillingContext, ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingContext, ConsoleBillingService } from '../console/billing/service';
 import type {
   ConsoleBillingPrepaidReservationContext,
   ConsoleBillingPrepaidReservationService,
-} from '../console/billingPrepaidReservations';
-import { isConsoleBillingPrepaidReservationError } from '../console/billingPrepaidReservations';
+} from '../console/billingPrepaidReservations/service';
+import { isConsoleBillingPrepaidReservationError } from '../console/billingPrepaidReservations/errors';
 import type {
   ConsoleSponsoredCallChainFamily,
   ConsoleSponsoredCallExecutorKind,
   ConsoleSponsoredCallFeeUnit,
   ConsoleSponsoredCallIntentKind,
   ConsoleSponsoredCallReceiptStatus,
-} from '../console/sponsoredCalls';
+} from '../console/sponsoredCalls/types';
 import type {
   SponsorshipSpendPricingQuote,
   SponsorshipSpendPricingService,

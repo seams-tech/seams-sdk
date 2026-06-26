@@ -1,13 +1,16 @@
-import type { ConsoleApiKey, ConsoleApiKeyService } from '../apiKeys';
-import { getBillingLiveEnvironmentReadiness, type ConsoleBillingService } from '../billing';
+import type { ConsoleApiKeyService } from '../apiKeys/service';
+import type { ConsoleApiKey } from '../apiKeys/types';
+import type { ConsoleBillingService } from '../billing/service';
+import { getBillingLiveEnvironmentReadiness } from '../billing/readiness';
 import { normalizeLogger, type Logger } from '../../core/logger';
 import type {
   ConsoleEnvironment,
-  ConsoleOrgProjectEnvService,
   ConsoleOrganization,
   ConsoleProject,
-} from '../orgProjectEnv';
-import { isConsoleTeamRbacError, type ConsoleTeamRbacService } from '../teamRbac';
+} from '../orgProjectEnv/types';
+import type { ConsoleOrgProjectEnvService } from '../orgProjectEnv/service';
+import type { ConsoleTeamRbacService } from '../teamRbac/service';
+import { isConsoleTeamRbacError } from '../teamRbac/errors';
 import { ConsoleOnboardingError } from './errors';
 import type {
   ConsoleOnboardingState,

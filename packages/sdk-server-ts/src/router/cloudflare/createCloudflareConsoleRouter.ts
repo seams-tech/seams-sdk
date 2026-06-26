@@ -129,7 +129,7 @@ import {
   parseTransferConsoleAccountOrganizationOwnerRequest,
   parseUpdateConsoleAccountOrganizationRequest,
 } from '../../console/account/requests';
-import type { ConsoleObservabilityIngestionService } from '../../console/observability/incidentIngest';
+import type { ConsoleObservabilityIngestionService } from '../../console/observability/ingestionService';
 import type { ConsoleObservabilityService } from '../../console/observability/service';
 import { isConsoleObservabilityError } from '../../console/observability/errors';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';

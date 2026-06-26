@@ -47,7 +47,7 @@ export {
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from './routerAbNormalSigningAdmissionStore';
+} from './routerAbNormalSigningAdmissionCore';
 export type {
   CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
   InMemoryRouterAbNormalSigningAdmissionStoreOptions,
@@ -58,7 +58,7 @@ export type {
   RouterAbNormalSigningProjectPolicyProvider,
   RouterAbNormalSigningQuotaDecision,
   RouterAbNormalSigningQuotaStore,
-} from './routerAbNormalSigningAdmissionStore';
+} from './routerAbNormalSigningAdmissionCore';
 export type {
   RelayCloudflareRouteExtensionInput,
   RelayCloudflareRouteExtension,

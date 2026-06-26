@@ -5,12 +5,9 @@ import type {
   ConsoleGasSponsorshipPolicyProjection,
   ConsoleGasSponsorshipSpendCap,
 } from './types';
-import {
-  isConsoleGasSponsorshipPolicyRules,
-  type ConsolePolicy,
-  type ConsolePoliciesContext,
-  type ConsolePolicyService,
-} from '../policies';
+import { isConsoleGasSponsorshipPolicyRules } from '../policies/rules';
+import type { ConsolePoliciesContext, ConsolePolicyService } from '../policies/service';
+import type { ConsolePolicy } from '../policies/types';
 
 function toIso(date: Date): string {
   return date.toISOString();

@@ -3,7 +3,7 @@ import {
   buildBillingFailureObservabilityEvent,
   buildBillingStripeWebhookFailureObservabilityEvent,
 } from '../console/observability/adapters';
-import type { ConsoleObservabilityIngestionService } from '../console/observability/incidentIngest';
+import type { ConsoleObservabilityIngestionService } from '../console/observability/ingestionService';
 import type { ConsoleAuthClaims } from './console';
 import type { NormalizedRouterLogger } from './logger';
 

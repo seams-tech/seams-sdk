@@ -2,6 +2,7 @@ import { getPostgresPool } from '../../storage/postgres';
 import { ensureConsoleNamespace as ensureNamespace } from '../shared/postgresNormalize';
 import { withConsoleTenantContextTx } from '../shared/postgresTenantContext';
 import { ConsoleObservabilityError } from './errors';
+import type { ConsoleObservabilityIngestionService } from './ingestionService';
 import { redactConsoleObservabilityMetadata } from './redaction';
 import {
   REQUEST_ROLLUP_WINDOW_MS,
@@ -58,21 +59,6 @@ interface NormalizedInsertEvent {
   metadata: Record<string, unknown>;
   redactionVersion: number;
   redactionApplied: boolean;
-}
-
-export interface ConsoleObservabilityIngestionService {
-  appendEvent(
-    ctx: ConsoleObservabilityIngestionContext,
-    event: ConsoleObservabilityEventEnvelope,
-  ): Promise<ConsoleObservabilityEventIngestResult>;
-  appendEvents(
-    ctx: ConsoleObservabilityIngestionContext,
-    events: ConsoleObservabilityEventEnvelope[],
-  ): Promise<ConsoleObservabilityEventIngestResult>;
-  observeRequestMetric?(
-    ctx: ConsoleObservabilityIngestionContext,
-    metric: ConsoleObservabilityRequestMetricInput,
-  ): Promise<void>;
 }
 
 export interface PostgresConsoleObservabilityIngestionServiceOptions

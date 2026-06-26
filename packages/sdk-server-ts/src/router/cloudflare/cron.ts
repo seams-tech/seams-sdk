@@ -16,7 +16,7 @@ import {
   type D1ConsoleWebhookRetryDispatchOptions,
   type D1ConsoleWebhookRetryDispatchResult,
 } from '../../console/webhooks/d1';
-import type { ConsoleObservabilityIngestionService } from '../../console/observability/incidentIngest';
+import type { ConsoleObservabilityIngestionService } from '../../console/observability/ingestionService';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import type { ScheduledHandler } from './cloudflare.types';
 import type { RouterLogger } from '../logger';
