@@ -1,4 +1,8 @@
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
+import type { D1WebAuthnAuthenticatorStoreOptions } from './WebAuthnAuthenticatorStore';
+import type { D1WebAuthnCredentialBindingStoreOptions } from './WebAuthnCredentialBindingStore';
+import type { D1WebAuthnLoginChallengeStoreOptions } from './WebAuthnLoginChallengeStore';
+import type { D1WebAuthnSyncChallengeStoreOptions } from './WebAuthnSyncChallengeStore';
 import type { D1WalletAuthMethodStoreOptions } from './WalletAuthMethodStore';
 import type { D1WalletStoreOptions } from './WalletStore';
 
@@ -45,6 +49,38 @@ const validAuthMethodStoreOptions: D1WalletAuthMethodStoreOptions = {
   envId: 'env_1',
 };
 
+const validWebAuthnAuthenticatorOptions: D1WebAuthnAuthenticatorStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
+const validWebAuthnCredentialOptions: D1WebAuthnCredentialBindingStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
+const validWebAuthnLoginChallengeOptions: D1WebAuthnLoginChallengeStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
+const validWebAuthnSyncChallengeOptions: D1WebAuthnSyncChallengeStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
 // @ts-expect-error D1 wallet metadata storage requires org identity.
 const missingWalletOrgId: D1WalletStoreOptions = {
   database,
@@ -61,7 +97,38 @@ const missingAuthMethodEnvId: D1WalletAuthMethodStoreOptions = {
   projectId: 'project_1',
 };
 
+// @ts-expect-error D1 WebAuthn authenticator storage requires project identity.
+const missingWebAuthnProjectId: D1WebAuthnAuthenticatorStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  envId: 'env_1',
+};
+
+// @ts-expect-error D1 WebAuthn credential storage requires environment identity.
+const missingWebAuthnCredentialEnvId: D1WebAuthnCredentialBindingStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+};
+
+// @ts-expect-error D1 WebAuthn challenge storage requires org identity.
+const missingWebAuthnChallengeOrgId: D1WebAuthnLoginChallengeStoreOptions = {
+  database,
+  namespace: 'seams',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
 void validWalletStoreOptions;
 void validAuthMethodStoreOptions;
+void validWebAuthnAuthenticatorOptions;
+void validWebAuthnCredentialOptions;
+void validWebAuthnLoginChallengeOptions;
+void validWebAuthnSyncChallengeOptions;
 void missingWalletOrgId;
 void missingAuthMethodEnvId;
+void missingWebAuthnProjectId;
+void missingWebAuthnCredentialEnvId;
+void missingWebAuthnChallengeOrgId;

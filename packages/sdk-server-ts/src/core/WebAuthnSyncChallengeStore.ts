@@ -15,6 +15,8 @@ import {
   redisGetdelJson,
   redisSetJson,
 } from './ThresholdService/kv';
+import { formatD1ExecStatement } from '../storage/d1Sql';
+import type { D1DatabaseLike } from '../storage/tenantRoute';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type WebAuthnSyncChallengeRecord = {
@@ -31,6 +33,84 @@ export interface WebAuthnSyncChallengeStore {
   put(record: WebAuthnSyncChallengeRecord): Promise<void>;
   consume(challengeId: string): Promise<WebAuthnSyncChallengeRecord | null>;
   del(challengeId: string): Promise<void>;
+}
+
+export interface D1WebAuthnSyncChallengeStoreSchemaOptions {
+  readonly database: D1DatabaseLike;
+}
+
+export interface D1WebAuthnSyncChallengeStoreOptions {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema?: boolean;
+  readonly now?: () => Date;
+}
+
+type NormalizedD1WebAuthnSyncChallengeStoreOptions = {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema: boolean;
+  readonly now: () => Date;
+};
+
+type D1WebAuthnSyncChallengeScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+type D1WebAuthnChallengeRow = {
+  readonly record_json?: unknown;
+};
+
+const WEBAUTHN_SYNC_CHALLENGE_KIND = 'sync';
+
+export const WEBAUTHN_SYNC_CHALLENGE_STORE_D1_SCHEMA_SQL = Object.freeze([
+  `
+    CREATE TABLE IF NOT EXISTS signer_webauthn_challenges (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      challenge_id TEXT NOT NULL,
+      challenge_kind TEXT NOT NULL,
+      record_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      expires_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (namespace, org_id, project_id, env_id, challenge_id),
+      CHECK (length(challenge_id) > 0),
+      CHECK (challenge_kind IN ('login', 'sync')),
+      CHECK (json_valid(record_json)),
+      CHECK (created_at_ms > 0),
+      CHECK (expires_at_ms > created_at_ms)
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_webauthn_challenges_expiry_idx
+      ON signer_webauthn_challenges (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        challenge_kind,
+        expires_at_ms
+      )
+  `,
+] as const);
+
+export async function ensureWebAuthnSyncChallengeStoreD1Schema(
+  options: D1WebAuthnSyncChallengeStoreSchemaOptions,
+): Promise<void> {
+  for (const statement of WEBAUTHN_SYNC_CHALLENGE_STORE_D1_SCHEMA_SQL) {
+    await options.database.exec(formatD1ExecStatement(statement));
+  }
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -80,6 +160,67 @@ function parseWebAuthnSyncChallengeRecord(raw: unknown): WebAuthnSyncChallengeRe
   };
 }
 
+function defaultNow(): Date {
+  return new Date();
+}
+
+function parseD1RecordJson(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
+  return (
+    isObject(value) &&
+    typeof value.prepare === 'function' &&
+    typeof value.batch === 'function' &&
+    typeof value.exec === 'function'
+  );
+}
+
+function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
+  if (isD1DatabaseLike(config.database)) return config.database;
+  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
+  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
+  return null;
+}
+
+function requireD1ScopeString(input: unknown, field: string): string {
+  const normalized = toOptionalTrimmedString(input);
+  if (!normalized) throw new Error(`${field} is required for D1 WebAuthn sync challenge store`);
+  return normalized;
+}
+
+function normalizeD1WebAuthnSyncChallengeStoreOptions(
+  input: D1WebAuthnSyncChallengeStoreOptions,
+): NormalizedD1WebAuthnSyncChallengeStoreOptions {
+  return {
+    database: input.database,
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.orgId, 'orgId'),
+    projectId: requireD1ScopeString(input.projectId, 'projectId'),
+    envId: requireD1ScopeString(input.envId, 'envId'),
+    ensureSchema: input.ensureSchema !== false,
+    now: input.now || defaultNow,
+  };
+}
+
+function d1ScopeFromConfig(input: {
+  readonly config: Record<string, unknown>;
+  readonly namespace: string;
+}): Omit<D1WebAuthnSyncChallengeStoreOptions, 'database'> {
+  return {
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.config.orgId || input.config.ORG_ID, 'orgId'),
+    projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
+    envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
+  };
+}
+
 class InMemoryWebAuthnSyncChallengeStore implements WebAuthnSyncChallengeStore {
   private readonly map = new Map<string, WebAuthnSyncChallengeRecord>();
   private readonly prefix: string;
@@ -113,6 +254,127 @@ class InMemoryWebAuthnSyncChallengeStore implements WebAuthnSyncChallengeStore {
     const id = toOptionalTrimmedString(challengeId);
     if (!id) return;
     this.map.delete(this.key(id));
+  }
+}
+
+export class D1WebAuthnSyncChallengeStore implements WebAuthnSyncChallengeStore {
+  readonly adapterKind = 'd1';
+  private readonly database: D1DatabaseLike;
+  private readonly scope: D1WebAuthnSyncChallengeScope;
+  private readonly ensureSchemaOnUse: boolean;
+  private readonly now: () => Date;
+  private schemaReady = false;
+
+  constructor(input: D1WebAuthnSyncChallengeStoreOptions) {
+    const normalized = normalizeD1WebAuthnSyncChallengeStoreOptions(input);
+    this.database = normalized.database;
+    this.scope = {
+      namespace: normalized.namespace,
+      orgId: normalized.orgId,
+      projectId: normalized.projectId,
+      envId: normalized.envId,
+    };
+    this.ensureSchemaOnUse = normalized.ensureSchema;
+    this.now = normalized.now;
+  }
+
+  private async ensureSchema(): Promise<void> {
+    if (!this.ensureSchemaOnUse || this.schemaReady) return;
+    await ensureWebAuthnSyncChallengeStoreD1Schema({ database: this.database });
+    this.schemaReady = true;
+  }
+
+  async put(record: WebAuthnSyncChallengeRecord): Promise<void> {
+    await this.ensureSchema();
+    const parsed = parseWebAuthnSyncChallengeRecord(record);
+    if (!parsed) throw new Error('Invalid sync challenge record');
+    await this.database
+      .prepare(
+        `INSERT INTO signer_webauthn_challenges (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          challenge_id,
+          challenge_kind,
+          record_json,
+          created_at_ms,
+          expires_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (namespace, org_id, project_id, env_id, challenge_id)
+        DO UPDATE SET
+          challenge_kind = EXCLUDED.challenge_kind,
+          record_json = EXCLUDED.record_json,
+          created_at_ms = EXCLUDED.created_at_ms,
+          expires_at_ms = EXCLUDED.expires_at_ms`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        parsed.challengeId,
+        WEBAUTHN_SYNC_CHALLENGE_KIND,
+        JSON.stringify(parsed),
+        parsed.createdAtMs,
+        parsed.expiresAtMs,
+      )
+      .run();
+  }
+
+  async consume(challengeId: string): Promise<WebAuthnSyncChallengeRecord | null> {
+    await this.ensureSchema();
+    const id = toOptionalTrimmedString(challengeId);
+    if (!id) return null;
+    const row = await this.database
+      .prepare(
+        `DELETE FROM signer_webauthn_challenges
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND challenge_id = ?
+            AND challenge_kind = ?
+            AND expires_at_ms > ?
+          RETURNING record_json`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        id,
+        WEBAUTHN_SYNC_CHALLENGE_KIND,
+        this.now().getTime(),
+      )
+      .first<D1WebAuthnChallengeRow>();
+    return parseWebAuthnSyncChallengeRecord(parseD1RecordJson(row?.record_json));
+  }
+
+  async del(challengeId: string): Promise<void> {
+    await this.ensureSchema();
+    const id = toOptionalTrimmedString(challengeId);
+    if (!id) return;
+    await this.database
+      .prepare(
+        `DELETE FROM signer_webauthn_challenges
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND challenge_id = ?
+            AND challenge_kind = ?`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        id,
+        WEBAUTHN_SYNC_CHALLENGE_KIND,
+      )
+      .run();
   }
 }
 
@@ -373,6 +635,19 @@ export function createWebAuthnSyncChallengeStore(input: {
   const prefix = toWebAuthnSyncChallengePrefix(config);
 
   const kind = toOptionalTrimmedString(config.kind);
+  if (kind === 'd1') {
+    const database = resolveD1DatabaseFromConfig(config);
+    if (!database) {
+      throw new Error(
+        '[webauthn] D1 sync challenge store selected but no D1 database was provided',
+      );
+    }
+    input.logger.info('[webauthn] Using D1 sync challenge store');
+    return new D1WebAuthnSyncChallengeStore({
+      database,
+      ...d1ScopeFromConfig({ config, namespace: prefix }),
+    });
+  }
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {

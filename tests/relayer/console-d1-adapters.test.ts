@@ -39,6 +39,10 @@ import type {
   WebhookDispatchRequest,
   WebhookDispatchResult,
 } from '../../packages/sdk-server-ts/src/console/webhooks/service';
+import { D1WebAuthnAuthenticatorStore } from '../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
+import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
+import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
+import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
 import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
@@ -3295,6 +3299,151 @@ test.describe('D1 adapter contracts', () => {
         .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId, walletId)
         .first<SqliteJsonRow>();
       expect(Number(signerRow?.signer_count)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('signer WebAuthn stores persist scoped credentials and atomic challenges', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T04:00:00.000Z');
+      const scope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+      };
+      const otherEnvScope = {
+        ...scope,
+        envId: 'env-development',
+      };
+      const authenticatorStore = new D1WebAuthnAuthenticatorStore(scope);
+      const otherAuthenticatorStore = new D1WebAuthnAuthenticatorStore({
+        ...otherEnvScope,
+        ensureSchema: false,
+      });
+      const bindingStore = new D1WebAuthnCredentialBindingStore(scope);
+      const otherBindingStore = new D1WebAuthnCredentialBindingStore({
+        ...otherEnvScope,
+        ensureSchema: false,
+      });
+      const loginChallengeStore = new D1WebAuthnLoginChallengeStore({
+        ...scope,
+        now: clock.now,
+      });
+      const syncChallengeStore = new D1WebAuthnSyncChallengeStore({
+        ...scope,
+        ensureSchema: false,
+        now: clock.now,
+      });
+
+      await authenticatorStore.put('user-d1-webauthn', {
+        version: 'webauthn_authenticator_v1',
+        credentialIdB64u: 'credential-d1-webauthn',
+        credentialPublicKeyB64u: 'public-key-d1-webauthn',
+        counter: 1,
+        createdAtMs: 1000,
+        updatedAtMs: 1000,
+      });
+      await authenticatorStore.put('user-d1-webauthn', {
+        version: 'webauthn_authenticator_v1',
+        credentialIdB64u: 'credential-d1-webauthn',
+        credentialPublicKeyB64u: 'public-key-d1-webauthn',
+        counter: 3,
+        createdAtMs: 900,
+        updatedAtMs: 2000,
+      });
+      await bindingStore.put({
+        version: 'webauthn_credential_binding_v1',
+        rpId: 'app.seams.test',
+        credentialIdB64u: 'credential-d1-webauthn',
+        userId: 'user-d1-webauthn',
+        nearAccountId: 'wallet-d1-webauthn.testnet',
+        nearEd25519SigningKeyId: 'near-ed25519-key-webauthn',
+        signerSlot: 7,
+        publicKey: 'ed25519:public-key-webauthn',
+        relayerKeyId: 'relayer-key-webauthn',
+        keyVersion: 'webauthn-key-v1',
+        recoveryExportCapable: true,
+        createdAtMs: 1000,
+        updatedAtMs: 2000,
+      });
+
+      await expect(
+        authenticatorStore.get('user-d1-webauthn', 'credential-d1-webauthn'),
+      ).resolves.toMatchObject({
+        credentialIdB64u: 'credential-d1-webauthn',
+        counter: 3,
+        createdAtMs: 900,
+        updatedAtMs: 2000,
+      });
+      await expect(
+        otherAuthenticatorStore.get('user-d1-webauthn', 'credential-d1-webauthn'),
+      ).resolves.toBeNull();
+      await expect(authenticatorStore.list('user-d1-webauthn')).resolves.toEqual([
+        expect.objectContaining({
+          credentialIdB64u: 'credential-d1-webauthn',
+        }),
+      ]);
+
+      await expect(
+        bindingStore.get('app.seams.test', 'credential-d1-webauthn'),
+      ).resolves.toMatchObject({
+        userId: 'user-d1-webauthn',
+        signerSlot: 7,
+      });
+      await expect(
+        otherBindingStore.get('app.seams.test', 'credential-d1-webauthn'),
+      ).resolves.toBeNull();
+      await expect(
+        bindingStore.getMaxSignerSlot({
+          userId: 'user-d1-webauthn',
+          rpId: 'app.seams.test',
+        }),
+      ).resolves.toBe(7);
+      await expect(
+        bindingStore.listByUserId({
+          userId: 'user-d1-webauthn',
+          rpId: 'app.seams.test',
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          credentialIdB64u: 'credential-d1-webauthn',
+          signerSlot: 7,
+        }),
+      ]);
+
+      await loginChallengeStore.put({
+        version: 'webauthn_login_challenge_v1',
+        challengeId: 'login-challenge-d1',
+        userId: 'user-d1-webauthn',
+        rpId: 'app.seams.test',
+        challengeB64u: 'login-challenge-b64u',
+        createdAtMs: Date.parse('2026-06-27T04:00:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T04:05:00.000Z'),
+      });
+      await expect(loginChallengeStore.consume('login-challenge-d1')).resolves.toMatchObject({
+        challengeId: 'login-challenge-d1',
+        userId: 'user-d1-webauthn',
+      });
+      await expect(loginChallengeStore.consume('login-challenge-d1')).resolves.toBeNull();
+
+      await syncChallengeStore.put({
+        version: 'webauthn_sync_challenge_v1',
+        challengeId: 'sync-challenge-d1',
+        rpId: 'app.seams.test',
+        expectedUserId: 'user-d1-webauthn',
+        challengeB64u: 'sync-challenge-b64u',
+        createdAtMs: Date.parse('2026-06-27T04:00:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T04:05:00.000Z'),
+      });
+      await expect(syncChallengeStore.consume('sync-challenge-d1')).resolves.toMatchObject({
+        challengeId: 'sync-challenge-d1',
+        expectedUserId: 'user-d1-webauthn',
+      });
+      await expect(syncChallengeStore.consume('sync-challenge-d1')).resolves.toBeNull();
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

@@ -21,6 +21,8 @@ import {
   getPostgresUrlFromConfig,
   type PgQueryExecutor,
 } from '../storage/postgres';
+import { formatD1ExecStatement } from '../storage/d1Sql';
+import type { D1DatabaseLike } from '../storage/tenantRoute';
 
 export type WebAuthnAuthenticatorRecord = {
   version: 'webauthn_authenticator_v1';
@@ -41,6 +43,86 @@ export interface WebAuthnAuthenticatorStore {
    * Optional because not all backing stores can efficiently enumerate keys.
    */
   list?(userId: string): Promise<WebAuthnAuthenticatorRecord[]>;
+}
+
+export interface D1WebAuthnAuthenticatorStoreSchemaOptions {
+  readonly database: D1DatabaseLike;
+}
+
+export interface D1WebAuthnAuthenticatorStoreOptions {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema?: boolean;
+}
+
+type NormalizedD1WebAuthnAuthenticatorStoreOptions = {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema: boolean;
+};
+
+type D1WebAuthnAuthenticatorScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+type D1WebAuthnAuthenticatorRow = {
+  readonly credential_id_b64u?: unknown;
+  readonly credential_public_key_b64u?: unknown;
+  readonly counter?: unknown;
+  readonly created_at_ms?: unknown;
+  readonly updated_at_ms?: unknown;
+};
+
+export const WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL = Object.freeze([
+  `
+    CREATE TABLE IF NOT EXISTS signer_webauthn_authenticators (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      credential_id_b64u TEXT NOT NULL,
+      credential_public_key_b64u TEXT NOT NULL,
+      counter INTEGER NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (namespace, org_id, project_id, env_id, user_id, credential_id_b64u),
+      CHECK (length(user_id) > 0),
+      CHECK (length(credential_id_b64u) > 0),
+      CHECK (length(credential_public_key_b64u) > 0),
+      CHECK (counter >= 0),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms > 0)
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_webauthn_authenticators_user_idx
+      ON signer_webauthn_authenticators (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        created_at_ms
+      )
+  `,
+] as const);
+
+export async function ensureWebAuthnAuthenticatorStoreD1Schema(
+  options: D1WebAuthnAuthenticatorStoreSchemaOptions,
+): Promise<void> {
+  for (const statement of WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL) {
+    await options.database.exec(formatD1ExecStatement(statement));
+  }
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -87,6 +169,67 @@ function parseWebAuthnAuthenticatorRecord(raw: unknown): WebAuthnAuthenticatorRe
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
+}
+
+function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
+  return (
+    isObject(value) &&
+    typeof value.prepare === 'function' &&
+    typeof value.batch === 'function' &&
+    typeof value.exec === 'function'
+  );
+}
+
+function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
+  if (isD1DatabaseLike(config.database)) return config.database;
+  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
+  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
+  return null;
+}
+
+function requireD1ScopeString(input: unknown, field: string): string {
+  const normalized = toOptionalTrimmedString(input);
+  if (!normalized) throw new Error(`${field} is required for D1 WebAuthn authenticator store`);
+  return normalized;
+}
+
+function normalizeD1WebAuthnAuthenticatorStoreOptions(
+  input: D1WebAuthnAuthenticatorStoreOptions,
+): NormalizedD1WebAuthnAuthenticatorStoreOptions {
+  return {
+    database: input.database,
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.orgId, 'orgId'),
+    projectId: requireD1ScopeString(input.projectId, 'projectId'),
+    envId: requireD1ScopeString(input.envId, 'envId'),
+    ensureSchema: input.ensureSchema !== false,
+  };
+}
+
+function d1ScopeFromConfig(input: {
+  readonly config: Record<string, unknown>;
+  readonly namespace: string;
+}): Omit<D1WebAuthnAuthenticatorStoreOptions, 'database'> {
+  return {
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.config.orgId || input.config.ORG_ID, 'orgId'),
+    projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
+    envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
+  };
+}
+
+function parseD1WebAuthnAuthenticatorRow(
+  row: D1WebAuthnAuthenticatorRow | null,
+): WebAuthnAuthenticatorRecord | null {
+  if (!row) return null;
+  return parseWebAuthnAuthenticatorRecord({
+    version: 'webauthn_authenticator_v1',
+    credentialIdB64u: row.credential_id_b64u,
+    credentialPublicKeyB64u: row.credential_public_key_b64u,
+    counter: row.counter,
+    createdAtMs: row.created_at_ms,
+    updatedAtMs: row.updated_at_ms,
+  });
 }
 
 export async function putWebAuthnAuthenticatorRecordWithExecutor(input: {
@@ -170,6 +313,147 @@ class InMemoryWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
     }
     out.sort((a, b) => a.createdAtMs - b.createdAtMs);
     return out;
+  }
+}
+
+export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
+  readonly adapterKind = 'd1';
+  private readonly database: D1DatabaseLike;
+  private readonly scope: D1WebAuthnAuthenticatorScope;
+  private readonly ensureSchemaOnUse: boolean;
+  private schemaReady = false;
+
+  constructor(input: D1WebAuthnAuthenticatorStoreOptions) {
+    const normalized = normalizeD1WebAuthnAuthenticatorStoreOptions(input);
+    this.database = normalized.database;
+    this.scope = {
+      namespace: normalized.namespace,
+      orgId: normalized.orgId,
+      projectId: normalized.projectId,
+      envId: normalized.envId,
+    };
+    this.ensureSchemaOnUse = normalized.ensureSchema;
+  }
+
+  private async ensureSchema(): Promise<void> {
+    if (!this.ensureSchemaOnUse || this.schemaReady) return;
+    await ensureWebAuthnAuthenticatorStoreD1Schema({ database: this.database });
+    this.schemaReady = true;
+  }
+
+  async get(userId: string, credentialIdB64u: string): Promise<WebAuthnAuthenticatorRecord | null> {
+    await this.ensureSchema();
+    const uid = toOptionalTrimmedString(userId);
+    const cid = toOptionalTrimmedString(credentialIdB64u);
+    if (!uid || !cid) return null;
+    const row = await this.database
+      .prepare(
+        `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
+           FROM signer_webauthn_authenticators
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND user_id = ?
+            AND credential_id_b64u = ?
+          LIMIT 1`,
+      )
+      .bind(this.scope.namespace, this.scope.orgId, this.scope.projectId, this.scope.envId, uid, cid)
+      .first<D1WebAuthnAuthenticatorRow>();
+    return parseD1WebAuthnAuthenticatorRow(row);
+  }
+
+  async put(userId: string, record: WebAuthnAuthenticatorRecord): Promise<void> {
+    await this.ensureSchema();
+    const uid = toOptionalTrimmedString(userId);
+    if (!uid) throw new Error('Missing userId');
+    const parsed = parseWebAuthnAuthenticatorRecord(record);
+    if (!parsed) throw new Error('Invalid authenticator record');
+    await this.database
+      .prepare(
+        `INSERT INTO signer_webauthn_authenticators (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          user_id,
+          credential_id_b64u,
+          credential_public_key_b64u,
+          counter,
+          created_at_ms,
+          updated_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (namespace, org_id, project_id, env_id, user_id, credential_id_b64u)
+        DO UPDATE SET
+          credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+          counter = MAX(signer_webauthn_authenticators.counter, EXCLUDED.counter),
+          created_at_ms = MIN(
+            signer_webauthn_authenticators.created_at_ms,
+            EXCLUDED.created_at_ms
+          ),
+          updated_at_ms = MAX(
+            signer_webauthn_authenticators.updated_at_ms,
+            EXCLUDED.updated_at_ms
+          )`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        uid,
+        parsed.credentialIdB64u,
+        parsed.credentialPublicKeyB64u,
+        parsed.counter,
+        parsed.createdAtMs,
+        parsed.updatedAtMs,
+      )
+      .run();
+  }
+
+  async del(userId: string, credentialIdB64u: string): Promise<void> {
+    await this.ensureSchema();
+    const uid = toOptionalTrimmedString(userId);
+    const cid = toOptionalTrimmedString(credentialIdB64u);
+    if (!uid || !cid) return;
+    await this.database
+      .prepare(
+        `DELETE FROM signer_webauthn_authenticators
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND user_id = ?
+            AND credential_id_b64u = ?`,
+      )
+      .bind(this.scope.namespace, this.scope.orgId, this.scope.projectId, this.scope.envId, uid, cid)
+      .run();
+  }
+
+  async list(userId: string): Promise<WebAuthnAuthenticatorRecord[]> {
+    await this.ensureSchema();
+    const uid = toOptionalTrimmedString(userId);
+    if (!uid) return [];
+    const result = await this.database
+      .prepare(
+        `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
+           FROM signer_webauthn_authenticators
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND user_id = ?
+          ORDER BY created_at_ms ASC`,
+      )
+      .bind(this.scope.namespace, this.scope.orgId, this.scope.projectId, this.scope.envId, uid)
+      .all<D1WebAuthnAuthenticatorRow>();
+    const records: WebAuthnAuthenticatorRecord[] = [];
+    for (const row of result.results || []) {
+      const parsed = parseD1WebAuthnAuthenticatorRow(row);
+      if (parsed) records.push(parsed);
+    }
+    return records;
   }
 }
 
@@ -465,6 +749,17 @@ export function createWebAuthnAuthenticatorStore(input: {
   const prefix = resolveWebAuthnAuthenticatorStoreNamespace(config);
 
   const kind = toOptionalTrimmedString(config.kind);
+  if (kind === 'd1') {
+    const database = resolveD1DatabaseFromConfig(config);
+    if (!database) {
+      throw new Error('[webauthn] D1 authenticator store selected but no D1 database was provided');
+    }
+    input.logger.info('[webauthn] Using D1 authenticator store');
+    return new D1WebAuthnAuthenticatorStore({
+      database,
+      ...d1ScopeFromConfig({ config, namespace: prefix }),
+    });
+  }
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {

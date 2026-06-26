@@ -144,6 +144,50 @@ export {
   type WalletStore,
 } from './core/WalletStore';
 export {
+  D1WebAuthnAuthenticatorStore,
+  WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL,
+  createWebAuthnAuthenticatorStore,
+  ensureWebAuthnAuthenticatorStoreD1Schema,
+  putWebAuthnAuthenticatorRecordWithExecutor,
+  resolveWebAuthnAuthenticatorStoreNamespace,
+  type D1WebAuthnAuthenticatorStoreOptions,
+  type D1WebAuthnAuthenticatorStoreSchemaOptions,
+  type WebAuthnAuthenticatorRecord,
+  type WebAuthnAuthenticatorStore,
+} from './core/WebAuthnAuthenticatorStore';
+export {
+  D1WebAuthnCredentialBindingStore,
+  WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL,
+  createWebAuthnCredentialBindingStore,
+  ensureWebAuthnCredentialBindingStoreD1Schema,
+  putWebAuthnCredentialBindingRecordWithExecutor,
+  resolveWebAuthnCredentialBindingStoreNamespace,
+  type D1WebAuthnCredentialBindingStoreOptions,
+  type D1WebAuthnCredentialBindingStoreSchemaOptions,
+  type WebAuthnCredentialBindingRecord,
+  type WebAuthnCredentialBindingStore,
+} from './core/WebAuthnCredentialBindingStore';
+export {
+  D1WebAuthnLoginChallengeStore,
+  WEBAUTHN_LOGIN_CHALLENGE_STORE_D1_SCHEMA_SQL,
+  createWebAuthnLoginChallengeStore,
+  ensureWebAuthnLoginChallengeStoreD1Schema,
+  type D1WebAuthnLoginChallengeStoreOptions,
+  type D1WebAuthnLoginChallengeStoreSchemaOptions,
+  type WebAuthnLoginChallengeRecord,
+  type WebAuthnLoginChallengeStore,
+} from './core/WebAuthnLoginChallengeStore';
+export {
+  D1WebAuthnSyncChallengeStore,
+  WEBAUTHN_SYNC_CHALLENGE_STORE_D1_SCHEMA_SQL,
+  createWebAuthnSyncChallengeStore,
+  ensureWebAuthnSyncChallengeStoreD1Schema,
+  type D1WebAuthnSyncChallengeStoreOptions,
+  type D1WebAuthnSyncChallengeStoreSchemaOptions,
+  type WebAuthnSyncChallengeRecord,
+  type WebAuthnSyncChallengeStore,
+} from './core/WebAuthnSyncChallengeStore';
+export {
   NEAR_EMAIL_RECOVERY_ACTION,
   markTrackedRecoverySessionVerified,
   recordTrackedNearRecoveryExecution,
