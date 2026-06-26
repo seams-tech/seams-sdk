@@ -43,6 +43,7 @@ import { D1WebAuthnAuthenticatorStore } from '../../packages/sdk-server-ts/src/c
 import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
 import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
 import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
+import { D1IdentityStore } from '../../packages/sdk-server-ts/src/core/IdentityStore';
 import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
@@ -3444,6 +3445,125 @@ test.describe('D1 adapter contracts', () => {
         expectedUserId: 'user-d1-webauthn',
       });
       await expect(syncChallengeStore.consume('sync-challenge-d1')).resolves.toBeNull();
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('signer identity links and app session versions are scoped in D1', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T05:00:00.000Z');
+      const scope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+        now: clock.now,
+      };
+      const identity = new D1IdentityStore(scope);
+      const otherEnvIdentity = new D1IdentityStore({
+        ...scope,
+        envId: 'env-development',
+        ensureSchema: false,
+      });
+
+      await expect(
+        identity.linkSubjectToUserId({
+          userId: 'user-d1-identity-alice',
+          subject: 'google:alice',
+        }),
+      ).resolves.toEqual({ ok: true });
+      await expect(
+        identity.linkSubjectToUserId({
+          userId: 'user-d1-identity-alice',
+          subject: 'passkey:alice',
+        }),
+      ).resolves.toEqual({ ok: true });
+      await expect(identity.getUserIdBySubject('google:alice')).resolves.toBe(
+        'user-d1-identity-alice',
+      );
+      await expect(identity.listSubjectsByUserId('user-d1-identity-alice')).resolves.toEqual([
+        'google:alice',
+        'passkey:alice',
+      ]);
+      await expect(otherEnvIdentity.getUserIdBySubject('google:alice')).resolves.toBeNull();
+
+      await expect(
+        identity.linkSubjectToUserId({
+          userId: 'user-d1-identity-bob',
+          subject: 'github:bob',
+        }),
+      ).resolves.toEqual({ ok: true });
+      await expect(
+        identity.linkSubjectToUserId({
+          userId: 'user-d1-identity-charlie',
+          subject: 'github:bob',
+        }),
+      ).resolves.toMatchObject({
+        ok: false,
+        code: 'already_linked',
+      });
+      await expect(
+        identity.linkSubjectToUserId({
+          userId: 'user-d1-identity-charlie',
+          subject: 'github:bob',
+          allowMoveIfSoleIdentity: true,
+        }),
+      ).resolves.toEqual({
+        ok: true,
+        movedFromUserId: 'user-d1-identity-bob',
+      });
+      await expect(identity.getUserIdBySubject('github:bob')).resolves.toBe(
+        'user-d1-identity-charlie',
+      );
+
+      await expect(
+        identity.unlinkSubjectFromUserId({
+          userId: 'user-d1-identity-charlie',
+          subject: 'github:bob',
+        }),
+      ).resolves.toMatchObject({
+        ok: false,
+        code: 'cannot_unlink_last_identity',
+      });
+      await expect(
+        identity.unlinkSubjectFromUserId({
+          userId: 'user-d1-identity-alice',
+          subject: 'passkey:alice',
+        }),
+      ).resolves.toEqual({ ok: true });
+      await expect(identity.listSubjectsByUserId('user-d1-identity-alice')).resolves.toEqual([
+        'google:alice',
+      ]);
+      await expect(
+        identity.deleteSubjectLinkForDevCleanup({
+          userId: 'user-d1-identity-alice',
+          subject: 'google:alice',
+        }),
+      ).resolves.toEqual({ ok: true });
+      await expect(identity.getUserIdBySubject('google:alice')).resolves.toBeNull();
+
+      const ensuredVersion = await identity.ensureAppSessionVersionByUserId(
+        'user-d1-identity-alice',
+      );
+      expect(ensuredVersion).toEqual(expect.any(String));
+      expect(ensuredVersion.length).toBeGreaterThan(20);
+      await expect(
+        identity.ensureAppSessionVersionByUserId('user-d1-identity-alice'),
+      ).resolves.toBe(ensuredVersion);
+      await expect(
+        otherEnvIdentity.getAppSessionVersionByUserId('user-d1-identity-alice'),
+      ).resolves.toBeNull();
+      const rotatedVersion = await identity.rotateAppSessionVersionByUserId(
+        'user-d1-identity-alice',
+      );
+      expect(rotatedVersion).toEqual(expect.any(String));
+      expect(rotatedVersion).not.toBe(ensuredVersion);
+      await expect(
+        identity.getAppSessionVersionByUserId('user-d1-identity-alice'),
+      ).resolves.toBe(rotatedVersion);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

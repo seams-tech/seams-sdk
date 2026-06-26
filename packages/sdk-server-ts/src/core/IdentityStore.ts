@@ -10,6 +10,8 @@ import {
   redisGetJson,
   redisSetJson,
 } from './ThresholdService/kv';
+import { formatD1ExecStatement } from '../storage/d1Sql';
+import type { D1DatabaseLike, D1ResultLike } from '../storage/tenantRoute';
 import {
   getPostgresPool,
   getPostgresUrlFromConfig,
@@ -77,6 +79,108 @@ export interface IdentityStore {
    * Any existing app-session JWTs with the previous version become invalid.
    */
   rotateAppSessionVersionByUserId(userId: string): Promise<string>;
+}
+
+export interface D1IdentityStoreSchemaOptions {
+  readonly database: D1DatabaseLike;
+}
+
+export interface D1IdentityStoreOptions {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema?: boolean;
+  readonly now?: () => Date;
+}
+
+type NormalizedD1IdentityStoreOptions = {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema: boolean;
+  readonly now: () => Date;
+};
+
+type D1IdentityScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+type D1IdentityLinkRow = {
+  readonly subject?: unknown;
+  readonly user_id?: unknown;
+  readonly created_at_ms?: unknown;
+  readonly subject_count?: unknown;
+};
+
+type D1AppSessionVersionRow = {
+  readonly session_version?: unknown;
+};
+
+export const IDENTITY_STORE_D1_SCHEMA_SQL = Object.freeze([
+  `
+    CREATE TABLE IF NOT EXISTS signer_identity_links (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      record_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (namespace, org_id, project_id, env_id, subject),
+      CHECK (length(subject) > 0),
+      CHECK (length(user_id) > 0),
+      CHECK (json_valid(record_json)),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms > 0)
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_identity_links_user_idx
+      ON signer_identity_links (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        created_at_ms
+      )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS signer_app_session_versions (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      session_version TEXT NOT NULL,
+      record_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (namespace, org_id, project_id, env_id, user_id),
+      CHECK (length(user_id) > 0),
+      CHECK (length(session_version) > 0),
+      CHECK (json_valid(record_json)),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms > 0)
+    )
+  `,
+] as const);
+
+export async function ensureIdentityStoreD1Schema(
+  options: D1IdentityStoreSchemaOptions,
+): Promise<void> {
+  for (const statement of IDENTITY_STORE_D1_SCHEMA_SQL) {
+    await options.database.exec(formatD1ExecStatement(statement));
+  }
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -286,6 +390,98 @@ function parseAppSessionVersionRecord(raw: unknown): AppSessionVersionRecord | n
     appSessionVersion,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
+  };
+}
+
+function defaultNow(): Date {
+  return new Date();
+}
+
+function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
+  return (
+    isObject(value) &&
+    typeof value.prepare === 'function' &&
+    typeof value.batch === 'function' &&
+    typeof value.exec === 'function'
+  );
+}
+
+function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
+  if (isD1DatabaseLike(config.database)) return config.database;
+  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
+  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
+  return null;
+}
+
+function requireD1ScopeString(input: unknown, field: string): string {
+  const normalized = toOptionalTrimmedString(input);
+  if (!normalized) throw new Error(`${field} is required for D1 identity store`);
+  return normalized;
+}
+
+function normalizeD1IdentityStoreOptions(
+  input: D1IdentityStoreOptions,
+): NormalizedD1IdentityStoreOptions {
+  return {
+    database: input.database,
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.orgId, 'orgId'),
+    projectId: requireD1ScopeString(input.projectId, 'projectId'),
+    envId: requireD1ScopeString(input.envId, 'envId'),
+    ensureSchema: input.ensureSchema !== false,
+    now: input.now || defaultNow,
+  };
+}
+
+function d1ScopeFromConfig(input: {
+  readonly config: Record<string, unknown>;
+  readonly namespace: string;
+}): Omit<D1IdentityStoreOptions, 'database'> {
+  return {
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.config.orgId || input.config.ORG_ID, 'orgId'),
+    projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
+    envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
+  };
+}
+
+function toD1Changes(result: D1ResultLike): number {
+  const value = Number(result.meta?.changes ?? result.meta?.rows_written ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function parseSubjectCount(raw: unknown): number {
+  const count = Number(raw);
+  return Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
+}
+
+function buildIdentitySubjectRecord(input: {
+  readonly subject: string;
+  readonly userId: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+}): IdentitySubjectRecord {
+  return {
+    version: 'identity_subject_v1',
+    subject: input.subject,
+    userId: input.userId,
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+  };
+}
+
+function buildAppSessionVersionRecord(input: {
+  readonly userId: string;
+  readonly appSessionVersion: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+}): AppSessionVersionRecord {
+  return {
+    version: 'app_session_version_v1',
+    userId: input.userId,
+    appSessionVersion: input.appSessionVersion,
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
   };
 }
 
@@ -904,6 +1100,378 @@ class CloudflareDurableObjectIdentityStore extends KvBackedIdentityStore {
   }
 }
 
+export class D1IdentityStore implements IdentityStore {
+  readonly adapterKind = 'd1';
+  private readonly database: D1DatabaseLike;
+  private readonly scope: D1IdentityScope;
+  private readonly ensureSchemaOnUse: boolean;
+  private readonly now: () => Date;
+  private schemaReady = false;
+
+  constructor(input: D1IdentityStoreOptions) {
+    const normalized = normalizeD1IdentityStoreOptions(input);
+    this.database = normalized.database;
+    this.scope = {
+      namespace: normalized.namespace,
+      orgId: normalized.orgId,
+      projectId: normalized.projectId,
+      envId: normalized.envId,
+    };
+    this.ensureSchemaOnUse = normalized.ensureSchema;
+    this.now = normalized.now;
+  }
+
+  private async ensureSchema(): Promise<void> {
+    if (!this.ensureSchemaOnUse || this.schemaReady) return;
+    await ensureIdentityStoreD1Schema({ database: this.database });
+    this.schemaReady = true;
+  }
+
+  private bindScope(statement: string, values: readonly unknown[] = []) {
+    return this.database
+      .prepare(statement)
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        ...values,
+      );
+  }
+
+  async getUserIdBySubject(subject: string): Promise<string | null> {
+    await this.ensureSchema();
+    const normalizedSubject = toOptionalTrimmedString(subject);
+    if (!normalizedSubject) return null;
+    const row = await this.bindScope(
+      `SELECT user_id
+         FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND subject = ?
+        LIMIT 1`,
+      [normalizedSubject],
+    ).first<D1IdentityLinkRow>();
+    return toOptionalTrimmedString(row?.user_id) || null;
+  }
+
+  async listSubjectsByUserId(userId: string): Promise<string[]> {
+    await this.ensureSchema();
+    const normalizedUserId = toOptionalTrimmedString(userId);
+    if (!normalizedUserId) return [];
+    const result = await this.bindScope(
+      `SELECT subject
+         FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?
+        ORDER BY created_at_ms ASC`,
+      [normalizedUserId],
+    ).all<D1IdentityLinkRow>();
+    return (result.results || [])
+      .map((row) => toOptionalTrimmedString(row.subject))
+      .filter((value): value is string => Boolean(value));
+  }
+
+  async linkSubjectToUserId(input: {
+    userId: string;
+    subject: string;
+    allowMoveIfSoleIdentity?: boolean;
+  }): Promise<LinkIdentityResult> {
+    await this.ensureSchema();
+    const userId = toOptionalTrimmedString(input.userId);
+    const subject = toOptionalTrimmedString(input.subject);
+    if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+    if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+    const now = this.now().getTime();
+    const existing = await this.bindScope(
+      `SELECT user_id, created_at_ms
+         FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND subject = ?
+        LIMIT 1`,
+      [subject],
+    ).first<D1IdentityLinkRow>();
+    const existingUserId = toOptionalTrimmedString(existing?.user_id);
+    const existingCreatedAtMs = Number(existing?.created_at_ms);
+    const createdAtMs =
+      Number.isFinite(existingCreatedAtMs) && existingCreatedAtMs > 0
+        ? Math.floor(existingCreatedAtMs)
+        : now;
+
+    if (existingUserId && existingUserId !== userId) {
+      if (!input.allowMoveIfSoleIdentity) {
+        return {
+          ok: false,
+          code: 'already_linked',
+          message: 'Subject is already linked to a different user',
+        };
+      }
+      const countRow = await this.bindScope(
+        `SELECT COUNT(*) AS subject_count
+           FROM signer_identity_links
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND user_id = ?`,
+        [existingUserId],
+      ).first<D1IdentityLinkRow>();
+      if (parseSubjectCount(countRow?.subject_count) !== 1) {
+        return {
+          ok: false,
+          code: 'already_linked',
+          message:
+            'Subject is linked to a different user with other identities; merge is not allowed',
+        };
+      }
+      await this.database
+        .prepare(
+        `UPDATE signer_identity_links
+            SET user_id = ?,
+                record_json = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND subject = ?`,
+        )
+        .bind(
+          userId,
+          JSON.stringify(buildIdentitySubjectRecord({ subject, userId, createdAtMs, updatedAtMs: now })),
+          now,
+          this.scope.namespace,
+          this.scope.orgId,
+          this.scope.projectId,
+          this.scope.envId,
+          subject,
+        )
+        .run();
+      return { ok: true, movedFromUserId: existingUserId };
+    }
+
+    await this.bindScope(
+      `INSERT INTO signer_identity_links (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        subject,
+        user_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, subject)
+      DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        record_json = EXCLUDED.record_json,
+        updated_at_ms = EXCLUDED.updated_at_ms`,
+      [
+        subject,
+        userId,
+        JSON.stringify(buildIdentitySubjectRecord({ subject, userId, createdAtMs, updatedAtMs: now })),
+        createdAtMs,
+        now,
+      ],
+    ).run();
+    return { ok: true };
+  }
+
+  async unlinkSubjectFromUserId(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
+    await this.ensureSchema();
+    const userId = toOptionalTrimmedString(input.userId);
+    const subject = toOptionalTrimmedString(input.subject);
+    if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+    if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+    const existingUserId = await this.getUserIdBySubject(subject);
+    if (existingUserId !== userId) {
+      return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
+    }
+    const countRow = await this.bindScope(
+      `SELECT COUNT(*) AS subject_count
+         FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?`,
+      [userId],
+    ).first<D1IdentityLinkRow>();
+    if (parseSubjectCount(countRow?.subject_count) <= 1) {
+      return {
+        ok: false,
+        code: 'cannot_unlink_last_identity',
+        message: 'Refusing to remove the last remaining identity',
+      };
+    }
+    await this.deleteIdentityLink({ userId, subject });
+    return { ok: true };
+  }
+
+  async deleteSubjectLinkForDevCleanup(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
+    await this.ensureSchema();
+    const userId = toOptionalTrimmedString(input.userId);
+    const subject = toOptionalTrimmedString(input.subject);
+    if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+    if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+    const deleted = await this.deleteIdentityLink({ userId, subject });
+    if (deleted === 0) {
+      return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
+    }
+    return { ok: true };
+  }
+
+  async getAppSessionVersionByUserId(userId: string): Promise<string | null> {
+    await this.ensureSchema();
+    const uid = toOptionalTrimmedString(userId);
+    if (!uid) return null;
+    const row = await this.bindScope(
+      `SELECT session_version
+         FROM signer_app_session_versions
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?
+        LIMIT 1`,
+      [uid],
+    ).first<D1AppSessionVersionRow>();
+    return toOptionalTrimmedString(row?.session_version) || null;
+  }
+
+  async ensureAppSessionVersionByUserId(userId: string): Promise<string> {
+    await this.ensureSchema();
+    const uid = toOptionalTrimmedString(userId);
+    if (!uid) throw new Error('Missing userId');
+    const now = this.now().getTime();
+    const next = generateAppSessionVersion();
+    await this.bindScope(
+      `INSERT INTO signer_app_session_versions (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        session_version,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, user_id) DO NOTHING`,
+      [
+        uid,
+        next,
+        JSON.stringify(
+          buildAppSessionVersionRecord({
+            userId: uid,
+            appSessionVersion: next,
+            createdAtMs: now,
+            updatedAtMs: now,
+          }),
+        ),
+        now,
+        now,
+      ],
+    ).run();
+    return (await this.getAppSessionVersionByUserId(uid)) || next;
+  }
+
+  async rotateAppSessionVersionByUserId(userId: string): Promise<string> {
+    await this.ensureSchema();
+    const uid = toOptionalTrimmedString(userId);
+    if (!uid) throw new Error('Missing userId');
+    const now = this.now().getTime();
+    const existing = await this.bindScope(
+      `SELECT record_json
+         FROM signer_app_session_versions
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?
+        LIMIT 1`,
+      [uid],
+    ).first<{ readonly record_json?: unknown }>();
+    const parsedExisting = parseAppSessionVersionRecord(
+      typeof existing?.record_json === 'string'
+        ? JSON.parse(existing.record_json)
+        : existing?.record_json,
+    );
+    const next = generateAppSessionVersion();
+    const createdAtMs = parsedExisting?.createdAtMs || now;
+    await this.bindScope(
+      `INSERT INTO signer_app_session_versions (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        session_version,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, user_id)
+      DO UPDATE SET
+        session_version = EXCLUDED.session_version,
+        record_json = EXCLUDED.record_json,
+        updated_at_ms = EXCLUDED.updated_at_ms`,
+      [
+        uid,
+        next,
+        JSON.stringify(
+          buildAppSessionVersionRecord({
+            userId: uid,
+            appSessionVersion: next,
+            createdAtMs,
+            updatedAtMs: now,
+          }),
+        ),
+        createdAtMs,
+        now,
+      ],
+    ).run();
+    return next;
+  }
+
+  private async deleteIdentityLink(input: {
+    readonly userId: string;
+    readonly subject: string;
+  }): Promise<number> {
+    const result = await this.bindScope(
+      `DELETE FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND subject = ?
+          AND user_id = ?`,
+      [input.subject, input.userId],
+    ).run();
+    return toD1Changes(result);
+  }
+}
+
 class PostgresIdentityStore implements IdentityStore {
   private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
   private readonly namespace: string;
@@ -1215,6 +1783,17 @@ export function createIdentityStore(input: {
   const prefix = resolveIdentityStoreNamespace(config);
 
   const kind = toOptionalTrimmedString(config.kind);
+  if (kind === 'd1') {
+    const database = resolveD1DatabaseFromConfig(config);
+    if (!database) {
+      throw new Error('[identity] D1 identity store selected but no D1 database was provided');
+    }
+    input.logger.info('[identity] Using D1 identity store');
+    return new D1IdentityStore({
+      database,
+      ...d1ScopeFromConfig({ config, namespace: prefix }),
+    });
+  }
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {

@@ -3,6 +3,7 @@ import type { D1WebAuthnAuthenticatorStoreOptions } from './WebAuthnAuthenticato
 import type { D1WebAuthnCredentialBindingStoreOptions } from './WebAuthnCredentialBindingStore';
 import type { D1WebAuthnLoginChallengeStoreOptions } from './WebAuthnLoginChallengeStore';
 import type { D1WebAuthnSyncChallengeStoreOptions } from './WebAuthnSyncChallengeStore';
+import type { D1IdentityStoreOptions } from './IdentityStore';
 import type { D1WalletAuthMethodStoreOptions } from './WalletAuthMethodStore';
 import type { D1WalletStoreOptions } from './WalletStore';
 
@@ -81,6 +82,14 @@ const validWebAuthnSyncChallengeOptions: D1WebAuthnSyncChallengeStoreOptions = {
   envId: 'env_1',
 };
 
+const validIdentityStoreOptions: D1IdentityStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
 // @ts-expect-error D1 wallet metadata storage requires org identity.
 const missingWalletOrgId: D1WalletStoreOptions = {
   database,
@@ -121,14 +130,24 @@ const missingWebAuthnChallengeOrgId: D1WebAuthnLoginChallengeStoreOptions = {
   envId: 'env_1',
 };
 
+// @ts-expect-error D1 identity storage requires project identity.
+const missingIdentityProjectId: D1IdentityStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  envId: 'env_1',
+};
+
 void validWalletStoreOptions;
 void validAuthMethodStoreOptions;
 void validWebAuthnAuthenticatorOptions;
 void validWebAuthnCredentialOptions;
 void validWebAuthnLoginChallengeOptions;
 void validWebAuthnSyncChallengeOptions;
+void validIdentityStoreOptions;
 void missingWalletOrgId;
 void missingAuthMethodEnvId;
 void missingWebAuthnProjectId;
 void missingWebAuthnCredentialEnvId;
 void missingWebAuthnChallengeOrgId;
+void missingIdentityProjectId;

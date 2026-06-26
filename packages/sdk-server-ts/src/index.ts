@@ -188,6 +188,22 @@ export {
   type WebAuthnSyncChallengeStore,
 } from './core/WebAuthnSyncChallengeStore';
 export {
+  D1IdentityStore,
+  IDENTITY_STORE_D1_SCHEMA_SQL,
+  createIdentityStore,
+  ensureIdentityStoreD1Schema,
+  linkIdentitySubjectToUserIdWithExecutor,
+  resolveIdentityStoreNamespace,
+  type AppSessionVersionRecord,
+  type D1IdentityStoreOptions,
+  type D1IdentityStoreSchemaOptions,
+  type IdentityStore,
+  type IdentitySubjectRecord,
+  type IdentityUserRecord,
+  type LinkIdentityResult,
+  type UnlinkIdentityResult,
+} from './core/IdentityStore';
+export {
   NEAR_EMAIL_RECOVERY_ACTION,
   markTrackedRecoverySessionVerified,
   recordTrackedNearRecoveryExecution,
