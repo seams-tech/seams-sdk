@@ -1604,14 +1604,43 @@ export type Ed25519SessionPolicy = {
   remainingUses: number;
 };
 
+export type ThresholdEd25519VerifiedWalletAuth =
+  | {
+      kind: 'app_session';
+      claims: {
+        sub: string;
+        kind: 'app_session_v1';
+        appSessionVersion: string;
+        walletId?: string;
+        runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      };
+      sessionWalletId: string;
+    }
+  | {
+      kind: 'threshold_ecdsa_session';
+      claims: {
+        sub: string;
+        walletId: string;
+        kind: 'router_ab_ecdsa_hss_wallet_session_v1';
+        thresholdSessionId: string;
+        signingGrantId: string;
+        keyScope: 'evm-family';
+        keyHandle: string;
+        relayerKeyId: string;
+        walletKeyId: string;
+        runtimePolicyScope?: ThresholdRuntimePolicyScope;
+        thresholdExpiresAtMs: number;
+        participantIds: number[];
+      };
+    };
+
 export interface ThresholdEd25519SessionRequest {
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
   runtimeEnvironmentId?: string;
   webauthn_authentication?: WebAuthnAuthenticationCredential;
   expected_origin: string;
-  appSessionClaims?: Record<string, unknown>;
-  ecdsaSessionClaims?: Record<string, unknown>;
+  verifiedWalletAuth?: ThresholdEd25519VerifiedWalletAuth;
   sessionKind?: 'jwt';
 }
 

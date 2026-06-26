@@ -488,3 +488,126 @@ test('Refactor 80 threshold Ed25519 HSS rejects legacy email OTP command by disc
     expect(helper).not.toContain('rp_id');
   }
 });
+
+test('Refactor 80 threshold and session exchange routes parse commands before services', () => {
+  const ed25519Parser = readRepoSource(
+    'packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation.ts',
+  );
+  const ecdsaParser = readRepoSource(
+    'packages/sdk-server-ts/src/router/thresholdEcdsaRequestValidation.ts',
+  );
+  const sessionExchangeParser = readRepoSource(
+    'packages/sdk-server-ts/src/router/sessionExchangeRequestValidation.ts',
+  );
+  const routeValidation = readRepoSource(
+    'packages/sdk-server-ts/src/router/routeRequestValidation.ts',
+  );
+  const coreTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
+  const thresholdService = readRepoSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  );
+  const expressEd25519 = readRepoSource(
+    'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
+  );
+  const cloudflareEd25519 = readRepoSource(
+    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
+  );
+  const expressEcdsa = readRepoSource(
+    'packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
+  );
+  const cloudflareEcdsa = readRepoSource(
+    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
+  );
+  const expressSessions = readRepoSource(
+    'packages/sdk-server-ts/src/router/express/routes/sessions.ts',
+  );
+  const cloudflareSessions = readRepoSource(
+    'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
+  );
+
+  expect(ed25519Parser).toContain('parseThresholdEd25519SessionRouteRequest');
+  expect(ed25519Parser).toContain('parseThresholdEd25519HssPrepareWithSessionRouteRequest');
+  expect(ed25519Parser).toContain('parseThresholdEd25519HssFinalizeWithSessionRouteRequest');
+  expect(ed25519Parser).toContain('parseThresholdEd25519HssRespondWithSessionRouteRequest');
+  expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
+  expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
+  expect(sessionExchangeParser).toContain('export function parseSessionExchangeRouteCommand');
+  expect(sessionExchangeParser).toContain("import { parseSessionKind } from './relay'");
+  expect(sessionExchangeParser).toContain(
+    "import { parseOidcAccountMode } from './emailOtpSessionRouteHelpers'",
+  );
+  expect(sessionExchangeParser).not.toContain('function unexpectedKey');
+  expect(sessionExchangeParser).not.toContain('function normalizedString');
+  expect(sessionExchangeParser).not.toContain('function parseSessionKind');
+  expect(sessionExchangeParser).not.toContain('function parseAccountMode');
+  expect(sessionExchangeParser).not.toContain('function parseWebAuthnAuthenticationCredential');
+  expect(routeValidation).toContain('export function parseWebAuthnAuthenticationCredential');
+
+  expect(ed25519Parser).not.toContain('appSessionClaims');
+  expect(ed25519Parser).not.toContain('ecdsaSessionClaims');
+  expect(coreTypes).toContain('verifiedWalletAuth?: ThresholdEd25519VerifiedWalletAuth');
+  const ed25519SessionRequestType = sourceRange(
+    coreTypes,
+    'export interface ThresholdEd25519SessionRequest',
+    'export interface ThresholdEd25519SessionResponse',
+  );
+  expect(ed25519SessionRequestType).not.toContain('appSessionClaims');
+  expect(ed25519SessionRequestType).not.toContain('ecdsaSessionClaims');
+  expect(thresholdService).not.toContain('request.appSessionClaims');
+  expect(thresholdService).not.toContain('request.ecdsaSessionClaims');
+  expect(thresholdService).not.toContain('parseAppSessionClaims(request');
+  expect(thresholdService).not.toContain('parseRouterAbEcdsaHssWalletSessionClaims(request');
+
+  for (const source of [expressEd25519, cloudflareEd25519]) {
+    expect(source).toContain('parseThresholdEd25519SessionRouteRequest');
+    expect(source).toContain('buildThresholdEd25519VerifiedWalletAuth');
+    expect(source).toContain('parseThresholdEd25519HssPrepareWithSessionRouteRequest');
+    expect(source).toContain('parseThresholdEd25519HssFinalizeWithSessionRouteRequest');
+    expect(source).toContain('parseThresholdEd25519HssRespondWithSessionRouteRequest');
+    expect(source).not.toContain('validated.body as unknown as ThresholdEd25519');
+    expect(source).not.toContain('request: validated.body as');
+    expect(source).not.toContain('request: validated.body');
+    expect(source).not.toContain('as unknown as ThresholdEd25519SessionRequest');
+  }
+
+  const expressPoolFill = sourceRange(
+    expressEcdsa,
+    'async function handleRouterAbEcdsaHssPoolFillInitRoute',
+    '  router.post(\n    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1',
+  );
+  const cloudflarePoolFill = sourceRange(
+    cloudflareEcdsa,
+    'if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1)',
+    '  return null;',
+  );
+  for (const source of [expressPoolFill, cloudflarePoolFill]) {
+    expect(source).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
+    expect(source).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
+    expect(source).not.toContain('as RouterAbEcdsaHssPoolFill');
+    expect(source).not.toContain('const reqBody =');
+    expect(source).not.toContain('request: reqBody');
+    expect(source).not.toContain('body: req.body');
+  }
+
+  const expressExchange = sourceRange(
+    expressSessions,
+    "router.post('/session/exchange'",
+    "  router.post('/session/revoke'",
+  );
+  const cloudflareExchange = sourceRange(
+    cloudflareSessions,
+    'export async function handleSessionExchange',
+    'export async function handleSessionRevoke',
+  );
+  for (const source of [expressExchange, cloudflareExchange]) {
+    expect(source).toContain('parseSessionExchangeRouteCommand');
+    expect(source).toContain('const command = parsedExchange.command;');
+    expect(source).toContain("if (command.kind === 'oidc_jwt')");
+    expect(source).not.toContain('const exchange =');
+    expect(source).not.toContain('exchange as any');
+    expect(source).not.toContain('exchange.token');
+    expect(source).not.toContain('exchange.webauthn_authentication');
+    expect(source).not.toContain('verifyGoogleLogin({ idToken: (exchange');
+    expect(source).not.toContain('verifyOidcJwtExchange({ token: (exchange');
+  }
+});

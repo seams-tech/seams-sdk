@@ -67,6 +67,7 @@ import type {
   WebAuthnAuthenticationCredential,
   ThresholdEd25519SessionRequest,
   ThresholdEd25519SessionResponse,
+  ThresholdEd25519VerifiedWalletAuth,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
@@ -125,8 +126,6 @@ import {
 import {
   ensureRelayerKeyIsActiveAccessKey,
   extractAuthorizeSigningPublicKey,
-  parseAppSessionClaims,
-  parseRouterAbEcdsaHssWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
@@ -912,15 +911,12 @@ function parseThresholdEd25519SessionRequest(
 }
 
 type ThresholdEd25519SessionWalletAuthProof =
-  | {
+  | (Extract<ThresholdEd25519VerifiedWalletAuth, { kind: 'app_session' }> & {
       method: 'app_session';
-      claims: ReturnType<typeof parseAppSessionClaims>;
-      sessionWalletId: string;
-    }
-  | {
+    })
+  | (Extract<ThresholdEd25519VerifiedWalletAuth, { kind: 'threshold_ecdsa_session' }> & {
       method: 'threshold_ecdsa_session';
-      claims: ThresholdEcdsaSessionClaims;
-    }
+    })
   | {
       method: 'passkey';
       webauthnAuthentication: WebAuthnAuthenticationCredential;
@@ -928,24 +924,28 @@ type ThresholdEd25519SessionWalletAuthProof =
 
 function resolveThresholdEd25519SessionWalletAuthProof(input: {
   request: ThresholdEd25519SessionRequest;
-  appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
-  sessionWalletId: string;
-  ecdsaSessionClaims: ThresholdEcdsaSessionClaims | null;
+  verifiedWalletAuth: ThresholdEd25519VerifiedWalletAuth | null;
   hasAppSessionAuth: boolean;
   hasEcdsaSessionAuth: boolean;
 }): ParseResult<ThresholdEd25519SessionWalletAuthProof> {
   if (input.hasAppSessionAuth) {
+    if (!input.verifiedWalletAuth || input.verifiedWalletAuth.kind !== 'app_session') {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'verified app session auth is missing',
+      };
+    }
     return {
       ok: true,
       value: {
+        ...input.verifiedWalletAuth,
         method: 'app_session',
-        claims: input.appSessionClaims,
-        sessionWalletId: input.sessionWalletId,
       },
     };
   }
 
-  if (input.ecdsaSessionClaims) {
+  if (input.verifiedWalletAuth?.kind === 'threshold_ecdsa_session') {
     if (!input.hasEcdsaSessionAuth) {
       return {
         ok: false,
@@ -956,8 +956,8 @@ function resolveThresholdEd25519SessionWalletAuthProof(input: {
     return {
       ok: true,
       value: {
+        ...input.verifiedWalletAuth,
         method: 'threshold_ecdsa_session',
-        claims: input.ecdsaSessionClaims,
       },
     };
   }
@@ -4186,16 +4186,16 @@ export class ThresholdSigningService {
 
       await this.ensureReady();
 
-      const appSessionClaims = request.appSessionClaims
-        ? parseAppSessionClaims(request.appSessionClaims)
-        : null;
-      const ecdsaSessionClaims = request.ecdsaSessionClaims
-        ? parseRouterAbEcdsaHssWalletSessionClaims(request.ecdsaSessionClaims)
-        : null;
+      const verifiedWalletAuth = request.verifiedWalletAuth ?? null;
+      const appSessionClaims =
+        verifiedWalletAuth?.kind === 'app_session' ? verifiedWalletAuth.claims : null;
+      const ecdsaSessionClaims =
+        verifiedWalletAuth?.kind === 'threshold_ecdsa_session' ? verifiedWalletAuth.claims : null;
       const sessionWalletId =
-        toOptionalTrimmedString(appSessionClaims?.walletId) ||
-        toOptionalTrimmedString(appSessionClaims?.sub);
-      const hasAppSessionAuth = Boolean(appSessionClaims && sessionWalletId === walletId);
+        verifiedWalletAuth?.kind === 'app_session' ? verifiedWalletAuth.sessionWalletId : '';
+      const hasAppSessionAuth = Boolean(
+        verifiedWalletAuth?.kind === 'app_session' && sessionWalletId === walletId,
+      );
       const policySigningRoot = resolveEcdsaSigningRootFromScope(
         request.sessionPolicy?.runtimePolicyScope,
       );
@@ -4203,6 +4203,7 @@ export class ThresholdSigningService {
         ecdsaSessionClaims?.runtimePolicyScope,
       );
       const hasEcdsaSessionAuth = Boolean(
+        verifiedWalletAuth?.kind === 'threshold_ecdsa_session' &&
         ecdsaSessionClaims &&
         ecdsaSessionClaims.walletId === walletId &&
         ecdsaSessionClaims.thresholdExpiresAtMs > Date.now() &&
@@ -4287,9 +4288,7 @@ export class ThresholdSigningService {
 
       const walletAuthProof = resolveThresholdEd25519SessionWalletAuthProof({
         request,
-        appSessionClaims,
-        sessionWalletId,
-        ecdsaSessionClaims,
+        verifiedWalletAuth,
         hasAppSessionAuth,
         hasEcdsaSessionAuth,
       });

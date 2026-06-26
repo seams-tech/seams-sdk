@@ -1,9 +1,5 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import type {
-  RouterAbEcdsaHssPoolFillInitRequest,
-  RouterAbEcdsaHssPoolFillStepRequest,
-} from '../../../core/types';
 import {
   parseAppSessionClaims,
   parseEcdsaHssClientBootstrapRequest,
@@ -53,6 +49,8 @@ import {
 } from '../../routerAbPrivateSigningWorker';
 import type { VerifiedEcdsaWalletSessionAuth } from '../../verifiedWalletSessionAuth';
 import {
+  parseRouterAbEcdsaHssPoolFillInitRouteRequest,
+  parseRouterAbEcdsaHssPoolFillStepRouteRequest,
   parseRouterAbEcdsaHssKeyIdentitiesRequest,
   thresholdEcdsaRouteDiagnosticMetadata,
 } from '../../thresholdEcdsaRequestValidation';
@@ -808,8 +806,9 @@ export function registerThresholdEcdsaRoutes(
     req: Request,
     res: Response,
   ): Promise<void> {
-    const body = (req.body || {}) as RouterAbEcdsaHssPoolFillInitRequest;
-    const requestTag = parsePresignRequestTag(body);
+    const parsedBody = parseRouterAbEcdsaHssPoolFillInitRouteRequest(req.body);
+    const request = parsedBody.ok ? parsedBody.request : null;
+    const requestTag = request?.requestTag;
     const label = resolvePresignLogLabel(requestTag);
     const trafficClass = resolvePresignTrafficClass(requestTag);
     const gateTicket = await presignPriorityGate.acquire(trafficClass);
@@ -820,10 +819,9 @@ export function registerThresholdEcdsaRoutes(
         res,
         routePath,
         {
-          keyHandle: typeof body.keyHandle === 'string' ? body.keyHandle : undefined,
-          ecdsaThresholdKeyId:
-            typeof body.ecdsaThresholdKeyId === 'string' ? body.ecdsaThresholdKeyId : undefined,
-          count: typeof (body as any).count === 'number' ? (body as any).count : undefined,
+          keyHandle: request?.keyHandle,
+          ecdsaThresholdKeyId: request?.ecdsaThresholdKeyId,
+          count: request?.count,
           ...(requestTag ? { requestTag } : {}),
           ...(label ? { label } : {}),
           presignTrafficClass: trafficClass,
@@ -831,13 +829,7 @@ export function registerThresholdEcdsaRoutes(
           gateQueuedDepth: gateTicket.queuedDepth,
         },
         async () => {
-          if (parseSessionKind(body) === 'cookie') {
-            return {
-              ok: false,
-              code: 'invalid_body',
-              message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
-            };
-          }
+          if (!parsedBody.ok) return parsedBody.body;
           const resolved = resolveThresholdScheme(
             ctx.opts.threshold,
             THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
@@ -849,13 +841,13 @@ export function registerThresholdEcdsaRoutes(
           const scheme = resolved.scheme;
 
           const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
-            body: req.body,
+            body: parsedBody.request,
             headers: req.headers || {},
             session: ctx.opts.session,
           });
           if (!validated.ok) return validated;
 
-          return scheme.poolFill.init({ claims: validated.claims, request: body });
+          return scheme.poolFill.init({ claims: validated.claims, request: parsedBody.request });
         },
       );
     } finally {
@@ -868,8 +860,9 @@ export function registerThresholdEcdsaRoutes(
     req: Request,
     res: Response,
   ): Promise<void> {
-    const body = (req.body || {}) as RouterAbEcdsaHssPoolFillStepRequest;
-    const requestTag = parsePresignRequestTag(body);
+    const parsedBody = parseRouterAbEcdsaHssPoolFillStepRouteRequest(req.body);
+    const request = parsedBody.ok ? parsedBody.request : null;
+    const requestTag = request?.requestTag;
     const label = resolvePresignLogLabel(requestTag);
     const trafficClass = resolvePresignTrafficClass(requestTag);
     const gateTicket = await presignPriorityGate.acquire(trafficClass);
@@ -880,12 +873,9 @@ export function registerThresholdEcdsaRoutes(
         res,
         routePath,
         {
-          presignSessionId:
-            typeof body.presignSessionId === 'string' ? body.presignSessionId : undefined,
-          stage: typeof (body as any).stage === 'string' ? (body as any).stage : undefined,
-          outgoingMessagesB64u_len: Array.isArray((body as any).outgoingMessagesB64u)
-            ? (body as any).outgoingMessagesB64u.length
-            : undefined,
+          presignSessionId: request?.presignSessionId,
+          stage: request?.stage,
+          outgoingMessagesB64u_len: request?.outgoingMessagesB64u?.length,
           ...(requestTag ? { requestTag } : {}),
           ...(label ? { label } : {}),
           presignTrafficClass: trafficClass,
@@ -893,13 +883,7 @@ export function registerThresholdEcdsaRoutes(
           gateQueuedDepth: gateTicket.queuedDepth,
         },
         async () => {
-          if (parseSessionKind(body) === 'cookie') {
-            return {
-              ok: false,
-              code: 'invalid_body',
-              message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
-            };
-          }
+          if (!parsedBody.ok) return parsedBody.body;
           const resolved = resolveThresholdScheme(
             ctx.opts.threshold,
             THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
@@ -911,7 +895,7 @@ export function registerThresholdEcdsaRoutes(
           const scheme = resolved.scheme;
 
           const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
-            body: req.body,
+            body: parsedBody.request,
             headers: req.headers || {},
             session: ctx.opts.session,
           });
@@ -928,7 +912,7 @@ export function registerThresholdEcdsaRoutes(
           );
           return scheme.poolFill.step({
             claims: validated.claims,
-            request: body,
+            request: parsedBody.request,
             transport: {
               ...(authorizationHeader ? { authorizationHeader } : {}),
               ...(cookieHeader ? { cookieHeader } : {}),

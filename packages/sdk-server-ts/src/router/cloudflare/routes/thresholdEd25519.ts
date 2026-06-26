@@ -1,11 +1,6 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
-import type {
-  ThresholdEd25519HssFinalizeWithSessionRequest,
-  ThresholdEd25519HssPrepareWithSessionRequest,
-  ThresholdEd25519SessionRequest,
-} from '../../../core/types';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH_V2,
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
@@ -16,7 +11,7 @@ import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
 } from '@shared/utils/signingSessionSeal';
-import { parseSessionKind, resolveThresholdScheme } from '../../relay';
+import { resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
   signRouterAbEd25519WalletSessionJwt,
@@ -37,6 +32,13 @@ import {
   ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
   type RouterAbEd25519PrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
+import {
+  parseThresholdEd25519HssFinalizeWithSessionRouteRequest,
+  parseThresholdEd25519HssPrepareWithSessionRouteRequest,
+  parseThresholdEd25519HssRespondWithSessionRouteRequest,
+  parseThresholdEd25519SessionRouteRequest,
+} from '../../thresholdEd25519RequestValidation';
+import { buildThresholdEd25519VerifiedWalletAuth } from '../../thresholdEd25519VerifiedWalletAuth';
 
 function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
   return body.kind === 'email_otp_registration';
@@ -174,16 +176,11 @@ export async function handleThresholdEd25519(
         );
       }
 
-      const b = (body || {}) as unknown as ThresholdEd25519SessionRequest;
-      const sessionKind = parseSessionKind(b);
-      if (sessionKind !== 'jwt') {
-        const result = {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Router A/B Ed25519 Wallet Session issuance requires sessionKind=jwt',
-        };
-        return json(result, { status: thresholdEd25519StatusCode(result) });
+      const parsedBody = parseThresholdEd25519SessionRouteRequest(body);
+      if (!parsedBody.ok) {
+        return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });
       }
+      const b = parsedBody.request;
       let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
       let ecdsaSessionClaims: ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims> = null;
       const parsedSession = session
@@ -213,7 +210,7 @@ export async function handleThresholdEd25519(
         appSessionClaims?.runtimePolicyScope || ecdsaSessionClaims?.runtimePolicyScope;
       const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
         explicitScopeRaw: inheritedRuntimePolicyScope ?? b.sessionPolicy?.runtimePolicyScope,
-        runtimeEnvironmentIdRaw: (b as { runtimeEnvironmentId?: unknown }).runtimeEnvironmentId,
+        runtimeEnvironmentIdRaw: b.runtimeEnvironmentId,
         headers: ctx.request.headers,
         origin: ctx.request.headers.get('origin'),
         publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -231,7 +228,7 @@ export async function handleThresholdEd25519(
       }
       const runtimePolicyScope = runtimePolicyScopeResolution.scope;
       const expectedOrigin = normalizeCorsOrigin(ctx.request.headers.get('origin') || undefined);
-      if ((b as any).webauthn_authentication && !expectedOrigin) {
+      if (b.webauthn_authentication && !expectedOrigin) {
         return json(
           {
             ok: false,
@@ -242,11 +239,14 @@ export async function handleThresholdEd25519(
         );
       }
 
+      const verifiedWalletAuth = buildThresholdEd25519VerifiedWalletAuth({
+        appSessionClaims,
+        ecdsaSessionClaims,
+      });
       const result = await ed25519.session({
         ...b,
         expected_origin: expectedOrigin || '',
-        ...(appSessionClaims ? { appSessionClaims } : {}),
-        ...(ecdsaSessionClaims ? { ecdsaSessionClaims } : {}),
+        ...(verifiedWalletAuth ? { verifiedWalletAuth } : {}),
       });
       const status = thresholdEd25519StatusCode(result);
       ctx.logger.info('[threshold-ed25519] response', {
@@ -353,6 +353,7 @@ export async function handleThresholdEd25519(
     case ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2: {
       const startedAt = Date.now();
       const b = (body || {}) as Record<string, unknown>;
+      const parsedBody = parseThresholdEd25519HssPrepareWithSessionRouteRequest(body);
       ctx.logger.info('[threshold-ed25519] request', {
         route: pathname,
         method: ctx.method,
@@ -379,13 +380,8 @@ export async function handleThresholdEd25519(
         const result = rejectLegacyEmailOtpRegistrationHssRequest();
         return json(result, { status: thresholdEd25519StatusCode(result) });
       }
-      if (parseSessionKind(b) === 'cookie') {
-        const result = {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
-        };
-        return json(result, { status: thresholdEd25519StatusCode(result) });
+      if (!parsedBody.ok) {
+        return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });
       }
       const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
         body,
@@ -395,7 +391,7 @@ export async function handleThresholdEd25519(
       if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
       const result = await threshold.ed25519Hss.prepareWithSession({
         claims: validated.claims,
-        request: validated.body as unknown as ThresholdEd25519HssPrepareWithSessionRequest,
+        request: parsedBody.request,
       });
       ctx.logger.info('[threshold-ed25519] response', {
         route: pathname,
@@ -409,6 +405,7 @@ export async function handleThresholdEd25519(
     case ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2: {
       const startedAt = Date.now();
       const b = (body || {}) as Record<string, unknown>;
+      const parsedBody = parseThresholdEd25519HssFinalizeWithSessionRouteRequest(body);
       ctx.logger.info('[threshold-ed25519] request', {
         route: pathname,
         method: ctx.method,
@@ -435,13 +432,8 @@ export async function handleThresholdEd25519(
         const result = rejectLegacyEmailOtpRegistrationHssRequest();
         return json(result, { status: thresholdEd25519StatusCode(result) });
       }
-      if (parseSessionKind(b) === 'cookie') {
-        const result = {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
-        };
-        return json(result, { status: thresholdEd25519StatusCode(result) });
+      if (!parsedBody.ok) {
+        return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });
       }
       const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
         body,
@@ -451,7 +443,7 @@ export async function handleThresholdEd25519(
       if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
       const result = await threshold.ed25519Hss.finalizeWithSession({
         claims: validated.claims,
-        request: validated.body as unknown as ThresholdEd25519HssFinalizeWithSessionRequest,
+        request: parsedBody.request,
       });
       ctx.logger.info('[threshold-ed25519] response', {
         route: pathname,
@@ -465,6 +457,7 @@ export async function handleThresholdEd25519(
     case ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2: {
       const startedAt = Date.now();
       const b = (body || {}) as Record<string, unknown>;
+      const parsedBody = parseThresholdEd25519HssRespondWithSessionRouteRequest(body);
       ctx.logger.info('[threshold-ed25519] request', {
         route: pathname,
         method: ctx.method,
@@ -483,13 +476,8 @@ export async function handleThresholdEd25519(
         const result = rejectLegacyEmailOtpRegistrationHssRequest();
         return json(result, { status: thresholdEd25519StatusCode(result) });
       }
-      if (parseSessionKind(b) === 'cookie') {
-        const result = {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
-        };
-        return json(result, { status: thresholdEd25519StatusCode(result) });
+      if (!parsedBody.ok) {
+        return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });
       }
       const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
         body,
@@ -499,7 +487,7 @@ export async function handleThresholdEd25519(
       if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
       const result = await threshold.ed25519Hss.respondWithSession({
         claims: validated.claims,
-        request: validated.body as any,
+        request: parsedBody.request,
       });
       ctx.logger.info('[threshold-ed25519] response', {
         route: pathname,

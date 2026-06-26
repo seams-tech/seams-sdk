@@ -35,8 +35,8 @@ import {
   emailOtpFailureAuditPayload,
   emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
-  parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
+import { parseSessionExchangeRouteCommand } from '../../sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   parseWalletSigningBudgetStatusExpectations,
@@ -341,34 +341,20 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
 
   try {
     const body = await readJson(ctx.request);
-    const parsedBody = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-    const sessionKind = parseSessionKind(parsedBody);
-    const exchange =
-      parsedBody &&
-      typeof (parsedBody as any).exchange === 'object' &&
-      !Array.isArray((parsedBody as any).exchange)
-        ? ((parsedBody as any).exchange as Record<string, unknown>)
-        : null;
-    const exchangeType = String(exchange?.type || '')
-      .trim()
-      .toLowerCase();
-    if (!exchange || (exchangeType !== 'oidc_jwt' && exchangeType !== 'passkey_assertion')) {
+    const parsedExchange = parseSessionExchangeRouteCommand(body);
+    if (!parsedExchange.ok) {
       await emitSessionExchangeFailed(ctx, {
         status: 400,
-        code: 'invalid_body',
-        message: 'exchange.type must be one of: oidc_jwt, passkey_assertion',
-        exchangeType,
-        sessionKind,
+        code: parsedExchange.body.code,
+        message: parsedExchange.body.message,
+        exchangeType: parsedExchange.exchangeType,
+        sessionKind: parsedExchange.sessionKind,
       });
-      return json(
-        {
-          ok: false,
-          code: 'invalid_body',
-          message: 'exchange.type must be one of: oidc_jwt, passkey_assertion',
-        },
-        { status: 400 },
-      );
+      return json(parsedExchange.body, { status: 400 });
     }
+    const command = parsedExchange.command;
+    const sessionKind = command.sessionKind;
+    const exchangeType = command.kind;
 
     const session = ctx.opts.session;
     if (!session) {
@@ -433,8 +419,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
     ): Promise<{ ok: true; scope?: RuntimePolicyScope } | { ok: false; response: Response }> => {
       const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
         explicitScopeRaw: undefined,
-        runtimeEnvironmentIdRaw: (parsedBody as { runtimeEnvironmentId?: unknown })
-          .runtimeEnvironmentId,
+        runtimeEnvironmentIdRaw: command.runtimeEnvironmentId,
         headers: ctx.request.headers,
         origin: ctx.request.headers.get('origin'),
         publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -494,38 +479,15 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
       };
     };
 
-    if (exchangeType === 'oidc_jwt') {
-      oidcProvider = String(exchange.provider || '')
-        .trim()
-        .toLowerCase();
-      const oidcAccountModeRaw = exchange.account_mode ?? exchange.accountMode;
-      const hasOidcAccountMode =
-        Object.prototype.hasOwnProperty.call(exchange, 'account_mode') ||
-        Object.prototype.hasOwnProperty.call(exchange, 'accountMode');
-      oidcAccountMode = parseOidcAccountMode(oidcAccountModeRaw);
-      oidcRestartRegistrationOffer = oidcAccountMode === 'register';
+    if (command.kind === 'oidc_jwt') {
+      oidcProvider = command.provider;
+      oidcAccountMode = command.accountMode;
+      oidcRestartRegistrationOffer = command.restartRegistrationOffer;
       isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
-      if (oidcProvider === 'google' && hasOidcAccountMode && !oidcAccountMode) {
-        await emitSessionExchangeFailed(ctx, {
-          status: 400,
-          code: 'invalid_body',
-          message: 'exchange.account_mode must be register or login for Google Email OTP',
-          exchangeType,
-          sessionKind,
-        });
-        return json(
-          {
-            ok: false,
-            code: 'invalid_body',
-            message: 'exchange.account_mode must be register or login for Google Email OTP',
-          },
-          { status: 400 },
-        );
-      }
       const verified =
         oidcProvider === 'google'
-          ? await ctx.service.verifyGoogleLogin({ idToken: exchange.token })
-          : await ctx.service.verifyOidcJwtExchange({ token: exchange.token });
+          ? await ctx.service.verifyGoogleLogin({ idToken: command.token })
+          : await ctx.service.verifyOidcJwtExchange({ token: command.token });
       if (!verified.ok || !verified.verified || !verified.userId) {
         const code = verified.code || 'not_verified';
         const status =
@@ -615,52 +577,6 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         }
         providerSubject = googleProviderSubject.value;
         oidcEmail = verifiedGoogleEmail.value;
-        const forbiddenGoogleRegistrationOtpFields = [
-          'challengeId',
-          'challenge_id',
-          'otpCode',
-          'otp_code',
-          'otpDelivery',
-          'otp_delivery',
-          'delivery',
-          'resend',
-          'rerollRegistrationAttempt',
-          'reroll_registration_attempt',
-          'walletId',
-          'wallet_id',
-          'nearAccountId',
-          'webauthn',
-          'webauthnRegistration',
-          'webauthn_registration',
-          'webauthn_authentication',
-          'authenticatorOptions',
-          'publicKey',
-          'passkey',
-          'passkeyPrfFirstB64u',
-        ];
-        const forbiddenField = forbiddenGoogleRegistrationOtpFields.find(
-          (field) =>
-            Object.prototype.hasOwnProperty.call(exchange, field) ||
-            Object.prototype.hasOwnProperty.call(parsedBody, field),
-        );
-        if (forbiddenField) {
-          await emitSessionExchangeFailed(ctx, {
-            status: 400,
-            code: 'invalid_body',
-            message: `Google Email OTP registration exchange must not include ${forbiddenField}`,
-            exchangeType,
-            sessionKind,
-            userId,
-          });
-          return json(
-            {
-              ok: false,
-              code: 'invalid_body',
-              message: `Google Email OTP registration exchange must not include ${forbiddenField}`,
-            },
-            { status: 400 },
-          );
-        }
       }
       try {
         if (isGoogleEmailOtpExchange) {
@@ -790,51 +706,10 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         }
       }
     } else {
-      const challengeId = String(exchange.challengeId ?? exchange.challenge_id ?? '').trim();
-      if (!challengeId) {
-        await emitSessionExchangeFailed(ctx, {
-          status: 400,
-          code: 'invalid_body',
-          message: 'exchange.challengeId is required for passkey_assertion',
-          exchangeType,
-          sessionKind,
-        });
-        return json(
-          {
-            ok: false,
-            code: 'invalid_body',
-            message: 'exchange.challengeId is required for passkey_assertion',
-          },
-          { status: 400 },
-        );
-      }
-      const webauthnAuthentication = exchange.webauthn_authentication;
-      if (
-        !webauthnAuthentication ||
-        typeof webauthnAuthentication !== 'object' ||
-        Array.isArray(webauthnAuthentication)
-      ) {
-        await emitSessionExchangeFailed(ctx, {
-          status: 400,
-          code: 'invalid_body',
-          message: 'exchange.webauthn_authentication is required for passkey_assertion',
-          exchangeType,
-          sessionKind,
-        });
-        return json(
-          {
-            ok: false,
-            code: 'invalid_body',
-            message: 'exchange.webauthn_authentication is required for passkey_assertion',
-          },
-          { status: 400 },
-        );
-      }
+      const challengeId = command.challengeId;
+      const webauthnAuthentication = command.webauthnAuthentication;
       const expectedOrigin = (() => {
-        const explicitOrigin = String(
-          exchange.expected_origin ?? exchange.expectedOrigin ?? '',
-        ).trim();
-        if (explicitOrigin) return explicitOrigin;
+        if (command.expectedOrigin) return command.expectedOrigin;
         const headerOrigin = String(ctx.request.headers.get('origin') || '').trim();
         return headerOrigin || undefined;
       })();

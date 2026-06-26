@@ -1,9 +1,5 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
-import type {
-  RouterAbEcdsaHssPoolFillInitRequest,
-  RouterAbEcdsaHssPoolFillStepRequest,
-} from '../../../core/types';
 import {
   parseAppSessionClaims,
   parseEcdsaHssClientBootstrapRequest,
@@ -52,7 +48,11 @@ import {
   type RouterAbEcdsaHssPrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
 import type { VerifiedEcdsaWalletSessionAuth } from '../../verifiedWalletSessionAuth';
-import { parseRouterAbEcdsaHssKeyIdentitiesRequest } from '../../thresholdEcdsaRequestValidation';
+import {
+  parseRouterAbEcdsaHssKeyIdentitiesRequest,
+  parseRouterAbEcdsaHssPoolFillInitRouteRequest,
+  parseRouterAbEcdsaHssPoolFillStepRouteRequest,
+} from '../../thresholdEcdsaRequestValidation';
 
 type EcdsaRuntimePolicyScope = RuntimePolicyScope;
 type ThresholdEd25519SessionClaims = NonNullable<
@@ -715,52 +715,46 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
 
   if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1) {
-    const reqBody = (body || {}) as RouterAbEcdsaHssPoolFillInitRequest;
-    const requestTag = parsePresignRequestTag(reqBody);
+    const parsedBody = parseRouterAbEcdsaHssPoolFillInitRouteRequest(body);
+    const requestTag = parsedBody.ok ? parsedBody.request.requestTag : undefined;
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
-    if (parseSessionKind(body) === 'cookie') {
-      gateTicket.release();
-      const result = {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
-      };
-      return json(result, { status: thresholdEcdsaStatusCode(result) });
-    }
-    const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
-      body,
-      headers: Object.fromEntries(ctx.request.headers.entries()),
-      session: ctx.opts.session,
-    });
     try {
+      if (!parsedBody.ok) {
+        return json(parsedBody.body, { status: thresholdEcdsaStatusCode(parsedBody.body) });
+      }
+      const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
+        body: parsedBody.request,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
       if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-      const result = await scheme.poolFill.init({ claims: validated.claims, request: reqBody });
+      const result = await scheme.poolFill.init({
+        claims: validated.claims,
+        request: parsedBody.request,
+      });
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     } finally {
       gateTicket.release();
     }
   }
   if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1) {
-    const reqBody = (body || {}) as RouterAbEcdsaHssPoolFillStepRequest;
-    const requestTag = parsePresignRequestTag(reqBody);
+    const parsedBody = parseRouterAbEcdsaHssPoolFillStepRouteRequest(body);
+    const requestTag = parsedBody.ok ? parsedBody.request.requestTag : undefined;
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
-    if (parseSessionKind(body) === 'cookie') {
-      gateTicket.release();
-      const result = {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
-      };
-      return json(result, { status: thresholdEcdsaStatusCode(result) });
-    }
-    const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
-      body,
-      headers: Object.fromEntries(ctx.request.headers.entries()),
-      session: ctx.opts.session,
-    });
     try {
+      if (!parsedBody.ok) {
+        return json(parsedBody.body, { status: thresholdEcdsaStatusCode(parsedBody.body) });
+      }
+      const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
+        body: parsedBody.request,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
       if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-      const result = await scheme.poolFill.step({ claims: validated.claims, request: reqBody });
+      const result = await scheme.poolFill.step({
+        claims: validated.claims,
+        request: parsedBody.request,
+      });
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     } finally {
       gateTicket.release();

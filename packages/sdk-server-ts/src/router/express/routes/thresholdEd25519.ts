@@ -1,11 +1,5 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import type {
-  ThresholdEd25519HssFinalizeWithSessionRequest,
-  ThresholdEd25519HssPrepareWithSessionRequest,
-  ThresholdEd25519HssRespondWithSessionRequest,
-  ThresholdEd25519SessionRequest,
-} from '../../../core/types';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH_V2,
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
@@ -17,7 +11,7 @@ import {
   ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
 } from '@shared/utils/signingSessionSeal';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
-import { parseSessionKind, resolveThresholdScheme } from '../../relay';
+import { resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
   signRouterAbEd25519WalletSessionJwt,
@@ -34,6 +28,13 @@ import {
   ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
   type RouterAbEd25519PrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
+import {
+  parseThresholdEd25519HssFinalizeWithSessionRouteRequest,
+  parseThresholdEd25519HssPrepareWithSessionRouteRequest,
+  parseThresholdEd25519HssRespondWithSessionRouteRequest,
+  parseThresholdEd25519SessionRouteRequest,
+} from '../../thresholdEd25519RequestValidation';
+import { buildThresholdEd25519VerifiedWalletAuth } from '../../thresholdEd25519VerifiedWalletAuth';
 
 function errMessage(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e)
@@ -189,17 +190,20 @@ export function registerThresholdEd25519Routes(
   });
 
   router.post(ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2, async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEd25519SessionRequest;
+    const parsedBody = parseThresholdEd25519SessionRouteRequest(req.body);
+    const body = parsedBody.ok ? parsedBody.request : null;
     await handle(
       ctx,
       req,
       res,
       ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
       {
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        sessionPolicy: body.sessionPolicy ? { version: body.sessionPolicy.version } : undefined,
+        relayerKeyId: body?.relayerKeyId,
+        sessionPolicy: body?.sessionPolicy ? { version: body.sessionPolicy.version } : undefined,
       },
       async () => {
+        if (!parsedBody.ok) return parsedBody.body;
+        const request = parsedBody.request;
         const resolved = resolveThresholdScheme(
           ctx.opts.threshold,
           THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
@@ -217,15 +221,6 @@ export function registerThresholdEd25519Routes(
             message: 'Sessions are not configured on this server',
           };
         }
-        const sessionKind = parseSessionKind(body);
-        if (sessionKind !== 'jwt') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'Router A/B Ed25519 Wallet Session issuance requires sessionKind=jwt',
-          };
-        }
-
         let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
         let ecdsaSessionClaims: ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims> = null;
         if (session) {
@@ -248,9 +243,8 @@ export function registerThresholdEd25519Routes(
         const inheritedRuntimePolicyScope =
           appSessionClaims?.runtimePolicyScope || ecdsaSessionClaims?.runtimePolicyScope;
         const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-          explicitScopeRaw: inheritedRuntimePolicyScope ?? body.sessionPolicy?.runtimePolicyScope,
-          runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
-            .runtimeEnvironmentId,
+          explicitScopeRaw: inheritedRuntimePolicyScope ?? request.sessionPolicy.runtimePolicyScope,
+          runtimeEnvironmentIdRaw: request.runtimeEnvironmentId,
           headers: req.headers || {},
           origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
           publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -267,7 +261,7 @@ export function registerThresholdEd25519Routes(
         const expectedOrigin = normalizeCorsOrigin(
           Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
         );
-        if ((body as any).webauthn_authentication && !expectedOrigin) {
+        if (request.webauthn_authentication && !expectedOrigin) {
           return {
             ok: false,
             code: 'invalid_body',
@@ -275,11 +269,14 @@ export function registerThresholdEd25519Routes(
           };
         }
 
+        const verifiedWalletAuth = buildThresholdEd25519VerifiedWalletAuth({
+          appSessionClaims,
+          ecdsaSessionClaims,
+        });
         const result = await resolved.scheme.session({
-          ...body,
+          ...request,
           expected_origin: expectedOrigin || '',
-          ...(appSessionClaims ? { appSessionClaims } : {}),
-          ...(ecdsaSessionClaims ? { ecdsaSessionClaims } : {}),
+          ...(verifiedWalletAuth ? { verifiedWalletAuth } : {}),
         });
         if (!result.ok) return result;
 
@@ -402,6 +399,7 @@ export function registerThresholdEd25519Routes(
   router.post(ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
+    const parsedBody = parseThresholdEd25519HssPrepareWithSessionRouteRequest(bodyUnknown);
     await handle(
       ctx,
       req,
@@ -419,6 +417,7 @@ export function registerThresholdEd25519Routes(
             : undefined,
       },
       async () => {
+        if (!parsedBody.ok) return parsedBody.body;
         const threshold = ctx.opts.threshold;
         if (!threshold || !threshold.ed25519Hss) {
           return {
@@ -430,13 +429,6 @@ export function registerThresholdEd25519Routes(
         if (isEmailOtpRegistrationHssRequest(body)) {
           return rejectLegacyEmailOtpRegistrationHssRequest();
         }
-        if (parseSessionKind(body) === 'cookie') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
-          };
-        }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
@@ -445,7 +437,7 @@ export function registerThresholdEd25519Routes(
         if (!validated.ok) return validated;
         return threshold.ed25519Hss.prepareWithSession({
           claims: validated.claims,
-          request: validated.body as unknown as ThresholdEd25519HssPrepareWithSessionRequest,
+          request: parsedBody.request,
         });
       },
     );
@@ -454,6 +446,7 @@ export function registerThresholdEd25519Routes(
   router.post(ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
+    const parsedBody = parseThresholdEd25519HssFinalizeWithSessionRouteRequest(bodyUnknown);
     await handle(
       ctx,
       req,
@@ -471,6 +464,7 @@ export function registerThresholdEd25519Routes(
             : undefined,
       },
       async () => {
+        if (!parsedBody.ok) return parsedBody.body;
         const threshold = ctx.opts.threshold;
         if (!threshold || !threshold.ed25519Hss) {
           return {
@@ -481,13 +475,6 @@ export function registerThresholdEd25519Routes(
         }
         if (isEmailOtpRegistrationHssRequest(body)) {
           return rejectLegacyEmailOtpRegistrationHssRequest();
-        }
-        if (parseSessionKind(body) === 'cookie') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
-          };
         }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
@@ -497,7 +484,7 @@ export function registerThresholdEd25519Routes(
         if (!validated.ok) return validated;
         return threshold.ed25519Hss.finalizeWithSession({
           claims: validated.claims,
-          request: validated.body as unknown as ThresholdEd25519HssFinalizeWithSessionRequest,
+          request: parsedBody.request,
         });
       },
     );
@@ -506,6 +493,7 @@ export function registerThresholdEd25519Routes(
   router.post(ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
+    const parsedBody = parseThresholdEd25519HssRespondWithSessionRouteRequest(bodyUnknown);
     await handle(
       ctx,
       req,
@@ -515,6 +503,7 @@ export function registerThresholdEd25519Routes(
         ceremonyHandle: typeof body.ceremonyHandle === 'string' ? body.ceremonyHandle : undefined,
       },
       async () => {
+        if (!parsedBody.ok) return parsedBody.body;
         const threshold = ctx.opts.threshold;
         if (!threshold || !threshold.ed25519Hss) {
           return {
@@ -526,13 +515,6 @@ export function registerThresholdEd25519Routes(
         if (isEmailOtpRegistrationHssRequest(body)) {
           return rejectLegacyEmailOtpRegistrationHssRequest();
         }
-        if (parseSessionKind(body) === 'cookie') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
-          };
-        }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
@@ -541,7 +523,7 @@ export function registerThresholdEd25519Routes(
         if (!validated.ok) return validated;
         return threshold.ed25519Hss.respondWithSession({
           claims: validated.claims,
-          request: validated.body as unknown as ThresholdEd25519HssRespondWithSessionRequest,
+          request: parsedBody.request,
         });
       },
     );

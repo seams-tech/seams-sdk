@@ -36,8 +36,8 @@ import {
   emailOtpInternalErrorBody,
   emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
-  parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
+import { parseSessionExchangeRouteCommand } from '../../sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   parseWalletSigningBudgetStatusExpectations,
@@ -337,31 +337,21 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
   // Session: exchange external auth assertion into app session.
   router.post('/session/exchange', async (req: any, res: any) => {
     try {
-      const body =
-        req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-      const sessionKind = parseSessionKind(body);
-      const exchange =
-        body.exchange && typeof body.exchange === 'object' && !Array.isArray(body.exchange)
-          ? body.exchange
-          : null;
-      const exchangeType = String((exchange as any)?.type || '')
-        .trim()
-        .toLowerCase();
-      if (!exchange || (exchangeType !== 'oidc_jwt' && exchangeType !== 'passkey_assertion')) {
+      const parsedExchange = parseSessionExchangeRouteCommand(req.body);
+      if (!parsedExchange.ok) {
         await emitSessionExchangeFailed({
           status: 400,
-          code: 'invalid_body',
-          message: 'exchange.type must be one of: oidc_jwt, passkey_assertion',
-          exchangeType,
-          sessionKind,
+          code: parsedExchange.body.code,
+          message: parsedExchange.body.message,
+          exchangeType: parsedExchange.exchangeType,
+          sessionKind: parsedExchange.sessionKind,
         });
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'exchange.type must be one of: oidc_jwt, passkey_assertion',
-        });
+        res.status(400).json(parsedExchange.body);
         return;
       }
+      const command = parsedExchange.command;
+      const sessionKind = command.sessionKind;
+      const exchangeType = command.kind;
 
       const session = ctx.opts.session;
       if (!session) {
@@ -428,8 +418,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       ): Promise<{ ok: true; scope?: RuntimePolicyScope } | { ok: false }> => {
         const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
           explicitScopeRaw: undefined,
-          runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
-            .runtimeEnvironmentId,
+          runtimeEnvironmentIdRaw: command.runtimeEnvironmentId,
           headers: req.headers || {},
           origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
           publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -477,37 +466,16 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         return false;
       };
 
-      if (exchangeType === 'oidc_jwt') {
-        oidcProvider = String((exchange as any).provider || '')
-          .trim()
-          .toLowerCase();
-        const oidcAccountModeRaw = (exchange as any).account_mode ?? (exchange as any).accountMode;
-        const hasOidcAccountMode =
-          Object.prototype.hasOwnProperty.call(exchange as any, 'account_mode') ||
-          Object.prototype.hasOwnProperty.call(exchange as any, 'accountMode');
-        oidcAccountMode = parseOidcAccountMode(oidcAccountModeRaw);
-        oidcRestartRegistrationOffer = oidcAccountMode === 'register';
+      if (command.kind === 'oidc_jwt') {
+        oidcProvider = command.provider;
+        oidcAccountMode = command.accountMode;
+        oidcRestartRegistrationOffer = command.restartRegistrationOffer;
         isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
-        if (oidcProvider === 'google' && hasOidcAccountMode && !oidcAccountMode) {
-          await emitSessionExchangeFailed({
-            status: 400,
-            code: 'invalid_body',
-            message: 'exchange.account_mode must be register or login for Google Email OTP',
-            exchangeType,
-            sessionKind,
-          });
-          res.status(400).json({
-            ok: false,
-            code: 'invalid_body',
-            message: 'exchange.account_mode must be register or login for Google Email OTP',
-          });
-          return;
-        }
         const verified =
           oidcProvider === 'google'
-            ? await ctx.service.verifyGoogleLogin({ idToken: (exchange as any).token })
+            ? await ctx.service.verifyGoogleLogin({ idToken: command.token })
             : await ctx.service.verifyOidcJwtExchange({
-                token: (exchange as any).token,
+                token: command.token,
               });
         if (!verified.ok || !verified.verified || !verified.userId) {
           const code = verified.code || 'not_verified';
@@ -597,50 +565,6 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           }
           providerSubject = googleProviderSubject.value;
           oidcEmail = verifiedGoogleEmail.value;
-          const forbiddenGoogleRegistrationOtpFields = [
-            'challengeId',
-            'challenge_id',
-            'otpCode',
-            'otp_code',
-            'otpDelivery',
-            'otp_delivery',
-            'delivery',
-            'resend',
-            'rerollRegistrationAttempt',
-            'reroll_registration_attempt',
-            'walletId',
-            'wallet_id',
-            'nearAccountId',
-            'webauthn',
-            'webauthnRegistration',
-            'webauthn_registration',
-            'webauthn_authentication',
-            'authenticatorOptions',
-            'publicKey',
-            'passkey',
-            'passkeyPrfFirstB64u',
-          ];
-          const forbiddenField = forbiddenGoogleRegistrationOtpFields.find(
-            (field) =>
-              Object.prototype.hasOwnProperty.call(exchange as any, field) ||
-              Object.prototype.hasOwnProperty.call(body as any, field),
-          );
-          if (forbiddenField) {
-            await emitSessionExchangeFailed({
-              status: 400,
-              code: 'invalid_body',
-              message: `Google Email OTP registration exchange must not include ${forbiddenField}`,
-              exchangeType,
-              sessionKind,
-              userId,
-            });
-            res.status(400).json({
-              ok: false,
-              code: 'invalid_body',
-              message: `Google Email OTP registration exchange must not include ${forbiddenField}`,
-            });
-            return;
-          }
         }
         try {
           if (isGoogleEmailOtpExchange) {
@@ -780,49 +704,10 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           }
         }
       } else {
-        const challengeId = String(
-          (exchange as any).challengeId ?? (exchange as any).challenge_id ?? '',
-        ).trim();
-        if (!challengeId) {
-          await emitSessionExchangeFailed({
-            status: 400,
-            code: 'invalid_body',
-            message: 'exchange.challengeId is required for passkey_assertion',
-            exchangeType,
-            sessionKind,
-          });
-          res.status(400).json({
-            ok: false,
-            code: 'invalid_body',
-            message: 'exchange.challengeId is required for passkey_assertion',
-          });
-          return;
-        }
-        const webauthnAuthentication = (exchange as any).webauthn_authentication;
-        if (
-          !webauthnAuthentication ||
-          typeof webauthnAuthentication !== 'object' ||
-          Array.isArray(webauthnAuthentication)
-        ) {
-          await emitSessionExchangeFailed({
-            status: 400,
-            code: 'invalid_body',
-            message: 'exchange.webauthn_authentication is required for passkey_assertion',
-            exchangeType,
-            sessionKind,
-          });
-          res.status(400).json({
-            ok: false,
-            code: 'invalid_body',
-            message: 'exchange.webauthn_authentication is required for passkey_assertion',
-          });
-          return;
-        }
+        const challengeId = command.challengeId;
+        const webauthnAuthentication = command.webauthnAuthentication;
         const expectedOrigin = (() => {
-          const explicitOrigin = String(
-            (exchange as any).expected_origin ?? (exchange as any).expectedOrigin ?? '',
-          ).trim();
-          if (explicitOrigin) return explicitOrigin;
+          if (command.expectedOrigin) return command.expectedOrigin;
           const originRaw = req.headers?.origin ?? req.headers?.Origin;
           return typeof originRaw === 'string' ? originRaw.trim() || undefined : undefined;
         })();
