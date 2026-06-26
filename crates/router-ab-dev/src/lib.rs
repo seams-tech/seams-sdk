@@ -95,6 +95,7 @@ pub use local_worker_topology::{
 const LOCAL_ED25519_HSS_SPLIT_SERVER_LABEL_V1: &[u8] = b"router-ab-dev/ed25519-hss/split-server/v1";
 const LOCAL_ED25519_HSS_DEFAULT_SPLIT_EPOCH_V1: &str = "split-epoch-1";
 const LOCAL_NORMAL_SIGNING_ACTIVATION_MS_V1: u64 = 1_700_000_000_000;
+const LOCAL_DEV_ACCOUNT_ID_V1: &str = "alice.testnet";
 
 /// Local worker role env key used by the private-worker development harness.
 pub const LOCAL_WORKER_ROLE_ENV_V1: &str = "ROUTER_AB_LOCAL_WORKER_ROLE";
@@ -2358,13 +2359,11 @@ pub fn handle_local_signing_worker_normal_signing_presign_pool_hit_json_v1(
         pool_hit_request.pool_binding.pool_entry_binding_digest,
     )?;
     pool_entry.validate()?;
-    let RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
-        protocol,
-    ) = &pool_hit_request.protocol;
-    let expected_server_commitments =
-        local_normal_signing_commitments_wire_from_role_separated_v1(
-            pool_entry.round1_state.commitments,
-        )?;
+    let RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(protocol) =
+        &pool_hit_request.protocol;
+    let expected_server_commitments = local_normal_signing_commitments_wire_from_role_separated_v1(
+        pool_entry.round1_state.commitments,
+    )?;
     if pool_entry.active_signing_worker != active_signing_worker
         || pool_entry.client_presign_id != pool_hit_request.pool_binding.client_presign_id
         || pool_entry.client_nonce_handle != pool_hit_request.pool_binding.client_nonce_handle
@@ -4016,7 +4015,6 @@ pub fn run_example_local_router_ab_hss_dev_ceremony_v1(
 ) -> RouterAbProtocolResult<LocalRouterAbHssDevCeremonyResultV1> {
     require_non_empty("fixture_name", fixture_name)?;
     require_non_empty("split_epoch", split_epoch)?;
-    let fixture = committed_ed25519_hss_fixture_v1(fixture_name)?;
     let (deriver_a, deriver_b) =
         derive_committed_ed25519_hss_split_server_role_shares_v1(fixture_name, split_epoch)?;
     let hss_derivation = evaluate_committed_ed25519_hss_role_scoped_derivation_v1(
@@ -4029,7 +4027,7 @@ pub fn run_example_local_router_ab_hss_dev_ceremony_v1(
         deriver_a,
         deriver_b,
     )?;
-    let router_request = local_router_request_for_hss_fixture_v1(&fixture, &hss_derivation)?;
+    let router_request = local_router_request_for_hss_derivation_v1(&hss_derivation)?;
     let (signer_a_request, signer_b_request) = router_request.to_signer_wire_messages()?;
     let core_ceremony = local_service_stack_v1()?.run_deterministic_ceremony(
         router_request.lifecycle.lifecycle_id.clone(),
@@ -4051,7 +4049,6 @@ pub fn run_example_local_router_ab_hss_dev_http_ceremony_v1(
 ) -> RouterAbProtocolResult<LocalRouterAbHssDevHttpCeremonyResultV1> {
     require_non_empty("fixture_name", fixture_name)?;
     require_non_empty("split_epoch", split_epoch)?;
-    let fixture = committed_ed25519_hss_fixture_v1(fixture_name)?;
     let (deriver_a, deriver_b) =
         derive_committed_ed25519_hss_split_server_role_shares_v1(fixture_name, split_epoch)?;
     let hss_derivation = evaluate_committed_ed25519_hss_role_scoped_derivation_v1(
@@ -4064,7 +4061,7 @@ pub fn run_example_local_router_ab_hss_dev_http_ceremony_v1(
         deriver_a,
         deriver_b,
     )?;
-    let router_request = local_router_request_for_hss_fixture_v1(&fixture, &hss_derivation)?;
+    let router_request = local_router_request_for_hss_derivation_v1(&hss_derivation)?;
     let (signer_a_request, signer_b_request) = router_request.to_signer_wire_messages()?;
     let deriver_a_request = LocalHttpRequestV1::new(
         LocalHttpMethodV1::Post,
@@ -4129,20 +4126,6 @@ fn verify_ed25519_hss_split_server_fixture_with_role_shares_v1(
         deriver_a: deriver_a.commitment(),
         deriver_b: deriver_b.commitment(),
     })
-}
-
-fn committed_ed25519_hss_fixture_v1(fixture_name: &str) -> RouterAbProtocolResult<FExpandFixture> {
-    require_non_empty("fixture_name", fixture_name)?;
-    committed_fixture_corpus()
-        .map_err(map_hss_error)?
-        .into_iter()
-        .find(|fixture| fixture.name == fixture_name)
-        .ok_or_else(|| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                format!("unknown committed ed25519-hss fixture {fixture_name}"),
-            )
-        })
 }
 
 struct LocalEd25519HssExpandedFixtureV1 {
@@ -4281,7 +4264,7 @@ pub fn example_local_persistence_seed_v1() -> RouterAbProtocolResult<LocalPersis
             "signer-set-v1",
             "signing-root-v1",
             root_epoch()?,
-            "alice.testnet",
+            LOCAL_DEV_ACCOUNT_ID_V1,
         )?,
         sealed_share_record(Role::SignerA)?,
         sealed_share_record(Role::SignerB)?,
@@ -4355,13 +4338,11 @@ fn sealed_share_record(role: Role) -> RouterAbProtocolResult<LocalSealedRootShar
     )
 }
 
-fn local_router_request_for_hss_fixture_v1(
-    fixture: &FExpandFixture,
+fn local_router_request_for_hss_derivation_v1(
     hss_derivation: &LocalEd25519HssRoleScopedDerivationOutputV1,
 ) -> RouterAbProtocolResult<PublicRouterRequestV1> {
-    let account_id = fixture.input.context.account_id.clone();
     let account_public_key = hss_derivation.near_public_key.clone();
-    let lifecycle = local_lifecycle_scope_v1(&account_id)?;
+    let lifecycle = local_lifecycle_scope_v1(LOCAL_DEV_ACCOUNT_ID_V1)?;
     let signer_set = signer_set_v1()?;
     let metadata = RouterTranscriptMetadataV1::new(
         "near-testnet",
