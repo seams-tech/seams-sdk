@@ -1,4 +1,5 @@
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
+import type { D1EmailRecoveryPreparationStoreOptions } from './EmailRecoveryPreparationStore';
 import type { D1NearPublicKeyStoreOptions } from './NearPublicKeyStore';
 import type { D1RecoveryExecutionStoreOptions } from './RecoveryExecutionStore';
 import type { D1RecoverySessionStoreOptions } from './RecoverySessionStore';
@@ -117,6 +118,14 @@ const validNearPublicKeyStoreOptions: D1NearPublicKeyStoreOptions = {
   envId: 'env_1',
 };
 
+const validEmailRecoveryPreparationStoreOptions: D1EmailRecoveryPreparationStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
 // @ts-expect-error D1 wallet metadata storage requires org identity.
 const missingWalletOrgId: D1WalletStoreOptions = {
   database,
@@ -189,6 +198,14 @@ const missingNearPublicKeyProjectId: D1NearPublicKeyStoreOptions = {
   envId: 'env_1',
 };
 
+// @ts-expect-error D1 email recovery preparation storage requires environment identity.
+const missingEmailRecoveryPreparationEnvId: D1EmailRecoveryPreparationStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+};
+
 void validWalletStoreOptions;
 void validAuthMethodStoreOptions;
 void validWebAuthnAuthenticatorOptions;
@@ -199,6 +216,7 @@ void validIdentityStoreOptions;
 void validRecoverySessionStoreOptions;
 void validRecoveryExecutionStoreOptions;
 void validNearPublicKeyStoreOptions;
+void validEmailRecoveryPreparationStoreOptions;
 void missingWalletOrgId;
 void missingAuthMethodEnvId;
 void missingWebAuthnProjectId;
@@ -208,3 +226,4 @@ void missingIdentityProjectId;
 void missingRecoverySessionEnvId;
 void missingRecoveryExecutionOrgId;
 void missingNearPublicKeyProjectId;
+void missingEmailRecoveryPreparationEnvId;

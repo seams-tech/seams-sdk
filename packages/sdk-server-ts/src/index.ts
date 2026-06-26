@@ -103,7 +103,12 @@ export {
   DEFAULT_RECOVERY_SESSION_TTL_MS,
 } from './core/recoverySessionRecords';
 export {
+  D1EmailRecoveryPreparationStore,
+  EMAIL_RECOVERY_PREPARATION_STORE_D1_SCHEMA_SQL,
   createEmailRecoveryPreparationStore,
+  ensureEmailRecoveryPreparationStoreD1Schema,
+  type D1EmailRecoveryPreparationStoreOptions,
+  type D1EmailRecoveryPreparationStoreSchemaOptions,
   type EmailRecoveryPreparationRecord,
   type EmailRecoveryPreparationStore,
 } from './core/EmailRecoveryPreparationStore';

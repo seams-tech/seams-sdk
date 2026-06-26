@@ -39,6 +39,10 @@ import type {
   WebhookDispatchRequest,
   WebhookDispatchResult,
 } from '../../packages/sdk-server-ts/src/console/webhooks/service';
+import {
+  D1EmailRecoveryPreparationStore,
+  type EmailRecoveryPreparationRecord,
+} from '../../packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore';
 import { D1WebAuthnAuthenticatorStore } from '../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
 import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
 import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
@@ -458,6 +462,67 @@ function recoveryExecutionAction(record: RecoveryExecutionRecord): string {
 
 function nearPublicKeyValue(record: NearPublicKeyRecord): string {
   return record.publicKey;
+}
+
+function buildD1EmailRecoveryPreparationRecord(input: {
+  readonly requestId: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+}): EmailRecoveryPreparationRecord {
+  return {
+    version: 'email_recovery_preparation_v1',
+    requestId: input.requestId,
+    accountId: 'wallet-d1-email-recovery',
+    walletBinding: {
+      walletId: 'wallet-d1-email-recovery',
+      nearAccountId: 'wallet-d1-email-recovery.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-email-recovery',
+      rpId: 'app.seams.test',
+      signerSlot: 1,
+    },
+    rpId: 'app.seams.test',
+    signerSlot: 1,
+    credentialIdB64u: 'credential-d1-email-recovery',
+    credentialPublicKeyB64u: 'credential-public-key-d1-email-recovery',
+    counter: 0,
+    createdAtMs: input.createdAtMs,
+    expiresAtMs: input.expiresAtMs,
+    thresholdEd25519: {
+      relayerKeyId: 'relayer-key-email-recovery',
+      publicKey: 'ed25519:email-recovery-public-key',
+      keyVersion: 'email-recovery-key-v1',
+      recoveryExportCapable: true,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+    },
+    ecdsa: {
+      kind: 'evm_family_ecdsa_keygen',
+      chainTargets: [
+        {
+          kind: 'evm',
+          namespace: 'eip155',
+          chainId: 1,
+        },
+      ],
+      prepare: {
+        formatVersion: 'ecdsa-hss-role-local',
+        walletId: 'wallet-d1-email-recovery',
+        walletKeyId: 'wallet-key-d1-email-recovery',
+        ecdsaThresholdKeyId: 'ecdsa-threshold-d1-email-recovery',
+        signingRootId: 'signing-root-d1-email-recovery',
+        signingRootVersion: 'version-d1-email-recovery',
+        keyScope: 'evm-family',
+        relayerKeyId: 'relayer-ecdsa-d1-email-recovery',
+        requestId: 'ecdsa-request-d1-email-recovery',
+        thresholdSessionId: 'threshold-session-d1-email-recovery',
+        signingGrantId: 'signing-grant-d1-email-recovery',
+        ttlMs: 300_000,
+        remainingUses: 10,
+        participantIds: [1, 2],
+      },
+    },
+  };
 }
 
 function isErrorWithCode(input: unknown): input is ErrorWithCode {
@@ -3714,6 +3779,66 @@ test.describe('D1 adapter contracts', () => {
           action: 'submit_recovery',
         }),
       ]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('signer email recovery preparations are scoped and expire in D1', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T09:00:00.000Z');
+      const scope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+        now: clock.now,
+      };
+      const preparationStore = new D1EmailRecoveryPreparationStore(scope);
+      const otherEnvPreparationStore = new D1EmailRecoveryPreparationStore({
+        ...scope,
+        envId: 'env-development',
+        ensureSchema: false,
+      });
+      const activePreparation = buildD1EmailRecoveryPreparationRecord({
+        requestId: 'email-recovery-preparation-d1',
+        createdAtMs: Date.parse('2026-06-27T09:00:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T09:30:00.000Z'),
+      });
+      const deletePreparation = buildD1EmailRecoveryPreparationRecord({
+        requestId: 'email-recovery-preparation-delete-d1',
+        createdAtMs: Date.parse('2026-06-27T09:01:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T09:30:00.000Z'),
+      });
+
+      await preparationStore.put(activePreparation);
+      await expect(
+        preparationStore.get('email-recovery-preparation-d1'),
+      ).resolves.toMatchObject({
+        requestId: 'email-recovery-preparation-d1',
+        accountId: 'wallet-d1-email-recovery',
+        rpId: 'app.seams.test',
+      });
+      await expect(
+        otherEnvPreparationStore.get('email-recovery-preparation-d1'),
+      ).resolves.toBeNull();
+
+      clock.set('2026-06-27T09:31:00.000Z');
+      await expect(preparationStore.get('email-recovery-preparation-d1')).resolves.toBeNull();
+
+      clock.set('2026-06-27T09:02:00.000Z');
+      await preparationStore.put(deletePreparation);
+      await expect(
+        preparationStore.get('email-recovery-preparation-delete-d1'),
+      ).resolves.toMatchObject({
+        requestId: 'email-recovery-preparation-delete-d1',
+      });
+      await preparationStore.del('email-recovery-preparation-delete-d1');
+      await expect(
+        preparationStore.get('email-recovery-preparation-delete-d1'),
+      ).resolves.toBeNull();
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

@@ -15,6 +15,8 @@ import {
   redisGetJson,
   redisSetJson,
 } from './ThresholdService/kv';
+import { formatD1ExecStatement } from '../storage/d1Sql';
+import type { D1DatabaseLike } from '../storage/tenantRoute';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type EmailRecoveryPreparedThresholdEd25519Record = {
@@ -59,8 +61,102 @@ export interface EmailRecoveryPreparationStore {
   del(requestId: string): Promise<void>;
 }
 
+export interface D1EmailRecoveryPreparationStoreSchemaOptions {
+  readonly database: D1DatabaseLike;
+}
+
+export interface D1EmailRecoveryPreparationStoreOptions {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema?: boolean;
+  readonly now?: () => Date;
+}
+
+type NormalizedD1EmailRecoveryPreparationStoreOptions = {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly ensureSchema: boolean;
+  readonly now: () => Date;
+};
+
+type D1EmailRecoveryPreparationScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+type D1EmailRecoveryPreparationRow = {
+  readonly record_json?: unknown;
+};
+
+export const EMAIL_RECOVERY_PREPARATION_STORE_D1_SCHEMA_SQL = Object.freeze([
+  `
+    CREATE TABLE IF NOT EXISTS signer_email_recovery_preparations (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      wallet_id TEXT NOT NULL,
+      rp_id TEXT NOT NULL,
+      record_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      expires_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (namespace, org_id, project_id, env_id, request_id),
+      CHECK (length(request_id) > 0),
+      CHECK (length(account_id) > 0),
+      CHECK (length(wallet_id) > 0),
+      CHECK (length(rp_id) > 0),
+      CHECK (json_valid(record_json)),
+      CHECK (created_at_ms > 0),
+      CHECK (expires_at_ms > created_at_ms)
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_email_recovery_preparations_expires_idx
+      ON signer_email_recovery_preparations (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        expires_at_ms
+      )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS signer_email_recovery_preparations_account_idx
+      ON signer_email_recovery_preparations (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        account_id,
+        created_at_ms
+      )
+  `,
+] as const);
+
+export async function ensureEmailRecoveryPreparationStoreD1Schema(
+  options: D1EmailRecoveryPreparationStoreSchemaOptions,
+): Promise<void> {
+  for (const statement of EMAIL_RECOVERY_PREPARATION_STORE_D1_SCHEMA_SQL) {
+    await options.database.exec(formatD1ExecStatement(statement));
+  }
+}
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return isObjectLoose(v);
+}
+
+function defaultNow(): Date {
+  return new Date();
 }
 
 function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
@@ -309,6 +405,65 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
   };
 }
 
+function parseD1RecordJson(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
+  return (
+    isObject(value) &&
+    typeof value.prepare === 'function' &&
+    typeof value.batch === 'function' &&
+    typeof value.exec === 'function'
+  );
+}
+
+function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
+  if (isD1DatabaseLike(config.database)) return config.database;
+  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
+  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
+  return null;
+}
+
+function requireD1ScopeString(input: unknown, field: string): string {
+  const normalized = toOptionalTrimmedString(input);
+  if (!normalized) {
+    throw new Error(`${field} is required for D1 email recovery preparation store`);
+  }
+  return normalized;
+}
+
+function normalizeD1EmailRecoveryPreparationStoreOptions(
+  input: D1EmailRecoveryPreparationStoreOptions,
+): NormalizedD1EmailRecoveryPreparationStoreOptions {
+  return {
+    database: input.database,
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.orgId, 'orgId'),
+    projectId: requireD1ScopeString(input.projectId, 'projectId'),
+    envId: requireD1ScopeString(input.envId, 'envId'),
+    ensureSchema: input.ensureSchema !== false,
+    now: input.now || defaultNow,
+  };
+}
+
+function d1ScopeFromConfig(input: {
+  readonly config: Record<string, unknown>;
+  readonly namespace: string;
+}): Omit<D1EmailRecoveryPreparationStoreOptions, 'database'> {
+  return {
+    namespace: requireD1ScopeString(input.namespace, 'namespace'),
+    orgId: requireD1ScopeString(input.config.orgId || input.config.ORG_ID, 'orgId'),
+    projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
+    envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
+  };
+}
+
 class InMemoryEmailRecoveryPreparationStore implements EmailRecoveryPreparationStore {
   private readonly namespace: string;
   private readonly map = new Map<string, EmailRecoveryPreparationRecord>();
@@ -343,6 +498,119 @@ class InMemoryEmailRecoveryPreparationStore implements EmailRecoveryPreparationS
     const id = toOptionalTrimmedString(requestId);
     if (!id) return;
     this.map.delete(this.key(id));
+  }
+}
+
+export class D1EmailRecoveryPreparationStore implements EmailRecoveryPreparationStore {
+  readonly adapterKind = 'd1';
+  private readonly database: D1DatabaseLike;
+  private readonly scope: D1EmailRecoveryPreparationScope;
+  private readonly ensureSchemaOnUse: boolean;
+  private readonly now: () => Date;
+  private schemaReady = false;
+
+  constructor(input: D1EmailRecoveryPreparationStoreOptions) {
+    const normalized = normalizeD1EmailRecoveryPreparationStoreOptions(input);
+    this.database = normalized.database;
+    this.scope = {
+      namespace: normalized.namespace,
+      orgId: normalized.orgId,
+      projectId: normalized.projectId,
+      envId: normalized.envId,
+    };
+    this.ensureSchemaOnUse = normalized.ensureSchema;
+    this.now = normalized.now;
+  }
+
+  private async ensureSchema(): Promise<void> {
+    if (!this.ensureSchemaOnUse || this.schemaReady) return;
+    await ensureEmailRecoveryPreparationStoreD1Schema({ database: this.database });
+    this.schemaReady = true;
+  }
+
+  private bindScope(statement: string, values: readonly unknown[] = []) {
+    return this.database
+      .prepare(statement)
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        ...values,
+      );
+  }
+
+  async get(requestId: string): Promise<EmailRecoveryPreparationRecord | null> {
+    await this.ensureSchema();
+    const id = toOptionalTrimmedString(requestId);
+    if (!id) return null;
+    const row = await this.bindScope(
+      `SELECT record_json
+         FROM signer_email_recovery_preparations
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND request_id = ?
+          AND expires_at_ms > ?
+        LIMIT 1`,
+      [id, this.now().getTime()],
+    ).first<D1EmailRecoveryPreparationRow>();
+    return parseEmailRecoveryPreparationRecord(parseD1RecordJson(row?.record_json));
+  }
+
+  async put(record: EmailRecoveryPreparationRecord): Promise<void> {
+    await this.ensureSchema();
+    const parsed = parseEmailRecoveryPreparationRecord(record);
+    if (!parsed) throw new Error('Invalid email recovery preparation record');
+    await this.bindScope(
+      `INSERT INTO signer_email_recovery_preparations (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        request_id,
+        account_id,
+        wallet_id,
+        rp_id,
+        record_json,
+        created_at_ms,
+        expires_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, request_id)
+      DO UPDATE SET
+        account_id = EXCLUDED.account_id,
+        wallet_id = EXCLUDED.wallet_id,
+        rp_id = EXCLUDED.rp_id,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = EXCLUDED.created_at_ms,
+        expires_at_ms = EXCLUDED.expires_at_ms`,
+      [
+        parsed.requestId,
+        parsed.accountId,
+        parsed.walletBinding.walletId,
+        parsed.rpId,
+        JSON.stringify(parsed),
+        parsed.createdAtMs,
+        parsed.expiresAtMs,
+      ],
+    ).run();
+  }
+
+  async del(requestId: string): Promise<void> {
+    await this.ensureSchema();
+    const id = toOptionalTrimmedString(requestId);
+    if (!id) return;
+    await this.bindScope(
+      `DELETE FROM signer_email_recovery_preparations
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND request_id = ?`,
+      [id],
+    ).run();
   }
 }
 
@@ -487,6 +755,20 @@ export function createEmailRecoveryPreparationStore(input: {
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const kind = toOptionalTrimmedString(config.kind);
+
+  if (kind === 'd1') {
+    const database = resolveD1DatabaseFromConfig(config);
+    if (!database) {
+      throw new Error(
+        '[email-recovery] D1 preparation store selected but no D1 database was provided',
+      );
+    }
+    input.logger.info('[email-recovery] Using D1 preparation store');
+    return new D1EmailRecoveryPreparationStore({
+      database,
+      ...d1ScopeFromConfig({ config, namespace }),
+    });
+  }
 
   if (kind === 'in-memory') {
     if (requirePersistent) {
