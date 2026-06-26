@@ -54,7 +54,7 @@ function makeSponsoredOptions() {
 test.describe('cloudflare sponsored evm call route', () => {
   const requestBody = {
     environmentId: 'proj_test:dev',
-    nearAccountId: 'alice.testnet',
+    walletId: 'wallet_test_1',
     walletAddress: '0x1111111111111111111111111111111111111111',
     chainId: 42_431,
     call: {

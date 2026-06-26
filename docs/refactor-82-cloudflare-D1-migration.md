@@ -60,6 +60,9 @@ Authoritative Cloudflare references:
 - Stage on D1/DO from the start. There is no mixed staging mode.
 - Cloudflare Worker-facing code imports D1/DO leaf modules directly. Mixed
   Postgres/D1 modules are allowed only on Node/Postgres paths.
+- The shared sponsored execution recorder is D1-only for refactor 82 staging.
+  A future Postgres implementation must enter through the full-family Postgres
+  adapter contract, not through the Cloudflare D1 route path.
 
 ## Simplification Decisions
 
@@ -161,6 +164,9 @@ Completed so far:
   D1 path batches reservation settlement, billing ledger debit, and
   sponsored-call record insertion, and requires the sponsored-call idempotency
   key to prevent retry debits.
+- Removed the live Postgres branch from the shared sponsored execution recorder
+  so Cloudflare sponsored EVM and signed-delegate route imports do not pull
+  Postgres helpers while D1/DO staging is the target backend family.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
 - Added persisted D1 monthly usage statements, MAW debit reconciliation, and
@@ -886,6 +892,8 @@ Work:
   enterprise custody.
 - Keep Cloudflare Worker-facing imports pointed at D1/DO leaf modules. Do not
   import mixed Postgres modules from Worker bundles.
+- Keep sponsored gas settlement on the D1 atomic path for staging. Reintroduce
+  Postgres settlement only as part of the future full-family Postgres adapter.
 
 Exit criteria:
 

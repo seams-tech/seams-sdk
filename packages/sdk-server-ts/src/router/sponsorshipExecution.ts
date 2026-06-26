@@ -4,10 +4,6 @@ import {
   createSponsoredExecutionDebitD1InsertStatement,
   getConsoleBillingD1Runtime,
 } from '../console/billing';
-import {
-  getConsoleBillingPostgresRuntime,
-  recordSponsoredExecutionDebitTx,
-} from '../console/billing/postgres';
 import type {
   ConsoleBillingPrepaidReservation,
   ConsoleBillingPrepaidReservationD1Runtime,
@@ -19,11 +15,6 @@ import {
   createSettleConsoleBillingPrepaidReservationD1Statement,
   getConsoleBillingPrepaidReservationD1Runtime,
 } from '../console/billingPrepaidReservations';
-import {
-  getConsoleBillingPrepaidReservationPostgresRuntime,
-  releaseConsoleBillingPrepaidReservationTx,
-  settleConsoleBillingPrepaidReservationTx,
-} from '../console/billingPrepaidReservations/postgres';
 import type {
   ConsoleSponsoredCallD1Runtime,
   ConsoleSponsoredCallExecutorKind,
@@ -39,15 +30,10 @@ import {
   loadD1ConsoleSponsoredCallRecordById,
   loadD1ConsoleSponsoredCallRecordByIdempotencyKey,
 } from '../console/sponsoredCalls';
-import {
-  createConsoleSponsoredCallRecordTx,
-  getConsoleSponsoredCallPostgresRuntime,
-} from '../console/sponsoredCalls/postgres';
 import type { ConsoleBillingContext } from '../console/billing/service';
 import type { ConsoleBillingPrepaidReservationContext } from '../console/billingPrepaidReservations';
 import type { ConsoleSponsoredCallContext } from '../console/sponsoredCalls/service';
 import type { D1PreparedStatementLike } from '../storage/tenantRoute';
-import { withConsoleTenantContextTx } from '../console/shared/postgresTenantContext';
 import type { RouteResponse } from './routeExecutionContext';
 import type { SponsorshipSpendPricingService } from '../sponsorship';
 import type {
@@ -138,16 +124,6 @@ export interface FinalizedSponsoredPrepaidSettlement extends SponsoredPrepaidRes
   billingLedgerEntryId: string | null;
 }
 
-type TxQueryable = {
-  query: (
-    text: string,
-    values?: unknown[],
-  ) => Promise<{
-    rows: any[];
-    rowCount?: number | undefined;
-  }>;
-};
-
 export interface RunSponsorshipExecutionOnResultInput<
   TResult,
   TAssessment extends SponsorshipExecutionAssessment,
@@ -189,23 +165,9 @@ export async function recordSponsoredExecution(
   const prepaidSettlementInput = input.prepaidSettlementInput;
   if (!prepaidSettlementInput?.reservation) {
     throw new Error(
-      'Atomic sponsored settlement requires an active prepaid reservation handle on recordSponsoredExecution input',
+      'D1 sponsored settlement requires an active prepaid reservation handle on recordSponsoredExecution input',
     );
   }
-  const billingRuntime = getConsoleBillingPostgresRuntime(input.billing);
-  const prepaidRuntime = getConsoleBillingPrepaidReservationPostgresRuntime(
-    prepaidSettlementInput.prepaidReservations || null,
-  );
-  const sponsoredCallsRuntime = getConsoleSponsoredCallPostgresRuntime(input.ledger);
-  const canUseAtomicPostgresPath = Boolean(
-    billingRuntime &&
-      prepaidRuntime &&
-      sponsoredCallsRuntime &&
-      billingRuntime.pool === prepaidRuntime.pool &&
-      billingRuntime.pool === sponsoredCallsRuntime.pool &&
-      billingRuntime.namespace === prepaidRuntime.namespace &&
-      billingRuntime.namespace === sponsoredCallsRuntime.namespace,
-  );
   const billingD1Runtime = getConsoleBillingD1Runtime(input.billing);
   const prepaidD1Runtime = getConsoleBillingPrepaidReservationD1Runtime(
     prepaidSettlementInput.prepaidReservations || null,
@@ -220,70 +182,22 @@ export async function recordSponsoredExecution(
       billingD1Runtime.namespace === prepaidD1Runtime.namespace &&
       billingD1Runtime.namespace === sponsoredCallsD1Runtime.namespace,
   );
-  let record: ConsoleSponsoredCallRecord;
   if (
-    canUseAtomicPostgresPath &&
-    billingRuntime &&
-    prepaidRuntime &&
-    sponsoredCallsRuntime
+    !canUseAtomicD1Path ||
+    !billingD1Runtime ||
+    !prepaidD1Runtime ||
+    !sponsoredCallsD1Runtime
   ) {
-    const runtime = billingRuntime;
-    record = await withConsoleTenantContextTx(
-      runtime.pool,
-      {
-        namespace: runtime.namespace,
-        orgId: input.context.orgId,
-      },
-      async (tx: TxQueryable) => {
-        const recordId = `scr_${Date.now().toString(36)}_${secureRandomBase36(8, 'sponsored call record IDs')}`;
-        const finalized = await finalizeSponsoredPrepaidSettlementInTx(tx, {
-          billingNamespace: runtime.namespace,
-          billingContext: input.context,
-          billingNow: runtime.now(),
-          billingSourceEventIdPrefix: input.billingSourceEventIdPrefix,
-          walletId: input.walletId,
-          occurredAt: input.occurredAt,
-          recordId,
-          prepaidSettlementInput,
-        });
-        return await createConsoleSponsoredCallRecordTx(tx, {
-          namespace: runtime.namespace,
-          ctx: input.context,
-          now: runtime.now,
-          request: {
-            ...input.buildRecord({
-              prepaidSettlement: finalized?.settlement || null,
-              billingLedgerEntryId: finalized?.billingLedgerEntryId || null,
-            }),
-            id: recordId,
-            txOrExecutionRef: input.assessment.txOrExecutionRef,
-            receiptStatus: input.assessment.receiptStatus,
-            feeUnit: input.assessment.feeUnit,
-            feeAmount: input.assessment.feeAmount,
-            executorKind: input.assessment.executorKind,
-            errorCode: input.assessment.recordErrorCode,
-            errorMessage: input.assessment.recordErrorMessage,
-          },
-        });
-      },
-    );
-  } else if (
-    canUseAtomicD1Path &&
-    billingD1Runtime &&
-    prepaidD1Runtime &&
-    sponsoredCallsD1Runtime
-  ) {
-    record = await recordSponsoredExecutionD1({
-      input,
-      billingRuntime: billingD1Runtime,
-      prepaidRuntime: prepaidD1Runtime,
-      sponsoredCallsRuntime: sponsoredCallsD1Runtime,
-    });
-  } else {
     throw new Error(
-      'Atomic sponsored settlement requires Postgres or D1-backed billing, prepaidReservations, and sponsoredCalls services sharing one backend and namespace',
+      'D1 sponsored settlement requires D1-backed billing, prepaidReservations, and sponsoredCalls services sharing one database and namespace',
     );
   }
+  const record = await recordSponsoredExecutionD1({
+    input,
+    billingRuntime: billingD1Runtime,
+    prepaidRuntime: prepaidD1Runtime,
+    sponsoredCallsRuntime: sponsoredCallsD1Runtime,
+  });
   if (input.balanceEvents) {
     await emitSponsorshipBalanceTransitionEvents({
       services: input.balanceEvents,
@@ -672,95 +586,5 @@ function buildSettledD1PrepaidSettlement(
     },
     billingLedgerEntryId,
     statements,
-  };
-}
-
-async function finalizeSponsoredPrepaidSettlementInTx(
-  tx: TxQueryable,
-  input: {
-    billingNamespace: string;
-    billingContext: ConsoleBillingContext &
-      ConsoleBillingPrepaidReservationContext &
-      ConsoleSponsoredCallContext;
-    billingNow: Date;
-    billingSourceEventIdPrefix: string;
-    walletId: string;
-    occurredAt?: string;
-    recordId: string;
-    prepaidSettlementInput: SponsoredExecutionPrepaidSettlementInput;
-  },
-): Promise<{
-  settlement: FinalizedSponsoredPrepaidSettlement | null;
-  billingLedgerEntryId: string | null;
-} | null> {
-  const reservation = input.prepaidSettlementInput.reservation;
-  if (!reservation) return null;
-  const prepaidRuntime = getConsoleBillingPrepaidReservationPostgresRuntime(
-    input.prepaidSettlementInput.prepaidReservations,
-  );
-  if (!prepaidRuntime) return null;
-  const quote = await resolveSponsoredPrepaidSettlementQuote(input.prepaidSettlementInput);
-  if (!quote) {
-    return { settlement: null, billingLedgerEntryId: null };
-  }
-
-  const sourceEventId = reservation.sourceEventId;
-  const settledAt = input.billingNow.toISOString();
-  const reservationMutation = quote.released
-    ? await releaseConsoleBillingPrepaidReservationTx(tx as any, {
-        namespace: prepaidRuntime.namespace,
-        ctx: input.billingContext,
-        now: input.billingNow,
-        request: {
-          sourceEventId,
-        },
-      })
-    : await settleConsoleBillingPrepaidReservationTx(tx as any, {
-        namespace: prepaidRuntime.namespace,
-        ctx: input.billingContext,
-        now: input.billingNow,
-        request: {
-          sourceEventId,
-          settledSpendMinor: quote.settledSpendMinor,
-          txOrExecutionRef: input.prepaidSettlementInput.txOrExecutionRef,
-          pricingVersion: quote.pricingVersion,
-        },
-      });
-  const settlement: SponsoredPrepaidReservationSettlement = {
-    reservationId: reservationMutation?.reservation.id || null,
-    settledSpendMinor: quote.settledSpendMinor,
-    pricingVersion: quote.pricingVersion,
-    usedEstimatedFallback: quote.usedEstimatedFallback,
-    released: quote.released,
-    settledAt,
-  };
-  let billingLedgerEntryId: string | null = null;
-  if (!settlement.released && settlement.settledSpendMinor > 0) {
-    const debit = await recordSponsoredExecutionDebitTx(tx as any, {
-      namespace: input.billingNamespace,
-      ctx: input.billingContext,
-      now: input.billingNow,
-      request: {
-        amountMinor: settlement.settledSpendMinor,
-        sourceEventId: `${input.billingSourceEventIdPrefix}:${input.recordId}`,
-        walletId: input.walletId,
-        occurredAt: input.occurredAt || settlement.settledAt,
-        ...(input.prepaidSettlementInput.txOrExecutionRef
-          ? { txOrExecutionRef: input.prepaidSettlementInput.txOrExecutionRef }
-          : {}),
-        ...(settlement.pricingVersion ? { pricingVersion: settlement.pricingVersion } : {}),
-      },
-    });
-    billingLedgerEntryId = debit.result.ledgerEntryId;
-  }
-
-  return {
-    settlement: {
-      ...settlement,
-      sourceEventId,
-      estimatedSpendMinor: reservation.estimatedSpendMinor,
-      billingLedgerEntryId,
-    },
-    billingLedgerEntryId,
   };
 }
