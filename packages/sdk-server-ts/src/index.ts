@@ -238,13 +238,16 @@ export {
   type TrackedNearRecoveryExecution,
 } from './router/recoveryExecutionTracking';
 export {
+  CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
   PostgresRouterAbNormalSigningAdmissionStore,
+  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createPostgresRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
   ensurePostgresRouterAbNormalSigningAdmissionStoreSchema,
+  type CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
   type InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   type PostgresRouterAbNormalSigningAdmissionStoreOptions,
   type RouterAbNormalSigningAbuseDecision,

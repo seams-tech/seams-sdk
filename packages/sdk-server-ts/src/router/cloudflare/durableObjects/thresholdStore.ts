@@ -73,6 +73,14 @@ type DoReq =
   | { op: 'authReleaseReservedBudgetUseCount'; key: string; input: unknown }
   | { op: 'authReleaseReservedBudgetUseCountForIdentity'; key: string; input: unknown }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
+  | {
+      op: 'routerAbNormalSigningReserveQuota';
+      key: string;
+      requestId: string;
+      lifecycleId: string;
+      expiresAtMs: number;
+      nowMs: number;
+    }
   | { op: 'routerAbEcdsaHssPresignaturePut'; listKey: string; value: unknown }
   | {
       op: 'routerAbEcdsaHssPresignatureReserve';
@@ -167,6 +175,18 @@ type AuthBudgetCommit = {
   remainingUses: number;
   expiresAtMs: number;
 };
+
+type RouterAbNormalSigningQuotaReservation = {
+  kind: 'router_ab_normal_signing_quota_reservation_v1';
+  requestId: string;
+  lifecycleId: string;
+  expiresAtMs: number;
+};
+
+type RouterAbNormalSigningQuotaDecision =
+  | { kind: 'accepted'; requestId: string }
+  | { kind: 'reuse_existing'; requestId: string; existingLifecycleId: string }
+  | { kind: 'short_window_saturated' };
 
 type RouterAbEcdsaHssPoolFillSessionRecord = {
   expiresAtMs: number;
@@ -456,6 +476,69 @@ function createAuthBudgetReservationId(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return `wbudget_${base64UrlEncode(bytes)}`;
+}
+
+function parseFutureEpochMs(value: unknown, floorExclusiveMs: number): number | null {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isSafeInteger(parsed) || parsed <= floorExclusiveMs) return null;
+  return parsed;
+}
+
+function parseRouterAbNormalSigningQuotaReservation(
+  raw: unknown,
+): RouterAbNormalSigningQuotaReservation | null {
+  if (!isPlainObject(raw)) return null;
+  if (raw.kind !== 'router_ab_normal_signing_quota_reservation_v1') return null;
+  const requestId = toKey(raw.requestId);
+  const lifecycleId = toKey(raw.lifecycleId);
+  const expiresAtMs = Number(raw.expiresAtMs);
+  if (!requestId || !lifecycleId || !Number.isSafeInteger(expiresAtMs)) return null;
+  return {
+    kind: 'router_ab_normal_signing_quota_reservation_v1',
+    requestId,
+    lifecycleId,
+    expiresAtMs,
+  };
+}
+
+async function reserveRouterAbNormalSigningQuota(
+  store: DurableObjectStorageLike,
+  input: {
+    readonly key: string;
+    readonly requestId: string;
+    readonly lifecycleId: string;
+    readonly expiresAtMs: number;
+    readonly nowMs: number;
+  },
+): Promise<DoResp<RouterAbNormalSigningQuotaDecision>> {
+  const raw = await store.get(input.key);
+  const existing = parseRouterAbNormalSigningQuotaReservation(raw);
+  if (existing && existing.expiresAtMs > input.nowMs) {
+    if (existing.requestId === input.requestId) {
+      return ok({
+        kind: 'reuse_existing',
+        requestId: input.requestId,
+        existingLifecycleId: existing.lifecycleId,
+      });
+    }
+    return ok({ kind: 'short_window_saturated' });
+  }
+  if (raw !== null && raw !== undefined) {
+    await store.delete(input.key);
+  }
+
+  const ttl = toTtlSeconds(input.expiresAtMs - input.nowMs);
+  await store.put(
+    input.key,
+    {
+      kind: 'router_ab_normal_signing_quota_reservation_v1',
+      requestId: input.requestId,
+      lifecycleId: input.lifecycleId,
+      expiresAtMs: input.expiresAtMs,
+    } satisfies RouterAbNormalSigningQuotaReservation,
+    ttl ? { expirationTtl: ttl } : undefined,
+  );
+  return ok({ kind: 'accepted', requestId: input.requestId });
 }
 
 function authBudgetProjection(
@@ -880,6 +963,33 @@ export class ThresholdStoreDurableObject {
         };
       });
       return json(ok(value));
+    }
+
+    if (op === 'routerAbNormalSigningReserveQuota') {
+      const key = toKey((req as { key?: unknown }).key);
+      const requestId = toKey((req as { requestId?: unknown }).requestId);
+      const lifecycleId = toKey((req as { lifecycleId?: unknown }).lifecycleId);
+      const nowMs = Math.floor(Number((req as { nowMs?: unknown }).nowMs));
+      const expiresAtMs = parseFutureEpochMs(
+        (req as { expiresAtMs?: unknown }).expiresAtMs,
+        nowMs,
+      );
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!requestId) return json(err('invalid_body', 'Missing requestId'));
+      if (!lifecycleId) return json(err('invalid_body', 'Missing lifecycleId'));
+      if (!Number.isSafeInteger(nowMs)) return json(err('invalid_body', 'Invalid nowMs'));
+      if (expiresAtMs === null) return json(err('invalid_body', 'Invalid expiresAtMs'));
+
+      const result = await withTxn(this.state, (store) =>
+        reserveRouterAbNormalSigningQuota(store, {
+          key,
+          requestId,
+          lifecycleId,
+          expiresAtMs,
+          nowMs,
+        }),
+      );
+      return json(result);
     }
 
     if (op === 'signingRootPut') {

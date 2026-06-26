@@ -41,8 +41,10 @@ export type {
   RouterAbNormalSigningAdmissionResult,
 } from './routerAbPrivateSigningWorker';
 export {
+  CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
   PostgresRouterAbNormalSigningAdmissionStore,
+  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createPostgresRouterAbNormalSigningAdmissionStore,
@@ -50,6 +52,7 @@ export {
   ensurePostgresRouterAbNormalSigningAdmissionStoreSchema,
 } from './routerAbNormalSigningAdmissionStore';
 export type {
+  CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
   InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   PostgresRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
