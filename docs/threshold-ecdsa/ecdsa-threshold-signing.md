@@ -23,13 +23,13 @@ The active release requirement is:
 
 The public client boundary is the Router A/B normal-signing route pair:
 
-- `POST /v1/hss/ecdsa/sign/prepare`
-- `POST /v1/hss/ecdsa/sign`
+- `POST /router-ab/ecdsa-hss/sign/prepare`
+- `POST /router-ab/ecdsa-hss/sign`
 
 The Router A/B ECDSA-HSS pool-fill boundary is:
 
-- `POST /v1/hss/ecdsa/presignature-pool/fill/init`
-- `POST /v1/hss/ecdsa/presignature-pool/fill/step`
+- `POST /router-ab/ecdsa-hss/presignature-pool/fill/init`
+- `POST /router-ab/ecdsa-hss/presignature-pool/fill/step`
 
 The SDK sends a bearer Wallet Session JWT with browser credentials omitted. The
 request builders bind the typed ECDSA-HSS scope, request id, signing digest,

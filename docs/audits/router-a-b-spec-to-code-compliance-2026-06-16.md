@@ -176,7 +176,7 @@ Type: evidence gap.
 
 Confidence: 0.95.
 
-Requirement: release readiness requires actual upload/deploy evidence, deployed browser evidence for `/v2/router-ab/ed25519/sign/prepare` and `/v2/router-ab/ed25519/sign`, configured-origin success, rejected-origin behavior, preflight behavior, cold/hot latency, logs/metrics, Deriver non-invocation on normal signing, and startup evidence. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1478), [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1487), and [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:3176).
+Requirement: release readiness requires actual upload/deploy evidence, deployed browser evidence for `/router-ab/ed25519/sign/prepare` and `/router-ab/ed25519/sign`, configured-origin success, rejected-origin behavior, preflight behavior, cold/hot latency, logs/metrics, Deriver non-invocation on normal signing, and startup evidence. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1478), [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1487), and [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:3176).
 
 Observed evidence: local release gates and dry-run packaging pass, but the recorded startup-latency report is dry-run mode and has `startupTimeMs` as `null`, which is expected for that evidence type. Startup reports are generated as ignored timestamped JSON under `crates/router-ab-cloudflare/reports/startup-latencies/`.
 

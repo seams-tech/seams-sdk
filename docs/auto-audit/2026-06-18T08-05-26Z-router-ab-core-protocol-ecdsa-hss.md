@@ -28,7 +28,7 @@ This audit focused on [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-core/src/
 
 - Direct local callers / consumers:
   - [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-core/src/protocol/mod.rs`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-core/src/protocol/mod.rs) re-exports the whole ECDSA-HSS boundary.
-  - [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/strict_worker.rs`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/strict_worker.rs) parses the public request bodies for `/v1/hss/ecdsa/bootstrap`, `/export/share`, `/sign/prepare`, and `/sign`.
+  - [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/strict_worker.rs`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/strict_worker.rs) parses the public request bodies for `/router-ab/ecdsa-hss/bootstrap`, `/export/share`, `/sign/prepare`, and `/sign`.
   - [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/durable_object.rs`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/durable_object.rs) derives active-signing-worker lookups from `RouterAbEcdsaHssNormalSigningScopeV1`.
   - [`/Users/pta/Dev/rust/seams-sdk/packages/shared-ts/src/utils/routerAbEcdsaHss.ts`](/Users/pta/Dev/rust/seams-sdk/packages/shared-ts/src/utils/routerAbEcdsaHss.ts) mirrors the normal-signing wire contract and computes matching digests/session ids on the wallet SDK side.
   - Tests: [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-core/tests/ecdsa_hss_protocol.rs`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-core/tests/ecdsa_hss_protocol.rs) and [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-core/tests/source_guards.rs`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-core/tests/source_guards.rs).

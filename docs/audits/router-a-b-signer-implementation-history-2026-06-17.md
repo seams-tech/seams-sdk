@@ -157,7 +157,7 @@ Current completed work:
   to lifecycle state, reserves replay state, and only includes deriver wire
   messages for accepted or reuse-existing decisions.
 - `crates/router-ab-cloudflare` now has a feature-gated `workers-rs` public
-  Router handler for `POST /v1/hss/split-derivation`. It reserves replay state,
+  Router handler for `POST /router-ab/split-derivation`. It reserves replay state,
   persists gate-applied public lifecycle state, forwards opaque role-specific
   deriver wire messages over Cloudflare Service Bindings only after admission,
   and aggregates transcript-bound deriver proof-bundle responses.
@@ -1107,8 +1107,8 @@ product behavior should use the dedicated SigningWorker boundary.
           `NormalSigningRound1PrepareResponseV1`, and a shared
           `round1_binding_digest` over scope, expiry, intent digest, and
           signing payload. Cloudflare now exposes public
-          `/v1/hss/sign/prepare` and private
-          `/router-ab/v1/signing-worker/sign/prepare` routes, authorizes the
+          `/router-ab/ed25519/sign/prepare` and private
+          `/router-ab/signing-worker/sign/prepare` routes, authorizes the
           prepare request through the normal-signing JWT/policy/quota/abuse
           path, and returns only public server commitments, server verifying
           share, and a server round-1 handle.
@@ -1152,10 +1152,10 @@ product behavior should use the dedicated SigningWorker boundary.
           HSS state.
     - [x] Replace local normal-signing smoke signatures with the production
           Ed25519-HSS two-step shape.
-          `router-ab-dev` now exposes local `/v1/hss/sign/prepare` and
-          `/router-ab/v1/signing-worker/sign/prepare` routes, persists
+          `router-ab-dev` now exposes local `/router-ab/ed25519/sign/prepare` and
+          `/router-ab/signing-worker/sign/prepare` routes, persists
           SigningWorker server round-1 nonce records in the local process, and
-          finalizes `/v1/hss/sign` through
+          finalizes `/router-ab/ed25519/sign` through
           `ed25519_hss::role_signing`. `pnpm router:smoke` and
           `pnpm router:smoke:bundled` now report
           `normal_signing_status: "ed25519_v1"` with Deriver A/B off the
@@ -1168,9 +1168,9 @@ product behavior should use the dedicated SigningWorker boundary.
           material internal to one worker call and does not reconstruct joined
           Ed25519 key material.
     - [x] Update the SDK NEAR transaction normal-signing client path to call
-          `/v1/hss/sign/prepare`, use the HSS-client bridge to build the
+          `/router-ab/ed25519/sign/prepare`, use the HSS-client bridge to build the
           client signature share from the returned commitments and server
-          verifying share, then submit `/v1/hss/sign` with the exact finalize
+          verifying share, then submit `/router-ab/ed25519/sign` with the exact finalize
           material. The SDK path requires explicit
           `routerAbNormalSigning.signingWorkerId`, verifies returned scope and
           signing-payload digest, and locally attaches the returned Ed25519
@@ -1488,12 +1488,12 @@ not emit `startup_time_ms`.
 - [x] Keep root-share wire secrets outside generated deployment identity
       material; those values still come from the provisioning ceremony.
 - [x] Serve the Router public keyset at `/.well-known/router-ab/keyset` and
-      `/v2/router-ab/keyset`.
+      `/router-ab/keyset`.
 - [x] Include public keyset vars in Cloudflare Router upload/deploy config and
       startup dry-run measurement inputs.
 - [x] Serve the same public keyset shape from self-host relay routes when
       `routerAbPublicKeyset` is configured.
-- [x] Prefetch and validate `/v2/router-ab/keyset` during SDK registration
+- [x] Prefetch and validate `/router-ab/keyset` during SDK registration
       precompute when Router A/B normal signing is enabled.
 - [x] Run `pnpm router:deploy:keygen -- --env staging --apply` against the real
       staging GitHub Environment.

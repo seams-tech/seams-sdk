@@ -127,14 +127,14 @@ adapter already defines them:
 
 | Route                                                  | Owner         | Purpose                                     |
 | ------------------------------------------------------ | ------------- | ------------------------------------------- |
-| `/v1/hss/split-derivation`                             | Router        | public setup/export/refresh entry           |
-| `/v1/hss/sign`                                         | Router        | public normal-signing entry                 |
-| `/router-ab/v1/signer-a`                               | Deriver A     | private Router -> Deriver A request         |
-| `/router-ab/v1/signer-b`                               | Deriver B     | private Router -> Deriver B request         |
-| `/router-ab/v1/signer-a/peer`                          | Deriver A     | private Deriver B -> Deriver A peer request |
-| `/router-ab/v1/signer-b/peer`                          | Deriver B     | private Deriver A -> Deriver B peer request |
-| `/router-ab/v1/signing-worker/proof-bundle-activation` | SigningWorker | private activation request                  |
-| `/router-ab/v1/signing-worker/sign`                    | SigningWorker | private normal-signing request              |
+| `/router-ab/split-derivation`                             | Router        | public setup/export/refresh entry           |
+| `/router-ab/ed25519/sign`                                         | Router        | public normal-signing entry                 |
+| `/router-ab/signer-a`                               | Deriver A     | private Router -> Deriver A request         |
+| `/router-ab/signer-b`                               | Deriver B     | private Router -> Deriver B request         |
+| `/router-ab/signer-a/peer`                          | Deriver A     | private Deriver B -> Deriver A peer request |
+| `/router-ab/signer-b/peer`                          | Deriver B     | private Deriver A -> Deriver B peer request |
+| `/router-ab/signing-worker/proof-bundle-activation` | SigningWorker | private activation request                  |
+| `/router-ab/signing-worker/sign`                    | SigningWorker | private normal-signing request              |
 
 The current `LocalHttpPathV1` `/local/...` routes remain useful for
 in-process unit tests. The local topology should converge on the
@@ -304,20 +304,22 @@ Frontend account-creation testing uses the regular local app stack:
 
 ```sh
 pnpm site
-pnpm router:multiplex
+pnpm router
 ```
 
-Run those commands in separate terminals. `pnpm site` owns
-`https://localhost`, and `pnpm router:multiplex` starts the Router server at
-`127.0.0.1:9090` when it is not already running. It verifies
-`https://localhost:9444/.well-known/webauthn` and starts the local Caddy proxy
+Run those commands in separate terminals. Use `pnpm router:multiplex` instead
+of `pnpm router` when you want the 2x2 dashboard. `pnpm site` owns
+`https://localhost`; `pnpm router` and `pnpm router:multiplex` start the Router
+server at `127.0.0.1:9090` when it is not already running. They verify
+`https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
 when that HTTPS endpoint is absent. The Router A/B harness workers still run on
 their own local ports for protocol work.
 
-`pnpm server` starts the main Router server in `apps/web-server`.
+`pnpm router:server` is the lower-level main Router server command used by the local
+router launcher. Browser registration testing should use `pnpm router`.
 
 If a browser request through `https://localhost:9444` returns an Express-style
-`Cannot POST /v2/router-ab/...`, the main Router route table is missing that
+`Cannot POST /router-ab/...`, the main Router route table is missing that
 route. Do not fix this with Caddy path selection; Caddy must forward the whole
 origin to one Router server.
 

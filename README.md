@@ -10,16 +10,17 @@ pnpm install
 pnpm build:sdk-full
 ```
 
-Run the local site, wallet origin, docs, and Router API server from the repo root:
+Run the local site, wallet origin, docs, Router API server, and Router A/B workers
+from the repo root:
 
 ```bash
 pnpm run site
-pnpm run server
+pnpm router
 ```
 
 - Run the commands above in separate terminals.
 - `pnpm run site` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
-- `pnpm run server` starts the Router API server.
+- `pnpm router` starts Deriver A, Deriver B, SigningWorker, and the Router API server. It starts the API server through `pnpm router:server` when `127.0.0.1:9090` is not already ready.
 - Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, Router API base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.
 - Internal dev ports: Vite on `http://localhost:3600`, Router API server on `http://127.0.0.1:9090`.
@@ -29,10 +30,10 @@ pnpm run server
 ## Repo Layout
 
 - `apps/seams-site`: local app, wallet origin, and Caddy config.
-- `apps/web-server`: relay/server runtime.
+- `apps/web-server`: Router API server runtime.
 - `apps/docs`: documentation site.
 - `packages/sdk-web`: browser SDK package.
-- `packages/sdk-server-ts`: server-side router and relay helpers.
+- `packages/sdk-server-ts`: server-side Router helpers.
 - `packages/sdk-web/src/core/runtime`: shared runtime composition code.
 - `packages/shared-ts`: shared TypeScript utilities.
 - `crates`: Rust protocol, signer, HSS, and Router A/B crates.

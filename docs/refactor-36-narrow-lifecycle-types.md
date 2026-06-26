@@ -213,7 +213,7 @@ Primary files:
 
 Problem shape:
 
-- `/session/signing-budget/status` historically accepted a
+- `/router-ab/wallet-budget/status` historically accepted a
   `thresholdSessionId` and looked up generic session status
 - passkey login can create matching `threshold-login-*` IDs in Ed25519 and ECDSA
   session stores
@@ -1811,7 +1811,7 @@ Tasks:
   - `tests/unit/thresholdEcdsa.tempoHighLevel.unit.test.ts`
   - `tests/e2e/thresholdEcdsa.tempoSigning.test.ts`
 - [x] Add a browser regression proving fresh ECDSA Tempo bootstrap followed by
-  `/session/signing-budget/status` returns an active wallet budget for the exact
+  `/router-ab/wallet-budget/status` returns an active wallet budget for the exact
   `walletSigningSessionId`.
 
 Completed Phase 13 browser Tempo helper cleanup:

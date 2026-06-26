@@ -2,61 +2,110 @@
 
 Last reviewed: 2026-06-26
 
-This document captures the target architecture for a Cloudflare-native fork of
+## Executive Summary
+
+This plan describes a Cloudflare-native fork of
 [paradigmxyz/centaur](https://github.com/paradigmxyz/centaur) for a
-multi-tenant merchant platform. The goal is to preserve Centaur's useful
-interaction model while replacing the Kubernetes production substrate with
+multi-tenant merchant platform. The main goal is migration to a Cloudflare-native
+architecture with a smaller dependency surface. The fork preserves Centaur's
+useful interaction model: Slack/API ingress, durable sessions, shared
+Slack-thread collaboration, agent harnesses, credential boundaries, and
+operator-managed grants. It replaces the Kubernetes production substrate with
 Cloudflare Workers, Durable Objects, Containers, D1, R2, Queues, Workflows,
 Hyperdrive, and Worker-side secret brokerage.
 
-## Goals
+The product should use existing user interfaces wherever possible. Slack is the
+primary multiplayer surface. Codex, Claude, and similar apps are harnesses or
+developer/operator surfaces. The admin console remains an operations surface for
+tenants, installs, grants, secrets, audit, and raw database access controls.
 
-- Run one multi-tenant platform for many merchants.
-- Avoid Kubernetes and cluster operations.
-- Keep the primary user experience in existing UIs: Slack, Codex, Claude, and
-  similar agent surfaces.
-- Provide one agent instance per merchant workspace, project, or configured
-  tenant boundary.
-- Allow multiple Slack users to collaborate with the same agent session through
-  the same Slack thread.
-- Keep merchant credentials out of agent containers.
-- Support both typed merchant tools and privileged raw database sessions.
-- Support 1Password and a cheaper first-party secret vault through the same
-  `SecretRef` model.
+Centaur's upstream production model uses Postgres, Kubernetes sandbox pods, and
+iron-proxy. The Cloudflare fork should keep the security contract while changing
+the implementation: agent containers do not receive merchant credentials; typed
+tools, egress handlers, and database gateways perform privileged work in trusted
+Worker code.
 
-## Existing Centaur Behavior To Preserve
+## Key Decisions
 
-Centaur is primarily a Slack/API agent control plane. Its "multiplayer" behavior
-comes from Slack thread sharing: once a bot is mentioned, the thread maps to a
-durable session, and multiple Slack members in that thread can add messages to
-the same session. Thread visibility inherits Slack visibility. A public channel
-thread is effectively visible to channel members; a private channel thread is
-limited by Slack's private-channel membership.
+1. Make the fork Cloudflare-native rather than a Kubernetes deployment.
+2. Run one pooled multi-tenant platform for many merchants by default.
+3. Offer dedicated data and dedicated deployment tiers for larger merchants.
+4. Use Slack as the primary collaborative UI.
+5. Use Cloudflare-native Workers, Durable Objects, and Containers instead of
+   Kubernetes.
+6. Replace iron-proxy with a Worker-side credential and egress boundary.
+7. Keep an iron-proxy container bridge only as a temporary compatibility path.
+8. Prefer a TypeScript/Rust stack over Rails and Python service dependencies.
+9. Use typed tools for merchant operations by default.
+10. Add raw database sessions as an explicit privileged capability.
+11. Store merchant credentials in a first-party vault, with 1Password as an
+   adapter.
+12. Require tenant identity in every core domain object and persistence access
+   path.
+13. Use Workers for Platforms only when merchants can upload custom code.
+14. Keep shared Cloudflare Workflows in the platform account, keyed by
+    `tenant_id`.
+15. Keep Slack chat, commerce actions, raw DB access, and admin operations as
+    separate capability surfaces.
 
-Centaur has an operator console for credentials, principals, roles, grants, and
-admin state. That console is an operations surface. Slack remains the default
-conversation UI.
+## Dependency Simplification
 
-Upstream production Centaur uses Postgres, Kubernetes sandbox pods, and
-iron-proxy for outbound credential substitution. The Cloudflare fork should keep
-the security contract and replace the substrate.
+The fork should treat Cloudflare-native migration and dependency reduction as
+one project. Upstream Centaur's production shape includes Kubernetes, Postgres,
+Rails console services, Python/FastAPI-era service surfaces, sandbox pods, and
+iron-proxy. The target stack should be mostly TypeScript Workers plus Rust for
+protocol-heavy or performance-sensitive components.
+
+| Upstream dependency | Keep, remove, or replace | Target |
+| --- | --- | --- |
+| Kubernetes / Helm | Replace | Cloudflare Workers, Durable Objects, Containers, Queues, Workflows |
+| Sandbox pods | Replace | Cloudflare Containers / Sandbox SDK |
+| Postgres as control-plane DB | Replace for platform metadata | D1 for tenants, sessions, grants, audit indexes |
+| Postgres for raw merchant DB access | Keep as external customer capability | DB Gateway, Hyperdrive, Workers TCP sockets |
+| Rails console / iron-control-style UI | Replace | TypeScript admin console on Pages/Workers |
+| Rails ActiveRecord models | Replace | D1 repositories with strict boundary parsers |
+| iron-proxy | Replace | Worker outbound handlers and Secret Broker |
+| iron-proxy bridge | Temporary only | Cloudflare Container compatibility bridge |
+| Python service surfaces | Replace where practical | TypeScript Workers; Rust only where it earns its cost |
+| 1Password-only runtime secret reads | Generalize | Own vault primary, 1Password adapter/sync path |
+
+Recommended language split:
+
+- **TypeScript** for Workers, Durable Objects, Slack ingress, admin console APIs,
+  Tool Gateway, Secret Broker orchestration, D1 repositories, Queues, Workflows,
+  and UI.
+- **Rust** for database wire shims, protocol parsers, signing/transforms that
+  need stronger correctness guarantees, and optional high-throughput adapters.
+- **Container images** only for agent harnesses and compatibility bridges.
+
+Postgres should be removed from the platform control plane first. D1 is a better
+fit for Cloudflare-hosted tenant metadata, grants, sessions, execution state,
+and audit indexes. Postgres remains relevant as a merchant resource that agents
+may access through the DB Gateway.
+
+Rails should be replaced rather than ported. The console's job is narrow:
+tenants, Slack installs, principals, roles, grants, secrets, DB aliases, audit,
+and usage. That maps cleanly to a TypeScript admin API and a small Pages UI.
 
 ## Target Architecture
 
 ```text
-Slack / API clients
+Slack / Codex / Claude / API clients
    |
 Ingress Worker
    |
-Tenant Resolver
-   |
+Tenant Resolver + Auth
+   |----------------------|
+   |                      |
+D1 control plane      Tenant Durable Object
+                          |
 Session Durable Object
    |
 Queues / Workflows
    |
 Agent Container Durable Object
    |
-Cloudflare Container / Sandbox SDK
+Per-session Cloudflare Container / Sandbox SDK
    |
 HTTP(S) egress handler       local DB shim
    |                         |
@@ -69,46 +118,84 @@ Own Vault / 1Password        Workers TCP sockets / SQL gateway
 Merchant APIs / LLMs         Merchant databases
 ```
 
-Core Cloudflare products:
+| Component | Cloudflare service | Main implementation | Responsibility |
+| --- | --- | --- | --- |
+| Ingress Worker | Workers | TypeScript | Slack/API webhooks, signing checks, tenant resolution |
+| Session Coordinator | Durable Objects | TypeScript | Per-thread state, active-run lock, stream fanout, cancellation |
+| Runner | Containers / Sandbox SDK | Container image + TypeScript owner | Codex, Claude Code, and other agent harnesses |
+| Async Work | Queues / Workflows | TypeScript | Run dispatch, retries, approvals, scheduled jobs |
+| State | D1 | TypeScript repositories | Tenants, installs, principals, grants, sessions, executions, audit indexes |
+| Artifacts | R2 | TypeScript | Transcripts, files, previews, large logs, encrypted blobs |
+| Egress | Workers + container outbound handlers | TypeScript, Rust where useful | HTTP/HTTPS policy, credential injection, audit |
+| Secrets | Secret Broker + vault | TypeScript | Own vault, 1Password adapter, wrapping keys |
+| Databases | Workers TCP sockets / Hyperdrive | Rust shim + TypeScript gateway | Raw DB sessions, SQL tools, pooled database paths |
 
-- **Workers** for ingress, APIs, tool execution, egress gateways, model
-  gateways, secret brokerage, and Slack delivery.
-- **Durable Objects** for per-session state, active-run coordination, WebSocket
-  fanout, cancellation, and container ownership.
-- **Cloudflare Containers / Sandbox SDK** for running Codex, Claude Code, and
-  other agent harnesses.
-- **D1** for tenant registry, Slack installs, principals, grants, sessions,
-  executions, and audit indexes.
-- **R2** for transcripts, artifacts, uploaded files, large logs, and encrypted
-  secret blobs when the first-party vault stores payloads outside D1.
-- **Queues** for run dispatch, Slack delivery retries, audit fanout, and
-  background tool jobs.
-- **Workflows** for long-running merchant automations, scheduled checks, waits,
-  approvals, and retryable multi-step jobs.
-- **Hyperdrive** for Worker-executed SQL paths against known Postgres/MySQL
-  databases where pooling and caching are useful.
-- **Secrets Store / Worker secrets** for platform root material and bootstrap
-  secrets. Merchant secrets should live in the first-party vault or 1Password
-  adapter, with only wrapping/bootstrap keys in Cloudflare secret bindings.
+## Multi-Tenant Isolation Strategy
 
-Cloudflare docs that affect this architecture:
+The default product should be a pooled platform deployment. Shared Workers,
+Workflow classes, D1 databases, R2 buckets, Vectorize indexes, and Queues keep
+costs low while tenant-aware domain types, repositories, Durable Objects,
+egress policies, and audit records enforce isolation.
 
-- Containers: https://developers.cloudflare.com/containers/
-- Container outbound traffic: https://developers.cloudflare.com/containers/platform-details/outbound-traffic/
-- Durable Objects: https://developers.cloudflare.com/durable-objects/
-- Sandbox SDK: https://developers.cloudflare.com/sandbox/
-- Workers TCP sockets: https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/
-- Hyperdrive: https://developers.cloudflare.com/hyperdrive/
-- Hyperdrive private databases: https://developers.cloudflare.com/hyperdrive/configuration/connect-to-private-database/
-- D1: https://developers.cloudflare.com/d1/
-- R2: https://developers.cloudflare.com/r2/
-- Queues: https://developers.cloudflare.com/queues/
-- Workflows: https://developers.cloudflare.com/workflows/
-- Secrets Store: https://developers.cloudflare.com/secrets-store/
+Default pooled shape:
 
-## Tenant Model
+- One shared platform Worker/API.
+- One shared D1 control-plane database.
+- One shared set of Workflow classes.
+- One shared R2 bucket with tenant-prefixed object keys.
+- One shared search layer with required tenant filters.
+- One Tenant Durable Object per merchant.
+- One Session Durable Object per Slack thread or API session.
+- One container per live agent task or warm agent session.
+- Tenant-scoped secrets, grants, quotas, audit logs, tool permissions, Slack
+  installs, DB aliases, and DB leases.
 
-Every internal request must carry a parsed `TenantContext`.
+Isolation tiers:
+
+| Tier | Shape | Use case |
+| --- | --- | --- |
+| Pooled tenant | Shared code, D1, R2, Workflows, Queues, and search with strict tenant keys | Default merchant tier |
+| Dedicated data | Shared code with dedicated R2 bucket, search index, vault namespace, or D1 database | Larger merchants with stronger data boundaries |
+| Dedicated deployment | Separate Cloudflare account, Workers, bindings, storage, vault, and Slack app | Enterprise or regulated merchants |
+
+Isolation boundaries:
+
+| Layer | Isolation model |
+| --- | --- |
+| Slack install | Slack `team_id` or enterprise ID maps to a tenant install record |
+| Tenant coordination | `TenantDO` owns plan status, quotas, tenant locks, and high-level config |
+| Session coordination | `SessionDO` ID includes tenant and thread/session identity |
+| Workflows | Shared Workflow class; instance IDs and persisted metadata include tenant identity |
+| Containers | One workspace per agent run or warm session; no shared filesystem across tenants |
+| Secrets | Secret Broker resolves only tenant-granted `SecretRef` values |
+| HTTP/HTTPS egress | Container outbound handler checks `container_id -> tenant/session/principal` |
+| Raw DB access | DB Gateway validates tenant, principal, alias, lease, mode, and budget |
+| D1 | Every table uses `tenant_id`; repository inputs require parsed tenant context |
+| R2 | Object keys live under `tenants/{tenant_id}/...` |
+| Search | Every query includes tenant metadata filters; dedicated indexes are available by tier |
+| Audit | Every decision records tenant, principal, resource, action, and outcome |
+| Quotas | Tenant DO enforces concurrency, spend, workflow, storage, tool, and DB limits |
+
+Workers for Platforms is a later extension for merchant-owned code or generated
+code. The core Centaur fork can run as a multi-tenant platform without it. If
+merchant code becomes a product feature, route requests through a dynamic
+dispatch Worker, put merchant Workers in a dispatch namespace, attach only the
+bindings that merchant should receive, and route outbound fetches through an
+outbound Worker. Cloudflare Workflows should remain platform-owned because
+Workflows currently cannot be deployed into Workers for Platforms namespaces.
+
+The design should preserve an upgrade path between tiers. Tenant IDs, storage
+keys, Workflow instance IDs, queue payloads, and secret references should be
+portable so a merchant can move from pooled storage to dedicated resources
+without changing Slack behavior or agent-visible capabilities.
+
+## Tenant, Principal, And Session Model
+
+Every internal request must carry a parsed `TenantContext`. The ingress boundary
+validates raw external identifiers once, then core logic operates on precise
+internal types.
+
+Thread keys should include tenant identity:
 
 ```text
 tenant:{tenant_id}:slack:{team_id}:{channel_id}:{thread_ts}
@@ -116,29 +203,36 @@ tenant:{tenant_id}:api:{client_id}:{session_id}
 tenant:{tenant_id}:codex:{workspace_id}:{session_id}
 ```
 
-The ingress boundary validates and normalizes raw external identifiers once:
+Boundary inputs:
 
-- Slack `team_id`, `channel_id`, `thread_ts`, `user_id`
-- API key and OAuth subject
-- Merchant workspace/project identifiers
-- Installed Slack app metadata
-- Agent session IDs
+| Source | Raw identifiers normalized at ingress |
+| --- | --- |
+| Slack | `team_id`, `channel_id`, `thread_ts`, `user_id`, install ID |
+| API | API key, OAuth subject, client ID, session ID |
+| Agent app | Workspace/project ID, session ID |
+| Persistence | D1 rows, Queue messages, stored session state |
 
-Core logic should never accept raw Slack event objects, raw DB rows, partial
-tenant objects, or optional identity fields. D1 has no row-level security, so
-tenant isolation must be enforced through narrow repository functions and
-type-level boundaries.
+Core invariants:
 
-Suggested internal shape:
+- Tenant ID is required on every principal, session, grant, secret, execution,
+  DB lease, and audit event.
+- Tenant context is resolved once at ingress and passed as a required internal
+  type.
+- Tenant Durable Object identity is derived from `tenant:{tenant_id}`.
+- Session Durable Object identity is derived from
+  `tenant:{tenant_id}:session:{session_id}`.
+- Workflow instance IDs include tenant and business identity where idempotency
+  matters.
+- Container IDs include tenant, session, execution, and runner identity.
+- Core functions accept precise domain types, not raw Slack payloads, raw DB
+  rows, partial objects, or optional identity fields.
+- D1 has no row-level security. Tenant isolation is enforced by typed
+  repositories, required tenant IDs, and targeted cross-tenant denial tests.
+- Compatibility parsing belongs at request and persistence boundaries.
+
+Suggested principal shape:
 
 ```ts
-type TenantContext = {
-  kind: "tenant_context";
-  tenantId: TenantId;
-  plan: TenantPlan;
-  status: TenantStatus;
-};
-
 type Principal =
   | { kind: "slack_user"; tenantId: TenantId; teamId: SlackTeamId; userId: SlackUserId }
   | { kind: "slack_channel"; tenantId: TenantId; teamId: SlackTeamId; channelId: SlackChannelId }
@@ -146,39 +240,26 @@ type Principal =
   | { kind: "system"; tenantId: TenantId; actor: SystemActor };
 ```
 
-The important invariant is that `tenantId` is required on every branch. There
-should be no optional identity, auth, lifecycle, signing, budget, or session
-fields in core types.
+Slack install model:
 
-## Slack Install Model
+- Use one platform Slack app installed into each merchant workspace.
+- Verify events with the platform signing secret.
+- Store each workspace bot token as an encrypted secret reference.
+- Resolve Slack `team_id` to tenant install records.
+- Use channel-level or App Home configuration when one Slack workspace maps to
+  multiple tenants.
+- Add per-merchant Slack apps later for enterprise isolation if needed.
 
-Use one platform Slack app installed into each merchant workspace.
+Session model:
 
-- A shared Slack signing secret verifies events for the platform app.
-- Each Slack workspace installation produces a merchant-specific bot token.
-- The bot token is stored as a secret reference, encrypted in the vault.
-- Slack `team_id` resolves to one or more tenant install records.
-- If one Slack workspace hosts multiple merchants, channel-level or app-home
-  configuration resolves the final tenant.
+- One Session Durable Object owns each Slack thread or API session.
+- The Session Durable Object serializes messages, tracks lifecycle, fans out
+  streamed events, persists durable state, and starts runner work through
+  Queues.
+- Slack-thread "multiplayer" comes from shared thread visibility. Multiple
+  Slack members can write into the same durable session.
 
-This keeps merchant onboarding simple and makes event verification deterministic.
-Per-merchant Slack apps can be added later for enterprise isolation, with a
-separate signing-secret lookup at the request boundary.
-
-## Session Durable Object
-
-One Session Durable Object owns each chat thread or API session.
-
-Responsibilities:
-
-- Serialize user messages into the session transcript.
-- Enforce one active run or a clear queued-run lifecycle.
-- Track active execution, cancellation, and final delivery state.
-- Fan out streamed events to Slack delivery, web clients, and audit sinks.
-- Store compact session state locally and persist durable state to D1/R2.
-- Start runner work through Queues.
-
-Lifecycle should be a discriminated union:
+Minimal lifecycle shape:
 
 ```ts
 type SessionLifecycle =
@@ -189,438 +270,77 @@ type SessionLifecycle =
   | { kind: "terminal"; tenantId: TenantId; sessionId: SessionId; terminal: TerminalState };
 ```
 
-Functions that mutate lifecycle should accept the narrowest valid branch. For
-example, `startExecution` should accept `SessionLifecycle & { kind: "queued" }`
-rather than a broad session object.
+## Runtime Model
 
-## Runner And Container Model
+### Ingress Worker
 
-Use Cloudflare Containers through a container-owning Durable Object. The Sandbox
-SDK can be used where its file/command API fits the desired runner surface.
+The Ingress Worker handles Slack events, API requests, and app callbacks:
 
-Container identity:
+- Verify Slack signatures and API auth.
+- Resolve tenant and principal.
+- Normalize request payloads into domain commands.
+- Write events to the Session Durable Object.
+- Enqueue work for async processing.
+- Reject unknown tenants, revoked installs, disabled tenants, and malformed
+  thread keys at the boundary.
+
+### Tenant Durable Object
+
+The Tenant Durable Object is the coordination point for one merchant:
+
+- Owns tenant status, plan limits, and temporary suspension state.
+- Enforces active session, active container, raw DB, workflow, and spend quotas.
+- Serializes tenant-wide operations such as Slack reinstall, vault rotation,
+  dedicated resource migration, and emergency disable.
+- Stores small hot config needed for fast request decisions.
+- Emits audit events for quota denials and administrative state changes.
+
+### Session Durable Object
+
+The Session Durable Object is the coordination point for one agent session:
+
+- Owns active-run locking.
+- Stores compact mutable session state.
+- Persists durable messages and execution state to D1/R2.
+- Streams output to Slack delivery and optional web clients.
+- Handles cancellation and final delivery retries.
+- Starts agent runs through Queues.
+
+### Container Runner
+
+The container runner executes Codex, Claude Code, or other harnesses inside a
+Cloudflare Container:
 
 ```text
 container_id = tenant:{tenant_id}:session:{session_id}:runner:{runner_id}
 ```
 
-Default runner behavior:
+Runner behavior:
 
-- Start one container per active run or warm session.
+- Start one container per active run or explicitly warm session.
 - Mount no merchant credentials.
-- Provide transcript files, prompt files, working directory state, and tool
-  catalog config.
-- Provide placeholder environment variables for model/tool clients that require
-  API-key-looking values.
-- Route HTTP/HTTPS egress through Cloudflare container outbound handlers.
-- Route raw DB sessions through the local DB shim described below.
+- Provide prompts, transcript files, workspace state, and tool catalog config.
+- Provide placeholder environment variables for clients that require API-key
+  shaped values.
+- Route HTTP/HTTPS egress through outbound handlers.
+- Route raw DB access through the local DB shim and DB Gateway.
 - Persist outputs and artifacts to R2.
-- Destroy idle temporary sandboxes aggressively; keep only explicit warm
-  sessions alive.
+- Destroy idle temporary sandboxes aggressively.
 
-Codex and Claude Code should run as harnesses inside the container. Where a
-harness supports a custom model base URL, route it through a Model Gateway.
-Where a harness expects direct vendor calls, use egress transforms with
-placeholder values.
+Where a harness supports a custom model base URL, route model calls through a
+Model Gateway. Harnesses that call vendors directly should use placeholder
+credentials and egress transforms.
 
-## Iron-Proxy Replacement
+## Credential And Egress Boundary
 
-The target fork should model iron-proxy as a trusted egress plane implemented in
-Cloudflare Workers and container outbound handlers.
+This section replaces the separate iron-proxy and Secret Broker concepts with a
+single boundary: trusted Worker code owns credentials, policy checks, request
+rewrites, database leases, and audit records.
 
-Use Cloudflare-native egress for new work. Reserve an iron-proxy container for
-short-lived migration tests and specific upstream tools that still depend on
-`HTTPS_PROXY` semantics.
-
-### HTTP And HTTPS Egress
-
-Container settings:
-
-```text
-enableInternet = false
-interceptHttps = true
-allowedHosts = policy-derived allowlist
-```
-
-The outbound handler has access to Worker bindings and can:
-
-- Deny unknown hosts.
-- Match host, method, path, headers, and query params.
-- Resolve the current container to tenant, session, and principal.
-- Load the effective egress policy.
-- Resolve secrets from Secret Broker.
-- Inject headers, query params, bearer tokens, OAuth tokens, GCP tokens, and
-  AWS SigV4 signatures.
-- Replace placeholder values in approved request locations.
-- Emit an audit event before forwarding.
-
-Centaur fragment concepts map into the Cloudflare-native model:
-
-```text
-iron-control principal      -> tenant/principal/grant rows
-proxy id                    -> container_id / session_id
-proxy sync                  -> egress_policy_revision
-secret source               -> SecretRef
-replace.proxy_value         -> placeholder replacement rule
-inject.header/query         -> request rewrite rule
-rules.host                  -> host allowlist rule
-proxy audit                 -> audit_events + Workers logs + R2 trail
-```
-
-Suggested internal transform type:
-
-```ts
-type EgressTransform =
-  | { kind: "inject_header"; host: HostPattern; header: HeaderName; secret: SecretRef; formatter: Formatter }
-  | { kind: "replace_header_placeholder"; host: HostPattern; header: HeaderName; placeholder: SecretPlaceholder; secret: SecretRef }
-  | { kind: "inject_query"; host: HostPattern; param: QueryParam; secret: SecretRef }
-  | { kind: "oauth_bearer"; host: HostPattern; credential: OAuthCredentialRef; scopes: OAuthScopeSet }
-  | { kind: "gcp_auth"; host: HostPattern; serviceAccount: SecretRef; scopes: OAuthScopeSet }
-  | { kind: "aws_sigv4"; host: HostPattern; service: AwsService; region: AwsRegion; credential: AwsCredentialRef };
-```
-
-### Native Egress Versus Iron-Proxy Container
-
-Native egress is the preferred target:
-
-- Fewer long-running moving parts.
-- Direct access to Worker bindings.
-- Cleaner tenant policy checks.
-- Lower operational surface.
-- Better fit for Cloudflare's container model.
-
-The iron-proxy container bridge is useful for:
-
-- Proving compatibility with upstream Centaur tools.
-- Keeping `HTTPS_PROXY`-dependent clients working during the port.
-- Testing existing transform fragments before translating them.
-- Supporting `pg_dsn` temporarily while the DB Gateway is implemented.
-
-The bridge should be time-boxed. It recreates a Kubernetes-shaped sidecar model
-inside Cloudflare and adds another container lifecycle to manage.
-
-## Tool Gateway
-
-Typed tools should be the default merchant capability surface.
-
-Examples:
-
-```text
-shopify.orders.search
-shopify.orders.refund
-shopify.inventory.adjust
-stripe.refunds.create
-merchant.customers.lookup
-merchant.reports.run_sql_readonly
-```
-
-The container calls tools over HTTPS or an internal service route. The Tool
-Gateway performs:
-
-- Tenant resolution.
-- Principal and channel grant checks.
-- Tool allowlist checks.
-- Secret resolution.
-- Approval gating for sensitive actions.
-- Spend, rate, and budget enforcement.
-- Idempotency and retries.
-- Structured audit logging.
-
-Merchant credentials should flow only into Tool Gateway calls. They should not
-be injected into the container environment.
-
-## Slack Commerce Operations
-
-Slack can host a meaningful amount of product, inventory, and order management
-without becoming a full Shopify Admin clone. Use Slack for high-frequency
-operations, approvals, exception handling, lightweight edits, and bulk import
-review. Keep deep catalog management, complex filtering, and long-running admin
-screens in the merchant web console.
-
-Slack primitives to use:
-
-- **Block Kit messages** for product cards, order cards, status summaries,
-  action buttons, select menus, and overflow menus.
-- **Modals** for focused forms such as create product, edit SKU, adjust
-  inventory, refund order, cancel order, and fulfill shipment.
-- **File input** for CSV product imports, bulk inventory updates, and image
-  attachments.
-- **Data table blocks** for compact product, inventory, and order result sets
-  with pagination, sorting, filtering, and clickable cells.
-- **Work Objects and flexpanes** for product, order, customer, and inventory
-  entities that need a richer right-side detail view inside Slack.
-- **App Home** for a persistent merchant dashboard: low-stock queues, pending
-  approvals, failed imports, recent orders, saved filters, and onboarding.
-- **Workflow Builder custom steps** for recurring merchant automations such as
-  daily inventory review, order exception triage, and approval routing.
-
-### Product Listing Uploads
-
-CSV import flow:
-
-```text
-merchant uploads CSV in Slack
-  -> Slack file event / modal file input
-  -> Tool Gateway downloads file with Slack bot token
-  -> Import Worker stores raw file in R2
-  -> parser validates rows and normalizes product drafts
-  -> agent posts preview data table + error summary
-  -> merchant confirms import
-  -> Tool Gateway writes products through Shopify/commerce adapter
-  -> final Slack report links to import artifact and changed products
-```
-
-Use R2 for raw uploads, parsed previews, and error reports. Use D1 for import
-jobs, row counts, validation status, user approvals, and final write results.
-
-The agent should never write a bulk import directly from a file upload. It
-should always post a preview and require an explicit confirmation from a
-principal with the right merchant role.
-
-Suggested import lifecycle:
-
-```ts
-type ProductImportLifecycle =
-  | { kind: "uploaded"; tenantId: TenantId; importId: ImportId; uploadedBy: Principal; fileRef: R2ObjectRef }
-  | { kind: "validating"; tenantId: TenantId; importId: ImportId; fileRef: R2ObjectRef }
-  | { kind: "needs_review"; tenantId: TenantId; importId: ImportId; previewRef: R2ObjectRef; errorCount: number }
-  | { kind: "approved"; tenantId: TenantId; importId: ImportId; approvedBy: Principal; approvalId: ApprovalId }
-  | { kind: "applying"; tenantId: TenantId; importId: ImportId; executionId: ExecutionId }
-  | { kind: "completed"; tenantId: TenantId; importId: ImportId; resultRef: R2ObjectRef }
-  | { kind: "failed"; tenantId: TenantId; importId: ImportId; errorRef: R2ObjectRef };
-```
-
-### Inventory Management
-
-Slack should handle inventory by exception and confirmation:
-
-- App Home shows low-stock SKUs, oversold SKUs, stale counts, and locations that
-  need review.
-- A channel message posts daily or event-driven inventory exceptions.
-- A data table summarizes SKUs, location, available quantity, committed
-  quantity, incoming quantity, and recommended action.
-- Row-level actions open modals for adjustment, transfer, reorder note, or
-  ignore.
-- High-risk adjustments require approval in the Slack thread before execution.
-
-Inventory actions should go through typed tools:
-
-```text
-inventory.search
-inventory.adjust
-inventory.transfer
-inventory.reserve
-inventory.release_reservation
-inventory.low_stock_report
-```
-
-The typed tools must enforce location scope, SKU scope, quantity limits, and
-approval policy. The Slack UI should display the resulting operation ID and
-final state after the tool commits.
-
-### Order Management
-
-Slack is a good fit for order triage:
-
-- New high-value order notifications.
-- Failed payment or fraud-review notifications.
-- Fulfillment exceptions.
-- Refund/cancel approval requests.
-- Customer-support escalations.
-
-Order cards should include concise state and actions:
-
-```text
-Order #1042
-Customer: Ada Lovelace
-Status: paid, unfulfilled
-Risk: low
-Total: $248.00
-Actions: View, Fulfill, Refund, Cancel, Add note
-```
-
-Actions that mutate money, fulfillment, or customer-visible state should open a
-modal that collects the exact fields needed and then posts a confirmation
-message before applying the change.
-
-Order tools:
-
-```text
-orders.search
-orders.get
-orders.fulfill
-orders.refund
-orders.cancel
-orders.add_note
-orders.flag_for_review
-```
-
-Refunds and cancellations should include idempotency keys tied to the Slack
-interaction payload and execution ID. The final Slack message should include the
-merchant platform result, provider result, and audit event ID.
-
-### Product And Order Work Objects
-
-Use Slack Work Objects when a product, order, or customer is referenced often
-in Slack.
-
-Work Object candidates:
-
-- Product
-- Variant/SKU
-- Inventory item
-- Order
-- Customer
-- Return/refund request
-- Import job
-
-The unfurl should show safe summary fields for everyone in the conversation.
-The flexpane can show richer authenticated details and edit actions. Sensitive
-fields should require user-level auth or role checks before rendering in the
-flexpane.
-
-### App Home Merchant Dashboard
-
-App Home should be the persistent operations dashboard:
-
-- Store connection status.
-- Pending approvals.
-- Recent failed automations.
-- Low-stock queue.
-- Order exception queue.
-- Bulk import queue.
-- Saved searches and common actions.
-
-App Home views are per-user, so the backend should render them from the user's
-principal, roles, and grants. Avoid putting cross-tenant state or privileged
-admin actions into a shared channel message.
-
-### Slack UX Boundaries
-
-Use Slack for:
-
-- Approvals.
-- Exception queues.
-- Small result sets.
-- Single-entity edits.
-- Bulk import review.
-- Conversational agent commands.
-- Notifications that need human action.
-
-Use the web console for:
-
-- Large catalog browsing.
-- Complex variant editing.
-- Drag-and-drop media management.
-- Deep filtering and analytics.
-- Long-running configuration.
-- Merchant onboarding that needs many screens.
-
-This split keeps Slack fast and operational while preserving a richer admin UI
-where dense workflows need it.
-
-## Raw Database Access
-
-Typed tools are sufficient for common merchant operations. Raw DB access is
-still valuable for developer-style agents: schema inspection, migrations,
-`psql`, ORM CLIs, application debugging, data repair, and tests that expect a
-normal `DATABASE_URL`.
-
-Cloudflare Containers outbound handlers intercept HTTP and HTTPS. They do not
-intercept arbitrary non-HTTP ports such as Postgres `5432`. Workers can open
-outbound TCP sockets. Hyperdrive supports Worker access to Postgres/MySQL with
-pooling and caching for known database paths.
-
-Support three database modes:
-
-| Mode | Default audience | Implementation |
-| --- | --- | --- |
-| Typed tools | Merchant operations | Tool Gateway over HTTPS |
-| SQL tool | Controlled ad hoc SQL | Worker executes SQL through a driver, Hyperdrive, or TCP |
-| Raw DB session | Developer agents and privileged ops | Local container shim to DB Gateway |
-
-### Raw DB Session Design
-
-```text
-agent / psql / ORM
-  -> localhost:15432 inside container
-  -> pgwire shim
-  -> WebSocket over HTTPS to db.internal
-  -> DB Gateway Worker
-  -> Workers TCP socket
-  -> merchant Postgres
-```
-
-For MySQL:
-
-```text
-agent / mysql client / ORM
-  -> localhost:13306 inside container
-  -> mysql wire shim
-  -> WebSocket over HTTPS to db.internal
-  -> DB Gateway Worker
-  -> Workers TCP socket
-  -> merchant MySQL
-```
-
-The container receives a fake local DSN:
-
-```text
-DATABASE_URL=postgresql://centaur:lease@127.0.0.1:15432/app
-```
-
-The real DSN stays in Secret Broker. The DB Gateway validates:
-
-- Tenant ID.
-- Session ID.
-- Principal.
-- Database alias.
-- Lease ID and expiry.
-- Allowed protocol.
-- Allowed database and schema.
-- Readonly/write/migration mode.
-- Connection and transaction limits.
-- Budget.
-- Approval state.
-
-Enforcement should rely on database roles and gateway limits:
-
-- Readonly role by default.
-- Schema-specific grants.
-- `statement_timeout`.
-- `idle_in_transaction_session_timeout`.
-- Connection limits.
-- No superuser.
-- No broad DDL except explicit migration grants.
-- Short leases.
-
-The gateway should log connection metadata, byte counts, duration, database
-alias, principal, lease, and policy decision. SQL-text auditing is useful for
-simple query modes, but correctness should rely on database-native roles and
-gateway connection control rather than universal protocol parsing.
-
-### Hyperdrive Use
-
-Use Hyperdrive for Worker-executed SQL paths against stable, known Postgres or
-MySQL databases where pooling matters. This fits the SQL tool and reports.
-
-Use direct Worker TCP sockets for raw byte-forwarded DB sessions. The raw
-session bridge transports database wire bytes and needs socket-level forwarding.
-Hyperdrive is a higher-level Worker database connection path through ordinary
-drivers.
-
-For private merchant databases, prefer Cloudflare's private connectivity path
-where available. Hyperdrive documents private database connectivity through
-Workers VPC or Cloudflare Tunnel. Raw TCP session support for private networks
-needs a concrete platform verification spike before committing to a customer
-promise.
-
-## Secret Broker
+### Secret Broker
 
 Make the first-party vault the primary runtime abstraction. Add 1Password as an
 adapter.
-
-Suggested `SecretRef` model:
 
 ```ts
 type SecretBackend =
@@ -636,32 +356,199 @@ type SecretRef = {
 };
 ```
 
-Own vault design:
+Own vault:
 
-- D1 stores metadata: `tenant_id`, `secret_id`, backend kind, status, labels,
-  grants, rotation state, and audit indexes.
-- R2 or D1 stores encrypted secret blobs.
-- Cloudflare Secrets Store or Worker secrets hold platform bootstrap and
-  wrapping-key material.
+- D1 stores secret metadata, labels, grants, status, and rotation state.
+- R2 or D1 stores encrypted payload blobs.
+- Cloudflare Secrets Store or Worker secrets hold platform bootstrap material.
 - Secret Broker decrypts only inside trusted Worker code.
 - Per-tenant data keys limit blast radius.
-- Secret values are never returned to admin UI callers.
+- Admin callers can write or rotate secret values, while readback returns only
+  metadata.
 
-1Password support:
+1Password modes:
 
-- `onepassword_connect` resolves live through 1Password Connect where customers
-  already operate it.
-- `onepassword_sync` imports or syncs selected 1Password items into the
-  first-party vault for cheaper runtime reads.
-- Service-account based automation can seed or rotate values, with runtime
-  still reading the first-party vault when cost and latency matter.
+- `onepassword_connect` resolves live through a customer or platform Connect
+  service.
+- `onepassword_sync` imports selected items into the first-party vault for
+  cheaper runtime reads.
+- Service-account automation can seed or rotate values.
 
-## Data Model Sketch
+### HTTP And HTTPS Egress
+
+Cloudflare-native egress is the target replacement for iron-proxy's core
+credential substitution behavior.
+
+Container settings:
+
+```text
+enableInternet = false
+interceptHttps = true
+allowedHosts = policy-derived allowlist
+```
+
+The outbound handler:
+
+- Resolves container ID to tenant, session, execution, and principal.
+- Loads the effective egress policy.
+- Denies unknown hosts.
+- Matches host, method, path, headers, and query params.
+- Resolves secrets from Secret Broker.
+- Injects headers, query params, bearer tokens, OAuth tokens, GCP tokens, and
+  AWS SigV4 signatures.
+- Replaces placeholder values in approved request locations.
+- Emits an audit event before forwarding.
+
+Centaur mapping:
+
+| Centaur concept | Cloudflare-native concept |
+| --- | --- |
+| iron-control principal | Tenant principal and grants |
+| proxy ID | Container/session ID |
+| proxy sync | Egress policy revision |
+| secret source | `SecretRef` |
+| `replace.proxy_value` | Placeholder replacement rule |
+| `inject.header/query` | Request rewrite rule |
+| `rules.host` | Host allowlist rule |
+| proxy audit | Audit event plus R2 payload |
+
+### Iron-Proxy Bridge
+
+Use an iron-proxy container bridge only for migration compatibility:
+
+- Prove upstream Centaur tool compatibility.
+- Keep `HTTPS_PROXY`-dependent clients working during the port.
+- Test existing transform fragments before translating them.
+- Support `pg_dsn` temporarily while the DB Gateway is implemented.
+
+The bridge should be time-boxed. The target path is Worker-side egress and
+Secret Broker logic.
+
+## Capability Surfaces
+
+| Surface | Primary user | Interface | Backend |
+| --- | --- | --- | --- |
+| Slack commerce operations | Merchant operators | Threads, modals, App Home, data tables | Typed tools |
+| Typed tool gateway | Agent harnesses | HTTPS/internal service calls | Worker Tool Gateway |
+| SQL tool | Operators and agents | Tool call | Worker DB client, Hyperdrive, or TCP |
+| Raw DB session | Developer agents and privileged ops | Local DSN in container | DB Gateway |
+| Admin console | Operators and merchant admins | Pages/Workers app | D1/R2/Secret Broker |
+
+### Slack Commerce Operations
+
+Slack should cover high-frequency operations, approvals, exception handling,
+lightweight edits, and bulk import review. Dense catalog browsing, complex
+variant editing, deep analytics, and long-running setup can live in the web
+console or an external merchant system.
+
+| Workflow | Slack primitive | Backend tool | Approval |
+| --- | --- | --- | --- |
+| Product CSV upload | File input, preview table | `products.import_preview`, `products.import_apply` | Required before apply |
+| Inventory exception | App Home queue, data table, modal | `inventory.search`, `inventory.adjust` | Required for high-risk adjustments |
+| Order triage | Order card, buttons, modal | `orders.get`, `orders.fulfill`, `orders.refund`, `orders.cancel` | Required for money/customer-visible mutations |
+| Bulk import result | Thread summary, artifact link | Import Worker, R2 report | Result-only |
+| Entity detail | Work Object, flexpane | `products.get`, `orders.get`, `customers.get` | Role-gated rendering |
+
+Product import flow:
+
+```text
+merchant uploads CSV in Slack
+  -> Tool Gateway downloads file with Slack bot token
+  -> Import Worker stores raw file in R2
+  -> parser validates rows and normalizes product drafts
+  -> agent posts preview table and error summary
+  -> merchant confirms import
+  -> Tool Gateway writes products through commerce adapter
+  -> final Slack report links to import artifact and changed products
+```
+
+Slack App Home should show per-user operational queues: connection status,
+pending approvals, failed automations, low-stock items, order exceptions, bulk
+imports, saved searches, and common actions.
+
+### Typed Tool Gateway
+
+Typed tools are the default merchant capability surface:
+
+```text
+shopify.orders.search
+shopify.orders.refund
+shopify.inventory.adjust
+stripe.refunds.create
+merchant.customers.lookup
+merchant.reports.run_sql_readonly
+```
+
+The Tool Gateway enforces tenant, principal, channel, role, tool allowlist,
+secret grant, approval, spend, rate, budget, and idempotency policy. Merchant
+credentials flow only into Tool Gateway calls.
+
+### Raw Database Access
+
+Typed tools cover common merchant operations. Raw DB access remains useful for
+developer-style agents: schema inspection, migrations, `psql`, ORM CLIs,
+application debugging, data repair, and tests that expect a normal
+`DATABASE_URL`.
+
+Support three database modes:
+
+| Mode | Default audience | Implementation |
+| --- | --- | --- |
+| Typed tools | Merchant operations | Tool Gateway over HTTPS |
+| SQL tool | Controlled ad hoc SQL | Worker executes SQL through a driver, Hyperdrive, or TCP |
+| Raw DB session | Developer agents and privileged ops | Local container shim to DB Gateway |
+
+Raw session path:
+
+```text
+agent / psql / ORM
+  -> localhost:15432 inside container
+  -> pgwire shim
+  -> WebSocket over HTTPS to db.internal
+  -> DB Gateway Worker
+  -> Workers TCP socket
+  -> merchant Postgres
+```
+
+The container receives a fake local DSN:
+
+```text
+DATABASE_URL=postgresql://centaur:lease@127.0.0.1:15432/app
+```
+
+The DB Gateway validates tenant, session, principal, database alias, lease,
+expiry, protocol, mode, schema scope, connection limits, budget, and approval
+state. Enforcement should rely on database roles and gateway limits: readonly by
+default, schema-specific grants, statement timeouts, idle transaction timeouts,
+connection limits, no superuser, short leases, and explicit migration grants.
+
+Use Hyperdrive for Worker-executed SQL paths against known Postgres/MySQL
+databases where pooling matters. Use direct Worker TCP sockets for raw
+byte-forwarded database sessions. Verify private database connectivity before
+making customer commitments.
+
+### Admin Console
+
+The admin console should remain focused:
+
+- Tenant creation and status.
+- Slack install and reinstall flow.
+- Principal discovery and role assignment.
+- Tool grants.
+- Secret references and vault sync.
+- DB aliases, DB leases, and raw DB access approvals.
+- Audit search.
+- Usage and cost reporting.
+
+## Persistence Model
 
 Core D1 tables:
 
 ```text
 tenants(id, slug, plan, status, created_at)
+tenant_resource_bindings(tenant_id, tier, resource_kind, binding_name, external_id, status)
+tenant_quotas(tenant_id, quota_kind, limit_value, window_seconds, status)
+tenant_usage_windows(tenant_id, quota_kind, window_start, used_value)
 slack_installs(tenant_id, team_id, bot_token_secret_ref, scopes, installed_by)
 principals(tenant_id, principal_id, kind, foreign_id, display_name)
 roles(tenant_id, role_id, name)
@@ -676,217 +563,131 @@ db_leases(tenant_id, lease_id, principal_id, db_alias, mode, expires_at, policy_
 audit_events(tenant_id, audit_id, actor_principal_id, action, resource, decision, metadata_ref, created_at)
 ```
 
-Every primary access path must include `tenant_id`. R2 keys should use the same
-shape:
+R2 key shape:
 
 ```text
 tenants/{tenant_id}/sessions/{session_id}/...
 tenants/{tenant_id}/executions/{execution_id}/...
 tenants/{tenant_id}/audit/{date}/{audit_id}.json
+tenants/{tenant_id}/imports/{import_id}/...
 ```
 
-## Admin Console
+Audit events should cover:
 
-Build a small Cloudflare Pages/Workers admin console for operators and merchant
-admins.
-
-Console responsibilities:
-
-- Tenant creation and status.
-- Slack install and reinstall flow.
-- Principal discovery and role assignment.
-- Tool grants.
-- Secret references and vault sync.
-- DB aliases, DB leases, and raw DB access approvals.
-- Audit search.
-- Usage and cost reporting.
-
-The console should avoid becoming an agent chat UI. Slack and existing agent
-apps stay as the interaction surfaces.
-
-## Observability And Audit
-
-Emit structured audit events for:
-
-- Slack ingress events.
+- Slack ingress.
 - Session lifecycle transitions.
-- Agent execution start/finish/cancel.
+- Agent execution start, finish, and cancel.
 - Tool calls and policy decisions.
 - Secret access decisions.
 - HTTP egress decisions and transforms.
 - DB lease creation.
-- DB connection open/close.
+- DB connection open and close.
 - Raw DB session byte counts and duration.
 - Admin console changes.
 
-Use Workers logs for near-real-time debugging, D1 for indexed audit metadata,
-and R2 for full payloads and large artifacts.
-
-Avoid logging:
-
-- Secret values.
-- Raw Authorization headers.
-- Full OAuth tokens.
-- Raw database passwords.
-- Customer PII unless the event type explicitly requires it.
+Avoid logging secret values, raw authorization headers, full OAuth tokens, raw
+database passwords, and customer PII unless the event type explicitly requires
+it.
 
 ## Implementation Phases
 
-### Phase 0: Fork Boundary And Compatibility Audit
-
-- Fork Centaur and identify the smallest reusable pieces: Slack event model,
-  session semantics, tool manifests, prompts, and harness integration.
-- Mark Kubernetes, Helm, Pod, NetworkPolicy, and Postgres-control-plane paths as
-  replacement targets.
-- Inventory iron-proxy fragments and translate the useful transform schema into
-  Cloudflare-native egress policies.
-- Decide which upstream tools need temporary bridge support.
-
-### Phase 1: Domain Types And Boundaries
-
-- Define `TenantContext`, `ThreadKey`, `SessionLifecycle`, `Principal`,
-  `SecretRef`, `Grant`, `EgressPolicy`, `DbLease`, and `RunnerLifecycle` as
-  discriminated unions.
-- Add boundary parsers for Slack events, API keys, D1 rows, Queue messages, and
-  container status.
-- Add `@ts-expect-error` type fixtures for invalid tenant/session/auth states.
-- Add exhaustive `switch` checks with `assertNever`.
-
-### Phase 2: Slack Ingress And Session Durable Object
-
-- Implement Slack signature verification.
-- Map Slack install to tenant.
-- Normalize Slack thread events into `ThreadKey`.
-- Persist messages and session lifecycle.
-- Create the Session Durable Object active-run lock.
-- Implement Slack final delivery and retry.
-
-### Phase 3: Container Runner
-
-- Build an Agent Container image with Codex/Claude harness support.
-- Add prompt and transcript file layout.
-- Add placeholder env generation.
-- Route runs through Queues.
-- Stream output back to Session Durable Object.
-- Persist artifacts to R2.
-- Add cancellation and timeout handling.
-
-### Phase 4: Secret Broker And Vault
-
-- Implement own-vault metadata and encrypted payload storage.
-- Add 1Password Connect live resolver.
-- Add 1Password sync/import resolver.
-- Implement grants and effective access resolution.
-- Add audit events for secret resolution decisions.
-
-### Phase 5: Cloudflare-Native HTTP Egress
-
-- Add container outbound handler.
-- Translate Centaur HTTP secret fragments into `EgressTransform`.
-- Enforce host allowlists and placeholder replacement.
-- Support OpenAI, Anthropic, GitHub, Slack, Shopify, Stripe, OAuth bearer,
-  GCP auth, and AWS SigV4 as first targets.
-- Add egress audit events.
-
-### Phase 6: Tool Gateway
-
-- Build typed tool registration.
-- Add merchant tools for e-commerce workflows.
-- Add approval policies for destructive actions.
-- Add idempotency keys and replay-safe execution.
-- Add per-tenant rate, spend, and budget controls.
-
-### Phase 7: Slack Commerce Operations
-
-- Build product, inventory, order, import, and approval Block Kit components.
-- Add modal flows for product edits, inventory adjustments, fulfillment,
-  refunds, cancellations, and import approval.
-- Add CSV upload ingestion through Slack file events and modal file input.
-- Add data table previews for imports, inventory queues, and order searches.
-- Add App Home dashboard rendering from principal roles and grants.
-- Add Work Object unfurls and flexpanes for products, orders, customers,
-  inventory items, and import jobs.
-- Add typed commerce tools behind every Slack action.
-
-### Phase 8: Raw Database Access
-
-- Build readonly SQL tool first.
-- Implement Postgres local shim in the container.
-- Implement DB Gateway WebSocket transport.
-- Add Worker TCP socket forwarding for Postgres.
-- Add DB lease creation and approval flow.
-- Add database role guidance and setup docs.
-- Add MySQL after Postgres proves stable.
-- Verify private database connectivity options before customer rollout.
-
-### Phase 9: Admin Console
-
-- Build tenant, Slack install, grants, secrets, and DB alias screens.
-- Add audit search.
-- Add secret value write paths with no secret readback.
-- Add 1Password sync status.
-
-### Phase 10: Production Hardening
-
-- Add per-tenant quotas.
-- Add abuse controls.
-- Add cost accounting.
-- Add incident audit export.
-- Add disaster recovery procedures for D1/R2.
-- Add canary tenants and rollout controls.
+| Phase | Focus | Deliverable |
+| --- | --- | --- |
+| 0 | Fork boundary and compatibility audit | Identify reusable Centaur pieces and replacement targets |
+| 1 | Dependency simplification | Remove Kubernetes/Rails/Postgres-control-plane assumptions from the design boundary |
+| 2 | Domain types and boundaries | Tenant, principal, session, secret, grant, egress, DB lease, quota, and resource-binding types |
+| 3 | Slack ingress and sessions | Slack verification, tenant mapping, Tenant and Session Durable Objects |
+| 4 | Container runner | Codex/Claude harness container, prompts, artifacts, cancellation |
+| 5 | Secret Broker and vault | Own-vault metadata, encrypted payloads, 1Password adapters |
+| 6 | HTTP/HTTPS egress | Container outbound handler, host allowlists, credential transforms |
+| 7 | Tool Gateway | Typed merchant tools, grants, approvals, idempotency |
+| 8 | Slack commerce operations | Block Kit actions, modals, imports, App Home, Work Objects |
+| 9 | Raw database access | SQL tool, Postgres shim, DB Gateway, leases, private connectivity spike |
+| 10 | Admin console | Tenants, installs, grants, secrets, DB access, audit |
+| 11 | Production hardening | Isolation tiers, quotas, abuse controls, cost accounting, DR, canary tenants |
 
 ## Validation Plan
 
-Low-risk documentation and wiring changes need lightweight checks only.
+Run broader checks when touching tenant isolation, auth, signing, secret
+resolution, egress policy, raw DB sessions, D1 schema, Queues, or Durable Object
+lifecycle. Low-risk documentation and wiring changes need lightweight checks.
 
-Run broader checks when touching:
+Type and boundary checks:
 
-- Tenant isolation.
-- Auth and signing.
-- Secret resolution.
-- Egress policy.
-- Raw DB sessions.
-- D1 schema.
-- Queue or Durable Object lifecycle.
-
-Targeted checks:
-
-- Type fixtures for invalid tenant/session/secret states.
-- Unit tests for Slack event parsers.
+- Type fixtures for invalid tenant, session, secret, grant, and lifecycle
+  states.
+- Type fixtures for invalid quota, resource binding, and tenant tier states.
+- Unit tests for Slack event parsers and interaction payload parsers.
 - Unit tests for `ThreadKey` parsing.
 - Unit tests for grant resolution.
 - Unit tests for egress transform matching.
-- Unit tests for Slack interaction payload parsers.
-- Unit tests for product import lifecycle transitions.
-- Integration test with fake OpenAI/Anthropic/GitHub endpoints.
-- Integration test for cross-tenant egress denial.
-- Integration test for CSV upload preview and approval.
-- Integration test for idempotent refund/cancel actions.
-- Integration test for DB lease expiry.
-- Integration test for container shim to fake Postgres server.
-- Replay tests for Queue idempotency.
 
-## Key Decisions
+Integration checks:
 
-1. Use Slack as the primary multiplayer UI.
-2. Keep the console focused on credentials, grants, tenants, audit, and ops.
-3. Use Cloudflare-native egress as the target iron-proxy replacement.
-4. Keep an iron-proxy container bridge only for migration compatibility.
-5. Use typed tools for merchant operations.
-6. Add raw DB sessions as a privileged developer/ops capability.
-7. Keep merchant credentials in Worker-side trusted services.
-8. Make the first-party vault primary and 1Password an adapter.
-9. Require tenant identity in every core domain object.
-10. Treat D1 row filtering as an application invariant enforced by narrow
-    repositories and type-level boundaries.
+- Fake OpenAI, Anthropic, and GitHub endpoints for egress transforms.
+- Cross-tenant D1 repository denial.
+- Cross-tenant R2 key denial.
+- Cross-tenant search filter denial.
+- Cross-tenant egress denial.
+- Tenant quota denial for sessions, containers, raw DB leases, and tool spend.
+- CSV upload preview and approval.
+- Idempotent refund and cancel actions.
+- DB lease expiry.
+- Container shim to fake Postgres server.
+- Queue replay and idempotency.
+
+Security checks:
+
+- Secret readback denial.
+- Tenant ID required for every repository access path.
+- Tenant context required before Durable Object, Workflow, Queue, R2, and search
+  calls.
+- Audit events omit secret values and raw auth material.
+- Raw DB sessions default to readonly roles and short leases.
+
+Dependency checks:
+
+- No Kubernetes, Helm, or Pod assumptions in Cloudflare runtime paths.
+- No Rails runtime dependency for the admin console.
+- No Postgres dependency for platform control-plane metadata.
+- No long-lived compatibility bridge required for the default happy path.
 
 ## Open Questions
 
 - Which merchant database providers must be supported first?
 - How many tenants need raw DB access on day one?
 - Should raw DB sessions start as readonly-only?
+- Which tenants need dedicated data resources at launch?
+- Will merchants upload custom code, or will all extensions stay as platform
+  typed tools?
 - Which harnesses can cleanly route model calls through a Model Gateway?
 - Do we need per-merchant Slack apps for enterprise customers?
 - What private network path should be promised for raw TCP database access?
 - Which tools require a temporary iron-proxy container bridge?
 - What retention window is required for full transcripts and audit payloads?
+
+## References
+
+Cloudflare:
+
+- Containers: https://developers.cloudflare.com/containers/
+- Container outbound traffic: https://developers.cloudflare.com/containers/platform-details/outbound-traffic/
+- Durable Objects: https://developers.cloudflare.com/durable-objects/
+- Durable Objects best practices: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
+- Sandbox SDK: https://developers.cloudflare.com/sandbox/
+- Workers for Platforms: https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/
+- Workers for Platforms resource isolation: https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/configuration/bindings/
+- Workers for Platforms outbound workers: https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/configuration/outbound-workers/
+- Workers TCP sockets: https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/
+- Hyperdrive: https://developers.cloudflare.com/hyperdrive/
+- Hyperdrive private databases: https://developers.cloudflare.com/hyperdrive/configuration/connect-to-private-database/
+- D1: https://developers.cloudflare.com/d1/
+- R2: https://developers.cloudflare.com/r2/
+- Queues: https://developers.cloudflare.com/queues/
+- Workflows: https://developers.cloudflare.com/workflows/
+- Workflows limits: https://developers.cloudflare.com/workflows/reference/limits/
+- Secrets Store: https://developers.cloudflare.com/secrets-store/
+
+Upstream project:
+
+- Centaur: https://github.com/paradigmxyz/centaur

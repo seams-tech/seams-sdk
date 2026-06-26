@@ -76,6 +76,6 @@ If you prefer not to create a local `.sql` file, paste the SQL block above into
 
 ## After reset
 
-1. restart the relay/server process
+1. restart the Router server process
 2. rerun the flow that provisions threshold or Email OTP state
 3. do not copy pre-refactor `record_json` rows back into these tables

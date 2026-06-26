@@ -438,8 +438,8 @@ pnpm router`.
 - [x] Added production round-1 prepare wiring:
       `NormalSigningRound1PrepareRequestV1` /
       `NormalSigningRound1PrepareResponseV1`, public
-      `/v1/hss/sign/prepare`, private
-      `/router-ab/v1/signing-worker/sign/prepare`, normal-signing JWT and
+      `/router-ab/ed25519/sign/prepare`, private
+      `/router-ab/signing-worker/sign/prepare`, normal-signing JWT and
       policy/quota/abuse admission, persisted server commitments, and exact
       `round1_binding_digest` enforcement on nonce take.
 - [x] Wired the strict Cloudflare SigningWorker normal-signing finalizer to

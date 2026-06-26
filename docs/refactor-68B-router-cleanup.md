@@ -23,7 +23,7 @@ Local browser-facing origin:
   routes, registration, ECDSA-HSS lifecycle/export routes, Ed25519 lifecycle
   routes, and Router A/B normal-signing routes.
 - Deriver A, Deriver B, and SigningWorker remain private service workers.
-- Caddy must not path-split `/v2/router-ab/*` or `/v1/hss/ecdsa/sign*` to a
+- Caddy must not path-split `/router-ab/*` or `/router-ab/ecdsa-hss/sign*` to a
   second public upstream.
 
 Target local ports after cleanup:
@@ -75,11 +75,11 @@ upstreams behind one HTTPS origin.
       `localhost:9444` site block, or any path-specific Router A/B signing
       proxy rule.
 - [x] Add a local route smoke probe that proves
-      `https://localhost:9444/v2/router-ab/ed25519/sign/prepare` reaches the
-      same Router server as `https://localhost:9444/v2/router-ab/wallet-session/ed25519`.
+      `https://localhost:9444/router-ab/ed25519/sign/prepare` reaches the
+      same Router server as `https://localhost:9444/router-ab/wallet-session/ed25519`.
       Added as `pnpm router:public-route-smoke`; run it after `pnpm site` and
       `pnpm router` are ready.
-- [x] Update failure docs so an Express-style `Cannot POST /v2/router-ab/...`
+- [x] Update failure docs so an Express-style `Cannot POST /router-ab/...`
       means the main Router route table is missing that route.
 
 ## Phase 2: Rename Local Dev Concepts
@@ -277,10 +277,10 @@ surfaces. Router A/B strict protocol code must move behind this route layer.
 
 - [x] `caddy validate --config apps/web-client/Caddyfile --adapter caddyfile`.
 - [x] Router route-surface unit tests prove the main Router owns
-      `POST /v2/router-ab/ed25519/sign/prepare`,
-      `POST /v2/router-ab/ed25519/sign/presign-pool/prepare`,
-      `POST /v2/router-ab/ed25519/sign`,
-      `POST /v1/hss/ecdsa/sign/prepare`, `POST /v1/hss/ecdsa/sign`, Wallet
+      `POST /router-ab/ed25519/sign/prepare`,
+      `POST /router-ab/ed25519/sign/presign-pool/prepare`,
+      `POST /router-ab/ed25519/sign`,
+      `POST /router-ab/ecdsa-hss/sign/prepare`, `POST /router-ab/ecdsa-hss/sign`, Wallet
       Session issuance, and seal routes.
 - [x] Local browser unlock-to-sign test passes for Ed25519.
       Evidence on 2026-06-18: `rtk pnpm -C tests exec playwright test

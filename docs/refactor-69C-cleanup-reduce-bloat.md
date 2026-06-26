@@ -264,7 +264,7 @@ Current audit snapshot, June 18 2026:
 
 Intentional aliases:
 
-- Router A/B public keyset is exposed at `/v2/router-ab/keyset`,
+- Router A/B public keyset is exposed at `/router-ab/keyset`,
   `/.well-known/router-ab/keyset`, and trailing-slash variants.
 - Related Origin Requests is exposed at `/.well-known/webauthn` and
   `/.well-known/webauthn/`.

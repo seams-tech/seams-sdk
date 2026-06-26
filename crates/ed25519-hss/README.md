@@ -118,9 +118,9 @@ That is not the current production transport.
 The live browser/relay integration collapses the staged protocol into `3` HTTP
 roundtrips:
 
-1. `POST /v2/router-ab/ed25519/hss/prepare`
-2. `POST /v2/router-ab/ed25519/hss/respond`
-3. `POST /v2/router-ab/ed25519/hss/finalize`
+1. `POST /router-ab/ed25519/hss/prepare`
+2. `POST /router-ab/ed25519/hss/respond`
+3. `POST /router-ab/ed25519/hss/finalize`
 
 So the crate models a fine-grained staged execution protocol, while the
 current production transport batches that work server-side.

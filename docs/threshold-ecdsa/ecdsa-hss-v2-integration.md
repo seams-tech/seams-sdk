@@ -123,7 +123,7 @@ update this plan before editing code.
 Use one bootstrap route:
 
 ```text
-POST /v1/hss/ecdsa/bootstrap
+POST /router-ab/ecdsa-hss/bootstrap
 ```
 
 Delete the old staged hidden-eval route family after replacement:
@@ -142,7 +142,7 @@ response.
 Use one explicit export-share route:
 
 ```text
-POST /v1/hss/ecdsa/export/share
+POST /router-ab/ecdsa-hss/export/share
 ```
 
 This route returns the authorized relayer export share. The client export
@@ -656,7 +656,7 @@ The route parser must reject:
 Request:
 
 ```text
-POST /v1/hss/ecdsa/bootstrap
+POST /router-ab/ecdsa-hss/bootstrap
 Authorization: threshold/session auth
 Body: EcdsaHssClientBootstrapRequest
 ```
@@ -688,7 +688,7 @@ differs, reject with `stale_state` or `identity_mismatch`.
 Request:
 
 ```text
-POST /v1/hss/ecdsa/export/share
+POST /router-ab/ecdsa-hss/export/share
 Authorization: threshold/session auth plus explicit export confirmation
 Body: EcdsaHssExportShareRequest
 ```
@@ -753,9 +753,9 @@ Rules:
 - [x] Mint role-local bootstrap threshold session and signing grant
       budget fields.
 - [x] Add role-local HSS export-share service method.
-- [x] Add `POST /v1/hss/ecdsa/bootstrap` to Express and Cloudflare
+- [x] Add `POST /router-ab/ecdsa-hss/bootstrap` to Express and Cloudflare
       route definitions.
-- [x] Add `POST /v1/hss/ecdsa/export/share` to Express and Cloudflare
+- [x] Add `POST /router-ab/ecdsa-hss/export/share` to Express and Cloudflare
       route definitions.
 - [x] Delete `/threshold-ecdsa/hss/prepare` from active Express/Cloudflare
       routers.
@@ -875,7 +875,7 @@ display and recovery flows may accept only `kind: 'explicit_export_ready'`.
 - [x] Add worker request/response plumbing and typed SDK helper for role-local
       client bootstrap material.
 - [x] Route concrete-key threshold-session bootstrap through role-local client
-      material and `/v1/hss/ecdsa/bootstrap`.
+      material and `/router-ab/ecdsa-hss/bootstrap`.
 - [x] Persist role-local client signing state and map the active signing share
       to the client Cait-Sith input.
 - [x] Replace client hidden-eval bootstrap worker calls. Passkey
@@ -885,12 +885,12 @@ display and recovery flows may accept only `kind: 'explicit_export_ready'`.
 - [x] Finish Email OTP role-local bootstrap coverage by moving the existing-key
       path after concrete role-local key identity is available at that boundary.
 - [x] Route Email OTP exact-session bootstrap through role-local client material
-      and `/v1/hss/ecdsa/bootstrap` when the auth JWT carries
+      and `/router-ab/ecdsa-hss/bootstrap` when the auth JWT carries
       `relayerKeyId`.
 - [x] Add a first-bootstrap role-local authorization route or extend
-      `/v1/hss/ecdsa/bootstrap` to accept the same app-session /
+      `/router-ab/ecdsa-hss/bootstrap` to accept the same app-session /
       Email-OTP authorization envelope currently handled by prepare.
-      `/v1/hss/ecdsa/bootstrap` now accepts registration-time Email OTP
+      `/router-ab/ecdsa-hss/bootstrap` now accepts registration-time Email OTP
       role-local bootstrap when the request carries a client-root proof. The
       route verifies deterministic `ecdsaThresholdKeyId`, deterministic
       `relayerKeyId`, an active Email OTP enrollment, and a recoverable
@@ -901,7 +901,7 @@ display and recovery flows may accept only `kind: 'explicit_export_ready'`.
       `signingRootId`, `signingRootVersion`, deterministic `ecdsaThresholdKeyId`,
       and deterministic `relayerKeyId`, generates role-local client material,
       signs the first-bootstrap proof with the Email OTP client root share, then
-      calls `/v1/hss/ecdsa/bootstrap`.
+      calls `/router-ab/ecdsa-hss/bootstrap`.
 - [x] Move Email OTP multi-target existing-key bootstrap onto the same
       role-local path after the first target returns canonical role-local key
       identity. The worker carries `ecdsaThresholdKeyId`, `signingRootId`,
@@ -917,7 +917,7 @@ display and recovery flows may accept only `kind: 'explicit_export_ready'`.
 - [x] Update passkey exact-session/bootstrap-auth flows to use the same client
       role-local path when route auth carries `relayerKeyId`. The shared
       `bootstrapSession` role-local branch builds client material through
-      `hss_client_signer`, calls `/v1/hss/ecdsa/bootstrap`, and stores
+      `hss_client_signer`, calls `/router-ab/ecdsa-hss/bootstrap`, and stores
       `ecdsaHssRoleLocalClientState`.
 - [x] Specify passkey first-bootstrap role-local authorization before removing
       its hidden-eval fallback. Passkey first-bootstrap should use WebAuthn or
@@ -930,7 +930,7 @@ display and recovery flows may accept only `kind: 'explicit_export_ready'`.
       below. The shared `bootstrapSession` path now computes deterministic
       role-local key ids before WebAuthn, uses the passkey authorization digest
       as the assertion challenge, and sends
-      `passkeyFirstBootstrapAuthorization` to `/v1/hss/ecdsa/bootstrap`.
+      `passkeyFirstBootstrapAuthorization` to `/router-ab/ecdsa-hss/bootstrap`.
 - [x] Add route-level passkey first-bootstrap coverage for valid WebAuthn
       authorization, runtime-scope mismatch rejection, and failed WebAuthn
       rejection before relayer bootstrap persistence.
@@ -963,7 +963,7 @@ display and recovery flows may accept only `kind: 'explicit_export_ready'`.
 ### Passkey First-Bootstrap Role-Local Spec
 
 Passkey first-bootstrap differs from Email OTP first-bootstrap. Email OTP has an
-enrolled ECDSA client-root public key, so `/v1/hss/ecdsa/bootstrap` can
+enrolled ECDSA client-root public key, so `/router-ab/ecdsa-hss/bootstrap` can
 verify a client-root proof against existing enrollment state. A brand-new
 passkey ECDSA key has no prior ECDSA root verifier. The route must therefore
 authorize creation with the same passkey/registration-continuation policy used
@@ -1032,7 +1032,7 @@ Client implementation steps:
   request identity and use it as the WebAuthn challenge for the passkey
   assertion.
 - Send the role-local bootstrap request directly to
-  `/v1/hss/ecdsa/bootstrap` with the WebAuthn assertion attached as
+  `/router-ab/ecdsa-hss/bootstrap` with the WebAuthn assertion attached as
   `passkeyFirstBootstrapAuthorization`.
 - Preserve the existing hidden-eval fallback until this route-level WebAuthn
   verification has targeted tests for success, runtime-scope mismatch, and
@@ -1350,7 +1350,7 @@ The Rust crate defines `ExplicitExportAuthorizationV1` with:
 The product route layer does not yet produce a stable ECDSA HSS confirmation
 digest. Current product export still expects server-side `privateKeyHex` from
 old finalize/export paths. Define the product confirmation digest in Phase 6
-before wiring `/v1/hss/ecdsa/export/share`.
+before wiring `/router-ab/ecdsa-hss/export/share`.
 
 ### Logging And Redaction
 

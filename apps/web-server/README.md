@@ -171,12 +171,12 @@ Notes
   The example config enables CORS with `origin: [EXPECTED_ORIGIN, EXPECTED_WALLET_ORIGIN]` and `credentials: true`.
   Your frontend must use `credentials: 'include'` with fetch.
 
-### Signing-session seal routes (`POST /v2/wallet-session/seal/*`) (optional)
+### Signing-session seal routes (`POST /wallet-session/seal/*`) (optional)
 
 When enabled, this example mounts:
 
-- `POST /v2/wallet-session/seal/apply`
-- `POST /v2/wallet-session/seal/remove`
+- `POST /wallet-session/seal/apply`
+- `POST /wallet-session/seal/remove`
 - `GET /.well-known/webauthn` response includes `capabilities.signingSessionSeal` so sealed-refresh clients can enforce startup parity (`mode`, `keyVersion`, `shamirPrimeB64u`)
 
 Enable with `SIGNING_SESSION_SEAL_ENABLED=1` and provide:
@@ -202,7 +202,7 @@ Keep the printed client values aligned with relay `SIGNING_SESSION_*` values. Se
 
 ## Router A/B Normal Signing
 
-Set `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` on the relay/server when clients mint
+Set `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` on the Router server when clients mint
 Router A/B Ed25519 normal-signing sessions. The value must match the frontend
 `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`; local Router A/B workers use
 `local-signing-worker`.

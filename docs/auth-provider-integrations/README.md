@@ -20,7 +20,7 @@ Make wallet embedding fit existing app-auth stacks by:
 
 ## Current Baseline
 
-Current relay/server already supports JWT + HttpOnly cookie session handling:
+Current Router server already supports JWT + HttpOnly cookie session handling:
 
 - `POST /auth/passkey/options`
 - `POST /auth/passkey/verify`

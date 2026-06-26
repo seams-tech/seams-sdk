@@ -62,8 +62,8 @@ validation.
 Public route shape:
 
 ```text
-POST /v2/router-ab/ed25519/sign/prepare
-POST /v2/router-ab/ed25519/sign
+POST /router-ab/ed25519/sign/prepare
+POST /router-ab/ed25519/sign
 ```
 
 Public credential:
@@ -901,8 +901,8 @@ Local/manual pre-deploy testing is ready. Use the current public route shape and
 bearer Wallet Session credential:
 
 ```text
-POST /v2/router-ab/ed25519/sign/prepare
-POST /v2/router-ab/ed25519/sign
+POST /router-ab/ed25519/sign/prepare
+POST /router-ab/ed25519/sign
 Authorization: Bearer <wallet-session-jwt>
 ```
 

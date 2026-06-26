@@ -36,7 +36,7 @@ Capture these per flow:
 - end-to-end signing latency p50, p95, and p99
 - success rate and rejection rate
 - preflight latency when running in a browser against strict Cloudflare routes
-- route-level Router latency for `/v2/router-ab/ed25519/sign/prepare` and `/v2/router-ab/ed25519/sign`
+- route-level Router latency for `/router-ab/ed25519/sign/prepare` and `/router-ab/ed25519/sign`
 - private SigningWorker latency for the matching internal Router A/B route
 - pool-hit ratio and pool-miss fallback ratio
 - one-use nonce or presignature rejection counts

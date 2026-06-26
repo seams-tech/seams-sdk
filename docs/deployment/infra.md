@@ -178,11 +178,11 @@ environment and the B value only in the Account-2 / Deriver-B environment.
 The Router serves public deployment keys at:
 
 - `/.well-known/router-ab/keyset`
-- `/v2/router-ab/keyset`
+- `/router-ab/keyset`
 
 Self-hosted relay deployments may serve the same public keyset routes when
 `routerAbPublicKeyset` is provided to the relay router. The browser SDK
-prefetches `/v2/router-ab/keyset` during registration precompute whenever
+prefetches `/router-ab/keyset` during registration precompute whenever
 Router A/B normal signing is enabled.
 
 Manual validation and deployment:

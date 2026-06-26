@@ -47,7 +47,7 @@ spec_ir:
     source_document: docs/refactor-68B-router-cleanup.md
     source_section: Goal and Target Topology, lines 7-23
     semantic_type: topology_invariant
-    spec_excerpt: "Make the Router the single browser-facing server/worker... Caddy forwards every request to one local Router server... Caddy must not path-split /v2/router-ab/* or /v1/hss/ecdsa/sign* to a second public upstream."
+    spec_excerpt: "Make the Router the single browser-facing server/worker... Caddy forwards every request to one local Router server... Caddy must not path-split /router-ab/* or /router-ab/ecdsa-hss/sign* to a second public upstream."
     normalized_form: One browser-facing Router route table owns all public routes; Caddy is TLS-only and must use one upstream.
     confidence: 0.97
   - id: S2

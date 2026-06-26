@@ -77,8 +77,8 @@ Rules:
 Use signing-session seal routes:
 
 ```text
-POST /v2/wallet-session/seal/apply
-POST /v2/wallet-session/seal/remove
+POST /wallet-session/seal/apply
+POST /wallet-session/seal/remove
 ```
 
 Route auth:

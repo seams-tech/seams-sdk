@@ -724,12 +724,12 @@ verifying-share bindings.
 
 Current public signing-capable route families:
 
-- Ed25519 Wallet Session issuance: `/v2/router-ab/wallet-session/ed25519`
-- Ed25519 HSS lifecycle: `/v2/router-ab/ed25519/hss/*`
-- Ed25519 normal signing: `/v2/router-ab/ed25519/sign/*`
-- ECDSA-HSS Wallet Session/bootstrap/lifecycle: `/v1/hss/ecdsa/*`
-- Wallet Session seal: `/v2/wallet-session/seal/*`
-- Wallet Session budget status: `/session/signing-budget/status`
+- Ed25519 Wallet Session issuance: `/router-ab/wallet-session/ed25519`
+- Ed25519 HSS lifecycle: `/router-ab/ed25519/hss/*`
+- Ed25519 normal signing: `/router-ab/ed25519/sign/*`
+- ECDSA-HSS Wallet Session/bootstrap/lifecycle: `/router-ab/ecdsa-hss/*`
+- Wallet Session seal: `/wallet-session/seal/*`
+- Wallet Session budget status: `/router-ab/wallet-budget/status`
 
 Old public threshold signing routes are not active product signing paths:
 
@@ -933,8 +933,8 @@ signing-root shares.
 Keep public endpoints simple:
 
 ```text
-POST /v2/router-ab/ed25519/sign/prepare
-POST /v2/router-ab/ed25519/sign
+POST /router-ab/ed25519/sign/prepare
+POST /router-ab/ed25519/sign
 ```
 
 Both MVP endpoints accept:
@@ -963,8 +963,8 @@ No public endpoint should mint `routerAbNormalSigningGrant`.
 Strict Cloudflare Router deployment must expose browser-safe CORS for these
 public endpoints:
 
-- `OPTIONS /v2/router-ab/ed25519/sign/prepare`
-- `OPTIONS /v2/router-ab/ed25519/sign`
+- `OPTIONS /router-ab/ed25519/sign/prepare`
+- `OPTIONS /router-ab/ed25519/sign`
 - configured allowlist for app and wallet origins
 - deployed Worker evidence that browser prepare/finalize requests succeed
 
@@ -1148,20 +1148,20 @@ Ed25519 Router A/B signing covers:
 Pool hit:
 
 ```text
-POST /v2/router-ab/ed25519/sign
+POST /router-ab/ed25519/sign
 ```
 
 Pool miss:
 
 ```text
-POST /v2/router-ab/ed25519/sign/prepare
-POST /v2/router-ab/ed25519/sign
+POST /router-ab/ed25519/sign/prepare
+POST /router-ab/ed25519/sign
 ```
 
 Pool refill:
 
 ```text
-POST /v2/router-ab/ed25519/sign/presign-pool/prepare
+POST /router-ab/ed25519/sign/presign-pool/prepare
 ```
 
 Router admits the request, binds scope and request digest, reserves budget, and
@@ -1360,15 +1360,15 @@ material.
 ECDSA-HSS signing uses:
 
 ```text
-POST /v1/hss/ecdsa/sign/prepare
-POST /v1/hss/ecdsa/sign
+POST /router-ab/ecdsa-hss/sign/prepare
+POST /router-ab/ecdsa-hss/sign
 ```
 
 Presignature pool refill uses:
 
 ```text
-POST /v1/hss/ecdsa/presignature-pool/fill/init
-POST /v1/hss/ecdsa/presignature-pool/fill/step
+POST /router-ab/ecdsa-hss/presignature-pool/fill/init
+POST /router-ab/ecdsa-hss/presignature-pool/fill/step
 ```
 
 Normal signing uses activated SigningWorker state. Deriver A/B stay out of

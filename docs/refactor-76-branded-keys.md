@@ -60,7 +60,7 @@ walletKeyVersion: string
 
 ### Signing-Session Seal KEK Version
 
-Meaning: the server-side signing-session seal key-encryption-key version used by `/v2/wallet-session/seal/apply-server-seal`, Email OTP unseal, and sealed session transport metadata.
+Meaning: the server-side signing-session seal key-encryption-key version used by `/wallet-session/seal/apply-server-seal`, Email OTP unseal, and sealed session transport metadata.
 
 Current examples:
 
@@ -1165,6 +1165,7 @@ Current status:
 - ECDSA reconnect/provision lifecycle separation is implemented.
 - Combined Ed25519 + ECDSA registration now has an explicit shared-signing-grant path.
 - Phase 9 second-tier key-material branding is implemented for the scoped SDK/server core boundaries.
+- Phase 10 RP ID vs NEAR Ed25519 signing-key branding is implemented for shared passkey authority records and Ed25519 HSS registration/finalize boundaries.
 
 Do not reopen completed key-version, ECDSA lifecycle, shared-budget, or Phase 9 second-tier branding behavior unless a test proves a regression. Raw strings remain intentional at route, worker, generated-command, config, and persistence boundaries; core signing/session code should receive branded values through boundary parsers.
 
@@ -1316,6 +1317,95 @@ Validation:
 - [x] `pnpm -C tests exec playwright test tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`
 - [x] `pnpm -C tests exec playwright test tests/unit/thresholdEcdsa.presignPoolPolicy.unit.test.ts tests/unit/thresholdEcdsa.presignPoolRefill.unit.test.ts`
 
+### 10. Brand WebAuthn RP ID And NEAR Ed25519 Signing-Key Identity
+
+Triggering regression:
+
+```ts
+rpId: registrationAccountScope.value.walletKeyId
+```
+
+This compiled because both the passkey/WebAuthn RP ID and the NEAR Ed25519 signing-key identity were plain strings moving through the same registration-finalize/key-store path. The stored HSS material was keyed by the signing-key ID, while the later keygen lookup expected the RP ID from the registration intent, causing:
+
+```text
+threshold-ed25519 registration material does not match the prepared relay state
+```
+
+Target model:
+
+```ts
+export type WebAuthnRpId = Brand<string, 'WebAuthnRpId'>;
+export type NearEd25519SigningKeyId = Brand<string, 'NearEd25519SigningKeyId'>;
+```
+
+Rules:
+
+- `WebAuthnRpId` belongs only to passkey/WebAuthn auth scope and passkey-bound registration/session verification.
+- `NearEd25519SigningKeyId` belongs only to NEAR Ed25519 signer/HSS/key-material identity.
+- Ed25519 HSS core code must not use `walletKeyId` as an internal alias for `NearEd25519SigningKeyId`.
+- Existing wire/generated field names such as `wallet_key_id` may remain, but boundary parsers must immediately normalize them into `NearEd25519SigningKeyId`.
+- Email OTP auth-method records must continue to reject RP ID fields.
+
+Tasks:
+
+- [x] Add or consolidate `WebAuthnRpId` in shared code so SDK and server can use the same brand. If the existing `RpId` brand remains, rename or alias it clearly as passkey/WebAuthn-specific.
+- [x] Reuse the existing `NearEd25519SigningKeyId` brand as the canonical NEAR Ed25519 signer key identity. Do not introduce a second equivalent `WalletKeyId` brand for Ed25519.
+- [x] Add parsers/formatters:
+  - `parseWebAuthnRpId(value: unknown): WebAuthnRpId`
+  - `formatWebAuthnRpIdForWire(value: WebAuthnRpId): string`
+  - `parseNearEd25519SigningKeyId(value: unknown): NearEd25519SigningKeyId`
+  - `formatNearEd25519SigningKeyIdForWire(value: NearEd25519SigningKeyId): string`
+- [x] Update `RegistrationAuthority` and passkey auth-scope builders so passkey branches carry `rpId: WebAuthnRpId`; Email OTP branches keep `rpId?: never`.
+- [x] Update `ThresholdEd25519RegistrationAccountScope` so core fields use `nearEd25519SigningKeyId: NearEd25519SigningKeyId`. Remove or boundary-isolate any Ed25519 `walletKeyId` duplicate.
+- [x] Update Ed25519 HSS prepare/respond/finalize request parsers to parse raw `wallet_key_id` into `NearEd25519SigningKeyId`, then compare it against the scoped signer key ID.
+- [x] Update `ThresholdEd25519HssFinalizeForRegistrationRequest` so the internal request contains `rpId: WebAuthnRpId` and `wallet_key_id: NearEd25519SigningKeyId`. Keep raw `wallet_key_id` only in wire/request compatibility shapes.
+- [x] Update Ed25519 key-store and keygen material call sites so `rpId` and `nearEd25519SigningKeyId` are branded before HSS registration/finalize core logic observes them. Physical persistence rows remain raw boundary records.
+- [x] Replace local `toOptionalTrimmedString(...rpId...)` / `toOptionalTrimmedString(...nearEd25519SigningKeyId...)` validation in the Ed25519 HSS registration/finalize core path with boundary parsers or branch-specific builders.
+- [x] Add type fixtures proving:
+  - `NearEd25519SigningKeyId` cannot be assigned to `WebAuthnRpId`.
+  - `WebAuthnRpId` cannot be assigned to `NearEd25519SigningKeyId`.
+  - Raw `string` cannot enter Ed25519 HSS core finalize/key-store functions.
+  - Email OTP auth-method bindings cannot carry `rpId`.
+
+Primary files:
+
+- `packages/shared-ts/src/utils/walletCapabilityBindings.ts`
+- `packages/shared-ts/src/utils/registrationIntent.ts`
+- `packages/shared-ts/src/threshold/ed25519HssBinding.ts`
+- `packages/sdk-server-ts/src/core/types.ts`
+- `packages/sdk-server-ts/src/core/AuthService.ts`
+- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`
+- `packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore.ts`
+- `packages/sdk-server-ts/src/core/WalletStore.ts`
+- `packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
+- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
+- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
+
+Boundary files:
+
+- HTTP route body parsers and serializers.
+- Generated worker/signer command files.
+- IndexedDB/server persistence record schemas.
+- Test fixtures that explicitly model raw wire or invalid boundary input.
+
+Acceptance:
+
+- The assignment `rpId: registrationAccountScope.value.walletKeyId` is impossible because the field no longer exists in core Ed25519 scope, and the replacement `nearEd25519SigningKeyId` is not assignable to `WebAuthnRpId`.
+- Ed25519 HSS finalize stores prepared keygen material with the passkey/WebAuthn RP ID from the registration authority/intent.
+- Ed25519 signer/HSS/key-material code can only receive a `NearEd25519SigningKeyId` from a parser or signer-binding builder.
+- Passkey/WebAuthn verification can only receive a `WebAuthnRpId` from a passkey auth-scope parser/builder.
+- Existing wire/persistence compatibility is isolated to boundary modules.
+
+Validation:
+
+- [x] `pnpm -C packages/sdk-web -s type-check`
+- [x] `pnpm -C packages/sdk-server-ts exec tsc --noEmit --pretty false`
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/refactor76BrandedKeys.guard.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/refactor79ExactSigningLane.guard.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/thresholdEd25519.signingRootResolver.script.unit.test.ts --reporter=line`
+- [ ] Fresh passkey registration browser evidence showing HSS finalize and keygen material lookup agree on RP ID and NEAR Ed25519 signing-key ID.
+
 ## Source Guard Inventory
 
 Add or update:
@@ -1336,6 +1426,10 @@ Guard requirements:
 - Combined Ed25519 + ECDSA registration uses the `shared_signing_grant` branch.
 - Combined registration has a persisted-lane postcondition that compares Ed25519 and ECDSA `signingGrantId`.
 - No combined registration helper creates a second wallet budget after ECDSA registration prepare/bootstrap has returned a `signingGrantId`.
+- No core Ed25519 HSS/key-store path assigns `rpId` from `walletKeyId`, `nearEd25519SigningKeyId`, or `registrationAccountScope`.
+- No core Ed25519 scope type exposes `walletKeyId` as an alias for `nearEd25519SigningKeyId`.
+- No core passkey/WebAuthn code accepts raw `rpId: string` after Phase 10.
+- No Email OTP auth-method binding accepts or persists `rpId`.
 
 ## Validation Matrix
 
@@ -1349,6 +1443,7 @@ Run narrow checks by phase:
 - Phase 7: combined registration shared-budget unit tests and browser evidence.
 - Phase 8: source guards for branded key versions, lifecycle helpers, and shared-grant registration paths.
 - Phase 9: source guards for opaque handle/ref/digest/verifier/relayer brands.
+- Phase 10: SDK/server type fixtures for `WebAuthnRpId` vs `NearEd25519SigningKeyId`, Ed25519 HSS registration finalize/keygen tests, and fresh passkey-registration browser evidence.
 
 Full SDK/server type-check is required before the branch is called done because this refactor changes shared types and core signing/session surfaces.
 

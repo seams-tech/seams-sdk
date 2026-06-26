@@ -114,11 +114,11 @@ Server-side Wallet Session budget already exists:
 - `WalletSessionStore.getSessionStatus()`
 - `WalletSessionStore.consumeUseCount()`
 - `WalletSessionStore.consumeUseCountOnce()`
-- `/session/signing-budget/status`
+- `/router-ab/wallet-budget/status`
 - signing-session seal paths that can consume through `consumeUseCount`
 
 Router A/B normal signing treated budget status as read-only. The SDK
-asks `/session/signing-budget/status`, receives the original `remainingUses`
+asks `/router-ab/wallet-budget/status`, receives the original `remainingUses`
 wire field, signs, and then records a local projection. Since the server budget
 was not decremented by signing, a fresh browser status read could still see the
 original budget and admit more signatures.
@@ -316,7 +316,7 @@ Missing budget records:
 ## Phase 0: Complete Budget Boundary Inventory
 
 - [x] Inventory every Wallet Session budget status read:
-  - `/session/signing-budget/status`
+  - `/router-ab/wallet-budget/status`
   - SDK `SigningSessionCoordinator.prepareBudgetIdentity`
   - SDK ECDSA pre-confirm readiness
   - SDK NEAR readiness
@@ -327,11 +327,11 @@ Missing budget records:
   - Cloudflare Durable Object wallet-session consume paths
   - Postgres/Redis/InMemory wallet-session stores
 - [x] Inventory every Router A/B public signing route that must enforce budget:
-  - `POST /v2/router-ab/ed25519/sign/prepare`
-  - `POST /v2/router-ab/ed25519/sign/presign-pool/prepare`
-  - `POST /v2/router-ab/ed25519/sign`
-  - `POST /v1/hss/ecdsa/sign/prepare`
-  - `POST /v1/hss/ecdsa/sign`
+  - `POST /router-ab/ed25519/sign/prepare`
+  - `POST /router-ab/ed25519/sign/presign-pool/prepare`
+  - `POST /router-ab/ed25519/sign`
+  - `POST /router-ab/ecdsa-hss/sign/prepare`
+  - `POST /router-ab/ecdsa-hss/sign`
 - [x] Mark presign-pool refill routes as non-consuming unless they return a
       transaction signature.
 - [x] Reconcile the open refactor-41 Phase 1B naming tasks that affect this
@@ -347,7 +347,7 @@ Missing budget records:
 Inventory results:
 
 - Server status authority lives in `Ed25519WalletSessionStore.getSessionStatus`
-  plus `/session/signing-budget/status`. Express and Cloudflare adapters call
+  plus `/router-ab/wallet-budget/status`. Express and Cloudflare adapters call
   `parseWalletSigningBudgetStatusRequest`, then normalize to the public status
   response at the route boundary.
 - SDK budget reads flow through
@@ -613,7 +613,7 @@ Acceptance:
 
 ## Phase 4: Make Budget Status Reflect Reservations And Commits
 
-- [x] Update `/session/signing-budget/status` to include:
+- [x] Update `/router-ab/wallet-budget/status` to include:
   - committed remaining signature uses
   - in-flight reserved signature uses
   - available signature uses
@@ -626,7 +626,7 @@ Acceptance:
 
 Implemented scope:
 
-- `/session/signing-budget/status` now returns `committedRemainingUses`,
+- `/router-ab/wallet-budget/status` now returns `committedRemainingUses`,
   `reservedUses`, `availableUses`, compatibility `remainingUses`, and a
   projection version derived from the server budget projection.
 - Express and Cloudflare adapters share the strict parser projection shape.
@@ -799,7 +799,7 @@ Open Cloudflare strict work:
   grant-acceptance boundary. The DO operation exists, but no strict Cloudflare
   issuer path currently initializes a grant before signing routes read it.
 - Add strict Cloudflare status-route parity if strict Cloudflare becomes the
-  browser-facing Wallet Session Router for `/session/signing-budget/status`.
+  browser-facing Wallet Session Router for `/router-ab/wallet-budget/status`.
 - Prove private SigningWorker finalize replay is idempotent by request identity,
   or add a Router-owned pending worker-success result store before deployment.
   Without that, a private finalize success followed by budget commit failure may
@@ -1157,7 +1157,7 @@ status semantics as local Router:
 
 #### Route State Machines
 
-`POST /v2/router-ab/ed25519/sign/prepare`:
+`POST /router-ab/ed25519/sign/prepare`:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
 2. Validate Ed25519 scope, expiry, SigningWorker id, and request digest.
@@ -1172,7 +1172,7 @@ status semantics as local Router:
 8. Return prepare response with:
    `budget_reservation_id`, `budget_operation_id`, and `budget_status`.
 
-`POST /v2/router-ab/ed25519/sign` normal finalize:
+`POST /router-ab/ed25519/sign` normal finalize:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
 2. Require `budget_reservation_id` and `budget_operation_id`.
@@ -1185,7 +1185,7 @@ status semantics as local Router:
    Router returns the signature.
 8. Return no signature if commit fails.
 
-`POST /v2/router-ab/ed25519/sign/presign-pool/prepare`:
+`POST /router-ab/ed25519/sign/presign-pool/prepare`:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
 2. Validate Ed25519 scope, expiry, SigningWorker id, and pool request binding.
@@ -1194,7 +1194,7 @@ status semantics as local Router:
    signature.
 5. Forward admitted pool refill prepare to the private SigningWorker.
 
-`POST /v2/router-ab/ed25519/sign` pool-hit finalize:
+`POST /router-ab/ed25519/sign` pool-hit finalize:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
 2. Derive canonical final-sign `operation_id` and `request_digest` from the
@@ -1206,7 +1206,7 @@ status semantics as local Router:
    reservation.
 6. Commit the reservation before returning the signature.
 
-`POST /v1/hss/ecdsa/sign/prepare`:
+`POST /router-ab/ecdsa-hss/sign/prepare`:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
 2. Validate active ECDSA-HSS scope, activation epoch, public identity,
@@ -1222,7 +1222,7 @@ status semantics as local Router:
 8. Return prepare response with:
    `budget_reservation_id`, `budget_operation_id`, and `budget_status`.
 
-`POST /v1/hss/ecdsa/sign`:
+`POST /router-ab/ecdsa-hss/sign`:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
 2. Require `budget_reservation_id` and `budget_operation_id`.
@@ -1359,14 +1359,14 @@ Completion for Phase 7.1:
 Implemented scope:
 
 - Strict Cloudflare now exposes a Router-private service-auth
-  `/router-ab/v1/router/wallet-budget/put-grant` endpoint. It accepts the typed
+  `/router-ab/router/wallet-budget/put-grant` endpoint. It accepts the typed
   `CloudflareRouterWalletBudgetPutGrantRequestV1`, overwrites timing with Router
   time at the boundary, and writes the grant through the Wallet Budget Durable
   Object `PutGrant` operation before signable JWTs can spend that grant.
 - Strict public signing routes still require the Wallet Session JWT
   `signingGrantId`; missing grant records fail at reserve/validate/status time.
 - Strict Cloudflare now exposes the same browser-facing
-  `/session/signing-budget/status` route shape as local Router, backed by the
+  `/router-ab/wallet-budget/status` route shape as local Router, backed by the
   Wallet Budget Durable Object.
 - The release guard now requires the private grant endpoint, internal service
   auth, `PutGrant` execution, and strict status-route DO reads.

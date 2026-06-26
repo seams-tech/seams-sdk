@@ -29,8 +29,8 @@ auth planes. A route must not silently accept credentials from another plane.
 
 Public Ed25519 and ECDSA-HSS signing uses:
 
-- `POST /v2/router-ab/ed25519/sign/prepare`
-- `POST /v2/router-ab/ed25519/sign`
+- `POST /router-ab/ed25519/sign/prepare`
+- `POST /router-ab/ed25519/sign`
 
 Router A/B public signing requirements:
 
