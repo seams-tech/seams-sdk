@@ -695,6 +695,19 @@ export type {
   EmailHandler,
 } from './cloudflare/cloudflare.types';
 export type {
+  CloudflareD1ConsoleAdapterOptions,
+  CloudflareD1ConsoleRouteOptions,
+  CloudflareD1ConsoleRouterStorageOptions,
+  CloudflareD1ConsoleServiceBundle,
+  CloudflareD1ConsoleServiceBundleOptions,
+  CloudflareD1ConsoleStorageBindingNames,
+  CloudflareD1ConsoleStorageBindings,
+} from './cloudflare/d1ConsoleServices';
+export {
+  asConsoleRouterOptions,
+  createCloudflareD1ConsoleServiceBundle,
+} from './cloudflare/d1ConsoleServices';
+export type {
   CloudflareTenantStorageRoute,
   CloudflareTenantTopology,
   ConsoleD1StorageTarget,
