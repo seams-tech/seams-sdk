@@ -65,8 +65,13 @@ export {
 } from './signingRootShareResolver';
 export {
   CloudflareDurableObjectSigningRootSecretStore,
+  D1SigningRootSecretStore,
   InMemorySigningRootSecretStore,
   PostgresSigningRootSecretStore,
+  SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL,
+  ensureSigningRootSecretShareD1Schema,
+  type D1SigningRootSecretStoreOptions,
+  type D1SigningRootSecretStoreSchemaOptions,
   type DeleteSigningRootSecretSharesInput,
   type ResolveSigningRootSecretSharesInput,
   type SigningRootSecretShareSource,
