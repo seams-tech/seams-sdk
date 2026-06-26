@@ -545,7 +545,8 @@ test('Refactor 80 threshold and session exchange routes parse commands before se
 
   expect(ed25519Parser).not.toContain('appSessionClaims');
   expect(ed25519Parser).not.toContain('ecdsaSessionClaims');
-  expect(coreTypes).toContain('verifiedWalletAuth?: ThresholdEd25519VerifiedWalletAuth');
+  expect(coreTypes).toContain('export type ThresholdEd25519SessionAuth');
+  expect(coreTypes).toContain('auth: ThresholdEd25519SessionAuth');
   const ed25519SessionRequestType = sourceRange(
     coreTypes,
     'export interface ThresholdEd25519SessionRequest',
@@ -553,8 +554,13 @@ test('Refactor 80 threshold and session exchange routes parse commands before se
   );
   expect(ed25519SessionRequestType).not.toContain('appSessionClaims');
   expect(ed25519SessionRequestType).not.toContain('ecdsaSessionClaims');
+  expect(ed25519SessionRequestType).not.toContain('verifiedWalletAuth?');
+  expect(ed25519SessionRequestType).not.toContain('webauthn_authentication?');
+  expect(ed25519SessionRequestType).not.toContain('expected_origin: string');
   expect(thresholdService).not.toContain('request.appSessionClaims');
   expect(thresholdService).not.toContain('request.ecdsaSessionClaims');
+  expect(thresholdService).not.toContain('request.verifiedWalletAuth');
+  expect(thresholdService).not.toContain('request.webauthn_authentication');
   expect(thresholdService).not.toContain('parseAppSessionClaims(request');
   expect(thresholdService).not.toContain('parseRouterAbEcdsaHssWalletSessionClaims(request');
 

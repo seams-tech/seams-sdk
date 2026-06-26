@@ -12,7 +12,6 @@ import type {
   ThresholdEd25519HssRespondWithSessionRequest,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssSessionOperation,
-  ThresholdEd25519SessionRequest,
   WebAuthnAuthenticationCredential,
 } from '../core/types';
 import {
@@ -32,6 +31,20 @@ type ThresholdEd25519RouteParseError = { ok: false; body: ThresholdEd25519RouteE
 export type ThresholdEd25519RouteParseResult<T> =
   | { ok: true; request: T }
   | ThresholdEd25519RouteParseError;
+
+export type ThresholdEd25519SessionRouteCommand = {
+  relayerKeyId: string;
+  sessionPolicy: Ed25519SessionPolicy;
+  runtimeEnvironmentId?: string;
+  routeAuth:
+    | { kind: 'signed_session_header' }
+    | {
+        kind: 'passkey';
+        webauthnAuthentication: WebAuthnAuthenticationCredential;
+        expectedOriginRaw: string;
+      };
+  sessionKind?: 'jwt';
+};
 
 const SESSION_KEYS = [
   'relayerKeyId',
@@ -244,7 +257,7 @@ function parseEvaluationResultEnvelope(
 
 export function parseThresholdEd25519SessionRouteRequest(
   raw: unknown,
-): ThresholdEd25519RouteParseResult<ThresholdEd25519SessionRequest> {
+): ThresholdEd25519RouteParseResult<ThresholdEd25519SessionRouteCommand> {
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('Expected JSON object body');
   const sessionKindError = rejectNonJwtSessionKind(
     raw,
@@ -271,8 +284,13 @@ export function parseThresholdEd25519SessionRouteRequest(
       ...(optionalStringField(raw, 'runtimeEnvironmentId')
         ? { runtimeEnvironmentId: optionalStringField(raw, 'runtimeEnvironmentId') }
         : {}),
-      ...(webauthnAuthentication ? { webauthn_authentication: webauthnAuthentication } : {}),
-      expected_origin: optionalStringField(raw, 'expected_origin') || '',
+      routeAuth: webauthnAuthentication
+        ? {
+            kind: 'passkey',
+            webauthnAuthentication,
+            expectedOriginRaw: optionalStringField(raw, 'expected_origin') || '',
+          }
+        : { kind: 'signed_session_header' },
       ...(optionalSessionKind(raw) ? { sessionKind: 'jwt' } : {}),
     },
   };

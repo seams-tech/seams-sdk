@@ -228,7 +228,32 @@ export async function handleThresholdEd25519(
       }
       const runtimePolicyScope = runtimePolicyScopeResolution.scope;
       const expectedOrigin = normalizeCorsOrigin(ctx.request.headers.get('origin') || undefined);
-      if (b.webauthn_authentication && !expectedOrigin) {
+
+      const verifiedWalletAuth = buildThresholdEd25519VerifiedWalletAuth({
+        appSessionClaims,
+        ecdsaSessionClaims,
+      });
+      if (verifiedWalletAuth && b.routeAuth.kind === 'passkey') {
+        return json(
+          {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Provide either signed session auth or WebAuthn authentication, not both',
+          },
+          { status: 400 },
+        );
+      }
+      if (!verifiedWalletAuth && b.routeAuth.kind === 'signed_session_header') {
+        return json(
+          {
+            ok: false,
+            code: 'invalid_body',
+            message: 'webauthn_authentication is required without signed session auth',
+          },
+          { status: 400 },
+        );
+      }
+      if (b.routeAuth.kind === 'passkey' && !expectedOrigin) {
         return json(
           {
             ok: false,
@@ -238,15 +263,31 @@ export async function handleThresholdEd25519(
           { status: 400 },
         );
       }
-
-      const verifiedWalletAuth = buildThresholdEd25519VerifiedWalletAuth({
-        appSessionClaims,
-        ecdsaSessionClaims,
-      });
+      const sessionAuth = verifiedWalletAuth
+        ? ({ kind: 'verified_wallet' as const, walletAuth: verifiedWalletAuth })
+        : b.routeAuth.kind === 'passkey'
+          ? {
+              kind: 'passkey' as const,
+              webauthn_authentication: b.routeAuth.webauthnAuthentication,
+              expected_origin: expectedOrigin || '',
+            }
+          : null;
+      if (!sessionAuth) {
+        return json(
+          {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold-ed25519 session auth is required',
+          },
+          { status: 400 },
+        );
+      }
       const result = await ed25519.session({
-        ...b,
-        expected_origin: expectedOrigin || '',
-        ...(verifiedWalletAuth ? { verifiedWalletAuth } : {}),
+        relayerKeyId: b.relayerKeyId,
+        sessionPolicy: b.sessionPolicy,
+        ...(b.runtimeEnvironmentId ? { runtimeEnvironmentId: b.runtimeEnvironmentId } : {}),
+        ...(b.sessionKind ? { sessionKind: b.sessionKind } : {}),
+        auth: sessionAuth,
       });
       const status = thresholdEd25519StatusCode(result);
       ctx.logger.info('[threshold-ed25519] response', {

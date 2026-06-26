@@ -261,22 +261,53 @@ export function registerThresholdEd25519Routes(
         const expectedOrigin = normalizeCorsOrigin(
           Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
         );
-        if (request.webauthn_authentication && !expectedOrigin) {
+        const verifiedWalletAuth = buildThresholdEd25519VerifiedWalletAuth({
+          appSessionClaims,
+          ecdsaSessionClaims,
+        });
+        if (verifiedWalletAuth && request.routeAuth.kind === 'passkey') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Provide either signed session auth or WebAuthn authentication, not both',
+          };
+        }
+        if (!verifiedWalletAuth && request.routeAuth.kind === 'signed_session_header') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'webauthn_authentication is required without signed session auth',
+          };
+        }
+        if (request.routeAuth.kind === 'passkey' && !expectedOrigin) {
           return {
             ok: false,
             code: 'invalid_body',
             message: 'expected_origin is required for WebAuthn authentication verification',
           };
         }
-
-        const verifiedWalletAuth = buildThresholdEd25519VerifiedWalletAuth({
-          appSessionClaims,
-          ecdsaSessionClaims,
-        });
+        const sessionAuth = verifiedWalletAuth
+          ? ({ kind: 'verified_wallet' as const, walletAuth: verifiedWalletAuth })
+          : request.routeAuth.kind === 'passkey'
+            ? {
+                kind: 'passkey' as const,
+                webauthn_authentication: request.routeAuth.webauthnAuthentication,
+                expected_origin: expectedOrigin || '',
+              }
+            : null;
+        if (!sessionAuth) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold-ed25519 session auth is required',
+          };
+        }
         const result = await resolved.scheme.session({
-          ...request,
-          expected_origin: expectedOrigin || '',
-          ...(verifiedWalletAuth ? { verifiedWalletAuth } : {}),
+          relayerKeyId: request.relayerKeyId,
+          sessionPolicy: request.sessionPolicy,
+          ...(request.runtimeEnvironmentId ? { runtimeEnvironmentId: request.runtimeEnvironmentId } : {}),
+          ...(request.sessionKind ? { sessionKind: request.sessionKind } : {}),
+          auth: sessionAuth,
         });
         if (!result.ok) return result;
 

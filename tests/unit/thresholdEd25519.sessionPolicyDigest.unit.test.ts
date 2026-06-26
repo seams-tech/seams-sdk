@@ -68,19 +68,22 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
   const result = await scheme.session({
     relayerKeyId,
     sessionPolicy: policy,
-    expected_origin: 'http://localhost',
-    webauthn_authentication: {
-      id: 'cred-runtime-scope',
-      rawId: 'cred-runtime-scope',
-      type: 'public-key',
-      authenticatorAttachment: null,
-      response: {
-        clientDataJSON: 'client-data-json',
-        authenticatorData: 'authenticator-data',
-        signature: 'signature',
-        userHandle: null,
+    auth: {
+      kind: 'passkey',
+      expected_origin: 'http://localhost',
+      webauthn_authentication: {
+        id: 'cred-runtime-scope',
+        rawId: 'cred-runtime-scope',
+        type: 'public-key',
+        authenticatorAttachment: null,
+        response: {
+          clientDataJSON: 'client-data-json',
+          authenticatorData: 'authenticator-data',
+          signature: 'signature',
+          userHandle: null,
+        },
+        clientExtensionResults: null,
       },
-      clientExtensionResults: null,
     },
   });
 
@@ -89,17 +92,16 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
   expect(result.code).not.toBe('invalid_assertion');
 });
 
-test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for the new session', async () => {
+test('threshold-ed25519 passkey session mint creates wallet budgets per signing grant', async () => {
   const nearAccountId = 'alice.testnet';
   const rpId = 'localhost';
   const relayerKeyId = 'ed25519:wallet-budget-refresh-relayer';
-  const signingGrantId = 'wsess-wallet-budget-refresh';
   const publicKey = 'ed25519:wallet-budget-refresh-public-key';
   const relayerSigningShareB64u = Buffer.alloc(32, 12).toString('base64url');
   const relayerVerifyingShareB64u = deriveThresholdEd25519VerifyingShareForUnitTests({
     signingShareB64u: relayerSigningShareB64u,
   });
-  const { svc, walletSessionStore } = createThresholdSigningServiceForUnitTests({
+  const { svc, walletBudgetSessionStore } = createThresholdSigningServiceForUnitTests({
     keyRecord: {
       nearAccountId,
       rpId,
@@ -117,7 +119,7 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
   }
   const ed25519Scheme = scheme;
 
-  async function mintSession(sessionId: string, remainingUses: number) {
+  async function mintSession(sessionId: string, signingGrantId: string, remainingUses: number) {
     const { policy } = await buildEd25519SessionPolicy({
       walletId: nearAccountId,
       nearAccountId,
@@ -134,19 +136,22 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
     const result = await ed25519Scheme.session({
       relayerKeyId,
       sessionPolicy: policy,
-      expected_origin: 'http://localhost',
-      webauthn_authentication: {
-        id: `cred-${sessionId}`,
-        rawId: `cred-${sessionId}`,
-        type: 'public-key',
-        authenticatorAttachment: null,
-        response: {
-          clientDataJSON: 'client-data-json',
-          authenticatorData: 'authenticator-data',
-          signature: 'signature',
-          userHandle: null,
+      auth: {
+        kind: 'passkey',
+        expected_origin: 'http://localhost',
+        webauthn_authentication: {
+          id: `cred-${sessionId}`,
+          rawId: `cred-${sessionId}`,
+          type: 'public-key',
+          authenticatorAttachment: null,
+          response: {
+            clientDataJSON: 'client-data-json',
+            authenticatorData: 'authenticator-data',
+            signature: 'signature',
+            userHandle: null,
+          },
+          clientExtensionResults: null,
         },
-        clientExtensionResults: null,
       },
     });
     expect(result.ok).toBe(true);
@@ -154,24 +159,27 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
 
   const firstSessionId = 'tsess-wallet-budget-refresh-1';
   const secondSessionId = 'tsess-wallet-budget-refresh-2';
-  const walletBudgetSessionId = walletSigningBudgetSessionId(signingGrantId);
+  const firstSigningGrantId = 'wsess-wallet-budget-refresh-1';
+  const secondSigningGrantId = 'wsess-wallet-budget-refresh-2';
+  const firstWalletBudgetSessionId = walletSigningBudgetSessionId(firstSigningGrantId);
+  const secondWalletBudgetSessionId = walletSigningBudgetSessionId(secondSigningGrantId);
 
-  await mintSession(firstSessionId, 2);
-  expect(await walletSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  await mintSession(firstSessionId, firstSigningGrantId, 2);
+  expect(await walletBudgetSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({
     ok: true,
     remainingUses: 1,
   });
-  expect(await walletSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  expect(await walletBudgetSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({
     ok: true,
     remainingUses: 0,
   });
-  expect(await walletSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  expect(await walletBudgetSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({
     ok: false,
     code: 'wallet_budget_exhausted',
   });
 
-  await mintSession(secondSessionId, 3);
-  expect(await walletSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  await mintSession(secondSessionId, secondSigningGrantId, 3);
+  expect(await walletBudgetSessionStore.consumeUseCount(secondWalletBudgetSessionId)).toMatchObject({
     ok: true,
     remainingUses: 2,
   });

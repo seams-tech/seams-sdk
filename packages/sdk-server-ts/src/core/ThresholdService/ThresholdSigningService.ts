@@ -68,6 +68,7 @@ import type {
   ThresholdEd25519SessionRequest,
   ThresholdEd25519SessionResponse,
   ThresholdEd25519VerifiedWalletAuth,
+  ThresholdEd25519SessionAuth,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
@@ -820,7 +821,29 @@ function parseThresholdEd25519SessionRequest(
   }
   const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
   const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
-  const expectedOrigin = toOptionalTrimmedString(rec.expected_origin) || null;
+  const authRaw = (rec as { auth?: unknown }).auth;
+  if (!isObject(authRaw)) {
+    return { ok: false, code: 'invalid_body', message: 'auth is required' };
+  }
+  const authKind = toOptionalTrimmedString((authRaw as Record<string, unknown>).kind);
+  if (authKind !== 'verified_wallet' && authKind !== 'passkey') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'auth.kind must be verified_wallet or passkey',
+    };
+  }
+  const expectedOrigin =
+    authKind === 'passkey'
+      ? toOptionalTrimmedString((authRaw as Record<string, unknown>).expected_origin) || null
+      : null;
+  if (authKind === 'passkey' && !expectedOrigin) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'auth.expected_origin is required for passkey auth',
+    };
+  }
   if (
     !walletId ||
     !nearAccountId ||
@@ -923,60 +946,58 @@ type ThresholdEd25519SessionWalletAuthProof =
     };
 
 function resolveThresholdEd25519SessionWalletAuthProof(input: {
-  request: ThresholdEd25519SessionRequest;
-  verifiedWalletAuth: ThresholdEd25519VerifiedWalletAuth | null;
+  auth: ThresholdEd25519SessionAuth;
   hasAppSessionAuth: boolean;
   hasEcdsaSessionAuth: boolean;
 }): ParseResult<ThresholdEd25519SessionWalletAuthProof> {
-  if (input.hasAppSessionAuth) {
-    if (!input.verifiedWalletAuth || input.verifiedWalletAuth.kind !== 'app_session') {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'verified app session auth is missing',
-      };
+  switch (input.auth.kind) {
+    case 'verified_wallet': {
+      switch (input.auth.walletAuth.kind) {
+        case 'app_session':
+          if (!input.hasAppSessionAuth) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'app session does not match threshold-ed25519 session scope',
+            };
+          }
+          return {
+            ok: true,
+            value: {
+              ...input.auth.walletAuth,
+              method: 'app_session',
+            },
+          };
+        case 'threshold_ecdsa_session':
+          if (!input.hasEcdsaSessionAuth) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'threshold-ecdsa session does not match threshold-ed25519 session scope',
+            };
+          }
+          return {
+            ok: true,
+            value: {
+              ...input.auth.walletAuth,
+              method: 'threshold_ecdsa_session',
+            },
+          };
+        default:
+          return assertNever(input.auth.walletAuth);
+      }
     }
-    return {
-      ok: true,
-      value: {
-        ...input.verifiedWalletAuth,
-        method: 'app_session',
-      },
-    };
-  }
-
-  if (input.verifiedWalletAuth?.kind === 'threshold_ecdsa_session') {
-    if (!input.hasEcdsaSessionAuth) {
+    case 'passkey':
       return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'threshold-ecdsa session does not match threshold-ed25519 session scope',
+        ok: true,
+        value: {
+          method: 'passkey',
+          webauthnAuthentication: input.auth.webauthn_authentication,
+        },
       };
-    }
-    return {
-      ok: true,
-      value: {
-        ...input.verifiedWalletAuth,
-        method: 'threshold_ecdsa_session',
-      },
-    };
+    default:
+      return assertNever(input.auth);
   }
-
-  if (!input.request.webauthn_authentication) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'webauthn_authentication is required for threshold-ed25519 session mint',
-    };
-  }
-
-  return {
-    ok: true,
-    value: {
-      method: 'passkey',
-      webauthnAuthentication: input.request.webauthn_authentication,
-    },
-  };
 }
 
 function parseThresholdEd25519HssCanonicalContext(
@@ -4186,15 +4207,24 @@ export class ThresholdSigningService {
 
       await this.ensureReady();
 
-      const verifiedWalletAuth = request.verifiedWalletAuth ?? null;
+      const sessionAuth = request.auth;
       const appSessionClaims =
-        verifiedWalletAuth?.kind === 'app_session' ? verifiedWalletAuth.claims : null;
+        sessionAuth.kind === 'verified_wallet' && sessionAuth.walletAuth.kind === 'app_session'
+          ? sessionAuth.walletAuth.claims
+          : null;
       const ecdsaSessionClaims =
-        verifiedWalletAuth?.kind === 'threshold_ecdsa_session' ? verifiedWalletAuth.claims : null;
+        sessionAuth.kind === 'verified_wallet' &&
+        sessionAuth.walletAuth.kind === 'threshold_ecdsa_session'
+          ? sessionAuth.walletAuth.claims
+          : null;
       const sessionWalletId =
-        verifiedWalletAuth?.kind === 'app_session' ? verifiedWalletAuth.sessionWalletId : '';
+        sessionAuth.kind === 'verified_wallet' && sessionAuth.walletAuth.kind === 'app_session'
+          ? sessionAuth.walletAuth.sessionWalletId
+          : '';
       const hasAppSessionAuth = Boolean(
-        verifiedWalletAuth?.kind === 'app_session' && sessionWalletId === walletId,
+        sessionAuth.kind === 'verified_wallet' &&
+          sessionAuth.walletAuth.kind === 'app_session' &&
+          sessionWalletId === walletId,
       );
       const policySigningRoot = resolveEcdsaSigningRootFromScope(
         request.sessionPolicy?.runtimePolicyScope,
@@ -4203,7 +4233,8 @@ export class ThresholdSigningService {
         ecdsaSessionClaims?.runtimePolicyScope,
       );
       const hasEcdsaSessionAuth = Boolean(
-        verifiedWalletAuth?.kind === 'threshold_ecdsa_session' &&
+        sessionAuth.kind === 'verified_wallet' &&
+        sessionAuth.walletAuth.kind === 'threshold_ecdsa_session' &&
         ecdsaSessionClaims &&
         ecdsaSessionClaims.walletId === walletId &&
         ecdsaSessionClaims.thresholdExpiresAtMs > Date.now() &&
@@ -4287,8 +4318,7 @@ export class ThresholdSigningService {
       }
 
       const walletAuthProof = resolveThresholdEd25519SessionWalletAuthProof({
-        request,
-        verifiedWalletAuth,
+        auth: sessionAuth,
         hasAppSessionAuth,
         hasEcdsaSessionAuth,
       });

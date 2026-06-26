@@ -280,7 +280,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
       }),
   });
 
-  return { svc, sessionStore, walletSessionStore };
+  return { svc, sessionStore, walletSessionStore, walletBudgetSessionStore };
 }
 
 export async function verifyThresholdEd25519CoordinatorGrantHmac(

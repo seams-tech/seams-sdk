@@ -1634,13 +1634,22 @@ export type ThresholdEd25519VerifiedWalletAuth =
       };
     };
 
+export type ThresholdEd25519SessionAuth =
+  | {
+      kind: 'verified_wallet';
+      walletAuth: ThresholdEd25519VerifiedWalletAuth;
+    }
+  | {
+      kind: 'passkey';
+      webauthn_authentication: WebAuthnAuthenticationCredential;
+      expected_origin: string;
+    };
+
 export interface ThresholdEd25519SessionRequest {
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
   runtimeEnvironmentId?: string;
-  webauthn_authentication?: WebAuthnAuthenticationCredential;
-  expected_origin: string;
-  verifiedWalletAuth?: ThresholdEd25519VerifiedWalletAuth;
+  auth: ThresholdEd25519SessionAuth;
   sessionKind?: 'jwt';
 }
 
