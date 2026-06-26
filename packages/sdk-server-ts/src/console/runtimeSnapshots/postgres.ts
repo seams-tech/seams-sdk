@@ -12,6 +12,8 @@ import {
 } from '../shared/postgresTenantContext';
 import type {
   ConsoleRuntimeSnapshot,
+  ConsoleRuntimeSnapshotOutboxDispatchResult,
+  ConsoleRuntimeSnapshotOutboxEvent,
   ConsoleRuntimeSnapshotPayload,
   GetLatestConsoleRuntimeSnapshotRequest,
   ListConsoleRuntimeSnapshotsRequest,
@@ -108,19 +110,7 @@ function parseSnapshotRow(row: PgRow): ConsoleRuntimeSnapshot {
   };
 }
 
-export interface ConsoleRuntimeSnapshotOutboxEvent {
-  namespace: string;
-  orgId: string;
-  projectId: string | null;
-  environmentId: string;
-  eventId: string;
-  eventType: 'RUNTIME_SNAPSHOT_PUBLISHED_V1';
-  snapshotId: string;
-  snapshotVersion: number;
-  payload: Record<string, unknown>;
-  createdAt: string;
-  dispatchedAt: string | null;
-}
+export type { ConsoleRuntimeSnapshotOutboxEvent } from './types';
 
 function parseOutboxEventRow(row: PgRow): ConsoleRuntimeSnapshotOutboxEvent {
   const createdAtMs = toNumber(row.created_at_ms, Date.now());
@@ -292,18 +282,8 @@ export interface PostgresConsoleRuntimeSnapshotOutboxDispatchOptions {
   dispatch?: (event: ConsoleRuntimeSnapshotOutboxEvent) => Promise<void> | void;
 }
 
-export interface PostgresConsoleRuntimeSnapshotOutboxDispatchResult {
-  namespace: string;
-  orgCount: number;
-  dispatchedCount: number;
-  failureCount: number;
-  failures: Array<{
-    orgId: string;
-    eventId: string;
-    code: string;
-    message: string;
-  }>;
-}
+export type PostgresConsoleRuntimeSnapshotOutboxDispatchResult =
+  ConsoleRuntimeSnapshotOutboxDispatchResult;
 
 export interface PostgresConsoleRuntimeSnapshotRetentionCleanupOptions extends PostgresConsoleRuntimeSnapshotSchemaOptions {
   namespace?: string;

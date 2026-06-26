@@ -42,3 +42,32 @@ export interface PublishCurrentConsoleRuntimeSnapshotRequest {
   snapshotId?: string;
   effectiveAt?: string;
 }
+
+export interface ConsoleRuntimeSnapshotOutboxEvent {
+  namespace: string;
+  orgId: string;
+  projectId: string | null;
+  environmentId: string;
+  eventId: string;
+  eventType: 'RUNTIME_SNAPSHOT_PUBLISHED_V1';
+  snapshotId: string;
+  snapshotVersion: number;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  dispatchedAt: string | null;
+}
+
+export interface ConsoleRuntimeSnapshotOutboxDispatchFailure {
+  orgId: string;
+  eventId: string;
+  code: string;
+  message: string;
+}
+
+export interface ConsoleRuntimeSnapshotOutboxDispatchResult {
+  namespace: string;
+  orgCount: number;
+  dispatchedCount: number;
+  failureCount: number;
+  failures: ConsoleRuntimeSnapshotOutboxDispatchFailure[];
+}
