@@ -1010,6 +1010,106 @@ test.describe('D1 adapter contracts', () => {
     }
   });
 
+  test('billing credit purchases settle through D1 Stripe webhook idempotency', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const billing = await createD1ConsoleBillingService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+      });
+      const ctx = {
+        orgId: 'org-d1-billing-purchase',
+        actorUserId: 'user-d1-billing-purchase',
+        roles: ['admin'],
+      };
+
+      const checkout = await billing.createStripeCheckoutSession(ctx, {
+        creditPackId: 'usd_10',
+        successUrl: 'https://example.test/success',
+        cancelUrl: 'https://example.test/cancel',
+      });
+      expect(checkout.amountMinor).toBe(1000);
+      expect(checkout.id).toMatch(/^cs_/);
+
+      const settled = await billing.reconcileStripeCheckoutSession(ctx, {
+        checkoutSessionId: checkout.id,
+      });
+      expect(settled.settled).toBe(true);
+      expect(settled.settledNow).toBe(true);
+      expect(settled.purchase).toMatchObject({
+        status: 'SETTLED',
+        amountMinor: 1000,
+        providerCheckoutSessionRef: checkout.id,
+      });
+      expect(settled.invoice).toMatchObject({
+        documentType: 'PURCHASE_RECEIPT',
+        status: 'PAID',
+        amountDueMinor: 1000,
+        amountPaidMinor: 1000,
+      });
+
+      const lineItems = await billing.listInvoiceLineItems(ctx, settled.invoice?.id || '');
+      expect(lineItems).toEqual([
+        expect.objectContaining({
+          itemType: 'CREDIT_TOP_UP',
+          quantity: 1,
+          unitAmountMinor: 1000,
+          amountMinor: 1000,
+        }),
+      ]);
+      await expect(billing.getOverview(ctx)).resolves.toMatchObject({
+        creditBalanceMinor: 1000,
+        recentCreditPurchasedMinor: 1000,
+      });
+
+      const duplicateReconcile = await billing.reconcileStripeCheckoutSession(ctx, {
+        checkoutSessionId: checkout.id,
+      });
+      expect(duplicateReconcile.settled).toBe(true);
+      expect(duplicateReconcile.settledNow).toBe(false);
+
+      const duplicateWebhook = await billing.processStripeWebhookEvent({
+        eventId: `stripe_checkout_reconcile:${checkout.id}`,
+        eventType: 'checkout.session.completed',
+        orgId: ctx.orgId,
+        checkoutSessionId: checkout.id,
+        providerCustomerRef: checkout.customerRef,
+      });
+      expect(duplicateWebhook.accepted).toBe(false);
+      expect(duplicateWebhook.purchase?.id).toBe(settled.purchase?.id);
+
+      const freshWebhook = await billing.processStripeWebhookEvent({
+        eventId: 'evt_d1_purchase_second_delivery',
+        eventType: 'checkout.session.completed',
+        orgId: ctx.orgId,
+        checkoutSessionId: checkout.id,
+        providerCustomerRef: checkout.customerRef,
+      });
+      expect(freshWebhook.accepted).toBe(true);
+      expect(freshWebhook.purchase?.id).toBe(settled.purchase?.id);
+
+      const creditActivity = await billing.listAccountActivity(ctx, {
+        eventType: 'CREDIT_PURCHASE',
+        limit: 10,
+      });
+      expect(creditActivity.entries).toHaveLength(1);
+      await expect(billing.getOverview(ctx)).resolves.toMatchObject({
+        creditBalanceMinor: 1000,
+      });
+
+      const invoices = await billing.listInvoicesPage(ctx, {
+        documentType: 'PURCHASE_RECEIPT',
+        limit: 10,
+      });
+      expect(invoices.totalCount).toBe(1);
+      expect(invoices.summary.receiptCount).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
   test('sponsored gas settlement writes reservation, billing, and call record in one D1 batch', async () => {
     const temp = createTemporaryD1Database();
     try {

@@ -27,6 +27,7 @@ import {
 } from '../../console/account';
 import {
   createD1ConsoleBillingService,
+  type BillingProviderAdapters,
   type ConsoleBillingService,
 } from '../../console/billing';
 import {
@@ -100,6 +101,7 @@ export interface CloudflareD1ConsoleAdapterOptions {
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
   readonly logger?: Logger | null;
+  readonly billingProviders?: Partial<BillingProviderAdapters>;
   readonly defaultPrepaidReservationTtlMs?: number;
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
@@ -176,6 +178,7 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions {
   readonly ensureSchema: boolean;
   readonly now?: () => Date;
   readonly logger?: Logger | null;
+  readonly billingProviders?: Partial<BillingProviderAdapters>;
   readonly defaultPrepaidReservationTtlMs?: number;
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
@@ -325,6 +328,7 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
     ensureSchema: options.adapters?.ensureSchema !== false,
     now: options.adapters?.now,
     logger: options.adapters?.logger,
+    billingProviders: options.adapters?.billingProviders,
     defaultPrepaidReservationTtlMs: options.adapters?.defaultPrepaidReservationTtlMs,
     runtimeSnapshotRetentionTtlMs: options.adapters?.runtimeSnapshotRetentionTtlMs,
     runtimeSnapshotRetentionPruneIntervalMs:
@@ -372,6 +376,7 @@ async function createCloudflareD1Billing(
     namespace: options.namespace,
     ensureSchema: options.ensureSchema,
     now: options.now,
+    providers: options.billingProviders,
   });
 }
 
