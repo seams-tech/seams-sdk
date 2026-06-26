@@ -97,7 +97,8 @@ Completed so far:
   snapshot storage/outbox, webhook endpoint/delivery persistence, compact
   observability incident/request-rollup storage, signer wallet metadata/auth
   method storage, signer WebAuthn storage, signer identity/app-session storage,
-  and sealed signing-root secret shares.
+  signer recovery session/execution storage, and sealed signing-root secret
+  shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
 - Wired D1 org/project/env, Team RBAC, account/profile, policies, API keys,
@@ -123,8 +124,9 @@ Completed so far:
   gas settlement, observability event dedupe/redaction, compact request
   rollups, observability tenant scoping, signer wallet metadata/auth-method
   tenant scoping, signer WebAuthn tenant scoping and one-time challenge
-  consumption, signer identity/app-session tenant scoping, and signer secret
-  tenant scoping.
+  consumption, signer identity/app-session tenant scoping, signer recovery
+  session/execution tenant scoping, recovery-session expiry reads,
+  recovery-execution status queries, and signer secret tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
@@ -331,7 +333,7 @@ Current Postgres coupling is concentrated in:
 | Sponsored calls | `console_sponsored_call_records` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, idempotency test, and atomic sponsored gas settlement contract test are in place. |
 | Sponsorship spend caps | `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations` | `CONSOLE_DB` D1 | Trigger-backed D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, source-event idempotency, tenant-scoped usage lookup, and reservation/settlement/release contract tests are in place. Window usage mutation stays SQLite-atomic inside reservation insert and lifecycle transition triggers. |
 | Key exports | `console_key_exports` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped list/create/approve, MFA enforcement, duplicate-approver checks, approval threshold transitions, and conditional approval update tests are in place. Approval and constraint JSON is stored as `TEXT` and parsed at the adapter boundary. |
-| Runtime snapshots | `console_runtime_snapshots`, `console_runtime_snapshot_outbox` | `CONSOLE_DB` D1 | Already has D1 schema. Replace `SKIP LOCKED` with claim lease columns and conditional updates. |
+| Runtime snapshots | `console_runtime_snapshots`, `console_runtime_snapshot_outbox` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, snapshot upsert/get/list, claim-lease outbox dispatch, and lease-race contract test are in place. |
 | Webhooks | `console_webhook_endpoints`, `console_webhook_endpoint_categories`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters` | `CONSOLE_DB` D1 plus webhook secret cipher | D1 route-service adapter, append-only migration, local smoke coverage, optional Cloudflare bundle wiring, endpoint CRUD, category side-table lookup, event dispatch, delivery/attempt/dead-letter pages, replay resolution, and sealed signing-secret tests are in place. D1 retry-dispatch cron replacement is still pending. |
 | Key export and webhook secrets | `console_key_exports`, `console_webhook_endpoints.signing_secret` | `CONSOLE_DB` D1 plus secrets adapter | Key exports store approval/constraint JSON only. Webhook D1 rows store sealed signing-secret ciphertext, KEK ID, and envelope version. Plaintext webhook signing secrets stay in process memory only during endpoint creation and request signing. |
 | Observability | `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, `console_observability_request_rollups_minute` | `CONSOLE_DB` D1 for compact dashboard state; R2/Analytics Engine for raw telemetry | D1 compact adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, incident-event dedupe/redaction, request-rollup ingestion, summary/event/timeseries/service reads, and tenant-scoping tests are in place. High-volume raw telemetry stays outside D1. |
@@ -346,7 +348,7 @@ Current Postgres coupling is concentrated in:
 | Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts` | `SIGNER_DB` D1 | Challenge/grant expiry stays adapter-owned. Store JSON as `TEXT` and normalize lookup columns. |
 | Threshold key metadata | `threshold_ed25519_keys`, `threshold_ecdsa_keys` | `SIGNER_DB` D1 | Durable metadata and public identifiers only. Secret shares stay application-encrypted. |
 | Sealed signing-root shares | `signing_root_secret_shares`, `signer_signing_root_secret_shares` | `SIGNER_DB` D1 | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. |
-| Device/recovery/identity | `device_linking_sessions`, `email_recovery_preparations`, `near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions` | `SIGNER_DB` D1 | D1 identity-link and app-session-version adapters, append-only migration, explicit `kind: 'd1'` factory selector, local smoke coverage, tenant-scoping tests, sole-identity move/unlink tests, and app-session rotation tests are in place. Recovery, device linking, and NEAR public key adapters remain. |
+| Device/recovery/identity | `device_linking_sessions`, `email_recovery_preparations`, `near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions` | `SIGNER_DB` D1 | D1 identity-link, app-session-version, recovery-session, and recovery-execution adapters, append-only migrations, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, sole-identity move/unlink tests, app-session rotation tests, recovery-session expiry reads, and recovery-execution status query tests are in place. Email recovery preparation, device linking, and NEAR public key adapters remain. |
 | Signing sessions | `threshold_ed25519_sessions` | Durable Object | Session use counts and replay-sensitive mutation need per-session serialization. Persist durable DO state before cache updates. |
 | Budget and replay guards | `threshold_wallet_session_consumptions`, `threshold_wallet_session_budget_reservations`, `threshold_signing_session_seal_idempotency` | Durable Object | Replace row locks and unique idempotency rows with DO methods that return the same result unions. |
 | ECDSA presign | `threshold_ecdsa_presign_sessions`, `threshold_ecdsa_presignatures` | Durable Object | Replace `FOR UPDATE SKIP LOCKED` with one object per relayer key or signing root. |
@@ -375,10 +377,11 @@ Before D1 staging, these adapters must exist behind domain-store ports:
   billing ledger sponsored settlement, prepaid reservations, sponsorship spend
   caps, sponsored calls, runtime snapshots, compact observability
   read/ingestion services, and the webhook route service.
-- Signer D1 remaining: registration ceremonies, email OTP, recovery, device
-  linking, NEAR public keys, and threshold key metadata.
+- Signer D1 remaining: registration ceremonies, email OTP, email recovery
+  preparation, device linking, NEAR public keys, and threshold key metadata.
 - Signer D1 in place: WebAuthn, wallet metadata, wallet auth methods, identity
-  links, app-session versions, and sealed signing-root secret shares.
+  links, app-session versions, recovery sessions, recovery executions, and
+  sealed signing-root secret shares.
 - Durable Objects: signing-session use counts, wallet signing budgets,
   idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
   sessions, normal-signing admission quotas, and signing-root coordination.
@@ -807,7 +810,8 @@ Work:
 
 - Finish the remaining console D1 adapter work for webhook retry dispatch.
 - Finish remaining signer D1 adapters for registration ceremonies, email OTP,
-  recovery, device linking, NEAR public keys, and threshold key metadata.
+  email recovery preparation, device linking, NEAR public keys, and threshold
+  key metadata.
 - Finish Durable Object adapters for signer admission, budgets, replay guards,
   presignature pools, and signing-root coordination.
 - Keep the KEK provider boundary narrow: Cloudflare Secrets Store for hosted
@@ -937,14 +941,18 @@ Completed:
     migration, local smoke coverage, explicit D1 factory selector,
     tenant-scoped adapter tests, sole-identity move/unlink coverage, and
     app-session ensure/rotate coverage.
+13. Add D1 recovery-session and recovery-execution stores, append-only signer
+    migration, local smoke coverage, explicit D1 factory selectors,
+    tenant-scoped adapter tests, recovery-session expiry coverage, and
+    recovery-execution status query coverage.
 
 Next:
 
 1. Continue Step 3 by adding the remaining console D1 adapter work: webhook
    retry dispatch.
 2. Continue Step 3 by adding the remaining signer D1 metadata adapters:
-   registration ceremonies, email OTP, recovery, device linking, NEAR public
-   keys, and threshold key metadata.
+   registration ceremonies, email OTP, email recovery preparation, device
+   linking, NEAR public keys, and threshold key metadata.
 3. Finish the Durable Object adapter and test slice for normal-signing
    admission, budget, replay, presignature, and signing-root coordination.
 4. Finish Step 4 by making Wrangler/Miniflare D1 and local Durable Object

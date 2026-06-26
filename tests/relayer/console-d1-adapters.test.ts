@@ -44,6 +44,11 @@ import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/s
 import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
 import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
 import { D1IdentityStore } from '../../packages/sdk-server-ts/src/core/IdentityStore';
+import {
+  D1RecoveryExecutionStore,
+  type RecoveryExecutionRecord,
+} from '../../packages/sdk-server-ts/src/core/RecoveryExecutionStore';
+import { D1RecoverySessionStore } from '../../packages/sdk-server-ts/src/core/RecoverySessionStore';
 import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
@@ -441,6 +446,10 @@ function createD1WebhookTestSecretCipher() {
     keyId: 'webhook-test-key-r1',
     keyBytes: new Uint8Array(32).fill(7),
   });
+}
+
+function recoveryExecutionAction(record: RecoveryExecutionRecord): string {
+  return record.action;
 }
 
 function isErrorWithCode(input: unknown): input is ErrorWithCode {
@@ -3564,6 +3573,139 @@ test.describe('D1 adapter contracts', () => {
       await expect(
         identity.getAppSessionVersionByUserId('user-d1-identity-alice'),
       ).resolves.toBe(rotatedVersion);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('signer recovery sessions and executions are scoped in D1', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T06:00:00.000Z');
+      const scope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+      };
+      const otherEnvScope = {
+        ...scope,
+        envId: 'env-development',
+        ensureSchema: false,
+      };
+      const sessionStore = new D1RecoverySessionStore({
+        ...scope,
+        now: clock.now,
+      });
+      const otherEnvSessionStore = new D1RecoverySessionStore({
+        ...otherEnvScope,
+        now: clock.now,
+      });
+      const executionStore = new D1RecoveryExecutionStore(scope);
+      const otherEnvExecutionStore = new D1RecoveryExecutionStore(otherEnvScope);
+      const recoverySession = {
+        version: 'recovery_session_v1',
+        sessionId: 'recovery-session-d1',
+        userId: 'user-d1-recovery',
+        nearAccountId: 'wallet-d1-recovery.testnet',
+        signerSlot: 1,
+        status: 'prepared',
+        createdAtMs: Date.parse('2026-06-27T06:00:00.000Z'),
+        updatedAtMs: Date.parse('2026-06-27T06:01:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T07:00:00.000Z'),
+        newNearPublicKey: 'ed25519:new-public-key',
+        newEvmOwnerAddress: '0x1111111111111111111111111111111111111111',
+        recoveryDeadlineEpochSeconds: 1782530400,
+        recoveryEmailPayloadHash: 'hash-recovery-email',
+        metadata: { source: 'd1-test' },
+      } as const;
+      const pendingExecution = {
+        version: 'recovery_execution_v1',
+        sessionId: 'recovery-session-d1',
+        userId: 'user-d1-recovery',
+        nearAccountId: 'wallet-d1-recovery.testnet',
+        chainIdKey: 'near:testnet',
+        accountAddress: 'wallet-d1-recovery.testnet',
+        action: 'submit_recovery',
+        status: 'pending',
+        createdAtMs: Date.parse('2026-06-27T06:02:00.000Z'),
+        updatedAtMs: Date.parse('2026-06-27T06:03:00.000Z'),
+        metadata: { source: 'd1-test' },
+      } as const;
+      const confirmedExecution = {
+        version: 'recovery_execution_v1',
+        sessionId: 'recovery-session-d1',
+        userId: 'user-d1-recovery',
+        nearAccountId: 'wallet-d1-recovery.testnet',
+        chainIdKey: 'near:testnet',
+        accountAddress: 'wallet-d1-recovery.testnet',
+        action: 'confirm_recovery',
+        status: 'confirmed',
+        createdAtMs: Date.parse('2026-06-27T06:04:00.000Z'),
+        updatedAtMs: Date.parse('2026-06-27T06:05:00.000Z'),
+        transactionHash: 'near-tx-confirmed',
+      } as const;
+
+      await sessionStore.put(recoverySession);
+      await expect(sessionStore.get('recovery-session-d1')).resolves.toMatchObject({
+        sessionId: 'recovery-session-d1',
+        nearAccountId: 'wallet-d1-recovery.testnet',
+        status: 'prepared',
+      });
+      await expect(otherEnvSessionStore.get('recovery-session-d1')).resolves.toBeNull();
+      await expect(
+        sessionStore.listByNearAccountId('wallet-d1-recovery.testnet'),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          sessionId: 'recovery-session-d1',
+        }),
+      ]);
+
+      clock.set('2026-06-27T07:01:00.000Z');
+      await expect(sessionStore.get('recovery-session-d1')).resolves.toBeNull();
+
+      await executionStore.put(pendingExecution);
+      await executionStore.put(confirmedExecution);
+      await expect(
+        executionStore.get({
+          sessionId: 'recovery-session-d1',
+          chainIdKey: 'NEAR:TESTNET',
+          accountAddress: 'wallet-d1-recovery.testnet',
+          action: 'submit_recovery',
+        }),
+      ).resolves.toMatchObject({
+        status: 'pending',
+        action: 'submit_recovery',
+      });
+      await expect(
+        otherEnvExecutionStore.get({
+          sessionId: 'recovery-session-d1',
+          chainIdKey: 'near:testnet',
+          accountAddress: 'wallet-d1-recovery.testnet',
+          action: 'submit_recovery',
+        }),
+      ).resolves.toBeNull();
+
+      const sessionExecutions = await executionStore.listBySessionId('recovery-session-d1');
+      expect(sessionExecutions).toHaveLength(2);
+      expect(sessionExecutions.map(recoveryExecutionAction).sort()).toEqual([
+        'confirm_recovery',
+        'submit_recovery',
+      ]);
+      await expect(
+        executionStore.listByStatus({
+          status: 'pending',
+          action: 'submit_recovery',
+          updatedBeforeMs: Date.parse('2026-06-27T06:04:00.000Z'),
+          limit: 1,
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          sessionId: 'recovery-session-d1',
+          action: 'submit_recovery',
+        }),
+      ]);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

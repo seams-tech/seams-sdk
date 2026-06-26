@@ -1,4 +1,6 @@
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
+import type { D1RecoveryExecutionStoreOptions } from './RecoveryExecutionStore';
+import type { D1RecoverySessionStoreOptions } from './RecoverySessionStore';
 import type { D1WebAuthnAuthenticatorStoreOptions } from './WebAuthnAuthenticatorStore';
 import type { D1WebAuthnCredentialBindingStoreOptions } from './WebAuthnCredentialBindingStore';
 import type { D1WebAuthnLoginChallengeStoreOptions } from './WebAuthnLoginChallengeStore';
@@ -90,6 +92,22 @@ const validIdentityStoreOptions: D1IdentityStoreOptions = {
   envId: 'env_1',
 };
 
+const validRecoverySessionStoreOptions: D1RecoverySessionStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
+const validRecoveryExecutionStoreOptions: D1RecoveryExecutionStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
 // @ts-expect-error D1 wallet metadata storage requires org identity.
 const missingWalletOrgId: D1WalletStoreOptions = {
   database,
@@ -138,6 +156,22 @@ const missingIdentityProjectId: D1IdentityStoreOptions = {
   envId: 'env_1',
 };
 
+// @ts-expect-error D1 recovery-session storage requires environment identity.
+const missingRecoverySessionEnvId: D1RecoverySessionStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+};
+
+// @ts-expect-error D1 recovery-execution storage requires org identity.
+const missingRecoveryExecutionOrgId: D1RecoveryExecutionStoreOptions = {
+  database,
+  namespace: 'seams',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
 void validWalletStoreOptions;
 void validAuthMethodStoreOptions;
 void validWebAuthnAuthenticatorOptions;
@@ -145,9 +179,13 @@ void validWebAuthnCredentialOptions;
 void validWebAuthnLoginChallengeOptions;
 void validWebAuthnSyncChallengeOptions;
 void validIdentityStoreOptions;
+void validRecoverySessionStoreOptions;
+void validRecoveryExecutionStoreOptions;
 void missingWalletOrgId;
 void missingAuthMethodEnvId;
 void missingWebAuthnProjectId;
 void missingWebAuthnCredentialEnvId;
 void missingWebAuthnChallengeOrgId;
 void missingIdentityProjectId;
+void missingRecoverySessionEnvId;
+void missingRecoveryExecutionOrgId;

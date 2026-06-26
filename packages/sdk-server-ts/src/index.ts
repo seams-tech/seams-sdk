@@ -88,7 +88,12 @@ export type {
   Ed25519WalletSessionRecord,
 } from './core/ThresholdService';
 export {
+  D1RecoverySessionStore,
+  ensureRecoverySessionStoreD1Schema,
   createRecoverySessionStore,
+  RECOVERY_SESSION_STORE_D1_SCHEMA_SQL,
+  type D1RecoverySessionStoreOptions,
+  type D1RecoverySessionStoreSchemaOptions,
   type RecoverySessionStore,
   type RecoverySessionRecord,
   type RecoverySessionStatus,
@@ -103,7 +108,12 @@ export {
   type EmailRecoveryPreparationStore,
 } from './core/EmailRecoveryPreparationStore';
 export {
+  D1RecoveryExecutionStore,
+  ensureRecoveryExecutionStoreD1Schema,
   createRecoveryExecutionStore,
+  RECOVERY_EXECUTION_STORE_D1_SCHEMA_SQL,
+  type D1RecoveryExecutionStoreOptions,
+  type D1RecoveryExecutionStoreSchemaOptions,
   type RecoveryExecutionStore,
   type RecoveryExecutionRecord,
   type RecoveryExecutionStatus,
