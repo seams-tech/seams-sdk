@@ -58,6 +58,34 @@ Authoritative Cloudflare references:
   settlement.
 - Stage on D1/DO from the start. There is no mixed staging mode.
 
+## Current Implementation Status
+
+Completed so far:
+
+- Added tenant storage route types that make D1/DO and Postgres full-family
+  choices.
+- Added D1 adapters for prepaid billing reservations, sponsored call records,
+  runtime snapshot storage/outbox, and sealed signing-root secret shares.
+- Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
+  secrets, and external KMS/HSM clients.
+- Wired D1 signer secret storage into the Cloudflare service bundle.
+- Added local Wrangler/Miniflare D1 configuration, migrations, smoke Worker,
+  and package scripts.
+- Verified local D1 migrations and `/readyz` smoke against Wrangler.
+- Added targeted SQLite-backed D1 adapter contract tests for prepaid
+  reservation atomicity, sponsored-call idempotency, and signer secret tenant
+  scoping.
+
+Remaining before D1 staging:
+
+- Finish the current Postgres-coupling inventory and table ownership matrix.
+- Fill the remaining console and signer D1 schemas beyond the first adapter
+  slice.
+- Add snapshot outbox lease-claim race tests.
+- Add Durable Object coordination tests for signer budgets, replay guards,
+  presignature pools, and session consumption.
+- Add staging import/restore smoke checks and R2 export drills.
+
 ## Scope
 
 ### In Scope
