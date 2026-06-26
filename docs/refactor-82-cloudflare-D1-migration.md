@@ -175,6 +175,8 @@ Completed so far:
   Postgres helpers while D1/DO staging is the target backend family.
 - Switched the Cloudflare cron helper from Postgres URLs, advisory locks, and
   Postgres default runners to D1 database bindings and D1 default runners.
+- Pointed Cloudflare cron imports at D1 leaf modules and generic type leaves so
+  the cron Worker graph does not link mixed Postgres console barrels.
 - Removed Postgres adapter exports from the Worker-facing
   `cloudflare-adaptor` barrel and filled in existing D1 exports for prepaid
   reservations, sponsored-call records, and webhook retry dispatch.
