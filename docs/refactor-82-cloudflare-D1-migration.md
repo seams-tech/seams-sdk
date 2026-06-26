@@ -964,6 +964,18 @@ Work:
 - Use `/console/*` on the same local Worker for real D1-backed console route
   development. Local console auth reads optional `X-Console-*` headers and falls
   back to deterministic local claims.
+- Add a Cloudflare D1/DO `AuthService` factory for the remaining relay/signer
+  local path. It must build signer stores from `SIGNER_DB` and signer
+  coordination from Durable Objects, then pass that service to the Cloudflare
+  relay router.
+- Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
+  by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
+  should go through Wrangler/Miniflare bindings.
+- The relay/signer factory must cover wallet metadata/auth methods, WebAuthn,
+  identity/app-session versions, recovery sessions/executions, NEAR public keys,
+  email recovery preparations, Email OTP records, sealed signing-root shares,
+  and Durable Object coordination for registration ceremonies, session/budget
+  use, replay guards, presignature pools, and signing-root operations.
 - Reset clean local state by deleting
   `packages/sdk-server-ts/.wrangler/state/seams-d1`; add a fixture seed/import
   command only after the staging fixture format is chosen.
@@ -976,6 +988,8 @@ Exit criteria:
   reconciliation locally without Docker Postgres.
 - The local command path mirrors Cloudflare bindings, D1 API behavior, and
   Durable Object storage behavior.
+- A representative relay/signer smoke path runs through Wrangler without
+  `POSTGRES_URL`, `CONSOLE_POSTGRES_URL`, or Docker Postgres.
 
 ### Step 5: Port Tests To D1/DO
 
@@ -1083,9 +1097,10 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
    Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
    dependency test.
-4. Make the remaining local relay/signer application path use
-   Wrangler/Miniflare D1 and local Durable Object storage by default. The SDK
-   package path and console route path already use this shape.
+4. Add the Cloudflare D1/DO `AuthService` factory and make the remaining local
+   relay/signer application path use Wrangler/Miniflare D1 and local Durable
+   Object storage by default. The SDK package path and console route path
+   already use this shape.
 5. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
 6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
