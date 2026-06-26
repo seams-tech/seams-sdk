@@ -702,10 +702,13 @@ export type {
   CloudflareD1ConsoleServiceBundleOptions,
   CloudflareD1ConsoleStorageBindingNames,
   CloudflareD1ConsoleStorageBindings,
+  CloudflareD1SigningRootSecretAdapterOptions,
+  CloudflareD1SigningRootSecretAdapters,
 } from './cloudflare/d1ConsoleServices';
 export {
   asConsoleRouterOptions,
   createCloudflareD1ConsoleServiceBundle,
+  createCloudflareD1SigningRootSecretAdapters,
 } from './cloudflare/d1ConsoleServices';
 export type {
   CloudflareTenantStorageRoute,

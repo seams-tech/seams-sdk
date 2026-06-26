@@ -1,6 +1,26 @@
+import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { Logger } from '../../core/logger';
 import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
-import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
+import {
+  createSigningRootSecretShareKekResolver,
+  type SigningRootKekProvider,
+} from '../../core/ThresholdService/signingRootKekProvider';
+import { openSigningRootSecretShareWireV1 } from '../../core/ThresholdService/signingRootSecretSealing';
+import {
+  type CreateHostedSigningRootShareResolverInput,
+  type SealedSigningRootShare,
+  type SigningRootShareDecryptAdapter,
+  type SigningRootShareSource,
+  type ThresholdPrfPolicy,
+} from '../../core/ThresholdService/signingRootShareResolver';
+import {
+  D1SigningRootSecretStore,
+  type SigningRootSecretShareSource,
+} from '../../core/ThresholdService/stores/SigningRootSecretStore';
+import {
+  normalizeSigningRootSecretShareId,
+  type SealedSigningRootSecretShare,
+} from '../../core/ThresholdService/signingRootSecretShareWires';
 import {
   createD1ConsoleBillingPrepaidReservationService,
   type ConsoleBillingPrepaidReservationService,
@@ -15,6 +35,7 @@ import {
 } from '../../console/runtimeSnapshots';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
+  type CloudflareTenantStorageRoute,
   type CloudflareTenantTopology,
   type D1BindingName,
   type D1DatabaseLike,
@@ -89,6 +110,25 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly consoleRouterOptions: CloudflareD1ConsoleRouterStorageOptions;
 }
 
+export interface CloudflareD1SigningRootSecretAdapterOptions {
+  readonly route: CloudflareTenantStorageRoute;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly envelopeVersion: string;
+  readonly lastAuditEventId: string;
+  readonly policy: ThresholdPrfPolicy;
+  readonly ensureSchema?: boolean;
+  readonly now?: () => Date;
+}
+
+export interface CloudflareD1SigningRootSecretAdapters {
+  readonly signingRootSecretStore: D1SigningRootSecretStore;
+  readonly signingRootShareStore: SigningRootShareSource;
+  readonly signingRootShareDecryptAdapter: SigningRootShareDecryptAdapter;
+  readonly signingRootSharePolicy: ThresholdPrfPolicy;
+  readonly signingRootShareResolverAdapters: CreateHostedSigningRootShareResolverInput;
+}
+
 interface NormalizedCloudflareD1ConsoleServiceBundleOptions {
   readonly consoleDatabase: D1DatabaseLike;
   readonly signerMetadataDatabase: D1DatabaseLike;
@@ -126,6 +166,75 @@ function normalizeNamespace(input: string): string {
     throw new Error('D1 console storage namespace is required');
   }
   return namespace;
+}
+
+function requireSigningRootAdapterString(input: unknown, field: string): string {
+  const value = toOptionalTrimmedString(input);
+  if (!value) throw new Error(`${field} is required for D1 signing-root adapters`);
+  return value;
+}
+
+function normalizeSecretShareDecryptRecord(
+  record: SealedSigningRootShare,
+): SealedSigningRootSecretShare {
+  const signingRootId = requireSigningRootAdapterString(record.signingRootId, 'signingRootId');
+  const shareId = normalizeSigningRootSecretShareId(record.shareId);
+  const kekId = requireSigningRootAdapterString(record.kekId, 'kekId');
+  if (!shareId) throw new Error('sealed signing-root share record has invalid shareId');
+  if (!(record.sealedShare instanceof Uint8Array) || record.sealedShare.byteLength === 0) {
+    throw new Error('sealed signing-root share record requires sealedShare bytes');
+  }
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
+  const storageId = toOptionalTrimmedString(record.storageId);
+  return {
+    signingRootId,
+    shareId,
+    sealedShare: record.sealedShare,
+    ...(signingRootVersion ? { signingRootVersion } : {}),
+    ...(storageId ? { storageId } : {}),
+    kekId,
+  };
+}
+
+class SigningRootSecretShareSourceBridge implements SigningRootShareSource {
+  private readonly source: SigningRootSecretShareSource;
+
+  constructor(source: SigningRootSecretShareSource) {
+    this.source = source;
+  }
+
+  async listSealedSigningRootShares(
+    input: Parameters<SigningRootShareSource['listSealedSigningRootShares']>[0],
+  ): Promise<readonly SealedSigningRootShare[]> {
+    return await this.source.listSealedSigningRootSecretShares(input);
+  }
+}
+
+class SigningRootKekProviderDecryptAdapter implements SigningRootShareDecryptAdapter {
+  private readonly resolveKek: ReturnType<typeof createSigningRootSecretShareKekResolver>;
+
+  constructor(kekProvider: SigningRootKekProvider) {
+    this.resolveKek = createSigningRootSecretShareKekResolver(kekProvider);
+  }
+
+  async decryptSigningRootShare(record: SealedSigningRootShare): Promise<Uint8Array> {
+    return await openSigningRootSecretShareWireV1({
+      record: normalizeSecretShareDecryptRecord(record),
+      resolveKek: this.resolveKek,
+    });
+  }
+}
+
+function createCloudflareD1SigningRootSecretShareStore(
+  store: D1SigningRootSecretStore,
+): SigningRootShareSource {
+  return new SigningRootSecretShareSourceBridge(store);
+}
+
+function createCloudflareD1SigningRootShareDecryptAdapter(
+  kekProvider: SigningRootKekProvider,
+): SigningRootShareDecryptAdapter {
+  return new SigningRootKekProviderDecryptAdapter(kekProvider);
 }
 
 function normalizeRouteVersion(input: number | undefined): number {
@@ -249,6 +358,43 @@ async function createCloudflareD1RuntimeSnapshots(
     retentionPruneIntervalMs: options.runtimeSnapshotRetentionPruneIntervalMs,
     retentionBatchSize: options.runtimeSnapshotRetentionBatchSize,
   });
+}
+
+export function createCloudflareD1SigningRootSecretAdapters(
+  options: CloudflareD1SigningRootSecretAdapterOptions,
+): CloudflareD1SigningRootSecretAdapters {
+  const signingRootSecretStore = new D1SigningRootSecretStore({
+    database: options.route.signer.metadataDatabase,
+    namespace: options.route.namespace,
+    orgId: options.route.orgId,
+    projectId: requireSigningRootAdapterString(options.projectId, 'projectId'),
+    envId: requireSigningRootAdapterString(options.envId, 'envId'),
+    envelopeVersion: requireSigningRootAdapterString(
+      options.envelopeVersion,
+      'envelopeVersion',
+    ),
+    lastAuditEventId: requireSigningRootAdapterString(
+      options.lastAuditEventId,
+      'lastAuditEventId',
+    ),
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+  const signingRootShareStore =
+    createCloudflareD1SigningRootSecretShareStore(signingRootSecretStore);
+  const signingRootShareDecryptAdapter =
+    createCloudflareD1SigningRootShareDecryptAdapter(options.route.signer.kekProvider);
+  return {
+    signingRootSecretStore,
+    signingRootShareStore,
+    signingRootShareDecryptAdapter,
+    signingRootSharePolicy: options.policy,
+    signingRootShareResolverAdapters: {
+      policy: options.policy,
+      storageAdapter: signingRootShareStore,
+      decryptAdapter: signingRootShareDecryptAdapter,
+    },
+  };
 }
 
 function createCloudflareD1ConsoleRouterStorageOptions(input: {

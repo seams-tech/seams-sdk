@@ -1,12 +1,21 @@
 import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
 import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
 import type { ConsoleRouterOptions } from '../console';
-import type { D1DatabaseLike, D1PreparedStatementLike } from '../../storage/tenantRoute';
+import {
+  createStaticCloudflareTenantStorageRouteResolverFromBindings,
+  type D1DatabaseLike,
+  type D1PreparedStatementLike,
+  type PostgresTenantStorageRoute,
+} from '../../storage/tenantRoute';
 import type {
   CloudflareD1ConsoleRouterStorageOptions,
   CloudflareD1ConsoleServiceBundleOptions,
+  CloudflareD1SigningRootSecretAdapterOptions,
 } from './d1ConsoleServices';
-import { asConsoleRouterOptions } from './d1ConsoleServices';
+import {
+  asConsoleRouterOptions,
+  createCloudflareD1SigningRootSecretAdapters,
+} from './d1ConsoleServices';
 
 const preparedStatement: D1PreparedStatementLike = {
   bind(): D1PreparedStatementLike {
@@ -66,6 +75,70 @@ const bundleOptions: CloudflareD1ConsoleServiceBundleOptions = {
   },
 };
 
+const routeResolver = createStaticCloudflareTenantStorageRouteResolverFromBindings({
+  routeVersion: 1,
+  topology: 'shared',
+  jurisdiction: 'automatic',
+  consoleBindingName: 'CONSOLE_DB',
+  consoleDatabaseName: 'seams-console',
+  consoleDatabase: database,
+  signerMetadataBindingName: 'SIGNER_DB',
+  signerMetadataDatabaseName: 'seams-signer',
+  signerMetadataDatabase: database,
+  thresholdStoreBindingName: 'THRESHOLD_STORE',
+  thresholdStore,
+  kekProvider,
+});
+
+const cloudflareRoute = routeResolver.resolveTenantStorageRoute({
+  namespace: 'seams',
+  orgId: 'org_1',
+});
+
+const signerSecretOptions: CloudflareD1SigningRootSecretAdapterOptions = {
+  route: cloudflareRoute,
+  projectId: 'project_1',
+  envId: 'env_1',
+  envelopeVersion: 'aes-256-gcm-v1',
+  lastAuditEventId: 'audit_1',
+  policy: {
+    protocol: 'threshold-prf',
+    threshold: 2,
+    shareCount: 3,
+  },
+};
+
+const signerSecretAdapters = createCloudflareD1SigningRootSecretAdapters(signerSecretOptions);
+
+declare const postgresRoute: PostgresTenantStorageRoute;
+
+const invalidPostgresSignerSecretOptions: CloudflareD1SigningRootSecretAdapterOptions = {
+  // @ts-expect-error D1 signer secret adapters require a Cloudflare D1/DO route.
+  route: postgresRoute,
+  projectId: 'project_1',
+  envId: 'env_1',
+  envelopeVersion: 'aes-256-gcm-v1',
+  lastAuditEventId: 'audit_1',
+  policy: {
+    protocol: 'threshold-prf',
+    threshold: 2,
+    shareCount: 3,
+  },
+};
+
+// @ts-expect-error D1 signer secret adapters require env identity.
+const missingSignerSecretEnvId: CloudflareD1SigningRootSecretAdapterOptions = {
+  route: cloudflareRoute,
+  projectId: 'project_1',
+  envelopeVersion: 'aes-256-gcm-v1',
+  lastAuditEventId: 'audit_1',
+  policy: {
+    protocol: 'threshold-prf',
+    threshold: 2,
+    shareCount: 3,
+  },
+};
+
 const missingSignerBindings: CloudflareD1ConsoleServiceBundleOptions = {
   // @ts-expect-error D1 console bundle requires signer metadata and DO bindings.
   bindings: {
@@ -95,6 +168,9 @@ const consoleOptions: ConsoleRouterOptions = {
 };
 
 void bundleOptions;
+void signerSecretAdapters;
+void invalidPostgresSignerSecretOptions;
+void missingSignerSecretEnvId;
 void missingSignerBindings;
 void missingNamespace;
 void consoleOptions;
