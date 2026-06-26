@@ -117,6 +117,8 @@ export type {
 export type {
   ConsoleTeamRbacContext,
   ConsoleTeamRbacService,
+  D1ConsoleTeamRbacSchemaOptions,
+  D1ConsoleTeamRbacServiceOptions,
   InMemoryConsoleTeamRbacServiceOptions,
   PostgresConsoleTeamRbacSchemaOptions,
   PostgresConsoleTeamRbacServiceOptions,
@@ -516,6 +518,8 @@ export {
   ConsoleOrgProjectEnvError,
 } from '../console/orgProjectEnv';
 export {
+  createD1ConsoleTeamRbacService,
+  ensureConsoleTeamRbacD1Schema,
   createInMemoryConsoleTeamRbacService,
   ensureConsoleTeamRbacPostgresSchema,
   createPostgresConsoleTeamRbacService,

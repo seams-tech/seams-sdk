@@ -22,6 +22,10 @@ import {
   type SealedSigningRootSecretShare,
 } from '../../core/ThresholdService/signingRootSecretShareWires';
 import {
+  createD1ConsoleAccountService,
+  type ConsoleAccountService,
+} from '../../console/account';
+import {
   createD1ConsoleBillingPrepaidReservationService,
   type ConsoleBillingPrepaidReservationService,
 } from '../../console/billingPrepaidReservations';
@@ -33,6 +37,10 @@ import {
   createD1ConsoleSponsoredCallService,
   type ConsoleSponsoredCallService,
 } from '../../console/sponsoredCalls';
+import {
+  createD1ConsoleTeamRbacService,
+  type ConsoleTeamRbacService,
+} from '../../console/teamRbac';
 import {
   createD1ConsoleRuntimeSnapshotService,
   type ConsoleRuntimeSnapshotService,
@@ -101,6 +109,8 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly teamRbac: ConsoleTeamRbacService;
+  readonly account: ConsoleAccountService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -110,6 +120,8 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly teamRbac: ConsoleTeamRbacService;
+  readonly account: ConsoleAccountService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -351,6 +363,32 @@ async function createCloudflareD1OrgProjectEnv(
   });
 }
 
+async function createCloudflareD1TeamRbac(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleTeamRbacService> {
+  return await createD1ConsoleTeamRbacService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
+async function createCloudflareD1Account(input: {
+  readonly options: NormalizedCloudflareD1ConsoleServiceBundleOptions;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly teamRbac: ConsoleTeamRbacService;
+}): Promise<ConsoleAccountService> {
+  return await createD1ConsoleAccountService({
+    database: input.options.consoleDatabase,
+    namespace: input.options.namespace,
+    ensureSchema: input.options.ensureSchema,
+    now: input.options.now,
+    orgProjectEnv: input.orgProjectEnv,
+    teamRbac: input.teamRbac,
+  });
+}
+
 async function createCloudflareD1SponsoredCalls(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleSponsoredCallService> {
@@ -418,6 +456,8 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly teamRbac: ConsoleTeamRbacService;
+  readonly account: ConsoleAccountService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -426,6 +466,8 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
     tenantStorageRouteResolver: input.tenantStorageRouteResolver,
     tenantStorageNamespace: input.tenantStorageNamespace,
     orgProjectEnv: input.orgProjectEnv,
+    teamRbac: input.teamRbac,
+    account: input.account,
     prepaidReservations: input.prepaidReservations,
     sponsoredCalls: input.sponsoredCalls,
     runtimeSnapshots: input.runtimeSnapshots,
@@ -438,6 +480,12 @@ export async function createCloudflareD1ConsoleServiceBundle(
   const normalized = normalizeCloudflareD1ConsoleServiceBundleOptions(options);
   const tenantStorageRouteResolver = createCloudflareD1TenantRouteResolver(normalized);
   const orgProjectEnv = await createCloudflareD1OrgProjectEnv(normalized);
+  const teamRbac = await createCloudflareD1TeamRbac(normalized);
+  const account = await createCloudflareD1Account({
+    options: normalized,
+    orgProjectEnv,
+    teamRbac,
+  });
   const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
   const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
   const runtimeSnapshots = await createCloudflareD1RuntimeSnapshots(normalized);
@@ -445,6 +493,8 @@ export async function createCloudflareD1ConsoleServiceBundle(
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
     orgProjectEnv,
+    teamRbac,
+    account,
     prepaidReservations,
     sponsoredCalls,
     runtimeSnapshots,
@@ -453,6 +503,8 @@ export async function createCloudflareD1ConsoleServiceBundle(
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
     orgProjectEnv,
+    teamRbac,
+    account,
     prepaidReservations,
     sponsoredCalls,
     runtimeSnapshots,

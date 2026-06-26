@@ -13,7 +13,7 @@ import {
 } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/types';
 import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/d1';
-import { createInMemoryConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/service';
+import { createD1ConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/d1';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   D1DatabaseLike,
@@ -415,7 +415,10 @@ test.describe('D1 adapter contracts', () => {
         ensureSchema: true,
         now: () => new Date('2026-06-27T00:00:00.000Z'),
       });
-      const teamRbac = createInMemoryConsoleTeamRbacService({
+      const teamRbac = await createD1ConsoleTeamRbacService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
         now: () => new Date('2026-06-27T00:00:00.000Z'),
       });
       const service = await createD1ConsoleAccountService({
@@ -522,6 +525,132 @@ test.describe('D1 adapter contracts', () => {
         duplicateOrganizationError = error;
       }
       expect(errorCode(duplicateOrganizationError)).toBe('organization_already_exists');
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('team RBAC adapter preserves owner and member lifecycle invariants', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const service = await createD1ConsoleTeamRbacService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date('2026-06-27T00:00:00.000Z'),
+      });
+      const ownerCtx = {
+        orgId: 'org-d1-team-rbac',
+        actorUserId: 'user-d1-owner',
+        roles: [],
+        actorEmail: 'owner-d1-team@example.com',
+        actorDisplayName: 'D1 Owner',
+      };
+      const ownerClaimCtx = {
+        ...ownerCtx,
+        roles: ['owner'],
+      };
+
+      const owner = await service.bootstrapOwner(ownerCtx);
+      expect(owner.roles.map((entry) => entry.role)).toContain('owner');
+
+      let forbiddenOwnerInviteError: unknown = null;
+      try {
+        await service.inviteMember(ownerCtx, {
+          userId: 'user-d1-forbidden-owner',
+          email: 'forbidden-owner@example.com',
+          roles: [{ role: 'owner', scope: 'ORG' }],
+        });
+      } catch (error: unknown) {
+        forbiddenOwnerInviteError = error;
+      }
+      expect(errorCode(forbiddenOwnerInviteError)).toBe('forbidden');
+
+      const admin = await service.inviteMember(ownerClaimCtx, {
+        userId: 'user-d1-admin',
+        email: 'admin-d1-team@example.com',
+        displayName: 'D1 Admin',
+        roles: [{ role: 'admin', scope: 'ORG' }],
+      });
+      expect(admin.status).toBe('ACTIVE');
+      expect(admin.roles.map((entry) => entry.role)).toEqual(['admin']);
+
+      let duplicateMemberError: unknown = null;
+      try {
+        await service.inviteMember(ownerClaimCtx, {
+          userId: 'user-d1-admin-copy',
+          email: 'admin-d1-team@example.com',
+          roles: [{ role: 'billing_read', scope: 'ORG' }],
+        });
+      } catch (error: unknown) {
+        duplicateMemberError = error;
+      }
+      expect(errorCode(duplicateMemberError)).toBe('member_already_exists');
+
+      let lastOwnerRoleError: unknown = null;
+      try {
+        await service.updateMemberRoles(ownerClaimCtx, owner.id, {
+          roles: [{ role: 'admin', scope: 'ORG' }],
+        });
+      } catch (error: unknown) {
+        lastOwnerRoleError = error;
+      }
+      expect(errorCode(lastOwnerRoleError)).toBe('last_owner_required');
+
+      const transfer = await service.transferOwner(ownerClaimCtx, admin.id);
+      expect(transfer.previousOwner.roles.map((entry) => entry.role)).toEqual(['admin']);
+      expect(transfer.nextOwner.roles.map((entry) => entry.role)).toEqual(['admin', 'owner']);
+
+      let lastOwnerRemoveError: unknown = null;
+      try {
+        await service.removeMember(
+          {
+            ...ownerClaimCtx,
+            actorUserId: admin.userId,
+            actorEmail: admin.email,
+          },
+          admin.id,
+        );
+      } catch (error: unknown) {
+        lastOwnerRemoveError = error;
+      }
+      expect(errorCode(lastOwnerRemoveError)).toBe('last_owner_required');
+
+      const removedPreviousOwner = await service.removeMember(
+        {
+          ...ownerClaimCtx,
+          actorUserId: admin.userId,
+          actorEmail: admin.email,
+        },
+        owner.id,
+      );
+      expect(removedPreviousOwner.removed).toBe(true);
+      expect(removedPreviousOwner.member?.status).toBe('REMOVED');
+
+      const restored = await service.inviteMember(
+        {
+          ...ownerClaimCtx,
+          actorUserId: admin.userId,
+          actorEmail: admin.email,
+        },
+        {
+          userId: owner.userId,
+          email: owner.email,
+          roles: [{ role: 'billing_read', scope: 'ORG' }],
+        },
+      );
+      expect(restored.id).toBe(owner.id);
+      expect(restored.status).toBe('ACTIVE');
+      expect(restored.roles.map((entry) => entry.role)).toEqual(['billing_read']);
+
+      const activeMembers = service.listOrganizationMembers
+        ? await service.listOrganizationMembers('org-d1-team-rbac', { status: 'ACTIVE' })
+        : [];
+      expect(activeMembers).toHaveLength(2);
+      const otherOrgMembers = service.listOrganizationMembers
+        ? await service.listOrganizationMembers('org-d1-team-rbac-other')
+        : [];
+      expect(otherOrgMembers).toEqual([]);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
