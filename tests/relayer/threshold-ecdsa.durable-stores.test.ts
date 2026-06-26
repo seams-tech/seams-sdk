@@ -1,9 +1,61 @@
 import { test, expect } from '@playwright/test';
 import { ensurePostgresSchema, getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 import { createEcdsaWalletSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
-import { createThresholdEcdsaSigningStores } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
+import {
+  createThresholdEcdsaSigningStores,
+  type RouterAbEcdsaHssPoolFillSessionRecord,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
+import type {
+  CloudflareDurableObjectNamespaceLike,
+  CloudflareDurableObjectStubLike,
+} from '../../packages/sdk-server-ts/src/core/types';
+import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 
 const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
+const testLogger = {
+  info() {},
+  warn() {},
+  error() {},
+  debug() {},
+} as const;
+
+type TestDurableObjectStorageLike = {
+  get(key: string): Promise<unknown>;
+  put(key: string, value: unknown, opts?: { expirationTtl?: number }): Promise<void>;
+  delete(key: string): Promise<boolean>;
+  transaction<T>(fn: (txn: TestDurableObjectStorageLike) => Promise<T>): Promise<T>;
+};
+
+class MemoryDurableObjectStorage implements TestDurableObjectStorageLike {
+  private readonly values = new Map<string, unknown>();
+  private transactionTail: Promise<void> = Promise.resolve();
+
+  async get(key: string): Promise<unknown> {
+    return this.values.get(key) ?? null;
+  }
+
+  async put(key: string, value: unknown): Promise<void> {
+    this.values.set(key, value);
+  }
+
+  async delete(key: string): Promise<boolean> {
+    return this.values.delete(key);
+  }
+
+  async transaction<T>(fn: (txn: TestDurableObjectStorageLike) => Promise<T>): Promise<T> {
+    const previous = this.transactionTail;
+    let release: () => void = () => {};
+    this.transactionTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await fn(this);
+    } finally {
+      release();
+    }
+  }
+}
 
 function randPrefix(tag: string): string {
   return `test:${tag}:${Date.now()}:${Math.random().toString(16).slice(2)}:`;
@@ -46,6 +98,54 @@ function makePresignSessionRecord(args?: {
     updatedAtMs: Date.now(),
     signingRootId: 'signing-root',
     walletKeyVersion: 'v1',
+    derivationVersion: 1,
+  };
+}
+
+function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceLike {
+  const objects = new Map<string, CloudflareDurableObjectStubLike>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: unknown) => {
+      const key = String(id);
+      const existing = objects.get(key);
+      if (existing) return existing;
+
+      const storage = new MemoryDurableObjectStorage();
+      const durableObject = new ThresholdStoreDurableObject({ storage }, {});
+      const stub: CloudflareDurableObjectStubLike = {
+        fetch: async (request, init) =>
+          durableObject.fetch(request instanceof Request ? request : new Request(request, init)),
+      };
+      objects.set(key, stub);
+      return stub;
+    },
+  };
+}
+
+function makeCloudflareDoPresignSessionRecord(input: {
+  relayerKeyId: string;
+  version: number;
+  stage: 'triples' | 'triples_done' | 'presign' | 'done';
+}): RouterAbEcdsaHssPoolFillSessionRecord {
+  const nowMs = Date.now();
+  return {
+    expiresAtMs: nowMs + 60_000,
+    walletId: 'wallet-do-1',
+    walletKeyId: 'wallet-key-do-1',
+    relayerKeyId: input.relayerKeyId,
+    presignPoolKey: `keyHandle:${input.relayerKeyId}`,
+    poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
+    participantIds: [1, 2],
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    stage: input.stage,
+    version: input.version,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs + input.version,
+    signingRootId: 'signing-root-do-1',
+    signingRootVersion: 'root-v1',
+    walletKeyVersion: 'wallet-key-version-1',
     derivationVersion: 1,
   };
 }
@@ -122,6 +222,167 @@ test.describe('threshold-ecdsa durable presign stores', () => {
           walletSessionPrefix,
         ]);
       }
+    });
+  });
+
+  test.describe('Cloudflare Durable Object', () => {
+    test('presignaturePool reserve/consume are single-use under concurrency', async () => {
+      const prefix = randPrefix('threshold-ecdsa:presign:cloudflare-do');
+      const { presignaturePool } = createThresholdEcdsaSigningStores({
+        config: {
+          kind: 'cloudflare-do',
+          namespace: createMemoryDurableObjectNamespace(),
+          name: randPrefix('threshold-ecdsa:do-object'),
+          THRESHOLD_ECDSA_PRESIGN_PREFIX: prefix,
+        },
+        logger: testLogger,
+        isNode: false,
+      });
+
+      const relayerKeyId = 'rk-do-2';
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-do-a',
+          createdAtMs: Date.now() - 2,
+        }),
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-do-b',
+          createdAtMs: Date.now() - 1,
+        }),
+      );
+
+      const [a, b] = await Promise.all([
+        presignaturePool.reserve(relayerKeyId),
+        presignaturePool.reserve(relayerKeyId),
+      ]);
+      expect(a && b).toBeTruthy();
+      expect(a?.presignatureId).not.toBe(b?.presignatureId);
+
+      const a1 = await presignaturePool.consume(relayerKeyId, a?.presignatureId || '');
+      const a2 = await presignaturePool.consume(relayerKeyId, a?.presignatureId || '');
+      expect(a1?.presignatureId).toBe(a?.presignatureId);
+      expect(a2).toBeNull();
+
+      const b1 = await presignaturePool.consume(relayerKeyId, b?.presignatureId || '');
+      const b2 = await presignaturePool.consume(relayerKeyId, b?.presignatureId || '');
+      expect(b1?.presignatureId).toBe(b?.presignatureId);
+      expect(b2).toBeNull();
+    });
+
+    test('presignaturePool reserveById selects requested item and preserves others', async () => {
+      const prefix = randPrefix('threshold-ecdsa:presign:cloudflare-do-by-id');
+      const { presignaturePool } = createThresholdEcdsaSigningStores({
+        config: {
+          kind: 'cloudflare-do',
+          namespace: createMemoryDurableObjectNamespace(),
+          name: randPrefix('threshold-ecdsa:do-object-by-id'),
+          THRESHOLD_ECDSA_PRESIGN_PREFIX: prefix,
+        },
+        logger: testLogger,
+        isNode: false,
+      });
+
+      const relayerKeyId = 'rk-do-by-id';
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-do-by-a',
+          createdAtMs: Date.now() - 2,
+        }),
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-do-by-b',
+          createdAtMs: Date.now() - 1,
+        }),
+      );
+
+      const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-do-by-b');
+      expect(reservedById?.presignatureId).toBe('ps-do-by-b');
+      const consumedById = await presignaturePool.consume(relayerKeyId, 'ps-do-by-b');
+      expect(consumedById?.presignatureId).toBe('ps-do-by-b');
+
+      const remaining = await presignaturePool.reserve(relayerKeyId);
+      expect(remaining?.presignatureId).toBe('ps-do-by-a');
+      const consumedRemaining = await presignaturePool.consume(relayerKeyId, 'ps-do-by-a');
+      expect(consumedRemaining?.presignatureId).toBe('ps-do-by-a');
+    });
+
+    test('poolFillSessionStore CAS transitions are atomic', async () => {
+      const prefix = randPrefix('threshold-ecdsa:presign:cloudflare-do-cas');
+      const relayerKeyId = 'rk-do-cas';
+      const { poolFillSessionStore } = createThresholdEcdsaSigningStores({
+        config: {
+          kind: 'cloudflare-do',
+          namespace: createMemoryDurableObjectNamespace(),
+          name: randPrefix('threshold-ecdsa:do-object-cas'),
+          THRESHOLD_ECDSA_PRESIGN_PREFIX: prefix,
+        },
+        logger: testLogger,
+        isNode: false,
+      });
+
+      const created = await poolFillSessionStore.createSession(
+        'psess-do-1',
+        makeCloudflareDoPresignSessionRecord({
+          relayerKeyId,
+          version: 1,
+          stage: 'triples',
+        }),
+        10_000,
+      );
+      expect(created.ok).toBe(true);
+
+      const stale = await poolFillSessionStore.advanceSessionCas({
+        id: 'psess-do-1',
+        expectedVersion: 99,
+        nextRecord: makeCloudflareDoPresignSessionRecord({
+          relayerKeyId,
+          version: 100,
+          stage: 'triples',
+        }),
+        ttlMs: 10_000,
+      });
+      expect(stale.ok).toBe(false);
+      if (!stale.ok) expect(stale.code).toBe('version_mismatch');
+
+      const [a, b] = await Promise.all([
+        poolFillSessionStore.advanceSessionCas({
+          id: 'psess-do-1',
+          expectedVersion: 1,
+          nextRecord: makeCloudflareDoPresignSessionRecord({
+            relayerKeyId,
+            version: 2,
+            stage: 'triples_done',
+          }),
+          ttlMs: 10_000,
+        }),
+        poolFillSessionStore.advanceSessionCas({
+          id: 'psess-do-1',
+          expectedVersion: 1,
+          nextRecord: makeCloudflareDoPresignSessionRecord({
+            relayerKeyId,
+            version: 2,
+            stage: 'triples_done',
+          }),
+          ttlMs: 10_000,
+        }),
+      ]);
+
+      const oks = [a, b].filter((result) => result.ok);
+      const errs = [a, b].filter((result) => !result.ok);
+      expect(oks.length).toBe(1);
+      expect(errs.length).toBe(1);
+      if (!errs[0].ok) expect(errs[0].code).toBe('version_mismatch');
+
+      const got = await poolFillSessionStore.getSession('psess-do-1');
+      expect(got?.version).toBe(2);
+      expect(got?.stage).toBe('triples_done');
     });
   });
 

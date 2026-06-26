@@ -77,13 +77,15 @@ Completed so far:
   scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
+- Added Durable Object ECDSA presignature reservation and pool-fill CAS
+  coverage.
 
 Remaining before D1 staging:
 
 - Fill the remaining console and signer D1 schemas beyond the first adapter
   slice.
-- Add Durable Object coordination tests for signer budgets, replay guards,
-  presignature pools, and session consumption.
+- Add remaining Durable Object coordination tests for normal-signing admission
+  quotas and signing-root coordination.
 - Add staging import/restore smoke checks and R2 export drills.
 
 ## Scope
