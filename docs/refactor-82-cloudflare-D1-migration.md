@@ -75,10 +75,10 @@ Completed so far:
 - Added targeted SQLite-backed D1 adapter contract tests for prepaid
   reservation atomicity, sponsored-call idempotency, and signer secret tenant
   scoping.
+- Completed the first Postgres-coupling inventory and ownership matrix.
 
 Remaining before D1 staging:
 
-- Finish the current Postgres-coupling inventory and table ownership matrix.
 - Fill the remaining console and signer D1 schemas beyond the first adapter
   slice.
 - Add snapshot outbox lease-claim race tests.
@@ -237,6 +237,87 @@ insufficient balance, expired reservations, duplicate identity, exhausted
 signing budget, corrupt persisted rows, missing custody authority, and stale
 route versions are recoverable domain failures. Driver errors stay inside
 adapters.
+
+## Postgres Coupling Inventory
+
+Current Postgres coupling is concentrated in:
+
+- `packages/sdk-server-ts/src/console/**/postgres.ts`
+- `packages/sdk-server-ts/src/console/shared/postgresTenantContext.ts`
+- `packages/sdk-server-ts/src/storage/postgres.ts`
+- `packages/sdk-server-ts/src/core/**/*Store.ts`
+- `packages/sdk-server-ts/src/core/ThresholdService/stores/*Store.ts`
+- `packages/sdk-server-ts/src/router/routerAbNormalSigningAdmissionStore.ts`
+- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/idempotencyBackends.ts`
+
+### Console Table Ownership
+
+| Area | Current Postgres tables | Target owner | Notes |
+| --- | --- | --- | --- |
+| Org/project/env | `console_organizations`, `console_projects`, `console_environments` | `CONSOLE_DB` D1 | Plain tenant-scoped rows with unique project/environment keys. |
+| Account/profile | `console_user_profiles`, `console_user_backup_emails` | `CONSOLE_DB` D1 | Keep user identity columns required at adapter boundaries. |
+| Team RBAC | `console_team_members` | `CONSOLE_DB` D1 | Replace JSONB role membership queries with `console_team_member_roles` when indexed role lookup is needed. |
+| Approvals | `console_approvals` | `CONSOLE_DB` D1 | Replace `FOR UPDATE` approval transitions with state-specific conditional updates. |
+| Audit | `console_audit_events`, `console_audit_evidence` | `CONSOLE_DB` D1 | Append-only tenant rows. Store evidence JSON as `TEXT` and parse at adapter boundary. |
+| Bootstrap tokens | `console_bootstrap_tokens` | `CONSOLE_DB` D1 | Replace redemption row locks with conditional `UPDATE ... WHERE status = 'issued' AND used_count < max_uses`. |
+| Policies | `console_policies`, `console_policy_versions`, `console_policy_assignments` | `CONSOLE_DB` D1 | Store policy JSON as `TEXT`; maintain tenant-first indexes and system-default uniqueness. |
+| API keys | `console_api_keys` | `CONSOLE_DB` D1 | Keep auth lookup index on key hash/kind plus tenant identity. |
+| Wallet index | `console_wallet_index` | `CONSOLE_DB` D1 | Queryable dashboard index only; signer ownership stays in `SIGNER_DB`/DO. |
+| Billing | `console_billing_accounts`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, `console_billing_credit_purchases`, `console_billing_ledger_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_stripe_webhook_events` | `CONSOLE_DB` D1 | Ledger and Stripe event idempotency stay append-only. Monthly finalization uses D1 batches or a Worker job with idempotent resume markers. |
+| Prepaid reservations | `console_billing_prepaid_reservation_summaries`, `console_billing_prepaid_reservations` | `CONSOLE_DB` D1 | Already has trigger-backed D1 adapter and contract tests. Keep double-debit prevention in SQLite triggers or equivalent single atomic unit. |
+| Sponsored calls | `console_sponsored_call_records` | `CONSOLE_DB` D1 | Already has D1 adapter and idempotency test. Settlement finalization still needs an end-to-end billing ledger contract test. |
+| Sponsorship spend caps | `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations` | `CONSOLE_DB` D1 | Replace row locks with atomic conditional upserts against the window row. Keep source-event uniqueness. |
+| Key exports | `console_key_exports` | `CONSOLE_DB` D1 | Replace approval `FOR UPDATE` with conditional approval insert plus derived status update. Store approvals/constraints as `TEXT` or normalize approvals into child rows. |
+| Runtime snapshots | `console_runtime_snapshots`, `console_runtime_snapshot_outbox` | `CONSOLE_DB` D1 | Already has D1 schema. Replace `SKIP LOCKED` with claim lease columns and conditional updates. |
+| Webhooks | `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters` | `CONSOLE_DB` D1 | Replace GIN category index with `console_webhook_endpoint_categories(namespace, org_id, endpoint_id, category)`. Payload JSON is `TEXT`. |
+| Key export and webhook secrets | `console_key_exports`, `console_webhook_endpoints.signing_secret` | `CONSOLE_DB` D1 plus secrets adapter | Store only encrypted/derived values in D1 when values can authorize actions. |
+| Observability | `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, `console_observability_request_rollups_minute` | R2/Analytics Engine plus limited D1 rollups | Keep high-volume raw events outside shared D1. D1 may store compact dashboard rollups and dedup markers only. |
+
+### Signer Table Ownership
+
+| Area | Current Postgres tables | Target owner | Notes |
+| --- | --- | --- | --- |
+| WebAuthn | `webauthn_authenticators`, `webauthn_credential_bindings`, `webauthn_challenges` | `SIGNER_DB` D1 | Tenant/project/env scope must be explicit where custody state is environment-specific. |
+| Registration | `wallet_registration_intents`, `wallet_registration_ceremonies` | `SIGNER_DB` D1 | Expiring records with tenant-first indexes and cleanup job. |
+| Wallet metadata | `wallets`, `wallet_auth_methods`, `wallet_signers` | `SIGNER_DB` D1 | Queryable durable signer metadata. Keep wallet ID, org, project, env, RP ID, and chain identity required. |
+| Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts` | `SIGNER_DB` D1 | Challenge/grant expiry stays adapter-owned. Store JSON as `TEXT` and normalize lookup columns. |
+| Threshold key metadata | `threshold_ed25519_keys`, `threshold_ecdsa_keys` | `SIGNER_DB` D1 | Durable metadata and public identifiers only. Secret shares stay application-encrypted. |
+| Sealed signing-root shares | `signing_root_secret_shares`, `signer_signing_root_secret_shares` | `SIGNER_DB` D1 | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. |
+| Device/recovery/identity | `device_linking_sessions`, `email_recovery_preparations`, `near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions` | `SIGNER_DB` D1 | Queryable records with explicit tenant and lifecycle columns. |
+| Signing sessions | `threshold_ed25519_sessions` | Durable Object | Session use counts and replay-sensitive mutation need per-session serialization. Persist durable DO state before cache updates. |
+| Budget and replay guards | `threshold_wallet_session_consumptions`, `threshold_wallet_session_budget_reservations`, `threshold_signing_session_seal_idempotency` | Durable Object | Replace row locks and unique idempotency rows with DO methods that return the same result unions. |
+| ECDSA presign | `threshold_ecdsa_presign_sessions`, `threshold_ecdsa_presignatures` | Durable Object | Replace `FOR UPDATE SKIP LOCKED` with one object per relayer key or signing root. |
+| Normal signing admission | `router_ab_normal_signing_quota_reservations`, `router_ab_normal_signing_project_policies`, `router_ab_normal_signing_abuse_records` | Durable Object | Quota reservation and abuse counters are hot coordination state. |
+
+### Postgres Primitive Replacement Map
+
+| Postgres primitive | Current use | D1/DO replacement |
+| --- | --- | --- |
+| Advisory migration locks | Schema setup in console and signer Postgres modules | Wrangler D1 migrations plus serialized CI/deploy migration command. Runtime adapters do not take migration locks. |
+| Row-level security | Console tenant protection through Postgres policies | Tenant route resolution plus required tenant columns in every primary key and query. Tests must prove cross-org reads and writes fail. |
+| `JSONB` columns | Policy payloads, webhook categories, audit evidence, signer records, session records | Store JSON as `TEXT` and parse once at adapter boundaries. Add normalized side tables for indexed membership queries. |
+| GIN indexes | Webhook endpoint category lookup | `console_webhook_endpoint_categories` join table with `(namespace, org_id, category, endpoint_id)` index. |
+| `FOR UPDATE` | Billing, approvals, key exports, bootstrap tokens, spend caps, signer sessions, signer budgets | D1 conditional updates or Durable Object serialized methods. The target owner decides the primitive. |
+| `FOR UPDATE SKIP LOCKED` | Runtime snapshot outbox and ECDSA presignature reservation | D1 claim leases for snapshot outbox; Durable Object reservation method for presignatures. |
+| Bigserial IDs | Webhook attempts and similar append-only rows | Application-generated IDs or monotonic per-owner counters inside the owning Durable Object. |
+| Postgres partial indexes | Pending/unresolved and idempotency lookups | SQLite partial indexes where supported; otherwise explicit status columns in tenant-first indexes. |
+
+### Adapter Checklist
+
+Before D1 staging, these adapters must exist behind domain-store ports:
+
+- Console D1: org/project/env, account, team RBAC, approvals, audit,
+  bootstrap tokens, policies, API keys, wallet index, billing ledger, prepaid
+  reservations, sponsored calls, spend caps, key exports, runtime snapshots,
+  webhooks, and compact observability rollups.
+- Signer D1: WebAuthn, registration ceremonies, wallet metadata, auth methods,
+  email OTP, recovery, identity links, app sessions, threshold key metadata,
+  and sealed signing-root secret shares.
+- Durable Objects: signing-session use counts, wallet signing budgets,
+  idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
+  sessions, normal-signing admission quotas, and signing-root coordination.
+- Postgres escape hatch: matching full-family ports, schemas, migrations, and
+  shared contract tests before any production tenant can select Postgres.
 
 ## D1 Schema Rules
 
