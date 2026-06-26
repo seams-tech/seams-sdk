@@ -65,6 +65,13 @@ import {
   type ConsoleOrgProjectEnvService,
 } from '../../console/orgProjectEnv';
 import {
+  createD1ConsoleObservabilityIngestionService,
+  createD1ConsoleObservabilityService,
+  type ConsoleObservabilityIngestionService,
+  type ConsoleObservabilityMetadataRedactionPolicy,
+  type ConsoleObservabilityService,
+} from '../../console/observability';
+import {
   createD1ConsolePolicyService,
   type ConsolePolicyService,
 } from '../../console/policies';
@@ -140,6 +147,10 @@ export interface CloudflareD1ConsoleAdapterOptions {
   readonly webhookSecretCipher?: ConsoleWebhookSecretCipher;
   readonly webhookDispatcher?: WebhookDispatchAdapter;
   readonly webhookEndpointDegradedThreshold?: number;
+  readonly observabilityRedactionPolicy?: ConsoleObservabilityMetadataRedactionPolicy;
+  readonly observabilityMaxBatchSize?: number;
+  readonly observabilityMaxEventsPerMinute?: number;
+  readonly observabilityQueryMaxWindowMs?: number;
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
@@ -164,6 +175,8 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly approvals: ConsoleApprovalService;
   readonly keyExports: ConsoleKeyExportService;
   readonly webhooks?: ConsoleWebhookService | null;
+  readonly observability: ConsoleObservabilityService;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -183,6 +196,8 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly approvals: ConsoleApprovalService;
   readonly keyExports: ConsoleKeyExportService;
   readonly webhooks: ConsoleWebhookService | null;
+  readonly observability: ConsoleObservabilityService;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
   readonly bootstrapTokens: ConsoleBootstrapTokenService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
@@ -234,6 +249,10 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions {
   readonly webhookSecretCipher?: ConsoleWebhookSecretCipher;
   readonly webhookDispatcher?: WebhookDispatchAdapter;
   readonly webhookEndpointDegradedThreshold?: number;
+  readonly observabilityRedactionPolicy?: ConsoleObservabilityMetadataRedactionPolicy;
+  readonly observabilityMaxBatchSize?: number;
+  readonly observabilityMaxEventsPerMinute?: number;
+  readonly observabilityQueryMaxWindowMs?: number;
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
@@ -387,6 +406,10 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
     webhookSecretCipher: options.adapters?.webhookSecretCipher,
     webhookDispatcher: options.adapters?.webhookDispatcher,
     webhookEndpointDegradedThreshold: options.adapters?.webhookEndpointDegradedThreshold,
+    observabilityRedactionPolicy: options.adapters?.observabilityRedactionPolicy,
+    observabilityMaxBatchSize: options.adapters?.observabilityMaxBatchSize,
+    observabilityMaxEventsPerMinute: options.adapters?.observabilityMaxEventsPerMinute,
+    observabilityQueryMaxWindowMs: options.adapters?.observabilityQueryMaxWindowMs,
     runtimeSnapshotRetentionTtlMs: options.adapters?.runtimeSnapshotRetentionTtlMs,
     runtimeSnapshotRetentionPruneIntervalMs:
       options.adapters?.runtimeSnapshotRetentionPruneIntervalMs,
@@ -529,9 +552,37 @@ async function createCloudflareD1KeyExports(
   });
 }
 
-async function createCloudflareD1Webhooks(
+async function createCloudflareD1Observability(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
-): Promise<ConsoleWebhookService | null> {
+): Promise<ConsoleObservabilityService> {
+  return await createD1ConsoleObservabilityService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+    queryMaxWindowMs: options.observabilityQueryMaxWindowMs,
+  });
+}
+
+async function createCloudflareD1ObservabilityIngestion(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleObservabilityIngestionService> {
+  return await createD1ConsoleObservabilityIngestionService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+    redactionPolicy: options.observabilityRedactionPolicy,
+    maxBatchSize: options.observabilityMaxBatchSize,
+    maxEventsPerMinute: options.observabilityMaxEventsPerMinute,
+  });
+}
+
+async function createCloudflareD1Webhooks(input: {
+  readonly options: NormalizedCloudflareD1ConsoleServiceBundleOptions;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+}): Promise<ConsoleWebhookService | null> {
+  const options = input.options;
   if (!options.webhookSecretCipher) return null;
   const logger = normalizeLogger(options.logger);
   return await createD1ConsoleWebhookService({
@@ -541,6 +592,7 @@ async function createCloudflareD1Webhooks(
     now: options.now,
     dispatcher: options.webhookDispatcher,
     secretCipher: options.webhookSecretCipher,
+    observabilityIngestion: input.observabilityIngestion,
     observabilityLogger: logger,
     endpointDegradedThreshold: options.webhookEndpointDegradedThreshold,
   });
@@ -654,6 +706,8 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly approvals: ConsoleApprovalService;
   readonly keyExports: ConsoleKeyExportService;
   readonly webhooks: ConsoleWebhookService | null;
+  readonly observability: ConsoleObservabilityService;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -672,6 +726,8 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
     approvals: input.approvals,
     keyExports: input.keyExports,
     webhooks: input.webhooks,
+    observability: input.observability,
+    observabilityIngestion: input.observabilityIngestion,
     audit: input.audit,
     billing: input.billing,
     prepaidReservations: input.prepaidReservations,
@@ -697,7 +753,12 @@ export async function createCloudflareD1ConsoleServiceBundle(
   const apiKeys = await createCloudflareD1ApiKeys(normalized);
   const approvals = await createCloudflareD1Approvals(normalized);
   const keyExports = await createCloudflareD1KeyExports(normalized);
-  const webhooks = await createCloudflareD1Webhooks(normalized);
+  const observability = await createCloudflareD1Observability(normalized);
+  const observabilityIngestion = await createCloudflareD1ObservabilityIngestion(normalized);
+  const webhooks = await createCloudflareD1Webhooks({
+    options: normalized,
+    observabilityIngestion,
+  });
   const audit = await createCloudflareD1Audit(normalized);
   const bootstrapTokens = await createCloudflareD1BootstrapTokens(normalized);
   const billing = await createCloudflareD1Billing(normalized);
@@ -717,6 +778,8 @@ export async function createCloudflareD1ConsoleServiceBundle(
     approvals,
     keyExports,
     webhooks,
+    observability,
+    observabilityIngestion,
     audit,
     billing,
     prepaidReservations,
@@ -735,6 +798,8 @@ export async function createCloudflareD1ConsoleServiceBundle(
     approvals,
     keyExports,
     webhooks,
+    observability,
+    observabilityIngestion,
     bootstrapTokens,
     audit,
     billing,

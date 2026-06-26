@@ -14,6 +14,10 @@ import {
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
 import { createD1ConsoleBootstrapTokenService } from '../../packages/sdk-server-ts/src/console/bootstrapTokens/d1';
 import { createD1ConsoleKeyExportService } from '../../packages/sdk-server-ts/src/console/keyExports/d1';
+import {
+  createD1ConsoleObservabilityIngestionService,
+  createD1ConsoleObservabilityService,
+} from '../../packages/sdk-server-ts/src/console/observability/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
 import { createD1ConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/d1';
 import {
@@ -1801,6 +1805,179 @@ test.describe('D1 adapter contracts', () => {
         endpoint: { id: endpoint.id },
       });
       await expect(service.listEndpoints(primaryCtx)).resolves.toEqual([]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('observability adapter stores compact D1 incident events and request rollups', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T03:05:00.000Z');
+      const ingestion = await createD1ConsoleObservabilityIngestionService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: clock.now,
+        redactionPolicy: {
+          denylistKeys: ['token'],
+          replacement: '[masked]',
+          redactionVersion: 3,
+        },
+      });
+      const service = await createD1ConsoleObservabilityService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: false,
+        now: clock.now,
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-observability-primary',
+        actorUserId: 'user-d1-observability-primary',
+        roles: ['ops'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-observability-secondary',
+        actorUserId: 'user-d1-observability-secondary',
+        roles: ['ops'],
+      };
+
+      const appendResult = await ingestion.appendEvent(primaryCtx, {
+        eventId: 'evt-d1-observability-dead-letter',
+        schemaVersion: 1,
+        source: 'WEBHOOK',
+        ingestedAtMs: Date.parse('2026-06-27T03:01:00.000Z'),
+        timestamp: '2026-06-27T03:01:00.000Z',
+        orgId: primaryCtx.orgId,
+        service: 'webhooks',
+        component: 'delivery_dispatch',
+        level: 'ERROR',
+        eventType: 'webhook.delivery.dead_letter',
+        message: 'Webhook delivery moved to DLQ',
+        requestId: 'req-d1-observability',
+        traceId: 'trace-d1-observability',
+        metadata: {
+          deliveryId: 'delivery-d1-observability',
+          token: 'should-not-persist',
+        },
+        redactionVersion: 1,
+        redactionApplied: false,
+      });
+      expect(appendResult).toEqual({ accepted: 1, deduplicated: 0 });
+      await expect(
+        ingestion.appendEvent(primaryCtx, {
+          eventId: 'evt-d1-observability-dead-letter',
+          schemaVersion: 1,
+          source: 'WEBHOOK',
+          ingestedAtMs: Date.parse('2026-06-27T03:01:00.000Z'),
+          timestamp: '2026-06-27T03:01:00.000Z',
+          orgId: primaryCtx.orgId,
+          service: 'webhooks',
+          component: 'delivery_dispatch',
+          level: 'ERROR',
+          eventType: 'webhook.delivery.dead_letter',
+          message: 'Duplicate dead letter',
+          metadata: {},
+          redactionVersion: 1,
+          redactionApplied: false,
+        }),
+      ).resolves.toEqual({ accepted: 0, deduplicated: 1 });
+
+      await ingestion.observeRequestMetric(primaryCtx, {
+        orgId: primaryCtx.orgId,
+        projectId: 'project-d1-observability',
+        environmentId: 'env-d1-observability',
+        route: '/console/webhooks/wh_1/replay',
+        method: 'POST',
+        statusCode: 500,
+        latencyMs: 420,
+        timestamp: '2026-06-27T03:02:00.000Z',
+      });
+      await ingestion.observeRequestMetric(primaryCtx, {
+        orgId: primaryCtx.orgId,
+        projectId: 'project-d1-observability',
+        environmentId: 'env-d1-observability',
+        route: '/console/webhooks',
+        method: 'GET',
+        statusCode: 200,
+        latencyMs: 100,
+        timestamp: '2026-06-27T03:03:00.000Z',
+      });
+
+      const summary = await service.getSummary(primaryCtx, {
+        from: '2026-06-27T03:00:00.000Z',
+        to: '2026-06-27T03:10:00.000Z',
+      });
+      expect(summary).toMatchObject({
+        status: { state: 'ok' },
+        errorRate: 1,
+        p95LatencyMs: 500,
+        failingServices: 1,
+        deadLetterCount: 1,
+      });
+
+      await expect(
+        service.getSummary(secondaryCtx, {
+          from: '2026-06-27T03:00:00.000Z',
+          to: '2026-06-27T03:10:00.000Z',
+        }),
+      ).resolves.toMatchObject({
+        errorRate: 0,
+        failingServices: 0,
+        deadLetterCount: 0,
+      });
+
+      const events = await service.listEvents(primaryCtx, {
+        from: '2026-06-27T03:00:00.000Z',
+        to: '2026-06-27T03:10:00.000Z',
+        query: 'DLQ',
+        limit: 10,
+      });
+      expect(events).toMatchObject({
+        status: { state: 'ok' },
+        totalPages: 1,
+      });
+      expect(events.events).toEqual([
+        expect.objectContaining({
+          id: 'evt-d1-observability-dead-letter',
+          orgId: primaryCtx.orgId,
+          service: 'webhooks',
+          level: 'ERROR',
+          eventType: 'webhook.delivery.dead_letter',
+          metadata: {
+            deliveryId: 'delivery-d1-observability',
+            token: '[masked]',
+          },
+        }),
+      ]);
+
+      const services = await service.listServices(primaryCtx, {
+        from: '2026-06-27T03:00:00.000Z',
+        to: '2026-06-27T03:10:00.000Z',
+      });
+      expect(services.services).toEqual([
+        expect.objectContaining({
+          service: 'webhooks',
+          status: 'DEGRADED',
+          recentFailureCount: 2,
+        }),
+      ]);
+
+      const timeseries = await service.getTimeseries(primaryCtx, {
+        from: '2026-06-27T03:00:00.000Z',
+        to: '2026-06-27T03:10:00.000Z',
+        service: 'webhooks',
+        bucketMinutes: 5,
+      });
+      expect(
+        timeseries.buckets.filter((bucket) => bucket.requestCount > 0),
+      ).toEqual([
+        expect.objectContaining({
+          errorCount: 1,
+          requestCount: 1,
+          p95LatencyMs: 500,
+        }),
+      ]);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

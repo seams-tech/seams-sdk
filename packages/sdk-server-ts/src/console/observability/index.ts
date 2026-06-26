@@ -56,6 +56,24 @@ export {
   ensureConsoleObservabilityEventsPartition,
   monthStartUtcMs,
 } from './schema';
+export type {
+  ConsoleObservabilityD1Runtime,
+  ConsoleObservabilityD1Service,
+  ConsoleObservabilityIngestionD1Service,
+  D1ConsoleObservabilitySchemaOptions,
+  D1ConsoleObservabilityServiceOptions,
+  D1ConsoleObservabilityIngestionServiceOptions,
+} from './d1';
+export {
+  CONSOLE_OBSERVABILITY_D1_RUNTIME,
+  CONSOLE_OBSERVABILITY_INGESTION_D1_RUNTIME,
+  CONSOLE_OBSERVABILITY_D1_SCHEMA_SQL,
+  createD1ConsoleObservabilityService,
+  createD1ConsoleObservabilityIngestionService,
+  ensureConsoleObservabilityD1Schema,
+  getConsoleObservabilityD1Runtime,
+  getConsoleObservabilityIngestionD1Runtime,
+} from './d1';
 
 export type { PostgresConsoleObservabilityRetentionCleanupResult } from './retention';
 

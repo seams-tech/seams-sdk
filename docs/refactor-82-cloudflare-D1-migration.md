@@ -94,15 +94,17 @@ Completed so far:
   team RBAC, policies, wallet index, API keys, approvals, key exports, audit,
   bootstrap tokens, billing account/ledger settlement, prepaid billing
   reservations, sponsorship spend caps, sponsored call records, runtime
-  snapshot storage/outbox, webhook endpoint/delivery persistence, and sealed
-  signing-root secret shares.
+  snapshot storage/outbox, webhook endpoint/delivery persistence, compact
+  observability incident/request-rollup storage, and sealed signing-root secret
+  shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
 - Wired D1 org/project/env, Team RBAC, account/profile, policies, API keys,
   wallet index, approvals, key exports, audit, bootstrap tokens, billing, prepaid
   reservations, sponsorship spend caps, sponsored calls, runtime snapshots, and
-  signer secret storage into the Cloudflare service bundle. Webhooks are wired
-  when a webhook signing-secret cipher is configured.
+  observability read/ingestion services, and signer secret storage into the
+  Cloudflare service bundle. Webhooks are wired when a webhook signing-secret
+  cipher is configured.
 - Added local Wrangler/Miniflare D1 configuration, append-only migrations,
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
@@ -117,7 +119,8 @@ Completed so far:
   event/evidence tenant scoping, bootstrap token redemption atomicity, prepaid
   reservation atomicity, sponsorship spend-cap atomic
   reservation/settlement/release, sponsored-call idempotency, atomic sponsored
-  gas settlement, and signer secret tenant scoping.
+  gas settlement, observability event dedupe/redaction, compact request
+  rollups, observability tenant scoping, and signer secret tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
@@ -327,7 +330,7 @@ Current Postgres coupling is concentrated in:
 | Runtime snapshots | `console_runtime_snapshots`, `console_runtime_snapshot_outbox` | `CONSOLE_DB` D1 | Already has D1 schema. Replace `SKIP LOCKED` with claim lease columns and conditional updates. |
 | Webhooks | `console_webhook_endpoints`, `console_webhook_endpoint_categories`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters` | `CONSOLE_DB` D1 plus webhook secret cipher | D1 route-service adapter, append-only migration, local smoke coverage, optional Cloudflare bundle wiring, endpoint CRUD, category side-table lookup, event dispatch, delivery/attempt/dead-letter pages, replay resolution, and sealed signing-secret tests are in place. D1 retry-dispatch cron replacement is still pending. |
 | Key export and webhook secrets | `console_key_exports`, `console_webhook_endpoints.signing_secret` | `CONSOLE_DB` D1 plus secrets adapter | Key exports store approval/constraint JSON only. Webhook D1 rows store sealed signing-secret ciphertext, KEK ID, and envelope version. Plaintext webhook signing secrets stay in process memory only during endpoint creation and request signing. |
-| Observability | `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, `console_observability_request_rollups_minute` | R2/Analytics Engine plus limited D1 rollups | Keep high-volume raw events outside shared D1. D1 may store compact dashboard rollups and dedup markers only. |
+| Observability | `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, `console_observability_request_rollups_minute` | `CONSOLE_DB` D1 for compact dashboard state; R2/Analytics Engine for raw telemetry | D1 compact adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, incident-event dedupe/redaction, request-rollup ingestion, summary/event/timeseries/service reads, and tenant-scoping tests are in place. High-volume raw telemetry stays outside D1. |
 
 ### Signer Table Ownership
 
@@ -362,12 +365,12 @@ Current Postgres coupling is concentrated in:
 
 Before D1 staging, these adapters must exist behind domain-store ports:
 
-- Console D1 remaining: D1 webhook retry-dispatch cron and compact
-  observability rollups.
+- Console D1 remaining: D1 webhook retry-dispatch cron.
 - Console D1 in place: org/project/env, account/profile, team RBAC, policies,
   wallet index, API keys, approvals, key exports, audit, bootstrap tokens,
   billing ledger sponsored settlement, prepaid reservations, sponsorship spend
-  caps, sponsored calls, runtime snapshots, and the webhook route service.
+  caps, sponsored calls, runtime snapshots, compact observability
+  read/ingestion services, and the webhook route service.
 - Signer D1: WebAuthn, registration ceremonies, wallet metadata, auth methods,
   email OTP, recovery, identity links, app sessions, threshold key metadata,
   and sealed signing-root secret shares.
@@ -797,8 +800,7 @@ Status: in progress.
 
 Work:
 
-- Finish remaining console D1 adapters for webhook retry dispatch and compact
-  observability rollups.
+- Finish the remaining console D1 adapter work for webhook retry dispatch.
 - Finish remaining signer D1 adapters for wallet metadata, wallet auth,
   WebAuthn, email OTP, recovery, identity links, app sessions, and threshold key
   metadata.
@@ -917,11 +919,14 @@ Completed:
    idempotency.
 8. Add persisted D1 monthly usage statements and the D1 monthly billing
    finalization runner.
+9. Add compact D1 observability incident events, event dedupe, ingest
+   rate-limit windows, request rollups, dashboard reads, local smoke coverage,
+   and tenant-scoped adapter tests.
 
 Next:
 
-1. Continue Step 3 by adding the remaining console D1 adapters: webhook retry
-   dispatch and compact observability rollups.
+1. Continue Step 3 by adding the remaining console D1 adapter work: webhook
+   retry dispatch.
 2. Continue Step 3 by adding the remaining signer D1 metadata adapters: wallet
    metadata, wallet auth, WebAuthn, email OTP, recovery, identity links, app
    sessions, and threshold key metadata.

@@ -8,6 +8,7 @@ import {
 } from '../../console/billingPrepaidReservations/d1';
 import { ensureConsoleBootstrapTokensD1Schema } from '../../console/bootstrapTokens/d1';
 import { ensureConsoleKeyExportsD1Schema } from '../../console/keyExports/d1';
+import { ensureConsoleObservabilityD1Schema } from '../../console/observability/d1';
 import { ensureConsoleOrgProjectEnvD1Schema } from '../../console/orgProjectEnv/d1';
 import { ensureConsolePolicyD1Schema } from '../../console/policies/d1';
 import { ensureConsoleRuntimeSnapshotsD1Schema } from '../../console/runtimeSnapshots/d1';
@@ -73,6 +74,7 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureConsoleApprovalsD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleKeyExportsD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleWebhooksD1Schema({ database: env.CONSOLE_DB });
+  await ensureConsoleObservabilityD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleAuditD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBootstrapTokensD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBillingD1Schema({ database: env.CONSOLE_DB });
