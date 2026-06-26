@@ -26,6 +26,20 @@ export {
   createPostgresConsoleApprovalService,
 } from './postgres';
 
+export type {
+  ConsoleApprovalsD1Runtime,
+  ConsoleApprovalsD1Service,
+  D1ConsoleApprovalSchemaOptions,
+  D1ConsoleApprovalServiceOptions,
+} from './d1';
+export {
+  CONSOLE_APPROVALS_D1_RUNTIME,
+  CONSOLE_APPROVALS_D1_SCHEMA_SQL,
+  ensureConsoleApprovalsD1Schema,
+  getConsoleApprovalsD1Runtime,
+  createD1ConsoleApprovalService,
+} from './d1';
+
 export {
   parseListConsoleApprovalsRequest,
   parseCreateConsoleApprovalRequest,

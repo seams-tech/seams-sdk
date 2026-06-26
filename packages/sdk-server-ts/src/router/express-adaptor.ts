@@ -138,6 +138,10 @@ export type {
 export type {
   ConsoleApprovalsContext,
   ConsoleApprovalService,
+  ConsoleApprovalsD1Runtime,
+  ConsoleApprovalsD1Service,
+  D1ConsoleApprovalSchemaOptions,
+  D1ConsoleApprovalServiceOptions,
   InMemoryConsoleApprovalServiceOptions,
   PostgresConsoleApprovalSchemaOptions,
   PostgresConsoleApprovalServiceOptions,
@@ -526,6 +530,11 @@ export {
   ConsoleTeamRbacError,
 } from '../console/teamRbac';
 export {
+  CONSOLE_APPROVALS_D1_RUNTIME,
+  CONSOLE_APPROVALS_D1_SCHEMA_SQL,
+  createD1ConsoleApprovalService,
+  ensureConsoleApprovalsD1Schema,
+  getConsoleApprovalsD1Runtime,
   createInMemoryConsoleApprovalService,
   ensureConsoleApprovalsPostgresSchema,
   createPostgresConsoleApprovalService,

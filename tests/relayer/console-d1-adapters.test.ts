@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
 import { createD1ConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys/d1';
+import { createD1ConsoleApprovalService } from '../../packages/sdk-server-ts/src/console/approvals/d1';
 import { createD1ConsoleAuditService } from '../../packages/sdk-server-ts/src/console/audit/d1';
 import {
   createD1ConsoleBillingService,
@@ -974,6 +975,217 @@ test.describe('D1 adapter contracts', () => {
         usedCount: 0,
         status: 'expired',
       });
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('approval adapter records MFA-gated decisions through D1 conditional updates', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      let nowMsValue = Date.parse('2026-06-27T02:30:00.000Z');
+      const service = await createD1ConsoleApprovalService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date(nowMsValue),
+      });
+      const requesterCtx = {
+        orgId: 'org-d1-approvals-primary',
+        actorUserId: 'user-d1-approvals-requester',
+        roles: ['admin'],
+      };
+      const approverCtx = {
+        orgId: requesterCtx.orgId,
+        actorUserId: 'user-d1-approvals-approver',
+        roles: ['security_admin'],
+      };
+      const finalApproverCtx = {
+        orgId: requesterCtx.orgId,
+        actorUserId: 'user-d1-approvals-final-approver',
+        roles: ['security_admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-approvals-secondary',
+        actorUserId: 'user-d1-approvals-secondary',
+        roles: ['security_admin'],
+      };
+
+      const keyExport = await service.createApprovalRequest(requesterCtx, {
+        id: 'approval-d1-key-export',
+        operationType: 'KEY_EXPORT',
+        reason: 'Export production root share envelope',
+        projectId: 'project-d1-approvals',
+        environmentId: 'env-d1-approvals-prod',
+        resourceType: 'signing_root',
+        resourceId: 'signing-root-d1-approvals',
+        metadata: { exportFormat: 'encrypted_bundle', custodyTicket: 'ticket-42' },
+      });
+      expect(keyExport).toMatchObject({
+        id: 'approval-d1-key-export',
+        orgId: requesterCtx.orgId,
+        operationType: 'KEY_EXPORT',
+        status: 'PENDING',
+        requestedByUserId: requesterCtx.actorUserId,
+        requiredApprovals: 2,
+        requireMfa: true,
+        projectId: 'project-d1-approvals',
+        environmentId: 'env-d1-approvals-prod',
+        metadata: { exportFormat: 'encrypted_bundle', custodyTicket: 'ticket-42' },
+        decisions: [],
+        createdAt: '2026-06-27T02:30:00.000Z',
+        resolvedAt: null,
+      });
+
+      await expect(
+        service.getApprovalRequest(secondaryCtx, keyExport.id),
+      ).resolves.toBeNull();
+      await expect(
+        service.approveApprovalRequest(secondaryCtx, keyExport.id, {
+          reason: 'Cross-tenant approval',
+          mfaVerified: true,
+        }),
+      ).resolves.toBeNull();
+      await expect(service.listApprovalRequests(secondaryCtx)).resolves.toHaveLength(0);
+
+      let duplicateCreateError: unknown = null;
+      try {
+        await service.createApprovalRequest(requesterCtx, {
+          id: keyExport.id,
+          operationType: 'KEY_EXPORT',
+          reason: 'Duplicate key export request',
+        });
+      } catch (error: unknown) {
+        duplicateCreateError = error;
+      }
+      expect(errorCode(duplicateCreateError)).toBe('approval_request_exists');
+
+      let missingMfaError: unknown = null;
+      try {
+        await service.approveApprovalRequest(approverCtx, keyExport.id, {
+          reason: 'Approve without MFA',
+          mfaVerified: false,
+        });
+      } catch (error: unknown) {
+        missingMfaError = error;
+      }
+      expect(errorCode(missingMfaError)).toBe('mfa_required');
+
+      nowMsValue = Date.parse('2026-06-27T02:31:00.000Z');
+      const firstApproval = await service.approveApprovalRequest(approverCtx, keyExport.id, {
+        reason: 'MFA verified for custody export',
+        mfaVerified: true,
+      });
+      expect(firstApproval).toMatchObject({
+        status: 'PENDING',
+        resolvedAt: null,
+        decisions: [
+          {
+            decision: 'APPROVE',
+            actorUserId: approverCtx.actorUserId,
+            mfaVerified: true,
+            decidedAt: '2026-06-27T02:31:00.000Z',
+          },
+        ],
+      });
+
+      let duplicateDecisionError: unknown = null;
+      try {
+        await service.approveApprovalRequest(approverCtx, keyExport.id, {
+          reason: 'Duplicate approval',
+          mfaVerified: true,
+        });
+      } catch (error: unknown) {
+        duplicateDecisionError = error;
+      }
+      expect(errorCode(duplicateDecisionError)).toBe('already_decided');
+
+      await expect(
+        service.listApprovalRequests(requesterCtx, {
+          status: 'PENDING',
+          operationType: 'KEY_EXPORT',
+          projectId: 'project-d1-approvals',
+          environmentId: 'env-d1-approvals-prod',
+        }),
+      ).resolves.toEqual([expect.objectContaining({ id: keyExport.id })]);
+
+      nowMsValue = Date.parse('2026-06-27T02:32:00.000Z');
+      const finalApproval = await service.approveApprovalRequest(
+        finalApproverCtx,
+        keyExport.id,
+        {
+          reason: 'Second custody approval',
+          mfaVerified: true,
+        },
+      );
+      expect(finalApproval).toMatchObject({
+        status: 'APPROVED',
+        resolvedAt: '2026-06-27T02:32:00.000Z',
+      });
+      expect(finalApproval?.decisions).toHaveLength(2);
+
+      let approvedRejectError: unknown = null;
+      try {
+        await service.rejectApprovalRequest(finalApproverCtx, keyExport.id, {
+          reason: 'Too late to reject',
+        });
+      } catch (error: unknown) {
+        approvedRejectError = error;
+      }
+      expect(errorCode(approvedRejectError)).toBe('invalid_state');
+
+      await expect(
+        service.listApprovalRequests(requesterCtx, { status: 'APPROVED' }),
+      ).resolves.toEqual([expect.objectContaining({ id: keyExport.id })]);
+
+      nowMsValue = Date.parse('2026-06-27T02:33:00.000Z');
+      const policyPublish = await service.createApprovalRequest(requesterCtx, {
+        id: 'approval-d1-policy-publish',
+        operationType: 'POLICY_PUBLISH',
+        reason: 'Publish production policy',
+        projectId: 'project-d1-approvals',
+        environmentId: 'env-d1-approvals-prod',
+      });
+      expect(policyPublish).toMatchObject({
+        requiredApprovals: 1,
+        requireMfa: false,
+        status: 'PENDING',
+      });
+
+      nowMsValue = Date.parse('2026-06-27T02:34:00.000Z');
+      const rejected = await service.rejectApprovalRequest(approverCtx, policyPublish.id, {
+        reason: 'Policy needs another review',
+      });
+      expect(rejected).toMatchObject({
+        status: 'REJECTED',
+        resolvedAt: '2026-06-27T02:34:00.000Z',
+        decisions: [
+          {
+            decision: 'REJECT',
+            actorUserId: approverCtx.actorUserId,
+            mfaVerified: false,
+          },
+        ],
+      });
+
+      let rejectedApproveError: unknown = null;
+      try {
+        await service.approveApprovalRequest(finalApproverCtx, policyPublish.id, {
+          reason: 'Too late to approve',
+          mfaVerified: true,
+        });
+      } catch (error: unknown) {
+        rejectedApproveError = error;
+      }
+      expect(errorCode(rejectedApproveError)).toBe('invalid_state');
+
+      await expect(
+        service.listApprovalRequests(requesterCtx, { status: 'REJECTED' }),
+      ).resolves.toEqual([expect.objectContaining({ id: policyPublish.id })]);
+      await expect(service.listApprovalRequests(requesterCtx)).resolves.toEqual([
+        expect.objectContaining({ id: policyPublish.id }),
+        expect.objectContaining({ id: keyExport.id }),
+      ]);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

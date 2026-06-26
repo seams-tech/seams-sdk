@@ -1,5 +1,6 @@
 import { ensureConsoleAccountD1Schema } from '../../console/account/d1';
 import { ensureConsoleApiKeysD1Schema } from '../../console/apiKeys/d1';
+import { ensureConsoleApprovalsD1Schema } from '../../console/approvals/d1';
 import { ensureConsoleAuditD1Schema } from '../../console/audit/d1';
 import { ensureConsoleBillingD1Schema } from '../../console/billing/d1';
 import {
@@ -64,6 +65,7 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureConsoleAccountD1Schema({ database: env.CONSOLE_DB });
   await ensureConsolePolicyD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleApiKeysD1Schema({ database: env.CONSOLE_DB });
+  await ensureConsoleApprovalsD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleAuditD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBootstrapTokensD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBillingD1Schema({ database: env.CONSOLE_DB });
