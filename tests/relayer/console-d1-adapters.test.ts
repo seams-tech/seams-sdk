@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
 import { createD1ConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys/d1';
+import { createD1ConsoleAuditService } from '../../packages/sdk-server-ts/src/console/audit/d1';
 import {
   createD1ConsoleBillingService,
   runD1ConsoleBillingMonthlyFinalization,
@@ -973,6 +974,143 @@ test.describe('D1 adapter contracts', () => {
         usedCount: 0,
         status: 'expired',
       });
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('audit adapter stores append-only events and evidence with tenant filters', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      let nowMsValue = Date.parse('2026-06-27T03:00:00.000Z');
+      const service = await createD1ConsoleAuditService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date(nowMsValue),
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-audit-primary',
+        actorUserId: 'user-d1-audit-primary',
+        roles: ['security_admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-audit-secondary',
+        actorUserId: 'user-d1-audit-secondary',
+        roles: ['security_admin'],
+      };
+
+      const policyEvent = await service.appendEvent(primaryCtx, {
+        id: 'aud-d1-policy-publish',
+        projectId: 'project-d1-audit',
+        environmentId: 'env-d1-audit-prod',
+        category: 'POLICY',
+        action: 'policy.publish',
+        outcome: 'SUCCESS',
+        summary: 'Published policy to production',
+        metadata: { policyId: 'policy-d1-audit', version: 7 },
+      });
+      expect(policyEvent).toMatchObject({
+        orgId: primaryCtx.orgId,
+        actorUserId: primaryCtx.actorUserId,
+        actorType: 'USER',
+        metadata: { policyId: 'policy-d1-audit', version: 7 },
+        createdAt: '2026-06-27T03:00:00.000Z',
+      });
+
+      nowMsValue = Date.parse('2026-06-27T03:05:00.000Z');
+      const billingEvent = await service.appendEvent(primaryCtx, {
+        id: 'aud-d1-billing-failure',
+        projectId: 'project-d1-audit',
+        environmentId: 'env-d1-audit-dev',
+        actorUserId: 'system-billing',
+        actorType: 'SYSTEM',
+        category: 'BILLING',
+        action: 'billing.webhook.failed',
+        outcome: 'FAILURE',
+        summary: 'Stripe webhook failed reconciliation',
+        metadata: { providerRef: 'evt-d1-audit', retryable: true },
+      });
+      expect(billingEvent.actorType).toBe('SYSTEM');
+
+      await expect(service.listEvents(secondaryCtx)).resolves.toHaveLength(0);
+      await expect(service.listEvents(primaryCtx, { limit: 1 })).resolves.toEqual([
+        expect.objectContaining({ id: billingEvent.id }),
+      ]);
+      await expect(service.listEvents(primaryCtx, { category: 'POLICY' })).resolves.toEqual([
+        expect.objectContaining({ id: policyEvent.id }),
+      ]);
+      await expect(
+        service.listEvents(primaryCtx, {
+          projectId: 'project-d1-audit',
+          environmentId: 'env-d1-audit-dev',
+          outcome: 'FAILURE',
+        }),
+      ).resolves.toEqual([expect.objectContaining({ id: billingEvent.id })]);
+      await expect(service.listEvents(primaryCtx, { q: 'stripe webhook' })).resolves.toEqual([
+        expect.objectContaining({ id: billingEvent.id }),
+      ]);
+      await expect(
+        service.listEvents(primaryCtx, {
+          from: '2026-06-27T03:01:00.000Z',
+          to: '2026-06-27T03:06:00.000Z',
+        }),
+      ).resolves.toEqual([expect.objectContaining({ id: billingEvent.id })]);
+
+      let duplicateEventError: unknown = null;
+      try {
+        await service.appendEvent(primaryCtx, {
+          id: policyEvent.id,
+          category: 'POLICY',
+          action: 'policy.publish',
+          outcome: 'SUCCESS',
+          summary: 'Duplicate policy event',
+        });
+      } catch (error: unknown) {
+        duplicateEventError = error;
+      }
+      expect(errorCode(duplicateEventError)).toBe('event_already_exists');
+
+      nowMsValue = Date.parse('2026-06-27T03:10:00.000Z');
+      const evidence = await service.appendEvidence(primaryCtx, {
+        id: 'evd-d1-policy-bundle',
+        projectId: 'project-d1-audit',
+        environmentId: 'env-d1-audit-prod',
+        domain: 'POLICY',
+        title: 'Policy publish evidence',
+        summary: 'Policy publish evidence bundle',
+        eventIds: [policyEvent.id, policyEvent.id, billingEvent.id],
+        references: [
+          { kind: 'APPROVAL', referenceId: 'approval-d1-audit', label: 'Approval request' },
+          { kind: 'APPROVAL', referenceId: 'approval-d1-audit', label: 'Approval request' },
+          { kind: 'LOG', referenceId: 'policy-d1-audit:v7', label: 'Policy version log' },
+        ],
+      });
+      expect(evidence.eventIds).toEqual([policyEvent.id, billingEvent.id]);
+      expect(evidence.references).toEqual([
+        { kind: 'APPROVAL', referenceId: 'approval-d1-audit', label: 'Approval request' },
+        { kind: 'LOG', referenceId: 'policy-d1-audit:v7', label: 'Policy version log' },
+      ]);
+      await expect(service.listEvidence(primaryCtx, { domain: 'POLICY' })).resolves.toEqual([
+        expect.objectContaining({ id: evidence.id }),
+      ]);
+      await expect(
+        service.listEvidence(primaryCtx, { environmentId: 'env-d1-audit-dev' }),
+      ).resolves.toHaveLength(0);
+      await expect(service.listEvidence(secondaryCtx)).resolves.toHaveLength(0);
+
+      let duplicateEvidenceError: unknown = null;
+      try {
+        await service.appendEvidence(primaryCtx, {
+          id: evidence.id,
+          domain: 'POLICY',
+          title: 'Duplicate evidence',
+          summary: 'Duplicate evidence bundle',
+        });
+      } catch (error: unknown) {
+        duplicateEvidenceError = error;
+      }
+      expect(errorCode(duplicateEvidenceError)).toBe('evidence_already_exists');
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

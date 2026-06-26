@@ -29,6 +29,20 @@ export {
   createPostgresConsoleAuditService,
 } from './postgres';
 
+export type {
+  ConsoleAuditD1Runtime,
+  ConsoleAuditD1Service,
+  D1ConsoleAuditSchemaOptions,
+  D1ConsoleAuditServiceOptions,
+} from './d1';
+export {
+  CONSOLE_AUDIT_D1_RUNTIME,
+  CONSOLE_AUDIT_D1_SCHEMA_SQL,
+  ensureConsoleAuditD1Schema,
+  getConsoleAuditD1Runtime,
+  createD1ConsoleAuditService,
+} from './d1';
+
 export {
   parseListConsoleAuditEventsRequest,
   parseListConsoleAuditEvidenceRequest,

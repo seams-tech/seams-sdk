@@ -159,6 +159,10 @@ export type {
 export type {
   ConsoleAuditContext,
   ConsoleAuditService,
+  ConsoleAuditD1Runtime,
+  ConsoleAuditD1Service,
+  D1ConsoleAuditSchemaOptions,
+  D1ConsoleAuditServiceOptions,
   InMemoryConsoleAuditServiceOptions,
   PostgresConsoleAuditSchemaOptions,
   PostgresConsoleAuditServiceOptions,
@@ -533,6 +537,11 @@ export {
   ConsoleApprovalsError,
 } from '../console/approvals';
 export {
+  CONSOLE_AUDIT_D1_RUNTIME,
+  CONSOLE_AUDIT_D1_SCHEMA_SQL,
+  createD1ConsoleAuditService,
+  ensureConsoleAuditD1Schema,
+  getConsoleAuditD1Runtime,
   createInMemoryConsoleAuditService,
   ensureConsoleAuditPostgresSchema,
   createPostgresConsoleAuditService,
