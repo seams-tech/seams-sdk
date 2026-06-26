@@ -151,8 +151,8 @@ Remaining before D1 staging:
 
 - Finish only the console and signer D1 adapters required by the first staging
   dashboard, signer, sponsored gas, billing, and reconciliation flows.
-- Add the Durable Object coordination tests required for signer admission,
-  budget, replay, presignature, and signing-root coordination.
+- Add the normal-signing admission Durable Object adapter and the remaining
+  coordination tests required by staging signer flows.
 - Add local Wrangler/Miniflare smoke coverage for every required D1 table.
 - Add staging import, restore, and R2 export drills.
 - Keep the Postgres escape hatch as a typed full-family contract until a tenant
@@ -396,7 +396,10 @@ Before D1 staging, these adapters must exist behind domain-store ports:
   registration ceremonies, add-signer/add-auth-method ceremonies, finalize
   replay records, signing-session use counts, wallet signing budgets,
   idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
-  sessions, normal-signing admission quotas, and signing-root coordination.
+  sessions, and signing-root coordination.
+- Durable Objects remaining for staging: normal-signing admission storage and
+  any missing contract coverage for the signer admission, budget, replay,
+  presignature, and signing-root paths used by sponsored gas signing.
 - Postgres escape hatch: matching full-family ports, schemas, migrations, and
   shared contract tests before any production tenant can select Postgres.
 
@@ -579,6 +582,7 @@ Durable Objects own hot coordination state:
   records
 - signing-session use-count consumption
 - idempotency consumption guards
+- normal-signing admission quotas, project policy decisions, and abuse decisions
 - wallet signing budget reserve, commit, release, and validation
 - ECDSA presignature put, reserve, take, and discard
 - ECDSA pool-fill compare-and-swap advancement
@@ -592,6 +596,7 @@ threshold-store:namespace:{namespace}:wallet:{walletId}
 threshold-store:namespace:{namespace}:signing-root:{signingRootId}:{signingRootVersion}
 threshold-store:namespace:{namespace}:relayer-key:{relayerKeyId}
 threshold-store:namespace:{namespace}:session:{sessionId}
+threshold-store:namespace:{namespace}:admission:{authorityScope}
 ```
 
 DO rules:
@@ -848,8 +853,10 @@ Work:
   disabled at the route and service layers.
 - Add threshold public-key metadata D1 tables only if a dashboard lookup
   requirement appears.
-- Finish Durable Object adapters for signer admission, budgets, replay guards,
-  presignature pools, and signing-root coordination.
+- Add the normal-signing admission Durable Object adapter.
+- Audit existing Durable Object stores for signer budgets, replay guards,
+  presignature pools, and signing-root coordination. Add contract tests only
+  for missing staging-required behavior.
 - Keep the KEK provider boundary narrow: Cloudflare Secrets Store for hosted
   production, Wrangler secrets for local development, external KMS/HSM for
   enterprise custody.
@@ -867,10 +874,10 @@ Status: partly complete.
 
 Work:
 
-- Keep local Postgres available only for current unfinished areas while the
-  refactor is underway.
 - Make the default local console/signer path use Wrangler/Miniflare D1 and local
-  Durable Object storage once required adapters exist.
+  Durable Object storage for staging-required flows.
+- Keep Docker Postgres available only for legacy tests and unfinished non-staging
+  paths while those paths are being removed from the default workflow.
 - Add reset, seed, migrate, and smoke commands for local D1/DO.
 - Document read-only TablePlus inspection of local SQLite files under
   `.wrangler/state`.
@@ -933,8 +940,9 @@ Minimum checks before first D1 staging deploy:
 - Snapshot outbox lease claim tests.
 - Tenant scoping tests that prove cross-org reads and writes fail.
 - Signer sealed-share parser tests.
-- Durable Object coordination tests for budgets, replay guards, presignature
-  pools, and session consumption.
+- Durable Object coordination tests for normal-signing admission, budgets,
+  replay guards, presignature pools, signing-root coordination, and session
+  consumption.
 - Local Wrangler D1 smoke:
 
 ```bash
@@ -946,65 +954,31 @@ pnpm wrangler d1 execute seams-signer --local --command "SELECT 1"
 
 ## Immediate Next Steps
 
-Completed:
+Completed baseline:
 
-1. Inventory current Postgres coupling in `seams-signer` and `seams-console`.
-2. Define the first D1 schemas and Durable Object ownership boundaries.
-3. Add D1 adapters for org/project/env, account/profile, team RBAC, policies,
-   wallet index, API keys, approvals, key exports, audit, bootstrap tokens,
-   billing ledger settlement, prepaid reservations, sponsorship spend caps,
-   sponsored calls, runtime snapshots, webhook route-service persistence, and
-   sealed signing-root secret shares.
-4. Make local development run on Wrangler/Miniflare D1 for the implemented D1
-   adapters.
-5. Port focused adapter tests to D1 for the implemented D1 adapters.
-6. Add D1 billing ledger settlement finalization for sponsored EVM gas payments.
-7. Add D1 Stripe credit purchase persistence, purchase receipts, and webhook
-   idempotency.
-8. Add persisted D1 monthly usage statements and the D1 monthly billing
-   finalization runner.
-9. Add compact D1 observability incident events, event dedupe, ingest
-   rate-limit windows, request rollups, dashboard reads, local smoke coverage,
-   and tenant-scoped adapter tests.
-10. Add D1 signer wallet metadata and wallet-auth-method stores, append-only
-    signer migration, local smoke coverage, explicit D1 factory selectors, and
-    tenant-scoped adapter tests.
-11. Add D1 WebAuthn authenticator, credential-binding, login-challenge, and
-    sync-challenge stores, append-only signer migration, local smoke coverage,
-    explicit D1 factory selectors, tenant-scoped adapter tests, and atomic
-    challenge-consume coverage.
-12. Add D1 identity-link and app-session-version stores, append-only signer
-    migration, local smoke coverage, explicit D1 factory selector,
-    tenant-scoped adapter tests, sole-identity move/unlink coverage, and
-    app-session ensure/rotate coverage.
-13. Add D1 recovery-session and recovery-execution stores, append-only signer
-    migration, local smoke coverage, explicit D1 factory selectors,
-    tenant-scoped adapter tests, recovery-session expiry coverage, and
-    recovery-execution status query coverage.
-14. Add D1 NEAR public key metadata store, append-only signer migration, local
-    smoke coverage, explicit D1 factory selector, tenant-scoped adapter test,
-    and key-list/upsert coverage.
-15. Add D1 email recovery preparation store, append-only signer migration,
-    local smoke coverage, explicit D1 factory selector, tenant-scoped adapter
-    test, expiry reads, and deletion coverage.
-16. Add D1 webhook retry-dispatch runner, retry claim lease columns,
-    Cloudflare cron D1 branch, local migration coverage, and a claim-race
-    adapter test.
-17. Add D1 Email OTP stores, append-only signer migration, local smoke coverage,
-    explicit D1 factory selectors, tenant-scoped adapter test, one-time
-    grant/unlock consumption coverage, registration-attempt scope
-    disambiguation, and expiry deletion coverage.
+- The first Postgres-coupling inventory and ownership matrix exist.
+- The core D1 adapters for the first dashboard, billing, sponsored gas,
+  reconciliation, webhook, and signer metadata slices are implemented with local
+  migrations, smoke coverage, and focused adapter tests.
+- The storage route type already models D1/DO and Postgres as full-family
+  choices.
 
-Next:
+Proceed in this order:
 
-1. Finish the Durable Object adapter and test slice for normal-signing
-   admission, budget, replay, presignature, and signing-root coordination.
-2. Finish Step 4 by making Wrangler/Miniflare D1 and local Durable Object
-   storage the default development path after required adapters exist.
-3. Finish Step 5 with D1/DO contract tests and local smoke coverage for every
-   staging-required table.
-4. Deploy staging only after local D1 smoke and all D1/DO adapter contract tests
-   pass.
+1. Re-audit current Postgres coupling in `seams-signer` and `seams-console`
+   against the simplified staging scope.
+2. Finalize D1 schemas and Durable Object ownership boundaries only for the
+   staging-required dashboard, signer, sponsored gas, billing, and
+   reconciliation flows.
+3. Add the remaining D1/DO adapters behind existing domain-store ports. The
+   known first adapter gap is normal-signing admission in Durable Objects.
+4. Make local development run on Wrangler/Miniflare D1 and local Durable Object
+   storage by default for staging-required flows.
+5. Port staging-required persistence tests to the D1/DO adapters and keep pure
+   unit tests on fakes where SQL or Durable Object semantics are irrelevant.
+6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
+   tests, sponsored gas reconciliation checks, signer custody checks, and backup
+   drills pass.
 
-Key rule for execution: no half-Postgres staging. If D1 is the target, staging
-starts life on D1.
+Execution rule: no half-Postgres staging. If D1/DO is the target, staging starts
+life on D1/DO.
