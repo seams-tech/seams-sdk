@@ -223,6 +223,8 @@ export type {
 export type {
   ConsoleAccountContext,
   ConsoleAccountService,
+  D1ConsoleAccountSchemaOptions,
+  D1ConsoleAccountServiceOptions,
   InMemoryConsoleAccountServiceOptions,
   PostgresConsoleAccountSchemaOptions,
   PostgresConsoleAccountServiceOptions,
@@ -542,6 +544,8 @@ export {
   ConsoleOnboardingError,
 } from '../console/onboarding';
 export {
+  createD1ConsoleAccountService,
+  ensureConsoleAccountD1Schema,
   createInMemoryConsoleAccountService,
   ensureConsoleAccountPostgresSchema,
   createPostgresConsoleAccountService,

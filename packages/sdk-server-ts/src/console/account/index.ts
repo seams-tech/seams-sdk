@@ -21,6 +21,20 @@ export type {
 export { createInMemoryConsoleAccountService } from './service';
 
 export type {
+  ConsoleAccountD1Runtime,
+  ConsoleAccountD1Service,
+  D1ConsoleAccountSchemaOptions,
+  D1ConsoleAccountServiceOptions,
+} from './d1';
+export {
+  CONSOLE_ACCOUNT_D1_RUNTIME,
+  CONSOLE_ACCOUNT_D1_SCHEMA_SQL,
+  ensureConsoleAccountD1Schema,
+  createD1ConsoleAccountService,
+  getConsoleAccountD1Runtime,
+} from './d1';
+
+export type {
   PostgresConsoleAccountSchemaOptions,
   PostgresConsoleAccountServiceOptions,
 } from './postgres';

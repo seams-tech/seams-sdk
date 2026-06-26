@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
 import {
@@ -12,6 +13,7 @@ import {
 } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/types';
 import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/d1';
+import { createInMemoryConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/service';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   D1DatabaseLike,
@@ -398,6 +400,128 @@ test.describe('D1 adapter contracts', () => {
       const deleted = await service.deleteOrganization(primaryCtx);
       expect(deleted.deleted).toBe(true);
       await expect(service.findOrganizationForScope({ projectId: project.id })).resolves.toBeNull();
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('account adapter stores profiles and resolves created organizations from D1', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const namespace = 'd1-contracts';
+      const orgProjectEnv = await createD1ConsoleOrgProjectEnvService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: () => new Date('2026-06-27T00:00:00.000Z'),
+      });
+      const teamRbac = createInMemoryConsoleTeamRbacService({
+        now: () => new Date('2026-06-27T00:00:00.000Z'),
+      });
+      const service = await createD1ConsoleAccountService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        orgProjectEnv,
+        teamRbac,
+        now: () => new Date('2026-06-27T00:00:00.000Z'),
+      });
+      const ctx = {
+        userId: 'user-d1-account',
+        orgId: 'org-d1-account-home',
+        roles: [],
+        email: 'USER-D1-ACCOUNT@example.com',
+        name: 'D1 Account User',
+      };
+
+      const initialProfile = await service.getProfile(ctx);
+      expect(initialProfile.displayName).toBe('D1 Account User');
+      expect(initialProfile.primaryEmail).toBe('user-d1-account@example.com');
+      expect(initialProfile.backupEmails).toHaveLength(0);
+
+      const updatedProfile = await service.updateProfile(ctx, {
+        displayName: 'D1 Account Owner',
+        primaryEmail: 'owner-d1-account@example.com',
+        addBackupEmail: 'backup-d1-account@example.com',
+      });
+      expect(updatedProfile.displayName).toBe('D1 Account Owner');
+      expect(updatedProfile.primaryEmail).toBe('owner-d1-account@example.com');
+      expect(updatedProfile.backupEmails).toEqual([
+        expect.objectContaining({
+          email: 'backup-d1-account@example.com',
+          status: 'PENDING',
+        }),
+      ]);
+
+      const duplicateBackupProfile = await service.updateProfile(ctx, {
+        addBackupEmail: 'backup-d1-account@example.com',
+      });
+      expect(duplicateBackupProfile.backupEmails).toHaveLength(1);
+
+      const removedBackupProfile = await service.updateProfile(ctx, {
+        removeBackupEmail: 'backup-d1-account@example.com',
+      });
+      expect(removedBackupProfile.backupEmails).toHaveLength(0);
+
+      let readOnlyEmailError: unknown = null;
+      try {
+        await service.updateProfile(
+          { ...ctx, provider: 'oidc' },
+          { primaryEmail: 'oidc-owned@example.com' },
+        );
+      } catch (error: unknown) {
+        readOnlyEmailError = error;
+      }
+      expect(errorCode(readOnlyEmailError)).toBe('primary_email_read_only');
+
+      const organization = await service.createOrganization(ctx, {
+        id: 'org-d1-account-created',
+        name: 'D1 Account Created Org',
+      });
+      expect(organization.actorIsOwner).toBe(true);
+      expect(organization.actorRoles).toContain('owner');
+
+      await orgProjectEnv.createProject(
+        {
+          orgId: organization.id,
+          actorUserId: ctx.userId,
+          roles: ['owner'],
+        },
+        {
+          id: 'project-d1-account',
+          name: 'D1 Account Project',
+          liveEnvironmentsEnabled: true,
+        },
+      );
+
+      const organizations = await service.listOrganizations(ctx);
+      expect(organizations).toHaveLength(1);
+      expect(organizations[0]).toMatchObject({
+        id: organization.id,
+        selectedProjectId: 'project-d1-account',
+        selectedEnvironmentId: 'project-d1-account:prod',
+      });
+
+      const switched = await service.switchOrganizationContext(ctx, organization.id);
+      expect(switched.actorRoles).toContain('owner');
+      expect(switched.projectId).toBe('project-d1-account');
+      expect(switched.environmentId).toBe('project-d1-account:prod');
+
+      const renamed = await service.updateOrganization(ctx, organization.id, {
+        name: 'D1 Account Renamed Org',
+      });
+      expect(renamed.name).toBe('D1 Account Renamed Org');
+
+      let duplicateOrganizationError: unknown = null;
+      try {
+        await service.createOrganization(ctx, {
+          id: organization.id,
+          name: 'Duplicate Org',
+        });
+      } catch (error: unknown) {
+        duplicateOrganizationError = error;
+      }
+      expect(errorCode(duplicateOrganizationError)).toBe('organization_already_exists');
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

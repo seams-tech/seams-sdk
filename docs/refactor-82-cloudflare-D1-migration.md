@@ -64,9 +64,9 @@ Completed so far:
 
 - Added tenant storage route types that make D1/DO and Postgres full-family
   choices.
-- Added D1 adapters for org/project/environment records, prepaid billing
-  reservations, sponsored call records, runtime snapshot storage/outbox, and
-  sealed signing-root secret shares.
+- Added D1 adapters for org/project/environment records, account profiles,
+  prepaid billing reservations, sponsored call records, runtime snapshot
+  storage/outbox, and sealed signing-root secret shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
 - Wired D1 signer secret storage into the Cloudflare service bundle.
@@ -74,8 +74,9 @@ Completed so far:
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
 - Added targeted SQLite-backed D1 adapter contract tests for
-  org/project/environment tenant scoping, prepaid reservation atomicity,
-  sponsored-call idempotency, and signer secret tenant scoping.
+  org/project/environment tenant scoping, account profile and organization
+  resolution, prepaid reservation atomicity, sponsored-call idempotency, and
+  signer secret tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
@@ -258,7 +259,7 @@ Current Postgres coupling is concentrated in:
 | Area | Current Postgres tables | Target owner | Notes |
 | --- | --- | --- | --- |
 | Org/project/env | `console_organizations`, `console_projects`, `console_environments` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, and tenant-scoping contract test are in place. |
-| Account/profile | `console_user_profiles`, `console_user_backup_emails` | `CONSOLE_DB` D1 | Keep user identity columns required at adapter boundaries. |
+| Account/profile | `console_user_profiles`, `console_user_backup_emails` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, and profile/organization contract test are in place. |
 | Team RBAC | `console_team_members` | `CONSOLE_DB` D1 | Replace JSONB role membership queries with `console_team_member_roles` when indexed role lookup is needed. |
 | Approvals | `console_approvals` | `CONSOLE_DB` D1 | Replace `FOR UPDATE` approval transitions with state-specific conditional updates. |
 | Audit | `console_audit_events`, `console_audit_evidence` | `CONSOLE_DB` D1 | Append-only tenant rows. Store evidence JSON as `TEXT` and parse at adapter boundary. |
@@ -309,11 +310,11 @@ Current Postgres coupling is concentrated in:
 
 Before D1 staging, these adapters must exist behind domain-store ports:
 
-- Console D1 remaining: account, team RBAC, approvals, audit, bootstrap tokens,
-  policies, API keys, wallet index, billing ledger, spend caps, key exports,
-  webhooks, and compact observability rollups.
-- Console D1 in place: org/project/env, prepaid reservations, sponsored calls,
-  and runtime snapshots.
+- Console D1 remaining: team RBAC, approvals, audit, bootstrap tokens, policies,
+  API keys, wallet index, billing ledger, spend caps, key exports, webhooks, and
+  compact observability rollups.
+- Console D1 in place: org/project/env, account/profile, prepaid reservations,
+  sponsored calls, and runtime snapshots.
 - Signer D1: WebAuthn, registration ceremonies, wallet metadata, auth methods,
   email OTP, recovery, identity links, app sessions, threshold key metadata,
   and sealed signing-root secret shares.
@@ -775,8 +776,8 @@ Completed:
 
 1. Inventory current Postgres coupling in `seams-signer` and `seams-console`.
 2. Define the first D1 schemas and Durable Object ownership boundaries.
-3. Add D1 adapters for org/project/env, prepaid reservations, sponsored calls,
-   runtime snapshots, and sealed signing-root secret shares.
+3. Add D1 adapters for org/project/env, account/profile, prepaid reservations,
+   sponsored calls, runtime snapshots, and sealed signing-root secret shares.
 4. Make local development run on Wrangler/Miniflare D1 for the implemented D1
    adapters.
 5. Port focused adapter tests to D1 for the implemented D1 adapters.
@@ -784,7 +785,7 @@ Completed:
 Next:
 
 1. Add the remaining console D1 adapters, starting with the smallest
-   dashboard-critical stores: account/profile, team RBAC, and policies.
+   dashboard-critical stores: team RBAC and policies.
 2. Add D1 billing ledger settlement finalization for sponsored EVM gas
    payments.
 3. Add the remaining signer D1 metadata adapters for wallet auth and WebAuthn.
