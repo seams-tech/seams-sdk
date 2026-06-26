@@ -58,6 +58,32 @@ Authoritative Cloudflare references:
   settlement.
 - Stage on D1/DO from the start. There is no mixed staging mode.
 
+## Simplification Decisions
+
+- First staging uses one shared `CONSOLE_DB`, one shared `SIGNER_DB`, one
+  `THRESHOLD_STORE` Durable Object namespace, and one hosted signer KEK
+  provider.
+- Tenant route resolution is static for the first release. A persistent tenant
+  route registry is deferred until the first dedicated D1 route or Postgres
+  route is required.
+- Dedicated tenant D1 databases are deferred. Shared D1 remains acceptable while
+  storage, latency, and customer isolation triggers stay below the thresholds in
+  this plan.
+- The first staging environment starts empty on D1/DO or imports fixture data
+  through D1/DO import tools. It does not run a live mixed Postgres/D1 request
+  path.
+- The Postgres adapter family is defined through ports, schema contracts,
+  transaction semantics, and shared contract tests. A live implementation waits
+  until a concrete scale or enterprise trigger appears.
+- High-volume observability, cold archives, and bulky long-retention data go to
+  R2, Analytics Engine, logs, or later warehouse storage. D1 keeps compact
+  dashboard state and reconciliation records.
+- Durable Objects are used only where serialized mutation is the core property:
+  signer budgets, replay guards, presignature pools, signing-session admission,
+  and signing-root coordination.
+- Cloudflare Secrets Store is the hosted signer KEK source. External KMS/HSM
+  support stays behind the signer KEK provider interface.
+
 ## Current Implementation Status
 
 Completed so far:
@@ -97,11 +123,14 @@ Completed so far:
 
 Remaining before D1 staging:
 
-- Fill the remaining console and signer D1 schemas beyond the first adapter
-  slice.
-- Add remaining Durable Object coordination tests for normal-signing admission
-  quotas and signing-root coordination.
-- Add staging import/restore smoke checks and R2 export drills.
+- Finish only the console and signer D1 adapters required by the first staging
+  dashboard, signer, sponsored gas, billing, and reconciliation flows.
+- Add the Durable Object coordination tests required for signer admission,
+  budget, replay, presignature, and signing-root coordination.
+- Add local Wrangler/Miniflare smoke coverage for every required D1 table.
+- Add staging import, restore, and R2 export drills.
+- Keep the Postgres escape hatch as a typed full-family contract until a tenant
+  or deployment actually needs Postgres.
 
 ## Scope
 
@@ -703,69 +732,140 @@ D1-to-Postgres migration path:
 11. Keep source D1 read-only through the archive window, then delete rows in
     small batches.
 
-## Execution Phases
+## Simplified Execution Track
 
-### Phase 1: Inventory Current Postgres Coupling
+Goal: ship staging on D1/DO with the smallest backend surface that preserves
+sponsored gas billing, dashboard reconciliation, signer custody, tenant
+isolation, local development, recovery, and a full-family Postgres escape
+hatch.
+
+### Step 1: Inventory Postgres Coupling
+
+Status: first pass complete. Keep the ownership matrix current as adapters
+land.
+
+Work:
 
 - Inventory `seams-console` Postgres services, SQL files, migrations, and tests.
 - Inventory `seams-signer` Postgres tables and runtime call sites.
-- Categorize each table into console D1, signer D1, signer Durable Object, raw
-  archive, or deferred Postgres-only concern.
-- Identify all `FOR UPDATE`, `SKIP LOCKED`, advisory lock, transaction, JSONB,
-  partial-index, and RLS dependencies.
-- Output: table ownership matrix and adapter port checklist.
+- Categorize each table as console D1, signer D1, signer Durable Object, raw
+  archive, or deferred Postgres escape-hatch concern.
+- Record every `FOR UPDATE`, `SKIP LOCKED`, advisory lock, transaction, JSONB,
+  partial-index, and RLS dependency.
 
-### Phase 2: Define D1 Schemas And DO Ownership
+Exit criteria:
 
-- Add D1 migrations for console, billing, sponsored calls, snapshot outbox, and
-  signer metadata.
-- Add Durable Object SQL schemas for signer coordination.
-- Define idempotency keys, lifecycle states, lease columns, indexes, and
-  trigger-backed atomic invariants.
-- Add type fixtures for invalid route, billing, signing, and lifecycle states.
-- Output: migration files and schema smoke tests.
+- Every current Postgres table and SQL primitive has a target owner in this
+  document.
+- Remaining unknowns are tracked as explicit open items before adapter work
+  starts.
 
-### Phase 3: Add D1/DO Adapters Behind Domain Stores
+### Step 2: Define D1 Schemas And Durable Object Ownership
 
-- Add D1 adapters for console stores.
-- Add D1 billing reservation and sponsored settlement adapters with atomic
-  tests.
-- Add D1 snapshot outbox lease adapter.
-- Add D1 signer metadata adapter.
-- Add Durable Object signer coordination adapter.
-- Add KEK provider adapter for Cloudflare Secrets Store, Wrangler secrets, and
-  external KMS.
-- Output: D1/DO implementation passes domain-store contract tests.
+Status: complete for the first implemented adapter slices; continue only for
+remaining staging-required flows.
 
-### Phase 4: Make Local Development D1/DO By Default
+Work:
 
-- Add Wrangler D1 and Durable Object bindings.
-- Replace local Postgres Docker as the default console/signer path.
-- Add local seed and reset commands for D1/DO.
-- Document TablePlus read-only inspection of local SQLite files.
-- Output: a developer can run the dashboard and signer flows locally without
-  Postgres.
+- Add D1 migrations for the console and signer tables required by staging.
+- Add Durable Object storage schemas for signer coordination atoms.
+- Define lifecycle states, idempotency keys, tenant-first indexes, lease
+  columns, and atomic D1/SQLite invariants.
+- Store JSON as `TEXT` and add side tables only for indexed membership queries.
 
-### Phase 5: Port Tests To D1/DO
+Exit criteria:
 
-- Move persistence tests to D1 adapters.
-- Add Workers Vitest coverage for D1 bindings and Durable Objects.
-- Keep pure unit fakes only where SQL behavior is irrelevant.
-- Add SQLite/D1 tests for duplicate idempotency, insufficient balance,
-  settlement replay, lease claim races, tenant scoping, sealed-share parsing,
-  and signer budget exhaustion.
-- Output: targeted tests cover all high-risk persistence invariants.
+- Local Wrangler/Miniflare migrations apply cleanly for `CONSOLE_DB` and
+  `SIGNER_DB`.
+- Every staging-required table appears in the D1 smoke Worker.
+- Atomic billing, sponsored settlement, snapshot leases, and signer secret rows
+  have focused schema tests.
 
-### Phase 6: Staging D1/DO Cutover
+### Step 3: Add D1/DO Adapters Behind Domain Stores
+
+Status: in progress.
+
+Work:
+
+- Finish remaining console D1 adapters for approvals, audit, bootstrap tokens,
+  API keys, wallet index, spend caps, key exports, webhooks, and compact
+  observability rollups.
+- Finish remaining signer D1 adapters for wallet metadata, wallet auth,
+  WebAuthn, email OTP, recovery, identity links, app sessions, and threshold key
+  metadata.
+- Finish Durable Object adapters for signer admission, budgets, replay guards,
+  presignature pools, and signing-root coordination.
+- Keep the KEK provider boundary narrow: Cloudflare Secrets Store for hosted
+  production, Wrangler secrets for local development, external KMS/HSM for
+  enterprise custody.
+
+Exit criteria:
+
+- Core logic receives domain-store ports only.
+- Adapter tests prove tenant scoping, idempotency, lifecycle transitions, and
+  corrupt-row parsing for each high-risk store.
+- Route-owned staging persistence no longer depends on local Postgres.
+
+### Step 4: Make Local Development D1/DO By Default
+
+Status: partly complete.
+
+Work:
+
+- Keep local Postgres available only for current unfinished areas while the
+  refactor is underway.
+- Make the default local console/signer path use Wrangler/Miniflare D1 and local
+  Durable Object storage once required adapters exist.
+- Add reset, seed, migrate, and smoke commands for local D1/DO.
+- Document read-only TablePlus inspection of local SQLite files under
+  `.wrangler/state`.
+
+Exit criteria:
+
+- A developer can run the dashboard, signer flows, sponsored gas billing, and
+  reconciliation locally without Docker Postgres.
+- The local command path mirrors Cloudflare bindings and D1 API behavior.
+
+### Step 5: Port Tests To D1/DO
+
+Status: in progress.
+
+Work:
+
+- Move persistence tests for staging-required flows onto D1/DO adapters.
+- Add Workers/Vitest or Playwright coverage where real bindings matter.
+- Keep pure unit fakes for core logic that does not depend on SQL behavior.
+- Cover duplicate idempotency, insufficient balance, settlement replay, lease
+  races, tenant isolation, sealed-share parsing, budget exhaustion, and
+  signing-root coordination.
+
+Exit criteria:
+
+- `pnpm --dir packages/sdk-server-ts type-check` passes.
+- Local D1 adapter contract tests pass.
+- Local Wrangler/Miniflare smoke proves all required D1 tables exist.
+- Durable Object coordination tests pass for hot signer state.
+
+### Step 6: Deploy D1/DO Staging
+
+Status: pending.
+
+Work:
 
 - Apply D1 migrations to staging.
-- Import staging fixture data through D1/DO import tools.
-- Configure hosted KEK provider and verify the console Worker has no KEK access.
-- Run local D1 smoke tests, staging smoke tests, and dashboard reconciliation
-  checks.
-- Start staging on D1/DO only.
-- Output: staging proves the target architecture without a Postgres fallback in
-  the request path.
+- Configure hosted signer KEK provider and verify console routes cannot access
+  signer KEKs.
+- Import staging fixture data through D1/DO import tooling.
+- Capture D1 Time Travel bookmarks before imports and route changes.
+- Run local smoke, staging smoke, dashboard reconciliation checks, signer
+  custody checks, and R2 export/restore drills.
+
+Exit criteria:
+
+- Staging starts on D1/DO.
+- No request path mixes D1/DO and Postgres.
+- Dashboard reconciliation, sponsored gas settlement, signer custody, and
+  restore drills pass before production planning begins.
 
 ## Validation
 
@@ -809,14 +909,20 @@ Completed:
 
 Next:
 
-1. Add the remaining console D1 adapters: approvals, audit, bootstrap tokens,
-   API keys, wallet index, spend caps, key exports, webhooks, and compact
-   observability rollups.
-2. Add the remaining signer D1 metadata adapters for wallet auth and WebAuthn.
-3. Add Durable Object tests for normal-signing admission quotas and signing-root
-   coordination.
-4. Deploy staging only after local D1 smoke covers every required D1 table and
-   all D1 adapter contract tests pass.
+1. Continue Step 3 by adding the remaining console D1 adapters: approvals,
+   audit, bootstrap tokens, API keys, wallet index, spend caps, key exports,
+   webhooks, and compact observability rollups.
+2. Continue Step 3 by adding the remaining signer D1 metadata adapters: wallet
+   metadata, wallet auth, WebAuthn, email OTP, recovery, identity links, app
+   sessions, and threshold key metadata.
+3. Finish the Durable Object adapter and test slice for normal-signing
+   admission, budget, replay, presignature, and signing-root coordination.
+4. Finish Step 4 by making Wrangler/Miniflare D1 and local Durable Object
+   storage the default development path after required adapters exist.
+5. Finish Step 5 with D1/DO contract tests and local smoke coverage for every
+   staging-required table.
+6. Deploy staging only after local D1 smoke and all D1/DO adapter contract tests
+   pass.
 
 Key rule for execution: no half-Postgres staging. If D1 is the target, staging
 starts life on D1.
