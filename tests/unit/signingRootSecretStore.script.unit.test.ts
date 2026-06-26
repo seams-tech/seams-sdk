@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
-import {
-  InMemorySigningRootSecretStore,
-  type SigningRootSecretStore,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
+import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
+import type { SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore.shared';
 import type {
   SigningRootSecretShareId,
   SealedSigningRootSecretShare,

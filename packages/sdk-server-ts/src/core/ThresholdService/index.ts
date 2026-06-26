@@ -65,19 +65,25 @@ export {
 } from './signingRootShareResolver';
 export {
   CloudflareDurableObjectSigningRootSecretStore,
-  D1SigningRootSecretStore,
   InMemorySigningRootSecretStore,
   PostgresSigningRootSecretStore,
+} from './stores/SigningRootSecretStore';
+export {
+  D1SigningRootSecretStore,
   SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL,
   ensureSigningRootSecretShareD1Schema,
-  type D1SigningRootSecretStoreOptions,
-  type D1SigningRootSecretStoreSchemaOptions,
-  type DeleteSigningRootSecretSharesInput,
-  type ResolveSigningRootSecretSharesInput,
-  type SigningRootSecretShareSource,
-  type SigningRootSecretStore,
-  type PutSigningRootSecretShareInput,
-} from './stores/SigningRootSecretStore';
+} from './stores/SigningRootSecretStore.d1';
+export type {
+  D1SigningRootSecretStoreOptions,
+  D1SigningRootSecretStoreSchemaOptions,
+} from './stores/SigningRootSecretStore.d1';
+export type {
+  DeleteSigningRootSecretSharesInput,
+  ResolveSigningRootSecretSharesInput,
+  SigningRootSecretShareSource,
+  SigningRootSecretStore,
+  PutSigningRootSecretShareInput,
+} from './stores/SigningRootSecretStore.shared';
 export {
   openSigningRootSecretShareWireV1,
   sealSigningRootSecretShareWireV1,

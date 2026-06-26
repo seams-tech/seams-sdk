@@ -58,6 +58,8 @@ Authoritative Cloudflare references:
 - Use atomic D1/SQLite writes for prepaid reservations and sponsored gas
   settlement.
 - Stage on D1/DO from the start. There is no mixed staging mode.
+- Cloudflare Worker-facing code imports D1/DO leaf modules directly. Mixed
+  Postgres/D1 modules are allowed only on Node/Postgres paths.
 
 ## Simplification Decisions
 
@@ -151,6 +153,10 @@ Completed so far:
   grants, signed delegate billing/ledger hooks, sponsorship reservations/spend
   caps, sponsored EVM call billing/ledger hooks, wallet reads, org/project/env
   lookup, runtime snapshots, and observability ingestion.
+- Split the D1 signing-root secret store and Durable Object normal-signing
+  admission adapter into Postgres-free leaf modules. The Cloudflare D1 service
+  bundle imports those leaves directly, so its D1/DO graph no longer pulls the
+  mixed Postgres store modules for those paths.
 - Added D1 sponsored gas settlement finalization for prepaid EVM calls. The
   D1 path batches reservation settlement, billing ledger debit, and
   sponsored-call record insertion, and requires the sponsored-call idempotency
@@ -878,6 +884,8 @@ Work:
 - Keep the KEK provider boundary narrow: Cloudflare Secrets Store for hosted
   production, Wrangler secrets for local development, external KMS/HSM for
   enterprise custody.
+- Keep Cloudflare Worker-facing imports pointed at D1/DO leaf modules. Do not
+  import mixed Postgres modules from Worker bundles.
 
 Exit criteria:
 
@@ -982,6 +990,8 @@ Completed baseline:
   migrations, smoke coverage, and focused adapter tests.
 - The storage route type already models D1/DO and Postgres as full-family
   choices.
+- The Cloudflare D1 service bundle imports Postgres-free D1 signing-root and
+  Durable Object admission leaf modules.
 
 Proceed in this order:
 
@@ -993,9 +1003,8 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports. The
    local Wrangler/Miniflare readiness path now validates required D1 tables and
    DO-backed normal-signing admission without Postgres modules.
-4. Split any remaining mixed Postgres/D1 import barrels needed by Cloudflare
-   Worker staging so D1/DO bundle imports do not pull Postgres modules into the
-   Worker bundle.
+4. Audit remaining Cloudflare Worker import barrels and route modules for
+   accidental imports from Postgres-bearing files.
 5. Make local development run on Wrangler/Miniflare D1 and local Durable Object
    storage by default for the full dashboard/signer application path.
 6. Port staging-required persistence tests to the D1/DO adapters and keep pure

@@ -13,10 +13,8 @@ import {
   type SigningRootShareSource,
   type ThresholdPrfPolicy,
 } from '../../core/ThresholdService/signingRootShareResolver';
-import {
-  D1SigningRootSecretStore,
-  type SigningRootSecretShareSource,
-} from '../../core/ThresholdService/stores/SigningRootSecretStore';
+import { D1SigningRootSecretStore } from '../../core/ThresholdService/stores/SigningRootSecretStore.d1';
+import type { SigningRootSecretShareSource } from '../../core/ThresholdService/stores/SigningRootSecretStore.shared';
 import {
   normalizeSigningRootSecretShareId,
   type SealedSigningRootSecretShare,
@@ -84,7 +82,7 @@ import type { RouterAbNormalSigningAdmissionAdapter } from '../routerAbPrivateSi
 import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from '../routerAbNormalSigningAdmissionStore';
+} from '../routerAbNormalSigningAdmissionCore';
 import type { SponsoredEvmCallExecutorConfig } from '../../sponsorship/evmRelay';
 import type { SponsorshipSpendPricingService } from '../../sponsorship/spendCaps';
 import {

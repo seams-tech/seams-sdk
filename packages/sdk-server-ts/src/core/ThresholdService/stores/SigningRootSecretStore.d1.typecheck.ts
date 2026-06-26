@@ -1,5 +1,5 @@
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../storage/tenantRoute';
-import type { D1SigningRootSecretStoreOptions } from './SigningRootSecretStore';
+import type { D1SigningRootSecretStoreOptions } from './SigningRootSecretStore.d1';
 
 const preparedStatement: D1PreparedStatementLike = {
   bind(): D1PreparedStatementLike {
