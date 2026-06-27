@@ -398,14 +398,17 @@ async function insertEmailOtpEnrollment(input: {
   readonly orgId: string;
   readonly projectId: string;
   readonly envId: string;
+  readonly walletId?: string;
+  readonly providerUserId?: string;
+  readonly verifiedEmail?: string;
   readonly clientUnlockPublicKeyB64u?: string;
 }): Promise<void> {
   const record = {
     version: 'email_otp_wallet_enrollment_v1',
-    walletId: 'email-wallet.testnet',
-    providerUserId: 'google:email-user',
+    walletId: input.walletId || 'email-wallet.testnet',
+    providerUserId: input.providerUserId || 'google:email-user',
     orgId: input.orgId,
-    verifiedEmail: 'alice@example.test',
+    verifiedEmail: input.verifiedEmail || 'alice@example.test',
     enrollmentId: 'enrollment-a',
     enrollmentVersion: 'enrollment-v1',
     enrollmentSealKeyVersion: 'seal-v1',
@@ -439,6 +442,37 @@ async function insertEmailOtpEnrollment(input: {
       record.updatedAtMs,
     )
     .run();
+}
+
+async function listGoogleEmailOtpRegistrationAttemptRows(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+}): Promise<SqliteJsonRow[]> {
+  const result = await input.database
+    .prepare(
+      `SELECT attempt_id, state, app_session_version, runtime_org_id, runtime_policy_key,
+              offer_wallet_ids_json, record_json
+         FROM signer_email_otp_registration_attempts
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+        ORDER BY created_at_ms ASC, attempt_id ASC`,
+    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId)
+    .all<SqliteJsonRow>();
+  return [...(result.results || [])];
+}
+
+function registrationAttemptRecordFromRow(row: SqliteJsonRow): Record<string, unknown> {
+  const raw = row.record_json;
+  if (typeof raw !== 'string') throw new Error('registration attempt record_json missing');
+  const parsed: unknown = JSON.parse(raw);
+  if (!isSqliteJsonRow(parsed)) throw new Error('registration attempt record_json invalid');
+  return parsed;
 }
 
 async function insertEmailOtpAuthState(input: {
@@ -1086,6 +1120,172 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       configured: true,
       clientId: 'google-client',
     });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service starts, reuses, and restarts Google Email OTP registration attempts', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const runtimePolicyScope = {
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      signingRootVersion: 'root-v1',
+    };
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      relayerAccount: 'relay.local',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+    });
+    const appSession = await service.getOrCreateAppSessionVersion({
+      userId: 'google:register-user',
+    });
+    expect(appSession.ok).toBe(true);
+    if (!appSession.ok) throw new Error(appSession.message);
+
+    const rateLimit = await service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+      providerSubject: 'google:register-user',
+      email: 'Alice@Example.Test',
+      accountMode: 'register',
+      runtimePolicyScope,
+      appSessionUserId: 'google:register-user',
+      clientIp: '203.0.113.10',
+    });
+    expect(rateLimit).toEqual({ ok: true });
+
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:register-user',
+      email: 'Alice@Example.Test',
+      accountMode: 'register',
+      appSessionVersion: appSession.appSessionVersion,
+      runtimePolicyScope,
+    });
+    expect(first.ok).toBe(true);
+    expect(first.mode).toBe('register_started');
+    if (!first.ok || first.mode !== 'register_started') return;
+    expect(first.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relay\.local$/);
+    expect(first.email).toBe('alice@example.test');
+    expect(first.offer.candidates).toHaveLength(5);
+    expect(first.offer.selectedCandidateId).toBe(first.offer.candidates[0].candidateId);
+
+    const reused = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:register-user',
+      email: 'alice@example.test',
+      accountMode: 'register',
+      appSessionVersion: appSession.appSessionVersion,
+      runtimePolicyScope,
+    });
+    expect(reused.ok).toBe(true);
+    expect(reused.mode).toBe('register_started');
+    if (!reused.ok || reused.mode !== 'register_started') return;
+    expect(reused.registrationAttemptId).toBe(first.registrationAttemptId);
+    expect(reused.walletId).toBe(first.walletId);
+
+    const rowsAfterReuse = await listGoogleEmailOtpRegistrationAttemptRows({
+      database,
+      ...scope,
+    });
+    expect(rowsAfterReuse).toHaveLength(1);
+    expect(rowsAfterReuse[0].state).toBe('started');
+    expect(rowsAfterReuse[0].app_session_version).toBe(appSession.appSessionVersion);
+    expect(rowsAfterReuse[0].runtime_org_id).toBe(scope.orgId);
+    expect(rowsAfterReuse[0].runtime_policy_key).toBe(
+      `${scope.orgId}\n${scope.projectId}\n${scope.envId}\nroot-v1`,
+    );
+    const stored = registrationAttemptRecordFromRow(rowsAfterReuse[0]);
+    expect(stored.providerSubject).toBe('google:register-user');
+    expect(stored.walletId).toBe(first.walletId);
+    expect(stored.runtimePolicyScope).toEqual(runtimePolicyScope);
+
+    const restarted = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:register-user',
+      email: 'alice@example.test',
+      accountMode: 'register',
+      appSessionVersion: appSession.appSessionVersion,
+      runtimePolicyScope,
+      restartRegistrationOffer: true,
+    });
+    expect(restarted.ok).toBe(true);
+    expect(restarted.mode).toBe('register_started');
+    if (!restarted.ok || restarted.mode !== 'register_started') return;
+    expect(restarted.registrationAttemptId).not.toBe(first.registrationAttemptId);
+
+    const rowsAfterRestart = await listGoogleEmailOtpRegistrationAttemptRows({
+      database,
+      ...scope,
+    });
+    expect(rowsAfterRestart).toHaveLength(2);
+    const states: unknown[] = [];
+    for (const row of rowsAfterRestart) states.push(row.state);
+    states.sort();
+    expect(states).toEqual(['abandoned', 'started']);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service rate-limits Google Email OTP registration attempts', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const runtimePolicyScope = {
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      signingRootVersion: 'root-v1',
+    };
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpGoogleRegistrationAttemptRateLimitMax: 1,
+      emailOtpGoogleRegistrationAttemptRateLimitWindowMs: 60_000,
+    });
+
+    const first = await service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+      providerSubject: 'google:rate-user',
+      email: 'rate@example.test',
+      accountMode: 'register',
+      runtimePolicyScope,
+      appSessionUserId: 'google:rate-user',
+      clientIp: '203.0.113.20',
+    });
+    expect(first).toEqual({ ok: true });
+
+    const second = await service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+      providerSubject: 'google:rate-user',
+      email: 'rate@example.test',
+      accountMode: 'register',
+      runtimePolicyScope,
+      appSessionUserId: 'google:rate-user',
+      clientIp: '203.0.113.20',
+    });
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe('rate_limited');
+    expect(second.retryAfterMs).toBeGreaterThan(0);
+    expect(second.resetAtMs).toBeGreaterThan(Date.now());
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

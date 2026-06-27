@@ -930,6 +930,8 @@ Completed:
   recovery-session status transitions, recovery-execution upserts, Email OTP
   device recovery, Email OTP recovery-key consumption, recovery-key failure
   reporting, recovery-code rotation, and Email OTP provider delivery.
+- [x] Cloudflare relay auth service D1 methods can rate-limit, create, reuse,
+  and restart Google Email OTP registration attempts during session exchange.
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the required property.
@@ -957,8 +959,9 @@ Completed:
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: Email OTP registration attempts, WebAuthn verification, wallet
-  registration, signed delegates, and threshold signing admission.
+  Object slices: remaining Email OTP registration attempt lifecycle methods,
+  WebAuthn verification, wallet registration, signed delegates, and threshold
+  signing admission.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found

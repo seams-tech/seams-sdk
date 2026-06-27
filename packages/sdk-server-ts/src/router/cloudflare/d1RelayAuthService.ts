@@ -2,6 +2,12 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
+  parseGoogleProviderSubject,
+  parseOrgId,
+  parseVerifiedGoogleEmail,
+} from '@shared/utils/domainIds';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -28,6 +34,10 @@ import type {
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpUnlockChallengeRecord,
   EmailOtpWalletEnrollmentRecord,
+  GoogleEmailOtpRegistrationAttemptRecord,
+  GoogleEmailOtpRegistrationOfferCandidateRecord,
+  NonEmptyGoogleEmailOtpRegistrationOfferCandidates,
+  PendingGoogleEmailOtpRegistrationAttemptRecord,
 } from '../../core/EmailOtpStores';
 import type {
   RecoveryExecutionRecord,
@@ -98,6 +108,8 @@ export interface CloudflareD1RelayAuthServiceOptions {
   readonly emailOtpGrantRateLimitWindowMs?: number | string;
   readonly emailOtpRecoveryKeyAttemptRateLimitMax?: number | string;
   readonly emailOtpRecoveryKeyAttemptRateLimitWindowMs?: number | string;
+  readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
+  readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
 }
 
 type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory';
@@ -118,6 +130,7 @@ type EmailOtpRuntimeConfig = {
     readonly verify: EmailOtpRateLimitPolicy;
     readonly grant: EmailOtpRateLimitPolicy;
     readonly recoveryKeyAttempt: EmailOtpRateLimitPolicy;
+    readonly googleRegistrationAttempt: EmailOtpRateLimitPolicy;
   };
 };
 
@@ -150,6 +163,8 @@ type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   | 'emailOtpGrantRateLimitWindowMs'
   | 'emailOtpRecoveryKeyAttemptRateLimitMax'
   | 'emailOtpRecoveryKeyAttemptRateLimitWindowMs'
+  | 'emailOtpGoogleRegistrationAttemptRateLimitMax'
+  | 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs'
 > & {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
@@ -308,6 +323,22 @@ type ListNearPublicKeysInput = Parameters<
 type ListNearPublicKeysResult = Awaited<
   ReturnType<CloudflareRelayAuthService['listNearPublicKeysForUser']>
 >;
+type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitInput = Parameters<
+  CloudflareRelayAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']
+>[0];
+type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']>
+>;
+type ResolveGoogleEmailOtpSessionInput = Parameters<
+  CloudflareRelayAuthService['resolveGoogleEmailOtpSession']
+>[0];
+type ResolveGoogleEmailOtpSessionResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['resolveGoogleEmailOtpSession']>
+>;
+type GoogleEmailOtpRegistrationOfferForResponse = Extract<
+  ResolveGoogleEmailOtpSessionResult,
+  { readonly ok: true; readonly mode: 'register_started' }
+>['offer'];
 
 type D1IdentityRow = {
   readonly subject?: unknown;
@@ -355,6 +386,13 @@ type D1EmailOtpRateLimitRow = {
 type D1EmailOtpUnlockChallengeRow = {
   readonly record_json?: unknown;
   readonly expires_at_ms?: unknown;
+};
+
+type D1EmailOtpRegistrationAttemptRow = {
+  readonly attempt_id?: unknown;
+  readonly record_json?: unknown;
+  readonly expires_at_ms?: unknown;
+  readonly updated_at_ms?: unknown;
 };
 
 type D1RecoverySessionRow = {
@@ -428,7 +466,12 @@ type EmailOtpAuthStatePatch = {
   readonly lastStrongAuthAtMs?: number | null;
 };
 
-type EmailOtpRateLimitScope = 'challenge' | 'verify' | 'grant' | 'recoveryKeyAttempt';
+type EmailOtpRateLimitScope =
+  | 'challenge'
+  | 'verify'
+  | 'grant'
+  | 'recoveryKeyAttempt'
+  | 'googleRegistrationAttempt';
 type EmailOtpExistingChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
@@ -549,6 +592,10 @@ function parseBooleanFlag(input: unknown, fallback: boolean, field: string): boo
   }
 }
 
+function isTrueFlag(input: unknown): boolean {
+  return input === true || String(input || '').trim().toLowerCase() === 'true';
+}
+
 function configuredInteger(input: {
   readonly field: string;
   readonly raw: unknown;
@@ -621,6 +668,9 @@ function normalizeEmailOtpConfig(
   const recoveryKeyAttemptDefault = production
     ? { limit: 10, windowMs: 5 * 60_000 }
     : { limit: 100, windowMs: 60_000 };
+  const googleRegistrationAttemptDefault = production
+    ? { limit: 12, windowMs: 10 * 60_000 }
+    : { limit: 200, windowMs: 60_000 };
   return {
     deliveryMode,
     ...(input.emailOtpDeliveryProvider
@@ -710,6 +760,15 @@ function normalizeEmailOtpConfig(
         windowRaw: input.emailOtpRecoveryKeyAttemptRateLimitWindowMs,
         windowFallback: recoveryKeyAttemptDefault.windowMs,
       }),
+      googleRegistrationAttempt: emailOtpRateLimitPolicy({
+        limitField: 'emailOtpGoogleRegistrationAttemptRateLimitMax',
+        limitRaw: input.emailOtpGoogleRegistrationAttemptRateLimitMax,
+        limitFallback: googleRegistrationAttemptDefault.limit,
+        limitMax: 1000,
+        windowField: 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs',
+        windowRaw: input.emailOtpGoogleRegistrationAttemptRateLimitWindowMs,
+        windowFallback: googleRegistrationAttemptDefault.windowMs,
+      }),
     },
   };
 }
@@ -774,6 +833,579 @@ function nonNegativeSafeInteger(input: unknown): number | null {
 
 function isB64uString(input: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(input);
+}
+
+function parseRuntimePolicyScope(input: unknown): RuntimePolicyScope | undefined {
+  const record = parseJsonObject(input);
+  if (!record) return undefined;
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const projectId = toOptionalTrimmedString(record.projectId);
+  const envId = toOptionalTrimmedString(record.envId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
+  if (!orgId || !projectId || !envId || !signingRootVersion) return undefined;
+  return { orgId, projectId, envId, signingRootVersion };
+}
+
+function requireRuntimePolicyScope(input: unknown): RuntimePolicyScope {
+  const scope = parseRuntimePolicyScope(input);
+  if (scope) return scope;
+  throw new Error(
+    'runtimePolicyScope.orgId, runtimePolicyScope.projectId, runtimePolicyScope.envId, and runtimePolicyScope.signingRootVersion are required for Google Email OTP registration',
+  );
+}
+
+function runtimePolicyScopeKey(scope: RuntimePolicyScope | undefined): string {
+  if (!scope) return '';
+  return `${scope.orgId}\n${scope.projectId}\n${scope.envId}\n${scope.signingRootVersion}`;
+}
+
+function parseGoogleEmailOtpRegistrationOfferCandidate(
+  input: unknown,
+): GoogleEmailOtpRegistrationOfferCandidateRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const candidateId = toOptionalTrimmedString(record.candidateId);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const collisionCounter = nonNegativeSafeInteger(record.collisionCounter);
+  if (!candidateId || !walletId || collisionCounter == null) return null;
+  return { candidateId, walletId, collisionCounter };
+}
+
+function parseGoogleEmailOtpRegistrationOfferCandidates(
+  input: unknown,
+): NonEmptyGoogleEmailOtpRegistrationOfferCandidates | null {
+  if (!Array.isArray(input)) return null;
+  const candidates: GoogleEmailOtpRegistrationOfferCandidateRecord[] = [];
+  for (const item of input) {
+    const candidate = parseGoogleEmailOtpRegistrationOfferCandidate(item);
+    if (!candidate) return null;
+    candidates.push(candidate);
+  }
+  const first = candidates[0];
+  if (!first) return null;
+  return [first, ...candidates.slice(1)];
+}
+
+function googleEmailOtpRegistrationOfferContainsCandidate(input: {
+  readonly candidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates;
+  readonly candidateId: string;
+}): boolean {
+  for (const candidate of input.candidates) {
+    if (candidate.candidateId === input.candidateId) return true;
+  }
+  return false;
+}
+
+function googleEmailOtpRegistrationAttemptState(
+  input: unknown,
+): GoogleEmailOtpRegistrationAttemptRecord['state'] | null {
+  const state = toOptionalTrimmedString(input);
+  switch (state) {
+    case 'started':
+    case 'key_finalized':
+    case 'active':
+    case 'abandoned':
+    case 'failed':
+    case 'expired':
+      return state;
+    default:
+      return null;
+  }
+}
+
+type GoogleEmailOtpRegistrationAttemptParseFields = {
+  readonly attemptId: string;
+  readonly providerSubject: string;
+  readonly email: string;
+  readonly walletId: string;
+  readonly offerId: string;
+  readonly offerCandidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates;
+  readonly selectedCandidateId: string;
+  readonly appSessionVersion: string;
+  readonly authProvider: string;
+  readonly accountIdSlugVersion: 'hmac_readable_v1';
+  readonly walletIdDerivationNonce: string;
+  readonly collisionCounter: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly runtimePolicyScope?: RuntimePolicyScope;
+};
+
+function startedGoogleEmailOtpRegistrationAttemptRecord(
+  input: GoogleEmailOtpRegistrationAttemptParseFields,
+): GoogleEmailOtpRegistrationAttemptRecord {
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: input.attemptId,
+    providerSubject: input.providerSubject,
+    email: input.email,
+    walletId: input.walletId,
+    offerId: input.offerId,
+    offerCandidates: input.offerCandidates,
+    selectedCandidateId: input.selectedCandidateId,
+    appSessionVersion: input.appSessionVersion,
+    authProvider: input.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: input.walletIdDerivationNonce,
+    collisionCounter: input.collisionCounter,
+    state: 'started',
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+    expiresAtMs: input.expiresAtMs,
+    ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
+  };
+}
+
+function keyFinalizedGoogleEmailOtpRegistrationAttemptRecord(
+  input: GoogleEmailOtpRegistrationAttemptParseFields & { readonly finalizedPublicKey: string },
+): GoogleEmailOtpRegistrationAttemptRecord {
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: input.attemptId,
+    providerSubject: input.providerSubject,
+    email: input.email,
+    walletId: input.walletId,
+    offerId: input.offerId,
+    offerCandidates: input.offerCandidates,
+    selectedCandidateId: input.selectedCandidateId,
+    appSessionVersion: input.appSessionVersion,
+    authProvider: input.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: input.walletIdDerivationNonce,
+    collisionCounter: input.collisionCounter,
+    state: 'key_finalized',
+    finalizedPublicKey: input.finalizedPublicKey,
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+    expiresAtMs: input.expiresAtMs,
+    ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
+  };
+}
+
+function terminalGoogleEmailOtpRegistrationAttemptRecord(input: {
+  readonly fields: GoogleEmailOtpRegistrationAttemptParseFields;
+  readonly state: 'active' | 'abandoned' | 'failed' | 'expired';
+  readonly finalizedPublicKey?: string;
+  readonly failureCode?: string;
+}): GoogleEmailOtpRegistrationAttemptRecord | null {
+  const fields = input.fields;
+  switch (input.state) {
+    case 'active':
+      return {
+        version: 'google_email_otp_registration_attempt_v1',
+        attemptId: fields.attemptId,
+        providerSubject: fields.providerSubject,
+        email: fields.email,
+        walletId: fields.walletId,
+        offerId: fields.offerId,
+        offerCandidates: fields.offerCandidates,
+        selectedCandidateId: fields.selectedCandidateId,
+        appSessionVersion: fields.appSessionVersion,
+        authProvider: fields.authProvider,
+        accountIdSlugVersion: 'hmac_readable_v1',
+        walletIdDerivationNonce: fields.walletIdDerivationNonce,
+        collisionCounter: fields.collisionCounter,
+        state: 'active',
+        createdAtMs: fields.createdAtMs,
+        updatedAtMs: fields.updatedAtMs,
+        expiresAtMs: fields.expiresAtMs,
+        ...(fields.runtimePolicyScope ? { runtimePolicyScope: fields.runtimePolicyScope } : {}),
+        ...(input.finalizedPublicKey ? { finalizedPublicKey: input.finalizedPublicKey } : {}),
+      };
+    case 'abandoned':
+      if (!input.failureCode) return null;
+      return {
+        version: 'google_email_otp_registration_attempt_v1',
+        attemptId: fields.attemptId,
+        providerSubject: fields.providerSubject,
+        email: fields.email,
+        walletId: fields.walletId,
+        offerId: fields.offerId,
+        offerCandidates: fields.offerCandidates,
+        selectedCandidateId: fields.selectedCandidateId,
+        appSessionVersion: fields.appSessionVersion,
+        authProvider: fields.authProvider,
+        accountIdSlugVersion: 'hmac_readable_v1',
+        walletIdDerivationNonce: fields.walletIdDerivationNonce,
+        collisionCounter: fields.collisionCounter,
+        state: 'abandoned',
+        createdAtMs: fields.createdAtMs,
+        updatedAtMs: fields.updatedAtMs,
+        expiresAtMs: fields.expiresAtMs,
+        ...(fields.runtimePolicyScope ? { runtimePolicyScope: fields.runtimePolicyScope } : {}),
+        ...(input.finalizedPublicKey ? { finalizedPublicKey: input.finalizedPublicKey } : {}),
+        failureCode: input.failureCode,
+      };
+    case 'failed':
+      if (!input.failureCode) return null;
+      return {
+        version: 'google_email_otp_registration_attempt_v1',
+        attemptId: fields.attemptId,
+        providerSubject: fields.providerSubject,
+        email: fields.email,
+        walletId: fields.walletId,
+        offerId: fields.offerId,
+        offerCandidates: fields.offerCandidates,
+        selectedCandidateId: fields.selectedCandidateId,
+        appSessionVersion: fields.appSessionVersion,
+        authProvider: fields.authProvider,
+        accountIdSlugVersion: 'hmac_readable_v1',
+        walletIdDerivationNonce: fields.walletIdDerivationNonce,
+        collisionCounter: fields.collisionCounter,
+        state: 'failed',
+        createdAtMs: fields.createdAtMs,
+        updatedAtMs: fields.updatedAtMs,
+        expiresAtMs: fields.expiresAtMs,
+        ...(fields.runtimePolicyScope ? { runtimePolicyScope: fields.runtimePolicyScope } : {}),
+        ...(input.finalizedPublicKey ? { finalizedPublicKey: input.finalizedPublicKey } : {}),
+        failureCode: input.failureCode,
+      };
+    case 'expired':
+      return {
+        version: 'google_email_otp_registration_attempt_v1',
+        attemptId: fields.attemptId,
+        providerSubject: fields.providerSubject,
+        email: fields.email,
+        walletId: fields.walletId,
+        offerId: fields.offerId,
+        offerCandidates: fields.offerCandidates,
+        selectedCandidateId: fields.selectedCandidateId,
+        appSessionVersion: fields.appSessionVersion,
+        authProvider: fields.authProvider,
+        accountIdSlugVersion: 'hmac_readable_v1',
+        walletIdDerivationNonce: fields.walletIdDerivationNonce,
+        collisionCounter: fields.collisionCounter,
+        state: 'expired',
+        createdAtMs: fields.createdAtMs,
+        updatedAtMs: fields.updatedAtMs,
+        expiresAtMs: fields.expiresAtMs,
+        ...(fields.runtimePolicyScope ? { runtimePolicyScope: fields.runtimePolicyScope } : {}),
+        ...(input.finalizedPublicKey ? { finalizedPublicKey: input.finalizedPublicKey } : {}),
+        ...(input.failureCode ? { failureCode: input.failureCode } : {}),
+      };
+  }
+}
+
+function parseGoogleEmailOtpRegistrationAttemptRecord(
+  input: unknown,
+): GoogleEmailOtpRegistrationAttemptRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const attemptId = toOptionalTrimmedString(record.attemptId);
+  const providerSubject = toOptionalTrimmedString(record.providerSubject);
+  const email = toOptionalTrimmedString(record.email);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const offerId = toOptionalTrimmedString(record.offerId);
+  const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(record.offerCandidates);
+  const selectedCandidateId = toOptionalTrimmedString(record.selectedCandidateId);
+  const appSessionVersion = toOptionalTrimmedString(record.appSessionVersion);
+  const authProvider = toOptionalTrimmedString(record.authProvider);
+  const accountIdSlugVersion = toOptionalTrimmedString(record.accountIdSlugVersion);
+  const walletIdDerivationNonce = toOptionalTrimmedString(record.walletIdDerivationNonce);
+  const collisionCounter = nonNegativeSafeInteger(record.collisionCounter);
+  const state = googleEmailOtpRegistrationAttemptState(record.state);
+  const createdAtMs = positiveSafeInteger(record.createdAtMs);
+  const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
+  const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
+  const runtimePolicyScope = parseRuntimePolicyScope(record.runtimePolicyScope);
+  const finalizedPublicKey = toOptionalTrimmedString(record.finalizedPublicKey);
+  const failureCode = toOptionalTrimmedString(record.failureCode);
+  if (
+    version !== 'google_email_otp_registration_attempt_v1' ||
+    !attemptId ||
+    !providerSubject ||
+    !email ||
+    !walletId ||
+    !offerId ||
+    !offerCandidates ||
+    !selectedCandidateId ||
+    !googleEmailOtpRegistrationOfferContainsCandidate({
+      candidates: offerCandidates,
+      candidateId: selectedCandidateId,
+    }) ||
+    !appSessionVersion ||
+    !authProvider ||
+    accountIdSlugVersion !== 'hmac_readable_v1' ||
+    !walletIdDerivationNonce ||
+    !isB64uString(walletIdDerivationNonce) ||
+    collisionCounter == null ||
+    !state ||
+    !createdAtMs ||
+    !updatedAtMs ||
+    !expiresAtMs ||
+    updatedAtMs < createdAtMs
+  ) {
+    return null;
+  }
+  if (state === 'key_finalized' && !finalizedPublicKey) return null;
+  const fields: GoogleEmailOtpRegistrationAttemptParseFields = {
+    attemptId,
+    providerSubject,
+    email,
+    walletId,
+    offerId,
+    offerCandidates,
+    selectedCandidateId,
+    appSessionVersion,
+    authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce,
+    collisionCounter,
+    createdAtMs,
+    updatedAtMs,
+    expiresAtMs,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+  switch (state) {
+    case 'started':
+      return startedGoogleEmailOtpRegistrationAttemptRecord(fields);
+    case 'key_finalized':
+      return keyFinalizedGoogleEmailOtpRegistrationAttemptRecord({
+        ...fields,
+        finalizedPublicKey: finalizedPublicKey || '',
+      });
+    case 'active':
+    case 'abandoned':
+    case 'failed':
+    case 'expired':
+      return terminalGoogleEmailOtpRegistrationAttemptRecord({
+        fields,
+        state,
+        ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
+        ...(failureCode ? { failureCode } : {}),
+      });
+  }
+}
+
+function parseGoogleEmailOtpRegistrationAttemptRow(
+  row: D1EmailOtpRegistrationAttemptRow | null,
+): GoogleEmailOtpRegistrationAttemptRecord | null {
+  const record = parseGoogleEmailOtpRegistrationAttemptRecord(row?.record_json);
+  const expiresAtMs = positiveSafeInteger(row?.expires_at_ms);
+  const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
+  if (!record || !expiresAtMs || !updatedAtMs) return null;
+  if (record.expiresAtMs !== expiresAtMs || record.updatedAtMs !== updatedAtMs) return null;
+  return record;
+}
+
+function registrationAttemptMatchesStartedScope(
+  record: GoogleEmailOtpRegistrationAttemptRecord,
+  input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly orgId: string;
+    readonly appSessionVersion: string;
+    readonly runtimePolicyScope?: RuntimePolicyScope;
+    readonly nowMs: number;
+  },
+): record is PendingGoogleEmailOtpRegistrationAttemptRecord {
+  return (
+    record.providerSubject === input.providerSubject &&
+    record.email === input.email &&
+    record.appSessionVersion === input.appSessionVersion &&
+    record.runtimePolicyScope?.orgId === input.orgId &&
+    runtimePolicyScopeKey(record.runtimePolicyScope) ===
+      runtimePolicyScopeKey(input.runtimePolicyScope) &&
+    (record.state === 'started' || record.state === 'key_finalized') &&
+    record.expiresAtMs > input.nowMs
+  );
+}
+
+function registrationAttemptMatchesReplacementScope(
+  record: GoogleEmailOtpRegistrationAttemptRecord,
+  input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly orgId: string;
+    readonly appSessionVersion: string;
+    readonly runtimePolicyScope?: RuntimePolicyScope;
+    readonly nowMs: number;
+  },
+): record is PendingGoogleEmailOtpRegistrationAttemptRecord {
+  return (
+    record.providerSubject === input.providerSubject &&
+    record.email === input.email &&
+    record.appSessionVersion !== input.appSessionVersion &&
+    record.runtimePolicyScope?.orgId === input.orgId &&
+    runtimePolicyScopeKey(record.runtimePolicyScope) ===
+      runtimePolicyScopeKey(input.runtimePolicyScope) &&
+    (record.state === 'started' || record.state === 'key_finalized') &&
+    record.expiresAtMs > input.nowMs
+  );
+}
+
+function googleEmailOtpRegistrationOfferWalletIdsJson(
+  candidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates,
+): string {
+  const walletIds: string[] = [];
+  for (const candidate of candidates) walletIds.push(candidate.walletId);
+  return JSON.stringify(walletIds);
+}
+
+function googleEmailOtpRegistrationOfferForResponse(
+  input: Pick<
+    PendingGoogleEmailOtpRegistrationAttemptRecord,
+    'offerId' | 'offerCandidates' | 'selectedCandidateId'
+  >,
+): GoogleEmailOtpRegistrationOfferForResponse {
+  const first = input.offerCandidates[0];
+  const candidates: { readonly candidateId: string; readonly walletId: string }[] = [
+    { candidateId: first.candidateId, walletId: first.walletId },
+  ];
+  for (let index = 1; index < input.offerCandidates.length; index += 1) {
+    const candidate = input.offerCandidates[index];
+    if (!candidate) continue;
+    candidates.push({ candidateId: candidate.candidateId, walletId: candidate.walletId });
+  }
+  return {
+    offerId: input.offerId,
+    selectedCandidateId: input.selectedCandidateId,
+    candidates: [candidates[0], ...candidates.slice(1)],
+  };
+}
+
+function pendingGoogleEmailOtpRegistrationAttemptWithUpdatedAt(
+  record: PendingGoogleEmailOtpRegistrationAttemptRecord,
+  updatedAtMs: number,
+): PendingGoogleEmailOtpRegistrationAttemptRecord {
+  if (record.state === 'started') {
+    return {
+      version: 'google_email_otp_registration_attempt_v1',
+      attemptId: record.attemptId,
+      providerSubject: record.providerSubject,
+      email: record.email,
+      walletId: record.walletId,
+      offerId: record.offerId,
+      offerCandidates: record.offerCandidates,
+      selectedCandidateId: record.selectedCandidateId,
+      appSessionVersion: record.appSessionVersion,
+      authProvider: record.authProvider,
+      accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: record.walletIdDerivationNonce,
+      collisionCounter: record.collisionCounter,
+      state: 'started',
+      createdAtMs: record.createdAtMs,
+      updatedAtMs,
+      expiresAtMs: record.expiresAtMs,
+      ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    };
+  }
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: record.attemptId,
+    providerSubject: record.providerSubject,
+    email: record.email,
+    walletId: record.walletId,
+    offerId: record.offerId,
+    offerCandidates: record.offerCandidates,
+    selectedCandidateId: record.selectedCandidateId,
+    appSessionVersion: record.appSessionVersion,
+    authProvider: record.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: record.walletIdDerivationNonce,
+    collisionCounter: record.collisionCounter,
+    state: 'key_finalized',
+    finalizedPublicKey: record.finalizedPublicKey,
+    createdAtMs: record.createdAtMs,
+    updatedAtMs,
+    expiresAtMs: record.expiresAtMs,
+    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+  };
+}
+
+function abandonedGoogleEmailOtpRegistrationAttemptRecord(input: {
+  readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
+  readonly failureCode: 'app_session_version_replaced' | 'offer_restarted_by_user';
+  readonly updatedAtMs: number;
+}): GoogleEmailOtpRegistrationAttemptRecord {
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: input.record.attemptId,
+    providerSubject: input.record.providerSubject,
+    email: input.record.email,
+    walletId: input.record.walletId,
+    offerId: input.record.offerId,
+    offerCandidates: input.record.offerCandidates,
+    selectedCandidateId: input.record.selectedCandidateId,
+    appSessionVersion: input.record.appSessionVersion,
+    authProvider: input.record.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: input.record.walletIdDerivationNonce,
+    collisionCounter: input.record.collisionCounter,
+    state: 'abandoned',
+    ...(input.record.state === 'key_finalized'
+      ? { finalizedPublicKey: input.record.finalizedPublicKey }
+      : {}),
+    failureCode: input.failureCode,
+    createdAtMs: input.record.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+    expiresAtMs: input.record.expiresAtMs,
+    ...(input.record.runtimePolicyScope
+      ? { runtimePolicyScope: input.record.runtimePolicyScope }
+      : {}),
+  };
+}
+
+function failedGoogleEmailOtpRegistrationAttemptRecord(input: {
+  readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
+  readonly failureCode: 'non_hmac_readable_wallet_id';
+  readonly updatedAtMs: number;
+}): GoogleEmailOtpRegistrationAttemptRecord {
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: input.record.attemptId,
+    providerSubject: input.record.providerSubject,
+    email: input.record.email,
+    walletId: input.record.walletId,
+    offerId: input.record.offerId,
+    offerCandidates: input.record.offerCandidates,
+    selectedCandidateId: input.record.selectedCandidateId,
+    appSessionVersion: input.record.appSessionVersion,
+    authProvider: input.record.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: input.record.walletIdDerivationNonce,
+    collisionCounter: input.record.collisionCounter,
+    state: 'failed',
+    ...(input.record.state === 'key_finalized'
+      ? { finalizedPublicKey: input.record.finalizedPublicKey }
+      : {}),
+    failureCode: input.failureCode,
+    createdAtMs: input.record.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+    expiresAtMs: input.record.expiresAtMs,
+    ...(input.record.runtimePolicyScope
+      ? { runtimePolicyScope: input.record.runtimePolicyScope }
+      : {}),
+  };
+}
+
+function hasDifferentWalletIdentitySubject(input: {
+  readonly subjects: readonly string[];
+  readonly expectedWalletSubject: string;
+}): boolean {
+  for (const subject of input.subjects) {
+    if (subject.startsWith('wallet:') && subject !== input.expectedWalletSubject) return true;
+  }
+  return false;
+}
+
+function googleEmailOtpStaleIdentityMapping(input: {
+  readonly providerSubject: string;
+  readonly linkedWalletId: string;
+  readonly email?: string;
+}): Extract<ResolveGoogleEmailOtpSessionResult, { readonly ok: false }> {
+  return {
+    ok: false,
+    mode: 'stale_identity_mapping',
+    code: 'stale_identity_mapping',
+    walletId: input.linkedWalletId,
+    providerSubject: input.providerSubject,
+    ...(input.email ? { email: input.email } : {}),
+    message:
+      'Google Email OTP identity mapping is stale. Clear the stale identity mapping with the dev cleanup route before registering this Google account.',
+  };
 }
 
 function optionalNonNegativeInteger(input: unknown): number | undefined {
@@ -1932,6 +2564,7 @@ function emailOtpRateLimitKeys(input: {
   readonly policy: EmailOtpRateLimitPolicy;
   readonly userId?: string;
   readonly walletId?: string;
+  readonly providerSubject?: string;
   readonly orgId?: string;
   readonly clientIp?: string;
 }): readonly string[] {
@@ -1945,6 +2578,7 @@ function emailOtpRateLimitKeys(input: {
     input.clientIp ? `${keySuffix}:ip:${input.clientIp}` : '',
     input.userId ? `${keySuffix}:user:${input.userId}` : '',
     input.walletId ? `${keySuffix}:wallet:${input.walletId}` : '',
+    input.providerSubject ? `${keySuffix}:provider:${input.providerSubject}` : '',
     input.orgId ? `${keySuffix}:org:${input.orgId}` : '',
   ].filter(Boolean);
 }
@@ -2225,10 +2859,9 @@ class CloudflareD1RelayAuthMetadataService {
       throw new Error('Cannot resolve OIDC wallet id without provider subject');
     }
     if (providerSubject.startsWith('google:')) {
-      throw codedError(
-        'not_configured',
-        'Google Email OTP session resolution is not configured for Cloudflare D1 relay auth',
-      );
+      const resolution = await this.resolveGoogleEmailOtpSession(input);
+      if (resolution.ok) return resolution.walletId;
+      throw codedError(resolution.code, resolution.message);
     }
 
     const linkedWalletId = await this.readIdentityUserIdBySubject(`wallet:${providerSubject}`);
@@ -2247,6 +2880,102 @@ class CloudflareD1RelayAuthMetadataService {
       authProvider: 'oidc',
       providerSubject,
       ...(verifiedEmail ? { verifiedEmail } : {}),
+    });
+  }
+
+  async consumeGoogleEmailOtpRegistrationAttemptRateLimit(
+    input: ConsumeGoogleEmailOtpRegistrationAttemptRateLimitInput,
+  ): Promise<ConsumeGoogleEmailOtpRegistrationAttemptRateLimitResult> {
+    const accountMode = toOptionalTrimmedString(input.accountMode)?.toLowerCase();
+    if (accountMode !== 'register') return { ok: true };
+    const providerSubject = parseGoogleProviderSubject(input.providerSubject);
+    if (!providerSubject.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: providerSubject.error.message,
+      };
+    }
+    const email = parseVerifiedGoogleEmail(input.email);
+    if (!email.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: email.error.message,
+      };
+    }
+    const orgId = parseOrgId(input.runtimePolicyScope?.orgId);
+    if (!orgId.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: orgId.error.message,
+      };
+    }
+    const restartOffer = isTrueFlag(input.restartRegistrationOffer);
+    return await this.consumeEmailOtpRateLimit({
+      scope: 'googleRegistrationAttempt',
+      action: restartOffer
+        ? 'google_email_otp_registration_offer_restart'
+        : 'google_email_otp_registration_create',
+      userId: toOptionalTrimmedString(input.appSessionUserId),
+      providerSubject: providerSubject.value,
+      orgId: orgId.value,
+      clientIp: toOptionalTrimmedString(input.clientIp),
+    });
+  }
+
+  async resolveGoogleEmailOtpSession(
+    input: ResolveGoogleEmailOtpSessionInput,
+  ): Promise<ResolveGoogleEmailOtpSessionResult> {
+    const providerSubject = parseGoogleProviderSubject(input.providerSubject ?? input.sub);
+    if (!providerSubject.ok) {
+      throw new Error('Cannot resolve Google Email OTP session without Google provider subject');
+    }
+    const accountMode = toOptionalTrimmedString(input.accountMode)?.toLowerCase();
+    if (accountMode !== 'register' && accountMode !== 'login') {
+      throw new Error('Google Email OTP accountMode must be register or login');
+    }
+    const email = toOptionalTrimmedString(input.email)?.toLowerCase() || '';
+    const runtimePolicyScope = requireRuntimePolicyScope(input.runtimePolicyScope);
+    const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+    if (accountMode === 'register' && !appSessionVersion) {
+      throw new Error('Google Email OTP registration requires appSessionVersion');
+    }
+    const restartRegistrationOffer = isTrueFlag(input.restartRegistrationOffer);
+    const walletSubject = `wallet:${providerSubject.value}`;
+    const linkedWalletId = await this.readIdentityUserIdBySubject(walletSubject);
+    const linkedIsUsableRelayerWallet = Boolean(
+      linkedWalletId && isValidAccountId(linkedWalletId) && this.isRelayerSubaccount(linkedWalletId),
+    );
+    const linkedIsHostedHmacReadableWallet = Boolean(
+      linkedWalletId && this.isHostedHmacReadableRelayerSubaccount(linkedWalletId),
+    );
+
+    if (accountMode === 'login') {
+      return await this.resolveGoogleEmailOtpLoginSession({
+        providerSubject: providerSubject.value,
+        email,
+        orgId: runtimePolicyScope.orgId,
+        walletSubject,
+        linkedWalletId,
+        linkedIsUsableRelayerWallet,
+        linkedIsHostedHmacReadableWallet,
+      });
+    }
+
+    if (!email) {
+      throw new Error('Email is required to register a Google Email OTP wallet id');
+    }
+    return await this.resolveGoogleEmailOtpRegistrationSession({
+      providerSubject: providerSubject.value,
+      email,
+      orgId: runtimePolicyScope.orgId,
+      appSessionVersion: appSessionVersion || '',
+      runtimePolicyScope,
+      restartRegistrationOffer,
+      walletSubject,
+      linkedWalletId,
     });
   }
 
@@ -3792,6 +4521,582 @@ class CloudflareD1RelayAuthMetadataService {
     };
   }
 
+  private async resolveGoogleEmailOtpLoginSession(input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly orgId: string;
+    readonly walletSubject: string;
+    readonly linkedWalletId: string | null;
+    readonly linkedIsUsableRelayerWallet: boolean;
+    readonly linkedIsHostedHmacReadableWallet: boolean;
+  }): Promise<ResolveGoogleEmailOtpSessionResult> {
+    if (
+      input.linkedWalletId &&
+      input.linkedIsUsableRelayerWallet &&
+      input.linkedIsHostedHmacReadableWallet
+    ) {
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId: input.linkedWalletId,
+        orgId: input.orgId,
+        providerUserId: input.providerSubject,
+      });
+      if (enrollment.ok) {
+        return {
+          ok: true,
+          mode: 'existing_wallet',
+          walletId: input.linkedWalletId,
+          providerSubject: input.providerSubject,
+          ...(input.email ? { email: input.email } : {}),
+          hasEmailOtpEnrollment: true,
+        };
+      }
+      if (!this.isGoogleEmailOtpEnrollmentLookupMiss(enrollment.code)) {
+        throw codedError(enrollment.code, enrollment.message);
+      }
+    }
+
+    const discovered = await this.getGoogleEmailOtpEnrollmentBySubject({
+      providerSubject: input.providerSubject,
+      orgId: input.orgId,
+    });
+    if (!discovered) {
+      if (input.linkedWalletId) {
+        const stale = googleEmailOtpStaleIdentityMapping({
+          providerSubject: input.providerSubject,
+          linkedWalletId: input.linkedWalletId,
+          ...(input.email ? { email: input.email } : {}),
+        });
+        throw codedError(stale.code, stale.message);
+      }
+      throw codedError('not_found', 'Email OTP enrollment not found');
+    }
+
+    const repaired = await this.repairGoogleEmailOtpWalletLink({
+      providerSubject: input.providerSubject,
+      walletId: discovered.walletId,
+    });
+    if (!repaired.ok) throw codedError(repaired.code, repaired.message);
+    return {
+      ok: true,
+      mode: 'existing_wallet',
+      walletId: discovered.walletId,
+      providerSubject: input.providerSubject,
+      ...(input.email ? { email: input.email } : {}),
+      hasEmailOtpEnrollment: true,
+    };
+  }
+
+  private async resolveGoogleEmailOtpRegistrationSession(input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly orgId: string;
+    readonly appSessionVersion: string;
+    readonly runtimePolicyScope: RuntimePolicyScope;
+    readonly restartRegistrationOffer: boolean;
+    readonly walletSubject: string;
+    readonly linkedWalletId: string | null;
+  }): Promise<ResolveGoogleEmailOtpSessionResult> {
+    const discoveredExistingEnrollment = await this.getGoogleEmailOtpEnrollmentBySubject({
+      providerSubject: input.providerSubject,
+      orgId: input.orgId,
+    });
+    if (discoveredExistingEnrollment && !input.restartRegistrationOffer) {
+      const repaired = await this.repairGoogleEmailOtpWalletLink({
+        providerSubject: input.providerSubject,
+        walletId: discoveredExistingEnrollment.walletId,
+      });
+      if (!repaired.ok) {
+        return {
+          ok: false,
+          mode: 'registration_incomplete',
+          code: 'registration_incomplete',
+          walletId: discoveredExistingEnrollment.walletId,
+          providerSubject: input.providerSubject,
+          email: input.email,
+          message: repaired.message,
+        };
+      }
+      return {
+        ok: true,
+        mode: 'existing_wallet',
+        walletId: discoveredExistingEnrollment.walletId,
+        providerSubject: input.providerSubject,
+        email: input.email,
+        hasEmailOtpEnrollment: true,
+      };
+    }
+    if (input.linkedWalletId && !input.restartRegistrationOffer) {
+      return googleEmailOtpStaleIdentityMapping({
+        providerSubject: input.providerSubject,
+        linkedWalletId: input.linkedWalletId,
+        email: input.email,
+      });
+    }
+
+    const nowMs = Date.now();
+    await this.abandonStartedGoogleEmailOtpRegistrationAttemptsExceptAppSession({
+      providerSubject: input.providerSubject,
+      email: input.email,
+      orgId: input.orgId,
+      appSessionVersion: input.appSessionVersion,
+      runtimePolicyScope: input.runtimePolicyScope,
+      nowMs,
+      failureCode: 'app_session_version_replaced',
+    });
+
+    const startedAttempt = await this.findStartedGoogleEmailOtpRegistrationAttempt({
+      providerSubject: input.providerSubject,
+      email: input.email,
+      orgId: input.orgId,
+      appSessionVersion: input.appSessionVersion,
+      runtimePolicyScope: input.runtimePolicyScope,
+    });
+    if (startedAttempt) {
+      if (input.restartRegistrationOffer) {
+        await this.putGoogleEmailOtpRegistrationAttempt(
+          abandonedGoogleEmailOtpRegistrationAttemptRecord({
+            record: startedAttempt,
+            failureCode: 'offer_restarted_by_user',
+            updatedAtMs: Date.now(),
+          }),
+        );
+      } else {
+        return {
+          ok: true,
+          mode: 'register_started',
+          walletId: startedAttempt.walletId,
+          providerSubject: input.providerSubject,
+          email: input.email,
+          registrationAttemptId: startedAttempt.attemptId,
+          expiresAtMs: startedAttempt.expiresAtMs,
+          offer: googleEmailOtpRegistrationOfferForResponse(startedAttempt),
+        };
+      }
+    }
+
+    return await this.createFreshGoogleEmailOtpRegistrationAttempt(input);
+  }
+
+  private async createFreshGoogleEmailOtpRegistrationAttempt(input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly orgId: string;
+    readonly appSessionVersion: string;
+    readonly runtimePolicyScope: RuntimePolicyScope;
+    readonly walletSubject: string;
+  }): Promise<ResolveGoogleEmailOtpSessionResult> {
+    const nowMs = Date.now();
+    const authProvider = 'google_oidc';
+    const walletIdDerivationNonce = secureRandomBase64Url(
+      18,
+      'google email otp wallet derivation nonces',
+    );
+    const offerCandidates: GoogleEmailOtpRegistrationOfferCandidateRecord[] = [];
+    for (let attempt = 0; attempt < 30 && offerCandidates.length < 5; attempt += 1) {
+      const walletId = await this.deriveHostedGoogleEmailOtpWalletId({
+        providerSubject: input.providerSubject,
+        email: input.email,
+        authProvider,
+        runtimePolicyScope: input.runtimePolicyScope,
+        walletIdDerivationNonce,
+        collisionCounter: attempt,
+      });
+      const inUseByLiveAttempt = await this.hasLiveStartedGoogleEmailOtpWalletAttempt({
+        walletId,
+        nowMs,
+      });
+      if (inUseByLiveAttempt) continue;
+      const inUseByEnrollment = await this.readEmailOtpWalletEnrollment(walletId);
+      if (inUseByEnrollment) continue;
+      const existingSubjects = await this.readIdentitySubjectsByUserId(walletId);
+      if (
+        hasDifferentWalletIdentitySubject({
+          subjects: existingSubjects,
+          expectedWalletSubject: input.walletSubject,
+        })
+      ) {
+        continue;
+      }
+      offerCandidates.push({
+        candidateId: secureRandomBase64Url(18, 'google email otp offer candidate ids'),
+        walletId,
+        collisionCounter: attempt,
+      });
+    }
+
+    const selectedCandidate = offerCandidates[0];
+    if (!selectedCandidate) {
+      return {
+        ok: false,
+        mode: 'registration_incomplete',
+        code: 'registration_incomplete',
+        providerSubject: input.providerSubject,
+        email: input.email,
+        message: 'Unable to allocate a fresh Google Email OTP registration attempt',
+      };
+    }
+    const nonEmptyOfferCandidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates = [
+      selectedCandidate,
+      ...offerCandidates.slice(1),
+    ];
+    const attempt = await this.createGoogleEmailOtpRegistrationAttempt({
+      providerSubject: input.providerSubject,
+      email: input.email,
+      walletId: selectedCandidate.walletId,
+      offerId: secureRandomBase64Url(18, 'google email otp offer ids'),
+      offerCandidates: nonEmptyOfferCandidates,
+      selectedCandidateId: selectedCandidate.candidateId,
+      appSessionVersion: input.appSessionVersion,
+      authProvider,
+      walletIdDerivationNonce,
+      collisionCounter: selectedCandidate.collisionCounter,
+      runtimePolicyScope: input.runtimePolicyScope,
+    });
+    return {
+      ok: true,
+      mode: 'register_started',
+      walletId: attempt.walletId,
+      providerSubject: input.providerSubject,
+      email: input.email,
+      registrationAttemptId: attempt.attemptId,
+      expiresAtMs: attempt.expiresAtMs,
+      offer: googleEmailOtpRegistrationOfferForResponse(attempt),
+    };
+  }
+
+  private isRelayerSubaccount(accountId: string): boolean {
+    const relayerAccount = toOptionalTrimmedString(this.options.relayerAccount);
+    return Boolean(relayerAccount && accountId.endsWith(`.${relayerAccount}`));
+  }
+
+  private isHostedHmacReadableRelayerSubaccount(accountId: string): boolean {
+    const relayerAccount = toOptionalTrimmedString(this.options.relayerAccount);
+    if (!relayerAccount || !accountId.endsWith(`.${relayerAccount}`)) return false;
+    const slug = accountId.slice(0, -(relayerAccount.length + 1));
+    return /^[a-z]+-[a-z]+-[a-z0-9]{10}$/.test(slug);
+  }
+
+  private async deriveHostedGoogleEmailOtpWalletId(input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly authProvider: string;
+    readonly runtimePolicyScope: RuntimePolicyScope;
+    readonly walletIdDerivationNonce: string;
+    readonly collisionCounter: number;
+  }): Promise<string> {
+    return await deriveHostedNearAccountId({
+      accountIdDerivationSecret: requireD1RelayAuthScopeString(
+        this.options.accountIdDerivationSecret,
+        'ACCOUNT_ID_DERIVATION_SECRET',
+      ),
+      relayerAccount: requireD1RelayAuthScopeString(this.options.relayerAccount, 'relayerAccount'),
+      projectId: input.runtimePolicyScope.projectId,
+      envId: input.runtimePolicyScope.envId,
+      authProvider: input.authProvider,
+      providerSubject: input.providerSubject,
+      verifiedEmail: input.email,
+      walletIdDerivationNonce: input.walletIdDerivationNonce,
+      ...(input.collisionCounter > 0 ? { collisionCounter: input.collisionCounter } : {}),
+    });
+  }
+
+  private async getGoogleEmailOtpEnrollmentBySubject(input: {
+    readonly providerSubject: string;
+    readonly orgId: string;
+  }): Promise<EmailOtpWalletEnrollmentRecord | null> {
+    const enrollment = await this.readEmailOtpWalletEnrollmentByProviderUserId({
+      providerUserId: input.providerSubject,
+      orgId: input.orgId,
+    });
+    if (
+      !enrollment ||
+      enrollment.providerUserId !== input.providerSubject ||
+      enrollment.orgId !== input.orgId ||
+      !isValidAccountId(enrollment.walletId) ||
+      !this.isHostedHmacReadableRelayerSubaccount(enrollment.walletId)
+    ) {
+      return null;
+    }
+    return enrollment;
+  }
+
+  private async repairGoogleEmailOtpWalletLink(input: {
+    readonly providerSubject: string;
+    readonly walletId: string;
+  }): Promise<LinkIdentityResult> {
+    return await this.linkIdentity({
+      userId: input.walletId,
+      subject: `wallet:${input.providerSubject}`,
+      allowMoveIfSoleIdentity: true,
+    });
+  }
+
+  private isGoogleEmailOtpEnrollmentLookupMiss(code: string): boolean {
+    return (
+      code === 'not_found' ||
+      code === 'provider_identity_mismatch' ||
+      code === 'tenant_scope_mismatch'
+    );
+  }
+
+  private async cleanupGoogleEmailOtpRegistrationAttempts(nowMs: number): Promise<void> {
+    await this.scopePrepare(
+      `DELETE FROM signer_email_otp_registration_attempts
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND (expires_at_ms <= ? OR state = 'expired')`,
+      [nowMs],
+    ).run();
+  }
+
+  private async createGoogleEmailOtpRegistrationAttempt(input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly walletId: string;
+    readonly offerId: string;
+    readonly offerCandidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates;
+    readonly selectedCandidateId: string;
+    readonly appSessionVersion: string;
+    readonly authProvider: string;
+    readonly walletIdDerivationNonce: string;
+    readonly collisionCounter: number;
+    readonly runtimePolicyScope: RuntimePolicyScope;
+  }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord> {
+    const nowMs = Date.now();
+    await this.cleanupGoogleEmailOtpRegistrationAttempts(nowMs);
+    const attempt: PendingGoogleEmailOtpRegistrationAttemptRecord = {
+      version: 'google_email_otp_registration_attempt_v1',
+      attemptId: secureRandomBase64Url(18, 'google email otp registration attempt ids'),
+      providerSubject: input.providerSubject,
+      email: input.email,
+      walletId: input.walletId,
+      offerId: input.offerId,
+      offerCandidates: input.offerCandidates,
+      selectedCandidateId: input.selectedCandidateId,
+      appSessionVersion: input.appSessionVersion,
+      authProvider: input.authProvider,
+      accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: input.walletIdDerivationNonce,
+      collisionCounter: input.collisionCounter,
+      state: 'started',
+      createdAtMs: nowMs,
+      updatedAtMs: nowMs,
+      expiresAtMs: nowMs + 30 * 60_000,
+      runtimePolicyScope: input.runtimePolicyScope,
+    };
+    await this.putGoogleEmailOtpRegistrationAttempt(attempt);
+    return attempt;
+  }
+
+  private async findStartedGoogleEmailOtpRegistrationAttempt(input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly orgId: string;
+    readonly appSessionVersion: string;
+    readonly runtimePolicyScope: RuntimePolicyScope;
+  }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
+    const nowMs = Date.now();
+    await this.cleanupGoogleEmailOtpRegistrationAttempts(nowMs);
+    const row = await this.scopePrepare(
+      `SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
+         FROM signer_email_otp_registration_attempts
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND provider_subject = ?
+          AND email = ?
+          AND state IN ('started', 'key_finalized')
+          AND expires_at_ms > ?
+          AND app_session_version = ?
+          AND runtime_org_id = ?
+          AND runtime_policy_key = ?
+        ORDER BY updated_at_ms DESC
+        LIMIT 1`,
+      [
+        input.providerSubject,
+        input.email,
+        nowMs,
+        input.appSessionVersion,
+        input.orgId,
+        runtimePolicyScopeKey(input.runtimePolicyScope),
+      ],
+    ).first<D1EmailOtpRegistrationAttemptRow>();
+    const parsed = parseGoogleEmailOtpRegistrationAttemptRow(row);
+    if (!parsed) {
+      const malformedAttemptId = toOptionalTrimmedString(row?.attempt_id);
+      if (malformedAttemptId) await this.deleteGoogleEmailOtpRegistrationAttempt(malformedAttemptId);
+      return null;
+    }
+    if (
+      !registrationAttemptMatchesStartedScope(parsed, {
+        providerSubject: input.providerSubject,
+        email: input.email,
+        orgId: input.orgId,
+        appSessionVersion: input.appSessionVersion,
+        runtimePolicyScope: input.runtimePolicyScope,
+        nowMs,
+      })
+    ) {
+      return null;
+    }
+    if (!this.isHostedHmacReadableRelayerSubaccount(parsed.walletId)) {
+      await this.putGoogleEmailOtpRegistrationAttempt(
+        failedGoogleEmailOtpRegistrationAttemptRecord({
+          record: parsed,
+          failureCode: 'non_hmac_readable_wallet_id',
+          updatedAtMs: nowMs,
+        }),
+      );
+      return null;
+    }
+    const refreshed = pendingGoogleEmailOtpRegistrationAttemptWithUpdatedAt(parsed, nowMs);
+    await this.putGoogleEmailOtpRegistrationAttempt(refreshed);
+    return refreshed;
+  }
+
+  private async abandonStartedGoogleEmailOtpRegistrationAttemptsExceptAppSession(input: {
+    readonly providerSubject: string;
+    readonly email: string;
+    readonly orgId: string;
+    readonly appSessionVersion: string;
+    readonly runtimePolicyScope: RuntimePolicyScope;
+    readonly nowMs: number;
+    readonly failureCode: 'app_session_version_replaced';
+  }): Promise<void> {
+    const result = await this.scopePrepare(
+      `SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
+         FROM signer_email_otp_registration_attempts
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND provider_subject = ?
+          AND email = ?
+          AND state IN ('started', 'key_finalized')
+          AND expires_at_ms > ?`,
+      [input.providerSubject, input.email, input.nowMs],
+    ).all<D1EmailOtpRegistrationAttemptRow>();
+    for (const row of result.results || []) {
+      const parsed = parseGoogleEmailOtpRegistrationAttemptRow(row);
+      if (!parsed) {
+        const malformedAttemptId = toOptionalTrimmedString(row.attempt_id);
+        if (malformedAttemptId) {
+          await this.deleteGoogleEmailOtpRegistrationAttempt(malformedAttemptId);
+        }
+        continue;
+      }
+      if (!registrationAttemptMatchesReplacementScope(parsed, input)) continue;
+      await this.putGoogleEmailOtpRegistrationAttempt(
+        abandonedGoogleEmailOtpRegistrationAttemptRecord({
+          record: parsed,
+          failureCode: input.failureCode,
+          updatedAtMs: input.nowMs,
+        }),
+      );
+    }
+  }
+
+  private async hasLiveStartedGoogleEmailOtpWalletAttempt(input: {
+    readonly walletId: string;
+    readonly nowMs: number;
+  }): Promise<boolean> {
+    const row = await this.scopePrepare(
+      `SELECT 1 AS found
+         FROM signer_email_otp_registration_attempts
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND state IN ('started', 'key_finalized')
+          AND expires_at_ms > ?
+          AND (
+            wallet_id = ?
+            OR EXISTS (
+              SELECT 1
+                FROM json_each(offer_wallet_ids_json)
+               WHERE value = ?
+            )
+          )
+        LIMIT 1`,
+      [input.nowMs, input.walletId, input.walletId],
+    ).first<{ readonly found?: unknown }>();
+    return Boolean(row);
+  }
+
+  private async putGoogleEmailOtpRegistrationAttempt(
+    record: GoogleEmailOtpRegistrationAttemptRecord,
+  ): Promise<void> {
+    if (record.runtimePolicyScope?.orgId !== this.options.orgId) {
+      throw new Error('Google Email OTP registration attempt org scope mismatch');
+    }
+    await this.scopePrepare(
+      `INSERT INTO signer_email_otp_registration_attempts (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        attempt_id,
+        provider_subject,
+        email,
+        wallet_id,
+        state,
+        app_session_version,
+        runtime_org_id,
+        runtime_policy_key,
+        offer_wallet_ids_json,
+        record_json,
+        created_at_ms,
+        updated_at_ms,
+        expires_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, attempt_id)
+      DO UPDATE SET
+        provider_subject = EXCLUDED.provider_subject,
+        email = EXCLUDED.email,
+        wallet_id = EXCLUDED.wallet_id,
+        state = EXCLUDED.state,
+        app_session_version = EXCLUDED.app_session_version,
+        runtime_org_id = EXCLUDED.runtime_org_id,
+        runtime_policy_key = EXCLUDED.runtime_policy_key,
+        offer_wallet_ids_json = EXCLUDED.offer_wallet_ids_json,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = EXCLUDED.created_at_ms,
+        updated_at_ms = EXCLUDED.updated_at_ms,
+        expires_at_ms = EXCLUDED.expires_at_ms`,
+      [
+        record.attemptId,
+        record.providerSubject,
+        record.email,
+        record.walletId,
+        record.state,
+        record.appSessionVersion,
+        record.runtimePolicyScope?.orgId || '',
+        runtimePolicyScopeKey(record.runtimePolicyScope),
+        googleEmailOtpRegistrationOfferWalletIdsJson(record.offerCandidates),
+        JSON.stringify(record),
+        record.createdAtMs,
+        record.updatedAtMs,
+        record.expiresAtMs,
+      ],
+    ).run();
+  }
+
+  private async deleteGoogleEmailOtpRegistrationAttempt(attemptId: string): Promise<void> {
+    await this.scopePrepare(
+      `DELETE FROM signer_email_otp_registration_attempts
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND attempt_id = ?`,
+      [attemptId],
+    ).run();
+  }
+
   private scopePrepare(sql: string, values: readonly unknown[]): D1PreparedStatementLike {
     return this.options.database.prepare(sql).bind(...this.scopeValues(values));
   }
@@ -3837,6 +5142,26 @@ class CloudflareD1RelayAuthMetadataService {
       [userId],
     ).first<D1IdentityRow>();
     return parseIdentitySubjectCount(row?.subject_count);
+  }
+
+  private async readIdentitySubjectsByUserId(userId: string): Promise<string[]> {
+    const result = await this.scopePrepare(
+      `SELECT subject
+         FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?
+        ORDER BY subject ASC`,
+      [userId],
+    ).all<D1IdentityRow>();
+    const subjects: string[] = [];
+    for (const row of result.results || []) {
+      const subject = toOptionalTrimmedString(row.subject);
+      if (subject) subjects.push(subject);
+    }
+    return subjects;
   }
 
   private async moveIdentityIfAllowed(input: {
@@ -3908,6 +5233,26 @@ class CloudflareD1RelayAuthMetadataService {
           AND wallet_id = ?
         LIMIT 1`,
       [walletId],
+    ).first<D1EmailOtpEnrollmentRow>();
+    return parseEmailOtpWalletEnrollmentRow(row);
+  }
+
+  private async readEmailOtpWalletEnrollmentByProviderUserId(input: {
+    readonly providerUserId: string;
+    readonly orgId: string;
+  }): Promise<EmailOtpWalletEnrollmentRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, updated_at_ms
+         FROM signer_email_otp_wallet_enrollments
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND provider_user_id = ?
+          AND record_org_id = ?
+        ORDER BY updated_at_ms DESC
+        LIMIT 1`,
+      [input.providerUserId, input.orgId],
     ).first<D1EmailOtpEnrollmentRow>();
     return parseEmailOtpWalletEnrollmentRow(row);
   }
@@ -4438,6 +5783,7 @@ class CloudflareD1RelayAuthMetadataService {
     readonly action?: string;
     readonly userId?: string;
     readonly walletId?: string;
+    readonly providerSubject?: string;
     readonly orgId?: string;
     readonly clientIp?: string;
   }): Promise<
@@ -5063,6 +6409,9 @@ export function createCloudflareD1RelayAuthService(
   service.linkIdentity = metadata.linkIdentity.bind(metadata);
   service.unlinkIdentity = metadata.unlinkIdentity.bind(metadata);
   service.resolveOidcWalletId = metadata.resolveOidcWalletId.bind(metadata);
+  service.consumeGoogleEmailOtpRegistrationAttemptRateLimit =
+    metadata.consumeGoogleEmailOtpRegistrationAttemptRateLimit.bind(metadata);
+  service.resolveGoogleEmailOtpSession = metadata.resolveGoogleEmailOtpSession.bind(metadata);
   service.readEmailOtpEnrollment = metadata.readEmailOtpEnrollment.bind(metadata);
   service.readActiveEmailOtpEnrollment = metadata.readActiveEmailOtpEnrollment.bind(metadata);
   service.isEmailOtpStrongAuthRequired = metadata.isEmailOtpStrongAuthRequired.bind(metadata);
