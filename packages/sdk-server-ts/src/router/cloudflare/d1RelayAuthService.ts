@@ -317,6 +317,12 @@ type ListWebAuthnAuthenticatorsInput = Parameters<
 type ListWebAuthnAuthenticatorsResult = Awaited<
   ReturnType<CloudflareRelayAuthService['listWebAuthnAuthenticatorsForUser']>
 >;
+type CreateWebAuthnLoginOptionsInput = Parameters<
+  CloudflareRelayAuthService['createWebAuthnLoginOptions']
+>[0];
+type CreateWebAuthnLoginOptionsResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['createWebAuthnLoginOptions']>
+>;
 type ListNearPublicKeysInput = Parameters<
   CloudflareRelayAuthService['listNearPublicKeysForUser']
 >[0];
@@ -452,6 +458,16 @@ type WebAuthnCredentialBindingRecord = {
   readonly publicKey?: string;
   readonly createdAtMs?: number;
   readonly updatedAtMs?: number;
+};
+
+type WebAuthnLoginChallengeRecord = {
+  readonly version: 'webauthn_login_challenge_v1';
+  readonly challengeId: string;
+  readonly userId: string;
+  readonly rpId: string;
+  readonly challengeB64u: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
 };
 
 type NearPublicKeyRecord = {
@@ -811,6 +827,16 @@ function errorMessage(error: unknown): string {
 
 function appSessionVersion(): string {
   return secureRandomBase64Url(32, 'app session versions');
+}
+
+function webAuthnLoginChallengeTtlMs(input: unknown): number {
+  const defaultTtlMs = 5 * 60_000;
+  const minTtlMs = 10_000;
+  const maxTtlMs = 10 * 60_000;
+  if (input == null || input === '') return defaultTtlMs;
+  const value = typeof input === 'number' ? input : Number(input);
+  if (!Number.isFinite(value) || value <= 0) return defaultTtlMs;
+  return Math.min(Math.max(Math.floor(value), minTtlMs), maxTtlMs);
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {
@@ -4558,6 +4584,70 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async createWebAuthnLoginOptions(
+    input: CreateWebAuthnLoginOptionsInput,
+  ): Promise<CreateWebAuthnLoginOptionsResult> {
+    try {
+      const userId = toOptionalTrimmedString(input.userId ?? input.user_id);
+      const rpId = toOptionalTrimmedString(input.rpId ?? input.rp_id);
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!isValidAccountId(userId)) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid userId' };
+      }
+      if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rpId' };
+
+      const createdAtMs = Date.now();
+      const expiresAtMs = createdAtMs + webAuthnLoginChallengeTtlMs(input.ttlMs ?? input.ttl_ms);
+      const challengeId = secureRandomBase64Url(16, 'WebAuthn login challenge id');
+      const challengeB64u = secureRandomBase64Url(32, 'WebAuthn login challenge');
+      const record: WebAuthnLoginChallengeRecord = {
+        version: 'webauthn_login_challenge_v1',
+        challengeId,
+        userId,
+        rpId,
+        challengeB64u,
+        createdAtMs,
+        expiresAtMs,
+      };
+
+      await this.scopePrepare(
+        `INSERT INTO signer_webauthn_challenges (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          challenge_id,
+          challenge_kind,
+          record_json,
+          created_at_ms,
+          expires_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (namespace, org_id, project_id, env_id, challenge_id)
+        DO UPDATE SET
+          challenge_kind = EXCLUDED.challenge_kind,
+          record_json = EXCLUDED.record_json,
+          created_at_ms = EXCLUDED.created_at_ms,
+          expires_at_ms = EXCLUDED.expires_at_ms`,
+        [
+          challengeId,
+          'login',
+          JSON.stringify(record),
+          createdAtMs,
+          expiresAtMs,
+        ],
+      ).run();
+
+      return { ok: true, challengeId, challengeB64u, expiresAtMs };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to create login options',
+      };
+    }
+  }
+
   async listNearPublicKeysForUser(
     input: ListNearPublicKeysInput,
   ): Promise<ListNearPublicKeysResult> {
@@ -6834,6 +6924,7 @@ export function createCloudflareD1RelayAuthService(
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);
   service.listWebAuthnAuthenticatorsForUser =
     metadata.listWebAuthnAuthenticatorsForUser.bind(metadata);
+  service.createWebAuthnLoginOptions = metadata.createWebAuthnLoginOptions.bind(metadata);
   service.listNearPublicKeysForUser = metadata.listNearPublicKeysForUser.bind(metadata);
   service.getGoogleOidcPublicConfig = metadata.getGoogleOidcPublicConfig.bind(metadata);
   service.verifyGoogleLogin = metadata.verifyGoogleLogin.bind(metadata);

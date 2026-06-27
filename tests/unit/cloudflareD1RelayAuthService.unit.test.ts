@@ -421,6 +421,35 @@ async function insertWebAuthn(input: {
     .run();
 }
 
+async function readWebAuthnChallengeRow(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly challengeId: string;
+}): Promise<SqliteJsonRow | null> {
+  return await input.database
+    .prepare(
+      `SELECT challenge_kind, record_json, created_at_ms, expires_at_ms
+         FROM signer_webauthn_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?
+        LIMIT 1`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.challengeId,
+    )
+    .first<SqliteJsonRow>();
+}
+
 async function insertNearPublicKey(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -1168,6 +1197,45 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
           updatedAtMs: 300,
         },
       ],
+    });
+    const loginOptions = await service.createWebAuthnLoginOptions({
+      userId: scope.userId,
+      rpId: 'example.com',
+      ttlMs: 60_000,
+    });
+    expect(loginOptions.ok).toBe(true);
+    if (!loginOptions.ok) throw new Error(loginOptions.message);
+    const loginChallengeId = String(loginOptions.challengeId || '');
+    expect(loginChallengeId).not.toBe('');
+    expect(loginOptions.challengeB64u).toEqual(expect.any(String));
+    expect(loginOptions.expiresAtMs).toBeGreaterThan(Date.now());
+    const loginChallengeRow = await readWebAuthnChallengeRow({
+      database,
+      ...scope,
+      challengeId: loginChallengeId,
+    });
+    expect(loginChallengeRow?.challenge_kind).toBe('login');
+    expect(loginChallengeRow?.created_at_ms).toEqual(expect.any(Number));
+    expect(loginChallengeRow?.expires_at_ms).toBe(loginOptions.expiresAtMs);
+    const rawLoginChallengeRecord = loginChallengeRow?.record_json;
+    if (typeof rawLoginChallengeRecord !== 'string') {
+      throw new Error('Expected WebAuthn login challenge record_json');
+    }
+    const loginChallengeRecord: unknown = JSON.parse(rawLoginChallengeRecord);
+    expect(loginChallengeRecord).toMatchObject({
+      version: 'webauthn_login_challenge_v1',
+      challengeId: loginChallengeId,
+      userId: scope.userId,
+      rpId: 'example.com',
+      challengeB64u: loginOptions.challengeB64u,
+      expiresAtMs: loginOptions.expiresAtMs,
+    });
+    await expect(
+      service.createWebAuthnLoginOptions({ userId: 'bad user', rpId: 'example.com' }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'Invalid userId',
     });
     await expect(service.listNearPublicKeysForUser({ userId: scope.userId })).resolves.toEqual({
       ok: true,
