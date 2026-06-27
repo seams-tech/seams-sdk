@@ -146,6 +146,19 @@ Operating rule for Phases 3-6:
 - [ ] Phase completion records before/after line counts. Phase 7 targets a
   net-negative or near-neutral non-doc line count after staging works.
 
+Line-count cleanup baseline:
+
+- [x] Checkpoint baseline recorded from
+  `20af682856f1417abdab6ec39dc7793176d35bd0..HEAD`: 47,329 additions and
+  4,358 deletions across all files.
+- [x] Non-doc baseline recorded: 46,334 additions and 1,868 deletions after
+  excluding docs and Markdown.
+- [x] Docs/Markdown baseline recorded: 995 additions and 2,490 deletions.
+- [ ] Each remaining implementation commit either removes the staging path it
+  supersedes or records the concrete blocker in this plan.
+- [ ] Phase 7 records the final before/after counts and explains any remaining
+  positive non-doc line delta.
+
 Definition of done for the first cut:
 
 - [ ] Staging starts on D1/DO.
