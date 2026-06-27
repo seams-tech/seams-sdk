@@ -1519,6 +1519,48 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
         },
       ],
     });
+    await expect(
+      service.listThresholdEcdsaKeyIdentityTargetsForUser({
+        userId: scope.userId,
+        rpId: 'example.com',
+        keyTargets: [
+          {
+            keyHandle: 'ecdsa-key-handle-a',
+            chainTarget: { namespace: 'eip155', reference: '1' },
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      records: [],
+      diagnostics: {
+        userId: scope.userId,
+        inputCount: 1,
+        returnedCount: 0,
+        thresholdServicePresent: false,
+        rejected: { threshold_service_missing: 1 },
+      },
+    });
+    await expect(
+      service.listWalletEcdsaKeyFactsInventory({
+        walletId: scope.userId,
+        rpId: 'example.com',
+        keyTargets: [
+          {
+            keyHandle: 'ecdsa-key-handle-a',
+            chainTarget: { namespace: 'eip155', reference: '1' },
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      records: [],
+      diagnostics: {
+        userId: scope.userId,
+        inputCount: 1,
+        returnedCount: 0,
+        thresholdServicePresent: false,
+        rejected: { threshold_service_missing: 1 },
+      },
+    });
     expect(service.getConfiguredRelayerAccount()).toBe('relay.local');
     await expect(service.getRelayerAccount()).resolves.toEqual({
       accountId: 'relay.local',

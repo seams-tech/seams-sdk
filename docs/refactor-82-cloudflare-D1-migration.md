@@ -951,6 +951,8 @@ Completed:
   challenges for wallet registration without requiring an existing enrollment.
 - [x] Cloudflare relay auth service D1 methods can rate-limit, create, reuse,
   and restart Google Email OTP registration attempts during session exchange.
+- [x] Cloudflare relay auth service D1 methods return explicit ECDSA key
+  inventory diagnostics while threshold metadata storage remains deferred.
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the required property.

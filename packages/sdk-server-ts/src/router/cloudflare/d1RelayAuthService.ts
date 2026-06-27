@@ -367,6 +367,18 @@ type ListNearPublicKeysInput = Parameters<
 type ListNearPublicKeysResult = Awaited<
   ReturnType<CloudflareRelayAuthService['listNearPublicKeysForUser']>
 >;
+type ListThresholdEcdsaKeyIdentityTargetsForUserInput = Parameters<
+  CloudflareRelayAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']
+>[0];
+type ListThresholdEcdsaKeyIdentityTargetsForUserResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']>
+>;
+type ListWalletEcdsaKeyFactsInventoryInput = Parameters<
+  CloudflareRelayAuthService['listWalletEcdsaKeyFactsInventory']
+>[0];
+type ListWalletEcdsaKeyFactsInventoryResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['listWalletEcdsaKeyFactsInventory']>
+>;
 type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitInput = Parameters<
   CloudflareRelayAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']
 >[0];
@@ -3001,6 +3013,27 @@ function generateNumericOtp(length: number): string {
   let code = '';
   for (const byte of bytes) code += String(byte % 10);
   return code;
+}
+
+function singletonRejectedDiagnostic(reason: string): Record<string, number> {
+  return { [reason]: 1 };
+}
+
+function emptyThresholdEcdsaKeyInventoryResult(input: {
+  readonly userId: string;
+  readonly inputCount: number;
+  readonly rejectionReason: 'missing_scope' | 'threshold_service_missing';
+}): ListThresholdEcdsaKeyIdentityTargetsForUserResult {
+  return {
+    records: [],
+    diagnostics: {
+      userId: input.userId,
+      inputCount: input.inputCount,
+      returnedCount: 0,
+      thresholdServicePresent: false,
+      rejected: singletonRejectedDiagnostic(input.rejectionReason),
+    },
+  };
 }
 
 function clampedEmailOtpUnlockTtlMs(input: unknown): number {
@@ -5667,6 +5700,36 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async listThresholdEcdsaKeyIdentityTargetsForUser(
+    input: ListThresholdEcdsaKeyIdentityTargetsForUserInput,
+  ): Promise<ListThresholdEcdsaKeyIdentityTargetsForUserResult> {
+    const userId = toOptionalTrimmedString(input.userId);
+    const rpId = toOptionalTrimmedString(input.rpId);
+    const inputCount = input.keyTargets.length;
+    if (!userId || !rpId) {
+      return emptyThresholdEcdsaKeyInventoryResult({
+        userId: userId || '',
+        inputCount,
+        rejectionReason: 'missing_scope',
+      });
+    }
+    return emptyThresholdEcdsaKeyInventoryResult({
+      userId,
+      inputCount,
+      rejectionReason: 'threshold_service_missing',
+    });
+  }
+
+  async listWalletEcdsaKeyFactsInventory(
+    input: ListWalletEcdsaKeyFactsInventoryInput,
+  ): Promise<ListWalletEcdsaKeyFactsInventoryResult> {
+    return await this.listThresholdEcdsaKeyIdentityTargetsForUser({
+      userId: input.walletId,
+      rpId: input.rpId,
+      keyTargets: input.keyTargets,
+    });
+  }
+
   getGoogleOidcPublicConfig(): ReturnType<CloudflareRelayAuthService['getGoogleOidcPublicConfig']> {
     const clientId = toOptionalTrimmedString(this.options.googleOidcClientId);
     return {
@@ -8088,6 +8151,10 @@ export function createCloudflareD1RelayAuthService(
   service.verifyWebAuthnLogin = metadata.verifyWebAuthnLogin.bind(metadata);
   service.verifyWebAuthnSyncAccount = metadata.verifyWebAuthnSyncAccount.bind(metadata);
   service.listNearPublicKeysForUser = metadata.listNearPublicKeysForUser.bind(metadata);
+  service.listThresholdEcdsaKeyIdentityTargetsForUser =
+    metadata.listThresholdEcdsaKeyIdentityTargetsForUser.bind(metadata);
+  service.listWalletEcdsaKeyFactsInventory =
+    metadata.listWalletEcdsaKeyFactsInventory.bind(metadata);
   service.getGoogleOidcPublicConfig = metadata.getGoogleOidcPublicConfig.bind(metadata);
   service.verifyGoogleLogin = metadata.verifyGoogleLogin.bind(metadata);
   return service;
