@@ -71,10 +71,12 @@ import type {
   EcdsaHssServerBootstrapResponse,
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartResponse,
+  WalletAddSignerFinalizeResponse,
   WalletAddSignerHssRespondResponse,
   WalletAddSignerStartResponse,
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
+  WalletRegistrationEcdsaWalletKey,
   WebAuthnAuthenticationCredential,
 } from '../../core/types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../core/defaultConfigsServer';
@@ -122,6 +124,12 @@ import {
   type WalletAuthMethodRecord,
   type WalletAuthMethodStore,
 } from '../../core/d1WalletAuthMethodStore';
+import {
+  D1WalletStore,
+  buildWalletEcdsaSignerRecord,
+  type WalletRecord,
+  type WalletStore,
+} from '../../core/d1WalletStore';
 import {
   formatSigningSessionSealKeyVersionForWire,
   formatSigningSessionSealShamirPrimeB64uForWire,
@@ -400,6 +408,9 @@ type RespondWalletAddSignerHssInput = Parameters<
 type D1EcdsaPublicIdentity = EcdsaHssServerBootstrapResponse['publicIdentity'];
 type D1EcdsaClientSharePublicKey = D1EcdsaPublicIdentity['hssClientSharePublicKey33B64u'];
 type D1EcdsaRelayerPublicKey = D1EcdsaPublicIdentity['relayerPublicKey33B64u'];
+type FinalizeWalletAddSignerInput = Parameters<
+  CloudflareRelayAuthService['finalizeWalletAddSigner']
+>[0];
 type CreateAddAuthMethodIntentInput = Parameters<
   CloudflareRelayAuthService['createAddAuthMethodIntent']
 >[0];
@@ -1539,6 +1550,17 @@ class CloudflareD1RegistrationCeremonyIntentStore {
     });
   }
 
+  async takeAddSignerCeremony(
+    addSignerCeremonyId: string,
+  ): Promise<StoredWalletAddSignerCeremony | null> {
+    const id = toOptionalTrimmedString(addSignerCeremonyId);
+    if (!id) return null;
+    const value = await this.getDel('add-signer', id);
+    const ceremony = parseD1StoredWalletAddSignerCeremony(value);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
   async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
     await this.put({
       scope: 'add-auth-method-intent',
@@ -2401,6 +2423,107 @@ function buildD1EcdsaAddSignerRespondedCeremony(input: {
     ceremony.signingRootVersion = input.ceremony.signingRootVersion;
   }
   return ceremony;
+}
+
+type D1EcdsaWalletKeyBuildResult =
+  | {
+      readonly ok: true;
+      readonly walletKeys: WalletRegistrationEcdsaWalletKey[];
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'incomplete_ecdsa_wallet_key';
+      readonly message: string;
+    };
+
+function buildD1EcdsaWalletKeysFromBootstrap(input: {
+  readonly bootstrap: EcdsaHssServerBootstrapResponse;
+  readonly chainTargets: readonly ThresholdEcdsaChainTarget[];
+  readonly errorContext: string;
+}): D1EcdsaWalletKeyBuildResult {
+  const bootstrap = input.bootstrap;
+  const required = {
+    walletId: toOptionalTrimmedString(bootstrap.walletId),
+    walletKeyId: toOptionalTrimmedString(bootstrap.walletKeyId),
+    keyHandle: toOptionalTrimmedString(bootstrap.keyHandle),
+    ecdsaThresholdKeyId: toOptionalTrimmedString(bootstrap.ecdsaThresholdKeyId),
+    signingRootId: toOptionalTrimmedString(bootstrap.signingRootId),
+    signingRootVersion: toOptionalTrimmedString(bootstrap.signingRootVersion),
+    thresholdEcdsaPublicKeyB64u: toOptionalTrimmedString(bootstrap.thresholdEcdsaPublicKeyB64u),
+    thresholdOwnerAddress: toOptionalTrimmedString(bootstrap.ethereumAddress),
+    relayerKeyId: toOptionalTrimmedString(bootstrap.relayerKeyId),
+    relayerVerifyingShareB64u: toOptionalTrimmedString(bootstrap.relayerVerifyingShareB64u),
+  };
+  const missingField = Object.entries(required).find(([, value]) => !value)?.[0];
+  if (missingField) {
+    return {
+      ok: false,
+      code: 'incomplete_ecdsa_wallet_key',
+      message: `${input.errorContext} returned incomplete ECDSA wallet key material: ${missingField}`,
+    };
+  }
+  const participantIds = parseD1PositiveIntegerArray(bootstrap.participantIds);
+  if (!participantIds) {
+    return {
+      ok: false,
+      code: 'incomplete_ecdsa_wallet_key',
+      message: `${input.errorContext} returned incomplete ECDSA wallet key material: participantIds`,
+    };
+  }
+  if (input.chainTargets.length === 0) {
+    return {
+      ok: false,
+      code: 'incomplete_ecdsa_wallet_key',
+      message: `${input.errorContext} has no ECDSA chain targets`,
+    };
+  }
+  return {
+    ok: true,
+    walletKeys: input.chainTargets.map((chainTarget) => ({
+      keyScope: 'evm-family',
+      chainTarget,
+      walletId: required.walletId,
+      walletKeyId: required.walletKeyId,
+      keyHandle: required.keyHandle,
+      ecdsaThresholdKeyId: required.ecdsaThresholdKeyId,
+      signingRootId: required.signingRootId,
+      signingRootVersion: required.signingRootVersion,
+      thresholdEcdsaPublicKeyB64u: required.thresholdEcdsaPublicKeyB64u,
+      thresholdOwnerAddress: required.thresholdOwnerAddress,
+      relayerKeyId: required.relayerKeyId,
+      relayerVerifyingShareB64u: required.relayerVerifyingShareB64u,
+      participantIds,
+    })),
+  };
+}
+
+function buildD1WalletRecord(input: {
+  readonly walletId: WalletId;
+  readonly rpId: string;
+  readonly now: number;
+}): WalletRecord {
+  return {
+    version: 'wallet_v1',
+    walletId: input.walletId,
+    rpId: input.rpId,
+    createdAtMs: input.now,
+    updatedAtMs: input.now,
+  };
+}
+
+function buildD1WalletEcdsaSignerRecords(input: {
+  readonly walletId: WalletId;
+  readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+  readonly now: number;
+}) {
+  return input.walletKeys.map((walletKey) =>
+    buildWalletEcdsaSignerRecord({
+      walletId: input.walletId,
+      walletKey,
+      createdAtMs: input.now,
+      updatedAtMs: input.now,
+    }),
+  );
 }
 
 function derivePlannedEvmFamilyWalletKeyId(input: {
@@ -5442,6 +5565,7 @@ class CloudflareD1RelayAuthMetadataService {
   private googleJwksFetchPromise: Promise<JsonWebKeyCache> | null = null;
   private readonly oidcJwksCacheByUrl = new Map<string, JsonWebKeyCache>();
   private readonly oidcJwksFetchPromiseByUrl = new Map<string, Promise<JsonWebKeyCache>>();
+  private walletStore: WalletStore | null = null;
   private walletAuthMethodStore: WalletAuthMethodStore | null = null;
   private registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null =
     null;
@@ -5800,6 +5924,97 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to respond to wallet add-signer ceremony',
+      };
+    }
+  }
+
+  async finalizeWalletAddSigner(
+    request: FinalizeWalletAddSignerInput,
+  ): Promise<WalletAddSignerFinalizeResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
+      }
+      if (ceremony.intent.signerSelection.mode !== 'ecdsa') {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 add-signer finalize currently supports ECDSA signer selection',
+        };
+      }
+      if (!request.ecdsa) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'missing ECDSA add-signer finalize input',
+        };
+      }
+      if (ceremony.signerState.kind !== 'ecdsa_add_signer_responded') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA add-signer HSS response is required before finalize',
+        };
+      }
+      const bootstrap = ceremony.signerState.responded.bootstrap;
+      const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
+      if (expectedKeyHandles.some((keyHandle) => keyHandle !== bootstrap.keyHandle)) {
+        return {
+          ok: false,
+          code: 'key_handle_mismatch',
+          message: 'ECDSA add-signer finalize expected key handle mismatch',
+        };
+      }
+      const walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
+        bootstrap,
+        chainTargets: ceremony.signerState.chainTargets,
+        errorContext: 'ECDSA add-signer finalize',
+      });
+      if (!walletKeyResult.ok) return walletKeyResult;
+
+      const walletKeys = walletKeyResult.walletKeys;
+      const signerWriteNow = Date.now();
+      const wallet = buildD1WalletRecord({
+        walletId: ceremony.intent.walletId,
+        rpId: ceremony.intent.rpId,
+        now: signerWriteNow,
+      });
+      const walletSigners = buildD1WalletEcdsaSignerRecords({
+        walletId: ceremony.intent.walletId,
+        walletKeys,
+        now: signerWriteNow,
+      });
+      const walletStore = this.getWalletStore();
+      await walletStore.putSubject(wallet);
+      await walletStore.putSigners(walletSigners);
+
+      const consumed = await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
+      if (!consumed) {
+        return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
+      }
+      if (consumed.signerState.kind !== 'ecdsa_add_signer_responded') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA add-signer HSS response is required before finalize',
+        };
+      }
+      return {
+        ok: true,
+        walletId: ceremony.intent.walletId,
+        rpId: ceremony.intent.rpId,
+        ecdsa: {
+          walletKeys,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to finalize wallet add-signer ceremony',
       };
     }
   }
@@ -11116,6 +11331,19 @@ class CloudflareD1RelayAuthMetadataService {
     return this.walletAuthMethodStore;
   }
 
+  private getWalletStore(): WalletStore {
+    if (this.walletStore) return this.walletStore;
+    this.walletStore = new D1WalletStore({
+      database: this.options.database,
+      namespace: this.options.namespace,
+      orgId: this.options.orgId,
+      projectId: this.options.projectId,
+      envId: this.options.envId,
+      ensureSchema: false,
+    });
+    return this.walletStore;
+  }
+
   private async findWalletAuthMethodRecordForRevokeTarget(input: {
     readonly walletAuthMethodStore: WalletAuthMethodStore;
     readonly walletId: WalletId;
@@ -12852,6 +13080,7 @@ export function createCloudflareD1RelayAuthService(
   service.createAddSignerIntent = metadata.createAddSignerIntent.bind(metadata);
   service.startWalletAddSigner = metadata.startWalletAddSigner.bind(metadata);
   service.respondWalletAddSignerHss = metadata.respondWalletAddSignerHss.bind(metadata);
+  service.finalizeWalletAddSigner = metadata.finalizeWalletAddSigner.bind(metadata);
   service.createAddAuthMethodIntent = metadata.createAddAuthMethodIntent.bind(metadata);
   service.startWalletAddAuthMethod = metadata.startWalletAddAuthMethod.bind(metadata);
   service.finalizeWalletAddAuthMethod = metadata.finalizeWalletAddAuthMethod.bind(metadata);

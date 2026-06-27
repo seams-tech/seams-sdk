@@ -1116,6 +1116,46 @@ async function readWalletAuthMethodRecord(input: {
   return parsed;
 }
 
+async function readWalletSignerRecord(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletId: string;
+  readonly signerFamily: 'ed25519' | 'ecdsa';
+  readonly signerId: string;
+}): Promise<SqliteJsonRow> {
+  const row = await input.database
+    .prepare(
+      `SELECT record_json
+         FROM signer_wallet_signers
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+          AND signer_family = ?
+          AND signer_id = ?
+        LIMIT 1`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.walletId,
+      input.signerFamily,
+      input.signerId,
+    )
+    .first<SqliteJsonRow>();
+  const raw = row?.record_json;
+  if (typeof raw !== 'string') throw new Error('wallet signer record_json missing');
+  const parsed: unknown = JSON.parse(raw);
+  if (!isSqliteJsonRow(parsed)) throw new Error('wallet signer record_json invalid');
+  return parsed;
+}
+
 async function insertEmailOtpEnrollment(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -2818,7 +2858,7 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
   }
 });
 
-test('Cloudflare D1 relay auth service responds to ECDSA add-signer ceremonies through Durable Objects', async () => {
+test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signer ceremonies through Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -2944,6 +2984,82 @@ test('Cloudflare D1 relay auth service responds to ECDSA add-signer ceremonies t
     ).resolves.toMatchObject({
       ok: false,
       code: 'invalid_state',
+    });
+
+    await expect(
+      service.finalizeWalletAddSigner({
+        addSignerCeremonyId: started.addSignerCeremonyId,
+        ecdsa: {
+          expectedKeyHandles: ['wrong-key-handle'],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'key_handle_mismatch',
+    });
+
+    const finalized = await service.finalizeWalletAddSigner({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ecdsa: {
+        expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+      },
+    });
+    if (!finalized.ok) throw new Error(finalized.message);
+    expect(finalized).toMatchObject({
+      walletId,
+      rpId,
+      ecdsa: {
+        walletKeys: [
+          {
+            keyScope: 'evm-family',
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
+            walletId,
+            walletKeyId: started.ecdsa.prepare.walletKeyId,
+            keyHandle: 'test-add-signer-ecdsa-key-handle',
+            ecdsaThresholdKeyId: started.ecdsa.prepare.ecdsaThresholdKeyId,
+            signingRootId: `${scope.projectId}:${scope.envId}`,
+            signingRootVersion: 'root-v1',
+            thresholdOwnerAddress: '0x0000000000000000000000000000000000000001',
+            relayerKeyId: started.ecdsa.prepare.relayerKeyId,
+            participantIds: [1, 2, 3],
+          },
+        ],
+      },
+    });
+
+    const signerRecord = await readWalletSignerRecord({
+      database,
+      ...scope,
+      walletId,
+      signerFamily: 'ecdsa',
+      signerId: 'ecdsa:evm:eip155:8453',
+    });
+    expect(signerRecord).toMatchObject({
+      version: 'wallet_signer_ecdsa_v1',
+      walletId,
+      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      signerId: 'ecdsa:evm:eip155:8453',
+      chainTargetKey: 'evm:eip155:8453',
+      walletKey: {
+        keyHandle: 'test-add-signer-ecdsa-key-handle',
+        ecdsaThresholdKeyId: started.ecdsa.prepare.ecdsaThresholdKeyId,
+        thresholdOwnerAddress: '0x0000000000000000000000000000000000000001',
+      },
+    });
+    expect(
+      durableObjects.stub.values.get(`${prefix}add-signer:${started.addSignerCeremonyId}`),
+    ).toBeUndefined();
+
+    await expect(
+      service.finalizeWalletAddSigner({
+        addSignerCeremonyId: started.addSignerCeremonyId,
+        ecdsa: {
+          expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'not_found',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);
