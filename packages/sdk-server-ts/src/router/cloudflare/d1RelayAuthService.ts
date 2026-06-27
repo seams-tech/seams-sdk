@@ -9,6 +9,7 @@ import {
   computeRegistrationIntentDigestB64u,
   normalizeAddAuthMethodInput,
   normalizeAddSignerSelection,
+  normalizeEmailOtpRegistrationProof,
   normalizeRegistrationAuthMethodInput,
   normalizeRegistrationSignerSelection,
   registrationIntentGrantFromString,
@@ -77,6 +78,7 @@ import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
+  WalletRegistrationStartResponse,
   WebAuthnAuthenticationCredential,
 } from '../../core/types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../core/defaultConfigsServer';
@@ -86,6 +88,7 @@ import type {
   StoredWalletAddSignerCeremony,
   StoredWalletAddAuthMethodCeremony,
   StoredRegistrationIntent,
+  StoredWalletRegistrationCeremony,
 } from '../../core/RegistrationCeremonyStore';
 import {
   thresholdEcdsaChainTargetKey,
@@ -372,6 +375,7 @@ type CloudflareRegistrationIntentDoRequest =
 
 type RegistrationCeremonyIntentScope =
   | 'intent'
+  | 'ceremony'
   | 'add-auth-method-intent'
   | 'add-signer-intent'
   | 'add-auth-method'
@@ -380,6 +384,7 @@ type RegistrationCeremonyIntentScope =
 
 type RegistrationIntentDoPutInput =
   | StoredRegistrationIntent
+  | StoredWalletRegistrationCeremony
   | StoredAddSignerIntent
   | StoredWalletAddSignerCeremony
   | StoredAddAuthMethodIntent
@@ -395,6 +400,9 @@ type ListIdentitiesInput = Parameters<CloudflareRelayAuthService['listIdentities
 type ListIdentitiesResult = Awaited<ReturnType<CloudflareRelayAuthService['listIdentities']>>;
 type CreateRegistrationIntentInput = Parameters<
   CloudflareRelayAuthService['createRegistrationIntent']
+>[0];
+type StartWalletRegistrationInput = Parameters<
+  CloudflareRelayAuthService['startWalletRegistration']
 >[0];
 type CreateAddSignerIntentInput = Parameters<
   CloudflareRelayAuthService['createAddSignerIntent']
@@ -1494,6 +1502,33 @@ class CloudflareD1RegistrationCeremonyIntentStore {
     });
   }
 
+  async getIntent(grant: string): Promise<StoredRegistrationIntent | null> {
+    const id = toOptionalTrimmedString(grant);
+    if (!id) return null;
+    const value = await this.get('intent', id);
+    const intent = parseD1StoredRegistrationIntent(value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async takeIntent(grant: string): Promise<StoredRegistrationIntent | null> {
+    const id = toOptionalTrimmedString(grant);
+    if (!id) return null;
+    const value = await this.getDel('intent', id);
+    const intent = parseD1StoredRegistrationIntent(value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async putCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void> {
+    await this.put({
+      scope: 'ceremony',
+      id: ceremony.registrationCeremonyId,
+      record: ceremony,
+      expiresAtMs: ceremony.expiresAtMs,
+    });
+  }
+
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
     await this.put({
       scope: 'add-signer-intent',
@@ -1839,6 +1874,58 @@ function buildRegistrationIntent(input: {
     rpId: input.rpId,
     authMethod: input.authMethod,
     signerSelection: input.signerSelection,
+    nonceB64u,
+  };
+}
+
+function parseD1StoredRegistrationIntent(raw: unknown): StoredRegistrationIntent | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'intent_allocated') return null;
+  const grant = registrationIntentGrantFromString(toOptionalTrimmedString(record.grant) || '');
+  const intent = parseD1RegistrationIntent(record.intent);
+  const digestB64u = toOptionalTrimmedString(record.digestB64u);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  if (!grant || !intent || !digestB64u || !orgId || expiresAtMs === null) return null;
+  return {
+    kind: 'intent_allocated',
+    grant,
+    intent,
+    digestB64u,
+    orgId,
+    expiresAtMs,
+    ...intentScopeMetadata(record),
+  };
+}
+
+function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | null {
+  const record = toRecordValue(raw);
+  if (!record || record.version !== 'registration_intent_v1') return null;
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const authMethod = normalizeRegistrationAuthMethodInput(record.authMethod);
+  const signerSelection = normalizeRegistrationSignerSelection(record.signerSelection);
+  const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
+  const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
+  if (!walletId || !rpId || !authMethod || !signerSelection.ok || !nonceB64u) return null;
+  if (record.runtimePolicyScope !== undefined && !runtimePolicyScope) return null;
+  if (runtimePolicyScope) {
+    return {
+      version: 'registration_intent_v1',
+      walletId,
+      rpId,
+      authMethod,
+      signerSelection: signerSelection.value,
+      runtimePolicyScope,
+      nonceB64u,
+    };
+  }
+  return {
+    version: 'registration_intent_v1',
+    walletId,
+    rpId,
+    authMethod,
+    signerSelection: signerSelection.value,
     nonceB64u,
   };
 }
@@ -2779,6 +2866,10 @@ function parseD1EmailOtpRegistrationAuthority(
 
 function unreachableAddAuthMethodAuthority(value: never): never {
   throw new Error(`Unhandled add-auth-method authority kind: ${String(value)}`);
+}
+
+function unreachableRegistrationStartAuthority(value: never): never {
+  throw new Error(`Unhandled registration start authority kind: ${String(value)}`);
 }
 
 function walletAuthMethodRecordFromRegistrationAuthority(input: {
@@ -5634,6 +5725,198 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to create registration intent',
+      };
+    }
+  }
+
+  async startWalletRegistration(
+    request: StartWalletRegistrationInput,
+  ): Promise<WalletRegistrationStartResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const grant = registrationIntentGrantFromString(
+        toOptionalTrimmedString(request.registrationIntentGrant) || '',
+      );
+      if (!grant) {
+        return {
+          ok: false,
+          code: 'invalid_grant',
+          message: 'registration intent grant is required',
+        };
+      }
+      const intentPreview = await store.getIntent(grant);
+      if (!intentPreview) {
+        return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
+      }
+      const requestIntent = parseD1RegistrationIntent(request.intent);
+      if (!requestIntent) {
+        return { ok: false, code: 'invalid_body', message: 'registration intent is invalid' };
+      }
+      const digestB64u = toOptionalTrimmedString(request.registrationIntentDigestB64u);
+      const requestDigest = await computeRegistrationIntentDigestB64u(requestIntent);
+      if (!digestB64u || digestB64u !== requestDigest || digestB64u !== intentPreview.digestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration intent digest mismatch',
+        };
+      }
+      const selection = intentPreview.intent.signerSelection;
+      if (selection.mode !== 'ecdsa_only') {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 wallet registration start currently supports ECDSA-only signer selection',
+        };
+      }
+      if (request.registrationPreparationId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registrationPreparationId is not used for ECDSA-only registration',
+        };
+      }
+      const chainTargets = normalizeThresholdEcdsaChainTargets(selection.ecdsa.chainTargets);
+      if (!chainTargets) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ECDSA registration contains an invalid chain target',
+        };
+      }
+      const runtimePolicyScope = parseD1RuntimePolicyScope(
+        intentPreview.intent.runtimePolicyScope,
+      );
+      const signingRootId =
+        intentPreview.signingRootId ||
+        (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
+      const signingRootVersion =
+        toOptionalTrimmedString(intentPreview.signingRootVersion) ||
+        runtimePolicyScope?.signingRootVersion ||
+        'default';
+      if (!signingRootId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ECDSA registration requires a signing root',
+        };
+      }
+      const threshold = this.getThresholdSigningService();
+      if (!threshold) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'threshold signing is not configured on this server',
+        };
+      }
+
+      const authority = request.authority;
+      if (!authority || (authority.kind !== 'passkey' && authority.kind !== 'email_otp')) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration authority is required',
+        };
+      }
+      const storedExpectedOrigin = toOptionalTrimmedString(intentPreview.expectedOrigin);
+      if (authority.kind === 'passkey' && !storedExpectedOrigin) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn registration verification',
+        };
+      }
+      const walletAuthMethodStore = this.getWalletAuthMethodStore();
+      const verifiedAuthority = await this.verifyRegistrationAuthorityForIntent({
+        orgId: intentPreview.orgId,
+        authority,
+        expectedDigestB64u: intentPreview.digestB64u,
+        expectedOrigin: storedExpectedOrigin || '',
+        intent: intentPreview.intent,
+        walletAuthMethodStore,
+      });
+      if (!verifiedAuthority.ok) return verifiedAuthority;
+
+      const storedIntent = await store.takeIntent(grant);
+      if (!storedIntent) {
+        return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
+      }
+      if (
+        storedIntent.digestB64u !== intentPreview.digestB64u ||
+        storedIntent.intent.signerSelection.mode !== 'ecdsa_only'
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_grant',
+          message: 'registration intent changed before consumption',
+        };
+      }
+      const registrationCeremonyId = `wrc_${secureRandomBase64Url(24)}`;
+      const walletKeyId = derivePlannedEvmFamilyWalletKeyId({
+        walletId: storedIntent.intent.walletId,
+        signingRootId,
+        signingRootVersion,
+      });
+      const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+        walletId: storedIntent.intent.walletId,
+        walletKeyId,
+        signingRootId,
+        signingRootVersion,
+      });
+      const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+        walletId: storedIntent.intent.walletId,
+        walletKeyId,
+      });
+      const ecdsa = {
+        kind: 'evm_family_ecdsa_keygen' as const,
+        chainTargets,
+        prepare: {
+          formatVersion: 'ecdsa-hss-role-local' as const,
+          walletId: storedIntent.intent.walletId,
+          walletKeyId,
+          ecdsaThresholdKeyId,
+          signingRootId,
+          signingRootVersion,
+          keyScope: 'evm-family' as const,
+          relayerKeyId,
+          requestId: `${registrationCeremonyId}:ecdsa`,
+          thresholdSessionId: `tehss_${secureRandomBase64Url(24)}`,
+          signingGrantId: `wss_${secureRandomBase64Url(24)}`,
+          ttlMs: 10 * 60_000,
+          remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
+          participantIds: selection.ecdsa.participantIds,
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        },
+      };
+      await store.putCeremony({
+        registrationCeremonyId,
+        intent: storedIntent.intent,
+        digestB64u: storedIntent.digestB64u,
+        orgId: storedIntent.orgId,
+        signingRootId,
+        signingRootVersion,
+        ...(storedExpectedOrigin ? { expectedOrigin: storedExpectedOrigin } : {}),
+        expiresAtMs: Date.now() + 10 * 60_000,
+        authority: verifiedAuthority.authority,
+        signerState: {
+          kind: 'ecdsa_prepared',
+          hssKind: ecdsa.kind,
+          chainTargets,
+          prepare: ecdsa.prepare,
+        },
+      });
+      return {
+        ok: true,
+        registrationCeremonyId,
+        intent: storedIntent.intent,
+        ecdsa,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to start wallet registration ceremony',
       };
     }
   }
@@ -10975,6 +11258,223 @@ class CloudflareD1RelayAuthMetadataService {
     };
   }
 
+  private async verifyRegistrationAuthorityForIntent(input: {
+    readonly orgId: string;
+    readonly authority: StartWalletRegistrationInput['authority'];
+    readonly expectedDigestB64u: string;
+    readonly expectedOrigin: string;
+    readonly intent: RegistrationIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | { readonly ok: true; readonly authority: RegistrationAuthority }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const authority = input.authority;
+    switch (authority.kind) {
+      case 'passkey':
+        return await this.verifyRegistrationPasskeyAuthority({
+          authority,
+          expectedDigestB64u: input.expectedDigestB64u,
+          expectedOrigin: input.expectedOrigin,
+          intent: input.intent,
+          walletAuthMethodStore: input.walletAuthMethodStore,
+        });
+      case 'email_otp':
+        return await this.verifyRegistrationEmailOtpAuthority({
+          orgId: input.orgId,
+          authority,
+          expectedDigestB64u: input.expectedDigestB64u,
+          intent: input.intent,
+          walletAuthMethodStore: input.walletAuthMethodStore,
+        });
+    }
+    return unreachableRegistrationStartAuthority(authority);
+  }
+
+  private async verifyRegistrationPasskeyAuthority(input: {
+    readonly authority: Extract<StartWalletRegistrationInput['authority'], { kind: 'passkey' }>;
+    readonly expectedDigestB64u: string;
+    readonly expectedOrigin: string;
+    readonly intent: RegistrationIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | { readonly ok: true; readonly authority: Extract<RegistrationAuthority, { kind: 'passkey' }> }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    if (input.intent.authMethod.kind !== 'passkey') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Passkey registration authority requires a passkey intent',
+      };
+    }
+    const rpId = parseWebAuthnRpId(input.intent.rpId);
+    if (!rpId.ok) return { ok: false, code: 'invalid_body', message: rpId.error.message };
+    const verified = await this.verifyRegistrationCredentialForIntent({
+      webauthnRegistration: input.authority.webauthnRegistration,
+      expectedChallenge: input.expectedDigestB64u,
+      expectedOrigin: input.expectedOrigin,
+      rpId: rpId.value,
+    });
+    if (!verified.ok) return verified;
+    const duplicateCredential = await input.walletAuthMethodStore.getPasskey({
+      rpId: rpId.value,
+      credentialIdB64u: verified.credential.credentialIdB64u,
+    });
+    if (duplicateCredential) {
+      return {
+        ok: false,
+        code: 'duplicate_auth_method',
+        message: 'Passkey credential is already registered',
+      };
+    }
+    return {
+      ok: true,
+      authority: {
+        kind: 'passkey',
+        walletId: input.intent.walletId,
+        rpId: rpId.value,
+        credentialIdB64u: verified.credential.credentialIdB64u,
+        credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
+        counter: verified.credential.counter,
+        registrationIntentDigestB64u: input.expectedDigestB64u,
+      },
+    };
+  }
+
+  private async verifyRegistrationEmailOtpAuthority(input: {
+    readonly orgId: string;
+    readonly authority: Extract<StartWalletRegistrationInput['authority'], { kind: 'email_otp' }>;
+    readonly expectedDigestB64u: string;
+    readonly intent: RegistrationIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly authority: Extract<
+          RegistrationAuthority,
+          { kind: 'email_otp'; proofKind: 'otp_challenge' }
+        >;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const proof = normalizeEmailOtpRegistrationProof(input.authority.emailOtpRegistrationProof);
+    if (!proof) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpRegistrationProof is required for Email OTP registration',
+      };
+    }
+    if (proof.proofKind !== 'otp_challenge') {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'Cloudflare D1 registration start currently supports direct Email OTP challenge proof',
+      };
+    }
+    if (proof.registrationIntentDigestB64u !== input.expectedDigestB64u) {
+      return {
+        ok: false,
+        code: 'registration_intent_digest_mismatch',
+        message: 'Email OTP registration proof is not bound to this registration intent',
+      };
+    }
+    if (input.intent.authMethod.kind !== 'email_otp') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP registration authority requires an Email OTP intent',
+      };
+    }
+    if (input.intent.authMethod.proofKind !== 'otp_challenge') {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'Cloudflare D1 registration start currently supports direct Email OTP challenge intent',
+      };
+    }
+    if (proof.email !== input.intent.authMethod.email.toLowerCase()) {
+      return {
+        ok: false,
+        code: 'email_mismatch',
+        message: 'Email OTP registration proof email does not match the intent',
+      };
+    }
+    const verified = await this.verifyEmailOtpRegistrationChallengeCode({
+      providerSubject: proof.providerSubject,
+      proofEmail: proof.email,
+      walletId: input.intent.walletId,
+      orgId: input.orgId,
+      challengeId: proof.challengeId,
+      otpCode: proof.otpCode,
+      otpChannel: proof.otpChannel,
+      sessionHash: input.expectedDigestB64u,
+      appSessionVersion: proof.appSessionVersion,
+    });
+    if (!verified.ok) return verified;
+    const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
+    if (verifiedEmail !== proof.email) {
+      return {
+        ok: false,
+        code: 'email_mismatch',
+        message: 'Verified Email OTP address does not match the registration proof',
+      };
+    }
+    const emailHashHex = bytesToHex(
+      await sha256BytesPortable(new TextEncoder().encode(proof.email)),
+    );
+    const duplicateEmailOtp = await input.walletAuthMethodStore.getEmailOtp({
+      walletId: input.intent.walletId,
+      emailHashHex,
+    });
+    if (duplicateEmailOtp && duplicateEmailOtp.status === 'active') {
+      return {
+        ok: false,
+        code: 'duplicate_auth_method',
+        message: 'Email OTP auth method is already registered',
+      };
+    }
+    const providerSubject = parseProviderSubject(proof.providerSubject);
+    const challengeSubjectId = parseChallengeSubjectId(proof.providerSubject);
+    const challengeId = parseEmailOtpChallengeId(proof.challengeId);
+    const orgId = parseOrgId(input.orgId);
+    const appSessionVersion = parseAppSessionVersion(proof.appSessionVersion);
+    if (
+      !providerSubject.ok ||
+      !challengeSubjectId.ok ||
+      !challengeId.ok ||
+      !orgId.ok ||
+      !appSessionVersion.ok
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP registration proof contains invalid domain fields',
+      };
+    }
+    return {
+      ok: true,
+      authority: {
+        kind: 'email_otp',
+        proofKind: 'otp_challenge',
+        walletId: input.intent.walletId,
+        providerSubject: providerSubject.value,
+        challengeSubjectId: challengeSubjectId.value,
+        email: proof.email,
+        emailHashHex,
+        challengeId: challengeId.value,
+        registrationAuthorityId: challengeId.value,
+        originalWalletId: input.intent.walletId,
+        finalWalletId: input.intent.walletId,
+        orgId: orgId.value,
+        appSessionVersion: appSessionVersion.value,
+        challengePurpose: 'registration',
+        registrationIntentDigestB64u: input.expectedDigestB64u,
+      },
+    };
+  }
+
   private async verifyAddAuthMethodAuthority(input: {
     readonly orgId: string;
     readonly authority: StartWalletAddAuthMethodInput['authority'];
@@ -13077,6 +13577,7 @@ export function createCloudflareD1RelayAuthService(
   });
   const metadata = new CloudflareD1RelayAuthMetadataService(input);
   service.createRegistrationIntent = metadata.createRegistrationIntent.bind(metadata);
+  service.startWalletRegistration = metadata.startWalletRegistration.bind(metadata);
   service.createAddSignerIntent = metadata.createAddSignerIntent.bind(metadata);
   service.startWalletAddSigner = metadata.startWalletAddSigner.bind(metadata);
   service.respondWalletAddSignerHss = metadata.respondWalletAddSignerHss.bind(metadata);

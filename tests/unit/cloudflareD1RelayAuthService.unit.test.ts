@@ -2536,6 +2536,187 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
   }
 });
 
+test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremonies through Durable Objects', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const rpId = 'example.com';
+    const email = 'owner@example.test';
+    const providerSubject = 'google:registration-user';
+    const appSessionVersion = 'registration-session-v1';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const registration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'server_generated' },
+        rpId,
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          email,
+          otpCode: 'intent-otp-placeholder',
+          appSessionJwt: 'intent-session-placeholder',
+        },
+        signerSelection: {
+          mode: 'ecdsa_only',
+          ecdsa: {
+            participantIds: [1, 2, 3],
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+          },
+        },
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+      orgId: scope.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: registration.registrationIntentDigestB64u,
+      appSessionVersion,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.message);
+    expect(started.intent).toEqual(registration.intent);
+    expect(started.ecdsa).toMatchObject({
+      kind: 'evm_family_ecdsa_keygen',
+      chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+      prepare: {
+        formatVersion: 'ecdsa-hss-role-local',
+        walletId: registration.intent.walletId,
+        signingRootId: `${scope.projectId}:${scope.envId}`,
+        signingRootVersion: 'root-v1',
+        keyScope: 'evm-family',
+        remainingUses: 3,
+        participantIds: [1, 2, 3],
+        runtimePolicyScope: {
+          orgId: scope.orgId,
+          projectId: scope.projectId,
+          envId: scope.envId,
+          signingRootVersion: 'root-v1',
+        },
+      },
+    });
+    expect(started.ecdsa?.prepare.walletKeyId).toContain(
+      encodeURIComponent(`${scope.projectId}:${scope.envId}`),
+    );
+    expect(started.ecdsa?.prepare.ecdsaThresholdKeyId).toMatch(/^ehss-/);
+    expect(started.ecdsa?.prepare.relayerKeyId).toMatch(/^ehss-relayer-/);
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(`${prefix}intent:${registration.registrationIntentGrant}`),
+    ).toBeUndefined();
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toMatchObject({
+      intent: registration.intent,
+      digestB64u: registration.registrationIntentDigestB64u,
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      authority: {
+        kind: 'email_otp',
+        proofKind: 'otp_challenge',
+        walletId: registration.intent.walletId,
+        providerSubject,
+        email,
+        challengeId: challenge.challenge.challengeId,
+      },
+      signerState: {
+        kind: 'ecdsa_prepared',
+        hssKind: 'evm_family_ecdsa_keygen',
+        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+        prepare: started.ecdsa?.prepare,
+      },
+    });
+
+    await expect(
+      service.startWalletRegistration({
+        registrationIntentGrant: registration.registrationIntentGrant,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        intent: registration.intent,
+        authority: {
+          kind: 'email_otp',
+          emailOtpRegistrationProof: {
+            version: 'email_otp_registration_proof_v1',
+            proofKind: 'otp_challenge',
+            providerSubject,
+            email,
+            challengeId: challenge.challenge.challengeId,
+            otpCode: outbox.otpCode,
+            otpChannel: 'email_otp',
+            registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+            appSessionVersion,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_grant',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods through D1 and Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {

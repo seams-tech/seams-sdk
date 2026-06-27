@@ -188,6 +188,12 @@ Line-count cleanup baseline:
   start/respond/finalize remains a named ceremony gap, and the shared
   disabled-service scaffold remains until the remaining 7 signer methods are
   implemented.
+- [x] ECDSA wallet-registration start slice recorded before plan-doc update:
+  682 code additions and 0 code deletions across the D1 relay auth service and
+  unit tests. The same-slice cleanup pass replaced the D1 factory fallback for
+  `startWalletRegistration`; the shared disabled-service scaffold remains a
+  blocker to physical deletion until the remaining 6 signer and recovery
+  ceremony methods are implemented.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -1043,13 +1049,18 @@ Completed:
   consume registration Email OTP challenges, bind app-session policy to the
   exact intent/runtime scope, persist wallet auth-method rows in D1, and consume
   ceremonies exactly once.
-- [x] Cloudflare relay auth service D1 methods start, respond to, and finalize ECDSA
-  add-signer ceremonies
-  through Durable Object intent and ceremony storage, bind app-session policy to
-  the exact signer selection/runtime scope, emit ECDSA role-local prepare state,
-  persist responded ECDSA role-local bootstrap state, persist finalized ECDSA
-  wallet signer rows in D1, and consume add-signer intents and finalize
-  ceremonies exactly once. Remaining disabled signer methods: 7.
+- [x] Cloudflare relay auth service D1 methods start ECDSA-only wallet
+  registration ceremonies through Durable Object intent and ceremony storage,
+  consume registration Email OTP challenges, bind authority proofs to the exact
+  registration intent/runtime scope, emit ECDSA role-local prepare state, and
+  consume registration intents exactly once.
+- [x] Cloudflare relay auth service D1 methods start, respond to, and finalize
+  ECDSA add-signer ceremonies through Durable Object intent and ceremony
+  storage, bind app-session policy to the exact signer selection/runtime scope,
+  emit ECDSA role-local prepare state, persist responded ECDSA role-local
+  bootstrap state, persist finalized ECDSA wallet signer rows in D1, and
+  consume add-signer intents and finalize ceremonies exactly once. Remaining
+  disabled signer/recovery ceremony methods: 6.
 - [x] The Cloudflare service-bundle relay options are wired to the Durable Object
   normal-signing admission store.
 - [x] The Cloudflare service-bundle relay options are wired to D1-backed
