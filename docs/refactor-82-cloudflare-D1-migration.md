@@ -3,10 +3,11 @@
 Date created: June 26, 2026
 Updated: June 27, 2026
 
-Status: simplified first-cut execution plan. This plan moves the default Seams
-console and signer persistence path to Cloudflare D1 plus Durable Objects, while
-keeping a clean full-family Postgres escape hatch for future scale or relational
-needs.
+Status: execution checkpoint. Steps 1 and 2 are complete for the current D1/DO
+staging scope, steps 3 through 5 are in progress, and step 6 is pending. This
+plan moves the default Seams console and signer persistence path to Cloudflare
+D1 plus Durable Objects, while keeping a clean full-family Postgres escape hatch
+for future scale or relational needs.
 
 Refactor 82 is an execution plan, not a generic multi-database platform build.
 The first deliverable is a D1/DO staging backend that can run sponsored gas,
@@ -117,12 +118,15 @@ This six-step sequence is the authoritative execution path for refactor 82. The
 remaining sections define the invariants and detailed ownership model for those
 steps.
 
-1. Inventory current Postgres coupling in `seams-console` and `seams-signer`.
-2. Define D1 schemas and Durable Object ownership boundaries.
-3. Add D1/DO adapters behind existing domain-store interfaces.
-4. Make local development run on Wrangler/Miniflare D1 by default.
-5. Port staging-required tests to D1/DO adapters.
-6. Deploy D1/DO staging only after local D1 smoke, Durable Object tests,
+1. [x] Inventory current Postgres coupling in `seams-console` and
+   `seams-signer`.
+2. [x] Define D1 schemas and Durable Object ownership boundaries for the
+   current staging baseline.
+3. [ ] Add D1/DO adapters behind existing domain-store interfaces. In progress.
+4. [ ] Make local development run on Wrangler/Miniflare D1 by default. In
+   progress.
+5. [ ] Port staging-required tests to D1/DO adapters. In progress.
+6. [ ] Deploy D1/DO staging only after local D1 smoke, Durable Object tests,
    sponsored gas reconciliation checks, signer custody checks, and restore
    drills pass.
 
@@ -855,87 +859,107 @@ hatch.
 
 ### Step 1: Inventory Postgres Coupling
 
-Status: first pass complete. Keep the ownership matrix current as adapters
-land.
+Status: complete for the current staging inventory. Keep the ownership matrix
+current as adapters land.
 
 Work:
 
-- Inventory `seams-console` Postgres services, SQL files, migrations, and tests.
-- Inventory `seams-signer` Postgres tables and runtime call sites.
-- Categorize each table as console D1, signer D1, signer Durable Object, raw
+- [x] Inventory `seams-console` Postgres services, SQL files, migrations, and
+  tests.
+- [x] Inventory `seams-signer` Postgres tables and runtime call sites.
+- [x] Categorize each table as console D1, signer D1, signer Durable Object, raw
   archive, or deferred Postgres escape-hatch concern.
-- Record every `FOR UPDATE`, `SKIP LOCKED`, advisory lock, transaction, JSONB,
-  partial-index, and RLS dependency.
+- [x] Record every `FOR UPDATE`, `SKIP LOCKED`, advisory lock, transaction,
+  JSONB, partial-index, and RLS dependency needed for the current staging scope.
 
 Exit criteria:
 
-- Every current Postgres table and SQL primitive has a target owner in this
+- [x] Every current Postgres table and SQL primitive has a target owner in this
   document.
-- Remaining unknowns are tracked as explicit open items before adapter work
+- [x] Remaining unknowns are tracked as explicit open items before adapter work
   starts.
 
 ### Step 2: Define D1 Schemas And Durable Object Ownership
 
-Status: complete for the first implemented adapter slices; continue only for
-remaining staging-required flows.
+Status: complete for the current D1/DO schema and Durable Object ownership
+baseline. Reopen only if a remaining staging-required signer method needs a new
+table, index, or Durable Object state key.
 
 Work:
 
-- Add D1 migrations for the console and signer tables required by staging.
-- Add Durable Object storage schemas for signer coordination atoms.
-- Define lifecycle states, idempotency keys, tenant-first indexes, lease
+- [x] Add D1 migrations for the console and signer tables required by staging.
+- [x] Add Durable Object storage schemas for signer coordination atoms.
+- [x] Define lifecycle states, idempotency keys, tenant-first indexes, lease
   columns, and atomic D1/SQLite invariants.
-- Store JSON as `TEXT` and add side tables only for indexed membership queries.
+- [x] Store JSON as `TEXT` and add side tables only for indexed membership
+  queries.
 
 Exit criteria:
 
-- Local Wrangler/Miniflare migrations apply cleanly for `CONSOLE_DB` and
+- [x] Local Wrangler/Miniflare migrations apply cleanly for `CONSOLE_DB` and
   `SIGNER_DB`.
-- Every staging-required table appears in the D1 smoke Worker.
-- Atomic billing, sponsored settlement, snapshot leases, and signer secret rows
-  have focused schema tests.
+- [x] Every current staging-required table appears in the D1 smoke Worker.
+- [x] Atomic billing, sponsored settlement, snapshot leases, and signer secret
+  rows have focused schema tests for the implemented baseline.
 
 ### Step 3: Add D1/DO Adapters Behind Domain Stores
 
 Status: in progress.
 
-Work:
+Completed:
 
-- Keep the signer Email OTP D1 adapter slice covered by migration, local smoke,
-  and contract tests.
-- Keep device linking deferred to refactor 84 while the feature remains
-  disabled at the route and service layers.
-- Add threshold public-key metadata D1 tables only if a dashboard lookup
-  requirement appears.
-- Keep the Cloudflare service-bundle relay options wired to the Durable Object
+- [x] Console D1 adapters cover the first staging dashboard surface: orgs,
+  projects, environments, account/profile state, team RBAC, policies, API keys,
+  wallet index, approvals, key exports, audit, bootstrap tokens, billing,
+  prepaid reservations, sponsorship spend caps, sponsored-call records, runtime
+  snapshots, webhooks, compact observability, Stripe credit purchases, monthly
+  usage statements, and billing finalization.
+- [x] Sponsored gas settlement stays on the D1 atomic path for staging.
+- [x] Signer D1 adapters cover wallet metadata/auth methods, WebAuthn storage,
+  identity links, app-session versions, recovery sessions/executions, NEAR
+  public keys, email recovery preparations, Email OTP storage, Email OTP login
+  challenge/grant/rate-limit flow, Email OTP device-recovery challenge/grant
+  flow, Email OTP recovery-key consumption and failure-attempt reporting, Email
+  OTP provider delivery, Email OTP unlock challenge/proof flow, and sealed
+  signing-root secret shares.
+- [x] Cloudflare relay auth service D1 methods cover recovery-session reads,
+  recovery-session status transitions, recovery-execution upserts, Email OTP
+  device recovery, Email OTP recovery-key consumption, recovery-key failure
+  reporting, and Email OTP provider delivery.
+- [x] Durable Objects cover registration ceremonies, signing admission, signing
+  budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
+  signing-root coordination where serialized mutation is the required property.
+- [x] The Cloudflare service-bundle relay options are wired to the Durable Object
   normal-signing admission store.
-- Keep the Cloudflare service-bundle relay options wired to D1-backed billing,
-  prepaid reservations, sponsorship spend caps, sponsored-call records, API
-  keys, bootstrap tokens, wallet indexes, runtime snapshots, and observability
-  ingestion.
-- Audit existing Durable Object stores for signer budgets, replay guards,
-  presignature pools, and signing-root coordination. Add contract tests only
-  for missing staging-required behavior.
-- Keep the KEK provider boundary narrow: Cloudflare Secrets Store for hosted
+- [x] The Cloudflare service-bundle relay options are wired to D1-backed
+  billing, prepaid reservations, sponsorship spend caps, sponsored-call records,
+  API keys, bootstrap tokens, wallet indexes, runtime snapshots, and
+  observability ingestion.
+- [x] The KEK provider boundary stays narrow: Cloudflare Secrets Store for hosted
   production, Wrangler secrets for local development, external KMS/HSM for
   enterprise custody.
-- Keep Cloudflare Worker-facing imports pointed at D1/DO leaf modules. Do not
-  import mixed Postgres modules from Worker bundles.
-- Keep sponsored gas settlement on the D1 atomic path for staging. Reintroduce
-  Postgres settlement only as part of the future full-family Postgres adapter.
-- Keep Cloudflare cron on D1 runner inputs. Postgres cron belongs to a future
+- [x] Cloudflare Worker-facing imports point at D1/DO leaf modules and the
+  runtime import guard rejects Postgres storage, mixed console barrels, and
+  session-seal barrels in Worker bundles.
+- [x] Cloudflare cron stays on D1 runner inputs. Postgres cron belongs to a future
   full-family Postgres adapter surface, not the D1/DO staging Worker helper.
-- Keep Cloudflare signer routes typed against `CloudflareRelayAuthService`.
-  The next implementation must provide this port from `SIGNER_DB`, signer
-  Durable Objects, and the signer KEK resolver without constructing the mixed
-  Postgres-capable `AuthService` class in Worker code.
-- Keep signer metadata methods in Worker-safe D1 leaf modules. Do not import
-  mixed core signer store modules from Cloudflare routes because those modules
-  still include Postgres runtime imports.
-- Finish the staging-required signer auth methods as separate conditional-D1 or
-  Durable Object slices: Email OTP registration attempts, recovery-code
-  rotation, WebAuthn verification, wallet registration, signed delegates, and
-  threshold signing admission.
+- [x] Cloudflare signer routes are typed against `CloudflareRelayAuthService`.
+- [x] Signer metadata methods live in Worker-safe D1 leaf modules.
+- [x] Device linking remains deferred to refactor 84 while the feature remains
+  disabled at the route and service layers.
+- [x] Threshold public-key metadata D1 tables remain deferred until a dashboard
+  lookup requirement appears.
+
+Remaining:
+
+- [ ] Finish the staging-required signer auth methods as separate D1 or Durable
+  Object slices: Email OTP registration attempts, recovery-code rotation,
+  WebAuthn verification, wallet registration, signed delegates, and threshold
+  signing admission.
+- [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
+  smoke, and contract tests as each remaining method lands.
+- [ ] Add contract tests for any missing Durable Object staging behavior found
+  while finishing the remaining signer methods.
 
 Exit criteria:
 
@@ -946,34 +970,37 @@ Exit criteria:
 
 ### Step 4: Make Local Development D1/DO By Default
 
-Status: SDK package command path, local D1/DO console Worker path, local
-sponsored-gas relay path, Cloudflare signer route service port, and bundle
-smoke complete; D1/DO signer service implementation path still in progress.
+Status: in progress. SDK package command path, local D1/DO console Worker path,
+local sponsored-gas relay path, Cloudflare signer route service port, and bundle
+smoke are complete. D1/DO signer service implementation remains in progress.
 
 Work:
 
-- Keep the default SDK local console/signer path on Wrangler/Miniflare D1 and
-  local Durable Object storage for staging-required flows.
-- Use `pnpm --dir packages/sdk-server-ts run d1:local:prepare` for local
+- [x] Keep the default SDK local console and sponsored-gas relay path on
+  Wrangler/Miniflare D1 and local Durable Object storage for staging-required
+  flows.
+- [x] Use `pnpm --dir packages/sdk-server-ts run d1:local:prepare` for local
   migrations plus table smoke, and
   `pnpm --dir packages/sdk-server-ts run d1:local:dev` for Wrangler dev.
-- Use `GET /readyz` on the local Worker as the exact readiness gate. It must
+- [x] Use `GET /readyz` on the local Worker as the exact readiness gate. It must
   report `backend: "cloudflare_d1_do"`, 40 console tables, 21 signer tables,
   and a configured Durable Object admission reservation.
-- Use `/console/*` for real D1-backed console route development.
-- Use `/relay/*` for sponsored-gas relay smoke development, with local EVM
+- [x] Use `/console/*` for real D1-backed console route development.
+- [x] Use `/relay/*` for sponsored-gas relay smoke development, with local EVM
   execution configured through `SPONSORED_EVM_EXECUTORS_JSON` when needed.
-- Keep signer routes fail-closed until their D1/DO `CloudflareRelayAuthService`
-  methods are implemented.
-- Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
+- [x] Keep signer routes fail-closed while their D1/DO
+  `CloudflareRelayAuthService` methods are incomplete.
+- [ ] Run representative signer smoke through Wrangler after the
+  Cloudflare-safe signer AuthService slice lands.
+- [x] Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
-- Keep Docker Postgres available only for legacy tests and unfinished
+- [x] Keep Docker Postgres available only for legacy tests and unfinished
   non-staging paths while those paths are removed from the default workflow.
-- Reset clean local state by deleting
+- [x] Reset clean local state by deleting
   `packages/sdk-server-ts/.wrangler/state/seams-d1`; add a fixture seed/import
   command only after the staging fixture format is chosen.
-- Document read-only TablePlus inspection of local SQLite files under
+- [x] Document read-only TablePlus inspection of local SQLite files under
   `packages/sdk-server-ts/.wrangler/state/seams-d1`.
 
 Exit criteria:
@@ -993,12 +1020,16 @@ Status: in progress.
 
 Work:
 
-- Move persistence tests for staging-required flows onto D1/DO adapters.
-- Add Workers/Vitest or Playwright coverage where real bindings matter.
-- Keep pure unit fakes for core logic that does not depend on SQL behavior.
-- Cover duplicate idempotency, insufficient balance, settlement replay, lease
-  races, tenant isolation, sealed-share parsing, budget exhaustion, and
-  signing-root coordination.
+- [x] Move implemented staging-required persistence flows onto D1/DO adapter
+  tests.
+- [x] Add Playwright unit coverage for implemented Cloudflare D1 relay auth
+  service slices and the Worker runtime import guard.
+- [x] Keep pure unit fakes for core logic that does not depend on SQL behavior.
+- [ ] Cover every remaining duplicate idempotency, insufficient balance,
+  settlement replay, lease races, tenant isolation, sealed-share parsing,
+  budget exhaustion, and signing-root coordination.
+- [ ] Add coverage for the remaining signer auth methods as each D1/DO adapter
+  slice lands.
 
 Exit criteria:
 
@@ -1060,18 +1091,20 @@ successful Durable Object normal-signing admission reservation.
 
 Proceed in this order:
 
-1. Inventory only remaining Postgres coupling that is still on a
+1. [x] Inventory only remaining Postgres coupling that is still on a
    staging-required console, signer, sponsored gas, billing, or reconciliation
    request path.
-2. Freeze D1 schemas and Durable Object ownership boundaries for those paths.
-3. Add the remaining D1/DO adapters behind existing domain-store ports, keeping
-   Worker imports on D1/DO leaf modules and the runtime dependency guard passing.
-4. Make local development run through Wrangler/Miniflare D1 and local Durable
+2. [x] Freeze D1 schemas and Durable Object ownership boundaries for those
+   paths.
+3. [ ] Add the remaining D1/DO adapters behind existing domain-store ports,
+   keeping Worker imports on D1/DO leaf modules and the runtime dependency guard
+   passing.
+4. [ ] Make local development run through Wrangler/Miniflare D1 and local Durable
    Object storage by default. Docker Postgres stays outside the default D1/DO
    staging workflow.
-5. Port staging-required persistence tests to D1/DO adapters and keep pure core
-   tests on fakes where SQL or Durable Object semantics are irrelevant.
-6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
+5. [ ] Port staging-required persistence tests to D1/DO adapters and keep pure
+   core tests on fakes where SQL or Durable Object semantics are irrelevant.
+6. [ ] Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
    tests, sponsored gas reconciliation checks, signer custody checks, Time
    Travel bookmark capture, and R2 export/restore drills pass.
 
