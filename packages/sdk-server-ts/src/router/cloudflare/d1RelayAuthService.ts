@@ -62,6 +62,8 @@ export interface CloudflareD1RelayAuthServiceOptions {
   readonly emailOtpVerifyRateLimitWindowMs?: number | string;
   readonly emailOtpGrantRateLimitMax?: number | string;
   readonly emailOtpGrantRateLimitWindowMs?: number | string;
+  readonly emailOtpRecoveryKeyAttemptRateLimitMax?: number | string;
+  readonly emailOtpRecoveryKeyAttemptRateLimitWindowMs?: number | string;
 }
 
 type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory';
@@ -80,6 +82,7 @@ type EmailOtpRuntimeConfig = {
     readonly challenge: EmailOtpRateLimitPolicy;
     readonly verify: EmailOtpRateLimitPolicy;
     readonly grant: EmailOtpRateLimitPolicy;
+    readonly recoveryKeyAttempt: EmailOtpRateLimitPolicy;
   };
 };
 
@@ -109,6 +112,8 @@ type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   | 'emailOtpVerifyRateLimitWindowMs'
   | 'emailOtpGrantRateLimitMax'
   | 'emailOtpGrantRateLimitWindowMs'
+  | 'emailOtpRecoveryKeyAttemptRateLimitMax'
+  | 'emailOtpRecoveryKeyAttemptRateLimitWindowMs'
 > & {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
@@ -166,6 +171,12 @@ type ConsumeEmailOtpRecoveryKeyInput = Parameters<
 >[0];
 type ConsumeEmailOtpRecoveryKeyResult = Awaited<
   ReturnType<CloudflareRelayAuthService['consumeEmailOtpRecoveryKey']>
+>;
+type RecordEmailOtpRecoveryKeyAttemptFailureInput = Parameters<
+  CloudflareRelayAuthService['recordEmailOtpRecoveryKeyAttemptFailure']
+>[0];
+type RecordEmailOtpRecoveryKeyAttemptFailureResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['recordEmailOtpRecoveryKeyAttemptFailure']>
 >;
 type CreateEmailOtpChallengeInput = Parameters<
   CloudflareRelayAuthService['createEmailOtpChallenge']
@@ -351,7 +362,7 @@ type EmailOtpAuthStatePatch = {
   readonly lastStrongAuthAtMs?: number | null;
 };
 
-type EmailOtpRateLimitScope = 'challenge' | 'verify' | 'grant';
+type EmailOtpRateLimitScope = 'challenge' | 'verify' | 'grant' | 'recoveryKeyAttempt';
 type EmailOtpExistingChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
@@ -541,6 +552,9 @@ function normalizeEmailOtpConfig(
   const grantDefault = production
     ? { limit: 8, windowMs: 5 * 60_000 }
     : { limit: 100, windowMs: 60_000 };
+  const recoveryKeyAttemptDefault = production
+    ? { limit: 10, windowMs: 5 * 60_000 }
+    : { limit: 100, windowMs: 60_000 };
   return {
     deliveryMode,
     production,
@@ -617,6 +631,15 @@ function normalizeEmailOtpConfig(
         windowField: 'emailOtpGrantRateLimitWindowMs',
         windowRaw: input.emailOtpGrantRateLimitWindowMs,
         windowFallback: grantDefault.windowMs,
+      }),
+      recoveryKeyAttempt: emailOtpRateLimitPolicy({
+        limitField: 'emailOtpRecoveryKeyAttemptRateLimitMax',
+        limitRaw: input.emailOtpRecoveryKeyAttemptRateLimitMax,
+        limitFallback: recoveryKeyAttemptDefault.limit,
+        limitMax: 1000,
+        windowField: 'emailOtpRecoveryKeyAttemptRateLimitWindowMs',
+        windowRaw: input.emailOtpRecoveryKeyAttemptRateLimitWindowMs,
+        windowFallback: recoveryKeyAttemptDefault.windowMs,
       }),
     },
   };
@@ -2784,6 +2807,87 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async recordEmailOtpRecoveryKeyAttemptFailure(
+    input: RecordEmailOtpRecoveryKeyAttemptFailureInput,
+  ): Promise<RecordEmailOtpRecoveryKeyAttemptFailureResult> {
+    try {
+      const recoveryConsumeGrant = toOptionalTrimmedString(input.recoveryConsumeGrant);
+      const userId = toOptionalTrimmedString(input.userId);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const sessionHash = toOptionalTrimmedString(input.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const clientIp = toOptionalTrimmedString(input.clientIp);
+      if (!recoveryConsumeGrant) {
+        return { ok: false, code: 'invalid_body', message: 'Missing recoveryConsumeGrant' };
+      }
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+
+      const grantRecord = await this.readEmailOtpGrantRecord(recoveryConsumeGrant);
+      if (!grantRecord || Date.now() > grantRecord.expiresAtMs) {
+        if (grantRecord) await this.deleteEmailOtpGrantRecord(recoveryConsumeGrant);
+        return emailOtpRecoveryConsumeGrantInvalidOrExpired();
+      }
+      if (grantRecord.action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery) {
+        return emailOtpRecoveryConsumeGrantInvalidOrExpired();
+      }
+      const bindingMismatch =
+        grantRecord.userId !== userId ||
+        grantRecord.walletId !== walletId ||
+        grantRecord.otpChannel !== EMAIL_OTP_CHANNEL ||
+        grantRecord.sessionHash !== sessionHash ||
+        grantRecord.appSessionVersion !== appSessionVersion ||
+        grantRecord.orgId !== orgId;
+      if (bindingMismatch) return emailOtpRecoveryGrantBindingMismatch();
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'recoveryKeyAttempt',
+        action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) return enrollment;
+
+      const activeRecoveryWrappedEnrollmentEscrowCount = (
+        await this.listEmailOtpRecoveryEscrowsForEnrollment(enrollment.enrollment)
+      ).filter(activeEmailOtpRecoveryEscrow).length;
+      if (activeRecoveryWrappedEnrollmentEscrowCount <= 0) {
+        return {
+          ok: false,
+          code: 'recovery_wrapped_escrows_missing',
+          message: 'No active Email OTP recovery-wrapped enrollment escrows are available',
+        };
+      }
+
+      return {
+        ok: true,
+        walletId,
+        recordedAtMs: Date.now(),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to record Email OTP recovery-key failure',
+      };
+    }
+  }
+
   async getOrCreateAppSessionVersion(
     input: GetOrCreateAppSessionVersionInput,
   ): Promise<GetOrCreateAppSessionVersionResult> {
@@ -3830,6 +3934,33 @@ class CloudflareD1RelayAuthMetadataService {
     return parseEmailOtpGrantRow(row);
   }
 
+  private async readEmailOtpGrantRecord(grantToken: string): Promise<EmailOtpGrantRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, expires_at_ms
+         FROM signer_email_otp_grants
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND grant_token = ?
+        LIMIT 1`,
+      [grantToken],
+    ).first<D1EmailOtpGrantRow>();
+    return parseEmailOtpGrantRow(row);
+  }
+
+  private async deleteEmailOtpGrantRecord(grantToken: string): Promise<void> {
+    await this.scopePrepare(
+      `DELETE FROM signer_email_otp_grants
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND grant_token = ?`,
+      [grantToken],
+    ).run();
+  }
+
   private async readAppSessionVersion(userId: string): Promise<string | null> {
     const row = await this.scopePrepare(
       `SELECT session_version
@@ -3944,7 +4075,11 @@ function emailOtpGrantInvalidOrExpired(): ConsumeEmailOtpGrantResult {
   };
 }
 
-function emailOtpRecoveryConsumeGrantInvalidOrExpired(): ConsumeEmailOtpRecoveryKeyResult {
+function emailOtpRecoveryConsumeGrantInvalidOrExpired(): {
+  ok: false;
+  code: string;
+  message: string;
+} {
   return {
     ok: false,
     code: 'recovery_consume_grant_invalid_or_expired',
@@ -3952,7 +4087,11 @@ function emailOtpRecoveryConsumeGrantInvalidOrExpired(): ConsumeEmailOtpRecovery
   };
 }
 
-function emailOtpRecoveryGrantBindingMismatch(): ConsumeEmailOtpRecoveryKeyResult {
+function emailOtpRecoveryGrantBindingMismatch(): {
+  ok: false;
+  code: string;
+  message: string;
+} {
   return {
     ok: false,
     code: 'recovery_grant_binding_mismatch',
@@ -4081,6 +4220,8 @@ export function createCloudflareD1RelayAuthService(
   service.verifyEmailOtpUnlockProof = metadata.verifyEmailOtpUnlockProof.bind(metadata);
   service.consumeEmailOtpGrant = metadata.consumeEmailOtpGrant.bind(metadata);
   service.consumeEmailOtpRecoveryKey = metadata.consumeEmailOtpRecoveryKey.bind(metadata);
+  service.recordEmailOtpRecoveryKeyAttemptFailure =
+    metadata.recordEmailOtpRecoveryKeyAttemptFailure.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);

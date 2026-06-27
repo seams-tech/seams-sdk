@@ -1100,6 +1100,8 @@ test('Cloudflare D1 relay auth service issues and verifies device recovery Email
       projectId: scope.projectId,
       envId: scope.envId,
       emailOtpDeliveryMode: 'memory',
+      emailOtpRecoveryKeyAttemptRateLimitMax: 1,
+      emailOtpRecoveryKeyAttemptRateLimitWindowMs: 60_000,
     });
 
     const challenge = await service.createEmailOtpDeviceRecoveryChallenge({
@@ -1195,6 +1197,32 @@ test('Cloudflare D1 relay auth service issues and verifies device recovery Email
       )
       .first<SqliteJsonRow>();
     expect(grantRow?.action).toBe('wallet_email_otp_device_recovery');
+
+    const failureReport = await service.recordEmailOtpRecoveryKeyAttemptFailure({
+      recoveryConsumeGrant: verified.recoveryConsumeGrant,
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      sessionHash: 'session-hash-a',
+      appSessionVersion: 'session-v1',
+      clientIp: '203.0.113.42',
+    });
+    expect(failureReport.ok).toBe(true);
+    if (!failureReport.ok) throw new Error(failureReport.message);
+    expect(failureReport.walletId).toBe('email-wallet.testnet');
+    expect(failureReport.recordedAtMs).toBeGreaterThan(0);
+
+    await expect(
+      service.recordEmailOtpRecoveryKeyAttemptFailure({
+        recoveryConsumeGrant: verified.recoveryConsumeGrant,
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'session-v1',
+        clientIp: '203.0.113.42',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'rate_limited' });
 
     const consumed = await service.consumeEmailOtpRecoveryKey({
       recoveryConsumeGrant: verified.recoveryConsumeGrant,

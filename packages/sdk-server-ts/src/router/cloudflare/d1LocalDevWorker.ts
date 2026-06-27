@@ -35,6 +35,8 @@ interface LocalD1DevEnv {
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
+  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
+  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_ID?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
@@ -377,6 +379,10 @@ function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
     accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
     emailOtpDeliveryMode: env.EMAIL_OTP_DELIVERY_MODE || 'memory',
     emailOtpDevOutboxEnabled: env.EMAIL_OTP_DEV_OUTBOX_ENABLED ?? true,
+    emailOtpRecoveryKeyAttemptRateLimitMax:
+      env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX,
+    emailOtpRecoveryKeyAttemptRateLimitWindowMs:
+      env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS,
   });
 }
 
