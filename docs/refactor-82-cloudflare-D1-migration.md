@@ -3,9 +3,17 @@
 Date created: June 26, 2026
 Updated: June 27, 2026
 
-Status: simplified execution plan. This plan moves the default Seams console and
-signer persistence path to Cloudflare D1 plus Durable Objects, while keeping a
-clean full-family Postgres escape hatch for future scale or relational needs.
+Status: simplified first-cut execution plan. This plan moves the default Seams
+console and signer persistence path to Cloudflare D1 plus Durable Objects, while
+keeping a clean full-family Postgres escape hatch for future scale or relational
+needs.
+
+Refactor 82 is an execution plan, not a generic multi-database platform build.
+The first deliverable is a D1/DO staging backend that can run sponsored gas,
+prepaid billing, signer custody, dashboard reconciliation, local development,
+tests, Time Travel bookmarks, and R2 restore drills without Docker Postgres.
+Postgres stays as a typed escape-hatch contract until an explicit scale,
+throughput, enterprise, or relational trigger requires implementation.
 
 ## Decision
 
@@ -48,6 +56,12 @@ Authoritative Cloudflare references:
 - Implement D1/DO first.
 - Keep Postgres as a documented full-family backend contract until a real
   trigger requires implementation.
+- First staging uses static shared D1/DO route resolution. Dynamic tenant route
+  registry, dedicated tenant D1 databases, and a live Postgres adapter are
+  deferred.
+- Keep Postgres work at the contract boundary for refactor 82: route union,
+  domain-store ports, schema semantics, transaction semantics, migration
+  playbook, and readiness bar.
 - Resolve storage once per request from tenant identity.
 - Pass domain stores into core logic. Core code never receives raw D1 bindings,
   Postgres clients, transaction handles, Durable Object stubs, or raw rows.
@@ -96,6 +110,44 @@ Authoritative Cloudflare references:
   signing-root coordination.
 - Cloudflare Secrets Store is the hosted signer KEK source. External KMS/HSM
   support stays behind the signer KEK provider interface.
+
+## Simplified First-Cut Plan
+
+This six-step sequence is the authoritative execution path for refactor 82. The
+remaining sections define the invariants and detailed ownership model for those
+steps.
+
+1. Inventory current Postgres coupling in `seams-console` and `seams-signer`.
+2. Define D1 schemas and Durable Object ownership boundaries.
+3. Add D1/DO adapters behind existing domain-store interfaces.
+4. Make local development run on Wrangler/Miniflare D1 by default.
+5. Port staging-required tests to D1/DO adapters.
+6. Deploy D1/DO staging only after local D1 smoke, Durable Object tests,
+   sponsored gas reconciliation checks, signer custody checks, and restore
+   drills pass.
+
+Definition of done for the first cut:
+
+- Staging starts on D1/DO.
+- No request path mixes D1/DO and Postgres.
+- Sponsored EVM gas uses prepaid billing reservations and atomic D1 settlement.
+- Signer secrets are sealed before storage, with KEKs resolved through the
+  signer-only KEK provider.
+- The dashboard can reconcile sponsored gas, billing ledger evidence, runtime
+  snapshots, and signer state from D1/DO.
+- Local development uses Wrangler/Miniflare D1 and local Durable Object storage
+  without Docker Postgres for staging-required flows.
+- The Postgres escape hatch remains a documented full-family contract with a
+  migration playbook and readiness bar.
+
+Deferred until a concrete trigger:
+
+- Live Postgres adapter implementation.
+- Persistent tenant route registry.
+- Dedicated tenant D1 databases.
+- Threshold public-key metadata tables unless dashboard or reconciliation reads
+  require them.
+- Device linking, which remains refactor 84 scope while routes return 410.
 
 ## Current Baseline
 
@@ -152,8 +204,9 @@ Remaining before D1 staging:
 - Billing summaries, append-only ledger entries, reservations, settlement, and
   release flows.
 - Runtime snapshot persistence and snapshot outbox dispatch.
-- Signer metadata, wallet auth, WebAuthn, email OTP, threshold public-key
-  metadata, sealed signer ciphertext, recovery records, and identity indexes.
+- Signer metadata, wallet auth, WebAuthn, email OTP, sealed signer ciphertext,
+  recovery records, identity indexes, and threshold public-key metadata only
+  when dashboard or reconciliation reads require it.
 - Signer coordination in Durable Objects.
 - Local D1/DO development and D1 adapter tests.
 - Future Postgres adapter contract, readiness bar, and D1-to-Postgres migration
@@ -367,7 +420,7 @@ Current Postgres coupling is concentrated in:
 
 ### Adapter Checklist
 
-Before D1 staging, these adapters must exist behind domain-store ports:
+Before D1 staging, these D1/DO adapters must exist behind domain-store ports:
 
 - Console D1 remaining: none for the simplified first D1 staging scope.
 - Console D1 in place: org/project/env, account/profile, team RBAC, policies,
@@ -391,8 +444,11 @@ Before D1 staging, these adapters must exist behind domain-store ports:
 - Durable Objects remaining for staging: any missing local default wiring and
   contract coverage for the signer admission, budget, replay, presignature, and
   signing-root paths used by sponsored gas signing.
-- Postgres escape hatch: matching full-family ports, schemas, migrations, and
-  shared contract tests before any production tenant can select Postgres.
+- Postgres escape hatch: refactor 82 keeps the route type, domain-store port
+  contracts, schema semantics, transaction semantics, D1-to-Postgres migration
+  playbook, and readiness bar in this document. Live Postgres migrations,
+  adapters, and shared contract-test execution are required before any
+  production tenant can select Postgres; they do not block first D1/DO staging.
 
 ## D1 Schema Rules
 
@@ -742,9 +798,11 @@ Security notes:
 ## Postgres Escape Hatch
 
 Postgres is a future full-family backend adapter selected by
-`TenantStorageRoute`. Partial backend splits are invalid.
+`TenantStorageRoute`. Partial backend splits are invalid. The first D1/DO
+staging deploy does not require a live Postgres implementation.
 
-Postgres adapter readiness bar:
+Postgres adapter readiness bar before any production tenant can select
+Postgres:
 
 - Every required domain-store port has a Postgres implementation.
 - Postgres migrations exist for console, billing, sponsored gas, runtime
