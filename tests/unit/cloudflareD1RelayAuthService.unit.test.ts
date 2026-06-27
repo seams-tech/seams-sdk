@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,10 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RelayAuthService';
 import { createCloudflareD1RelayAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RelayAuthService';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import {
+  buildEmailOtpRecoveryWrapBinding,
+  encodeEmailOtpRecoveryWrappedEnrollmentAad,
+} from '../../packages/shared-ts/src/utils/emailOtpRecoveryKey';
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
@@ -597,6 +602,81 @@ function emailOtpRecoveryEscrowRecord(input: {
   };
 }
 
+type RecoveryRotationEscrowInput = {
+  readonly recoveryKeyId: string;
+  readonly nonceB64u: string;
+  readonly wrappedDeviceEnrollmentEscrowB64u: string;
+  readonly aadHashB64u: string;
+};
+
+function makeRecoveryRotationEscrowInputs(): RecoveryRotationEscrowInput[] {
+  const inputs: RecoveryRotationEscrowInput[] = [];
+  for (let index = 1; index <= 10; index += 1) {
+    inputs.push(recoveryRotationEscrowInput(index));
+  }
+  return inputs;
+}
+
+function recoveryRotationEscrowInput(index: number): RecoveryRotationEscrowInput {
+  const recoveryKeyId = `rotated-recovery-${index}`;
+  const binding = buildEmailOtpRecoveryWrapBinding({
+    walletId: 'email-wallet.testnet',
+    userId: 'google:email-user',
+    authSubjectId: 'google:email-user',
+    authMethod: 'google_sso_email_otp',
+    enrollmentId: 'enrollment-a',
+    enrollmentVersion: 'enrollment-v1',
+    enrollmentSealKeyVersion: 'seal-v1',
+    signingRootId: 'project-a:env-a',
+    signingRootVersion: 'root-v1',
+    recoveryKeyId,
+  });
+  return {
+    recoveryKeyId,
+    nonceB64u: base64UrlEncode(new Uint8Array(12).fill(index)),
+    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(new Uint8Array(32).fill(index + 10)),
+    aadHashB64u: base64UrlEncode(
+      createHash('sha256')
+        .update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding))
+        .digest(),
+    ),
+  };
+}
+
+async function readRecoveryEscrowStatusCounts(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+}): Promise<Record<string, number>> {
+  const result = await input.database
+    .prepare(
+      `SELECT recovery_key_status, COUNT(*) AS count
+         FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+        GROUP BY recovery_key_status`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      'email-wallet.testnet',
+    )
+    .all<SqliteJsonRow>();
+  const counts: Record<string, number> = {};
+  for (const row of result.results || []) {
+    const status = String(row.recovery_key_status || '').trim();
+    if (status) counts[status] = toInteger(row.count);
+  }
+  return counts;
+}
+
 async function insertRecoverySession(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -1006,6 +1086,211 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       configured: true,
       clientId: 'google-client',
     });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service rotates Email OTP recovery keys after fresh auth', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    await insertEmailOtpAuthState({ database, ...scope });
+    await insertEmailOtpRecoveryEscrow({
+      database,
+      ...scope,
+      recoveryKeyId: 'recovery-old-active',
+      recoveryKeyStatus: 'active',
+      issuedAtMs: 900,
+      updatedAtMs: 910,
+    });
+    await insertEmailOtpRecoveryEscrow({
+      database,
+      ...scope,
+      recoveryKeyId: 'recovery-old-consumed',
+      recoveryKeyStatus: 'consumed',
+      issuedAtMs: 920,
+      updatedAtMs: 930,
+    });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpGrantTtlMs: 60_000,
+    });
+    const freshAuth = await service.markEmailOtpStrongAuthSatisfied({
+      walletId: 'email-wallet.testnet',
+    });
+    expect(freshAuth.ok).toBe(true);
+    if (!freshAuth.ok) throw new Error(freshAuth.message);
+
+    const rotated = await service.rotateEmailOtpRecoveryKeys({
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      enrollmentId: 'enrollment-a',
+      enrollmentSealKeyVersion: 'seal-v1',
+      recoveryWrappedEnrollmentEscrows: makeRecoveryRotationEscrowInputs(),
+    });
+    expect(rotated.ok).toBe(true);
+    if (!rotated.ok) throw new Error(rotated.message);
+    expect(rotated).toMatchObject({
+      walletId: 'email-wallet.testnet',
+      enrollmentId: 'enrollment-a',
+      enrollmentSealKeyVersion: 'seal-v1',
+      activeRecoveryCodeCount: 10,
+      revokedRecoveryCodeCount: 1,
+      totalRecoveryCodeCount: 12,
+    });
+
+    const counts = await readRecoveryEscrowStatusCounts({ database, ...scope });
+    expect(counts).toEqual({ active: 10, consumed: 1, revoked: 1 });
+    await expect(
+      service.getEmailOtpRecoveryCodeStatus({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: 'ready',
+      activeRecoveryCodeCount: 10,
+      consumedRecoveryCodeCount: 1,
+      revokedRecoveryCodeCount: 1,
+      totalRecoveryCodeCount: 12,
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service rejects stale Email OTP recovery-key rotation', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    await insertEmailOtpAuthState({ database, ...scope });
+    await insertEmailOtpRecoveryEscrow({
+      database,
+      ...scope,
+      recoveryKeyId: 'recovery-old-active',
+      recoveryKeyStatus: 'active',
+      issuedAtMs: 900,
+      updatedAtMs: 910,
+    });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpGrantTtlMs: 60_000,
+    });
+    await expect(
+      service.rotateEmailOtpRecoveryKeys({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        enrollmentId: 'enrollment-a',
+        enrollmentSealKeyVersion: 'seal-v1',
+        recoveryWrappedEnrollmentEscrows: makeRecoveryRotationEscrowInputs(),
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'fresh_auth_required' });
+
+    const counts = await readRecoveryEscrowStatusCounts({ database, ...scope });
+    expect(counts).toEqual({ active: 1 });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service rejects invalid Email OTP recovery-key rotation payloads', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    await insertEmailOtpAuthState({ database, ...scope });
+    await insertEmailOtpRecoveryEscrow({
+      database,
+      ...scope,
+      recoveryKeyId: 'recovery-old-active',
+      recoveryKeyStatus: 'active',
+      issuedAtMs: 900,
+      updatedAtMs: 910,
+    });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpGrantTtlMs: 60_000,
+    });
+    const freshAuth = await service.markEmailOtpStrongAuthSatisfied({
+      walletId: 'email-wallet.testnet',
+    });
+    expect(freshAuth.ok).toBe(true);
+    if (!freshAuth.ok) throw new Error(freshAuth.message);
+
+    const duplicateInputs = makeRecoveryRotationEscrowInputs();
+    duplicateInputs[1] = {
+      ...duplicateInputs[1],
+      recoveryKeyId: duplicateInputs[0].recoveryKeyId,
+      aadHashB64u: duplicateInputs[0].aadHashB64u,
+    };
+    await expect(
+      service.rotateEmailOtpRecoveryKeys({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        enrollmentId: 'enrollment-a',
+        enrollmentSealKeyVersion: 'seal-v1',
+        recoveryWrappedEnrollmentEscrows: duplicateInputs,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'invalid_body' });
+
+    const badAadInputs = makeRecoveryRotationEscrowInputs();
+    badAadInputs[0] = {
+      ...badAadInputs[0],
+      aadHashB64u: base64UrlEncode(new Uint8Array(32).fill(250)),
+    };
+    await expect(
+      service.rotateEmailOtpRecoveryKeys({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        enrollmentId: 'enrollment-a',
+        enrollmentSealKeyVersion: 'seal-v1',
+        recoveryWrappedEnrollmentEscrows: badAadInputs,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'invalid_body' });
+
+    const counts = await readRecoveryEscrowStatusCounts({ database, ...scope });
+    expect(counts).toEqual({ active: 1 });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

@@ -180,8 +180,10 @@ runtime. The current codebase already has the important boundaries in place:
   OTP provider delivery, Email OTP unlock challenge/proof flow, and sealed
   signing-root secret shares.
 - Cloudflare relay auth service D1 methods cover recovery-session reads,
-  recovery-session status transitions, and recovery-execution upserts for the
-  email recovery route.
+  recovery-session status transitions, recovery-execution upserts for the email
+  recovery route, Email OTP device recovery, Email OTP recovery-key
+  consumption, recovery-key failure reporting, recovery-code rotation, and
+  Email OTP provider delivery.
 - Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the property.
@@ -925,7 +927,7 @@ Completed:
 - [x] Cloudflare relay auth service D1 methods cover recovery-session reads,
   recovery-session status transitions, recovery-execution upserts, Email OTP
   device recovery, Email OTP recovery-key consumption, recovery-key failure
-  reporting, and Email OTP provider delivery.
+  reporting, recovery-code rotation, and Email OTP provider delivery.
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the required property.
@@ -953,9 +955,8 @@ Completed:
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: Email OTP registration attempts, recovery-code rotation,
-  WebAuthn verification, wallet registration, signed delegates, and threshold
-  signing admission.
+  Object slices: Email OTP registration attempts, WebAuthn verification, wallet
+  registration, signed delegates, and threshold signing admission.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
@@ -1023,7 +1024,8 @@ Work:
 - [x] Move implemented staging-required persistence flows onto D1/DO adapter
   tests.
 - [x] Add Playwright unit coverage for implemented Cloudflare D1 relay auth
-  service slices and the Worker runtime import guard.
+  service slices, including recovery-code rotation, and the Worker runtime
+  import guard.
 - [x] Keep pure unit fakes for core logic that does not depend on SQL behavior.
 - [ ] Cover every remaining duplicate idempotency, insufficient balance,
   settlement replay, lease races, tenant isolation, sealed-share parsing,
