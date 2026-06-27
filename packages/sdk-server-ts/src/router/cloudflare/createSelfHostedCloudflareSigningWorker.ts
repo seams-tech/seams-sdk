@@ -1,5 +1,5 @@
-import type { AuthService } from '../../core/AuthService';
 import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
+import type { CloudflareRelayAuthService } from '../authServicePort';
 import type { RelayRouterOptions } from '../relay';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 import { resolveThresholdOption } from '../routerOptions';
@@ -65,14 +65,14 @@ export type SelfHostedCloudflareSigningWorkerFactoryInput<Env extends CfEnv = Cf
     readonly request: Request;
     readonly env: Env;
     readonly ctx: CfExecutionContext;
-  }) => AuthService | Promise<AuthService>;
+  }) => CloudflareRelayAuthService | Promise<CloudflareRelayAuthService>;
   readonly routerOptions?:
     | RelayRouterOptions
     | ((input: {
         readonly request: Request;
         readonly env: Env;
         readonly ctx: CfExecutionContext;
-        readonly service: AuthService;
+        readonly service: CloudflareRelayAuthService;
       }) => RelayRouterOptions | Promise<RelayRouterOptions>);
   readonly signingRootAdmin?:
     | SelfHostedSigningRootAdminRoutes
@@ -80,7 +80,7 @@ export type SelfHostedCloudflareSigningWorkerFactoryInput<Env extends CfEnv = Cf
         readonly request: Request;
         readonly env: Env;
         readonly ctx: CfExecutionContext;
-        readonly service: AuthService;
+        readonly service: CloudflareRelayAuthService;
       }) =>
         | SelfHostedSigningRootAdminRoutes
         | null
@@ -349,7 +349,7 @@ function createSelfHostedContext(input: {
   readonly request: Request;
   readonly env?: CfEnv;
   readonly cfCtx?: CfExecutionContext;
-  readonly service: AuthService;
+  readonly service: CloudflareRelayAuthService;
   readonly opts: RelayRouterOptions;
   readonly logger: NormalizedRouterLogger;
 }): SelfHostedCloudflareRelayContext {
@@ -371,7 +371,7 @@ function createSelfHostedContext(input: {
 }
 
 export function createSelfHostedCloudflareSigningRouter(
-  service: AuthService,
+  service: CloudflareRelayAuthService,
   opts: RelayRouterOptions = {},
   selfHostedOpts: SelfHostedCloudflareSigningRouterOptions = {},
 ): FetchHandler {

@@ -1,4 +1,3 @@
-import type { AuthService } from '../../core/AuthService';
 import {
   runD1ConsoleBillingMonthlyFinalization,
   type D1ConsoleBillingMonthlyFinalizationOptions,
@@ -263,7 +262,7 @@ function shouldRunForCronTick(
 }
 
 export function createCloudflareCron(
-  _service: AuthService,
+  _service: unknown,
   opts: CloudflareCronOptions = {},
 ): ScheduledHandler {
   const enabled = opts.enabled !== false;

@@ -143,6 +143,13 @@ Completed so far:
   `eth_signer` WASM loader URL path. Local D1 relay now calls the real
   sponsored EVM route handler and supplies the Worker resolver plus
   `SPONSORED_EVM_EXECUTORS_JSON` config when present.
+- Added an explicit `CloudflareRelayAuthService` route port for the Cloudflare
+  router, Cloudflare email handler, self-hosted signing Worker, Email OTP route
+  helpers, wallet unlock helpers, recovery tracking, wallet registration,
+  signed delegates, and the NEAR sponsored-delegate executor. Worker-facing
+  route factories now depend on the signer method surface they need, while the
+  concrete mixed `AuthService` class stays on Node/Express paths until its
+  D1/DO-backed replacement is built.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -947,6 +954,10 @@ Work:
   Postgres settlement only as part of the future full-family Postgres adapter.
 - Keep Cloudflare cron on D1 runner inputs. Postgres cron belongs to a future
   full-family Postgres adapter surface, not the D1/DO staging Worker helper.
+- Keep Cloudflare signer routes typed against `CloudflareRelayAuthService`.
+  The next implementation must provide this port from `SIGNER_DB`, signer
+  Durable Objects, and the signer KEK resolver without constructing the mixed
+  Postgres-capable `AuthService` class in Worker code.
 
 Exit criteria:
 
@@ -958,8 +969,8 @@ Exit criteria:
 ### Step 4: Make Local Development D1/DO By Default
 
 Status: SDK package command path, local D1/DO console Worker path, local
-sponsored-gas relay path, and bundle smoke complete; full signer AuthService
-launcher path still in progress.
+sponsored-gas relay path, Cloudflare signer route service port, and bundle
+smoke complete; D1/DO signer service implementation path still in progress.
 
 Work:
 
@@ -989,10 +1000,10 @@ Work:
 - Keep threshold signing disabled on the local relay mount until the dedicated
   signer AuthService slice is complete. This keeps mixed Postgres-backed
   AuthService modules out of the Cloudflare Worker bundle.
-- Add the Cloudflare D1/DO signer AuthService slice after the sponsored-gas
-  relay path is stable. It must build signer stores from `SIGNER_DB` and signer
-  coordination from Durable Objects, then pass that service to signer routes
-  without importing mixed Postgres modules from Worker-facing files.
+- Add the D1/DO implementation of `CloudflareRelayAuthService`. It must build
+  signer stores from `SIGNER_DB` and signer coordination from Durable Objects,
+  then pass that service to signer routes without importing mixed Postgres
+  modules from Worker-facing files.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
@@ -1118,6 +1129,10 @@ Completed baseline:
   route handler with D1-backed relay storage. Without
   `SPONSORED_EVM_EXECUTORS_JSON`, the route returns the expected disabled
   response; with executor config, it uses the Worker-safe EVM resolver.
+- Cloudflare route factories and shared route helpers now depend on the
+  `CloudflareRelayAuthService` port instead of the concrete mixed
+  `AuthService` class. This is the boundary the D1/DO signer service
+  implementation must satisfy.
 
 Proceed in this order:
 
@@ -1129,9 +1144,10 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
    Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
    dependency test.
-4. Add the Cloudflare-safe signer AuthService slice. The SDK package path,
-   console route path, and sponsored-gas relay route already use
-   Wrangler/Miniflare D1 and local Durable Object storage.
+4. Add the D1/DO implementation of `CloudflareRelayAuthService`. The SDK
+   package path, console route path, sponsored-gas relay route, and route
+   service port already use Wrangler/Miniflare D1 and local Durable Object
+   storage.
 5. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
 6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination

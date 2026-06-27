@@ -1,4 +1,4 @@
-import type { AuthService } from '../core/AuthService';
+import type { CloudflareRelayAuthService } from '../router/authServicePort';
 import {
   buildDelegateActionPolicyFromResolvedRule,
   type ResolvedSponsoredNearDelegatePolicy,
@@ -6,7 +6,7 @@ import {
 import type { SponsorshipExecutionAdapter } from './executionAdapter';
 
 export type SponsoredNearDelegateExecutionResult = Awaited<
-  ReturnType<AuthService['executeSignedDelegate']>
+  ReturnType<CloudflareRelayAuthService['executeSignedDelegate']>
 >;
 
 export type SponsoredNearDelegateExecutionAdapter = SponsorshipExecutionAdapter<
@@ -16,7 +16,7 @@ export type SponsoredNearDelegateExecutionAdapter = SponsorshipExecutionAdapter<
 >;
 
 export function createSponsoredNearDelegateExecutionAdapter(input: {
-  authService: AuthService;
+  authService: CloudflareRelayAuthService;
   hash: string;
   signedDelegate: unknown;
   allowedDelegateAction: ResolvedSponsoredNearDelegatePolicy['allowedDelegateActions'][number];

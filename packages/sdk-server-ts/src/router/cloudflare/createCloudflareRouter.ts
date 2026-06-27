@@ -1,4 +1,4 @@
-import type { AuthService } from '../../core/AuthService';
+import type { CloudflareRelayAuthService } from '../authServicePort';
 import type { RelayRouterOptions } from '../relay';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -72,7 +72,7 @@ export interface CloudflareRelayContext {
   env?: CfEnv;
   cfCtx?: CfExecutionContext;
 
-  service: AuthService;
+  service: CloudflareRelayAuthService;
   opts: RelayRouterOptions;
   logger: NormalizedRouterLogger;
 
@@ -82,7 +82,7 @@ export interface CloudflareRelayContext {
 }
 
 export function createCloudflareRouter(
-  service: AuthService,
+  service: CloudflareRelayAuthService,
   opts: RelayRouterOptions = {},
 ): FetchHandler {
   const notFound = () => new Response('Not Found', { status: 404 });

@@ -1,8 +1,8 @@
-import type { AuthService } from '../core/AuthService';
+import type { ThresholdRelayAuthService } from './authServicePort';
 import type { RelayRouterOptions } from './relay';
 
 export function resolveThresholdOption(
-  service: AuthService,
+  service: ThresholdRelayAuthService,
   opts: RelayRouterOptions,
 ): RelayRouterOptions['threshold'] {
   // Preserve "explicit null disables threshold" semantics:

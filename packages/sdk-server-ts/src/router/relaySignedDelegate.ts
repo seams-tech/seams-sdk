@@ -1,4 +1,4 @@
-import type { AuthService } from '../core/AuthService';
+import type { CloudflareRelayAuthService } from './authServicePort';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../console/observability';
@@ -75,7 +75,7 @@ type MatchedSponsoredNearDelegate =
   NonNullable<ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>>;
 
 interface RelaySignedDelegateServices {
-  authService: AuthService;
+  authService: CloudflareRelayAuthService;
   billing?: ConsoleBillingService | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   prepaidReservations?: ConsoleBillingPrepaidReservationService | null;

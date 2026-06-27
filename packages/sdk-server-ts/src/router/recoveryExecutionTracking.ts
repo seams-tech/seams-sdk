@@ -1,4 +1,4 @@
-import type { AuthService } from '../core/AuthService';
+import type { CloudflareRelayAuthService } from './authServicePort';
 import { inferNearRecoveryChainIdKey } from '../core/recoveryExecutionRecords';
 import {
   hashRecoveryEmailArtifact,
@@ -19,7 +19,7 @@ export type TrackedNearRecoveryExecution = {
 };
 
 export async function resolveTrackedNearRecoveryExecution(
-  service: Pick<AuthService, 'getRecoverySession'>,
+  service: Pick<CloudflareRelayAuthService, 'getRecoverySession'>,
   input: { accountId: string; recoveryPayload: RecoveryEmailPayload },
 ): Promise<TrackedNearRecoveryExecution | null> {
   if (input.recoveryPayload.nearAccountId !== input.accountId) return null;
@@ -53,7 +53,7 @@ export async function resolveTrackedNearRecoveryExecution(
 }
 
 export async function markTrackedRecoverySessionVerified(
-  service: Pick<AuthService, 'updateRecoverySessionStatus'>,
+  service: Pick<CloudflareRelayAuthService, 'updateRecoverySessionStatus'>,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     emailBlob: string;
@@ -77,7 +77,7 @@ export async function markTrackedRecoverySessionVerified(
 }
 
 export async function recordTrackedNearRecoveryExecution(
-  service: Pick<AuthService, 'recordRecoveryExecution'>,
+  service: Pick<CloudflareRelayAuthService, 'recordRecoveryExecution'>,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     status: 'pending' | 'submitted' | 'failed';
@@ -106,7 +106,7 @@ export async function recordTrackedNearRecoveryExecution(
 }
 
 export async function transitionTrackedRecoverySession(
-  service: Pick<AuthService, 'updateRecoverySessionStatus'>,
+  service: Pick<CloudflareRelayAuthService, 'updateRecoverySessionStatus'>,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     status: 'near_recovered' | 'failed';

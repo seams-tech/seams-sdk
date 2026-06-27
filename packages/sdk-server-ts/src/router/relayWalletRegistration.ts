@@ -1,4 +1,4 @@
-import type { AuthService } from '../core/AuthService';
+import type { CloudflareRelayAuthService } from './authServicePort';
 import type {
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
@@ -94,7 +94,7 @@ import {
 } from '@shared/threshold/signingRootScope';
 
 type RelayWalletRegistrationServices = {
-  authService: AuthService;
+  authService: CloudflareRelayAuthService;
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
@@ -170,38 +170,6 @@ type Ed25519SessionCarrier = {
     participantIds?: number[];
     session?: ThresholdEd25519BootstrapSession;
   };
-};
-
-type WalletAddSignerServiceMethods = {
-  startWalletAddSigner?: (
-    request: WalletAddSignerStartRequest,
-  ) => Promise<WalletAddSignerStartResponse>;
-  respondWalletAddSignerHss?: (
-    request: WalletAddSignerHssRespondRequest,
-  ) => Promise<WalletAddSignerHssRespondResponse>;
-  finalizeWalletAddSigner?: (
-    request: WalletAddSignerFinalizeRequest,
-  ) => Promise<WalletAddSignerFinalizeResponse>;
-};
-
-type WalletAddAuthMethodServiceMethods = {
-  createAddAuthMethodIntent?: (input: {
-    request: CreateAddAuthMethodIntentRequest;
-    orgId: string;
-    runtimePolicyScope?: RuntimePolicyScope;
-    signingRootId?: string;
-    signingRootVersion?: string;
-    expectedOrigin: string;
-  }) => Promise<CreateAddAuthMethodIntentResponse>;
-  startWalletAddAuthMethod?: (
-    request: WalletAddAuthMethodStartRequest,
-  ) => Promise<WalletAddAuthMethodStartResponse>;
-  finalizeWalletAddAuthMethod?: (
-    request: WalletAddAuthMethodFinalizeRequest,
-  ) => Promise<WalletAddAuthMethodFinalizeResponse>;
-  revokeWalletAuthMethod?: (
-    request: WalletRevokeAuthMethodRequest,
-  ) => Promise<WalletRevokeAuthMethodResponse>;
 };
 
 const ED25519_HSS_RESPOND_FORBIDDEN_FIELDS = [
@@ -2442,11 +2410,7 @@ export async function handleRelayWalletAddSignerStart(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const service = input.services.authService as AuthService & WalletAddSignerServiceMethods;
-  if (!service.startWalletAddSigner) {
-    return routeError(501, 'internal', 'wallet add-signer start is not implemented');
-  }
-  const result = await service.startWalletAddSigner(parsedBody.value);
+  const result = await input.services.authService.startWalletAddSigner(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result);
 }
 
@@ -2458,11 +2422,7 @@ export async function handleRelayWalletAddSignerHssRespond(
   }
   const request = parseWalletAddSignerHssRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const service = input.services.authService as AuthService & WalletAddSignerServiceMethods;
-  if (!service.respondWalletAddSignerHss) {
-    return routeError(501, 'internal', 'wallet add-signer HSS respond is not implemented');
-  }
-  const result = await service.respondWalletAddSignerHss(request.value);
+  const result = await input.services.authService.respondWalletAddSignerHss(request.value);
   if (result.ok) {
     const signingError = await attachEcdsaWalletSessionJwt(
       input,
@@ -2482,11 +2442,7 @@ export async function handleRelayWalletAddSignerFinalize(
   }
   const request = parseWalletAddSignerFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const service = input.services.authService as AuthService & WalletAddSignerServiceMethods;
-  if (!service.finalizeWalletAddSigner) {
-    return routeError(501, 'internal', 'wallet add-signer finalize is not implemented');
-  }
-  const result = await service.finalizeWalletAddSigner(request.value);
+  const result = await input.services.authService.finalizeWalletAddSigner(request.value);
   if (result.ok) {
     const signingError = await attachEd25519WalletSessionJwt(input, result);
     if (signingError) return signingError;
@@ -2505,10 +2461,6 @@ export async function handleRelayWalletAddAuthMethodIntent(
   const walletId = String(input.pathParams?.walletId || '').trim();
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId path parameter is required');
-  }
-  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
-  if (!service.createAddAuthMethodIntent) {
-    return routeError(501, 'internal', 'wallet add-auth-method intent is not implemented');
   }
   const request = parseCreateAddAuthMethodIntentRequest(input.body, walletId);
   if (!request.ok) return routeError(400, request.code, request.message);
@@ -2552,7 +2504,7 @@ export async function handleRelayWalletAddAuthMethodIntent(
     projectId: principal.projectId,
     envId: principal.envId,
   });
-  const result = await service.createAddAuthMethodIntent({
+  const result = await input.services.authService.createAddAuthMethodIntent({
     request: request.value,
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -2576,10 +2528,6 @@ export async function handleRelayWalletAddAuthMethodStart(
   const walletId = String(input.pathParams?.walletId || '').trim();
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId is required');
-  }
-  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
-  if (!service.startWalletAddAuthMethod) {
-    return routeError(501, 'internal', 'wallet add-auth-method start is not implemented');
   }
   const parsedBody = await parseWalletAddAuthMethodStartBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
@@ -2626,7 +2574,7 @@ export async function handleRelayWalletAddAuthMethodStart(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const result = await service.startWalletAddAuthMethod(parsedBody.value);
+  const result = await input.services.authService.startWalletAddAuthMethod(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result);
 }
 
@@ -2636,13 +2584,9 @@ export async function handleRelayWalletAddAuthMethodFinalize(
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
-  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
-  if (!service.finalizeWalletAddAuthMethod) {
-    return routeError(501, 'internal', 'wallet add-auth-method finalize is not implemented');
-  }
   const request = parseWalletAddAuthMethodFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await service.finalizeWalletAddAuthMethod(request.value);
+  const result = await input.services.authService.finalizeWalletAddAuthMethod(request.value);
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });
@@ -2657,10 +2601,6 @@ export async function handleRelayWalletRevokeAuthMethod(
   const walletId = String(input.pathParams?.walletId || '').trim();
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId is required');
-  }
-  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
-  if (!service.revokeWalletAuthMethod) {
-    return routeError(501, 'internal', 'wallet auth-method revoke is not implemented');
   }
   const parsedBody = await parseWalletRevokeAuthMethodRequest(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
@@ -2707,7 +2647,7 @@ export async function handleRelayWalletRevokeAuthMethod(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const result = await service.revokeWalletAuthMethod(parsedBody.value);
+  const result = await input.services.authService.revokeWalletAuthMethod(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });
