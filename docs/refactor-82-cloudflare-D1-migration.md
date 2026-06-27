@@ -173,7 +173,8 @@ runtime. The current codebase already has the important boundaries in place:
   public keys, email recovery preparations, Email OTP storage, Email OTP login
   challenge/grant/rate-limit flow, Email OTP device-recovery challenge/grant
   flow, Email OTP recovery-key consumption and failure-attempt reporting, Email
-  OTP unlock challenge/proof flow, and sealed signing-root secret shares.
+  OTP provider delivery, Email OTP unlock challenge/proof flow, and sealed
+  signing-root secret shares.
 - Cloudflare relay auth service D1 methods cover recovery-session reads,
   recovery-session status transitions, and recovery-execution upserts for the
   email recovery route.
@@ -397,7 +398,7 @@ Current Postgres coupling is concentrated in:
 | WebAuthn | `webauthn_authenticators`, `webauthn_credential_bindings`, `webauthn_challenges` | `SIGNER_DB` D1 | D1 authenticator, credential-binding, login-challenge, and sync-challenge adapters, append-only migration, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, and atomic challenge consumption tests are in place. Tenant/project/env scope is required. |
 | Registration | `wallet_registration_intents`, `wallet_registration_ceremonies` | Durable Object | Already implemented through `CloudflareDurableObjectRegistrationCeremonyStore` with tests for one-time grant, preparation, ceremony, and finalize replay consumption. Keep these records out of D1 because they are short-lived ceremony coordination state, not dashboard-queryable metadata. |
 | Wallet metadata | `wallets`, `wallet_auth_methods`, `wallet_signers` | `SIGNER_DB` D1 | D1 wallet and wallet-auth-method adapters, append-only migration, explicit `kind: 'd1'` factory selectors, tenant/project/env-scoped options, local smoke coverage, and tenant-scoping contract tests are in place. Keep wallet ID, org, project, env, RP ID, and chain identity required. |
-| Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts`, `signer_email_otp_rate_limits` | `SIGNER_DB` D1 | D1 adapters, append-only migrations, local smoke coverage, explicit `kind: 'd1'` factory selectors, tenant-scoped adapter tests, one-time grant/unlock consumption, login challenge issue/verify/grant flow, device-recovery challenge issue/verify/grant flow, recovery-key consumption, recovery-key failure-attempt reporting without grant consumption, unlock challenge/proof flow, fixed-window rate limiting, registration-attempt scope disambiguation, and expiry deletion coverage are in place. Challenge/grant expiry stays adapter-owned. JSON is stored as `TEXT` with normalized lookup columns. |
+| Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts`, `signer_email_otp_rate_limits` | `SIGNER_DB` D1 | D1 adapters, append-only migrations, local smoke coverage, explicit `kind: 'd1'` factory selectors, tenant-scoped adapter tests, provider delivery hook, one-time grant/unlock consumption, login challenge issue/verify/grant flow, device-recovery challenge issue/verify/grant flow, recovery-key consumption, recovery-key failure-attempt reporting without grant consumption, unlock challenge/proof flow, fixed-window rate limiting, registration-attempt scope disambiguation, and expiry deletion coverage are in place. Challenge/grant expiry stays adapter-owned. JSON is stored as `TEXT` with normalized lookup columns. |
 | Threshold public-key metadata | Future signer key index tables if dashboard lookup needs them | `SIGNER_DB` D1 | Store public identifiers only: wallet ID, auth method, RP ID, signing-root ID/version, public key, chain address, status, and audit timestamps. The current `threshold_ed25519_keys` and `threshold_ecdsa_keys` store interfaces contain relayer signing shares, so they remain outside the D1 metadata scope until replaced by sealed-share based persistence. |
 | Legacy threshold key-store records | `threshold_ed25519_keys`, `threshold_ecdsa_keys` | Durable Object or retired behind sealed signing-root shares | These records are secret-bearing under the current TypeScript interfaces. Production D1/DO staging must either use sealed signing-root share storage for these secrets or keep the existing DO path as a temporary coordination store with a deletion plan. Do not add raw-share D1 tables. |
 | Sealed signing-root shares | `signing_root_secret_shares`, `signer_signing_root_secret_shares` | `SIGNER_DB` D1 | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. |
@@ -438,8 +439,8 @@ Before D1 staging, these D1/DO adapters must exist behind domain-store ports:
   public keys, email recovery preparations, Email OTP login challenge/grant
   flow, Email OTP device-recovery challenge/grant flow, Email OTP recovery-key
   consumption, Email OTP recovery-key failure-attempt reporting, Email OTP
-  unlock challenge/proof flow, Email OTP rate limits, and sealed signing-root
-  secret shares.
+  provider delivery, Email OTP unlock challenge/proof flow, Email OTP rate
+  limits, and sealed signing-root secret shares.
 - Durable Objects in place: registration intents, HSS preparations,
   registration ceremonies, add-signer/add-auth-method ceremonies, finalize
   replay records, signing-session use counts, wallet signing budgets,
@@ -932,9 +933,9 @@ Work:
   mixed core signer store modules from Cloudflare routes because those modules
   still include Postgres runtime imports.
 - Finish the staging-required signer auth methods as separate conditional-D1 or
-  Durable Object slices: provider email delivery, Email OTP registration
-  attempts, recovery-code rotation, WebAuthn verification, wallet registration,
-  signed delegates, and threshold signing admission.
+  Durable Object slices: Email OTP registration attempts, recovery-code
+  rotation, WebAuthn verification, wallet registration, signed delegates, and
+  threshold signing admission.
 
 Exit criteria:
 

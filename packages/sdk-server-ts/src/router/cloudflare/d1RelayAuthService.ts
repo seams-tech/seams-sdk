@@ -17,6 +17,7 @@ import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import { buildRecoveryExecutionRecord } from '../../core/recoveryExecutionRecords';
 import type {
   EmailOtpAuthStateRecord,
+  EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
   EmailOtpChallengeRecord,
   EmailOtpGrantAction,
@@ -43,6 +44,30 @@ import type {
 import type { CloudflareRelayAuthService } from '../authServicePort';
 import { createDisabledCloudflareRelayAuthService } from './disabledRelayAuthService';
 
+export type CloudflareD1EmailOtpDeliveryProviderInput = {
+  readonly challengeId: string;
+  readonly walletId: string;
+  readonly userId: string;
+  readonly orgId?: string;
+  readonly email: string;
+  readonly emailHint: string;
+  readonly otpCode: string;
+  readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
+  readonly action: EmailOtpChallengeAction;
+  readonly operation: EmailOtpChallengeOperation;
+  readonly expiresAtMs: number;
+};
+
+export type CloudflareD1EmailOtpDeliveryProviderResult =
+  | { readonly ok: true; readonly providerMessageId?: string }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+export interface CloudflareD1EmailOtpDeliveryProvider {
+  deliver(
+    input: CloudflareD1EmailOtpDeliveryProviderInput,
+  ): Promise<CloudflareD1EmailOtpDeliveryProviderResult>;
+}
+
 export interface CloudflareD1RelayAuthServiceOptions {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -54,6 +79,7 @@ export interface CloudflareD1RelayAuthServiceOptions {
   readonly googleOidcClientId?: string;
   readonly accountIdDerivationSecret?: string;
   readonly emailOtpDeliveryMode?: string;
+  readonly emailOtpDeliveryProvider?: CloudflareD1EmailOtpDeliveryProvider;
   readonly emailOtpDevOutboxEnabled?: boolean | string;
   readonly emailOtpProduction?: boolean | string;
   readonly emailOtpChallengeTtlMs?: number | string;
@@ -76,6 +102,7 @@ type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory';
 
 type EmailOtpRuntimeConfig = {
   readonly deliveryMode: EmailOtpDeliveryMode;
+  readonly deliveryProvider?: CloudflareD1EmailOtpDeliveryProvider;
   readonly devOutboxEnabled: boolean;
   readonly production: boolean;
   readonly challengeTtlMs: number;
@@ -104,6 +131,7 @@ type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   | 'googleOidcClientId'
   | 'accountIdDerivationSecret'
   | 'emailOtpDeliveryMode'
+  | 'emailOtpDeliveryProvider'
   | 'emailOtpDevOutboxEnabled'
   | 'emailOtpProduction'
   | 'emailOtpChallengeTtlMs'
@@ -587,6 +615,9 @@ function normalizeEmailOtpConfig(
     : { limit: 100, windowMs: 60_000 };
   return {
     deliveryMode,
+    ...(input.emailOtpDeliveryProvider
+      ? { deliveryProvider: input.emailOtpDeliveryProvider }
+      : {}),
     production,
     devOutboxEnabled:
       deliveryMode === 'memory' &&
@@ -4041,11 +4072,29 @@ class CloudflareD1RelayAuthMetadataService {
     }
     const emailHint = maskEmail(record.email);
     if (this.options.emailOtp.deliveryMode === 'email_provider') {
-      return {
-        ok: false,
-        code: 'not_implemented',
-        message: 'Email OTP email_provider delivery is not implemented yet',
-      };
+      const provider = this.options.emailOtp.deliveryProvider;
+      if (!provider) {
+        return {
+          ok: false,
+          code: 'email_otp_delivery_not_configured',
+          message: 'Email OTP email_provider delivery is not configured',
+        };
+      }
+      const delivered = await provider.deliver({
+        challengeId: record.challengeId,
+        walletId: record.walletId,
+        userId: record.challengeSubjectId,
+        ...(record.orgId ? { orgId: record.orgId } : {}),
+        email: record.email,
+        emailHint,
+        otpCode: record.otpCode,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        action: record.action,
+        operation: record.operation,
+        expiresAtMs: record.expiresAtMs,
+      });
+      if (!delivered.ok) return delivered;
+      return { ok: true, deliveryMode: 'email_provider', emailHint };
     }
     if (this.options.emailOtp.deliveryMode === 'memory') {
       this.emailOtpMemoryOutbox.set(record.challengeId, {
