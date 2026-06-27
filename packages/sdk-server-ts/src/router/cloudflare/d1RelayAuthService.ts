@@ -53,6 +53,11 @@ import {
   buildEmailOtpRecoveryWrapBinding,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
+import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
+import {
+  computeEcdsaHssRoleLocalRelayerKeyId,
+  computeEcdsaHssRoleLocalThresholdKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import { buildRecoveryExecutionRecord } from '../../core/recoveryExecutionRecords';
 import type {
@@ -64,16 +69,22 @@ import type {
   ThresholdStoreConfigInput,
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartResponse,
+  WalletAddSignerStartResponse,
   WebAuthnAuthenticationCredential,
 } from '../../core/types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../core/defaultConfigsServer';
 import type {
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
+  StoredWalletAddSignerCeremony,
   StoredWalletAddAuthMethodCeremony,
   StoredRegistrationIntent,
 } from '../../core/RegistrationCeremonyStore';
-import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  thresholdEcdsaChainTargetFromValue,
+  type ThresholdEcdsaChainTarget,
+} from '../../core/thresholdEcdsaChainTarget';
 import { createCloudflareDurableObjectThresholdSigningService } from '../../core/ThresholdService/createCloudflareDurableObjectThresholdSigningService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
 import type {
@@ -126,6 +137,7 @@ import { createDisabledCloudflareRelayAuthService } from './disabledRelayAuthSer
 
 const DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT = 'cloudflare-disabled-relayer.local';
 const DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY = 'disabled-relayer-public-key';
+const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 
 type SimpleWebAuthnVerifier = (args: unknown) => Promise<unknown>;
 
@@ -350,11 +362,13 @@ type RegistrationCeremonyIntentScope =
   | 'add-auth-method-intent'
   | 'add-signer-intent'
   | 'add-auth-method'
+  | 'add-signer'
   | 'generated-wallet-reservation';
 
 type RegistrationIntentDoPutInput =
   | StoredRegistrationIntent
   | StoredAddSignerIntent
+  | StoredWalletAddSignerCeremony
   | StoredAddAuthMethodIntent
   | StoredWalletAddAuthMethodCeremony;
 
@@ -371,6 +385,9 @@ type CreateRegistrationIntentInput = Parameters<
 >[0];
 type CreateAddSignerIntentInput = Parameters<
   CloudflareRelayAuthService['createAddSignerIntent']
+>[0];
+type StartWalletAddSignerInput = Parameters<
+  CloudflareRelayAuthService['startWalletAddSigner']
 >[0];
 type CreateAddAuthMethodIntentInput = Parameters<
   CloudflareRelayAuthService['createAddAuthMethodIntent']
@@ -1464,6 +1481,33 @@ class CloudflareD1RegistrationCeremonyIntentStore {
     });
   }
 
+  async getAddSignerIntent(grant: string): Promise<StoredAddSignerIntent | null> {
+    const id = toOptionalTrimmedString(grant);
+    if (!id) return null;
+    const value = await this.get('add-signer-intent', id);
+    const intent = parseD1StoredAddSignerIntent(value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async takeAddSignerIntent(grant: string): Promise<StoredAddSignerIntent | null> {
+    const id = toOptionalTrimmedString(grant);
+    if (!id) return null;
+    const value = await this.getDel('add-signer-intent', id);
+    const intent = parseD1StoredAddSignerIntent(value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async putAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void> {
+    await this.put({
+      scope: 'add-signer',
+      id: ceremony.addSignerCeremonyId,
+      record: ceremony,
+      expiresAtMs: ceremony.expiresAtMs,
+    });
+  }
+
   async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
     await this.put({
       scope: 'add-auth-method-intent',
@@ -1772,6 +1816,57 @@ function buildAddSignerIntent(input: {
   };
 }
 
+function parseD1StoredAddSignerIntent(raw: unknown): StoredAddSignerIntent | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'add_signer_intent_allocated') return null;
+  const grant = addSignerIntentGrantFromString(toOptionalTrimmedString(record.grant) || '');
+  const intent = parseD1AddSignerIntent(record.intent);
+  const digestB64u = toOptionalTrimmedString(record.digestB64u);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  if (!grant || !intent || !digestB64u || !orgId || expiresAtMs === null) return null;
+  return {
+    kind: 'add_signer_intent_allocated',
+    grant,
+    intent,
+    digestB64u,
+    orgId,
+    expiresAtMs,
+    ...intentScopeMetadata(record),
+  };
+}
+
+function parseD1AddSignerIntent(raw: unknown): AddSignerIntentV1 | null {
+  const record = toRecordValue(raw);
+  if (!record || record.version !== 'add_signer_intent_v1') return null;
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const signerSelection = normalizeAddSignerSelection(record.signerSelection, {
+    normalizeEcdsaChainTarget: thresholdEcdsaChainTargetFromValue,
+  });
+  const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
+  const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
+  if (!walletId || !rpId || !signerSelection.ok || !nonceB64u) return null;
+  if (record.runtimePolicyScope !== undefined && !runtimePolicyScope) return null;
+  if (runtimePolicyScope) {
+    return {
+      version: 'add_signer_intent_v1',
+      walletId,
+      rpId,
+      signerSelection: signerSelection.value,
+      runtimePolicyScope,
+      nonceB64u,
+    };
+  }
+  return {
+    version: 'add_signer_intent_v1',
+    walletId,
+    rpId,
+    signerSelection: signerSelection.value,
+    nonceB64u,
+  };
+}
+
 function buildAddAuthMethodIntent(input: {
   readonly walletId: WalletId;
   readonly rpId: string;
@@ -1812,8 +1907,72 @@ function addAuthMethodInputMatches(
   return unreachableAddAuthMethodInput(left);
 }
 
+function addSignerSelectionMatches(
+  left: AddSignerSelection,
+  right: AddSignerSelection,
+): boolean {
+  if (left.mode !== right.mode) return false;
+  switch (left.mode) {
+    case 'ecdsa':
+      return (
+        right.mode === 'ecdsa' &&
+        positiveIntegerArraysEqual(left.ecdsa.participantIds, right.ecdsa.participantIds) &&
+        thresholdEcdsaChainTargetsEqual(left.ecdsa.chainTargets, right.ecdsa.chainTargets)
+      );
+    case 'ed25519':
+      return right.mode === 'ed25519' && addSignerEd25519SelectionsMatch(left, right);
+  }
+  return unreachableAddSignerSelection(left);
+}
+
+function addSignerEd25519SelectionsMatch(
+  left: Extract<AddSignerSelection, { mode: 'ed25519' }>,
+  right: Extract<AddSignerSelection, { mode: 'ed25519' }>,
+): boolean {
+  const leftEd25519 = left.ed25519;
+  const rightEd25519 = right.ed25519;
+  return (
+    leftEd25519.mode === rightEd25519.mode &&
+    leftEd25519.nearAccountId === rightEd25519.nearAccountId &&
+    leftEd25519.signerSlot === rightEd25519.signerSlot &&
+    leftEd25519.keyPurpose === rightEd25519.keyPurpose &&
+    leftEd25519.keyVersion === rightEd25519.keyVersion &&
+    leftEd25519.derivationVersion === rightEd25519.derivationVersion &&
+    positiveIntegerArraysEqual(leftEd25519.participantIds, rightEd25519.participantIds)
+  );
+}
+
+function positiveIntegerArraysEqual(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function thresholdEcdsaChainTargetsEqual(left: readonly unknown[], right: readonly unknown[]): boolean {
+  const leftTargets = normalizeThresholdEcdsaChainTargets(left);
+  const rightTargets = normalizeThresholdEcdsaChainTargets(right);
+  if (!leftTargets || !rightTargets || leftTargets.length !== rightTargets.length) return false;
+  return leftTargets.every(
+    (target, index) => thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(rightTargets[index]),
+  );
+}
+
+function normalizeThresholdEcdsaChainTargets(
+  input: readonly unknown[],
+): ThresholdEcdsaChainTarget[] | null {
+  const targets: ThresholdEcdsaChainTarget[] = [];
+  for (const raw of input) {
+    const target = thresholdEcdsaChainTargetFromValue(raw);
+    if (!target) return null;
+    targets.push(target);
+  }
+  return targets;
+}
+
 function unreachableAddAuthMethodInput(value: never): never {
   throw new Error(`Unhandled add-auth-method input kind: ${String(value)}`);
+}
+
+function unreachableAddSignerSelection(value: never): never {
+  throw new Error(`Unhandled add-signer selection mode: ${String(value)}`);
 }
 
 function runtimePolicyScopeMatches(
@@ -1828,6 +1987,26 @@ function runtimePolicyScopeMatches(
     left.envId === right.envId &&
     left.signingRootVersion === right.signingRootVersion
   );
+}
+
+function derivePlannedEvmFamilyWalletKeyId(input: {
+  readonly walletId: string;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+}): string {
+  const walletId = toOptionalTrimmedString(input.walletId);
+  const signingRootId = toOptionalTrimmedString(input.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(input.signingRootVersion);
+  if (!walletId || !signingRootId || !signingRootVersion) {
+    throw new Error('ECDSA wallet-key identity requires walletId and signing root');
+  }
+  return [
+    'wallet-key',
+    'evm-family',
+    encodeURIComponent(walletId),
+    encodeURIComponent(signingRootId),
+    encodeURIComponent(signingRootVersion),
+  ].join(':');
 }
 
 function intentScopeMetadata(input: {
@@ -4971,6 +5150,162 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to create add-signer intent',
+      };
+    }
+  }
+
+  async startWalletAddSigner(
+    request: StartWalletAddSignerInput,
+  ): Promise<WalletAddSignerStartResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const walletId = parseWalletIdForIntent(request.walletId);
+      if (!walletId) {
+        return { ok: false, code: 'invalid_body', message: 'walletId is required' };
+      }
+      const grant = addSignerIntentGrantFromString(
+        toOptionalTrimmedString(request.addSignerIntentGrant) || '',
+      );
+      if (!grant) {
+        return { ok: false, code: 'invalid_grant', message: 'add-signer intent grant is required' };
+      }
+      const intentPreview = await store.getAddSignerIntent(grant);
+      if (!intentPreview) {
+        return { ok: false, code: 'invalid_grant', message: 'add-signer intent grant expired' };
+      }
+      if (request.intent.walletId !== walletId) {
+        return { ok: false, code: 'invalid_body', message: 'add-signer walletId mismatch' };
+      }
+      const digestB64u = toOptionalTrimmedString(request.addSignerIntentDigestB64u);
+      const requestDigest = await computeAddSignerIntentDigestB64u(request.intent);
+      if (!digestB64u || digestB64u !== requestDigest || digestB64u !== intentPreview.digestB64u) {
+        return { ok: false, code: 'invalid_body', message: 'add-signer intent digest mismatch' };
+      }
+      if (intentPreview.intent.signerSelection.mode !== 'ecdsa') {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 add-signer start currently supports ECDSA signer selection',
+        };
+      }
+
+      const walletAuthMethodStore = this.getWalletAuthMethodStore();
+      const storedAuth = await this.resolveAddSignerExistingAuth({
+        auth: request.auth,
+        walletId,
+        rpId: intentPreview.intent.rpId,
+        intent: intentPreview.intent,
+        walletAuthMethodStore,
+      });
+      if (!storedAuth.ok) return storedAuth;
+
+      const threshold = this.getThresholdSigningService();
+      if (!threshold) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'threshold signing is not configured on this server',
+        };
+      }
+
+      const storedIntent = await store.takeAddSignerIntent(grant);
+      if (!storedIntent) {
+        return { ok: false, code: 'invalid_grant', message: 'add-signer intent grant expired' };
+      }
+      const selection = storedIntent.intent.signerSelection;
+      if (selection.mode !== 'ecdsa') {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 add-signer start currently supports ECDSA signer selection',
+        };
+      }
+      const runtimePolicyScope = parseD1RuntimePolicyScope(storedIntent.intent.runtimePolicyScope);
+      if (!runtimePolicyScope) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ECDSA add-signer requires a runtime policy scope',
+        };
+      }
+      const signingRootId = storedIntent.signingRootId || deriveSigningRootId(runtimePolicyScope);
+      const signingRootVersion =
+        toOptionalTrimmedString(storedIntent.signingRootVersion) ||
+        runtimePolicyScope.signingRootVersion;
+      const chainTargets = normalizeThresholdEcdsaChainTargets(selection.ecdsa.chainTargets);
+      if (!chainTargets) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ECDSA add-signer contains an invalid chain target',
+        };
+      }
+
+      const addSignerCeremonyId = `wasc_${secureRandomBase64Url(24)}`;
+      const walletKeyId = derivePlannedEvmFamilyWalletKeyId({
+        walletId,
+        signingRootId,
+        signingRootVersion,
+      });
+      const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+        walletId,
+        walletKeyId,
+        signingRootId,
+        signingRootVersion,
+      });
+      const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+        walletId,
+        walletKeyId,
+      });
+      const ecdsa = {
+        kind: 'evm_family_ecdsa_keygen' as const,
+        chainTargets,
+        prepare: {
+          formatVersion: 'ecdsa-hss-role-local' as const,
+          walletId,
+          walletKeyId,
+          ecdsaThresholdKeyId,
+          signingRootId,
+          signingRootVersion,
+          keyScope: 'evm-family' as const,
+          relayerKeyId,
+          requestId: `${addSignerCeremonyId}:ecdsa`,
+          thresholdSessionId: `tehss_${secureRandomBase64Url(24)}`,
+          signingGrantId: `wss_${secureRandomBase64Url(24)}`,
+          ttlMs: 10 * 60_000,
+          remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
+          participantIds: selection.ecdsa.participantIds,
+          runtimePolicyScope,
+        },
+      };
+      await store.putAddSignerCeremony({
+        addSignerCeremonyId,
+        intent: storedIntent.intent,
+        digestB64u: storedIntent.digestB64u,
+        orgId: runtimePolicyScope.orgId,
+        signingRootId,
+        signingRootVersion,
+        expiresAtMs: Date.now() + 10 * 60_000,
+        auth: storedAuth.auth,
+        signerState: {
+          kind: 'ecdsa_add_signer_prepared',
+          hssKind: ecdsa.kind,
+          chainTargets,
+          prepare: ecdsa.prepare,
+        },
+      });
+      return {
+        ok: true,
+        addSignerCeremonyId,
+        intent: storedIntent.intent,
+        ecdsa,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to start wallet add-signer ceremony',
       };
     }
   }
@@ -9682,6 +10017,87 @@ class CloudflareD1RelayAuthMetadataService {
     ).run();
   }
 
+  private async resolveAddSignerExistingAuth(input: {
+    readonly auth: StartWalletAddSignerInput['auth'];
+    readonly walletId: WalletId;
+    readonly rpId: string;
+    readonly intent: AddSignerIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly auth: StoredWalletAddSignerCeremony['auth'];
+      }
+    | {
+        readonly ok: false;
+        readonly code: string;
+        readonly message: string;
+      }
+  > {
+    if (input.auth.kind === 'app_session') {
+      if (input.auth.policy.walletId !== input.walletId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-signer auth.policy wallet mismatch',
+        };
+      }
+      if (!addSignerSelectionMatches(input.auth.policy.signerSelection, input.intent.signerSelection)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-signer auth.policy selection mismatch',
+        };
+      }
+      if (
+        !runtimePolicyScopeMatches(
+          input.auth.policy.runtimePolicyScope,
+          input.intent.runtimePolicyScope,
+        )
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-signer auth.policy runtime scope mismatch',
+        };
+      }
+      if (input.auth.policy.expiresAtMs <= Date.now()) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-signer auth.policy is expired',
+        };
+      }
+      return { ok: true, auth: { kind: 'app_session' } };
+    }
+
+    const credentialId = webAuthnCredentialIdB64uFromCredential(input.auth.credential);
+    if (!credentialId.ok) return credentialId;
+    const authorizationMethod = await input.walletAuthMethodStore.getPasskey({
+      rpId: input.rpId,
+      credentialIdB64u: credentialId.credentialIdB64u,
+    });
+    if (
+      !authorizationMethod ||
+      authorizationMethod.kind !== 'passkey' ||
+      authorizationMethod.walletId !== input.walletId ||
+      authorizationMethod.status !== 'active'
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'WebAuthn authorization credential is not active for this wallet',
+      };
+    }
+    return {
+      ok: true,
+      auth: {
+        kind: 'webauthn_assertion',
+        credentialIdB64u: credentialId.credentialIdB64u,
+      },
+    };
+  }
+
   private async resolveAddAuthMethodExistingAuth(input: {
     readonly auth: StartWalletAddAuthMethodInput['auth'];
     readonly walletId: WalletId;
@@ -11940,6 +12356,7 @@ export function createCloudflareD1RelayAuthService(
   const metadata = new CloudflareD1RelayAuthMetadataService(input);
   service.createRegistrationIntent = metadata.createRegistrationIntent.bind(metadata);
   service.createAddSignerIntent = metadata.createAddSignerIntent.bind(metadata);
+  service.startWalletAddSigner = metadata.startWalletAddSigner.bind(metadata);
   service.createAddAuthMethodIntent = metadata.createAddAuthMethodIntent.bind(metadata);
   service.startWalletAddAuthMethod = metadata.startWalletAddAuthMethod.bind(metadata);
   service.finalizeWalletAddAuthMethod = metadata.finalizeWalletAddAuthMethod.bind(metadata);

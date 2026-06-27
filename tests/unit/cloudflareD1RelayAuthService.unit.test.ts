@@ -2306,6 +2306,7 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
         kind: 'cloudflare-do',
         namespace: durableObjects,
         THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
       },
     });
 
@@ -2468,6 +2469,7 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
         kind: 'cloudflare-do',
         namespace: durableObjects,
         THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
       },
     });
     const intent = await service.createAddAuthMethodIntent({
@@ -2599,6 +2601,145 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
     ).resolves.toMatchObject({
       ok: false,
       code: 'not_found',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies through Durable Objects', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = 'add-signer-wallet.testnet';
+    const rpId = 'example.com';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    await insertSignerWallet({ database, ...scope, walletId, rpId });
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const intent = await service.createAddSignerIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        walletId,
+        rpId,
+        signerSelection: {
+          mode: 'ecdsa',
+          ecdsa: {
+            participantIds: [1, 2, 3],
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+          },
+        },
+      },
+    });
+    expect(intent.ok).toBe(true);
+    if (!intent.ok) throw new Error(intent.message);
+
+    const started = await service.startWalletAddSigner({
+      walletId,
+      addSignerIntentGrant: intent.addSignerIntentGrant,
+      addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
+      intent: intent.intent,
+      auth: {
+        kind: 'app_session',
+        policy: {
+          permission: 'wallet_signer_provision',
+          walletId,
+          signerSelection: intent.intent.signerSelection,
+          runtimePolicyScope: intent.intent.runtimePolicyScope,
+          expiresAtMs: Date.now() + 60_000,
+        },
+      },
+    });
+    if (!started.ok) throw new Error(started.message);
+    expect(started.ok).toBe(true);
+    expect(started.intent).toEqual(intent.intent);
+    expect(started.ecdsa).toMatchObject({
+      kind: 'evm_family_ecdsa_keygen',
+      chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+      prepare: {
+        formatVersion: 'ecdsa-hss-role-local',
+        walletId,
+        signingRootId: `${scope.projectId}:${scope.envId}`,
+        signingRootVersion: 'root-v1',
+        keyScope: 'evm-family',
+        remainingUses: 3,
+        participantIds: [1, 2, 3],
+        runtimePolicyScope: {
+          orgId: scope.orgId,
+          projectId: scope.projectId,
+          envId: scope.envId,
+          signingRootVersion: 'root-v1',
+        },
+      },
+    });
+    expect(started.ecdsa?.prepare.walletKeyId).toContain(
+      encodeURIComponent(`${scope.projectId}:${scope.envId}`),
+    );
+    expect(started.ecdsa?.prepare.ecdsaThresholdKeyId).toMatch(/^ehss-/);
+    expect(started.ecdsa?.prepare.relayerKeyId).toMatch(/^ehss-relayer-/);
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(`${prefix}add-signer-intent:${intent.addSignerIntentGrant}`),
+    ).toBeUndefined();
+    expect(
+      durableObjects.stub.values.get(`${prefix}add-signer:${started.addSignerCeremonyId}`),
+    ).toMatchObject({
+      intent: intent.intent,
+      digestB64u: intent.addSignerIntentDigestB64u,
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      auth: { kind: 'app_session' },
+      signerState: {
+        kind: 'ecdsa_add_signer_prepared',
+        hssKind: 'evm_family_ecdsa_keygen',
+        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+        prepare: started.ecdsa?.prepare,
+      },
+    });
+
+    await expect(
+      service.startWalletAddSigner({
+        walletId,
+        addSignerIntentGrant: intent.addSignerIntentGrant,
+        addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
+        intent: intent.intent,
+        auth: {
+          kind: 'app_session',
+          policy: {
+            permission: 'wallet_signer_provision',
+            walletId,
+            signerSelection: intent.intent.signerSelection,
+            runtimePolicyScope: intent.intent.runtimePolicyScope,
+            expiresAtMs: Date.now() + 60_000,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_grant',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);
