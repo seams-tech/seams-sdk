@@ -1490,6 +1490,36 @@ test('Cloudflare D1 relay auth service starts, reuses, and restarts Google Email
     for (const row of rowsAfterRestart) states.push(row.state);
     states.sort();
     expect(states).toEqual(['abandoned', 'started']);
+
+    await expect(
+      service.linkIdentity({
+        userId: first.walletId,
+        subject: 'wallet:google:register-user',
+      }),
+    ).resolves.toEqual({ ok: true });
+    const cleaned = await service.cleanupGoogleEmailOtpDevRegistrationState({
+      providerSubject: 'google:register-user',
+      walletId: first.walletId,
+      orgId: scope.orgId,
+      nowMs: Date.now() + 31 * 60_000,
+    });
+    expect(cleaned).toEqual({
+      ok: true,
+      providerSubject: 'google:register-user',
+      expiredRegistrationAttemptsDeleted: 2,
+      linkedWalletId: first.walletId,
+      orphanedWalletMappingRemoved: true,
+    });
+    await expect(service.listIdentities({ userId: first.walletId })).resolves.toEqual({
+      ok: true,
+      subjects: [],
+    });
+    await expect(
+      listGoogleEmailOtpRegistrationAttemptRows({
+        database,
+        ...scope,
+      }),
+    ).resolves.toEqual([]);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

@@ -348,6 +348,12 @@ type ResolveGoogleEmailOtpSessionInput = Parameters<
 type ResolveGoogleEmailOtpSessionResult = Awaited<
   ReturnType<CloudflareRelayAuthService['resolveGoogleEmailOtpSession']>
 >;
+type CleanupGoogleEmailOtpDevRegistrationStateInput = Parameters<
+  CloudflareRelayAuthService['cleanupGoogleEmailOtpDevRegistrationState']
+>[0];
+type CleanupGoogleEmailOtpDevRegistrationStateResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['cleanupGoogleEmailOtpDevRegistrationState']>
+>;
 type VerifyGoogleLoginInput = Parameters<CloudflareRelayAuthService['verifyGoogleLogin']>[0];
 type VerifyGoogleLoginResult = Awaited<
   ReturnType<CloudflareRelayAuthService['verifyGoogleLogin']>
@@ -3145,6 +3151,91 @@ class CloudflareD1RelayAuthMetadataService {
     });
   }
 
+  async cleanupGoogleEmailOtpDevRegistrationState(
+    input: CleanupGoogleEmailOtpDevRegistrationStateInput,
+  ): Promise<CleanupGoogleEmailOtpDevRegistrationStateResult> {
+    if (this.options.emailOtp.production) {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'Google Email OTP dev cleanup is not available',
+      };
+    }
+
+    const providerSubject = toOptionalTrimmedString(input.providerSubject);
+    if (!providerSubject || !providerSubject.startsWith('google:')) {
+      return { ok: false, code: 'invalid_body', message: 'Missing Google provider subject' };
+    }
+
+    const requestedWalletId = toOptionalTrimmedString(input.walletId);
+    const requestedOrgId = toOptionalTrimmedString(input.orgId);
+    const nowMsRaw = typeof input.nowMs === 'number' ? input.nowMs : Number(input.nowMs);
+    const nowMs = Number.isFinite(nowMsRaw) && nowMsRaw > 0 ? Math.floor(nowMsRaw) : Date.now();
+    const expiredRegistrationAttemptsDeleted =
+      await this.cleanupGoogleEmailOtpRegistrationAttempts(nowMs);
+    const subject = `wallet:${providerSubject}`;
+    const linkedWalletId = await this.readIdentityUserIdBySubject(subject);
+
+    if (!linkedWalletId) {
+      return {
+        ok: true,
+        providerSubject,
+        expiredRegistrationAttemptsDeleted,
+        orphanedWalletMappingRemoved: false,
+        orphanedWalletMappingSkippedReason: 'no_linked_wallet',
+      };
+    }
+    if (requestedWalletId && requestedWalletId !== linkedWalletId) {
+      return {
+        ok: true,
+        providerSubject,
+        expiredRegistrationAttemptsDeleted,
+        linkedWalletId,
+        orphanedWalletMappingRemoved: false,
+        orphanedWalletMappingSkippedReason: 'wallet_id_mismatch',
+      };
+    }
+    if (!isValidAccountId(linkedWalletId) || !this.isRelayerSubaccount(linkedWalletId)) {
+      return {
+        ok: true,
+        providerSubject,
+        expiredRegistrationAttemptsDeleted,
+        linkedWalletId,
+        orphanedWalletMappingRemoved: false,
+        orphanedWalletMappingSkippedReason: 'not_relayer_subaccount',
+      };
+    }
+
+    const activeEnrollment = await this.readEmailOtpWalletEnrollment(linkedWalletId);
+    if (activeEnrollment) {
+      const enrollmentMatchesProvider = activeEnrollment.providerUserId === providerSubject;
+      const enrollmentMatchesOrg = !requestedOrgId || activeEnrollment.orgId === requestedOrgId;
+      if (enrollmentMatchesProvider && enrollmentMatchesOrg) {
+        return {
+          ok: true,
+          providerSubject,
+          expiredRegistrationAttemptsDeleted,
+          linkedWalletId,
+          orphanedWalletMappingRemoved: false,
+          orphanedWalletMappingSkippedReason: 'active_email_otp_enrollment',
+        };
+      }
+    }
+
+    const deleted = await this.deleteIdentitySubjectLinkForDevCleanup({
+      userId: linkedWalletId,
+      subject,
+    });
+    if (!deleted.ok && deleted.code !== 'not_found') return deleted;
+    return {
+      ok: true,
+      providerSubject,
+      expiredRegistrationAttemptsDeleted,
+      linkedWalletId,
+      orphanedWalletMappingRemoved: deleted.ok,
+    };
+  }
+
   async readEmailOtpEnrollment(
     input: ReadEmailOtpEnrollmentInput,
   ): Promise<ReadEmailOtpEnrollmentResult> {
@@ -5431,16 +5522,18 @@ class CloudflareD1RelayAuthMetadataService {
     );
   }
 
-  private async cleanupGoogleEmailOtpRegistrationAttempts(nowMs: number): Promise<void> {
-    await this.scopePrepare(
-      `DELETE FROM signer_email_otp_registration_attempts
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND (expires_at_ms <= ? OR state = 'expired')`,
-      [nowMs],
-    ).run();
+  private async cleanupGoogleEmailOtpRegistrationAttempts(nowMs: number): Promise<number> {
+    return d1MutationChanges(
+      await this.scopePrepare(
+        `DELETE FROM signer_email_otp_registration_attempts
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND (expires_at_ms <= ? OR state = 'expired')`,
+        [nowMs],
+      ).run(),
+    );
   }
 
   private async createGoogleEmailOtpRegistrationAttempt(input: {
@@ -5756,6 +5849,33 @@ class CloudflareD1RelayAuthMetadataService {
   private async readIdentityUserIdBySubject(subject: string): Promise<string | null> {
     const row = await this.readIdentityLinkBySubject(subject);
     return toOptionalTrimmedString(row?.user_id) || null;
+  }
+
+  private async deleteIdentitySubjectLinkForDevCleanup(input: {
+    readonly userId: string;
+    readonly subject: string;
+  }): Promise<UnlinkIdentityResult> {
+    const userId = toOptionalTrimmedString(input.userId);
+    const subject = toOptionalTrimmedString(input.subject);
+    if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+    if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+    const deleted = d1MutationChanges(
+      await this.scopePrepare(
+        `DELETE FROM signer_identity_links
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND subject = ?
+            AND user_id = ?`,
+        [subject, userId],
+      ).run(),
+    );
+    if (deleted === 0) {
+      return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
+    }
+    return { ok: true };
   }
 
   private async readIdentitySubjectCountForUserId(userId: string): Promise<number> {
@@ -7040,6 +7160,8 @@ export function createCloudflareD1RelayAuthService(
   service.consumeGoogleEmailOtpRegistrationAttemptRateLimit =
     metadata.consumeGoogleEmailOtpRegistrationAttemptRateLimit.bind(metadata);
   service.resolveGoogleEmailOtpSession = metadata.resolveGoogleEmailOtpSession.bind(metadata);
+  service.cleanupGoogleEmailOtpDevRegistrationState =
+    metadata.cleanupGoogleEmailOtpDevRegistrationState.bind(metadata);
   service.readEmailOtpEnrollment = metadata.readEmailOtpEnrollment.bind(metadata);
   service.readActiveEmailOtpEnrollment = metadata.readActiveEmailOtpEnrollment.bind(metadata);
   service.isEmailOtpStrongAuthRequired = metadata.isEmailOtpStrongAuthRequired.bind(metadata);
