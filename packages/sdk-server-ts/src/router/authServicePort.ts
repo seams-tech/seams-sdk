@@ -21,7 +21,6 @@ export type CloudflareRelayAuthServiceMethod =
   | 'createWebAuthnSyncAccountOptions'
   | 'ecdsaHssRoleLocalBootstrap'
   | 'ecdsaHssRoleLocalExportShare'
-  | 'executeSignedDelegate'
   | 'finalizeWalletAddAuthMethod'
   | 'finalizeWalletAddSigner'
   | 'finalizeWalletRegistration'

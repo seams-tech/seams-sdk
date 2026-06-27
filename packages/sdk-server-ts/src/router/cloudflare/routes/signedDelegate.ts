@@ -1,13 +1,34 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import { handleRelaySignedDelegate } from '../../relaySignedDelegate';
+import {
+  handleRelaySignedDelegate,
+  type SignedDelegateRelayAuthService,
+} from '../../relaySignedDelegate';
 import { findRouteDefinitionById } from '../../routeDefinitions';
-import { toFetchRouteResponse } from '../../routeResponses';
+import { routeJson, toFetchRouteResponse } from '../../routeResponses';
 import { readJson } from '../http';
+
+function hasSignedDelegateAuthService(service: unknown): service is SignedDelegateRelayAuthService {
+  if (!service || typeof service !== 'object') return false;
+  const candidate = service as Record<string, unknown>;
+  return (
+    typeof candidate.executeSignedDelegate === 'function' &&
+    typeof candidate.getRelayerAccount === 'function'
+  );
+}
 
 export async function handleSignedDelegate(ctx: CloudflareRelayContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, 'signed_delegate');
   if (!route) return null;
   if (ctx.method !== route.method || ctx.pathname !== route.path) return null;
+  if (!hasSignedDelegateAuthService(ctx.service)) {
+    return toFetchRouteResponse(
+      routeJson(501, {
+        ok: false,
+        code: 'signed_delegate_auth_unavailable',
+        message: 'Signed-delegate execution is not configured for this Cloudflare router',
+      }),
+    );
+  }
 
   const response = await handleRelaySignedDelegate({
     body: await readJson(ctx.request),

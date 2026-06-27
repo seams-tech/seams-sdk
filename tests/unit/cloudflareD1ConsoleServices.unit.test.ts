@@ -215,7 +215,6 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
     },
     adapters: {
       ensureSchema: false,
-      signedDelegateRoute: '/d1-signed-delegate',
       sponsorshipPricing,
       sponsoredEvmCallConfig: null,
     },
@@ -226,12 +225,7 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
 
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
-  expect(bundle.relayRouterOptions.signedDelegate).toMatchObject({
-    route: '/d1-signed-delegate',
-    billing: bundle.billing,
-    ledger: bundle.sponsoredCalls,
-    runtimeSnapshots: bundle.runtimeSnapshots,
-  });
+  expect(bundle.relayRouterOptions).not.toHaveProperty('signedDelegate');
   expect(bundle.relayRouterOptions.sponsorship).toMatchObject({
     spendCaps: bundle.spendCaps,
     pricing: sponsorshipPricing,
@@ -303,7 +297,7 @@ test('local D1 Worker exposes relay smoke routes under relay prefix', async () =
   expect(health.status).toBe(200);
   await expect(health.json()).resolves.toMatchObject({
     ok: true,
-    thresholdEd25519: { configured: false },
+    thresholdEd25519: { configured: true },
     cors: { allowedOrigins: ['http://127.0.0.1:8787', 'http://localhost:8787'] },
   });
 

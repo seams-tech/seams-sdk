@@ -222,6 +222,15 @@ Line-count cleanup baseline:
   finalize, persists the wallet enrollment, recovery-wrapped enrollment escrows,
   and auth-state reset in D1, and verifies replay still works after ceremony
   consumption.
+- [x] Cloudflare D1 signed-delegate scope cleanup slice recorded before
+  plan-doc update: 39 code additions and 37 code deletions across the
+  Cloudflare auth port, D1 service bundle, signed-delegate route typing,
+  NEAR sponsorship adapter, and D1 console service tests. The same-slice
+  cleanup pass deleted the D1 `signedDelegateRoute` bundle option, removed
+  `executeSignedDelegate` from the D1 Cloudflare relay auth port, removed the
+  disabled D1 signed-delegate placeholder, and left NEAR signed delegates as an
+  explicit opt-in route for non-D1 or future full-family adapter surfaces.
+  Remaining disabled signer/recovery ceremony methods after this cleanup: 3.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -1122,12 +1131,18 @@ Completed:
   disabled at the route and service layers.
 - [x] Threshold public-key metadata D1 tables remain deferred until a dashboard
   lookup requirement appears.
+- [x] NEAR signed delegates are excluded from the simplified first D1 staging
+  scope. The Cloudflare D1 service bundle omits the `/signed-delegate` route,
+  and signed-delegate execution is typed as a narrow opt-in route dependency
+  outside `CloudflareRelayAuthService`.
 
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: Ed25519 wallet-registration preparation, signed delegates, and
-  email recovery HSS responses.
+  Object slices: email recovery HSS responses if recovery must be enabled in
+  first D1 staging.
+- [ ] Keep Ed25519 wallet-registration preparation out of D1 staging until
+  start, respond, and finalize are scoped as one complete Ed25519 route slice.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found

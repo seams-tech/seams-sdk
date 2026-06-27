@@ -2974,6 +2974,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
             id: 'cred-1',
             rawId: 'cred-1',
             type: 'public-key',
+            authenticatorAttachment: null,
             response: {
               clientDataJSON: 'client-data-json',
               authenticatorData: 'authenticator-data',
@@ -3037,6 +3038,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
             id: 'cred-1',
             rawId: 'cred-1',
             type: 'public-key',
+            authenticatorAttachment: null,
             response: {
               clientDataJSON: 'client-data-json',
               authenticatorData: 'authenticator-data',

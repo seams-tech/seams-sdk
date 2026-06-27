@@ -95,7 +95,6 @@ const disabledSignerMethods: DisabledSignerMethods = {
   createWebAuthnSyncAccountOptions: rejectDisabledSignerService,
   ecdsaHssRoleLocalBootstrap: rejectDisabledSignerService,
   ecdsaHssRoleLocalExportShare: rejectDisabledSignerService,
-  executeSignedDelegate: rejectDisabledSignerService,
   finalizeWalletAddAuthMethod: rejectDisabledSignerService,
   finalizeWalletAddSigner: rejectDisabledSignerService,
   finalizeWalletRegistration: rejectDisabledSignerService,

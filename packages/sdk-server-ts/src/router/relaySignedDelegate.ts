@@ -1,4 +1,4 @@
-import type { CloudflareRelayAuthService } from './authServicePort';
+import type { AuthService } from '../core/AuthService';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../console/observability';
@@ -30,7 +30,10 @@ import {
   settleSponsoredPrepaidBalance,
 } from '../sponsorship/prepaidBalance';
 import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
-import { createSponsoredNearDelegateExecutionAdapter } from '../sponsorship/nearExecutionAdapter';
+import {
+  createSponsoredNearDelegateExecutionAdapter,
+  type SponsoredNearDelegateAuthService,
+} from '../sponsorship/nearExecutionAdapter';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
@@ -71,11 +74,14 @@ interface SignedDelegateExecutionAssessment extends SponsorshipExecutionAssessme
   gasBurnt: string | null;
 }
 
+export type SignedDelegateRelayAuthService = SponsoredNearDelegateAuthService &
+  Pick<AuthService, 'getRelayerAccount'>;
+
 type MatchedSponsoredNearDelegate =
   NonNullable<ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>>;
 
 interface RelaySignedDelegateServices {
-  authService: CloudflareRelayAuthService;
+  authService: SignedDelegateRelayAuthService;
   billing?: ConsoleBillingService | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   prepaidReservations?: ConsoleBillingPrepaidReservationService | null;

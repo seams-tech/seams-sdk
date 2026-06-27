@@ -105,7 +105,6 @@ const DEFAULT_THRESHOLD_STORE_BINDING_NAME = 'THRESHOLD_STORE';
 const DEFAULT_ROUTE_VERSION = 1;
 const DEFAULT_TOPOLOGY: CloudflareTenantTopology = 'shared';
 const DEFAULT_JURISDICTION: TenantDataJurisdiction = 'automatic';
-const DEFAULT_SIGNED_DELEGATE_ROUTE = '/signed-delegate';
 const DEFAULT_BOOTSTRAP_GRANT_TOKEN_TTL_MS = 60_000;
 
 export interface CloudflareD1ConsoleStorageBindings {
@@ -146,7 +145,6 @@ export interface CloudflareD1ConsoleAdapterOptions {
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
-  readonly signedDelegateRoute?: string;
   readonly bootstrapGrantTokenTtlMs?: number;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
@@ -181,7 +179,6 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
 }
 
 export interface CloudflareD1RelayRouterStorageOptions {
-  readonly signedDelegate: NonNullable<RelayRouterOptions['signedDelegate']>;
   readonly sponsorship: NonNullable<RelayRouterOptions['sponsorship']>;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
   readonly apiKeyAuth: RelayApiKeyAuthAdapter;
@@ -268,7 +265,6 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions {
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
-  readonly signedDelegateRoute: string;
   readonly bootstrapGrantTokenTtlMs: number;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
@@ -288,14 +284,6 @@ function normalizeNamespace(input: string): string {
     throw new Error('D1 console storage namespace is required');
   }
   return namespace;
-}
-
-function normalizeSignedDelegateRoute(input: string | undefined): string {
-  const route = String(input || DEFAULT_SIGNED_DELEGATE_ROUTE).trim();
-  if (!route.startsWith('/') || route === '/') {
-    throw new Error('D1 relay signedDelegateRoute must be an absolute non-root path');
-  }
-  return route;
 }
 
 function normalizeBootstrapGrantTokenTtlMs(input: number | undefined): number {
@@ -446,7 +434,6 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
     runtimeSnapshotRetentionPruneIntervalMs:
       options.adapters?.runtimeSnapshotRetentionPruneIntervalMs,
     runtimeSnapshotRetentionBatchSize: options.adapters?.runtimeSnapshotRetentionBatchSize,
-    signedDelegateRoute: normalizeSignedDelegateRoute(options.adapters?.signedDelegateRoute),
     bootstrapGrantTokenTtlMs: normalizeBootstrapGrantTokenTtlMs(
       options.adapters?.bootstrapGrantTokenTtlMs,
     ),
@@ -793,12 +780,6 @@ function createCloudflareD1RelayRouterStorageOptions(input: {
     storageNamespace: options.namespace,
   });
   return {
-    signedDelegate: {
-      route: options.signedDelegateRoute,
-      billing: input.billing,
-      ledger: input.sponsoredCalls,
-      runtimeSnapshots: input.runtimeSnapshots,
-    },
     sponsorship: {
       spendCaps: input.spendCaps,
       pricing: options.sponsorshipPricing || null,
