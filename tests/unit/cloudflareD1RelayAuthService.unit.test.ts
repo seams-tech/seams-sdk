@@ -18,6 +18,10 @@ import type {
 import { createCloudflareD1RelayAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RelayAuthService';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
+  EMAIL_OTP_RECOVERY_KEY_COUNT,
+  EMAIL_OTP_RECOVERY_WRAP_ALG,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
   buildEmailOtpRecoveryWrapBinding,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '../../packages/shared-ts/src/utils/emailOtpRecoveryKey';
@@ -306,6 +310,7 @@ function restoreGoogleJwksFetchMock(originalFetch: typeof globalThis.fetch): voi
 
 function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
   return applyMigrations(database, [
+    'packages/sdk-server-ts/migrations/d1-signer/0002_signer_wallet_metadata.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0003_signer_webauthn.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0004_signer_identity.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0005_signer_recovery.sql',
@@ -642,6 +647,44 @@ async function insertNearPublicKey(input: {
     .run();
 }
 
+async function insertSignerWallet(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletId: string;
+  readonly rpId?: string;
+}): Promise<void> {
+  const nowMs = Date.now();
+  const record = {
+    version: 'wallet_v1',
+    walletId: input.walletId,
+    rpId: input.rpId || 'example.com',
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  };
+  await input.database
+    .prepare(
+      `INSERT INTO signer_wallets (
+        namespace, org_id, project_id, env_id, wallet_id, rp_id, record_json,
+        created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      record.walletId,
+      record.rpId,
+      JSON.stringify(record),
+      record.createdAtMs,
+      record.updatedAtMs,
+    )
+    .run();
+}
+
 async function insertEmailOtpEnrollment(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -893,6 +936,29 @@ type RecoveryRotationEscrowInput = {
   readonly aadHashB64u: string;
 };
 
+type RecoveryWrappedEnrollmentEscrowInput = {
+  readonly version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
+  readonly alg: typeof EMAIL_OTP_RECOVERY_WRAP_ALG;
+  readonly secretKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND;
+  readonly escrowKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND;
+  readonly walletId: string;
+  readonly userId: string;
+  readonly authSubjectId: string;
+  readonly authMethod: 'google_sso_email_otp';
+  readonly enrollmentId: string;
+  readonly enrollmentVersion: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+  readonly recoveryKeyId: string;
+  readonly recoveryKeyStatus: 'active';
+  readonly nonceB64u: string;
+  readonly wrappedDeviceEnrollmentEscrowB64u: string;
+  readonly aadHashB64u: string;
+  readonly issuedAtMs: number;
+  readonly updatedAtMs: number;
+};
+
 function makeRecoveryRotationEscrowInputs(): RecoveryRotationEscrowInput[] {
   const inputs: RecoveryRotationEscrowInput[] = [];
   for (let index = 1; index <= 10; index += 1) {
@@ -927,6 +993,99 @@ function recoveryRotationEscrowInput(index: number): RecoveryRotationEscrowInput
   };
 }
 
+function makeRecoveryWrappedEnrollmentEscrows(input: {
+  readonly walletId: string;
+  readonly userId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly enrollmentVersion?: string;
+  readonly signingRootId?: string;
+  readonly signingRootVersion?: string;
+  readonly issuedAtMs?: number;
+}): RecoveryWrappedEnrollmentEscrowInput[] {
+  const enrollmentVersion = input.enrollmentVersion || 'enrollment-v1';
+  const signingRootId = input.signingRootId || 'project-a:env-a';
+  const signingRootVersion = input.signingRootVersion || 'root-v1';
+  const issuedAtMs = input.issuedAtMs || Date.now();
+  const records: RecoveryWrappedEnrollmentEscrowInput[] = [];
+  for (let index = 1; index <= EMAIL_OTP_RECOVERY_KEY_COUNT; index += 1) {
+    records.push(
+      recoveryWrappedEnrollmentEscrowInput({
+        index,
+        walletId: input.walletId,
+        userId: input.userId,
+        enrollmentId: input.enrollmentId,
+        enrollmentVersion,
+        enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
+        signingRootId,
+        signingRootVersion,
+        issuedAtMs,
+      }),
+    );
+  }
+  return records;
+}
+
+function recoveryWrappedEnrollmentEscrowInput(input: {
+  readonly index: number;
+  readonly walletId: string;
+  readonly userId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentVersion: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+  readonly issuedAtMs: number;
+}): RecoveryWrappedEnrollmentEscrowInput {
+  const recoveryKeyId = `enrollment-recovery-${input.index}`;
+  const binding = buildEmailOtpRecoveryWrapBinding({
+    walletId: input.walletId,
+    userId: input.userId,
+    authSubjectId: input.userId,
+    authMethod: 'google_sso_email_otp',
+    enrollmentId: input.enrollmentId,
+    enrollmentVersion: input.enrollmentVersion,
+    enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+    recoveryKeyId,
+  });
+  return {
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+    walletId: input.walletId,
+    userId: input.userId,
+    authSubjectId: input.userId,
+    authMethod: 'google_sso_email_otp',
+    enrollmentId: input.enrollmentId,
+    enrollmentVersion: input.enrollmentVersion,
+    enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+    recoveryKeyId,
+    recoveryKeyStatus: 'active',
+    nonceB64u: base64UrlEncode(new Uint8Array(12).fill(input.index)),
+    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
+      new Uint8Array(48).fill(input.index + 20),
+    ),
+    aadHashB64u: recoveryEscrowAadHashB64u(binding),
+    issuedAtMs: input.issuedAtMs,
+    updatedAtMs: input.issuedAtMs,
+  };
+}
+
+function recoveryEscrowAadHashB64u(
+  binding: ReturnType<typeof buildEmailOtpRecoveryWrapBinding>,
+): string {
+  return base64UrlEncode(
+    createHash('sha256')
+      .update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding))
+      .digest(),
+  );
+}
+
 async function readRecoveryEscrowStatusCounts(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -959,6 +1118,36 @@ async function readRecoveryEscrowStatusCounts(input: {
     if (status) counts[status] = toInteger(row.count);
   }
   return counts;
+}
+
+async function countActiveRecoveryWrappedEnrollmentEscrows(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletId: string;
+}): Promise<number> {
+  const row = await input.database
+    .prepare(
+      `SELECT COUNT(*) AS active_count
+         FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+          AND recovery_key_status = 'active'`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.walletId,
+    )
+    .first<SqliteJsonRow>();
+  return toInteger(row?.active_count);
 }
 
 async function insertRecoverySession(input: {
@@ -2394,6 +2583,156 @@ test('Cloudflare D1 relay auth service issues registration Email OTP challenges'
     expect(outbox.ok).toBe(true);
     if (!outbox.ok) throw new Error(outbox.message);
     expect(outbox.otpCode).toMatch(/^[0-9]{6}$/);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service verifies registration Email OTP enrollment', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = 'registration-wallet.testnet';
+    const providerSubject = 'google:registration-user';
+    const sessionHash = 'registration-session-hash';
+    const appSessionVersion = 'registration-session-v1';
+    const enrollmentSealKeyVersion = 'seal-v1';
+    const unlockKeyVersion = 'unlock-v1';
+    await insertSignerWallet({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      walletId,
+    });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+    });
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId,
+      orgId: scope.orgId,
+      email: 'Register.User@Example.Test',
+      otpChannel: 'email_otp',
+      sessionHash,
+      appSessionVersion,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+
+    const privateKey32 = new Uint8Array(32);
+    privateKey32[31] = 7;
+    const publicKey33 = await secp256k1PrivateKey32ToPublicKey33(privateKey32);
+    const publicKeyB64u = base64UrlEncode(publicKey33);
+    const recoveryWrappedEnrollmentEscrows = makeRecoveryWrappedEnrollmentEscrows({
+      walletId,
+      userId: providerSubject,
+      enrollmentId: 'email-otp-device-enrollment-v1:registration-wallet:google-user',
+      enrollmentSealKeyVersion,
+      signingRootId: 'project-a:env-a',
+      signingRootVersion: 'root-v1',
+    });
+
+    const verified = await service.verifyEmailOtpEnrollment({
+      providerSubject,
+      walletId,
+      orgId: scope.orgId,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash,
+      appSessionVersion,
+      proofEmail: 'register.user@example.test',
+      recoveryWrappedEnrollmentEscrows,
+      enrollmentSealKeyVersion,
+      clientUnlockPublicKeyB64u: publicKeyB64u,
+      unlockKeyVersion,
+      thresholdEcdsaClientVerifyingShareB64u: publicKeyB64u,
+    });
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) throw new Error(verified.message);
+    expect(verified).toMatchObject({
+      walletId,
+      otpChannel: 'email_otp',
+      enrollment: {
+        enrollmentSealKeyVersion,
+        unlockKeyVersion,
+      },
+    });
+
+    await expect(
+      service.readEmailOtpEnrollment({
+        walletId,
+        orgId: scope.orgId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      enrollment: {
+        walletId,
+        providerUserId: providerSubject,
+        orgId: scope.orgId,
+        verifiedEmail: 'register.user@example.test',
+        recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        enrollmentSealKeyVersion,
+        unlockKeyVersion,
+      },
+    });
+    await expect(
+      countActiveRecoveryWrappedEnrollmentEscrows({
+        database,
+        namespace: scope.namespace,
+        orgId: scope.orgId,
+        projectId: scope.projectId,
+        envId: scope.envId,
+        walletId,
+      }),
+    ).resolves.toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
+    await expect(
+      service.readEmailOtpOutboxEntry({
+        challengeId: challenge.challenge.challengeId,
+        userId: providerSubject,
+        walletId,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'not_found' });
+    await expect(
+      service.verifyEmailOtpEnrollment({
+        providerSubject,
+        walletId,
+        orgId: scope.orgId,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: outbox.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash,
+        appSessionVersion,
+        proofEmail: 'register.user@example.test',
+        recoveryWrappedEnrollmentEscrows,
+        enrollmentSealKeyVersion,
+        clientUnlockPublicKeyB64u: publicKeyB64u,
+        unlockKeyVersion,
+        thresholdEcdsaClientVerifyingShareB64u: publicKeyB64u,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

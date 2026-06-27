@@ -275,6 +275,12 @@ type VerifyEmailOtpDeviceRecoveryChallengeInput = Parameters<
 type VerifyEmailOtpDeviceRecoveryChallengeResult = Awaited<
   ReturnType<CloudflareRelayAuthService['verifyEmailOtpDeviceRecoveryChallenge']>
 >;
+type VerifyEmailOtpEnrollmentInput = Parameters<
+  CloudflareRelayAuthService['verifyEmailOtpEnrollment']
+>[0];
+type VerifyEmailOtpEnrollmentResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyEmailOtpEnrollment']>
+>;
 type ReadEmailOtpOutboxEntryInput = Parameters<
   CloudflareRelayAuthService['readEmailOtpOutboxEntry']
 >[0];
@@ -712,6 +718,59 @@ type EmailOtpExistingChallengeVerifyResult =
       retryAfterMs?: number;
       resetAtMs?: number;
     };
+
+type EmailOtpRegistrationChallengeVerifyInput = {
+  readonly providerSubject?: unknown;
+  readonly walletId?: unknown;
+  readonly orgId?: unknown;
+  readonly challengeId?: unknown;
+  readonly otpCode?: unknown;
+  readonly otpChannel?: unknown;
+  readonly sessionHash?: unknown;
+  readonly appSessionVersion?: unknown;
+  readonly proofEmail?: unknown;
+  readonly clientIp?: unknown;
+};
+
+type EmailOtpRegistrationChallengeVerifyResult =
+  | {
+      ok: true;
+      readonly challengeId: string;
+      readonly challengeSubjectId: string;
+      readonly walletId: string;
+      readonly orgId: string;
+      readonly email: string;
+      readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      attemptsRemaining?: number;
+      lockedUntilMs?: number;
+      retryAfterMs?: number;
+      resetAtMs?: number;
+    };
+
+type EmailOtpEnrollmentMaterialValidationResult =
+  | {
+      ok: true;
+      readonly recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
+      readonly enrollmentSealKeyVersion: string;
+      readonly clientUnlockPublicKeyB64u: string;
+      readonly unlockKeyVersion: string;
+      readonly thresholdEcdsaClientVerifyingShareB64u: string;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+type EmailOtpRecoveryEnrollmentEscrowBoundary = {
+  readonly record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
+  readonly binding: ReturnType<typeof buildEmailOtpRecoveryWrapBinding>;
+};
 
 function requireD1RelayAuthScopeString(input: unknown, field: string): string {
   const value = toOptionalTrimmedString(input);
@@ -1378,6 +1437,88 @@ function terminalGoogleEmailOtpRegistrationAttemptRecord(input: {
         ...(input.failureCode ? { failureCode: input.failureCode } : {}),
       };
   }
+}
+
+function googleEmailOtpRegistrationAttemptFields(
+  record: GoogleEmailOtpRegistrationAttemptRecord,
+): GoogleEmailOtpRegistrationAttemptParseFields {
+  return {
+    attemptId: record.attemptId,
+    providerSubject: record.providerSubject,
+    email: record.email,
+    walletId: record.walletId,
+    offerId: record.offerId,
+    offerCandidates: record.offerCandidates,
+    selectedCandidateId: record.selectedCandidateId,
+    appSessionVersion: record.appSessionVersion,
+    authProvider: record.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: record.walletIdDerivationNonce,
+    collisionCounter: record.collisionCounter,
+    createdAtMs: record.createdAtMs,
+    updatedAtMs: record.updatedAtMs,
+    expiresAtMs: record.expiresAtMs,
+    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+  };
+}
+
+function activeGoogleEmailOtpRegistrationAttemptRecord(input: {
+  readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
+  readonly updatedAtMs: number;
+}): GoogleEmailOtpRegistrationAttemptRecord {
+  const terminal = terminalGoogleEmailOtpRegistrationAttemptRecord({
+    fields: {
+      ...googleEmailOtpRegistrationAttemptFields(input.record),
+      updatedAtMs: input.updatedAtMs,
+    },
+    state: 'active',
+    ...(input.record.state === 'key_finalized'
+      ? { finalizedPublicKey: input.record.finalizedPublicKey }
+      : {}),
+  });
+  if (!terminal) throw new Error('Failed to build active Google Email OTP registration attempt');
+  return terminal;
+}
+
+function expiredGoogleEmailOtpRegistrationAttemptRecord(input: {
+  readonly record: GoogleEmailOtpRegistrationAttemptRecord;
+  readonly updatedAtMs: number;
+}): GoogleEmailOtpRegistrationAttemptRecord {
+  const terminal = terminalGoogleEmailOtpRegistrationAttemptRecord({
+    fields: {
+      ...googleEmailOtpRegistrationAttemptFields(input.record),
+      updatedAtMs: input.updatedAtMs,
+    },
+    state: 'expired',
+    ...('finalizedPublicKey' in input.record && input.record.finalizedPublicKey
+      ? { finalizedPublicKey: input.record.finalizedPublicKey }
+      : {}),
+    ...('failureCode' in input.record && input.record.failureCode
+      ? { failureCode: input.record.failureCode }
+      : {}),
+  });
+  if (!terminal) throw new Error('Failed to build expired Google Email OTP registration attempt');
+  return terminal;
+}
+
+function failedGoogleEmailOtpRegistrationAttemptWithCode(input: {
+  readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
+  readonly failureCode: string;
+  readonly updatedAtMs: number;
+}): GoogleEmailOtpRegistrationAttemptRecord {
+  const terminal = terminalGoogleEmailOtpRegistrationAttemptRecord({
+    fields: {
+      ...googleEmailOtpRegistrationAttemptFields(input.record),
+      updatedAtMs: input.updatedAtMs,
+    },
+    state: 'failed',
+    failureCode: input.failureCode,
+    ...(input.record.state === 'key_finalized'
+      ? { finalizedPublicKey: input.record.finalizedPublicKey }
+      : {}),
+  });
+  if (!terminal) throw new Error('Failed to build failed Google Email OTP registration attempt');
+  return terminal;
 }
 
 function parseGoogleEmailOtpRegistrationAttemptRecord(
@@ -2315,6 +2456,28 @@ function parseEmailOtpRecoveryEscrowRecord(
   }
 }
 
+function parseEmailOtpRecoveryEnrollmentEscrowBoundary(
+  input: unknown,
+): EmailOtpRecoveryEnrollmentEscrowBoundary | null {
+  const record = parseEmailOtpRecoveryEscrowRecord(input);
+  if (!record) return null;
+  return {
+    record,
+    binding: buildEmailOtpRecoveryWrapBinding({
+      walletId: record.walletId,
+      userId: record.userId,
+      authSubjectId: record.authSubjectId,
+      authMethod: record.authMethod,
+      enrollmentId: record.enrollmentId,
+      enrollmentVersion: record.enrollmentVersion,
+      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+      recoveryKeyId: record.recoveryKeyId,
+    }),
+  };
+}
+
 function parseEmailOtpRecoveryEscrowRow(
   row: D1EmailOtpRecoveryEscrowRow | null,
 ): EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null {
@@ -2475,6 +2638,53 @@ function revokedEmailOtpRecoveryEscrowRecord(input: {
     updatedAtMs: input.revokedAtMs,
     revokedAtMs: input.revokedAtMs,
   };
+}
+
+function emailOtpRecoveryEscrowWithUpdatedAt(input: {
+  readonly record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
+  readonly updatedAtMs: number;
+}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord {
+  const base = {
+    version: input.record.version,
+    alg: input.record.alg,
+    secretKind: input.record.secretKind,
+    escrowKind: input.record.escrowKind,
+    walletId: input.record.walletId,
+    userId: input.record.userId,
+    authSubjectId: input.record.authSubjectId,
+    authMethod: input.record.authMethod,
+    enrollmentId: input.record.enrollmentId,
+    enrollmentVersion: input.record.enrollmentVersion,
+    enrollmentSealKeyVersion: input.record.enrollmentSealKeyVersion,
+    signingRootId: input.record.signingRootId,
+    signingRootVersion: input.record.signingRootVersion,
+    recoveryKeyId: input.record.recoveryKeyId,
+    ...(input.record.recoveryKeyLabel ? { recoveryKeyLabel: input.record.recoveryKeyLabel } : {}),
+    nonceB64u: input.record.nonceB64u,
+    wrappedDeviceEnrollmentEscrowB64u: input.record.wrappedDeviceEnrollmentEscrowB64u,
+    aadHashB64u: input.record.aadHashB64u,
+    issuedAtMs: input.record.issuedAtMs,
+    updatedAtMs: input.updatedAtMs,
+  };
+  switch (input.record.recoveryKeyStatus) {
+    case 'active':
+      return {
+        ...base,
+        recoveryKeyStatus: 'active',
+      };
+    case 'consumed':
+      return {
+        ...base,
+        recoveryKeyStatus: 'consumed',
+        consumedAtMs: input.record.consumedAtMs,
+      };
+    case 'revoked':
+      return {
+        ...base,
+        recoveryKeyStatus: 'revoked',
+        revokedAtMs: input.record.revokedAtMs,
+      };
+  }
 }
 
 async function activeEmailOtpRecoveryRotationEscrowRecord(input: {
@@ -3131,6 +3341,37 @@ function emailOtpChallengeBindingMismatchCode(input: {
   if (String(input.record.orgId || '') !== input.orgId) return 'challenge_org_mismatch';
   if (input.record.action !== input.action) return 'challenge_purpose_mismatch';
   if (input.record.operation !== input.operation) return 'challenge_purpose_mismatch';
+  if (input.record.sessionHash !== input.sessionHash) return 'challenge_session_mismatch';
+  if (input.record.appSessionVersion !== input.appSessionVersion) {
+    return 'challenge_session_mismatch';
+  }
+  return null;
+}
+
+function emailOtpRegistrationChallengeBindingMismatchCode(input: {
+  readonly record: EmailOtpChallengeRecord;
+  readonly providerSubject: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly sessionHash: string;
+  readonly appSessionVersion: string;
+  readonly proofEmail: string;
+}): string | null {
+  if (input.record.otpChannel !== EMAIL_OTP_CHANNEL) return 'challenge_channel_mismatch';
+  if (input.record.challengeSubjectId !== input.providerSubject) {
+    return 'challenge_subject_mismatch';
+  }
+  if (toOptionalTrimmedString(input.record.email)?.toLowerCase() !== input.proofEmail) {
+    return 'challenge_email_mismatch';
+  }
+  if (String(input.record.orgId || '') !== input.orgId) return 'challenge_org_mismatch';
+  if (input.record.action !== WALLET_EMAIL_OTP_ACTIONS.registration) {
+    return 'challenge_purpose_mismatch';
+  }
+  if (input.record.operation !== WALLET_EMAIL_OTP_REGISTRATION_OPERATION) {
+    return 'challenge_purpose_mismatch';
+  }
+  if (input.record.walletId !== input.walletId) return 'challenge_wallet_mismatch';
   if (input.record.sessionHash !== input.sessionHash) return 'challenge_session_mismatch';
   if (input.record.appSessionVersion !== input.appSessionVersion) {
     return 'challenge_session_mismatch';
@@ -4108,6 +4349,569 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to verify Email OTP challenge',
+      };
+    }
+  }
+
+  private async verifyEmailOtpRegistrationChallengeCode(
+    input: EmailOtpRegistrationChallengeVerifyInput,
+  ): Promise<EmailOtpRegistrationChallengeVerifyResult> {
+    try {
+      const providerSubject = toOptionalTrimmedString(input.providerSubject);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const challengeId = toOptionalTrimmedString(input.challengeId);
+      const otpCode = toOptionalTrimmedString(input.otpCode);
+      const otpChannel = toOptionalTrimmedString(input.otpChannel);
+      const sessionHash = toOptionalTrimmedString(input.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const proofEmail = toOptionalTrimmedString(input.proofEmail)?.toLowerCase() || '';
+      const clientIp = toOptionalTrimmedString(input.clientIp);
+      if (!providerSubject) {
+        return { ok: false, code: 'invalid_body', message: 'Missing providerSubject' };
+      }
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!challengeId) {
+        return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
+      }
+      if (!otpCode) return { ok: false, code: 'invalid_body', message: 'Missing otpCode' };
+      if (otpChannel !== EMAIL_OTP_CHANNEL) {
+        return { ok: false, code: 'invalid_body', message: 'otpChannel must be email_otp' };
+      }
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+      if (!proofEmail) {
+        return { ok: false, code: 'invalid_body', message: 'Email OTP registration requires proofEmail' };
+      }
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'verify',
+        action: WALLET_EMAIL_OTP_ACTIONS.registration,
+        userId: providerSubject,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      const existingEnrollment = await this.readEmailOtpWalletEnrollment(walletId);
+      if (existingEnrollment && existingEnrollment.orgId !== orgId) {
+        return {
+          ok: false,
+          code: 'tenant_scope_mismatch',
+          message: 'Email OTP enrollment does not match the requested orgId',
+        };
+      }
+      const authState = existingEnrollment
+        ? await this.readEmailOtpAuthStateForEnrollment(existingEnrollment)
+        : { ok: true as const, state: null };
+      if (!authState.ok) return authState;
+      if (authState.state?.otpLockedUntilMs && authState.state.otpLockedUntilMs > Date.now()) {
+        return {
+          ok: false,
+          code: 'otp_locked_out',
+          message: 'Email OTP is temporarily locked for this wallet',
+          lockedUntilMs: authState.state.otpLockedUntilMs,
+        };
+      }
+
+      const nowMs = Date.now();
+      await this.pruneExpiredEmailOtpChallenges(nowMs);
+      const record = await this.readEmailOtpChallenge(challengeId);
+      if (!record) return emailOtpChallengeInvalidOrExpired();
+      if (nowMs > record.expiresAtMs) {
+        await this.deleteEmailOtpChallenge(record.challengeId);
+        return emailOtpChallengeInvalidOrExpired();
+      }
+
+      const bindingMismatch = emailOtpRegistrationChallengeBindingMismatchCode({
+        record,
+        providerSubject,
+        walletId,
+        orgId,
+        sessionHash,
+        appSessionVersion,
+        proofEmail,
+      });
+      if (bindingMismatch) {
+        return {
+          ok: false,
+          code: bindingMismatch,
+          message: 'Email OTP challenge is not valid for the current app session',
+        };
+      }
+
+      if (record.otpCode !== otpCode) {
+        return await this.recordEmailOtpInvalidRegistrationAttempt({
+          enrollment: existingEnrollment,
+          authState: authState.state,
+          record,
+        });
+      }
+
+      const consumed = await this.consumeEmailOtpChallenge(record.challengeId);
+      if (!consumed) return emailOtpChallengeInvalidOrExpired();
+      if (existingEnrollment) {
+        await this.resetEmailOtpFailureState({
+          enrollment: existingEnrollment,
+          authState: authState.state,
+        });
+      }
+      return {
+        ok: true,
+        challengeId: consumed.challengeId,
+        challengeSubjectId: providerSubject,
+        walletId,
+        orgId,
+        email: consumed.email,
+        otpChannel: EMAIL_OTP_CHANNEL,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to verify Email OTP enrollment challenge',
+      };
+    }
+  }
+
+  private async validateEmailOtpEnrollmentMaterial(input: {
+    readonly recoveryWrappedEnrollmentEscrows?: unknown;
+    readonly enrollmentSealKeyVersion?: unknown;
+    readonly clientUnlockPublicKeyB64u?: unknown;
+    readonly unlockKeyVersion?: unknown;
+    readonly thresholdEcdsaClientVerifyingShareB64u?: unknown;
+  }): Promise<EmailOtpEnrollmentMaterialValidationResult> {
+    const enrollmentSealKeyVersion = toOptionalTrimmedString(input.enrollmentSealKeyVersion);
+    const rawRecoveryWrappedEnrollmentEscrows = Array.isArray(
+      input.recoveryWrappedEnrollmentEscrows,
+    )
+      ? input.recoveryWrappedEnrollmentEscrows
+      : [];
+    const parsedRecoveryWrappedEnrollmentEscrows: EmailOtpRecoveryEnrollmentEscrowBoundary[] =
+      [];
+    const recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
+    for (const rawEscrow of rawRecoveryWrappedEnrollmentEscrows) {
+      const parsed = parseEmailOtpRecoveryEnrollmentEscrowBoundary(rawEscrow);
+      if (!parsed) continue;
+      parsedRecoveryWrappedEnrollmentEscrows.push(parsed);
+      recoveryWrappedEnrollmentEscrows.push(parsed.record);
+    }
+    const clientUnlockPublicKeyB64u = toOptionalTrimmedString(input.clientUnlockPublicKeyB64u);
+    const unlockKeyVersion = toOptionalTrimmedString(input.unlockKeyVersion);
+    const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
+      input.thresholdEcdsaClientVerifyingShareB64u,
+    );
+    if (
+      rawRecoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
+      recoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
+      };
+    }
+    if (!enrollmentSealKeyVersion) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'enrollmentSealKeyVersion is required',
+      };
+    }
+    const escrowSetValidation = await this.validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(
+      parsedRecoveryWrappedEnrollmentEscrows,
+    );
+    if (!escrowSetValidation.ok) return escrowSetValidation;
+    if (!clientUnlockPublicKeyB64u) {
+      return { ok: false, code: 'invalid_body', message: 'clientUnlockPublicKeyB64u is required' };
+    }
+    if (!unlockKeyVersion) {
+      return { ok: false, code: 'invalid_body', message: 'unlockKeyVersion is required' };
+    }
+    if (!thresholdEcdsaClientVerifyingShareB64u) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'thresholdEcdsaClientVerifyingShareB64u is required',
+      };
+    }
+
+    let unlockPublicKeyBytes: Uint8Array;
+    try {
+      unlockPublicKeyBytes = base64UrlDecode(clientUnlockPublicKeyB64u);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientUnlockPublicKeyB64u must be valid base64url',
+      };
+    }
+    if (unlockPublicKeyBytes.length !== 33) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientUnlockPublicKeyB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+      };
+    }
+    try {
+      await validateSecp256k1PublicKey33(unlockPublicKeyBytes);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientUnlockPublicKeyB64u is not a valid secp256k1 public key',
+      };
+    }
+
+    let clientVerifyingShareBytes: Uint8Array;
+    try {
+      clientVerifyingShareBytes = base64UrlDecode(thresholdEcdsaClientVerifyingShareB64u);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'thresholdEcdsaClientVerifyingShareB64u must be valid base64url',
+      };
+    }
+    if (clientVerifyingShareBytes.length !== 33) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message:
+          'thresholdEcdsaClientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+      };
+    }
+    try {
+      await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'thresholdEcdsaClientVerifyingShareB64u is not a valid secp256k1 public key',
+      };
+    }
+
+    return {
+      ok: true,
+      recoveryWrappedEnrollmentEscrows,
+      enrollmentSealKeyVersion,
+      clientUnlockPublicKeyB64u,
+      unlockKeyVersion,
+      thresholdEcdsaClientVerifyingShareB64u,
+    };
+  }
+
+  private async validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(
+    records: readonly EmailOtpRecoveryEnrollmentEscrowBoundary[],
+  ): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const first = records[0];
+    if (!first) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
+      };
+    }
+
+    const recoveryKeyIds = new Set<string>();
+    const nonceB64us = new Set<string>();
+    for (const boundary of records) {
+      if (boundary.record.recoveryKeyStatus !== 'active') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrows must be active at enrollment',
+        };
+      }
+      const record = boundary.record;
+      if (recoveryKeyIds.has(record.recoveryKeyId)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow recoveryKeyId values must be unique',
+        };
+      }
+      recoveryKeyIds.add(record.recoveryKeyId);
+
+      if (nonceB64us.has(record.nonceB64u)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow nonce values must be unique',
+        };
+      }
+      nonceB64us.add(record.nonceB64u);
+
+      if (
+        record.walletId !== first.record.walletId ||
+        record.userId !== first.record.userId ||
+        record.authSubjectId !== first.record.authSubjectId ||
+        record.authMethod !== first.record.authMethod ||
+        record.enrollmentId !== first.record.enrollmentId ||
+        record.enrollmentVersion !== first.record.enrollmentVersion ||
+        record.enrollmentSealKeyVersion !== first.record.enrollmentSealKeyVersion ||
+        record.signingRootId !== first.record.signingRootId ||
+        record.signingRootVersion !== first.record.signingRootVersion
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow metadata must share one enrollment scope',
+        };
+      }
+
+      const expectedAadHashB64u = base64UrlEncode(
+        await sha256BytesPortable(encodeEmailOtpRecoveryWrappedEnrollmentAad(boundary.binding)),
+      );
+      if (record.aadHashB64u !== expectedAadHashB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow aadHashB64u does not match metadata',
+        };
+      }
+    }
+
+    if (
+      recoveryKeyIds.size !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
+      nonceB64us.size !== EMAIL_OTP_RECOVERY_KEY_COUNT
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} distinct recovery-wrapped enrollment escrows are required`,
+      };
+    }
+
+    return { ok: true };
+  }
+
+  async verifyEmailOtpEnrollment(
+    input: VerifyEmailOtpEnrollmentInput,
+  ): Promise<VerifyEmailOtpEnrollmentResult> {
+    try {
+      const providerSubject = toOptionalTrimmedString(input.providerSubject);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const challengeId = toOptionalTrimmedString(input.challengeId);
+      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const registrationAttemptId = toOptionalTrimmedString(
+        input.googleEmailOtpRegistrationAttemptId,
+      );
+      if (!providerSubject) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP registration requires providerSubject',
+        };
+      }
+      if (!walletId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP registration requires walletId',
+        };
+      }
+      if (!orgId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP registration requires orgId',
+        };
+      }
+      if (!challengeId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP registration requires challengeId',
+        };
+      }
+      if (!appSessionVersion) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP registration requires appSessionVersion',
+        };
+      }
+
+      let proofEmail = toOptionalTrimmedString(input.proofEmail)?.toLowerCase() || '';
+      if (registrationAttemptId) {
+        const attempt = await this.readGoogleEmailOtpRegistrationAttempt(registrationAttemptId);
+        if (!attempt) {
+          return {
+            ok: false,
+            code: 'registration_attempt_missing',
+            message: 'Google Email OTP registration attempt expired or was not found',
+          };
+        }
+        if (attempt.providerSubject !== providerSubject) {
+          return {
+            ok: false,
+            code: 'challenge_subject_mismatch',
+            message: 'Email OTP registration attempt does not match the provider subject',
+          };
+        }
+        if (attempt.expiresAtMs <= Date.now()) {
+          return {
+            ok: false,
+            code: 'registration_attempt_expired',
+            message: 'Google Email OTP registration attempt expired',
+          };
+        }
+        if (attempt.walletId !== walletId) {
+          return {
+            ok: false,
+            code: 'wallet_identity_mismatch',
+            message: 'registrationAttemptId does not match walletId',
+          };
+        }
+        proofEmail = attempt.email.toLowerCase();
+      }
+      if (!proofEmail) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP registration requires proofEmail',
+        };
+      }
+
+      const verified = await this.verifyEmailOtpRegistrationChallengeCode({
+        providerSubject,
+        walletId,
+        orgId,
+        challengeId,
+        otpCode: input.otpCode,
+        otpChannel: input.otpChannel,
+        sessionHash: input.sessionHash,
+        appSessionVersion,
+        proofEmail,
+        clientIp: input.clientIp,
+      });
+      if (!verified.ok) return verified;
+      const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase() || '';
+      if (!verifiedEmail) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Email OTP enrollment verification did not include a verified email',
+        };
+      }
+
+      const enrollmentMaterial = await this.validateEmailOtpEnrollmentMaterial(input);
+      if (!enrollmentMaterial.ok) return enrollmentMaterial;
+      const canonicalWalletExists = await this.signerWalletExists(verified.walletId);
+      if (!canonicalWalletExists) {
+        return {
+          ok: false,
+          code: 'wallet_registration_incomplete',
+          message:
+            'Email OTP enrollment requires an existing canonical wallet. New wallet registration must finalize through /wallets/register/finalize.',
+        };
+      }
+
+      const existing = await this.readEmailOtpWalletEnrollment(verified.walletId);
+      const existingState = await this.readEmailOtpAuthState(verified.walletId);
+      const nowMs = Date.now();
+      const enrollmentScope = enrollmentMaterial.recoveryWrappedEnrollmentEscrows[0];
+      if (!enrollmentScope) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
+        };
+      }
+      for (const record of enrollmentMaterial.recoveryWrappedEnrollmentEscrows) {
+        if (
+          record.walletId !== verified.walletId ||
+          record.userId !== verified.challengeSubjectId ||
+          record.authSubjectId !== verified.challengeSubjectId ||
+          record.enrollmentSealKeyVersion !== enrollmentMaterial.enrollmentSealKeyVersion ||
+          record.recoveryKeyStatus !== 'active'
+        ) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Recovery-wrapped enrollment escrow metadata does not match enrollment',
+          };
+        }
+      }
+
+      const enrollmentRecord: EmailOtpWalletEnrollmentRecord = {
+        version: 'email_otp_wallet_enrollment_v1',
+        walletId: verified.walletId,
+        providerUserId: verified.challengeSubjectId,
+        orgId: verified.orgId,
+        verifiedEmail,
+        enrollmentId: enrollmentScope.enrollmentId,
+        enrollmentVersion: enrollmentScope.enrollmentVersion,
+        enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+        signingRootId: enrollmentScope.signingRootId,
+        signingRootVersion: enrollmentScope.signingRootVersion,
+        recoveryWrappedEnrollmentEscrowCount:
+          enrollmentMaterial.recoveryWrappedEnrollmentEscrows.length,
+        clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
+        unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
+        thresholdEcdsaClientVerifyingShareB64u:
+          enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u,
+        createdAtMs: existing?.createdAtMs ?? nowMs,
+        updatedAtMs: nowMs,
+      };
+      const existingProviderEnrollment = await this.readEmailOtpWalletEnrollmentByProviderUserId({
+        providerUserId: enrollmentRecord.providerUserId,
+        orgId: enrollmentRecord.orgId,
+      });
+      if (
+        existingProviderEnrollment &&
+        existingProviderEnrollment.walletId !== enrollmentRecord.walletId
+      ) {
+        await this.deleteEmailOtpWalletEnrollment(existingProviderEnrollment.walletId);
+      }
+      await this.putEmailOtpWalletEnrollment(enrollmentRecord);
+      await this.putEmailOtpRecoveryEscrows(
+        enrollmentMaterial.recoveryWrappedEnrollmentEscrows.map((record) =>
+          emailOtpRecoveryEscrowWithUpdatedAt({ record, updatedAtMs: nowMs }),
+        ),
+      );
+      const activeRecoveryWrappedEnrollmentEscrowCount = (
+        await this.listEmailOtpRecoveryEscrowsForEnrollment(enrollmentRecord)
+      ).filter(activeEmailOtpRecoveryEscrow).length;
+      if (activeRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: `Email OTP enrollment persisted ${activeRecoveryWrappedEnrollmentEscrowCount} active recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
+        };
+      }
+      await this.resetEmailOtpAuthStateForEnrollment({
+        enrollment: enrollmentRecord,
+        existingState,
+        updatedAtMs: nowMs,
+      });
+      const completedRegistration = await this.completeGoogleEmailOtpRegistrationAttempt({
+        registrationAttemptId,
+        walletId: verified.walletId,
+      });
+      if (!completedRegistration.ok) return completedRegistration;
+      return {
+        ok: true,
+        walletId: verified.walletId,
+        otpChannel: verified.otpChannel,
+        enrollment: {
+          createdAtMs: existing?.createdAtMs ?? nowMs,
+          updatedAtMs: nowMs,
+          enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+          unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to verify Email OTP enrollment',
       };
     }
   }
@@ -6553,6 +7357,89 @@ class CloudflareD1RelayAuthMetadataService {
     return Boolean(row);
   }
 
+  private async readGoogleEmailOtpRegistrationAttempt(
+    attemptId: string,
+  ): Promise<GoogleEmailOtpRegistrationAttemptRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
+         FROM signer_email_otp_registration_attempts
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND attempt_id = ?
+        LIMIT 1`,
+      [attemptId],
+    ).first<D1EmailOtpRegistrationAttemptRow>();
+    return parseGoogleEmailOtpRegistrationAttemptRow(row);
+  }
+
+  private async completeGoogleEmailOtpRegistrationAttempt(input: {
+    readonly registrationAttemptId?: unknown;
+    readonly walletId?: unknown;
+  }): Promise<{ readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }> {
+    const registrationAttemptId = toOptionalTrimmedString(input.registrationAttemptId);
+    if (!registrationAttemptId) return { ok: true };
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const attempt = await this.readGoogleEmailOtpRegistrationAttempt(registrationAttemptId);
+    if (!attempt) {
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt expired or was not found',
+      };
+    }
+    if (attempt.expiresAtMs <= Date.now()) {
+      await this.putGoogleEmailOtpRegistrationAttempt(
+        expiredGoogleEmailOtpRegistrationAttemptRecord({
+          record: attempt,
+          updatedAtMs: Date.now(),
+        }),
+      );
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt expired',
+      };
+    }
+    if (walletId !== attempt.walletId) {
+      return {
+        ok: false,
+        code: 'wallet_identity_mismatch',
+        message: 'registrationAttemptId does not match walletId',
+      };
+    }
+    if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt is no longer active',
+      };
+    }
+    const linked = await this.linkIdentity({
+      userId: attempt.walletId,
+      subject: `wallet:${attempt.providerSubject}`,
+      allowMoveIfSoleIdentity: true,
+    });
+    if (!linked.ok) {
+      await this.putGoogleEmailOtpRegistrationAttempt(
+        failedGoogleEmailOtpRegistrationAttemptWithCode({
+          record: attempt,
+          failureCode: linked.code,
+          updatedAtMs: Date.now(),
+        }),
+      );
+      return { ok: false, code: linked.code, message: linked.message };
+    }
+    await this.putGoogleEmailOtpRegistrationAttempt(
+      activeGoogleEmailOtpRegistrationAttemptRecord({
+        record: attempt,
+        updatedAtMs: Date.now(),
+      }),
+    );
+    return { ok: true };
+  }
+
   private async putGoogleEmailOtpRegistrationAttempt(
     record: GoogleEmailOtpRegistrationAttemptRecord,
   ): Promise<void> {
@@ -6956,6 +7843,71 @@ class CloudflareD1RelayAuthMetadataService {
     return parseEmailOtpWalletEnrollmentRow(row);
   }
 
+  private async signerWalletExists(walletId: string): Promise<boolean> {
+    const row = await this.scopePrepare(
+      `SELECT 1 AS found
+         FROM signer_wallets
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+        LIMIT 1`,
+      [walletId],
+    ).first<{ readonly found?: unknown }>();
+    return Boolean(row);
+  }
+
+  private async deleteEmailOtpWalletEnrollment(walletId: string): Promise<void> {
+    await this.scopePrepare(
+      `DELETE FROM signer_email_otp_wallet_enrollments
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?`,
+      [walletId],
+    ).run();
+  }
+
+  private async putEmailOtpWalletEnrollment(
+    record: EmailOtpWalletEnrollmentRecord,
+  ): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_email_otp_wallet_enrollments (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        provider_user_id,
+        record_org_id,
+        verified_email,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, wallet_id)
+      DO UPDATE SET
+        provider_user_id = EXCLUDED.provider_user_id,
+        record_org_id = EXCLUDED.record_org_id,
+        verified_email = EXCLUDED.verified_email,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = EXCLUDED.created_at_ms,
+        updated_at_ms = EXCLUDED.updated_at_ms`,
+      [
+        record.walletId,
+        record.providerUserId,
+        record.orgId,
+        record.verifiedEmail,
+        JSON.stringify(record),
+        record.createdAtMs,
+        record.updatedAtMs,
+      ],
+    ).run();
+  }
+
   private async readEmailOtpAuthState(
     walletId: string,
   ): Promise<EmailOtpAuthStateRecord | null> {
@@ -7042,6 +7994,60 @@ class CloudflareD1RelayAuthMetadataService {
     return next;
   }
 
+  private async resetEmailOtpAuthStateForEnrollment(input: {
+    readonly enrollment: EmailOtpWalletEnrollmentRecord;
+    readonly existingState: EmailOtpAuthStateRecord | null;
+    readonly updatedAtMs: number;
+  }): Promise<EmailOtpAuthStateRecord> {
+    const reusableExisting =
+      input.existingState &&
+      input.existingState.providerUserId === input.enrollment.providerUserId &&
+      input.existingState.orgId === input.enrollment.orgId
+        ? input.existingState
+        : null;
+    const next = emailOtpAuthStateRecord({
+      enrollment: input.enrollment,
+      existing: reusableExisting,
+      updatedAtMs: input.updatedAtMs,
+      patch: {
+        otpFailureCount: 0,
+        lastOtpFailureAtMs: null,
+        otpLockedUntilMs: null,
+      },
+    });
+    await this.scopePrepare(
+      `INSERT INTO signer_email_otp_auth_states (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        provider_user_id,
+        record_org_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, wallet_id)
+      DO UPDATE SET
+        provider_user_id = EXCLUDED.provider_user_id,
+        record_org_id = EXCLUDED.record_org_id,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = EXCLUDED.created_at_ms,
+        updated_at_ms = EXCLUDED.updated_at_ms`,
+      [
+        next.walletId,
+        next.providerUserId,
+        next.orgId,
+        JSON.stringify(next),
+        next.createdAtMs,
+        next.updatedAtMs,
+      ],
+    ).run();
+    return next;
+  }
+
   private async resetEmailOtpFailureState(input: {
     readonly enrollment: EmailOtpWalletEnrollmentRecord;
     readonly authState: EmailOtpAuthStateRecord | null;
@@ -7073,6 +8079,40 @@ class CloudflareD1RelayAuthMetadataService {
       lastOtpFailureAtMs: nowMs,
       ...(lockedUntilMs ? { otpLockedUntilMs: lockedUntilMs } : {}),
     });
+    if (exhausted) {
+      await this.deleteEmailOtpChallenge(input.record.challengeId);
+      return {
+        ok: false,
+        code: 'otp_attempts_exhausted',
+        message: 'Email OTP challenge exceeded the maximum number of attempts',
+        attemptsRemaining: 0,
+        ...(lockedUntilMs ? { lockedUntilMs } : {}),
+      };
+    }
+    await this.updateEmailOtpChallengeAttemptCount(input.record, nextAttemptCount);
+    return {
+      ok: false,
+      code: 'invalid_otp',
+      message: 'OTP code is invalid',
+      attemptsRemaining: input.record.maxAttempts - nextAttemptCount,
+    };
+  }
+
+  private async recordEmailOtpInvalidRegistrationAttempt(input: {
+    readonly enrollment: EmailOtpWalletEnrollmentRecord | null;
+    readonly authState: EmailOtpAuthStateRecord | null;
+    readonly record: EmailOtpChallengeRecord;
+  }): Promise<Extract<EmailOtpRegistrationChallengeVerifyResult, { ok: false }>> {
+    if (input.enrollment) {
+      return await this.recordEmailOtpInvalidAttempt({
+        enrollment: input.enrollment,
+        authState: input.authState,
+        record: input.record,
+      });
+    }
+    const nextAttemptCount = input.record.attemptCount + 1;
+    const exhausted = nextAttemptCount >= input.record.maxAttempts;
+    const lockedUntilMs = exhausted ? Date.now() + this.options.emailOtp.lockoutTtlMs : undefined;
     if (exhausted) {
       await this.deleteEmailOtpChallenge(input.record.challengeId);
       return {
@@ -8123,6 +9163,7 @@ export function createCloudflareD1RelayAuthService(
   service.createEmailOtpEnrollmentChallenge =
     metadata.createEmailOtpEnrollmentChallenge.bind(metadata);
   service.verifyEmailOtpChallenge = metadata.verifyEmailOtpChallenge.bind(metadata);
+  service.verifyEmailOtpEnrollment = metadata.verifyEmailOtpEnrollment.bind(metadata);
   service.createEmailOtpDeviceRecoveryChallenge =
     metadata.createEmailOtpDeviceRecoveryChallenge.bind(metadata);
   service.verifyEmailOtpDeviceRecoveryChallenge =

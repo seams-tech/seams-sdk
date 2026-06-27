@@ -196,13 +196,13 @@ runtime. The current codebase already has the important boundaries in place:
   public keys, email recovery preparations, Email OTP storage, Email OTP login
   challenge/grant/rate-limit flow, Email OTP device-recovery challenge/grant
   flow, Email OTP recovery-key consumption and failure-attempt reporting, Email
-  OTP provider delivery, Email OTP unlock challenge/proof flow, and sealed
-  signing-root secret shares.
+  OTP provider delivery, Email OTP registration enrollment verification, Email
+  OTP unlock challenge/proof flow, and sealed signing-root secret shares.
 - Cloudflare relay auth service D1 methods cover recovery-session reads,
   recovery-session status transitions, recovery-execution upserts for the email
   recovery route, Email OTP device recovery, Email OTP recovery-key
-  consumption, recovery-key failure reporting, recovery-code rotation, and
-  Email OTP provider delivery.
+  consumption, recovery-key failure reporting, recovery-code rotation, Email
+  OTP provider delivery, and Email OTP enrollment verification/persistence.
 - Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the property.
@@ -464,8 +464,9 @@ Before D1 staging, these D1/DO adapters must exist behind domain-store ports:
   public keys, email recovery preparations, Email OTP login challenge/grant
   flow, Email OTP device-recovery challenge/grant flow, Email OTP recovery-key
   consumption, Email OTP recovery-key failure-attempt reporting, Email OTP
-  provider delivery, Email OTP unlock challenge/proof flow, Email OTP rate
-  limits, and sealed signing-root secret shares.
+  provider delivery, Email OTP registration enrollment verification, Email OTP
+  unlock challenge/proof flow, Email OTP rate limits, and sealed signing-root
+  secret shares.
 - [x] Durable Objects in place: registration intents, HSS preparations,
   registration ceremonies, add-signer/add-auth-method ceremonies, finalize
   replay records, signing-session use counts, wallet signing budgets,
@@ -941,14 +942,18 @@ Completed:
   public keys, email recovery preparations, Email OTP storage, Email OTP login
   challenge/grant/rate-limit flow, Email OTP device-recovery challenge/grant
   flow, Email OTP recovery-key consumption and failure-attempt reporting, Email
-  OTP provider delivery, Email OTP unlock challenge/proof flow, and sealed
-  signing-root secret shares.
+  OTP provider delivery, Email OTP registration enrollment verification, Email
+  OTP unlock challenge/proof flow, and sealed signing-root secret shares.
 - [x] Cloudflare relay auth service D1 methods cover recovery-session reads,
   recovery-session status transitions, recovery-execution upserts, Email OTP
   device recovery, Email OTP recovery-key consumption, recovery-key failure
-  reporting, recovery-code rotation, and Email OTP provider delivery.
+  reporting, recovery-code rotation, Email OTP provider delivery, and Email OTP
+  enrollment verification/persistence.
 - [x] Cloudflare relay auth service D1 methods can issue Email OTP enrollment
   challenges for wallet registration without requiring an existing enrollment.
+- [x] Cloudflare relay auth service D1 methods can verify Email OTP enrollment
+  challenges, require an existing canonical signer wallet, persist enrollment
+  material, and store the recovery-wrapped enrollment escrow set.
 - [x] Cloudflare relay auth service D1 methods can rate-limit, create, reuse,
   and restart Google Email OTP registration attempts during session exchange.
 - [x] Cloudflare relay auth service D1 methods return explicit ECDSA key
@@ -983,8 +988,9 @@ Completed:
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: remaining Email OTP registration attempt lifecycle methods,
-  wallet registration, signed delegates, and threshold signing admission.
+  Object slices: wallet registration and add-signer/add-auth-method ceremonies,
+  signed delegates, Email OTP seal management, email recovery HSS responses,
+  wallet auth revocation, OIDC JWT exchange, and threshold signing admission.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
