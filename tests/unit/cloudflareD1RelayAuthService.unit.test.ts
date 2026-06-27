@@ -2268,6 +2268,95 @@ test('Cloudflare D1 relay auth service issues and verifies login Email OTP chall
   }
 });
 
+test('Cloudflare D1 relay auth service issues registration Email OTP challenges', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+    });
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: 'google:registration-user',
+      walletId: 'registration-wallet.testnet',
+      orgId: scope.orgId,
+      email: 'Register.User@Example.Test',
+      otpChannel: 'email_otp',
+      sessionHash: 'registration-session-hash',
+      appSessionVersion: 'registration-session-v1',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    expect(challenge.challenge).toMatchObject({
+      userId: 'google:registration-user',
+      walletId: 'registration-wallet.testnet',
+      orgId: scope.orgId,
+      action: 'wallet_email_otp_registration',
+      operation: 'registration',
+    });
+    expect(challenge.delivery).toEqual({
+      mode: 'memory',
+      emailHint: 'r***r@e***e.test',
+    });
+
+    const challengeRow = await database
+      .prepare(
+        `SELECT action, operation, record_json
+           FROM signer_email_otp_challenges
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND challenge_id = ?
+          LIMIT 1`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        challenge.challenge.challengeId,
+      )
+      .first<SqliteJsonRow>();
+    expect(challengeRow).toMatchObject({
+      action: 'wallet_email_otp_registration',
+      operation: 'registration',
+    });
+    const challengeRecord = JSON.parse(String(challengeRow?.record_json || '{}'));
+    expect(challengeRecord).toMatchObject({
+      challengeSubjectId: 'google:registration-user',
+      walletId: 'registration-wallet.testnet',
+      orgId: scope.orgId,
+      email: 'register.user@example.test',
+      action: 'wallet_email_otp_registration',
+      operation: 'registration',
+    });
+
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: 'google:registration-user',
+      walletId: 'registration-wallet.testnet',
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+    expect(outbox.otpCode).toMatch(/^[0-9]{6}$/);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('Cloudflare D1 relay auth service delivers Email OTP through configured provider', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {

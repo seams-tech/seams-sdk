@@ -12,6 +12,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
@@ -249,6 +250,12 @@ type CreateEmailOtpChallengeInput = Parameters<
 >[0];
 type CreateEmailOtpChallengeResult = Awaited<
   ReturnType<CloudflareRelayAuthService['createEmailOtpChallenge']>
+>;
+type CreateEmailOtpEnrollmentChallengeInput = Parameters<
+  CloudflareRelayAuthService['createEmailOtpEnrollmentChallenge']
+>[0];
+type CreateEmailOtpEnrollmentChallengeResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['createEmailOtpEnrollmentChallenge']>
 >;
 type VerifyEmailOtpChallengeInput = Parameters<
   CloudflareRelayAuthService['verifyEmailOtpChallenge']
@@ -578,8 +585,9 @@ type EmailOtpRateLimitScope =
   | 'grant'
   | 'recoveryKeyAttempt'
   | 'googleRegistrationAttempt';
-type EmailOtpExistingChallengeAction =
+type EmailOtpChallengeIssueAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
+  | typeof WALLET_EMAIL_OTP_ACTIONS.registration
   | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
 
 type EmailOtpRecoveryChallengeEscrow = Omit<
@@ -592,20 +600,33 @@ type EmailOtpRecoveryChallengeEscrow = Omit<
   | 'revokedAtMs'
 >;
 
-type EmailOtpExistingChallengeIssueInput = {
+type EmailOtpChallengeIssueBaseInput = {
   readonly userId?: unknown;
   readonly walletId?: unknown;
   readonly orgId?: unknown;
+  readonly email?: unknown;
   readonly otpChannel?: unknown;
   readonly sessionHash?: unknown;
   readonly appSessionVersion?: unknown;
   readonly clientIp?: unknown;
   readonly reuseActiveChallenge?: unknown;
-  readonly action: EmailOtpExistingChallengeAction;
-  readonly operation: EmailOtpChallengeOperation;
 };
 
-type EmailOtpExistingChallengeIssueResult =
+type EmailOtpChallengeIssueInput =
+  | (EmailOtpChallengeIssueBaseInput & {
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
+      readonly operation: EmailOtpLoginChallengeOperation;
+    })
+  | (EmailOtpChallengeIssueBaseInput & {
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.registration;
+      readonly operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
+    })
+  | (EmailOtpChallengeIssueBaseInput & {
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+      readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+    });
+
+type EmailOtpChallengeIssueResult =
   | {
       ok: true;
       challenge: {
@@ -618,7 +639,7 @@ type EmailOtpExistingChallengeIssueResult =
         readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
         readonly sessionHash: string;
         readonly appSessionVersion: string;
-        readonly action: EmailOtpExistingChallengeAction;
+        readonly action: EmailOtpChallengeIssueAction;
         readonly operation: EmailOtpChallengeOperation;
       };
       delivery: {
@@ -636,7 +657,7 @@ type EmailOtpExistingChallengeIssueResult =
       resetAtMs?: number;
     };
 
-type EmailOtpExistingChallengeVerifyInput = {
+type EmailOtpExistingChallengeVerifyBaseInput = {
   readonly userId?: unknown;
   readonly walletId?: unknown;
   readonly orgId?: unknown;
@@ -646,9 +667,17 @@ type EmailOtpExistingChallengeVerifyInput = {
   readonly sessionHash?: unknown;
   readonly appSessionVersion?: unknown;
   readonly clientIp?: unknown;
-  readonly action: EmailOtpExistingChallengeAction;
-  readonly operation: EmailOtpChallengeOperation;
 };
+
+type EmailOtpExistingChallengeVerifyInput =
+  | (EmailOtpExistingChallengeVerifyBaseInput & {
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
+      readonly operation: EmailOtpLoginChallengeOperation;
+    })
+  | (EmailOtpExistingChallengeVerifyBaseInput & {
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+      readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+    });
 
 type EmailOtpExistingChallengeVerifyResult =
   | {
@@ -1857,13 +1886,15 @@ function parseEmailOtpChallengeOperation(input: unknown): EmailOtpChallengeOpera
   const operation = toOptionalTrimmedString(input);
   if (!operation) return null;
   if (isWalletEmailOtpLoginOperation(operation)) return operation;
+  if (operation === WALLET_EMAIL_OTP_REGISTRATION_OPERATION) return operation;
   return null;
 }
 
-function parseEmailOtpChallengeAction(input: unknown): EmailOtpExistingChallengeAction | null {
+function parseEmailOtpChallengeAction(input: unknown): EmailOtpChallengeIssueAction | null {
   const action = toOptionalTrimmedString(input);
   switch (action) {
     case WALLET_EMAIL_OTP_ACTIONS.login:
+    case WALLET_EMAIL_OTP_ACTIONS.registration:
     case WALLET_EMAIL_OTP_ACTIONS.deviceRecovery:
       return action;
     default:
@@ -1877,13 +1908,15 @@ function parseEmailOtpLoginOperation(input: unknown): EmailOtpLoginChallengeOper
   return WALLET_EMAIL_OTP_UNLOCK_OPERATION;
 }
 
-function emailOtpExistingChallengePurposeIsValid(input: {
-  readonly action: EmailOtpExistingChallengeAction;
+function emailOtpChallengePurposeIsValid(input: {
+  readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
 }): boolean {
   switch (input.action) {
     case WALLET_EMAIL_OTP_ACTIONS.login:
       return isWalletEmailOtpLoginOperation(input.operation);
+    case WALLET_EMAIL_OTP_ACTIONS.registration:
+      return input.operation === WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
     case WALLET_EMAIL_OTP_ACTIONS.deviceRecovery:
       return input.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   }
@@ -1919,7 +1952,7 @@ function parseEmailOtpChallengeRecord(input: unknown): EmailOtpChallengeRecord |
     !appSessionVersion ||
     !action ||
     !operation ||
-    !emailOtpExistingChallengePurposeIsValid({ action, operation }) ||
+    !emailOtpChallengePurposeIsValid({ action, operation }) ||
     otpChannel !== EMAIL_OTP_CHANNEL ||
     !createdAtMs ||
     !expiresAtMs ||
@@ -2010,7 +2043,7 @@ function emailOtpChallengeContextValues(input: {
   readonly orgId: string;
   readonly sessionHash: string;
   readonly appSessionVersion: string;
-  readonly action: EmailOtpExistingChallengeAction;
+  readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
 }): readonly unknown[] {
   return [
@@ -2034,7 +2067,7 @@ function emailOtpChallengeRecord(input: {
   readonly otpCode: string;
   readonly sessionHash: string;
   readonly appSessionVersion: string;
-  readonly action: EmailOtpExistingChallengeAction;
+  readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
@@ -3056,7 +3089,7 @@ function emailOtpChallengeBindingMismatchCode(input: {
   readonly orgId: string;
   readonly sessionHash: string;
   readonly appSessionVersion: string;
-  readonly action: EmailOtpExistingChallengeAction;
+  readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
 }): string | null {
   if (input.record.otpChannel !== EMAIL_OTP_CHANNEL) return 'challenge_channel_mismatch';
@@ -3643,13 +3676,14 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
-  private async createEmailOtpExistingEnrollmentChallenge(
-    input: EmailOtpExistingChallengeIssueInput,
-  ): Promise<EmailOtpExistingChallengeIssueResult> {
+  private async createEmailOtpChallengeWithAction(
+    input: EmailOtpChallengeIssueInput,
+  ): Promise<EmailOtpChallengeIssueResult> {
     try {
       const userId = toOptionalTrimmedString(input.userId);
       const walletId = toOptionalTrimmedString(input.walletId);
       const orgId = toOptionalTrimmedString(input.orgId);
+      const email = toOptionalTrimmedString(input.email)?.toLowerCase() || '';
       const otpChannel = toOptionalTrimmedString(input.otpChannel);
       const sessionHash = toOptionalTrimmedString(input.sessionHash);
       const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
@@ -3666,20 +3700,39 @@ class CloudflareD1RelayAuthMetadataService {
       if (!appSessionVersion) {
         return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
       }
-
-      const enrollment = await this.readActiveEmailOtpEnrollment({
-        walletId,
-        orgId,
-        providerUserId: userId,
-      });
-      if (!enrollment.ok) return enrollment;
-      const authState = await this.readEmailOtpAuthStateForEnrollment(enrollment.enrollment);
-      if (!authState.ok) return authState;
-      if (authState.state?.otpLockedUntilMs && authState.state.otpLockedUntilMs > Date.now()) {
+      if (!emailOtpChallengePurposeIsValid({ action, operation })) {
         return {
           ok: false,
-          code: 'otp_locked_out',
-          message: 'Email OTP is temporarily locked for this wallet',
+          code: 'invalid_body',
+          message: 'Email OTP challenge action does not match operation',
+        };
+      }
+
+      let challengeEmail = email;
+      if (action !== WALLET_EMAIL_OTP_ACTIONS.registration) {
+        const enrollment = await this.readActiveEmailOtpEnrollment({
+          walletId,
+          orgId,
+          providerUserId: userId,
+        });
+        if (!enrollment.ok) return enrollment;
+        const authState = await this.readEmailOtpAuthStateForEnrollment(enrollment.enrollment);
+        if (!authState.ok) return authState;
+        if (authState.state?.otpLockedUntilMs && authState.state.otpLockedUntilMs > Date.now()) {
+          return {
+            ok: false,
+            code: 'otp_locked_out',
+            message: 'Email OTP is temporarily locked for this wallet',
+            lockedUntilMs: authState.state.otpLockedUntilMs,
+          };
+        }
+        challengeEmail = enrollment.enrollment.verifiedEmail;
+      }
+      if (!challengeEmail) {
+        return {
+          ok: false,
+          code: 'recovery_email_missing',
+          message: 'Current app session does not include a recovery email',
         };
       }
 
@@ -3750,7 +3803,7 @@ class CloudflareD1RelayAuthMetadataService {
         challengeSubjectId: userId,
         walletId,
         orgId,
-        email: enrollment.enrollment.verifiedEmail,
+        email: challengeEmail,
         otpCode,
         sessionHash,
         appSessionVersion,
@@ -3801,8 +3854,16 @@ class CloudflareD1RelayAuthMetadataService {
     input: CreateEmailOtpChallengeInput,
   ): Promise<CreateEmailOtpChallengeResult> {
     const operation = parseEmailOtpLoginOperation(input.operation);
-    const result = await this.createEmailOtpExistingEnrollmentChallenge({
-      ...input,
+    const result = await this.createEmailOtpChallengeWithAction({
+      userId: input.userId,
+      walletId: input.walletId,
+      orgId: input.orgId,
+      email: input.email,
+      otpChannel: input.otpChannel,
+      sessionHash: input.sessionHash,
+      appSessionVersion: input.appSessionVersion,
+      clientIp: input.clientIp,
+      reuseActiveChallenge: input.reuseActiveChallenge,
       action: WALLET_EMAIL_OTP_ACTIONS.login,
       operation,
     });
@@ -3826,11 +3887,56 @@ class CloudflareD1RelayAuthMetadataService {
     };
   }
 
+  async createEmailOtpEnrollmentChallenge(
+    input: CreateEmailOtpEnrollmentChallengeInput,
+  ): Promise<CreateEmailOtpEnrollmentChallengeResult> {
+    const result = await this.createEmailOtpChallengeWithAction({
+      userId: input.userId,
+      walletId: input.walletId,
+      orgId: input.orgId,
+      email: input.email,
+      otpChannel: input.otpChannel,
+      sessionHash: input.sessionHash,
+      appSessionVersion: input.appSessionVersion,
+      clientIp: input.clientIp,
+      action: WALLET_EMAIL_OTP_ACTIONS.registration,
+      operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+    });
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      challenge: {
+        challengeId: result.challenge.challengeId,
+        issuedAtMs: result.challenge.issuedAtMs,
+        expiresAtMs: result.challenge.expiresAtMs,
+        userId: result.challenge.challengeSubjectId,
+        walletId: result.challenge.walletId,
+        orgId: result.challenge.orgId,
+        otpChannel: result.challenge.otpChannel,
+        sessionHash: result.challenge.sessionHash,
+        appSessionVersion: result.challenge.appSessionVersion,
+        action: WALLET_EMAIL_OTP_ACTIONS.registration,
+        operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      },
+      delivery: {
+        mode: result.delivery.mode,
+        emailHint: result.delivery.emailHint,
+      },
+    };
+  }
+
   async createEmailOtpDeviceRecoveryChallenge(
     input: CreateEmailOtpDeviceRecoveryChallengeInput,
   ): Promise<CreateEmailOtpDeviceRecoveryChallengeResult> {
-    const result = await this.createEmailOtpExistingEnrollmentChallenge({
-      ...input,
+    const result = await this.createEmailOtpChallengeWithAction({
+      userId: input.userId,
+      walletId: input.walletId,
+      orgId: input.orgId,
+      email: input.email,
+      otpChannel: input.otpChannel,
+      sessionHash: input.sessionHash,
+      appSessionVersion: input.appSessionVersion,
+      clientIp: input.clientIp,
       action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
       operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
     });
@@ -6963,7 +7069,7 @@ class CloudflareD1RelayAuthMetadataService {
     readonly orgId: string;
     readonly sessionHash: string;
     readonly appSessionVersion: string;
-    readonly action: EmailOtpExistingChallengeAction;
+    readonly action: EmailOtpChallengeIssueAction;
     readonly operation: EmailOtpChallengeOperation;
     readonly nowMs: number;
   }): Promise<EmailOtpChallengeRecord | null> {
@@ -6996,7 +7102,7 @@ class CloudflareD1RelayAuthMetadataService {
     readonly orgId: string;
     readonly sessionHash: string;
     readonly appSessionVersion: string;
-    readonly action: EmailOtpExistingChallengeAction;
+    readonly action: EmailOtpChallengeIssueAction;
     readonly operation: EmailOtpChallengeOperation;
     readonly nowMs: number;
   }): Promise<void> {
@@ -7015,7 +7121,7 @@ class CloudflareD1RelayAuthMetadataService {
     readonly orgId: string;
     readonly sessionHash: string;
     readonly appSessionVersion: string;
-    readonly action: EmailOtpExistingChallengeAction;
+    readonly action: EmailOtpChallengeIssueAction;
     readonly operation: EmailOtpChallengeOperation;
     readonly nowMs: number;
   }): Promise<number> {
@@ -7046,7 +7152,7 @@ class CloudflareD1RelayAuthMetadataService {
     readonly orgId: string;
     readonly sessionHash: string;
     readonly appSessionVersion: string;
-    readonly action: EmailOtpExistingChallengeAction;
+    readonly action: EmailOtpChallengeIssueAction;
     readonly operation: EmailOtpChallengeOperation;
     readonly nowMs: number;
   }): Promise<EmailOtpChallengeRecord | null> {
@@ -7951,6 +8057,8 @@ export function createCloudflareD1RelayAuthService(
   service.getEmailOtpRecoveryCodeStatus =
     metadata.getEmailOtpRecoveryCodeStatus.bind(metadata);
   service.createEmailOtpChallenge = metadata.createEmailOtpChallenge.bind(metadata);
+  service.createEmailOtpEnrollmentChallenge =
+    metadata.createEmailOtpEnrollmentChallenge.bind(metadata);
   service.verifyEmailOtpChallenge = metadata.verifyEmailOtpChallenge.bind(metadata);
   service.createEmailOtpDeviceRecoveryChallenge =
     metadata.createEmailOtpDeviceRecoveryChallenge.bind(metadata);

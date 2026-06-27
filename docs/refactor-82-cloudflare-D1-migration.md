@@ -947,6 +947,8 @@ Completed:
   recovery-session status transitions, recovery-execution upserts, Email OTP
   device recovery, Email OTP recovery-key consumption, recovery-key failure
   reporting, recovery-code rotation, and Email OTP provider delivery.
+- [x] Cloudflare relay auth service D1 methods can issue Email OTP enrollment
+  challenges for wallet registration without requiring an existing enrollment.
 - [x] Cloudflare relay auth service D1 methods can rate-limit, create, reuse,
   and restart Google Email OTP registration attempts during session exchange.
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
