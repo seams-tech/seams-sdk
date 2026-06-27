@@ -14,7 +14,14 @@ import type {
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
+  EcdsaHssClientBootstrapRequest,
+  EcdsaHssServerBootstrapResponse,
+  WalletRegistrationEcdsaClientBootstrap,
+  WalletRegistrationEcdsaPreparePayload,
 } from '../../packages/sdk-server-ts/src/core/types';
+import type {
+  ThresholdSigningService,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
@@ -38,6 +45,10 @@ import {
 } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
 
 type SqliteJsonRow = Record<string, unknown>;
+type TestEcdsaClientSharePublicKey =
+  WalletRegistrationEcdsaClientBootstrap['hssClientSharePublicKey33B64u'];
+type TestEcdsaRelayerPublicKey =
+  EcdsaHssServerBootstrapResponse['publicIdentity']['relayerPublicKey33B64u'];
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EMAIL_OTP_SERVER_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
@@ -180,6 +191,67 @@ function isRecordingDurableObjectReplayReservationRequest(
   request: Record<string, unknown>,
 ): boolean {
   return String(request.op || '') === 'authReserveReplayGuard';
+}
+
+function testEcdsaClientBootstrap(
+  prepare: WalletRegistrationEcdsaPreparePayload['prepare'],
+): WalletRegistrationEcdsaClientBootstrap {
+  return {
+    formatVersion: prepare.formatVersion,
+    walletId: prepare.walletId,
+    walletKeyId: prepare.walletKeyId,
+    ecdsaThresholdKeyId: prepare.ecdsaThresholdKeyId,
+    signingRootId: prepare.signingRootId,
+    signingRootVersion: prepare.signingRootVersion,
+    keyScope: prepare.keyScope,
+    relayerKeyId: prepare.relayerKeyId,
+    hssClientSharePublicKey33B64u: 'test-client-share-public-key' as TestEcdsaClientSharePublicKey,
+    clientShareRetryCounter: 0,
+    contextBinding32B64u: 'test-context-binding-32',
+    requestId: prepare.requestId,
+    thresholdSessionId: prepare.thresholdSessionId,
+    signingGrantId: prepare.signingGrantId,
+    ttlMs: prepare.ttlMs,
+    remainingUses: prepare.remainingUses,
+    participantIds: prepare.participantIds,
+    ...(prepare.runtimePolicyScope ? { runtimePolicyScope: prepare.runtimePolicyScope } : {}),
+  };
+}
+
+function testEcdsaServerBootstrapResponse(
+  request: EcdsaHssClientBootstrapRequest,
+): EcdsaHssServerBootstrapResponse {
+  const expiresAtMs = Date.now() + 10 * 60_000;
+  return {
+    formatVersion: 'ecdsa-hss-role-local',
+    walletId: request.walletId,
+    walletKeyId: request.walletKeyId,
+    ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
+    relayerKeyId: request.relayerKeyId,
+    applicationBindingDigestB64u: 'test-application-binding-digest',
+    contextBinding32B64u: request.contextBinding32B64u,
+    publicIdentity: {
+      hssClientSharePublicKey33B64u: request.hssClientSharePublicKey33B64u,
+      relayerPublicKey33B64u: 'test-relayer-public-key' as TestEcdsaRelayerPublicKey,
+      groupPublicKey33B64u: 'test-group-public-key',
+      ethereumAddress: '0x0000000000000000000000000000000000000001',
+    },
+    clientShareRetryCounter: request.clientShareRetryCounter,
+    relayerShareRetryCounter: 0,
+    publicTranscriptDigest32B64u: 'test-public-transcript-digest',
+    keyHandle: 'test-add-signer-ecdsa-key-handle',
+    signingRootId: request.signingRootId,
+    signingRootVersion: request.signingRootVersion,
+    thresholdEcdsaPublicKeyB64u: 'test-group-public-key',
+    ethereumAddress: '0x0000000000000000000000000000000000000001',
+    relayerVerifyingShareB64u: 'test-relayer-public-key',
+    participantIds: request.participantIds,
+    thresholdSessionId: request.sessionId,
+    signingGrantId: request.signingGrantId,
+    expiresAtMs,
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    remainingUses: request.remainingUses,
+  };
 }
 
 class SqliteCliD1Database implements D1DatabaseLike {
@@ -2740,6 +2812,138 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
     ).resolves.toMatchObject({
       ok: false,
       code: 'invalid_grant',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service responds to ECDSA add-signer ceremonies through Durable Objects', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = 'add-signer-respond-wallet.testnet';
+    const rpId = 'example.com';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    let bootstrapRequest: EcdsaHssClientBootstrapRequest | null = null;
+    const thresholdSigningService = {
+      async ecdsaHssRoleLocalBootstrap(request: EcdsaHssClientBootstrapRequest) {
+        bootstrapRequest = request;
+        return {
+          ok: true as const,
+          value: testEcdsaServerBootstrapResponse(request),
+        };
+      },
+    } as unknown as ThresholdSigningService;
+    await insertSignerWallet({ database, ...scope, walletId, rpId });
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      thresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const intent = await service.createAddSignerIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        walletId,
+        rpId,
+        signerSelection: {
+          mode: 'ecdsa',
+          ecdsa: {
+            participantIds: [1, 2, 3],
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+          },
+        },
+      },
+    });
+    if (!intent.ok) throw new Error(intent.message);
+
+    const started = await service.startWalletAddSigner({
+      walletId,
+      addSignerIntentGrant: intent.addSignerIntentGrant,
+      addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
+      intent: intent.intent,
+      auth: {
+        kind: 'app_session',
+        policy: {
+          permission: 'wallet_signer_provision',
+          walletId,
+          signerSelection: intent.intent.signerSelection,
+          runtimePolicyScope: intent.intent.runtimePolicyScope,
+          expiresAtMs: Date.now() + 60_000,
+        },
+      },
+    });
+    if (!started.ok) throw new Error(started.message);
+    if (!started.ecdsa) throw new Error('Expected ECDSA add-signer start payload');
+
+    const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
+    const responded = await service.respondWalletAddSignerHss({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ecdsa: {
+        clientBootstrap,
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    expect(responded.ecdsa?.bootstrap).toMatchObject({
+      keyHandle: 'test-add-signer-ecdsa-key-handle',
+      walletId,
+      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      thresholdSessionId: clientBootstrap.thresholdSessionId,
+      signingGrantId: clientBootstrap.signingGrantId,
+    });
+    expect(bootstrapRequest).toMatchObject({
+      sessionId: clientBootstrap.thresholdSessionId,
+      signingGrantId: clientBootstrap.signingGrantId,
+      runtimePolicyScope: intent.intent.runtimePolicyScope,
+    });
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(`${prefix}add-signer:${started.addSignerCeremonyId}`),
+    ).toMatchObject({
+      signerState: {
+        kind: 'ecdsa_add_signer_responded',
+        hssKind: 'evm_family_ecdsa_keygen',
+        prepare: started.ecdsa.prepare,
+        responded: {
+          bootstrap: {
+            keyHandle: 'test-add-signer-ecdsa-key-handle',
+            thresholdSessionId: clientBootstrap.thresholdSessionId,
+            signingGrantId: clientBootstrap.signingGrantId,
+          },
+        },
+      },
+    });
+
+    await expect(
+      service.respondWalletAddSignerHss({
+        addSignerCeremonyId: started.addSignerCeremonyId,
+        ecdsa: {
+          clientBootstrap,
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_state',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);

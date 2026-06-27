@@ -172,6 +172,13 @@ Line-count cleanup baseline:
   `startWalletAddSigner`; Ed25519 add-signer start/respond/finalize remains a
   named ceremony gap, and the shared disabled-service scaffold remains until
   the remaining 9 signer methods are implemented.
+- [x] ECDSA add-signer respond slice recorded before plan-doc update: 699 code
+  additions and 0 code deletions across the D1 relay auth service and unit
+  tests. The same-slice deletion pass replaced the disabled D1 factory path for
+  `respondWalletAddSignerHss`; ECDSA add-signer finalize and Ed25519
+  add-signer start/respond/finalize remain named ceremony gaps, and the shared
+  disabled-service scaffold remains until the remaining 8 signer methods are
+  implemented.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -1027,11 +1034,12 @@ Completed:
   consume registration Email OTP challenges, bind app-session policy to the
   exact intent/runtime scope, persist wallet auth-method rows in D1, and consume
   ceremonies exactly once.
-- [x] Cloudflare relay auth service D1 methods start ECDSA add-signer ceremonies
+- [x] Cloudflare relay auth service D1 methods start and respond to ECDSA
+  add-signer ceremonies
   through Durable Object intent and ceremony storage, bind app-session policy to
   the exact signer selection/runtime scope, emit ECDSA role-local prepare state,
-  and consume add-signer intents exactly once. Remaining disabled signer
-  methods: 9.
+  persist responded ECDSA role-local bootstrap state, and consume add-signer
+  intents exactly once. Remaining disabled signer methods: 8.
 - [x] The Cloudflare service-bundle relay options are wired to the Durable Object
   normal-signing admission store.
 - [x] The Cloudflare service-bundle relay options are wired to D1-backed
@@ -1065,9 +1073,9 @@ Completed:
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: wallet registration, Ed25519 add-signer start plus
-  add-signer respond/finalize ceremonies, signed delegates, and email recovery
-  HSS responses.
+  Object slices: wallet registration, ECDSA add-signer finalize, Ed25519
+  add-signer start/respond/finalize ceremonies, signed delegates, and email
+  recovery HSS responses.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
@@ -1138,7 +1146,7 @@ Work:
   service slices, including recovery-code rotation, generic OIDC JWT exchange,
   Email OTP server-seal transforms, wallet auth-method revocation, Durable
   Object threshold wiring, D1/DO wallet intent allocation, Email OTP
-  add-auth-method start/finalize ceremonies, ECDSA add-signer start
+  add-auth-method start/finalize ceremonies, ECDSA add-signer start/respond
   ceremonies, and the Worker runtime import guard.
 - [x] Keep pure unit fakes for core logic that does not depend on SQL behavior.
 - [ ] Cover every remaining duplicate idempotency, insufficient balance,
