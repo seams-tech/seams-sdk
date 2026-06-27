@@ -1,5 +1,6 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
@@ -20,8 +21,13 @@ import type {
   EmailOtpGrantRecord,
   EmailOtpLoginChallengeOperation,
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+  EmailOtpUnlockChallengeRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
+import {
+  validateSecp256k1PublicKey33,
+  verifySecp256k1RecoverableSignatureAgainstPublicKey33,
+} from '../../core/ThresholdService/ethSignerWasm';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -172,6 +178,18 @@ type ReadEmailOtpOutboxEntryInput = Parameters<
 type ReadEmailOtpOutboxEntryResult = Awaited<
   ReturnType<CloudflareRelayAuthService['readEmailOtpOutboxEntry']>
 >;
+type CreateEmailOtpUnlockChallengeInput = Parameters<
+  CloudflareRelayAuthService['createEmailOtpUnlockChallenge']
+>[0];
+type CreateEmailOtpUnlockChallengeResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['createEmailOtpUnlockChallenge']>
+>;
+type VerifyEmailOtpUnlockProofInput = Parameters<
+  CloudflareRelayAuthService['verifyEmailOtpUnlockProof']
+>[0];
+type VerifyEmailOtpUnlockProofResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyEmailOtpUnlockProof']>
+>;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
 >[0];
@@ -244,6 +262,11 @@ type D1EmailOtpGrantRow = {
 type D1EmailOtpRateLimitRow = {
   readonly consumed_count?: unknown;
   readonly reset_at_ms?: unknown;
+};
+
+type D1EmailOtpUnlockChallengeRow = {
+  readonly record_json?: unknown;
+  readonly expires_at_ms?: unknown;
 };
 
 type D1AuthenticatorRow = {
@@ -823,6 +846,52 @@ function parseEmailOtpChallengeRow(
   return record;
 }
 
+function parseEmailOtpUnlockChallengeRecord(
+  input: unknown,
+): EmailOtpUnlockChallengeRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const userId = toOptionalTrimmedString(record.userId);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
+  const createdAtMs = positiveSafeInteger(record.createdAtMs);
+  const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
+  if (
+    version !== 'email_otp_unlock_challenge_v1' ||
+    !challengeId ||
+    !walletId ||
+    !userId ||
+    !challengeB64u ||
+    !createdAtMs ||
+    !expiresAtMs ||
+    expiresAtMs <= createdAtMs
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_unlock_challenge_v1',
+    challengeId,
+    walletId,
+    userId,
+    ...(orgId ? { orgId } : {}),
+    challengeB64u,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function parseEmailOtpUnlockChallengeRow(
+  row: D1EmailOtpUnlockChallengeRow | null,
+): EmailOtpUnlockChallengeRecord | null {
+  const record = parseEmailOtpUnlockChallengeRecord(row?.record_json);
+  const expiresAtMs = positiveSafeInteger(row?.expires_at_ms);
+  if (!record || !expiresAtMs || record.expiresAtMs !== expiresAtMs) return null;
+  return record;
+}
+
 function emailOtpChallengeContextValues(input: {
   readonly challengeSubjectId: string;
   readonly walletId: string;
@@ -900,6 +969,27 @@ function emailOtpGrantRecord(input: {
     appSessionVersion: input.appSessionVersion,
     action: WALLET_EMAIL_OTP_ACTIONS.unseal,
     issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.expiresAtMs,
+  };
+}
+
+function emailOtpUnlockChallengeRecord(input: {
+  readonly challengeId: string;
+  readonly walletId: string;
+  readonly userId: string;
+  readonly orgId: string;
+  readonly challengeB64u: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+}): EmailOtpUnlockChallengeRecord {
+  return {
+    version: 'email_otp_unlock_challenge_v1',
+    challengeId: input.challengeId,
+    walletId: input.walletId,
+    userId: input.userId,
+    orgId: input.orgId,
+    challengeB64u: input.challengeB64u,
+    createdAtMs: input.createdAtMs,
     expiresAtMs: input.expiresAtMs,
   };
 }
@@ -1201,6 +1291,30 @@ function generateNumericOtp(length: number): string {
   let code = '';
   for (const byte of bytes) code += String(byte % 10);
   return code;
+}
+
+function clampedEmailOtpUnlockTtlMs(input: unknown): number {
+  const value = typeof input === 'number' ? input : Number(input);
+  if (!Number.isFinite(value) || value <= 0) return 5 * 60_000;
+  return Math.min(Math.max(Math.floor(value), 10_000), 10 * 60_000);
+}
+
+function decodeFixedBase64Url(input: string, byteLength: number): Uint8Array | null {
+  try {
+    const decoded = base64UrlDecode(input);
+    return decoded.length === byteLength ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= (left[index] || 0) ^ (right[index] || 0);
+  }
+  return difference === 0;
 }
 
 function emailOtpRateLimitKeys(input: {
@@ -1945,6 +2059,224 @@ class CloudflareD1RelayAuthMetadataService {
       otpCode: entry.otpCode,
       expiresAtMs: entry.expiresAtMs,
     };
+  }
+
+  async createEmailOtpUnlockChallenge(
+    input: CreateEmailOtpUnlockChallengeInput,
+  ): Promise<CreateEmailOtpUnlockChallengeResult> {
+    try {
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!isValidAccountId(walletId)) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid walletId' };
+      }
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      const enrollment = await this.readActiveEmailOtpEnrollment({ walletId, orgId });
+      if (!enrollment.ok) return enrollment;
+      const nowMs = Date.now();
+      const ttlMs = clampedEmailOtpUnlockTtlMs(input.ttlMs ?? input.ttl_ms);
+      const challengeId = secureRandomBase64Url(16, 'email otp unlock challenge ids');
+      const challengeB64u = secureRandomBase64Url(32, 'email otp unlock challenges');
+      const expiresAtMs = nowMs + ttlMs;
+      await this.putEmailOtpUnlockChallenge(
+        emailOtpUnlockChallengeRecord({
+          challengeId,
+          walletId: enrollment.enrollment.walletId,
+          userId: enrollment.enrollment.providerUserId,
+          orgId: enrollment.enrollment.orgId,
+          challengeB64u,
+          createdAtMs: nowMs,
+          expiresAtMs,
+        }),
+      );
+      return {
+        ok: true,
+        walletId: enrollment.enrollment.walletId,
+        challengeId,
+        challengeB64u,
+        expiresAtMs,
+        unlockKeyVersion: enrollment.enrollment.unlockKeyVersion,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to create Email OTP unlock challenge',
+      };
+    }
+  }
+
+  async verifyEmailOtpUnlockProof(
+    input: VerifyEmailOtpUnlockProofInput,
+  ): Promise<VerifyEmailOtpUnlockProofResult> {
+    try {
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const challengeId = toOptionalTrimmedString(input.challengeId);
+      const unlockProof = isRecord(input.unlockProof) ? input.unlockProof : null;
+      if (!walletId) {
+        return { ok: false, verified: false, code: 'invalid_body', message: 'Missing walletId' };
+      }
+      if (!isValidAccountId(walletId)) {
+        return { ok: false, verified: false, code: 'invalid_body', message: 'Invalid walletId' };
+      }
+      if (!orgId) {
+        return { ok: false, verified: false, code: 'invalid_body', message: 'Missing orgId' };
+      }
+      if (!challengeId) {
+        return { ok: false, verified: false, code: 'invalid_body', message: 'Missing challengeId' };
+      }
+      if (!unlockProof) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'unlockProof is required',
+        };
+      }
+
+      const publicKeyB64u = toOptionalTrimmedString(unlockProof.publicKey);
+      const signatureB64u = toOptionalTrimmedString(unlockProof.signature);
+      if (!publicKeyB64u) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'unlockProof.publicKey is required',
+        };
+      }
+      if (!signatureB64u) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'unlockProof.signature is required',
+        };
+      }
+
+      const challenge = await this.consumeEmailOtpUnlockChallenge(challengeId);
+      if (!challenge || Date.now() > challenge.expiresAtMs) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_expired_or_invalid',
+          message: 'Email OTP unlock challenge expired or invalid',
+        };
+      }
+      if (challenge.walletId !== walletId) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_binding_mismatch',
+          message: 'Email OTP unlock challenge is not valid for this walletId',
+        };
+      }
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({ walletId, orgId });
+      if (!enrollment.ok) {
+        return {
+          ok: false,
+          verified: false,
+          code: enrollment.code,
+          message: enrollment.message,
+        };
+      }
+      if (
+        challenge.userId !== enrollment.enrollment.providerUserId ||
+        challenge.orgId !== enrollment.enrollment.orgId
+      ) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_binding_mismatch',
+          message: 'Email OTP unlock challenge is not valid for this enrollment',
+        };
+      }
+
+      const providedPublicKey = decodeFixedBase64Url(publicKeyB64u, 33);
+      if (!providedPublicKey) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'unlockProof.publicKey must decode to 33 bytes',
+        };
+      }
+      try {
+        await validateSecp256k1PublicKey33(providedPublicKey);
+      } catch {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'unlockProof.publicKey is not a valid secp256k1 public key',
+        };
+      }
+
+      const signature = decodeFixedBase64Url(signatureB64u, 65);
+      if (!signature) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'unlockProof.signature must decode to 65 bytes',
+        };
+      }
+      const enrolledPublicKey = decodeFixedBase64Url(
+        enrollment.enrollment.clientUnlockPublicKeyB64u,
+        33,
+      );
+      if (!enrolledPublicKey || !bytesEqual(enrolledPublicKey, providedPublicKey)) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_unlock_proof',
+          message: 'unlockProof.publicKey does not match the enrolled clientUnlockPublicKeyB64u',
+        };
+      }
+      const challengeDigest = decodeFixedBase64Url(challenge.challengeB64u, 32);
+      if (!challengeDigest) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'internal',
+          message: 'Stored unlock challenge digest must decode to 32 bytes',
+        };
+      }
+      try {
+        await verifySecp256k1RecoverableSignatureAgainstPublicKey33(
+          challengeDigest,
+          signature,
+          providedPublicKey,
+        );
+      } catch {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_unlock_proof',
+          message: 'unlockProof.signature did not verify against unlockProof.publicKey',
+        };
+      }
+
+      await this.putEmailOtpAuthStateForEnrollment(enrollment.enrollment, {
+        lastEmailOtpLoginAtMs: Date.now(),
+      });
+      return {
+        ok: true,
+        verified: true,
+        userId: enrollment.enrollment.walletId,
+        walletId: enrollment.enrollment.walletId,
+        unlockKeyVersion: enrollment.enrollment.unlockKeyVersion,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to verify Email OTP unlock proof',
+      };
+    }
   }
 
   async consumeEmailOtpGrant(input: ConsumeEmailOtpGrantInput): Promise<ConsumeEmailOtpGrantResult> {
@@ -2737,6 +3069,50 @@ class CloudflareD1RelayAuthMetadataService {
     return parseEmailOtpChallengeRow(row);
   }
 
+  private async putEmailOtpUnlockChallenge(record: EmailOtpUnlockChallengeRecord): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_email_otp_unlock_challenges (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        challenge_id,
+        wallet_id,
+        user_id,
+        record_org_id,
+        record_json,
+        created_at_ms,
+        expires_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        record.challengeId,
+        record.walletId,
+        record.userId,
+        record.orgId || '',
+        JSON.stringify(record),
+        record.createdAtMs,
+        record.expiresAtMs,
+      ],
+    ).run();
+  }
+
+  private async consumeEmailOtpUnlockChallenge(
+    challengeId: string,
+  ): Promise<EmailOtpUnlockChallengeRecord | null> {
+    const row = await this.scopePrepare(
+      `DELETE FROM signer_email_otp_unlock_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?
+      RETURNING record_json, expires_at_ms`,
+      [challengeId],
+    ).first<D1EmailOtpUnlockChallengeRow>();
+    return parseEmailOtpUnlockChallengeRow(row);
+  }
+
   private async putEmailOtpGrant(record: EmailOtpGrantRecord): Promise<void> {
     await this.scopePrepare(
       `INSERT INTO signer_email_otp_grants (
@@ -3147,6 +3523,8 @@ export function createCloudflareD1RelayAuthService(
   service.createEmailOtpChallenge = metadata.createEmailOtpChallenge.bind(metadata);
   service.verifyEmailOtpChallenge = metadata.verifyEmailOtpChallenge.bind(metadata);
   service.readEmailOtpOutboxEntry = metadata.readEmailOtpOutboxEntry.bind(metadata);
+  service.createEmailOtpUnlockChallenge = metadata.createEmailOtpUnlockChallenge.bind(metadata);
+  service.verifyEmailOtpUnlockProof = metadata.verifyEmailOtpUnlockProof.bind(metadata);
   service.consumeEmailOtpGrant = metadata.consumeEmailOtpGrant.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);

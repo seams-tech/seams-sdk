@@ -10,6 +10,11 @@ import type {
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { createCloudflareD1RelayAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RelayAuthService';
+import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import {
+  secp256k1PrivateKey32ToPublicKey33,
+  signSecp256k1Recoverable,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
 
 type SqliteJsonRow = Record<string, unknown>;
 
@@ -368,6 +373,7 @@ async function insertEmailOtpEnrollment(input: {
   readonly orgId: string;
   readonly projectId: string;
   readonly envId: string;
+  readonly clientUnlockPublicKeyB64u?: string;
 }): Promise<void> {
   const record = {
     version: 'email_otp_wallet_enrollment_v1',
@@ -381,7 +387,7 @@ async function insertEmailOtpEnrollment(input: {
     signingRootId: 'project-a:env-a',
     signingRootVersion: 'root-v1',
     recoveryWrappedEnrollmentEscrowCount: 3,
-    clientUnlockPublicKeyB64u: 'client-unlock-public-key',
+    clientUnlockPublicKeyB64u: input.clientUnlockPublicKeyB64u || 'client-unlock-public-key',
     unlockKeyVersion: 'unlock-v1',
     thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-verifying-share',
     createdAtMs: 600,
@@ -1104,6 +1110,86 @@ test('Cloudflare D1 relay auth service enforces Email OTP challenge rate limits'
         operation: 'wallet_unlock',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'rate_limited' });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service verifies Email OTP unlock proofs once', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const privateKey32 = new Uint8Array(32);
+    privateKey32[31] = 1;
+    const publicKey33 = await secp256k1PrivateKey32ToPublicKey33(privateKey32);
+    const publicKeyB64u = base64UrlEncode(publicKey33);
+    await insertEmailOtpEnrollment({
+      database,
+      ...scope,
+      clientUnlockPublicKeyB64u: publicKeyB64u,
+    });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+    });
+
+    const challenge = await service.createEmailOtpUnlockChallenge({
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    expect(challenge.unlockKeyVersion).toBe('unlock-v1');
+
+    const signature65 = await signSecp256k1Recoverable(
+      base64UrlDecode(challenge.challengeB64u),
+      privateKey32,
+    );
+    const verified = await service.verifyEmailOtpUnlockProof({
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      challengeId: challenge.challengeId,
+      unlockProof: {
+        publicKey: publicKeyB64u,
+        signature: base64UrlEncode(signature65),
+      },
+    });
+    expect(verified).toEqual({
+      ok: true,
+      verified: true,
+      userId: 'email-wallet.testnet',
+      walletId: 'email-wallet.testnet',
+      unlockKeyVersion: 'unlock-v1',
+    });
+
+    await expect(
+      service.verifyEmailOtpUnlockProof({
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        challengeId: challenge.challengeId,
+        unlockProof: {
+          publicKey: publicKeyB64u,
+          signature: base64UrlEncode(signature65),
+        },
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
+    await expect(
+      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+    ).resolves.toMatchObject({
+      ok: true,
+      required: true,
+      walletId: 'email-wallet.testnet',
+    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
