@@ -131,6 +131,10 @@ Completed so far:
 - Wired the local Wrangler Worker `/console/*` path to the real Cloudflare
   console router backed by the D1/DO service bundle, with local-only static
   console auth and `/console/readyz` coverage.
+- Wired the local Wrangler Worker `/relay/*` path to D1 relay bundle smoke
+  coverage for the simplified sponsored EVM gas route. The first local route is
+  `/relay/sponsorships/evm/call`; execution and threshold signing remain
+  disabled until their dedicated Worker-safe slices land.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -288,6 +292,7 @@ pnpm --dir packages/sdk-server-ts run d1:local:prepare
 pnpm --dir packages/sdk-server-ts run d1:local:dev
 curl http://127.0.0.1:8787/readyz
 curl http://127.0.0.1:8787/console/readyz
+curl http://127.0.0.1:8787/relay/healthz
 ```
 
 The package scripts pin `wrangler.d1-local.toml` and
@@ -944,8 +949,9 @@ Exit criteria:
 
 ### Step 4: Make Local Development D1/DO By Default
 
-Status: SDK package command path, local D1/DO console Worker path, and bundle
-smoke complete; full relay/signer app launcher path still in progress.
+Status: SDK package command path, local D1/DO console Worker path, local
+sponsored-gas relay path, and bundle smoke complete; full signer AuthService
+launcher path still in progress.
 
 Work:
 
@@ -964,14 +970,23 @@ Work:
 - Use `/console/*` on the same local Worker for real D1-backed console route
   development. Local console auth reads optional `X-Console-*` headers and falls
   back to deterministic local claims.
-- Add a Cloudflare D1/DO `AuthService` factory for the remaining relay/signer
-  local path. It must build signer stores from `SIGNER_DB` and signer
-  coordination from Durable Objects, then pass that service to the Cloudflare
-  relay router.
+- Use `/relay/*` on the same local Worker for relay smoke development. The
+  first mounted route is `/relay/sponsorships/evm/call`, which proves the D1
+  relay service bundle can be constructed under Wrangler without importing the
+  mixed AuthService or EVM executor graph.
+- Add the Worker-safe sponsored EVM executor split before enabling local EVM
+  execution through `/relay/sponsorships/evm/call`.
+- Keep threshold signing disabled on the local relay mount until the dedicated
+  signer AuthService slice is complete. This keeps mixed Postgres-backed
+  AuthService modules out of the Cloudflare Worker bundle.
+- Add the Cloudflare D1/DO signer AuthService slice after the sponsored-gas
+  relay path is stable. It must build signer stores from `SIGNER_DB` and signer
+  coordination from Durable Objects, then pass that service to signer routes
+  without importing mixed Postgres modules from Worker-facing files.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
-- The relay/signer factory must cover wallet metadata/auth methods, WebAuthn,
+- The signer AuthService slice must cover wallet metadata/auth methods, WebAuthn,
   identity/app-session versions, recovery sessions/executions, NEAR public keys,
   email recovery preparations, Email OTP records, sealed signing-root shares,
   and Durable Object coordination for registration ceremonies, session/budget
@@ -988,8 +1003,10 @@ Exit criteria:
   reconciliation locally without Docker Postgres.
 - The local command path mirrors Cloudflare bindings, D1 API behavior, and
   Durable Object storage behavior.
-- A representative relay/signer smoke path runs through Wrangler without
+- A representative sponsored-gas relay smoke path runs through Wrangler without
   `POSTGRES_URL`, `CONSOLE_POSTGRES_URL`, or Docker Postgres.
+- A representative signer smoke path runs through Wrangler after the
+  Cloudflare-safe signer AuthService slice lands.
 
 ### Step 5: Port Tests To D1/DO
 
@@ -1053,6 +1070,7 @@ pnpm --dir packages/sdk-server-ts run d1:local:prepare
 pnpm --dir packages/sdk-server-ts run d1:local:dev
 curl http://127.0.0.1:8787/readyz
 curl http://127.0.0.1:8787/console/readyz
+curl http://127.0.0.1:8787/relay/healthz
 ```
 
 The local `/readyz` response must confirm `cloudflare_d1_do`, 40 console
@@ -1086,6 +1104,9 @@ Completed baseline:
 - The same SDK local Worker serves `/console/*` through the D1-backed
   Cloudflare console router, so console route development can use Wrangler D1
   without Docker Postgres.
+- The same SDK local Worker serves `/relay/*` through D1-backed relay storage
+  bundle smoke coverage for the simplified sponsored EVM route. Full prepaid
+  sponsorship execution still requires the Worker-safe EVM executor split.
 
 Proceed in this order:
 
@@ -1097,10 +1118,10 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
    Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
    dependency test.
-4. Add the Cloudflare D1/DO `AuthService` factory and make the remaining local
-   relay/signer application path use Wrangler/Miniflare D1 and local Durable
-   Object storage by default. The SDK package path and console route path
-   already use this shape.
+4. Add the Worker-safe sponsored EVM executor split, then add the
+   Cloudflare-safe signer AuthService slice. The SDK package path, console route
+   path, and sponsored-gas relay smoke route already use Wrangler/Miniflare D1
+   and local Durable Object storage.
 5. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
 6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination

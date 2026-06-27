@@ -285,6 +285,59 @@ test('local D1 Worker ready smoke validates D1 tables and DO admission', async (
   });
 });
 
+test('local D1 Worker exposes relay smoke routes under relay prefix', async () => {
+  const database = new FakeD1Database();
+  const env = {
+    CONSOLE_DB: database,
+    SIGNER_DB: database,
+    THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+    SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+  };
+  const ctx = createFakeExecutionContext();
+
+  const health = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/relay/healthz'),
+    env,
+    ctx,
+  );
+  expect(health.status).toBe(200);
+  await expect(health.json()).resolves.toMatchObject({
+    ok: true,
+    thresholdEd25519: { configured: false },
+    cors: { allowedOrigins: ['http://127.0.0.1:8787', 'http://localhost:8787'] },
+  });
+
+  const sponsored = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://127.0.0.1:8787',
+      },
+      body: JSON.stringify({
+        environmentId: 'project_local:local',
+        walletId: 'wallet_local_1',
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        chainId: 1,
+        call: {
+          to: '0x2222222222222222222222222222222222222222',
+          data: '0x12345678',
+          gasLimit: '21000',
+          value: '0',
+        },
+        idempotencyKey: 'intent_local_1',
+      }),
+    }),
+    env,
+    ctx,
+  );
+  expect(sponsored.status).toBe(503);
+  await expect(sponsored.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'sponsored_evm_call_disabled',
+  });
+});
+
 test('local D1 Worker serves console routes through D1 console services', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(

@@ -4,12 +4,15 @@ import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../con
 import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
 import type { CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { ThresholdStoreDurableObject } from './durableObjects/thresholdStore';
+import type { CloudflareD1RelayRouterStorageOptions } from './d1ConsoleServices';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
 } from '../../core/types';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
+import type { RouteDefinition } from '../routeDefinitions';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../../sponsorship/evmRoutes';
 
 export { ThresholdStoreDurableObject };
 
@@ -60,7 +63,15 @@ const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
 ]);
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const LOCAL_RELAY_CORS_ORIGINS = Object.freeze(['http://127.0.0.1:8787', 'http://localhost:8787']);
 const localConsoleHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
+const localRelayHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
+
+type LocalRelayHandlerContext = {
+  readonly env: LocalD1DevEnv;
+  readonly relayOptions: CloudflareD1RelayRouterStorageOptions;
+  readonly sponsoredEvmRoute: RouteDefinition;
+};
 
 const CONSOLE_READY_TABLES = Object.freeze([
   'console_organizations',
@@ -267,6 +278,10 @@ function isConsolePath(pathname: string): boolean {
   return pathname === '/console' || pathname.startsWith('/console/');
 }
 
+function isRelayPath(pathname: string): boolean {
+  return pathname === '/relay' || pathname.startsWith('/relay/');
+}
+
 async function assertLocalD1DoReady(env: LocalD1DevEnv): Promise<void> {
   await assertLocalD1Schemas(env);
   await runD1DoAdmissionSmoke(env);
@@ -307,6 +322,164 @@ function localConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
   const created = createLocalConsoleHandler(env);
   localConsoleHandlers.set(env, created);
   return created;
+}
+
+async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const bundle = await createCloudflareD1ConsoleServiceBundle({
+    bindings: {
+      consoleDatabase: env.CONSOLE_DB,
+      signerMetadataDatabase: env.SIGNER_DB,
+      thresholdStore: env.THRESHOLD_STORE,
+      kekProvider: localSigningRootKekProvider(env),
+    },
+    route: {
+      namespace: localTenantStorageNamespace(env),
+    },
+    adapters: {
+      ensureSchema: false,
+    },
+  });
+  const context: LocalRelayHandlerContext = {
+    env,
+    relayOptions: bundle.relayRouterOptions,
+    sponsoredEvmRoute: createLocalSponsoredEvmRoute(bundle.relayRouterOptions),
+  };
+  const handler = new LocalRelayHandler(context);
+  return handler.fetch.bind(handler);
+}
+
+function createLocalSponsoredEvmRoute(
+  relayOptions: CloudflareD1RelayRouterStorageOptions,
+): RouteDefinition {
+  const path =
+    normalizeLocalString(relayOptions.sponsoredEvmCall.route) || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
+  return {
+    id: 'sponsored_evm_call',
+    surface: 'relay',
+    method: 'POST',
+    path,
+    auth: {
+      plane: 'api_credentials',
+      credentials: ['publishable_key'],
+      environmentBinding: 'required',
+      originBinding: 'required',
+    },
+    metering: { kind: 'gas', ledger: 'evm' },
+    requiredServices: ['relaySponsoredEvmCall'],
+    summary: 'Execute a sponsored EVM call',
+  };
+}
+
+class LocalRelayHandler {
+  constructor(private readonly context: LocalRelayHandlerContext) {}
+
+  async fetch(request: Request): Promise<Response> {
+    return await handleLocalRelayRequest(this.context, request);
+  }
+}
+
+async function handleLocalRelayRequest(
+  context: LocalRelayHandlerContext,
+  request: Request,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const method = request.method.toUpperCase();
+  if (method === 'OPTIONS') return localRelayCorsResponse(request);
+  if (method === 'GET' && url.pathname === '/healthz') {
+    return localRelayJsonResponse(
+      {
+        ok: true,
+        thresholdEd25519: { configured: false },
+        cors: { allowedOrigins: [...LOCAL_RELAY_CORS_ORIGINS] },
+      },
+      request,
+    );
+  }
+  if (method === 'GET' && url.pathname === '/readyz') {
+    await assertLocalD1DoReady(context.env);
+    return localRelayJsonResponse(
+      {
+        ok: true,
+        thresholdEd25519: { configured: false },
+        cors: { allowedOrigins: [...LOCAL_RELAY_CORS_ORIGINS] },
+      },
+      request,
+    );
+  }
+  if (method === 'POST' && url.pathname === context.sponsoredEvmRoute.path) {
+    return localRelaySponsoredEvmDisabledResponse(context, request);
+  }
+  return localRelayJsonResponse({ ok: false, code: 'not_found', message: 'Not Found' }, request, {
+    status: 404,
+  });
+}
+
+function localRelayCorsResponse(request: Request): Response {
+  const response = new Response(null, { status: 204 });
+  applyLocalRelayCorsHeaders(response.headers, request);
+  return response;
+}
+
+function localRelaySponsoredEvmDisabledResponse(
+  context: LocalRelayHandlerContext,
+  request: Request,
+): Response {
+  const config = context.relayOptions.sponsoredEvmCall.config;
+  if (config && config.executorsByChain.size > 0) {
+    return localRelayJsonResponse(
+      {
+        ok: false,
+        code: 'sponsored_evm_executor_not_wired',
+        message: 'Local D1 relay smoke does not execute sponsored EVM calls yet',
+      },
+      request,
+      { status: 501 },
+    );
+  }
+  return localRelayJsonResponse(
+    {
+      ok: false,
+      code: 'sponsored_evm_call_disabled',
+      message: 'Sponsored EVM execution is not configured on this server',
+    },
+    request,
+    { status: 503 },
+  );
+}
+
+function localRelayJsonResponse(
+  body: Record<string, unknown>,
+  request: Request,
+  init?: ResponseInit,
+): Response {
+  const response = jsonResponse(body, init);
+  applyLocalRelayCorsHeaders(response.headers, request);
+  return response;
+}
+
+function applyLocalRelayCorsHeaders(headers: Headers, request: Request): void {
+  const origin = normalizeLocalString(request.headers.get('origin'));
+  if (LOCAL_RELAY_CORS_ORIGINS.includes(origin)) {
+    headers.set('access-control-allow-origin', origin);
+    headers.append('vary', 'Origin');
+  }
+  headers.set('access-control-allow-methods', 'GET,POST,OPTIONS');
+  headers.set('access-control-allow-headers', 'content-type,authorization,x-api-key');
+}
+
+function localRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const existing = localRelayHandlers.get(env);
+  if (existing) return existing;
+  const created = createLocalRelayHandler(env);
+  localRelayHandlers.set(env, created);
+  return created;
+}
+
+function relayRequest(request: Request, pathname: string): Request {
+  const url = new URL(request.url);
+  const stripped = pathname === '/relay' ? '/' : pathname.slice('/relay'.length);
+  url.pathname = stripped || '/';
+  return new Request(url.toString(), request);
 }
 
 function localAdmissionInput(nowMs: number): RouterAbNormalSigningAdmissionInput {
@@ -543,11 +716,24 @@ async function fetch(
     const handler = await localConsoleHandler(env);
     return await handler(request, env, ctx);
   }
+  if (isRelayPath(url.pathname)) {
+    const handler = await localRelayHandler(env);
+    return await handler(relayRequest(request, url.pathname), env, ctx);
+  }
   return jsonResponse(
     {
       ok: true,
       service: 'seams-sdk-d1-local',
-      endpoints: ['/healthz', '/readyz', '/console/healthz', '/console/readyz', '/console/*'],
+      endpoints: [
+        '/healthz',
+        '/readyz',
+        '/console/healthz',
+        '/console/readyz',
+        '/console/*',
+        '/relay/healthz',
+        '/relay/readyz',
+        '/relay/sponsorships/evm/call',
+      ],
     },
     { status: 200 },
   );
