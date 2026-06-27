@@ -154,6 +154,12 @@ Completed so far:
   the local D1 relay Worker. It lets local sponsored-gas development use the
   real Cloudflare relay router while signer routes remain unavailable until the
   D1/DO signer service implementation replaces it.
+- Added the first D1-backed `CloudflareRelayAuthService` signer metadata slice
+  for local Cloudflare relay development. It reads identity links, app-session
+  versions, WebAuthn authenticator inventory, and NEAR public-key inventory
+  directly from tenant-scoped `SIGNER_DB` tables without importing mixed
+  Postgres-capable signer store modules. Protocol, threshold, and custody
+  methods still fail closed until their D1/DO implementations land.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -962,6 +968,9 @@ Work:
   The next implementation must provide this port from `SIGNER_DB`, signer
   Durable Objects, and the signer KEK resolver without constructing the mixed
   Postgres-capable `AuthService` class in Worker code.
+- Keep signer metadata methods in Worker-safe D1 leaf modules. Do not import
+  mixed core signer store modules from Cloudflare routes because those modules
+  still include Postgres runtime imports.
 
 Exit criteria:
 
@@ -1011,6 +1020,11 @@ Work:
   signer stores from `SIGNER_DB` and signer coordination from Durable Objects,
   then pass that service to signer routes without importing mixed Postgres
   modules from Worker-facing files.
+- The first D1-backed signer metadata methods are in place for identity lists,
+  app-session version create/rotate/validate, WebAuthn authenticator inventory,
+  and NEAR public-key inventory. Continue porting mutating auth, Email OTP,
+  WebAuthn verification, wallet registration, recovery, signed delegate, and
+  threshold methods behind the same port.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
@@ -1142,8 +1156,11 @@ Completed baseline:
   `AuthService` class. This is the boundary the D1/DO signer service
   implementation must satisfy.
 - The local D1 relay Worker uses a disabled `CloudflareRelayAuthService` to
-  keep the real router mounted while signer methods fail closed until the D1/DO
-  implementation lands.
+  keep the real router mounted while signer protocol methods fail closed until
+  the D1/DO implementation lands.
+- The local D1 relay Worker now overlays D1-backed signer metadata methods on
+  that fail-closed service for identity lists, app-session versions, WebAuthn
+  inventory, and NEAR public-key inventory.
 
 Proceed in this order:
 

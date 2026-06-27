@@ -11,7 +11,7 @@ import type {
 import { createCloudflareRouter } from './createCloudflareRouter';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
-import { createDisabledCloudflareRelayAuthService } from './disabledRelayAuthService';
+import { createCloudflareD1RelayAuthService } from './d1RelayAuthService';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
@@ -29,6 +29,9 @@ interface LocalD1DevEnv {
   readonly SEAMS_LOCAL_CONSOLE_PROJECT_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ROLES?: string;
+  readonly SEAMS_LOCAL_RELAYER_ACCOUNT?: string;
+  readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
+  readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_ID?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
@@ -339,7 +342,7 @@ async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler
       sponsoredEvmCallConfig,
     },
   });
-  return createCloudflareRouter(createDisabledCloudflareRelayAuthService(), {
+  return createCloudflareRouter(createLocalD1RelayAuthService(env), {
     ...bundle.relayRouterOptions,
     healthz: true,
     readyz: true,
@@ -349,6 +352,24 @@ async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler
       ...bundle.relayRouterOptions.sponsoredEvmCall,
       resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
     },
+  });
+}
+
+function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
+  return createCloudflareD1RelayAuthService({
+    database: env.SIGNER_DB,
+    namespace: localTenantStorageNamespace(env),
+    orgId:
+      normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_ORG_ID) || DEFAULT_LOCAL_CONSOLE_ORG_ID,
+    projectId:
+      normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_PROJECT_ID) ||
+      DEFAULT_LOCAL_CONSOLE_PROJECT_ID,
+    envId:
+      normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID) ||
+      DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID,
+    relayerAccount: env.SEAMS_LOCAL_RELAYER_ACCOUNT,
+    relayerPublicKey: env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY,
+    googleOidcClientId: env.SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID,
   });
 }
 
