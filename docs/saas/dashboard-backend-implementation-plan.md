@@ -901,7 +901,7 @@ Compliance:
     - `postgres:migrate:console` (`CONSOLE_POSTGRES_MIGRATION_URL` -> `CONSOLE_POSTGRES_URL`)
     - `postgres:migrate:all`
   - Progress: relay-server now includes local split-domain DB/bootstrap automation (`postgres:bootstrap:split`) for signer/console runtime+migrator roles, databases, and grants.
-  - Progress: relay-server supports strict migration mode with `CONSOLE_BILLING_ENSURE_SCHEMA=0` and `CONSOLE_WEBHOOKS_ENSURE_SCHEMA=0` to disable startup schema auto-creation.
+  - Progress: relay-server supports strict migration mode with `CONSOLE_ENSURE_SCHEMA=0` to disable startup schema auto-creation for the console backend family.
   - Progress: relay-server now includes explicit least-privilege verification (`postgres:verify:split`) and validated local flow (`postgres:up` -> `postgres:bootstrap:split` -> `postgres:migrate:all` -> `postgres:verify:split`).
   - Progress: relay-server now exposes a one-shot bootstrap+migrate+verify command (`postgres:setup:split`) for repeatable local bring-up.
   - Progress: relay-server now exposes a one-shot monolith-to-split data migration command (`postgres:migrate:split-from-monolith`) with explicit source/target envs.

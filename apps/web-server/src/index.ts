@@ -1047,15 +1047,9 @@ async function main() {
   const {
     thresholdPostgresUrl,
     consolePostgresUrl,
-    consoleBillingBackend,
-    consoleBillingEnsureSchema,
-    consoleBillingNamespace,
-    consoleWebhooksBackend,
-    consoleWebhooksEnsureSchema,
-    consoleWebhooksNamespace,
-    consoleObservabilityBackend,
-    consoleObservabilityEnsureSchema,
-    consoleObservabilityNamespace,
+    consoleBackend,
+    consoleEnsureSchema,
+    consoleNamespace,
     consoleObservabilityQueryMaxWindowMs,
     consoleObservabilityIngestMaxBatchSize,
     consoleObservabilityIngestMaxEventsPerMinute,
@@ -1382,17 +1376,9 @@ async function main() {
         }),
       }
     : undefined;
-  const effectiveConsoleBillingBackend = requiresAtomicSponsoredSettlement
-    ? 'postgres'
-    : consoleBillingBackend;
   if (requiresAtomicSponsoredSettlement && !consolePostgresUrl) {
     throw new Error(
-      'Sponsored EVM call requires CONSOLE_POSTGRES_URL because atomic sponsored settlement needs Postgres billing/prepaid/ledger services',
-    );
-  }
-  if (requiresAtomicSponsoredSettlement && consoleBillingBackend !== 'postgres') {
-    console.warn(
-      `[relay-server] forcing CONSOLE_BILLING_BACKEND=postgres because sponsored EVM call is enabled (configured=${consoleBillingBackend})`,
+      'Sponsored EVM call requires CONSOLE_POSTGRES_URL because Node sponsored settlement uses the Postgres console family',
     );
   }
   let consoleBilling: ConsoleBillingService;
@@ -1413,18 +1399,18 @@ async function main() {
   let consoleSponsorshipSpendCaps: ConsoleSponsorshipSpendCapService;
   let consoleBillingPrepaidReservations: ConsoleBillingPrepaidReservationService;
   let consoleAccount: ConsoleAccountService;
-  const consoleCoreNamespace = consoleBillingNamespace;
+  const consoleCoreNamespace = consoleNamespace;
   let consoleDemoOrgId = '';
   let demoWalletSeeds: ConsoleWallet[] = [];
-  if (effectiveConsoleBillingBackend === 'postgres') {
+  if (consoleBackend === 'postgres') {
     if (!consolePostgresUrl) {
-      throw new Error('CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
+      throw new Error('Postgres console backend requires CONSOLE_POSTGRES_URL');
     }
     consoleBilling = await createPostgresConsoleBillingService({
       postgresUrl: consolePostgresUrl,
-      namespace: consoleBillingNamespace,
+      namespace: consoleNamespace,
       logger: console as any,
-      ensureSchema: consoleBillingEnsureSchema,
+      ensureSchema: consoleEnsureSchema,
       ...(stripeProviderOverrides ? { providers: stripeProviderOverrides } : {}),
     });
   } else {
@@ -1433,48 +1419,48 @@ async function main() {
     });
   }
 
-  if (consolePostgresUrl) {
+  if (consoleBackend === 'postgres') {
     consoleAudit = await createPostgresConsoleAuditService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleOrgProjectEnvBase = await createPostgresConsoleOrgProjectEnvService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleApiKeys = await createPostgresConsoleApiKeyService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleBootstrapTokens = await createPostgresConsoleBootstrapTokenService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consolePolicies = await createPostgresConsolePolicyService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleApprovals = await createPostgresConsoleApprovalService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleRuntimeSnapshots = await createPostgresConsoleRuntimeSnapshotService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
       retentionTtlMs: consoleRuntimeSnapshotRetentionTtlMs,
       retentionPruneIntervalMs: consoleRuntimeSnapshotRetentionPruneIntervalMs,
       retentionBatchSize: consoleRuntimeSnapshotRetentionBatchSize,
@@ -1483,7 +1469,7 @@ async function main() {
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleDemoOrgId = await resolveConsoleDemoOrgId({
       configuredOrgId: configuredConsoleDemoOrgId,
@@ -1501,27 +1487,27 @@ async function main() {
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleSponsoredCalls = await createPostgresConsoleSponsoredCallService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
     consoleBillingPrepaidReservations = await createPostgresConsoleBillingPrepaidReservationService(
       {
         postgresUrl: consolePostgresUrl,
         namespace: consoleCoreNamespace,
         logger: console as any,
-        ensureSchema: true,
+        ensureSchema: consoleEnsureSchema,
       },
     );
     consoleSponsorshipSpendCaps = await createPostgresConsoleSponsorshipSpendCapService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleEnsureSchema,
     });
   } else {
     consoleAudit = createInMemoryConsoleAuditService({
@@ -1567,22 +1553,22 @@ async function main() {
     faucetContractAddress: normalizedOnboardingContractAddress,
   });
 
-  if (consoleObservabilityBackend === 'postgres') {
+  if (consoleBackend === 'postgres') {
     if (!consolePostgresUrl) {
-      throw new Error('CONSOLE_OBSERVABILITY_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
+      throw new Error('Postgres console backend requires CONSOLE_POSTGRES_URL');
     }
     consoleObservability = await createPostgresConsoleObservabilityService({
       postgresUrl: consolePostgresUrl,
-      namespace: consoleObservabilityNamespace,
+      namespace: consoleNamespace,
       logger: console as any,
-      ensureSchema: consoleObservabilityEnsureSchema,
+      ensureSchema: consoleEnsureSchema,
       queryMaxWindowMs: consoleObservabilityQueryMaxWindowMs,
     });
     consoleObservabilityIngestion = await createPostgresConsoleObservabilityIngestionService({
       postgresUrl: consolePostgresUrl,
-      namespace: consoleObservabilityNamespace,
+      namespace: consoleNamespace,
       logger: console as any,
-      ensureSchema: consoleObservabilityEnsureSchema,
+      ensureSchema: consoleEnsureSchema,
       maxBatchSize: consoleObservabilityIngestMaxBatchSize,
       maxEventsPerMinute: consoleObservabilityIngestMaxEventsPerMinute,
       retentionTtlMs: consoleObservabilityRetentionTtlMs,
@@ -1593,15 +1579,15 @@ async function main() {
     consoleObservability = createInMemoryConsoleObservabilityService();
     consoleObservabilityIngestion = null;
   }
-  if (consoleWebhooksBackend === 'postgres') {
+  if (consoleBackend === 'postgres') {
     if (!consolePostgresUrl) {
-      throw new Error('CONSOLE_WEBHOOKS_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
+      throw new Error('Postgres console backend requires CONSOLE_POSTGRES_URL');
     }
     consoleWebhooks = await createPostgresConsoleWebhookService({
       postgresUrl: consolePostgresUrl,
-      namespace: consoleWebhooksNamespace,
+      namespace: consoleNamespace,
       logger: console as any,
-      ensureSchema: consoleWebhooksEnsureSchema,
+      ensureSchema: consoleEnsureSchema,
       observabilityIngestion: consoleObservabilityIngestion,
       observabilityLogger: console as any,
     } as any);
@@ -1745,8 +1731,7 @@ async function main() {
     if (!hasAllRuntimes || !samePool || !sameNamespace) {
       const diagnostics = {
         requiresAtomicSponsoredSettlement,
-        effectiveConsoleBillingBackend,
-        consoleBillingBackendConfigured: consoleBillingBackend,
+        consoleBackend,
         hasConsolePostgresUrl: Boolean(consolePostgresUrl),
         hasBillingRuntime: Boolean(billingRuntime),
         hasPrepaidRuntime: Boolean(prepaidRuntime),
@@ -1896,9 +1881,11 @@ async function main() {
     console.log(
       `Relay usage meter (billing linkage): ${relayApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
     );
-    console.log(`Console core backend: ${consolePostgresUrl ? 'postgres' : 'memory'}`);
-    if (consolePostgresUrl) {
-      console.log(`Console core namespace: ${consoleCoreNamespace}`);
+    console.log(`Console backend: ${consoleBackend}`);
+    if (consoleBackend === 'postgres') {
+      console.log(`Console namespace: ${consoleCoreNamespace}`);
+      console.log(`Console ensure schema: ${consoleEnsureSchema ? 'enabled' : 'disabled'}`);
+      console.log('Console Postgres URL source: CONSOLE_POSTGRES_URL');
       console.log(
         `Console runtime snapshot retention TTL (ms): ${consoleRuntimeSnapshotRetentionTtlMs}`,
       );
@@ -1924,32 +1911,12 @@ async function main() {
     if (stripeApiPublishableKey) {
       console.log('Stripe publishable key detected (frontend can use STRIPE_API_PK if needed).');
     }
-    console.log(`Console billing backend: ${effectiveConsoleBillingBackend}`);
-    if (effectiveConsoleBillingBackend === 'postgres') {
-      console.log(`Console billing namespace: ${consoleBillingNamespace}`);
-      console.log(
-        `Console billing ensure schema: ${consoleBillingEnsureSchema ? 'enabled' : 'disabled'}`,
-      );
-      console.log('Console Postgres URL source: CONSOLE_POSTGRES_URL');
-    }
     console.log(
       `Console billing Stripe webhook secret: ${
         consoleBillingStripeWebhookSecret ? 'configured' : 'not configured'
       }`,
     );
-    console.log(`Console webhooks backend: ${consoleWebhooksBackend}`);
-    if (consoleWebhooksBackend === 'postgres') {
-      console.log(`Console webhooks namespace: ${consoleWebhooksNamespace}`);
-      console.log(
-        `Console webhooks ensure schema: ${consoleWebhooksEnsureSchema ? 'enabled' : 'disabled'}`,
-      );
-    }
-    console.log(`Console observability backend: ${consoleObservabilityBackend}`);
-    if (consoleObservabilityBackend === 'postgres') {
-      console.log(`Console observability namespace: ${consoleObservabilityNamespace}`);
-      console.log(
-        `Console observability ensure schema: ${consoleObservabilityEnsureSchema ? 'enabled' : 'disabled'}`,
-      );
+    if (consoleBackend === 'postgres') {
       console.log(
         `Console observability query max window (ms): ${consoleObservabilityQueryMaxWindowMs}`,
       );

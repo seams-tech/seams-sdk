@@ -294,15 +294,14 @@ EXPECTED_ORIGIN=http://localhost:3000
 # Relay runtime API key auth on POST /registration/bootstrap
 RELAY_API_KEY_AUTH_ENABLED=1
 
-# Console billing backend:
+# Console backend:
 # - postgres (persists data to Postgres)
 # - memory (ephemeral dev-only in-memory store)
 # Defaults to postgres when CONSOLE_POSTGRES_URL is set, otherwise memory.
-# CONSOLE_BILLING_BACKEND=postgres
 # Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
-# CONSOLE_BILLING_ENSURE_SCHEMA=1
-# Optional namespace for Postgres billing tables
-# CONSOLE_BILLING_NAMESPACE=relay-console
+# CONSOLE_ENSURE_SCHEMA=1
+# Optional namespace for all Postgres console tables
+# CONSOLE_NAMESPACE=relay-console
 # Optional shared secret required by POST /console/billing/stripe/webhook
 # CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET=replace-with-strong-random-secret
 # Optional live Stripe API credentials for /console/billing/stripe/* provider flows.
@@ -318,25 +317,6 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # Optional Stripe API request timeout in milliseconds (default 15000).
 # STRIPE_API_TIMEOUT_MS=15000
 
-# Console webhooks backend:
-# - postgres (persists webhook endpoints/deliveries/attempts/dead-letters)
-# - memory (ephemeral dev-only in-memory store)
-# Defaults to postgres when CONSOLE_POSTGRES_URL is set, otherwise memory.
-# CONSOLE_WEBHOOKS_BACKEND=postgres
-# Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
-# CONSOLE_WEBHOOKS_ENSURE_SCHEMA=1
-# Optional namespace for Postgres webhook tables
-# CONSOLE_WEBHOOKS_NAMESPACE=relay-console
-
-# Console observability backend:
-# - postgres (partitioned + retained observability events with query/backpressure guardrails)
-# - memory (ephemeral dev-only status-only mode)
-# Defaults to postgres when CONSOLE_POSTGRES_URL is set, otherwise memory.
-# CONSOLE_OBSERVABILITY_BACKEND=postgres
-# Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
-# CONSOLE_OBSERVABILITY_ENSURE_SCHEMA=1
-# Optional namespace for observability tables
-# CONSOLE_OBSERVABILITY_NAMESPACE=relay-console
 # Strict read-query max window (default 7 days)
 # CONSOLE_OBSERVABILITY_QUERY_MAX_WINDOW_MS=604800000
 # Ingest backpressure guardrails
@@ -508,8 +488,7 @@ CONSOLE_MIGRATOR_PASSWORD=seams_console_migrator
 In stricter environments, disable startup schema creation and require migrations:
 
 ```bash
-CONSOLE_BILLING_ENSURE_SCHEMA=0
-CONSOLE_WEBHOOKS_ENSURE_SCHEMA=0
+CONSOLE_ENSURE_SCHEMA=0
 ```
 
 For production/serverless, prefer Upstash REST:
@@ -541,9 +520,9 @@ This example server also mounts console/admin routes at `/console/*`.
     - ensures org context exists,
     - bootstraps missing active membership with `owner` + `admin` + configured additional roles,
     - appends audit event `member.owner.bootstrap`.
-- Billing backend is selected with `CONSOLE_BILLING_BACKEND`:
-  - `postgres`: durable billing data via `CONSOLE_POSTGRES_URL`
-  - `memory`: ephemeral in-memory billing data for local dev
+- Console backend is selected as one family:
+  - `CONSOLE_POSTGRES_URL` set: durable Postgres console billing, webhooks, observability, and dashboard data.
+  - `CONSOLE_POSTGRES_URL` unset: ephemeral in-memory local-dev console data.
 - Stripe provider mode:
   - set `STRIPE_API_SK` to use live Stripe API for prepaid checkout-session creation.
   - leave `STRIPE_API_SK` unset to use deterministic mock provider outputs for local/offline testing.
@@ -551,12 +530,7 @@ This example server also mounts console/admin routes at `/console/*`.
 - Stripe webhook auth for billing is configured with `CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET`:
   - when set, `/console/billing/stripe/webhook` requires header `x-console-stripe-webhook-secret` with an exact secret match.
   - when unset, webhook route returns `stripe_webhook_not_configured`.
-- Webhooks backend is selected with `CONSOLE_WEBHOOKS_BACKEND`:
-  - `postgres`: durable webhook endpoint/delivery/attempt/dead-letter data via `CONSOLE_POSTGRES_URL`
-  - `memory`: ephemeral in-memory webhook data for local dev
-- Observability backend is selected with `CONSOLE_OBSERVABILITY_BACKEND`:
-  - `postgres`: durable observability data via `CONSOLE_POSTGRES_URL` with partitioning, retention TTL, strict query windows, and ingest backpressure.
-  - `memory`: status-only fallback with no durable event storage.
+- Webhooks and observability use the same console backend family as billing.
 
 Example (cookie session from `/session/exchange`):
 

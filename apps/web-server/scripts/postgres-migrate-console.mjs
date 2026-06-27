@@ -17,17 +17,16 @@ if (!postgresUrl) {
   );
 }
 
-const billingNamespace = String(process.env.CONSOLE_BILLING_NAMESPACE || 'relay-console').trim();
-const webhooksNamespace = String(process.env.CONSOLE_WEBHOOKS_NAMESPACE || 'relay-console').trim();
+const namespace = String(process.env.CONSOLE_NAMESPACE || 'relay-console').trim();
 
 await ensureConsoleBillingPostgresSchema({
   postgresUrl,
-  namespace: billingNamespace,
+  namespace,
   logger: console,
 });
 await ensureConsoleWebhooksPostgresSchema({
   postgresUrl,
-  namespace: webhooksNamespace,
+  namespace,
   logger: console,
 });
 await ensureConsoleObservabilityPostgresSchema({

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { resolveRelayServerConsoleConfig, toOptionalSecret } from '../../apps/web-server/src/consoleConfig';
 
 test.describe('relay-server console config resolution', () => {
-  test('uses CONSOLE_POSTGRES_URL when provided', async () => {
+  test('uses a single Postgres console backend when CONSOLE_POSTGRES_URL is provided', async () => {
     const cfg = resolveRelayServerConsoleConfig({
       POSTGRES_URL: 'postgres://threshold/db',
       CONSOLE_POSTGRES_URL: 'postgres://console/db',
@@ -12,12 +12,9 @@ test.describe('relay-server console config resolution', () => {
     expect(cfg.signerMigrationPostgresUrl).toBe('postgres://threshold/db');
     expect(cfg.consolePostgresUrl).toBe('postgres://console/db');
     expect(cfg.consoleMigrationPostgresUrl).toBe('postgres://console/db');
-    expect(cfg.consoleBillingBackend).toBe('postgres');
-    expect(cfg.consoleWebhooksBackend).toBe('postgres');
-    expect(cfg.consoleObservabilityBackend).toBe('postgres');
-    expect(cfg.consoleBillingEnsureSchema).toBe(true);
-    expect(cfg.consoleWebhooksEnsureSchema).toBe(true);
-    expect(cfg.consoleObservabilityEnsureSchema).toBe(true);
+    expect(cfg.consoleBackend).toBe('postgres');
+    expect(cfg.consoleEnsureSchema).toBe(true);
+    expect(cfg.consoleNamespace).toBe('relay-console');
   });
 
   test('does not fall back to POSTGRES_URL for console url when CONSOLE_POSTGRES_URL is unset', async () => {
@@ -29,12 +26,9 @@ test.describe('relay-server console config resolution', () => {
     expect(cfg.signerMigrationPostgresUrl).toBe('postgres://shared/db');
     expect(cfg.consolePostgresUrl).toBe('');
     expect(cfg.consoleMigrationPostgresUrl).toBe('');
-    expect(cfg.consoleBillingBackend).toBe('memory');
-    expect(cfg.consoleWebhooksBackend).toBe('memory');
-    expect(cfg.consoleObservabilityBackend).toBe('memory');
-    expect(cfg.consoleBillingEnsureSchema).toBe(true);
-    expect(cfg.consoleWebhooksEnsureSchema).toBe(true);
-    expect(cfg.consoleObservabilityEnsureSchema).toBe(true);
+    expect(cfg.consoleBackend).toBe('memory');
+    expect(cfg.consoleEnsureSchema).toBe(true);
+    expect(cfg.consoleNamespace).toBe('relay-console');
   });
 
   test('supports explicit migration URLs for signer and console', async () => {
@@ -58,67 +52,26 @@ test.describe('relay-server console config resolution', () => {
     expect(cfg.signerMigrationPostgresUrl).toBe('');
     expect(cfg.consolePostgresUrl).toBe('');
     expect(cfg.consoleMigrationPostgresUrl).toBe('');
-    expect(cfg.consoleBillingBackend).toBe('memory');
-    expect(cfg.consoleWebhooksBackend).toBe('memory');
-    expect(cfg.consoleObservabilityBackend).toBe('memory');
-    expect(cfg.consoleBillingEnsureSchema).toBe(true);
-    expect(cfg.consoleWebhooksEnsureSchema).toBe(true);
-    expect(cfg.consoleObservabilityEnsureSchema).toBe(true);
+    expect(cfg.consoleBackend).toBe('memory');
+    expect(cfg.consoleEnsureSchema).toBe(true);
+    expect(cfg.consoleNamespace).toBe('relay-console');
   });
 
-  test('parses ensure schema flags and rejects invalid boolean values', async () => {
+  test('parses the family-level ensure schema flag and rejects invalid boolean values', async () => {
     const cfg = resolveRelayServerConsoleConfig({
-      CONSOLE_BILLING_ENSURE_SCHEMA: '0',
-      CONSOLE_WEBHOOKS_ENSURE_SCHEMA: 'false',
-      CONSOLE_OBSERVABILITY_ENSURE_SCHEMA: 'off',
+      CONSOLE_ENSURE_SCHEMA: '0',
+      CONSOLE_NAMESPACE: 'tenant-console',
     });
-    expect(cfg.consoleBillingEnsureSchema).toBe(false);
-    expect(cfg.consoleWebhooksEnsureSchema).toBe(false);
-    expect(cfg.consoleObservabilityEnsureSchema).toBe(false);
+    expect(cfg.consoleEnsureSchema).toBe(false);
+    expect(cfg.consoleNamespace).toBe('tenant-console');
 
     expect(() =>
       resolveRelayServerConsoleConfig({
-        CONSOLE_BILLING_ENSURE_SCHEMA: 'maybe',
+        CONSOLE_ENSURE_SCHEMA: 'maybe',
       }),
     ).toThrow(
-      'Invalid CONSOLE_BILLING_ENSURE_SCHEMA="maybe". Expected one of: 1,true,yes,on,0,false,no,off.',
+      'Invalid CONSOLE_ENSURE_SCHEMA="maybe". Expected one of: 1,true,yes,on,0,false,no,off.',
     );
-
-    expect(() =>
-      resolveRelayServerConsoleConfig({
-        CONSOLE_WEBHOOKS_ENSURE_SCHEMA: 'nope',
-      }),
-    ).toThrow(
-      'Invalid CONSOLE_WEBHOOKS_ENSURE_SCHEMA="nope". Expected one of: 1,true,yes,on,0,false,no,off.',
-    );
-
-    expect(() =>
-      resolveRelayServerConsoleConfig({
-        CONSOLE_OBSERVABILITY_ENSURE_SCHEMA: 'invalid',
-      }),
-    ).toThrow(
-      'Invalid CONSOLE_OBSERVABILITY_ENSURE_SCHEMA="invalid". Expected one of: 1,true,yes,on,0,false,no,off.',
-    );
-  });
-
-  test('rejects invalid backend enum values', async () => {
-    expect(() =>
-      resolveRelayServerConsoleConfig({
-        CONSOLE_BILLING_BACKEND: 'sqlite',
-      }),
-    ).toThrow('Invalid CONSOLE_BILLING_BACKEND="sqlite". Expected "postgres" or "memory".');
-
-    expect(() =>
-      resolveRelayServerConsoleConfig({
-        CONSOLE_WEBHOOKS_BACKEND: 'redis',
-      }),
-    ).toThrow('Invalid CONSOLE_WEBHOOKS_BACKEND="redis". Expected "postgres" or "memory".');
-
-    expect(() =>
-      resolveRelayServerConsoleConfig({
-        CONSOLE_OBSERVABILITY_BACKEND: 'redis',
-      }),
-    ).toThrow('Invalid CONSOLE_OBSERVABILITY_BACKEND="redis". Expected "postgres" or "memory".');
   });
 
   test('parses observability guardrail limits and rejects invalid values', async () => {

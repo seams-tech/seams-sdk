@@ -15,15 +15,9 @@ export interface RelayServerConsoleConfig {
   signerMigrationPostgresUrl: string;
   consolePostgresUrl: string;
   consoleMigrationPostgresUrl: string;
-  consoleBillingBackend: ConsoleBackendKind;
-  consoleBillingEnsureSchema: boolean;
-  consoleBillingNamespace: string;
-  consoleWebhooksBackend: ConsoleBackendKind;
-  consoleWebhooksEnsureSchema: boolean;
-  consoleWebhooksNamespace: string;
-  consoleObservabilityBackend: ConsoleBackendKind;
-  consoleObservabilityEnsureSchema: boolean;
-  consoleObservabilityNamespace: string;
+  consoleBackend: ConsoleBackendKind;
+  consoleEnsureSchema: boolean;
+  consoleNamespace: string;
   consoleObservabilityQueryMaxWindowMs: number;
   consoleObservabilityIngestMaxBatchSize: number;
   consoleObservabilityIngestMaxEventsPerMinute: number;
@@ -38,18 +32,6 @@ export interface RelayServerConsoleConfig {
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function parseConsoleBackendKind(
-  value: unknown,
-  fallback: ConsoleBackendKind,
-  envKey: string,
-): ConsoleBackendKind {
-  const raw = normalizeString(value).toLowerCase() || fallback;
-  if (raw !== 'postgres' && raw !== 'memory') {
-    throw new Error(`Invalid ${envKey}="${raw}". Expected "postgres" or "memory".`);
-  }
-  return raw;
 }
 
 function parseBooleanEnv(value: unknown, fallback: boolean, envKey: string): boolean {
@@ -79,47 +61,20 @@ export function resolveRelayServerConsoleConfig(env: Record<string, unknown>): R
   const consolePostgresUrl = normalizeString(env.CONSOLE_POSTGRES_URL);
   const consoleMigrationPostgresUrl =
     normalizeString(env.CONSOLE_POSTGRES_MIGRATION_URL) || consolePostgresUrl;
-  const consoleDefaultBackend: ConsoleBackendKind = consolePostgresUrl ? 'postgres' : 'memory';
+  const consoleBackend: ConsoleBackendKind = consolePostgresUrl ? 'postgres' : 'memory';
 
   return {
     thresholdPostgresUrl,
     signerMigrationPostgresUrl,
     consolePostgresUrl,
     consoleMigrationPostgresUrl,
-    consoleBillingBackend: parseConsoleBackendKind(
-      env.CONSOLE_BILLING_BACKEND,
-      consoleDefaultBackend,
-      'CONSOLE_BILLING_BACKEND',
-    ),
-    consoleBillingEnsureSchema: parseBooleanEnv(
-      env.CONSOLE_BILLING_ENSURE_SCHEMA,
+    consoleBackend,
+    consoleEnsureSchema: parseBooleanEnv(
+      env.CONSOLE_ENSURE_SCHEMA,
       true,
-      'CONSOLE_BILLING_ENSURE_SCHEMA',
+      'CONSOLE_ENSURE_SCHEMA',
     ),
-    consoleBillingNamespace: normalizeString(env.CONSOLE_BILLING_NAMESPACE) || 'relay-console',
-    consoleWebhooksBackend: parseConsoleBackendKind(
-      env.CONSOLE_WEBHOOKS_BACKEND,
-      consoleDefaultBackend,
-      'CONSOLE_WEBHOOKS_BACKEND',
-    ),
-    consoleWebhooksEnsureSchema: parseBooleanEnv(
-      env.CONSOLE_WEBHOOKS_ENSURE_SCHEMA,
-      true,
-      'CONSOLE_WEBHOOKS_ENSURE_SCHEMA',
-    ),
-    consoleWebhooksNamespace: normalizeString(env.CONSOLE_WEBHOOKS_NAMESPACE) || 'relay-console',
-    consoleObservabilityBackend: parseConsoleBackendKind(
-      env.CONSOLE_OBSERVABILITY_BACKEND,
-      consoleDefaultBackend,
-      'CONSOLE_OBSERVABILITY_BACKEND',
-    ),
-    consoleObservabilityEnsureSchema: parseBooleanEnv(
-      env.CONSOLE_OBSERVABILITY_ENSURE_SCHEMA,
-      true,
-      'CONSOLE_OBSERVABILITY_ENSURE_SCHEMA',
-    ),
-    consoleObservabilityNamespace:
-      normalizeString(env.CONSOLE_OBSERVABILITY_NAMESPACE) || 'relay-console',
+    consoleNamespace: normalizeString(env.CONSOLE_NAMESPACE) || 'relay-console',
     consoleObservabilityQueryMaxWindowMs: parsePositiveIntegerEnv(
       env.CONSOLE_OBSERVABILITY_QUERY_MAX_WINDOW_MS,
       DEFAULT_OBSERVABILITY_QUERY_MAX_WINDOW_MS,

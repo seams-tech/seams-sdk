@@ -275,9 +275,7 @@ For stricter environments, disable startup schema creation and require explicit
 migrations:
 
 ```bash
-CONSOLE_BILLING_ENSURE_SCHEMA=0
-CONSOLE_WEBHOOKS_ENSURE_SCHEMA=0
-CONSOLE_OBSERVABILITY_ENSURE_SCHEMA=0
+CONSOLE_ENSURE_SCHEMA=0
 ```
 
 ### Monolith To Split
