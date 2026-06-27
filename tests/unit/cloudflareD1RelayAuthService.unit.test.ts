@@ -1196,6 +1196,62 @@ test('Cloudflare D1 relay auth service issues and verifies device recovery Email
       .first<SqliteJsonRow>();
     expect(grantRow?.action).toBe('wallet_email_otp_device_recovery');
 
+    const consumed = await service.consumeEmailOtpRecoveryKey({
+      recoveryConsumeGrant: verified.recoveryConsumeGrant,
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      recoveryKeyId: 'recovery-active',
+      sessionHash: 'session-hash-a',
+      appSessionVersion: 'session-v1',
+    });
+    expect(consumed.ok).toBe(true);
+    if (!consumed.ok) throw new Error(consumed.message);
+    expect(consumed).toMatchObject({
+      walletId: 'email-wallet.testnet',
+      recoveryKeyId: 'recovery-active',
+      activeRecoveryWrappedEnrollmentEscrowCount: 0,
+    });
+    expect(consumed.consumedAtMs).toBeGreaterThan(0);
+
+    const consumedEscrowRow = await database
+      .prepare(
+        `SELECT recovery_key_status
+           FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND recovery_key_id = ?
+          LIMIT 1`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        'email-wallet.testnet',
+        'recovery-active',
+      )
+      .first<SqliteJsonRow>();
+    expect(consumedEscrowRow?.recovery_key_status).toBe('consumed');
+
+    await expect(
+      service.consumeEmailOtpRecoveryKey({
+        recoveryConsumeGrant: verified.recoveryConsumeGrant,
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        recoveryKeyId: 'recovery-active',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'session-v1',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'recovery_consume_grant_invalid_or_expired',
+    });
+
     await expect(
       service.verifyEmailOtpDeviceRecoveryChallenge({
         userId: 'google:email-user',

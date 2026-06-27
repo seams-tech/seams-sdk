@@ -161,6 +161,12 @@ type ConsumeEmailOtpGrantInput = Parameters<CloudflareRelayAuthService['consumeE
 type ConsumeEmailOtpGrantResult = Awaited<
   ReturnType<CloudflareRelayAuthService['consumeEmailOtpGrant']>
 >;
+type ConsumeEmailOtpRecoveryKeyInput = Parameters<
+  CloudflareRelayAuthService['consumeEmailOtpRecoveryKey']
+>[0];
+type ConsumeEmailOtpRecoveryKeyResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['consumeEmailOtpRecoveryKey']>
+>;
 type CreateEmailOtpChallengeInput = Parameters<
   CloudflareRelayAuthService['createEmailOtpChallenge']
 >[0];
@@ -2664,6 +2670,120 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async consumeEmailOtpRecoveryKey(
+    input: ConsumeEmailOtpRecoveryKeyInput,
+  ): Promise<ConsumeEmailOtpRecoveryKeyResult> {
+    try {
+      const recoveryConsumeGrant = toOptionalTrimmedString(input.recoveryConsumeGrant);
+      const userId = toOptionalTrimmedString(input.userId);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
+      const sessionHash = toOptionalTrimmedString(input.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const clientIp = toOptionalTrimmedString(input.clientIp);
+      if (!recoveryConsumeGrant) {
+        return { ok: false, code: 'invalid_body', message: 'Missing recoveryConsumeGrant' };
+      }
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!recoveryKeyId) {
+        return { ok: false, code: 'invalid_body', message: 'Missing recoveryKeyId' };
+      }
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'grant',
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      const grantRecord = await this.consumeEmailOtpGrantRecord(recoveryConsumeGrant);
+      if (!grantRecord || Date.now() > grantRecord.expiresAtMs) {
+        return emailOtpRecoveryConsumeGrantInvalidOrExpired();
+      }
+      if (grantRecord.action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery) {
+        return emailOtpRecoveryConsumeGrantInvalidOrExpired();
+      }
+      const bindingMismatch =
+        grantRecord.userId !== userId ||
+        grantRecord.walletId !== walletId ||
+        grantRecord.otpChannel !== EMAIL_OTP_CHANNEL ||
+        grantRecord.sessionHash !== sessionHash ||
+        grantRecord.appSessionVersion !== appSessionVersion ||
+        grantRecord.orgId !== orgId;
+      if (bindingMismatch) return emailOtpRecoveryGrantBindingMismatch();
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) return enrollment;
+
+      const recoveryRecord = await this.readEmailOtpRecoveryEscrow({ walletId, recoveryKeyId });
+      if (!recoveryRecord || recoveryRecord.recoveryKeyStatus !== 'active') {
+        return {
+          ok: false,
+          code: 'recovery_key_not_active',
+          message: 'Recovery key is not active',
+        };
+      }
+      if (
+        !emailOtpRecoveryEscrowMatchesEnrollment({
+          escrow: recoveryRecord,
+          enrollment: enrollment.enrollment,
+        })
+      ) {
+        return {
+          ok: false,
+          code: 'recovery_key_binding_mismatch',
+          message: 'Recovery key is not valid for this Email OTP enrollment',
+        };
+      }
+
+      const consumedAtMs = Date.now();
+      const consumedRecord = await this.consumeEmailOtpRecoveryEscrow({
+        record: recoveryRecord,
+        consumedAtMs,
+      });
+      if (!consumedRecord) {
+        return {
+          ok: false,
+          code: 'recovery_key_not_active',
+          message: 'Recovery key is not active',
+        };
+      }
+      await this.putEmailOtpAuthStateForEnrollment(enrollment.enrollment, {
+        lastStrongAuthAtMs: consumedAtMs,
+      });
+      const activeRecoveryWrappedEnrollmentEscrowCount = (
+        await this.listEmailOtpRecoveryEscrowsForEnrollment(enrollment.enrollment)
+      ).filter(activeEmailOtpRecoveryEscrow).length;
+
+      return {
+        ok: true,
+        walletId,
+        recoveryKeyId,
+        consumedAtMs,
+        activeRecoveryWrappedEnrollmentEscrowCount,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to consume Email OTP recovery key',
+      };
+    }
+  }
+
   async getOrCreateAppSessionVersion(
     input: GetOrCreateAppSessionVersionInput,
   ): Promise<GetOrCreateAppSessionVersionResult> {
@@ -3637,6 +3757,63 @@ class CloudflareD1RelayAuthMetadataService {
     return records;
   }
 
+  private async readEmailOtpRecoveryEscrow(input: {
+    readonly walletId: string;
+    readonly recoveryKeyId: string;
+  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, updated_at_ms
+         FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+          AND recovery_key_id = ?
+        LIMIT 1`,
+      [input.walletId, input.recoveryKeyId],
+    ).first<D1EmailOtpRecoveryEscrowRow>();
+    return parseEmailOtpRecoveryEscrowRow(row);
+  }
+
+  private async consumeEmailOtpRecoveryEscrow(input: {
+    readonly record: Extract<
+      EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+      { readonly recoveryKeyStatus: 'active' }
+    >;
+    readonly consumedAtMs: number;
+  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null> {
+    const consumedRecord = consumedEmailOtpRecoveryEscrowRecord(input);
+    const row = await this.options.database
+      .prepare(
+        `UPDATE signer_email_otp_recovery_wrapped_enrollment_escrows
+            SET recovery_key_status = ?,
+                record_json = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND recovery_key_id = ?
+            AND recovery_key_status = 'active'
+        RETURNING record_json, updated_at_ms`,
+      )
+      .bind(
+        consumedRecord.recoveryKeyStatus,
+        JSON.stringify(consumedRecord),
+        consumedRecord.updatedAtMs,
+        this.options.namespace,
+        this.options.orgId,
+        this.options.projectId,
+        this.options.envId,
+        consumedRecord.walletId,
+        consumedRecord.recoveryKeyId,
+      )
+      .first<D1EmailOtpRecoveryEscrowRow>();
+    return parseEmailOtpRecoveryEscrowRow(row);
+  }
+
   private async consumeEmailOtpGrantRecord(
     loginGrant: string,
   ): Promise<EmailOtpGrantRecord | null> {
@@ -3767,6 +3944,55 @@ function emailOtpGrantInvalidOrExpired(): ConsumeEmailOtpGrantResult {
   };
 }
 
+function emailOtpRecoveryConsumeGrantInvalidOrExpired(): ConsumeEmailOtpRecoveryKeyResult {
+  return {
+    ok: false,
+    code: 'recovery_consume_grant_invalid_or_expired',
+    message: 'Recovery consume grant is invalid or expired',
+  };
+}
+
+function emailOtpRecoveryGrantBindingMismatch(): ConsumeEmailOtpRecoveryKeyResult {
+  return {
+    ok: false,
+    code: 'recovery_grant_binding_mismatch',
+    message: 'Recovery grant is not valid for the current app session',
+  };
+}
+
+function consumedEmailOtpRecoveryEscrowRecord(input: {
+  readonly record: Extract<
+    EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+    { readonly recoveryKeyStatus: 'active' }
+  >;
+  readonly consumedAtMs: number;
+}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord {
+  return {
+    version: input.record.version,
+    alg: input.record.alg,
+    secretKind: input.record.secretKind,
+    escrowKind: input.record.escrowKind,
+    walletId: input.record.walletId,
+    userId: input.record.userId,
+    authSubjectId: input.record.authSubjectId,
+    authMethod: input.record.authMethod,
+    enrollmentId: input.record.enrollmentId,
+    enrollmentVersion: input.record.enrollmentVersion,
+    enrollmentSealKeyVersion: input.record.enrollmentSealKeyVersion,
+    signingRootId: input.record.signingRootId,
+    signingRootVersion: input.record.signingRootVersion,
+    recoveryKeyId: input.record.recoveryKeyId,
+    ...(input.record.recoveryKeyLabel ? { recoveryKeyLabel: input.record.recoveryKeyLabel } : {}),
+    recoveryKeyStatus: 'consumed',
+    nonceB64u: input.record.nonceB64u,
+    wrappedDeviceEnrollmentEscrowB64u: input.record.wrappedDeviceEnrollmentEscrowB64u,
+    aadHashB64u: input.record.aadHashB64u,
+    issuedAtMs: input.record.issuedAtMs,
+    updatedAtMs: input.consumedAtMs,
+    consumedAtMs: input.consumedAtMs,
+  };
+}
+
 function emailOtpAuthStateRecord(input: {
   readonly enrollment: EmailOtpWalletEnrollmentRecord;
   readonly existing: EmailOtpAuthStateRecord | null;
@@ -3854,6 +4080,7 @@ export function createCloudflareD1RelayAuthService(
   service.createEmailOtpUnlockChallenge = metadata.createEmailOtpUnlockChallenge.bind(metadata);
   service.verifyEmailOtpUnlockProof = metadata.verifyEmailOtpUnlockProof.bind(metadata);
   service.consumeEmailOtpGrant = metadata.consumeEmailOtpGrant.bind(metadata);
+  service.consumeEmailOtpRecoveryKey = metadata.consumeEmailOtpRecoveryKey.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);
