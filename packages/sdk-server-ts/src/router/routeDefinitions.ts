@@ -54,6 +54,7 @@ export interface RouteDefinition {
 }
 
 export interface RelayRouteDefinitionOptions {
+  enableEd25519RegistrationPrepare?: boolean;
   enableEmailRecovery?: boolean;
   enableHealthz?: boolean;
   enableSigningSessionSeal?: boolean;
@@ -1401,19 +1402,6 @@ export function createRelayRouteDefinitions(
       ['authService'],
     ),
     publicRoute(
-      'wallet_registration_prepare',
-      'POST',
-      '/wallets/register/prepare',
-      'Prepare inert wallet registration HSS material',
-      {
-        plane: 'public',
-        proof: 'intent_grant',
-        rationale:
-          'Registration prepare is bound to an unconsumed registration intent grant and creates only inert HSS material.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
       'wallet_registration_start',
       'POST',
       '/wallets/register/start',
@@ -2084,6 +2072,24 @@ export function createRelayRouteDefinitions(
       'session',
     ]),
   );
+
+  if (options.enableEd25519RegistrationPrepare) {
+    definitions.push(
+      publicRoute(
+        'wallet_registration_prepare',
+        'POST',
+        '/wallets/register/prepare',
+        'Prepare inert wallet registration HSS material',
+        {
+          plane: 'public',
+          proof: 'intent_grant',
+          rationale:
+            'Registration prepare is bound to an unconsumed registration intent grant and creates only inert HSS material.',
+        },
+        ['authService'],
+      ),
+    );
+  }
 
   if (options.enableEmailRecovery) {
     definitions.push(

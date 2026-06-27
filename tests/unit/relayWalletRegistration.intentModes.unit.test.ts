@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { createInMemoryConsoleOrgProjectEnvService } from '@server/console/orgProjectEnv';
-import { handleRelayWalletRegistrationIntent } from '../../packages/sdk-server-ts/src/router/relayWalletRegistration';
+import { handleRelayWalletRegistrationIntent } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import {
   createRelayRouteDefinitions,
   findRouteDefinitionById,

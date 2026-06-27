@@ -14,7 +14,7 @@ import {
   handleRelayWalletRegistrationFinalize,
   handleRelayWalletRegistrationHssRespond,
   handleRelayWalletEcdsaKeyFactsInventory,
-} from '../../packages/sdk-server-ts/src/router/relayWalletRegistration';
+} from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import {
   createRelayRouteDefinitions,
   findRouteDefinitionById,
@@ -44,6 +44,7 @@ import {
 import { base58Encode } from '../../packages/shared-ts/src/utils/encoders';
 
 const routeDefinitions = createRelayRouteDefinitions({
+  enableEd25519RegistrationPrepare: true,
   enableHealthz: true,
   enableSigningSessionSeal: true,
   enableReadyz: true,
@@ -291,6 +292,7 @@ function validEcdsaClientBootstrap() {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: 'wallet_alice',
+    walletKeyId: 'wallet.example.test',
     rpId: 'wallet.example.test',
     ecdsaThresholdKeyId: 'ehss-alice',
     signingRootId: 'project:dev',
@@ -316,13 +318,22 @@ function validEcdsaClientBootstrap() {
   };
 }
 
+function validNormalizedEcdsaClientBootstrap() {
+  const bootstrap = validEcdsaClientBootstrap();
+  const { rpId, ...normalized } = bootstrap;
+  void rpId;
+  return normalized;
+}
+
 function validEcdsaServerBootstrap() {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: 'wallet_alice',
+    walletKeyId: 'wallet.example.test',
     rpId: 'wallet.example.test',
     ecdsaThresholdKeyId: 'ehss-alice',
     relayerKeyId: 'ehss-relayer-alice',
+    applicationBindingDigestB64u: b64u(Array(32).fill(9)),
     contextBinding32B64u: b64u(Array(32).fill(2)),
     publicIdentity: {
       hssClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
@@ -990,7 +1001,7 @@ test.describe('wallet registration route boundaries', () => {
     expect(captured).toEqual({
       registrationCeremonyId: 'wrc_123',
       ecdsa: {
-        clientBootstrap,
+        clientBootstrap: validNormalizedEcdsaClientBootstrap(),
       },
     });
     expect((response.body as any).ecdsa.bootstrap.jwt).toBe(
@@ -1002,11 +1013,12 @@ test.describe('wallet registration route boundaries', () => {
         kind: 'router_ab_ecdsa_hss_normal_signing_v1',
         scope: {
           wallet_key_id: 'wallet.example.test',
+          wallet_id: 'wallet_alice',
+          ecdsa_threshold_key_id: 'ehss-alice',
+          signing_root_id: 'project:dev',
+          signing_root_version: 'default',
           context: {
-            wallet_id: 'wallet_alice',
-            ecdsa_threshold_key_id: 'ehss-alice',
-            signing_root_id: 'project:dev',
-            signing_root_version: 'default',
+            application_binding_digest_b64u: b64u(Array(32).fill(9)),
           },
           signing_worker: {
             server_id: 'router-ab-signing-worker-local',
@@ -1704,7 +1716,7 @@ test.describe('wallet registration route boundaries', () => {
     expect(respondRequest).toEqual({
       addSignerCeremonyId: 'wasc_1',
       ecdsa: {
-        clientBootstrap: validEcdsaClientBootstrap(),
+        clientBootstrap: validNormalizedEcdsaClientBootstrap(),
       },
     });
     expect(finalizeRequest).toEqual({

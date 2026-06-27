@@ -163,6 +163,10 @@ export interface RelayEmailRecoveryOptions {
   enabled: true;
 }
 
+export interface RelayEd25519RegistrationPrepareOptions {
+  enabled: true;
+}
+
 export type RelayEmailOtpExportPolicyPhase = 'challenge' | 'verify';
 
 export type RelayEmailOtpExportPolicyDecision =
@@ -458,6 +462,8 @@ export interface RelayRouterOptions {
   relayWebhooks?: RelayWebhookOptions | null;
   // Optional: enable DKIM/TEE email recovery prepare, respond, and ingress routes.
   emailRecovery?: RelayEmailRecoveryOptions | null;
+  // Optional: enable Ed25519 wallet-registration HSS prepare.
+  ed25519RegistrationPrepare?: RelayEd25519RegistrationPrepareOptions | null;
   /**
    * Optional policy adapter for Email OTP key-export authorization.
    *

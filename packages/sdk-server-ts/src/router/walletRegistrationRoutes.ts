@@ -1,4 +1,5 @@
 import type { CloudflareRelayAuthService } from './authServicePort';
+import type { AuthService } from '../core/AuthService';
 import type {
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
@@ -94,13 +95,23 @@ import {
 } from '@shared/threshold/signingRootScope';
 
 type RelayWalletRegistrationServices = {
-  authService: CloudflareRelayAuthService;
+  authService: CloudflareRelayAuthService & Partial<WalletRegistrationPrepareAuthService>;
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
 };
+
+type WalletRegistrationPrepareAuthService = Pick<AuthService, 'prepareWalletRegistration'>;
+
+function hasWalletRegistrationPrepareAuthService(
+  service: unknown,
+): service is WalletRegistrationPrepareAuthService {
+  if (!service || typeof service !== 'object') return false;
+  const candidate = service as Record<string, unknown>;
+  return typeof candidate.prepareWalletRegistration === 'function';
+}
 
 type RelayWalletRegistrationInput = {
   body: unknown;
@@ -2301,6 +2312,13 @@ export async function handleRelayWalletRegistrationPrepare(
   }
   const request = await parseWalletRegistrationPrepareBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
+  if (!hasWalletRegistrationPrepareAuthService(input.services.authService)) {
+    return routeError(
+      501,
+      'internal',
+      'Ed25519 wallet registration prepare is unavailable for this router',
+    );
+  }
   const result = await input.services.authService.prepareWalletRegistration({
     ...request.value,
     prepareGate: registrationPrepareGateContextFromRoute(input),
@@ -2342,14 +2360,37 @@ export async function handleRelayWalletRegistrationFinalize(
   }
   const request = parseWalletRegistrationFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
+  const finalizeStartedAtMs = Date.now();
   const result = await input.services.authService.finalizeWalletRegistration(request.value);
+  input.logger.info('[wallet-registration][finalize-route] auth service completed', {
+    ok: Boolean(result.ok),
+    code: result.ok ? undefined : result.code || 'internal',
+    walletId: result.ok ? result.walletId : undefined,
+    hasEd25519Session: Boolean(result.ok && result.ed25519?.session),
+    durationMs: Date.now() - finalizeStartedAtMs,
+  });
   if (result.ok) {
+    const jwtStartedAtMs = Date.now();
+    input.logger.info('[wallet-registration][finalize-route] attaching Ed25519 wallet session jwt', {
+      walletId: result.walletId,
+      hasEd25519Session: Boolean(result.ed25519?.session),
+    });
     const signingError = await attachEd25519WalletSessionJwt(input, result);
+    input.logger.info('[wallet-registration][finalize-route] Ed25519 wallet session jwt attached', {
+      ok: !signingError,
+      durationMs: Date.now() - jwtStartedAtMs,
+    });
     if (signingError) return signingError;
   }
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
     : stripRegistrationRouteDiagnostics(result);
+  input.logger.info('[wallet-registration][finalize-route] returning response', {
+    ok: Boolean(result.ok),
+    status: result.ok ? 200 : 400,
+    walletId: result.ok ? result.walletId : undefined,
+    durationMs: Date.now() - finalizeStartedAtMs,
+  });
   return routeJson(result.ok ? 200 : 400, response, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });

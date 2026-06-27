@@ -109,7 +109,6 @@ const disabledSignerMethods: DisabledSignerMethods = {
   listWalletEcdsaKeyFactsInventory: rejectDisabledSignerService,
   listWebAuthnAuthenticatorsForUser: rejectDisabledSignerService,
   markEmailOtpStrongAuthSatisfied: rejectDisabledSignerService,
-  prepareWalletRegistration: rejectDisabledSignerService,
   readActiveEmailOtpEnrollment: rejectDisabledSignerService,
   readEmailOtpEnrollment: rejectDisabledSignerService,
   readEmailOtpOutboxEntry: rejectDisabledSignerService,

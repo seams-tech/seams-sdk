@@ -287,6 +287,7 @@ test.describe('relay route surface wiring', () => {
 
     expect(ids.has('relay_healthz')).toBe(false);
     expect(ids.has('relay_readyz')).toBe(false);
+    expect(ids.has('wallet_registration_prepare')).toBe(false);
     expect(ids.has('signed_delegate')).toBe(false);
     expect(ids.has('sponsored_evm_call')).toBe(false);
     expect(ids.has('signing_session_seal_apply_server_seal')).toBe(false);

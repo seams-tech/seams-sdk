@@ -312,6 +312,17 @@ test('local D1 Worker exposes relay smoke routes under relay prefix', async () =
   );
   expect(emailRecovery.status).toBe(404);
 
+  const ed25519Prepare = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/relay/wallets/register/prepare', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    env,
+    ctx,
+  );
+  expect(ed25519Prepare.status).toBe(404);
+
   const sponsored = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {
       method: 'POST',

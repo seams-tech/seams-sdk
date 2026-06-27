@@ -39,7 +39,6 @@ export type CloudflareRelayAuthServiceMethod =
   | 'listWalletEcdsaKeyFactsInventory'
   | 'listWebAuthnAuthenticatorsForUser'
   | 'markEmailOtpStrongAuthSatisfied'
-  | 'prepareWalletRegistration'
   | 'readActiveEmailOtpEnrollment'
   | 'readEmailOtpEnrollment'
   | 'readEmailOtpOutboxEntry'

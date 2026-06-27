@@ -24,6 +24,10 @@ export function isEmailRecoveryRoutesEnabled(opts: RelayRouterOptions): boolean 
   return opts.emailRecovery?.enabled === true;
 }
 
+export function isEd25519RegistrationPrepareEnabled(opts: RelayRouterOptions): boolean {
+  return opts.ed25519RegistrationPrepare?.enabled === true;
+}
+
 export function resolveRelayRouteDefinitionOptions(
   opts: RelayRouterOptions,
 ): RelayRouteDefinitionOptions {
@@ -34,6 +38,7 @@ export function resolveRelayRouteDefinitionOptions(
   }
   return {
     enableHealthz: Boolean(opts.healthz),
+    enableEd25519RegistrationPrepare: isEd25519RegistrationPrepareEnabled(opts),
     enableEmailRecovery: isEmailRecoveryRoutesEnabled(opts),
     enableSigningSessionSeal: Boolean(opts.signingSessionSeal && opts.signingSessionSeal.enabled !== false),
     enableReadyz: Boolean(opts.readyz),

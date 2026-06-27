@@ -14,7 +14,7 @@ import {
   handleRelayWalletRegistrationPrepare,
   handleRelayWalletRegistrationStart,
   handleRelayWalletEcdsaKeyFactsInventory,
-} from '../../relayWalletRegistration';
+} from '../../walletRegistrationRoutes';
 import type { RouteResponse } from '../../routeExecutionContext';
 import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
 import { findRouteDefinitionById } from '../../routeDefinitions';
@@ -38,13 +38,22 @@ const ROUTE_IDS = [
   'wallet_ecdsa_key_facts_inventory',
 ] as const;
 
+type WalletRegistrationRouteId = (typeof ROUTE_IDS)[number];
+
+function isOptionalWalletRegistrationRouteId(routeId: WalletRegistrationRouteId): boolean {
+  return routeId === 'wallet_registration_prepare';
+}
+
 export function registerWalletRegistrationRoutes(
   router: ExpressRouter,
   ctx: ExpressRelayContext,
 ): void {
   for (const routeId of ROUTE_IDS) {
     const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
-    if (!route) throw new Error(`Missing route definition for ${routeId}`);
+    if (!route) {
+      if (isOptionalWalletRegistrationRouteId(routeId)) continue;
+      throw new Error(`Missing route definition for ${routeId}`);
+    }
     router.post(route.path, async (req: Request, res: Response) => {
       try {
         const headers = (req.headers || {}) as Record<string, string | string[] | undefined>;

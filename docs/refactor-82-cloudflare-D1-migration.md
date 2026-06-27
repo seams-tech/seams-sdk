@@ -240,6 +240,19 @@ Line-count cleanup baseline:
   from the D1 Cloudflare relay auth port, removed both disabled D1 placeholders,
   and proved the local D1 worker returns 404 for `/relay/email-recovery/prepare`.
   Remaining disabled signer/recovery ceremony methods after this cleanup: 1.
+- [x] Cloudflare D1 Ed25519 registration-prepare scope cleanup slice recorded
+  before plan-doc update: raw Git count is 2,851 code additions and 2,752 code
+  deletions because the already-present route-module move records
+  `relayWalletRegistration.ts` as a delete plus `walletRegistrationRoutes.ts`
+  as a new file. Rename-aware functional count is 127 additions and 28
+  deletions across route-surface options, Express/Cloudflare route mounting, D1
+  smoke tests, boundary fixtures, and Cloudflare auth-port cleanup. The
+  same-slice cleanup pass made Ed25519 registration prepare explicit opt-in via
+  `ed25519RegistrationPrepare: { enabled: true }`, removed
+  `prepareWalletRegistration` from the D1 Cloudflare relay auth port, removed
+  the disabled D1 placeholder, and proved the local D1 worker returns 404 for
+  `/relay/wallets/register/prepare`. Remaining first-staging D1 relay auth-port
+  methods blocked by unsupported route scope after this cleanup: 0.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -316,8 +329,10 @@ runtime. The current codebase already has the important boundaries in place:
 
 Remaining before D1 staging:
 
-- Finish only the `CloudflareRelayAuthService` signer methods required by the
-  first staging signer, sponsored gas, billing, and reconciliation flows.
+- Keep the first-staging Cloudflare relay surface limited to implemented D1/DO
+  methods. Future NEAR signed delegates, DKIM/TEE email recovery, Ed25519
+  registration prepare, and device linking must land as complete
+  route-plus-adapter slices.
 - Keep device linking deferred to refactor 84 while the route returns 410.
 - Keep threshold public-key metadata out of D1 unless a dashboard or
   reconciliation query requires it.
@@ -1148,17 +1163,18 @@ Completed:
   ingress are excluded from the simplified first D1 staging scope. Non-D1
   route users must opt in with `emailRecovery: { enabled: true }`; the D1 local
   worker smoke test proves the recovery route is absent.
+- [x] Ed25519 wallet-registration prepare is excluded from the simplified first
+  D1 staging scope. Non-D1 route users must opt in with
+  `ed25519RegistrationPrepare: { enabled: true }`; the D1 local worker smoke
+  test proves the prepare route is absent, and `prepareWalletRegistration` no
+  longer belongs to the D1 Cloudflare relay auth port.
 
 Remaining:
 
-- [ ] Resolve the final disabled Cloudflare D1 auth method:
-  `prepareWalletRegistration`. Keep Ed25519 wallet-registration preparation out
-  of D1 staging until start, respond, and finalize are scoped as one complete
-  Ed25519 route slice.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
-  smoke, and contract tests as each remaining method lands.
+  smoke, and contract tests as staging coverage expands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
-  while finishing the remaining signer methods.
+  while tightening the first D1 staging route surface.
 
 Exit criteria:
 
@@ -1231,7 +1247,7 @@ Work:
 - [ ] Cover every remaining duplicate idempotency, insufficient balance,
   settlement replay, lease races, tenant isolation, sealed-share parsing,
   budget exhaustion, and signing-root coordination.
-- [ ] Add coverage for the remaining signer auth methods as each D1/DO adapter
+- [ ] Add coverage for future signer auth methods as each complete D1/DO route
   slice lands.
 
 Exit criteria:

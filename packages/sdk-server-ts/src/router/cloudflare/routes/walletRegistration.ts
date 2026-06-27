@@ -14,7 +14,7 @@ import {
   handleRelayWalletRegistrationPrepare,
   handleRelayWalletRegistrationStart,
   handleRelayWalletEcdsaKeyFactsInventory,
-} from '../../relayWalletRegistration';
+} from '../../walletRegistrationRoutes';
 import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
 import type { RouteResponse } from '../../routeExecutionContext';
 import {
@@ -42,6 +42,12 @@ const ROUTE_IDS = [
   'wallet_ecdsa_key_facts_inventory',
 ] as const;
 
+type WalletRegistrationRouteId = (typeof ROUTE_IDS)[number];
+
+function isOptionalWalletRegistrationRouteId(routeId: WalletRegistrationRouteId): boolean {
+  return routeId === 'wallet_registration_prepare';
+}
+
 function readWalletIdFromPath(route: RouteDefinition, pathname: string): string | undefined {
   const routeSegments = route.path.split('/').filter(Boolean);
   const pathSegments = pathname.split('/').filter(Boolean);
@@ -54,7 +60,10 @@ function readWalletIdFromPath(route: RouteDefinition, pathname: string): string 
 function resolveWalletRegistrationRoute(ctx: CloudflareRelayContext): RouteDefinition | null {
   for (const routeId of ROUTE_IDS) {
     const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
-    if (!route) throw new Error(`Missing route definition for ${routeId}`);
+    if (!route) {
+      if (isOptionalWalletRegistrationRouteId(routeId)) continue;
+      throw new Error(`Missing route definition for ${routeId}`);
+    }
     if (matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return route;
   }
   return null;
