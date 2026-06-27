@@ -14,6 +14,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
 } from '@shared/utils/emailOtpRecoveryKey';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
+import { buildRecoveryExecutionRecord } from '../../core/recoveryExecutionRecords';
 import type {
   EmailOtpAuthStateRecord,
   EmailOtpChallengeOperation,
@@ -25,6 +26,11 @@ import type {
   EmailOtpUnlockChallengeRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
+import type {
+  RecoveryExecutionRecord,
+  RecoveryExecutionStatus,
+} from '../../core/RecoveryExecutionStore';
+import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/RecoverySessionStore';
 import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
@@ -226,6 +232,22 @@ type GetOrCreateAppSessionVersionInput = Parameters<
 type GetOrCreateAppSessionVersionResult = Awaited<
   ReturnType<CloudflareRelayAuthService['getOrCreateAppSessionVersion']>
 >;
+type GetRecoverySessionInput = Parameters<CloudflareRelayAuthService['getRecoverySession']>[0];
+type GetRecoverySessionResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['getRecoverySession']>
+>;
+type UpdateRecoverySessionStatusInput = Parameters<
+  CloudflareRelayAuthService['updateRecoverySessionStatus']
+>[0];
+type UpdateRecoverySessionStatusResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['updateRecoverySessionStatus']>
+>;
+type RecordRecoveryExecutionInput = Parameters<
+  CloudflareRelayAuthService['recordRecoveryExecution']
+>[0];
+type RecordRecoveryExecutionResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['recordRecoveryExecution']>
+>;
 type RotateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['rotateAppSessionVersion']
 >[0];
@@ -297,6 +319,14 @@ type D1EmailOtpRateLimitRow = {
 type D1EmailOtpUnlockChallengeRow = {
   readonly record_json?: unknown;
   readonly expires_at_ms?: unknown;
+};
+
+type D1RecoverySessionRow = {
+  readonly record_json?: unknown;
+};
+
+type D1RecoveryExecutionRow = {
+  readonly record_json?: unknown;
 };
 
 type D1AuthenticatorRow = {
@@ -1340,6 +1370,197 @@ function emailOtpRecoveryEscrowMatchesEnrollment(input: {
     input.escrow.signingRootId === input.enrollment.signingRootId &&
     input.escrow.signingRootVersion === input.enrollment.signingRootVersion
   );
+}
+
+function normalizeHexLike(input: unknown): string {
+  const value = toOptionalTrimmedString(input);
+  if (!value) return '';
+  return value.startsWith('0x') ? value.toLowerCase() : value;
+}
+
+function normalizeAccountAddress(input: unknown): string {
+  const value = toOptionalTrimmedString(input);
+  if (!value) return '';
+  return value.startsWith('0x') ? value.toLowerCase() : value;
+}
+
+function parseRecordMetadata(input: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(input)) return undefined;
+  return { ...input };
+}
+
+function parseRecoverySessionStatus(input: unknown): RecoverySessionStatus | null {
+  const status = toOptionalTrimmedString(input);
+  switch (status) {
+    case 'prepared':
+    case 'verified':
+    case 'near_recovered':
+    case 'evm_recovering':
+    case 'completed':
+    case 'failed':
+    case 'cancelled':
+      return status;
+    default:
+      return null;
+  }
+}
+
+function parseRecoveryExecutionStatus(input: unknown): RecoveryExecutionStatus | null {
+  const status = toOptionalTrimmedString(input);
+  switch (status) {
+    case 'pending':
+    case 'submitted':
+    case 'confirmed':
+    case 'failed':
+    case 'skipped':
+      return status;
+    default:
+      return null;
+  }
+}
+
+function parseRecoverySessionRecord(input: unknown): RecoverySessionRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const sessionId = toOptionalTrimmedString(record.sessionId);
+  const userId = toOptionalTrimmedString(record.userId);
+  const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
+  const signerSlot = positiveSafeInteger(record.signerSlot);
+  const status = parseRecoverySessionStatus(record.status);
+  const createdAtMs = positiveSafeInteger(record.createdAtMs);
+  const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
+  const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
+  const newNearPublicKey = toOptionalTrimmedString(record.newNearPublicKey);
+  const newEvmOwnerAddress = normalizeHexLike(record.newEvmOwnerAddress);
+  const recoveryDeadlineEpochSeconds = positiveSafeInteger(record.recoveryDeadlineEpochSeconds);
+  const recoveryEmailPayloadHash = toOptionalTrimmedString(record.recoveryEmailPayloadHash);
+  const verifiedRecoveryPayloadHash = toOptionalTrimmedString(record.verifiedRecoveryPayloadHash);
+  const verifiedRecoveryArtifactHash = toOptionalTrimmedString(record.verifiedRecoveryArtifactHash);
+  const scope = toOptionalTrimmedString(record.scope);
+  const metadata = parseRecordMetadata(record.metadata);
+  if (
+    version !== 'recovery_session_v1' ||
+    !sessionId ||
+    !userId ||
+    !nearAccountId ||
+    !signerSlot ||
+    !status ||
+    !createdAtMs ||
+    !updatedAtMs ||
+    !expiresAtMs ||
+    !newNearPublicKey ||
+    !newEvmOwnerAddress ||
+    !recoveryDeadlineEpochSeconds ||
+    !recoveryEmailPayloadHash
+  ) {
+    return null;
+  }
+  return {
+    version: 'recovery_session_v1',
+    sessionId,
+    userId,
+    nearAccountId,
+    signerSlot,
+    status,
+    createdAtMs,
+    updatedAtMs,
+    expiresAtMs,
+    newNearPublicKey,
+    newEvmOwnerAddress,
+    recoveryDeadlineEpochSeconds,
+    recoveryEmailPayloadHash,
+    ...(verifiedRecoveryPayloadHash ? { verifiedRecoveryPayloadHash } : {}),
+    ...(verifiedRecoveryArtifactHash ? { verifiedRecoveryArtifactHash } : {}),
+    ...(scope ? { scope } : {}),
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+function parseRecoveryExecutionRecord(input: unknown): RecoveryExecutionRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const sessionId = toOptionalTrimmedString(record.sessionId);
+  const userId = toOptionalTrimmedString(record.userId);
+  const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
+  const chainIdKey = toOptionalTrimmedString(record.chainIdKey)?.toLowerCase() || '';
+  const accountAddress = normalizeAccountAddress(record.accountAddress);
+  const action = toOptionalTrimmedString(record.action);
+  const status = parseRecoveryExecutionStatus(record.status);
+  const createdAtMs = positiveSafeInteger(record.createdAtMs);
+  const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
+  const transactionHash = toOptionalTrimmedString(record.transactionHash);
+  const errorCode = toOptionalTrimmedString(record.errorCode);
+  const errorMessage = toOptionalTrimmedString(record.errorMessage);
+  const metadata = parseRecordMetadata(record.metadata);
+  if (
+    version !== 'recovery_execution_v1' ||
+    !sessionId ||
+    !userId ||
+    !nearAccountId ||
+    !chainIdKey ||
+    !accountAddress ||
+    !action ||
+    !status ||
+    !createdAtMs ||
+    !updatedAtMs
+  ) {
+    return null;
+  }
+  return {
+    version: 'recovery_execution_v1',
+    sessionId,
+    userId,
+    nearAccountId,
+    chainIdKey,
+    accountAddress,
+    action,
+    status,
+    createdAtMs,
+    updatedAtMs,
+    ...(transactionHash ? { transactionHash } : {}),
+    ...(errorCode ? { errorCode } : {}),
+    ...(errorMessage ? { errorMessage } : {}),
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+function recoverySessionWithStatus(input: {
+  readonly record: RecoverySessionRecord;
+  readonly status: RecoverySessionStatus;
+  readonly updatedAtMs: number;
+  readonly metadataPatch?: Record<string, unknown>;
+}): RecoverySessionRecord {
+  const metadata =
+    input.metadataPatch
+      ? { ...(input.record.metadata || {}), ...input.metadataPatch }
+      : input.record.metadata
+        ? { ...input.record.metadata }
+        : undefined;
+  return {
+    version: 'recovery_session_v1',
+    sessionId: input.record.sessionId,
+    userId: input.record.userId,
+    nearAccountId: input.record.nearAccountId,
+    signerSlot: input.record.signerSlot,
+    status: input.status,
+    createdAtMs: input.record.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+    expiresAtMs: input.record.expiresAtMs,
+    newNearPublicKey: input.record.newNearPublicKey,
+    newEvmOwnerAddress: input.record.newEvmOwnerAddress,
+    recoveryDeadlineEpochSeconds: input.record.recoveryDeadlineEpochSeconds,
+    recoveryEmailPayloadHash: input.record.recoveryEmailPayloadHash,
+    ...(input.record.verifiedRecoveryPayloadHash
+      ? { verifiedRecoveryPayloadHash: input.record.verifiedRecoveryPayloadHash }
+      : {}),
+    ...(input.record.verifiedRecoveryArtifactHash
+      ? { verifiedRecoveryArtifactHash: input.record.verifiedRecoveryArtifactHash }
+      : {}),
+    ...(input.record.scope ? { scope: input.record.scope } : {}),
+    ...(metadata ? { metadata } : {}),
+  };
 }
 
 function resolveHostedOidcWalletScope(input: unknown): {
@@ -2888,6 +3109,120 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async getRecoverySession(input: GetRecoverySessionInput): Promise<GetRecoverySessionResult> {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      if (!sessionId) return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+      return { ok: true, record: await this.readRecoverySessionRecord(sessionId) };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to read recovery session',
+      };
+    }
+  }
+
+  async updateRecoverySessionStatus(
+    input: UpdateRecoverySessionStatusInput,
+  ): Promise<UpdateRecoverySessionStatusResult> {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      const status = parseRecoverySessionStatus(input.status);
+      if (!sessionId || !status) {
+        return { ok: false, code: 'invalid_args', message: 'Invalid recovery session update' };
+      }
+      if (input.metadataPatch != null && !isRecord(input.metadataPatch)) {
+        return { ok: false, code: 'invalid_args', message: 'Invalid recovery metadata patch' };
+      }
+
+      const existing = await this.readRecoverySessionRecord(sessionId);
+      if (!existing) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: `Unknown recovery session: ${sessionId}`,
+        };
+      }
+      const record = recoverySessionWithStatus({
+        record: existing,
+        status,
+        updatedAtMs: Date.now(),
+        ...(input.metadataPatch ? { metadataPatch: input.metadataPatch } : {}),
+      });
+      await this.putRecoverySessionRecord(record);
+      return { ok: true, record };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to update recovery session',
+      };
+    }
+  }
+
+  async recordRecoveryExecution(
+    input: RecordRecoveryExecutionInput,
+  ): Promise<RecordRecoveryExecutionResult> {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      const chainIdKey = toOptionalTrimmedString(input.chainIdKey)?.toLowerCase() || '';
+      const accountAddress = normalizeAccountAddress(input.accountAddress);
+      const action = toOptionalTrimmedString(input.action);
+      if (!sessionId || !chainIdKey || !accountAddress || !action) {
+        return { ok: false, code: 'invalid_args', message: 'Missing recovery execution fields' };
+      }
+
+      const recoverySession = await this.readRecoverySessionRecord(sessionId);
+      if (!recoverySession) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: `Unknown recovery session: ${sessionId}`,
+        };
+      }
+
+      const existing = await this.readRecoveryExecutionRecord({
+        sessionId,
+        chainIdKey,
+        accountAddress,
+        action,
+      });
+      const nowMs = Date.now();
+      const record = buildRecoveryExecutionRecord({
+        sessionId,
+        userId: recoverySession.userId,
+        nearAccountId: recoverySession.nearAccountId,
+        chainIdKey,
+        accountAddress,
+        action,
+        status: input.status,
+        createdAtMs: existing?.createdAtMs ?? nowMs,
+        nowMs,
+        transactionHash: input.transactionHash,
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        metadata: input.metadata,
+      });
+      if (!record) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Invalid recovery execution payload',
+        };
+      }
+
+      await this.putRecoveryExecutionRecord(record);
+      return { ok: true, record };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to persist recovery execution',
+      };
+    }
+  }
+
   async getOrCreateAppSessionVersion(
     input: GetOrCreateAppSessionVersionInput,
   ): Promise<GetOrCreateAppSessionVersionResult> {
@@ -3961,6 +4296,125 @@ class CloudflareD1RelayAuthMetadataService {
     ).run();
   }
 
+  private async readRecoverySessionRecord(
+    sessionId: string,
+  ): Promise<RecoverySessionRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json
+         FROM signer_recovery_sessions
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND session_id = ?
+        LIMIT 1`,
+      [sessionId],
+    ).first<D1RecoverySessionRow>();
+    const record = parseRecoverySessionRecord(row?.record_json);
+    if (!record) return null;
+    if (Date.now() > record.expiresAtMs) return null;
+    return record;
+  }
+
+  private async putRecoverySessionRecord(record: RecoverySessionRecord): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_recovery_sessions (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        session_id,
+        near_account_id,
+        record_json,
+        expires_at_ms,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, session_id)
+      DO UPDATE SET
+        near_account_id = EXCLUDED.near_account_id,
+        record_json = EXCLUDED.record_json,
+        expires_at_ms = EXCLUDED.expires_at_ms,
+        updated_at_ms = EXCLUDED.updated_at_ms`,
+      [
+        record.sessionId,
+        record.nearAccountId,
+        JSON.stringify(record),
+        record.expiresAtMs,
+        record.createdAtMs,
+        record.updatedAtMs,
+      ],
+    ).run();
+  }
+
+  private async readRecoveryExecutionRecord(input: {
+    readonly sessionId: string;
+    readonly chainIdKey: string;
+    readonly accountAddress: string;
+    readonly action: string;
+  }): Promise<RecoveryExecutionRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json
+         FROM signer_recovery_executions
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND session_id = ?
+          AND chain_id_key = ?
+          AND account_address = ?
+          AND action = ?
+        LIMIT 1`,
+      [input.sessionId, input.chainIdKey, input.accountAddress, input.action],
+    ).first<D1RecoveryExecutionRow>();
+    return parseRecoveryExecutionRecord(row?.record_json);
+  }
+
+  private async putRecoveryExecutionRecord(record: RecoveryExecutionRecord): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_recovery_executions (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        session_id,
+        chain_id_key,
+        account_address,
+        action,
+        status,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        session_id,
+        chain_id_key,
+        account_address,
+        action
+      )
+      DO UPDATE SET
+        status = EXCLUDED.status,
+        record_json = EXCLUDED.record_json,
+        updated_at_ms = EXCLUDED.updated_at_ms`,
+      [
+        record.sessionId,
+        record.chainIdKey,
+        record.accountAddress,
+        record.action,
+        record.status,
+        JSON.stringify(record),
+        record.createdAtMs,
+        record.updatedAtMs,
+      ],
+    ).run();
+  }
+
   private async readAppSessionVersion(userId: string): Promise<string | null> {
     const row = await this.scopePrepare(
       `SELECT session_version
@@ -4222,6 +4676,9 @@ export function createCloudflareD1RelayAuthService(
   service.consumeEmailOtpRecoveryKey = metadata.consumeEmailOtpRecoveryKey.bind(metadata);
   service.recordEmailOtpRecoveryKeyAttemptFailure =
     metadata.recordEmailOtpRecoveryKeyAttemptFailure.bind(metadata);
+  service.getRecoverySession = metadata.getRecoverySession.bind(metadata);
+  service.updateRecoverySessionStatus = metadata.updateRecoverySessionStatus.bind(metadata);
+  service.recordRecoveryExecution = metadata.recordRecoveryExecution.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);

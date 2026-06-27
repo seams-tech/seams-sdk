@@ -174,6 +174,9 @@ runtime. The current codebase already has the important boundaries in place:
   challenge/grant/rate-limit flow, Email OTP device-recovery challenge/grant
   flow, Email OTP recovery-key consumption and failure-attempt reporting, Email
   OTP unlock challenge/proof flow, and sealed signing-root secret shares.
+- Cloudflare relay auth service D1 methods cover recovery-session reads,
+  recovery-session status transitions, and recovery-execution upserts for the
+  email recovery route.
 - Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the property.
@@ -931,7 +934,7 @@ Work:
 - Finish the staging-required signer auth methods as separate conditional-D1 or
   Durable Object slices: provider email delivery, Email OTP registration
   attempts, recovery-code rotation, WebAuthn verification, wallet registration,
-  recovery execution, signed delegates, and threshold signing admission.
+  signed delegates, and threshold signing admission.
 
 Exit criteria:
 

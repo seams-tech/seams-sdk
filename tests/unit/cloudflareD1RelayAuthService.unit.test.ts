@@ -105,6 +105,7 @@ function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
   return applyMigrations(database, [
     'packages/sdk-server-ts/migrations/d1-signer/0003_signer_webauthn.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0004_signer_identity.sql',
+    'packages/sdk-server-ts/migrations/d1-signer/0005_signer_recovery.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0006_signer_near_public_keys.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0008_signer_email_otp.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0009_signer_email_otp_rate_limits.sql',
@@ -577,6 +578,62 @@ function emailOtpRecoveryEscrowRecord(input: {
   };
 }
 
+async function insertRecoverySession(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly sessionId: string;
+  readonly status?: 'prepared' | 'verified' | 'near_recovered' | 'failed';
+  readonly metadata?: Record<string, unknown>;
+}): Promise<void> {
+  const record = recoverySessionRecord(input);
+  await input.database
+    .prepare(
+      `INSERT INTO signer_recovery_sessions (
+        namespace, org_id, project_id, env_id, session_id, near_account_id, record_json,
+        expires_at_ms, created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      record.sessionId,
+      record.nearAccountId,
+      JSON.stringify(record),
+      record.expiresAtMs,
+      record.createdAtMs,
+      record.updatedAtMs,
+    )
+    .run();
+}
+
+function recoverySessionRecord(input: {
+  readonly sessionId: string;
+  readonly status?: 'prepared' | 'verified' | 'near_recovered' | 'failed';
+  readonly metadata?: Record<string, unknown>;
+}) {
+  return {
+    version: 'recovery_session_v1',
+    sessionId: input.sessionId,
+    userId: 'recovery-user',
+    nearAccountId: 'alice.testnet',
+    signerSlot: 1,
+    status: input.status || 'prepared',
+    createdAtMs: 1_000,
+    updatedAtMs: 1_100,
+    expiresAtMs: Date.now() + 60_000,
+    newNearPublicKey: 'ed25519:new-public-key',
+    newEvmOwnerAddress: '0x00000000000000000000000000000000000000aa',
+    recoveryDeadlineEpochSeconds: Math.floor(Date.now() / 1_000) + 3_600,
+    recoveryEmailPayloadHash: 'recovery-payload-hash',
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+  };
+}
+
 test('Cloudflare D1 relay auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -930,6 +987,139 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       configured: true,
       clientId: 'google-client',
     });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service tracks recovery sessions and executions', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertRecoverySession({
+      database,
+      ...scope,
+      sessionId: 'recovery-session-a',
+      metadata: { source: 'fixture' },
+    });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+    });
+
+    const initial = await service.getRecoverySession({ sessionId: 'recovery-session-a' });
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) throw new Error(initial.message);
+    expect(initial.record).toMatchObject({
+      sessionId: 'recovery-session-a',
+      status: 'prepared',
+      nearAccountId: 'alice.testnet',
+      metadata: { source: 'fixture' },
+    });
+
+    const updated = await service.updateRecoverySessionStatus({
+      sessionId: 'recovery-session-a',
+      status: 'verified',
+      metadataPatch: {
+        verifiedAtMs: 1_250,
+      },
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) throw new Error(updated.message);
+    expect(updated.record).toMatchObject({
+      sessionId: 'recovery-session-a',
+      status: 'verified',
+      metadata: { source: 'fixture', verifiedAtMs: 1_250 },
+    });
+    expect(updated.record.updatedAtMs).toBeGreaterThanOrEqual(updated.record.createdAtMs);
+
+    const pending = await service.recordRecoveryExecution({
+      sessionId: 'recovery-session-a',
+      chainIdKey: 'NEAR:TESTNET',
+      accountAddress: 'alice.testnet',
+      action: 'near_email_recovery',
+      status: 'pending',
+      metadata: {
+        expectedNewNearPublicKey: 'ed25519:new-public-key',
+      },
+    });
+    expect(pending.ok).toBe(true);
+    if (!pending.ok) throw new Error(pending.message);
+    expect(pending.record).toMatchObject({
+      sessionId: 'recovery-session-a',
+      userId: 'recovery-user',
+      nearAccountId: 'alice.testnet',
+      chainIdKey: 'near:testnet',
+      accountAddress: 'alice.testnet',
+      action: 'near_email_recovery',
+      status: 'pending',
+    });
+
+    const submitted = await service.recordRecoveryExecution({
+      sessionId: 'recovery-session-a',
+      chainIdKey: 'near:testnet',
+      accountAddress: 'alice.testnet',
+      action: 'near_email_recovery',
+      status: 'submitted',
+      transactionHash: 'near-tx-a',
+    });
+    expect(submitted.ok).toBe(true);
+    if (!submitted.ok) throw new Error(submitted.message);
+    expect(submitted.record).toMatchObject({
+      status: 'submitted',
+      transactionHash: 'near-tx-a',
+    });
+    expect(submitted.record.createdAtMs).toBe(pending.record.createdAtMs);
+
+    const executionRow = await database
+      .prepare(
+        `SELECT status, record_json
+           FROM signer_recovery_executions
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND session_id = ?
+            AND chain_id_key = ?
+            AND account_address = ?
+            AND action = ?
+          LIMIT 1`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        'recovery-session-a',
+        'near:testnet',
+        'alice.testnet',
+        'near_email_recovery',
+      )
+      .first<SqliteJsonRow>();
+    expect(executionRow?.status).toBe('submitted');
+    expect(JSON.parse(String(executionRow?.record_json || '{}'))).toMatchObject({
+      transactionHash: 'near-tx-a',
+    });
+
+    await expect(
+      service.recordRecoveryExecution({
+        sessionId: 'missing-session',
+        chainIdKey: 'near:testnet',
+        accountAddress: 'alice.testnet',
+        action: 'near_email_recovery',
+        status: 'pending',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'invalid_args' });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
