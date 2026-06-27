@@ -172,6 +172,9 @@ Completed so far:
   port. `readEmailOtpEnrollment` and `readActiveEmailOtpEnrollment` now parse
   tenant-scoped `signer_email_otp_wallet_enrollments` records at the D1 boundary;
   OTP challenge, verification, grant, and recovery mutations still fail closed.
+- Added D1-backed Email OTP strong-auth freshness checks. The relay auth port now
+  reads and upserts `signer_email_otp_auth_states` for
+  `isEmailOtpStrongAuthRequired` and `markEmailOtpStrongAuthSatisfied`.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -1045,9 +1048,11 @@ Work:
   and production should provide `ACCOUNT_ID_DERIVATION_SECRET` through Cloudflare
   secrets or the configured KMS adapter.
 - Read-only Email OTP enrollment lookup is in place for D1. Continue porting
-  Email OTP challenge issuance, grant consumption, auth-state mutation, recovery
-  escrow reads, and registration-attempt lifecycle as separate conditional-D1
-  slices.
+  Email OTP challenge issuance, grant consumption, recovery escrow reads, and
+  registration-attempt lifecycle as separate conditional-D1 slices.
+- Email OTP strong-auth freshness is in place for D1 using an auth-state upsert
+  that preserves existing failure/login fields while updating
+  `lastStrongAuthAtMs`.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
@@ -1191,6 +1196,9 @@ Completed baseline:
   until the Email OTP stores move behind D1/DO.
 - Email OTP enrollment reads now use the D1 overlay. Email OTP mutating flows
   remain fail-closed until their D1 conditional-write contracts are implemented.
+- Email OTP strong-auth freshness checks now use the D1 overlay. Challenge,
+  verification, grant, recovery, and registration-attempt flows remain
+  fail-closed.
 
 Proceed in this order:
 

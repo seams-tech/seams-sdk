@@ -1,7 +1,10 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
-import type { EmailOtpWalletEnrollmentRecord } from '../../core/EmailOtpStores';
+import type {
+  EmailOtpAuthStateRecord,
+  EmailOtpWalletEnrollmentRecord,
+} from '../../core/EmailOtpStores';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -43,6 +46,18 @@ type ReadActiveEmailOtpEnrollmentInput = Parameters<
 >[0];
 type ReadActiveEmailOtpEnrollmentResult = Awaited<
   ReturnType<CloudflareRelayAuthService['readActiveEmailOtpEnrollment']>
+>;
+type IsEmailOtpStrongAuthRequiredInput = Parameters<
+  CloudflareRelayAuthService['isEmailOtpStrongAuthRequired']
+>[0];
+type IsEmailOtpStrongAuthRequiredResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['isEmailOtpStrongAuthRequired']>
+>;
+type MarkEmailOtpStrongAuthSatisfiedInput = Parameters<
+  CloudflareRelayAuthService['markEmailOtpStrongAuthSatisfied']
+>[0];
+type MarkEmailOtpStrongAuthSatisfiedResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['markEmailOtpStrongAuthSatisfied']>
 >;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
@@ -88,6 +103,11 @@ type D1SessionRow = {
 };
 
 type D1EmailOtpEnrollmentRow = {
+  readonly record_json?: unknown;
+  readonly updated_at_ms?: unknown;
+};
+
+type D1EmailOtpAuthStateRow = {
   readonly record_json?: unknown;
   readonly updated_at_ms?: unknown;
 };
@@ -192,6 +212,12 @@ function positiveInteger(input: unknown): number | null {
 function positiveSafeInteger(input: unknown): number | null {
   const value = typeof input === 'number' ? input : Number(input);
   if (!Number.isSafeInteger(value) || value <= 0) return null;
+  return Math.floor(value);
+}
+
+function nonNegativeSafeInteger(input: unknown): number | null {
+  const value = typeof input === 'number' ? input : Number(input);
+  if (!Number.isSafeInteger(value) || value < 0) return null;
   return Math.floor(value);
 }
 
@@ -310,6 +336,79 @@ function parseEmailOtpWalletEnrollmentRow(
   row: D1EmailOtpEnrollmentRow | null,
 ): EmailOtpWalletEnrollmentRecord | null {
   const record = parseEmailOtpWalletEnrollmentRecord(row?.record_json);
+  const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
+  if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
+  return record;
+}
+
+function optionalPositiveSafeIntegerField(
+  record: Record<string, unknown>,
+  field: string,
+): number | undefined | null {
+  if (!hasRecordField(record, field) || record[field] == null) return undefined;
+  return positiveSafeInteger(record[field]);
+}
+
+function optionalNonNegativeSafeIntegerField(
+  record: Record<string, unknown>,
+  field: string,
+): number | undefined | null {
+  if (!hasRecordField(record, field) || record[field] == null) return undefined;
+  return nonNegativeSafeInteger(record[field]);
+}
+
+function parseEmailOtpAuthStateRecord(input: unknown): EmailOtpAuthStateRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const providerUserId = toOptionalTrimmedString(record.providerUserId);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const createdAtMs = positiveSafeInteger(record.createdAtMs);
+  const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
+  const otpFailureCount = optionalNonNegativeSafeIntegerField(record, 'otpFailureCount');
+  const lastOtpFailureAtMs = optionalPositiveSafeIntegerField(record, 'lastOtpFailureAtMs');
+  const otpLockedUntilMs = optionalPositiveSafeIntegerField(record, 'otpLockedUntilMs');
+  const lastEmailOtpLoginAtMs = optionalPositiveSafeIntegerField(
+    record,
+    'lastEmailOtpLoginAtMs',
+  );
+  const lastStrongAuthAtMs = optionalPositiveSafeIntegerField(record, 'lastStrongAuthAtMs');
+  if (
+    version !== 'email_otp_auth_state_v1' ||
+    !walletId ||
+    !providerUserId ||
+    !orgId ||
+    !createdAtMs ||
+    !updatedAtMs ||
+    otpFailureCount === null ||
+    lastOtpFailureAtMs === null ||
+    otpLockedUntilMs === null ||
+    lastEmailOtpLoginAtMs === null ||
+    lastStrongAuthAtMs === null ||
+    updatedAtMs < createdAtMs
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_auth_state_v1',
+    walletId,
+    providerUserId,
+    orgId,
+    createdAtMs,
+    updatedAtMs,
+    ...(otpFailureCount != null ? { otpFailureCount } : {}),
+    ...(lastOtpFailureAtMs != null ? { lastOtpFailureAtMs } : {}),
+    ...(otpLockedUntilMs != null ? { otpLockedUntilMs } : {}),
+    ...(lastEmailOtpLoginAtMs != null ? { lastEmailOtpLoginAtMs } : {}),
+    ...(lastStrongAuthAtMs != null ? { lastStrongAuthAtMs } : {}),
+  };
+}
+
+function parseEmailOtpAuthStateRow(
+  row: D1EmailOtpAuthStateRow | null,
+): EmailOtpAuthStateRecord | null {
+  const record = parseEmailOtpAuthStateRecord(row?.record_json);
   const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
   if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
   return record;
@@ -628,6 +727,45 @@ class CloudflareD1RelayAuthMetadataService {
       };
     }
     return { ok: true, enrollment };
+  }
+
+  async isEmailOtpStrongAuthRequired(
+    input: IsEmailOtpStrongAuthRequiredInput,
+  ): Promise<IsEmailOtpStrongAuthRequiredResult> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+    const enrollment = await this.readEmailOtpWalletEnrollment(walletId);
+    if (!enrollment) return { ok: true, required: false, walletId };
+    const authState = await this.readEmailOtpAuthStateForEnrollment(enrollment);
+    if (!authState.ok) return authState;
+    const state = authState.state;
+    if (!state) return { ok: true, required: false, walletId };
+    const lastEmailOtpLoginAtMs =
+      typeof state.lastEmailOtpLoginAtMs === 'number' ? state.lastEmailOtpLoginAtMs : undefined;
+    const lastStrongAuthAtMs =
+      typeof state.lastStrongAuthAtMs === 'number' ? state.lastStrongAuthAtMs : undefined;
+    return {
+      ok: true,
+      required: Boolean(
+        lastEmailOtpLoginAtMs &&
+          (!lastStrongAuthAtMs || lastEmailOtpLoginAtMs > lastStrongAuthAtMs),
+      ),
+      walletId,
+      ...(lastEmailOtpLoginAtMs ? { lastEmailOtpLoginAtMs } : {}),
+      ...(lastStrongAuthAtMs ? { lastStrongAuthAtMs } : {}),
+    };
+  }
+
+  async markEmailOtpStrongAuthSatisfied(
+    input: MarkEmailOtpStrongAuthSatisfiedInput,
+  ): Promise<MarkEmailOtpStrongAuthSatisfiedResult> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+    const enrollment = await this.readEmailOtpWalletEnrollment(walletId);
+    if (!enrollment) return { ok: true, walletId };
+    const nowMs = Date.now();
+    await this.putEmailOtpAuthStateForEnrollment(enrollment, { lastStrongAuthAtMs: nowMs });
+    return { ok: true, walletId, lastStrongAuthAtMs: nowMs };
   }
 
   async getOrCreateAppSessionVersion(
@@ -976,6 +1114,92 @@ class CloudflareD1RelayAuthMetadataService {
     return parseEmailOtpWalletEnrollmentRow(row);
   }
 
+  private async readEmailOtpAuthState(
+    walletId: string,
+  ): Promise<EmailOtpAuthStateRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, updated_at_ms
+         FROM signer_email_otp_auth_states
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+        LIMIT 1`,
+      [walletId],
+    ).first<D1EmailOtpAuthStateRow>();
+    return parseEmailOtpAuthStateRow(row);
+  }
+
+  private async readEmailOtpAuthStateForEnrollment(
+    enrollment: EmailOtpWalletEnrollmentRecord,
+  ): Promise<
+    | { ok: true; state: EmailOtpAuthStateRecord | null }
+    | { ok: false; code: string; message: string }
+  > {
+    const state = await this.readEmailOtpAuthState(enrollment.walletId);
+    if (!state) return { ok: true, state: null };
+    if (state.orgId !== enrollment.orgId || state.providerUserId !== enrollment.providerUserId) {
+      return {
+        ok: false,
+        code: 'auth_state_enrollment_mismatch',
+        message: 'Email OTP auth state does not match the active enrollment',
+      };
+    }
+    return { ok: true, state };
+  }
+
+  private async putEmailOtpAuthStateForEnrollment(
+    enrollment: EmailOtpWalletEnrollmentRecord,
+    patch: { readonly lastStrongAuthAtMs: number },
+  ): Promise<EmailOtpAuthStateRecord> {
+    const nowMs = Date.now();
+    const existing = await this.readEmailOtpAuthState(enrollment.walletId);
+    if (
+      existing &&
+      (existing.orgId !== enrollment.orgId || existing.providerUserId !== enrollment.providerUserId)
+    ) {
+      throw new Error('Email OTP auth state does not match the active enrollment');
+    }
+    const next = emailOtpAuthStateRecord({
+      enrollment,
+      existing,
+      updatedAtMs: nowMs,
+      lastStrongAuthAtMs: patch.lastStrongAuthAtMs,
+    });
+    await this.scopePrepare(
+      `INSERT INTO signer_email_otp_auth_states (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        provider_user_id,
+        record_org_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, wallet_id)
+      DO UPDATE SET
+        provider_user_id = EXCLUDED.provider_user_id,
+        record_org_id = EXCLUDED.record_org_id,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = EXCLUDED.created_at_ms,
+        updated_at_ms = EXCLUDED.updated_at_ms`,
+      [
+        next.walletId,
+        next.providerUserId,
+        next.orgId,
+        JSON.stringify(next),
+        next.createdAtMs,
+        next.updatedAtMs,
+      ],
+    ).run();
+    return next;
+  }
+
   private async readAppSessionVersion(userId: string): Promise<string | null> {
     const row = await this.scopePrepare(
       `SELECT session_version
@@ -1066,6 +1290,35 @@ function emailOtpEnrollmentTenantMismatch(): ReadEmailOtpEnrollmentResult {
   };
 }
 
+function emailOtpAuthStateRecord(input: {
+  readonly enrollment: EmailOtpWalletEnrollmentRecord;
+  readonly existing: EmailOtpAuthStateRecord | null;
+  readonly updatedAtMs: number;
+  readonly lastStrongAuthAtMs: number;
+}): EmailOtpAuthStateRecord {
+  return {
+    version: 'email_otp_auth_state_v1',
+    walletId: input.enrollment.walletId,
+    providerUserId: input.enrollment.providerUserId,
+    orgId: input.enrollment.orgId,
+    createdAtMs: input.existing?.createdAtMs ?? input.updatedAtMs,
+    updatedAtMs: input.updatedAtMs,
+    ...(input.existing?.otpFailureCount != null
+      ? { otpFailureCount: input.existing.otpFailureCount }
+      : {}),
+    ...(input.existing?.lastOtpFailureAtMs
+      ? { lastOtpFailureAtMs: input.existing.lastOtpFailureAtMs }
+      : {}),
+    ...(input.existing?.otpLockedUntilMs
+      ? { otpLockedUntilMs: input.existing.otpLockedUntilMs }
+      : {}),
+    ...(input.existing?.lastEmailOtpLoginAtMs
+      ? { lastEmailOtpLoginAtMs: input.existing.lastEmailOtpLoginAtMs }
+      : {}),
+    lastStrongAuthAtMs: input.lastStrongAuthAtMs,
+  };
+}
+
 export function createCloudflareD1RelayAuthService(
   input: CloudflareD1RelayAuthServiceOptions,
 ): CloudflareRelayAuthService {
@@ -1080,6 +1333,8 @@ export function createCloudflareD1RelayAuthService(
   service.resolveOidcWalletId = metadata.resolveOidcWalletId.bind(metadata);
   service.readEmailOtpEnrollment = metadata.readEmailOtpEnrollment.bind(metadata);
   service.readActiveEmailOtpEnrollment = metadata.readActiveEmailOtpEnrollment.bind(metadata);
+  service.isEmailOtpStrongAuthRequired = metadata.isEmailOtpStrongAuthRequired.bind(metadata);
+  service.markEmailOtpStrongAuthSatisfied = metadata.markEmailOtpStrongAuthSatisfied.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);

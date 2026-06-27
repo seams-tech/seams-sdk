@@ -409,6 +409,44 @@ async function insertEmailOtpEnrollment(input: {
     .run();
 }
 
+async function insertEmailOtpAuthState(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+}): Promise<void> {
+  const record = {
+    version: 'email_otp_auth_state_v1',
+    walletId: 'email-wallet.testnet',
+    providerUserId: 'google:email-user',
+    orgId: input.orgId,
+    createdAtMs: 750,
+    updatedAtMs: 800,
+    lastEmailOtpLoginAtMs: 800,
+  };
+  await input.database
+    .prepare(
+      `INSERT INTO signer_email_otp_auth_states (
+        namespace, org_id, project_id, env_id, wallet_id, provider_user_id, record_org_id,
+        record_json, created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      record.walletId,
+      record.providerUserId,
+      record.orgId,
+      JSON.stringify(record),
+      record.createdAtMs,
+      record.updatedAtMs,
+    )
+    .run();
+}
+
 test('Cloudflare D1 relay auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -554,6 +592,37 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
         providerUserId: 'google:email-user',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'tenant_scope_mismatch' });
+    await expect(
+      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+    ).resolves.toEqual({
+      ok: true,
+      required: false,
+      walletId: 'email-wallet.testnet',
+    });
+    await insertEmailOtpAuthState({ database, ...scope });
+    await expect(
+      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+    ).resolves.toEqual({
+      ok: true,
+      required: true,
+      walletId: 'email-wallet.testnet',
+      lastEmailOtpLoginAtMs: 800,
+    });
+    const strongAuth = await service.markEmailOtpStrongAuthSatisfied({
+      walletId: 'email-wallet.testnet',
+    });
+    expect(strongAuth.ok).toBe(true);
+    if (!strongAuth.ok) throw new Error(strongAuth.message);
+    expect(strongAuth.lastStrongAuthAtMs).toBeGreaterThanOrEqual(800);
+    await expect(
+      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+    ).resolves.toMatchObject({
+      ok: true,
+      required: false,
+      walletId: 'email-wallet.testnet',
+      lastEmailOtpLoginAtMs: 800,
+      lastStrongAuthAtMs: strongAuth.lastStrongAuthAtMs,
+    });
     const session = await service.getOrCreateAppSessionVersion({ userId: scope.userId });
     expect(session.ok).toBe(true);
     if (!session.ok) throw new Error(session.message);
