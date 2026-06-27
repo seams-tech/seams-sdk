@@ -19,15 +19,21 @@ import {
   type AddSignerIntentV1,
   type AddSignerSelection,
   type GeneratedImplicitWalletId,
+  type RegistrationAuthority,
   type RegistrationAuthMethodInput,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
+  type RuntimePolicyScopeLike,
   type RegisterWalletInput,
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import {
+  parseAppSessionVersion,
+  parseChallengeSubjectId,
+  parseEmailOtpChallengeId,
   parseGoogleProviderSubject,
   parseOrgId,
+  parseProviderSubject,
   parseVerifiedGoogleEmail,
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
@@ -56,12 +62,15 @@ import type {
   CreateAddSignerIntentResponse,
   CreateRegistrationIntentResponse,
   ThresholdStoreConfigInput,
+  WalletAddAuthMethodFinalizeResponse,
+  WalletAddAuthMethodStartResponse,
   WebAuthnAuthenticationCredential,
 } from '../../core/types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../core/defaultConfigsServer';
 import type {
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
+  StoredWalletAddAuthMethodCeremony,
   StoredRegistrationIntent,
 } from '../../core/RegistrationCeremonyStore';
 import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
@@ -122,6 +131,7 @@ type SimpleWebAuthnVerifier = (args: unknown) => Promise<unknown>;
 
 type SimpleWebAuthnServerModule = {
   readonly verifyAuthenticationResponse?: SimpleWebAuthnVerifier;
+  readonly verifyRegistrationResponse?: SimpleWebAuthnVerifier;
 };
 
 export type CloudflareD1EmailOtpDeliveryProviderInput = {
@@ -319,20 +329,34 @@ type CloudflareDoReserveReplayGuardRequest = {
   readonly expiresAtMs: number;
 };
 
+type CloudflareDoGetRequest = {
+  readonly op: 'get';
+  readonly key: string;
+};
+
+type CloudflareDoGetDelRequest = {
+  readonly op: 'getdel';
+  readonly key: string;
+};
+
 type CloudflareRegistrationIntentDoRequest =
   | CloudflareDoSetRequest
-  | CloudflareDoReserveReplayGuardRequest;
+  | CloudflareDoReserveReplayGuardRequest
+  | CloudflareDoGetRequest
+  | CloudflareDoGetDelRequest;
 
 type RegistrationCeremonyIntentScope =
   | 'intent'
   | 'add-auth-method-intent'
   | 'add-signer-intent'
+  | 'add-auth-method'
   | 'generated-wallet-reservation';
 
 type RegistrationIntentDoPutInput =
   | StoredRegistrationIntent
   | StoredAddSignerIntent
-  | StoredAddAuthMethodIntent;
+  | StoredAddAuthMethodIntent
+  | StoredWalletAddAuthMethodCeremony;
 
 type RegistrationCeremonyDoConfig = {
   readonly namespace: CloudflareDurableObjectNamespaceLike;
@@ -350,6 +374,12 @@ type CreateAddSignerIntentInput = Parameters<
 >[0];
 type CreateAddAuthMethodIntentInput = Parameters<
   CloudflareRelayAuthService['createAddAuthMethodIntent']
+>[0];
+type StartWalletAddAuthMethodInput = Parameters<
+  CloudflareRelayAuthService['startWalletAddAuthMethod']
+>[0];
+type FinalizeWalletAddAuthMethodInput = Parameters<
+  CloudflareRelayAuthService['finalizeWalletAddAuthMethod']
 >[0];
 type LinkIdentityInput = Parameters<CloudflareRelayAuthService['linkIdentity']>[0];
 type LinkIdentityResult = Awaited<ReturnType<CloudflareRelayAuthService['linkIdentity']>>;
@@ -1443,6 +1473,59 @@ class CloudflareD1RegistrationCeremonyIntentStore {
     });
   }
 
+  async getAddAuthMethodIntent(
+    grant: string,
+  ): Promise<StoredAddAuthMethodIntent | null> {
+    const id = toOptionalTrimmedString(grant);
+    if (!id) return null;
+    const value = await this.get('add-auth-method-intent', id);
+    const intent = parseD1StoredAddAuthMethodIntent(value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async takeAddAuthMethodIntent(
+    grant: string,
+  ): Promise<StoredAddAuthMethodIntent | null> {
+    const id = toOptionalTrimmedString(grant);
+    if (!id) return null;
+    const value = await this.getDel('add-auth-method-intent', id);
+    const intent = parseD1StoredAddAuthMethodIntent(value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
+    await this.put({
+      scope: 'add-auth-method',
+      id: ceremony.addAuthMethodCeremonyId,
+      record: ceremony,
+      expiresAtMs: ceremony.expiresAtMs,
+    });
+  }
+
+  async getAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    const id = toOptionalTrimmedString(addAuthMethodCeremonyId);
+    if (!id) return null;
+    const value = await this.get('add-auth-method', id);
+    const ceremony = parseD1StoredWalletAddAuthMethodCeremony(value);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
+  async takeAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    const id = toOptionalTrimmedString(addAuthMethodCeremonyId);
+    if (!id) return null;
+    const value = await this.getDel('add-auth-method', id);
+    const ceremony = parseD1StoredWalletAddAuthMethodCeremony(value);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
   private async put(input: {
     readonly scope: RegistrationCeremonyIntentScope;
     readonly id: string;
@@ -1459,6 +1542,25 @@ class CloudflareD1RegistrationCeremonyIntentStore {
       ttlMs,
     });
     if (!response.ok) throw new Error(response.message || 'Registration ceremony DO write failed');
+  }
+
+  private async get(scope: RegistrationCeremonyIntentScope, id: string): Promise<unknown | null> {
+    const response = await callRegistrationCeremonyDo<unknown | null>(this.stub, {
+      op: 'get',
+      key: this.key(scope, id),
+    });
+    return response.ok ? response.value : null;
+  }
+
+  private async getDel(
+    scope: RegistrationCeremonyIntentScope,
+    id: string,
+  ): Promise<unknown | null> {
+    const response = await callRegistrationCeremonyDo<unknown | null>(this.stub, {
+      op: 'getdel',
+      key: this.key(scope, id),
+    });
+    return response.ok ? response.value : null;
   }
 
   private key(scope: RegistrationCeremonyIntentScope, id: string): string {
@@ -1696,6 +1798,38 @@ function buildAddAuthMethodIntent(input: {
   };
 }
 
+function addAuthMethodInputMatches(
+  left: AddAuthMethodInput,
+  right: AddAuthMethodInput,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case 'passkey':
+      return true;
+    case 'email_otp':
+      return right.kind === 'email_otp' && left.email.toLowerCase() === right.email.toLowerCase();
+  }
+  return unreachableAddAuthMethodInput(left);
+}
+
+function unreachableAddAuthMethodInput(value: never): never {
+  throw new Error(`Unhandled add-auth-method input kind: ${String(value)}`);
+}
+
+function runtimePolicyScopeMatches(
+  left: RuntimePolicyScopeLike | undefined,
+  right: RuntimePolicyScopeLike | undefined,
+): boolean {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  return (
+    left.orgId === right.orgId &&
+    left.projectId === right.projectId &&
+    left.envId === right.envId &&
+    left.signingRootVersion === right.signingRootVersion
+  );
+}
+
 function intentScopeMetadata(input: {
   readonly signingRootId?: string;
   readonly signingRootVersion?: string;
@@ -1713,6 +1847,264 @@ function intentScopeMetadata(input: {
     ...(signingRootVersion ? { signingRootVersion } : {}),
     ...(expectedOrigin ? { expectedOrigin } : {}),
   };
+}
+
+function parseD1StoredAddAuthMethodIntent(raw: unknown): StoredAddAuthMethodIntent | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'add_auth_method_intent_allocated') return null;
+  const grant = addAuthMethodIntentGrantFromString(toOptionalTrimmedString(record.grant) || '');
+  const intent = parseD1AddAuthMethodIntent(record.intent);
+  const digestB64u = toOptionalTrimmedString(record.digestB64u);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  if (!grant || !intent || !digestB64u || !orgId || expiresAtMs === null) return null;
+  return {
+    kind: 'add_auth_method_intent_allocated',
+    grant,
+    intent,
+    digestB64u,
+    orgId,
+    expiresAtMs,
+    ...intentScopeMetadata(record),
+  };
+}
+
+function parseD1StoredWalletAddAuthMethodCeremony(
+  raw: unknown,
+): StoredWalletAddAuthMethodCeremony | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const addAuthMethodCeremonyId = toOptionalTrimmedString(record.addAuthMethodCeremonyId);
+  const intent = parseD1AddAuthMethodIntent(record.intent);
+  const digestB64u = toOptionalTrimmedString(record.digestB64u);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  const auth = parseD1StoredAddAuthMethodAuth(record.auth);
+  const authority = parseD1RegistrationAuthority(record.authority);
+  if (
+    !addAuthMethodCeremonyId ||
+    !intent ||
+    !digestB64u ||
+    !orgId ||
+    expiresAtMs === null ||
+    !auth ||
+    !authority
+  ) {
+    return null;
+  }
+  return {
+    addAuthMethodCeremonyId,
+    intent,
+    digestB64u,
+    orgId,
+    ...(toOptionalTrimmedString(record.expectedOrigin)
+      ? { expectedOrigin: toOptionalTrimmedString(record.expectedOrigin) }
+      : {}),
+    expiresAtMs,
+    auth,
+    authority,
+  };
+}
+
+function parseD1AddAuthMethodIntent(raw: unknown): AddAuthMethodIntentV1 | null {
+  const record = toRecordValue(raw);
+  if (!record || record.version !== 'add_auth_method_intent_v1') return null;
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const authMethod = normalizeAddAuthMethodInput(record.authMethod);
+  const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
+  const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
+  if (!walletId || !rpId || !authMethod || !nonceB64u) return null;
+  if (record.runtimePolicyScope !== undefined && !runtimePolicyScope) return null;
+  if (runtimePolicyScope) {
+    return {
+      version: 'add_auth_method_intent_v1',
+      walletId,
+      rpId,
+      authMethod,
+      runtimePolicyScope,
+      nonceB64u,
+    };
+  }
+  return {
+    version: 'add_auth_method_intent_v1',
+    walletId,
+    rpId,
+    authMethod,
+    nonceB64u,
+  };
+}
+
+function parseD1RuntimePolicyScope(raw: unknown): RuntimePolicyScope | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const record = toRecordValue(raw);
+  if (!record) return undefined;
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const projectId = toOptionalTrimmedString(record.projectId);
+  const envId = toOptionalTrimmedString(record.envId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
+  if (!orgId || !projectId || !envId || !signingRootVersion) return undefined;
+  return {
+    orgId,
+    projectId,
+    envId,
+    signingRootVersion,
+  };
+}
+
+function parseD1StoredAddAuthMethodAuth(
+  raw: unknown,
+): StoredWalletAddAuthMethodCeremony['auth'] | null {
+  const record = toRecordValue(raw);
+  const kind = toOptionalTrimmedString(record?.kind);
+  if (kind === 'app_session') return { kind: 'app_session' };
+  if (kind === 'webauthn_assertion') {
+    const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);
+    return credentialIdB64u ? { kind: 'webauthn_assertion', credentialIdB64u } : null;
+  }
+  return null;
+}
+
+function parseD1RegistrationAuthority(raw: unknown): RegistrationAuthority | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const kind = toOptionalTrimmedString(record?.kind);
+  if (kind === 'passkey') return parseD1PasskeyRegistrationAuthority(record);
+  if (kind === 'email_otp') return parseD1EmailOtpRegistrationAuthority(record);
+  return null;
+}
+
+function parseD1PasskeyRegistrationAuthority(
+  record: Record<string, unknown>,
+): Extract<RegistrationAuthority, { kind: 'passkey' }> | null {
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const rpId = parseWebAuthnRpId(record.rpId);
+  const credentialIdB64u = toOptionalTrimmedString(record.credentialIdB64u);
+  const credentialPublicKeyB64u = toOptionalTrimmedString(record.credentialPublicKeyB64u);
+  const counter = safeInteger(record.counter);
+  const registrationIntentDigestB64u = toOptionalTrimmedString(
+    record.registrationIntentDigestB64u,
+  );
+  if (
+    !walletId ||
+    !rpId.ok ||
+    !credentialIdB64u ||
+    !credentialPublicKeyB64u ||
+    counter === null ||
+    !registrationIntentDigestB64u
+  ) {
+    return null;
+  }
+  return {
+    kind: 'passkey',
+    walletId,
+    rpId: rpId.value,
+    credentialIdB64u,
+    credentialPublicKeyB64u,
+    counter,
+    registrationIntentDigestB64u,
+  };
+}
+
+function parseD1EmailOtpRegistrationAuthority(
+  record: Record<string, unknown>,
+): Extract<RegistrationAuthority, { kind: 'email_otp'; proofKind: 'otp_challenge' }> | null {
+  if (record.proofKind !== 'otp_challenge') return null;
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const providerSubject = parseProviderSubject(record.providerSubject);
+  const challengeSubjectId = parseChallengeSubjectId(record.challengeSubjectId);
+  const email = toOptionalTrimmedString(record.email);
+  const emailHashHex = toOptionalTrimmedString(record.emailHashHex);
+  const challengeId = parseEmailOtpChallengeId(record.challengeId);
+  const registrationAuthorityId = parseEmailOtpChallengeId(record.registrationAuthorityId);
+  const originalWalletId = parseWalletIdForIntent(record.originalWalletId);
+  const finalWalletId = parseWalletIdForIntent(record.finalWalletId);
+  const orgId = parseOrgId(record.orgId);
+  const appSessionVersion = parseAppSessionVersion(record.appSessionVersion);
+  const challengePurpose = toOptionalTrimmedString(record.challengePurpose);
+  const registrationIntentDigestB64u = toOptionalTrimmedString(
+    record.registrationIntentDigestB64u,
+  );
+  if (
+    !walletId ||
+    !providerSubject.ok ||
+    !challengeSubjectId.ok ||
+    !email ||
+    !emailHashHex ||
+    !challengeId.ok ||
+    !registrationAuthorityId.ok ||
+    !originalWalletId ||
+    !finalWalletId ||
+    !orgId.ok ||
+    !appSessionVersion.ok ||
+    (challengePurpose !== 'registration' && challengePurpose !== 'registration_reroll') ||
+    !registrationIntentDigestB64u
+  ) {
+    return null;
+  }
+  return {
+    kind: 'email_otp',
+    proofKind: 'otp_challenge',
+    walletId,
+    providerSubject: providerSubject.value,
+    challengeSubjectId: challengeSubjectId.value,
+    email,
+    emailHashHex,
+    challengeId: challengeId.value,
+    registrationAuthorityId: registrationAuthorityId.value,
+    originalWalletId,
+    finalWalletId,
+    orgId: orgId.value,
+    appSessionVersion: appSessionVersion.value,
+    challengePurpose,
+    registrationIntentDigestB64u,
+  };
+}
+
+function unreachableAddAuthMethodAuthority(value: never): never {
+  throw new Error(`Unhandled add-auth-method authority kind: ${String(value)}`);
+}
+
+function walletAuthMethodRecordFromRegistrationAuthority(input: {
+  readonly authority: RegistrationAuthority;
+  readonly now: number;
+}): WalletAuthMethodRecord {
+  switch (input.authority.kind) {
+    case 'passkey':
+      return {
+        version: 'wallet_auth_method_v1',
+        kind: 'passkey',
+        status: 'active',
+        walletId: input.authority.walletId,
+        rpId: input.authority.rpId,
+        credentialIdB64u: input.authority.credentialIdB64u,
+        credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
+        counter: input.authority.counter,
+        createdAtMs: input.now,
+        updatedAtMs: input.now,
+      };
+    case 'email_otp':
+      return {
+        version: 'wallet_auth_method_v1',
+        kind: 'email_otp',
+        status: 'active',
+        walletId: input.authority.walletId,
+        emailHashHex: input.authority.emailHashHex,
+        registrationAuthorityId: input.authority.registrationAuthorityId,
+        createdAtMs: input.now,
+        updatedAtMs: input.now,
+      };
+  }
+  return unreachableRegistrationAuthority(input.authority);
+}
+
+function unreachableRegistrationAuthority(value: never): never {
+  throw new Error(`Unhandled registration authority kind: ${String(value)}`);
+}
+
+function safeInteger(raw: unknown): number | null {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : null;
 }
 
 async function loadSimpleWebAuthnServer(): Promise<SimpleWebAuthnServerModule> {
@@ -4632,6 +5024,155 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to create add-auth-method intent',
+      };
+    }
+  }
+
+  async startWalletAddAuthMethod(
+    request: StartWalletAddAuthMethodInput,
+  ): Promise<WalletAddAuthMethodStartResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const walletId = parseWalletIdForIntent(request.walletId);
+      if (!walletId) {
+        return { ok: false, code: 'invalid_body', message: 'walletId is required' };
+      }
+      const grant = addAuthMethodIntentGrantFromString(
+        toOptionalTrimmedString(request.addAuthMethodIntentGrant) || '',
+      );
+      if (!grant) {
+        return {
+          ok: false,
+          code: 'invalid_grant',
+          message: 'add-auth-method intent grant is required',
+        };
+      }
+      const intentPreview = await store.getAddAuthMethodIntent(grant);
+      if (!intentPreview) {
+        return {
+          ok: false,
+          code: 'invalid_grant',
+          message: 'add-auth-method intent grant expired',
+        };
+      }
+      if (request.intent.walletId !== walletId) {
+        return { ok: false, code: 'invalid_body', message: 'add-auth-method walletId mismatch' };
+      }
+      const digestB64u = toOptionalTrimmedString(request.addAuthMethodIntentDigestB64u);
+      const requestDigest = await computeAddAuthMethodIntentDigestB64u(request.intent);
+      if (!digestB64u || digestB64u !== requestDigest || digestB64u !== intentPreview.digestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-auth-method intent digest mismatch',
+        };
+      }
+
+      const walletAuthMethodStore = this.getWalletAuthMethodStore();
+      const walletMethods = await walletAuthMethodStore.listForWallet({
+        walletId,
+        rpId: intentPreview.intent.rpId,
+      });
+      const activeWalletMethods = walletMethods.filter(activeWalletAuthMethodRecord);
+      if (activeWalletMethods.length === 0) {
+        return { ok: false, code: 'not_found', message: 'wallet has no active auth methods' };
+      }
+
+      const storedAuth = await this.resolveAddAuthMethodExistingAuth({
+        auth: request.auth,
+        walletId,
+        rpId: intentPreview.intent.rpId,
+        intent: intentPreview.intent,
+        walletAuthMethodStore,
+      });
+      if (!storedAuth.ok) return storedAuth;
+
+      const storedIntent = await store.takeAddAuthMethodIntent(grant);
+      if (!storedIntent) {
+        return {
+          ok: false,
+          code: 'invalid_grant',
+          message: 'add-auth-method intent grant expired',
+        };
+      }
+      const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin);
+      if (request.authority.kind === 'passkey' && !storedExpectedOrigin) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn registration verification',
+        };
+      }
+      const authority = await this.verifyAddAuthMethodAuthority({
+        orgId: storedIntent.orgId,
+        authority: request.authority,
+        expectedDigestB64u: storedIntent.digestB64u,
+        expectedOrigin: storedExpectedOrigin || '',
+        intent: storedIntent.intent,
+        walletAuthMethodStore,
+      });
+      if (!authority.ok) return authority;
+
+      const addAuthMethodCeremonyId = `wauthc_${secureRandomBase64Url(24)}`;
+      await store.putAddAuthMethodCeremony({
+        addAuthMethodCeremonyId,
+        intent: storedIntent.intent,
+        digestB64u: storedIntent.digestB64u,
+        orgId: storedIntent.orgId,
+        ...(storedIntent.expectedOrigin ? { expectedOrigin: storedIntent.expectedOrigin } : {}),
+        expiresAtMs: Date.now() + 10 * 60_000,
+        auth: storedAuth.auth,
+        authority: authority.authority,
+      });
+      return {
+        ok: true,
+        addAuthMethodCeremonyId,
+        intent: storedIntent.intent,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to start wallet add-auth-method ceremony',
+      };
+    }
+  }
+
+  async finalizeWalletAddAuthMethod(
+    request: FinalizeWalletAddAuthMethodInput,
+  ): Promise<WalletAddAuthMethodFinalizeResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const ceremony = await store.getAddAuthMethodCeremony(request.addAuthMethodCeremonyId);
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'add-auth-method ceremony not found' };
+      }
+      const duplicate = await this.findDuplicateAddAuthMethodAuthority(ceremony.authority);
+      if (duplicate) return duplicate;
+      const consumed = await store.takeAddAuthMethodCeremony(ceremony.addAuthMethodCeremonyId);
+      if (!consumed) {
+        return { ok: false, code: 'not_found', message: 'add-auth-method ceremony not found' };
+      }
+      await this.persistAddAuthMethodAuthority({
+        authority: consumed.authority,
+        now: Date.now(),
+      });
+      return {
+        ok: true,
+        walletId: consumed.intent.walletId,
+        rpId: consumed.intent.rpId,
+        authMethod: {
+          kind: consumed.authority.kind,
+          status: 'active',
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to finalize wallet add-auth-method ceremony',
       };
     }
   }
@@ -9141,6 +9682,423 @@ class CloudflareD1RelayAuthMetadataService {
     ).run();
   }
 
+  private async resolveAddAuthMethodExistingAuth(input: {
+    readonly auth: StartWalletAddAuthMethodInput['auth'];
+    readonly walletId: WalletId;
+    readonly rpId: string;
+    readonly intent: AddAuthMethodIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly auth: StoredWalletAddAuthMethodCeremony['auth'];
+      }
+    | {
+        readonly ok: false;
+        readonly code: string;
+        readonly message: string;
+      }
+  > {
+    if (input.auth.kind === 'app_session') {
+      if (input.auth.policy.walletId !== input.walletId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-auth-method auth.policy wallet mismatch',
+        };
+      }
+      if (!addAuthMethodInputMatches(input.auth.policy.authMethod, input.intent.authMethod)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-auth-method auth.policy method mismatch',
+        };
+      }
+      if (
+        !runtimePolicyScopeMatches(
+          input.auth.policy.runtimePolicyScope,
+          input.intent.runtimePolicyScope,
+        )
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-auth-method auth.policy runtime scope mismatch',
+        };
+      }
+      if (input.auth.policy.expiresAtMs <= Date.now()) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-auth-method auth.policy is expired',
+        };
+      }
+      return { ok: true, auth: { kind: 'app_session' } };
+    }
+
+    const credentialId = webAuthnCredentialIdB64uFromCredential(input.auth.credential);
+    if (!credentialId.ok) return credentialId;
+    const authorizationMethod = await input.walletAuthMethodStore.getPasskey({
+      rpId: input.rpId,
+      credentialIdB64u: credentialId.credentialIdB64u,
+    });
+    if (
+      !authorizationMethod ||
+      authorizationMethod.kind !== 'passkey' ||
+      authorizationMethod.walletId !== input.walletId ||
+      authorizationMethod.status !== 'active'
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'WebAuthn authorization credential is not active for this wallet',
+      };
+    }
+    return {
+      ok: true,
+      auth: {
+        kind: 'webauthn_assertion',
+        credentialIdB64u: credentialId.credentialIdB64u,
+      },
+    };
+  }
+
+  private async verifyRegistrationCredentialForIntent(input: {
+    readonly webauthnRegistration: unknown;
+    readonly expectedChallenge: string;
+    readonly expectedOrigin: string;
+    readonly rpId: string;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly credential: {
+          readonly credentialIdB64u: string;
+          readonly credentialPublicKeyB64u: string;
+          readonly counter: number;
+        };
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const credential = toRecordValue(input.webauthnRegistration);
+    if (!credential) {
+      return { ok: false, code: 'invalid_body', message: 'Missing webauthn_registration' };
+    }
+    const response = toRecordValue(credential.response);
+    const clientDataJSON = toOptionalTrimmedString(response?.clientDataJSON);
+    const clientData = parseClientDataJsonBase64url(clientDataJSON);
+    if (clientData.type !== 'webauthn.create') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)',
+      };
+    }
+    if (clientData.challenge !== input.expectedChallenge) {
+      return { ok: false, code: 'challenge_mismatch', message: 'Registration challenge mismatch' };
+    }
+    const expectedOrigin = toOptionalTrimmedString(input.expectedOrigin);
+    if (!expectedOrigin) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'expected_origin is required for WebAuthn registration verification',
+      };
+    }
+    if (!isHostWithinRpId(originHostnameOrEmpty(clientData.origin), input.rpId)) {
+      return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
+    }
+
+    const mod = await loadSimpleWebAuthnServer();
+    const verifyRegistrationResponse = mod.verifyRegistrationResponse;
+    if (typeof verifyRegistrationResponse !== 'function') {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'WebAuthn registration verifier is unavailable in this runtime',
+      };
+    }
+    const registration = await verifyRegistrationResponse({
+      response: credential,
+      expectedChallenge: input.expectedChallenge,
+      expectedOrigin,
+      expectedRPID: input.rpId,
+      requireUserVerification: false,
+    });
+    const registrationRecord = toRecordValue(registration);
+    if (registrationRecord?.verified !== true) {
+      return { ok: false, code: 'not_verified', message: 'Registration verification failed' };
+    }
+    const registrationInfo = toRecordValue(registrationRecord.registrationInfo);
+    const credentialInfo = toRecordValue(registrationInfo?.credential);
+    const credentialIdB64u = toOptionalTrimmedString(credentialInfo?.id);
+    const publicKey = credentialInfo?.publicKey;
+    if (!credentialInfo || !credentialIdB64u || !(publicKey instanceof Uint8Array)) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Registration verification did not return credential public key material',
+      };
+    }
+    const counter = Number(credentialInfo.counter);
+    return {
+      ok: true,
+      credential: {
+        credentialIdB64u,
+        credentialPublicKeyB64u: base64UrlEncode(publicKey),
+        counter: Number.isFinite(counter) && counter >= 0 ? Math.floor(counter) : 0,
+      },
+    };
+  }
+
+  private async verifyAddAuthMethodAuthority(input: {
+    readonly orgId: string;
+    readonly authority: StartWalletAddAuthMethodInput['authority'];
+    readonly expectedDigestB64u: string;
+    readonly expectedOrigin: string;
+    readonly intent: AddAuthMethodIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | { readonly ok: true; readonly authority: RegistrationAuthority }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const authority = input.authority;
+    switch (authority.kind) {
+      case 'passkey':
+        return await this.verifyAddAuthMethodPasskeyAuthority({
+          authority,
+          expectedDigestB64u: input.expectedDigestB64u,
+          expectedOrigin: input.expectedOrigin,
+          intent: input.intent,
+          walletAuthMethodStore: input.walletAuthMethodStore,
+        });
+      case 'email_otp':
+        return await this.verifyAddAuthMethodEmailOtpAuthority({
+          orgId: input.orgId,
+          authority,
+          expectedDigestB64u: input.expectedDigestB64u,
+          intent: input.intent,
+          walletAuthMethodStore: input.walletAuthMethodStore,
+        });
+    }
+    return unreachableAddAuthMethodAuthority(authority);
+  }
+
+  private async verifyAddAuthMethodPasskeyAuthority(input: {
+    readonly authority: Extract<StartWalletAddAuthMethodInput['authority'], { kind: 'passkey' }>;
+    readonly expectedDigestB64u: string;
+    readonly expectedOrigin: string;
+    readonly intent: AddAuthMethodIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | { readonly ok: true; readonly authority: Extract<RegistrationAuthority, { kind: 'passkey' }> }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const rpId = parseWebAuthnRpId(input.intent.rpId);
+    if (!rpId.ok) return { ok: false, code: 'invalid_body', message: rpId.error.message };
+    const verified = await this.verifyRegistrationCredentialForIntent({
+      webauthnRegistration: input.authority.webauthnRegistration,
+      expectedChallenge: input.expectedDigestB64u,
+      expectedOrigin: input.expectedOrigin,
+      rpId: rpId.value,
+    });
+    if (!verified.ok) return verified;
+    const duplicateCredential = await input.walletAuthMethodStore.getPasskey({
+      rpId: rpId.value,
+      credentialIdB64u: verified.credential.credentialIdB64u,
+    });
+    if (duplicateCredential) {
+      return {
+        ok: false,
+        code: 'duplicate_auth_method',
+        message: 'Passkey credential is already registered',
+      };
+    }
+    return {
+      ok: true,
+      authority: {
+        kind: 'passkey',
+        walletId: input.intent.walletId,
+        rpId: rpId.value,
+        credentialIdB64u: verified.credential.credentialIdB64u,
+        credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
+        counter: verified.credential.counter,
+        registrationIntentDigestB64u: input.expectedDigestB64u,
+      },
+    };
+  }
+
+  private async verifyAddAuthMethodEmailOtpAuthority(input: {
+    readonly orgId: string;
+    readonly authority: Extract<StartWalletAddAuthMethodInput['authority'], { kind: 'email_otp' }>;
+    readonly expectedDigestB64u: string;
+    readonly intent: AddAuthMethodIntentV1;
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly authority: Extract<
+          RegistrationAuthority,
+          { kind: 'email_otp'; proofKind: 'otp_challenge' }
+        >;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const proof = input.authority.emailOtpRegistrationProof;
+    if (proof.proofKind !== 'otp_challenge') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP add-auth-method requires an OTP challenge proof',
+      };
+    }
+    if (proof.registrationIntentDigestB64u !== input.expectedDigestB64u) {
+      return {
+        ok: false,
+        code: 'registration_intent_digest_mismatch',
+        message: 'Email OTP registration proof is not bound to this add-auth-method intent',
+      };
+    }
+    if (input.intent.authMethod.kind !== 'email_otp') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP add-auth-method authority requires an Email OTP intent',
+      };
+    }
+    if (proof.email !== input.intent.authMethod.email.toLowerCase()) {
+      return {
+        ok: false,
+        code: 'email_mismatch',
+        message: 'Email OTP registration proof email does not match the intent',
+      };
+    }
+    const verified = await this.verifyEmailOtpRegistrationChallengeCode({
+      providerSubject: proof.providerSubject,
+      proofEmail: proof.email,
+      walletId: input.intent.walletId,
+      orgId: input.orgId,
+      challengeId: proof.challengeId,
+      otpCode: proof.otpCode,
+      otpChannel: proof.otpChannel,
+      sessionHash: input.expectedDigestB64u,
+      appSessionVersion: proof.appSessionVersion,
+    });
+    if (!verified.ok) return verified;
+    const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
+    if (verifiedEmail !== proof.email) {
+      return {
+        ok: false,
+        code: 'email_mismatch',
+        message: 'Verified Email OTP address does not match the registration proof',
+      };
+    }
+    const emailHashHex = bytesToHex(
+      await sha256BytesPortable(new TextEncoder().encode(proof.email)),
+    );
+    const duplicateEmailOtp = await input.walletAuthMethodStore.getEmailOtp({
+      walletId: input.intent.walletId,
+      emailHashHex,
+    });
+    if (duplicateEmailOtp && duplicateEmailOtp.status === 'active') {
+      return {
+        ok: false,
+        code: 'duplicate_auth_method',
+        message: 'Email OTP auth method is already registered',
+      };
+    }
+    const providerSubject = parseProviderSubject(proof.providerSubject);
+    const challengeSubjectId = parseChallengeSubjectId(proof.providerSubject);
+    const challengeId = parseEmailOtpChallengeId(proof.challengeId);
+    const orgId = parseOrgId(input.orgId);
+    const appSessionVersion = parseAppSessionVersion(proof.appSessionVersion);
+    if (
+      !providerSubject.ok ||
+      !challengeSubjectId.ok ||
+      !challengeId.ok ||
+      !orgId.ok ||
+      !appSessionVersion.ok
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP registration proof contains invalid domain fields',
+      };
+    }
+    return {
+      ok: true,
+      authority: {
+        kind: 'email_otp',
+        proofKind: 'otp_challenge',
+        walletId: input.intent.walletId,
+        providerSubject: providerSubject.value,
+        challengeSubjectId: challengeSubjectId.value,
+        email: proof.email,
+        emailHashHex,
+        challengeId: challengeId.value,
+        registrationAuthorityId: challengeId.value,
+        originalWalletId: input.intent.walletId,
+        finalWalletId: input.intent.walletId,
+        orgId: orgId.value,
+        appSessionVersion: appSessionVersion.value,
+        challengePurpose: 'registration',
+        registrationIntentDigestB64u: input.expectedDigestB64u,
+      },
+    };
+  }
+
+  private async findDuplicateAddAuthMethodAuthority(
+    authority: RegistrationAuthority,
+  ): Promise<{ readonly ok: false; readonly code: string; readonly message: string } | null> {
+    if (authority.kind === 'passkey') {
+      const duplicateCredential = await this.getWalletAuthMethodStore().getPasskey({
+        rpId: authority.rpId,
+        credentialIdB64u: authority.credentialIdB64u,
+      });
+      return duplicateCredential
+        ? {
+            ok: false,
+            code: 'duplicate_auth_method',
+            message: 'Passkey credential is already registered',
+          }
+        : null;
+    }
+    const duplicateEmailOtp = await this.getWalletAuthMethodStore().getEmailOtp({
+      walletId: authority.walletId,
+      emailHashHex: authority.emailHashHex,
+    });
+    return duplicateEmailOtp && duplicateEmailOtp.status === 'active'
+      ? {
+          ok: false,
+          code: 'duplicate_auth_method',
+          message: 'Email OTP auth method is already registered',
+        }
+      : null;
+  }
+
+  private async persistAddAuthMethodAuthority(input: {
+    readonly authority: RegistrationAuthority;
+    readonly now: number;
+  }): Promise<void> {
+    if (input.authority.kind === 'passkey') {
+      await this.writeWebAuthnAuthenticator({
+        userId: input.authority.walletId,
+        record: {
+          credentialIdB64u: input.authority.credentialIdB64u,
+          credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
+          counter: input.authority.counter,
+          createdAtMs: input.now,
+          updatedAtMs: input.now,
+        },
+      });
+    }
+    await this.getWalletAuthMethodStore().put(
+      walletAuthMethodRecordFromRegistrationAuthority({
+        authority: input.authority,
+        now: input.now,
+      }),
+    );
+  }
+
   private getRegistrationCeremonyIntentStore(): CloudflareD1RegistrationCeremonyIntentStore | null {
     if (this.registrationCeremonyIntentStore) return this.registrationCeremonyIntentStore;
     const config = resolveRegistrationCeremonyDoConfig(this.options.thresholdStore);
@@ -9383,6 +10341,41 @@ class CloudflareD1RelayAuthMetadataService {
       [input.userId, input.credentialIdB64u],
     ).first<D1AuthenticatorRow>();
     return parseWebAuthnAuthenticator(row);
+  }
+
+  private async writeWebAuthnAuthenticator(input: {
+    readonly userId: string;
+    readonly record: WebAuthnAuthenticatorRecord;
+  }): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_webauthn_authenticators (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        credential_id_b64u,
+        credential_public_key_b64u,
+        counter,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, user_id, credential_id_b64u)
+      DO UPDATE SET
+        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+        counter = MAX(signer_webauthn_authenticators.counter, EXCLUDED.counter),
+        created_at_ms = MIN(signer_webauthn_authenticators.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = MAX(signer_webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)`,
+      [
+        input.userId,
+        input.record.credentialIdB64u,
+        input.record.credentialPublicKeyB64u,
+        input.record.counter,
+        input.record.createdAtMs,
+        input.record.updatedAtMs,
+      ],
+    ).run();
   }
 
   private async updateWebAuthnAuthenticatorCounter(input: {
@@ -10948,6 +11941,8 @@ export function createCloudflareD1RelayAuthService(
   service.createRegistrationIntent = metadata.createRegistrationIntent.bind(metadata);
   service.createAddSignerIntent = metadata.createAddSignerIntent.bind(metadata);
   service.createAddAuthMethodIntent = metadata.createAddAuthMethodIntent.bind(metadata);
+  service.startWalletAddAuthMethod = metadata.startWalletAddAuthMethod.bind(metadata);
+  service.finalizeWalletAddAuthMethod = metadata.finalizeWalletAddAuthMethod.bind(metadata);
   service.listIdentities = metadata.listIdentities.bind(metadata);
   service.linkIdentity = metadata.linkIdentity.bind(metadata);
   service.unlinkIdentity = metadata.unlinkIdentity.bind(metadata);

@@ -95,6 +95,8 @@ class RecordingDurableObjectStub implements CloudflareDurableObjectStubLike {
     this.requests.push(request);
     const op = String(request.op || '');
     if (op === 'set') return this.handleSet(request);
+    if (op === 'get') return this.handleGet(request);
+    if (op === 'getdel') return this.handleGetDel(request);
     if (op === 'authReserveReplayGuard') return this.handleReserveReplayGuard(request);
     return recordingDurableObjectJson({
       ok: false,
@@ -107,6 +109,21 @@ class RecordingDurableObjectStub implements CloudflareDurableObjectStubLike {
     const key = String(request.key || '').trim();
     this.values.set(key, request.value);
     return recordingDurableObjectJson({ ok: true, value: true });
+  }
+
+  private handleGet(request: Record<string, unknown>): Response {
+    const key = String(request.key || '').trim();
+    return recordingDurableObjectJson({
+      ok: true,
+      value: this.values.get(key) ?? null,
+    });
+  }
+
+  private handleGetDel(request: Record<string, unknown>): Response {
+    const key = String(request.key || '').trim();
+    const value = this.values.get(key) ?? null;
+    this.values.delete(key);
+    return recordingDurableObjectJson({ ok: true, value });
   }
 
   private handleReserveReplayGuard(request: Record<string, unknown>): Response {
@@ -2400,6 +2417,188 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       digestB64u: addAuthMethod.addAuthMethodIntentDigestB64u,
       orgId: scope.orgId,
       intent: addAuthMethod.intent,
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods through D1 and Durable Objects', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = 'add-auth-wallet.testnet';
+    const rpId = 'example.com';
+    const providerSubject = 'google:add-auth-user';
+    const email = 'add.auth@example.test';
+    const appSessionVersion = 'add-auth-session-v1';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    await insertSignerWallet({ database, ...scope, walletId, rpId });
+    await insertWalletAuthMethod({
+      database,
+      ...scope,
+      record: {
+        version: 'wallet_auth_method_v1',
+        kind: 'passkey',
+        status: 'active',
+        walletId,
+        rpId,
+        credentialIdB64u: 'existing-passkey-credential',
+        credentialPublicKeyB64u: 'existing-passkey-public-key',
+        counter: 0,
+        createdAtMs: 1_000,
+        updatedAtMs: 1_000,
+      },
+    });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+      },
+    });
+    const intent = await service.createAddAuthMethodIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        walletId,
+        rpId,
+        authMethod: { kind: 'email_otp', email },
+      },
+    });
+    expect(intent.ok).toBe(true);
+    if (!intent.ok) throw new Error(intent.message);
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId,
+      orgId: scope.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: intent.addAuthMethodIntentDigestB64u,
+      appSessionVersion,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+
+    const started = await service.startWalletAddAuthMethod({
+      walletId,
+      addAuthMethodIntentGrant: intent.addAuthMethodIntentGrant,
+      addAuthMethodIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
+      intent: intent.intent,
+      auth: {
+        kind: 'app_session',
+        policy: {
+          permission: 'wallet_auth_method_provision',
+          walletId,
+          authMethod: intent.intent.authMethod,
+          runtimePolicyScope: intent.intent.runtimePolicyScope,
+          expiresAtMs: Date.now() + 60_000,
+        },
+      },
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.message);
+    expect(started.intent).toEqual(intent.intent);
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(
+        `${prefix}add-auth-method-intent:${intent.addAuthMethodIntentGrant}`,
+      ),
+    ).toBeUndefined();
+    expect(
+      durableObjects.stub.values.get(
+        `${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`,
+      ),
+    ).toMatchObject({
+      digestB64u: intent.addAuthMethodIntentDigestB64u,
+      orgId: scope.orgId,
+      intent: intent.intent,
+      auth: { kind: 'app_session' },
+      authority: {
+        kind: 'email_otp',
+        walletId,
+        email,
+      },
+    });
+
+    const finalized = await service.finalizeWalletAddAuthMethod({
+      addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+    });
+    expect(finalized).toEqual({
+      ok: true,
+      walletId,
+      rpId,
+      authMethod: {
+        kind: 'email_otp',
+        status: 'active',
+      },
+    });
+    expect(
+      durableObjects.stub.values.get(
+        `${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`,
+      ),
+    ).toBeUndefined();
+
+    const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
+    await expect(
+      readWalletAuthMethodRecord({
+        database,
+        ...scope,
+        walletAuthMethodId: `email_otp:${walletId}:${emailHashHex}`,
+      }),
+    ).resolves.toMatchObject({
+      version: 'wallet_auth_method_v1',
+      kind: 'email_otp',
+      status: 'active',
+      walletId,
+      emailHashHex,
+      registrationAuthorityId: challenge.challenge.challengeId,
+    });
+    await expect(
+      service.finalizeWalletAddAuthMethod({
+        addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'not_found',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);

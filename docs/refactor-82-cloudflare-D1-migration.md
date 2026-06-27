@@ -160,6 +160,12 @@ Line-count cleanup baseline:
   private signer-selection parsers and three disabled Cloudflare relay bindings;
   the remaining positive delta is a Phase 7 cleanup target once the full
   ceremony path is proven.
+- [x] Add-auth-method ceremony slice recorded before plan-doc update: 1,196 code
+  additions and 2 code deletions across the D1 relay auth service and unit
+  tests. The same-slice deletion pass replaced the disabled D1 factory path for
+  `startWalletAddAuthMethod` and `finalizeWalletAddAuthMethod`; the shared
+  disabled-service scaffold remains until the remaining 10 signer methods are
+  implemented, then Phase 7 must delete or shrink it.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -222,8 +228,9 @@ runtime. The current codebase already has the important boundaries in place:
   recovery route, Email OTP device recovery, Email OTP recovery-key
   consumption, recovery-key failure reporting, recovery-code rotation, Email
   OTP provider delivery, Email OTP enrollment verification/persistence, wallet
-  auth-method revocation, and generic OIDC JWT exchange. Email OTP server-seal
-  apply/remove runs through the Worker-safe Shamir cipher boundary.
+  auth-method revocation, Email OTP add-auth-method start/finalize ceremonies,
+  and generic OIDC JWT exchange. Email OTP server-seal apply/remove runs through
+  the Worker-safe Shamir cipher boundary.
 - Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the property. The D1
@@ -1008,7 +1015,12 @@ Completed:
   `AuthService` helpers.
 - [x] Deleted the disabled Cloudflare relay bindings for
   `createRegistrationIntent`, `createAddSignerIntent`, and
-  `createAddAuthMethodIntent`. Remaining disabled signer methods: 12.
+  `createAddAuthMethodIntent`.
+- [x] Cloudflare relay auth service D1 methods start and finalize Email OTP
+  add-auth-method ceremonies through Durable Object intent and ceremony storage,
+  consume registration Email OTP challenges, bind app-session policy to the
+  exact intent/runtime scope, persist wallet auth-method rows in D1, and consume
+  ceremonies exactly once. Remaining disabled signer methods: 10.
 - [x] The Cloudflare service-bundle relay options are wired to the Durable Object
   normal-signing admission store.
 - [x] The Cloudflare service-bundle relay options are wired to D1-backed
@@ -1042,9 +1054,8 @@ Completed:
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: wallet registration and add-signer/add-auth-method
-  start/prepare/respond/finalize ceremonies, signed delegates, and email
-  recovery HSS responses.
+  Object slices: wallet registration and add-signer start/prepare/respond/finalize
+  ceremonies, signed delegates, and email recovery HSS responses.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
@@ -1114,8 +1125,9 @@ Work:
 - [x] Add Playwright unit coverage for implemented Cloudflare D1 relay auth
   service slices, including recovery-code rotation, generic OIDC JWT exchange,
   Email OTP server-seal transforms, wallet auth-method revocation, Durable
-  Object threshold wiring, D1/DO wallet intent allocation, and the Worker
-  runtime import guard.
+  Object threshold wiring, D1/DO wallet intent allocation, Email OTP
+  add-auth-method start/finalize ceremonies, and the Worker runtime import
+  guard.
 - [x] Keep pure unit fakes for core logic that does not depend on SQL behavior.
 - [ ] Cover every remaining duplicate idempotency, insufficient balance,
   settlement replay, lease races, tenant isolation, sealed-share parsing,
