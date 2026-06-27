@@ -139,6 +139,10 @@ Completed so far:
   resolver. Node/Express supplies the existing resolver explicitly; Cloudflare
   D1/DO routes stay import-clean and require a Worker-safe resolver before
   execution is enabled.
+- Added a Worker-safe sponsored EVM executor resolver backed by the generated
+  `eth_signer` WASM loader URL path. Local D1 relay now calls the real
+  sponsored EVM route handler and supplies the Worker resolver plus
+  `SPONSORED_EVM_EXECUTORS_JSON` config when present.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -978,10 +982,10 @@ Work:
   first mounted route is `/relay/sponsorships/evm/call`, which proves the D1
   relay service bundle can be constructed under Wrangler without importing the
   mixed AuthService or EVM executor graph.
-- Add a Worker-safe sponsored EVM executor resolver before enabling local EVM
-  execution through `/relay/sponsorships/evm/call`. The route contract already
-  accepts an explicit resolver, and the current Node/Express resolver remains
-  isolated outside Worker-facing imports.
+- Keep local EVM execution on `/relay/sponsorships/evm/call` behind
+  `SPONSORED_EVM_EXECUTORS_JSON`. The route contract accepts an explicit
+  resolver, Node/Express supplies the existing Node resolver, and the local D1
+  Worker supplies the Worker-safe resolver.
 - Keep threshold signing disabled on the local relay mount until the dedicated
   signer AuthService slice is complete. This keeps mixed Postgres-backed
   AuthService modules out of the Cloudflare Worker bundle.
@@ -1110,9 +1114,10 @@ Completed baseline:
 - The same SDK local Worker serves `/console/*` through the D1-backed
   Cloudflare console router, so console route development can use Wrangler D1
   without Docker Postgres.
-- The same SDK local Worker serves `/relay/*` through D1-backed relay storage
-  bundle smoke coverage for the simplified sponsored EVM route. Full prepaid
-  sponsorship execution still requires a Worker-safe EVM executor resolver.
+- The same SDK local Worker serves `/relay/*` through the real sponsored EVM
+  route handler with D1-backed relay storage. Without
+  `SPONSORED_EVM_EXECUTORS_JSON`, the route returns the expected disabled
+  response; with executor config, it uses the Worker-safe EVM resolver.
 
 Proceed in this order:
 
@@ -1124,10 +1129,9 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
    Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
    dependency test.
-4. Add the Worker-safe sponsored EVM executor resolver, then add the
-   Cloudflare-safe signer AuthService slice. The SDK package path, console route
-   path, and sponsored-gas relay smoke route already use Wrangler/Miniflare D1
-   and local Durable Object storage.
+4. Add the Cloudflare-safe signer AuthService slice. The SDK package path,
+   console route path, and sponsored-gas relay route already use
+   Wrangler/Miniflare D1 and local Durable Object storage.
 5. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
 6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination

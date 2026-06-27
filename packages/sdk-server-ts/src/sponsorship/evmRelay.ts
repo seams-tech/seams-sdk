@@ -27,27 +27,22 @@ import type { RouteDefinition } from '../router/routeDefinitions';
 import { sendExpressRouteResponse } from '../router/routeResponses';
 import {
   normalizeEvmAddress,
-  normalizeHex32,
-  parseOptionalPositiveInteger,
   type SponsoredEvmCall,
 } from './evm';
 import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from './evmRoutes';
 import type {
   SponsoredEvmCallExecutorConfig,
   SponsoredEvmChainExecutorConfig,
+  SponsoredEvmExecutionAdapter,
   SponsoredEvmExecutionAdapterResolver,
   SponsoredEvmExecutionResult,
 } from './evmExecutorTypes';
+import { resolveSponsoredEvmCallConfigFromRecord } from './evmExecutorConfig';
 
 export {
   DEFAULT_SPONSORED_EVM_CALL_ROUTE,
   DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
 } from './evmRoutes';
-
-const DEFAULT_SPONSORED_EVM_RPC_URL = 'https://rpc.moderato.tempo.xyz';
-const DEFAULT_SPONSORED_EVM_CHAIN_ID = 42_431;
-const DEFAULT_MAX_PRIORITY_FEE_PER_GAS = 2_000_000_000n;
-const DEFAULT_MAX_FEE_PER_GAS = 40_000_000_000n;
 
 export type RegisterSponsoredEvmCallRouteArgs = {
   router: Pick<ExpressRouter, 'post' | 'options'>;
@@ -88,24 +83,6 @@ function bytesToHex(bytes: Uint8Array): `0x${string}` {
 
 function privateKeyHexToBytes(value: `0x${string}`): Uint8Array {
   return Uint8Array.from(Buffer.from(value.slice(2), 'hex'));
-}
-
-function normalizeSponsoredEvmExecutorKind(value: unknown): 'evm_eoa' | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) return 'evm_eoa';
-  return normalized === 'evm_eoa' ? 'evm_eoa' : null;
-}
-
-function parseOptionalUnsignedBigIntLiteral(value: unknown): bigint | null {
-  if (value === undefined || value === null) return null;
-  const normalized = String(value).trim();
-  if (!normalized) return null;
-  try {
-    const parsed = BigInt(normalized);
-    return parsed >= 0n ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 async function deriveEvmAddressFromPrivateKeyHex(
@@ -281,61 +258,12 @@ export async function executeSponsoredEvmCall(args: {
 export async function resolveSponsoredEvmCallConfigFromEnv(
   env: NodeJS.ProcessEnv,
 ): Promise<SponsoredEvmCallExecutorConfig | null> {
-  const raw = String(env.SPONSORED_EVM_EXECUTORS_JSON || '').trim();
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-
-  const executors = new Map<number, SponsoredEvmChainExecutorConfig>();
-  for (const [chainIdRaw, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-    const row = value as Record<string, unknown>;
-    const kind = normalizeSponsoredEvmExecutorKind(row.kind);
-    const chainId =
-      parseOptionalPositiveInteger(chainIdRaw) ||
-      parseOptionalPositiveInteger(row.chainId) ||
-      undefined;
-    const sponsorPrivateKeyHex = normalizeHex32(row.sponsorPrivateKeyHex);
-    if (!kind || !chainId || !sponsorPrivateKeyHex) continue;
-    if (executors.has(chainId)) return null;
-    const maxPriorityFeePerGasFloor =
-      parseOptionalUnsignedBigIntLiteral(row.maxPriorityFeePerGasFloor);
-    if (row.maxPriorityFeePerGasFloor !== undefined && maxPriorityFeePerGasFloor === null) continue;
-    const maxFeePerGasFloor =
-      parseOptionalUnsignedBigIntLiteral(row.maxFeePerGasFloor);
-    if (row.maxFeePerGasFloor !== undefined && maxFeePerGasFloor === null) continue;
-    let sponsorAddress: `0x${string}`;
-    try {
-      sponsorAddress = await deriveEvmAddressFromPrivateKeyHex(sponsorPrivateKeyHex);
-    } catch {
-      continue;
-    }
-    executors.set(chainId, {
-      chainId,
-      rpcUrl:
-        String(row.rpcUrl || '').trim() ||
-        (chainId === DEFAULT_SPONSORED_EVM_CHAIN_ID ? DEFAULT_SPONSORED_EVM_RPC_URL : ''),
-      sponsorAddress,
-      sponsorPrivateKeyHex,
-      maxPriorityFeePerGasFloor:
-        maxPriorityFeePerGasFloor ?? DEFAULT_MAX_PRIORITY_FEE_PER_GAS,
-      maxFeePerGasFloor:
-        maxFeePerGasFloor ?? DEFAULT_MAX_FEE_PER_GAS,
-    });
-  }
-
-  if (executors.size === 0) return null;
-  for (const executor of executors.values()) {
-    if (!executor.rpcUrl) return null;
-  }
-  return {
-    executorsByChain: executors,
-  };
+  return await resolveSponsoredEvmCallConfigFromRecord({
+    env: {
+      SPONSORED_EVM_EXECUTORS_JSON: env.SPONSORED_EVM_EXECUTORS_JSON,
+    },
+    deriveSponsorAddress: deriveEvmAddressFromPrivateKeyHex,
+  });
 }
 
 export function resolveSponsoredEvmExecutorForChain(
@@ -346,23 +274,38 @@ export function resolveSponsoredEvmExecutorForChain(
   return config.executorsByChain.get(chainId) || null;
 }
 
+class ExpressSponsoredEvmExecutionAdapter implements SponsoredEvmExecutionAdapter {
+  readonly executorKind = 'evm_eoa' as const;
+
+  readonly meta: {
+    readonly chainId: number;
+    readonly sponsorAddress: `0x${string}`;
+  };
+
+  constructor(
+    private readonly executor: SponsoredEvmChainExecutorConfig,
+    private readonly call: SponsoredEvmCall,
+  ) {
+    this.meta = {
+      chainId: executor.chainId,
+      sponsorAddress: executor.sponsorAddress,
+    };
+  }
+
+  async execute(): Promise<SponsoredEvmExecutionResult> {
+    return await executeSponsoredEvmCall({
+      executor: this.executor,
+      call: this.call,
+    });
+  }
+}
+
 const resolveSponsoredEvmExecutionAdapterForRoute: SponsoredEvmExecutionAdapterResolver = (
   input,
 ) => {
   const executor = resolveSponsoredEvmExecutorForChain(input.config, input.chainId);
   if (!executor) return null;
-  return {
-    executorKind: 'evm_eoa',
-    meta: {
-      chainId: executor.chainId,
-      sponsorAddress: executor.sponsorAddress,
-    },
-    execute: async () =>
-      await executeSponsoredEvmCall({
-        executor,
-        call: input.call,
-      }),
-  };
+  return new ExpressSponsoredEvmExecutionAdapter(executor, input.call);
 };
 
 export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRouteArgs): void {
