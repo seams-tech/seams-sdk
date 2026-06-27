@@ -125,7 +125,7 @@ Completed so far:
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
 - Wired the local D1/DO smoke Worker `/readyz` path to verify the required
-  local D1 table sets, currently 40 console tables and 20 signer tables, and
+  local D1 table sets, currently 40 console tables and 21 signer tables, and
   exercise the Durable Object normal-signing admission operation without
   importing Postgres-backed modules.
 - Wired the local Wrangler Worker `/console/*` path to the real Cloudflare
@@ -179,9 +179,10 @@ Completed so far:
   parses `signer_email_otp_recovery_wrapped_enrollment_escrows`, verifies each
   escrow matches the active enrollment, and returns active/consumed/revoked
   recovery-code counts.
-- Added D1-backed Email OTP grant consumption. `consumeEmailOtpGrant` now uses
-  tenant-scoped `DELETE ... RETURNING` against `signer_email_otp_grants`, so
-  valid grants, expired grants, and binding mismatches are all one-time use.
+- Added D1-backed Email OTP login challenge issuance, local memory dev outbox
+  reads, verification, grant minting, grant consumption, and fixed-window rate
+  limiting for challenge, verify, and grant scopes. Challenge verification and
+  grant consumption both use tenant-scoped one-time D1 mutations.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -467,7 +468,7 @@ Current Postgres coupling is concentrated in:
 | WebAuthn | `webauthn_authenticators`, `webauthn_credential_bindings`, `webauthn_challenges` | `SIGNER_DB` D1 | D1 authenticator, credential-binding, login-challenge, and sync-challenge adapters, append-only migration, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, and atomic challenge consumption tests are in place. Tenant/project/env scope is required. |
 | Registration | `wallet_registration_intents`, `wallet_registration_ceremonies` | Durable Object | Already implemented through `CloudflareDurableObjectRegistrationCeremonyStore` with tests for one-time grant, preparation, ceremony, and finalize replay consumption. Keep these records out of D1 because they are short-lived ceremony coordination state, not dashboard-queryable metadata. |
 | Wallet metadata | `wallets`, `wallet_auth_methods`, `wallet_signers` | `SIGNER_DB` D1 | D1 wallet and wallet-auth-method adapters, append-only migration, explicit `kind: 'd1'` factory selectors, tenant/project/env-scoped options, local smoke coverage, and tenant-scoping contract tests are in place. Keep wallet ID, org, project, env, RP ID, and chain identity required. |
-| Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts` | `SIGNER_DB` D1 | D1 adapters, append-only migration, local smoke coverage, explicit `kind: 'd1'` factory selectors, tenant-scoped adapter test, one-time grant/unlock consumption, registration-attempt scope disambiguation, and expiry deletion coverage are in place. Challenge/grant expiry stays adapter-owned. JSON is stored as `TEXT` with normalized lookup columns. |
+| Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts`, `signer_email_otp_rate_limits` | `SIGNER_DB` D1 | D1 adapters, append-only migrations, local smoke coverage, explicit `kind: 'd1'` factory selectors, tenant-scoped adapter tests, one-time grant/unlock consumption, login challenge issue/verify/grant flow, fixed-window rate limiting, registration-attempt scope disambiguation, and expiry deletion coverage are in place. Challenge/grant expiry stays adapter-owned. JSON is stored as `TEXT` with normalized lookup columns. |
 | Threshold public-key metadata | Future signer key index tables if dashboard lookup needs them | `SIGNER_DB` D1 | Store public identifiers only: wallet ID, auth method, RP ID, signing-root ID/version, public key, chain address, status, and audit timestamps. The current `threshold_ed25519_keys` and `threshold_ecdsa_keys` store interfaces contain relayer signing shares, so they remain outside the D1 metadata scope until replaced by sealed-share based persistence. |
 | Legacy threshold key-store records | `threshold_ed25519_keys`, `threshold_ecdsa_keys` | Durable Object or retired behind sealed signing-root shares | These records are secret-bearing under the current TypeScript interfaces. Production D1/DO staging must either use sealed signing-root share storage for these secrets or keep the existing DO path as a temporary coordination store with a deletion plan. Do not add raw-share D1 tables. |
 | Sealed signing-root shares | `signing_root_secret_shares`, `signer_signing_root_secret_shares` | `SIGNER_DB` D1 | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. |
@@ -505,8 +506,8 @@ Before D1 staging, these adapters must exist behind domain-store ports:
   reconciliation views require it.
 - Signer D1 in place: WebAuthn, wallet metadata, wallet auth methods, identity
   links, app-session versions, recovery sessions, recovery executions, NEAR
-  public keys, email recovery preparations, Email OTP, and sealed signing-root
-  secret shares.
+  public keys, email recovery preparations, Email OTP login challenge/grant
+  flow, Email OTP rate limits, and sealed signing-root secret shares.
 - Durable Objects in place: registration intents, HSS preparations,
   registration ceremonies, add-signer/add-auth-method ceremonies, finalize
   replay records, signing-session use counts, wallet signing budgets,
@@ -1019,7 +1020,7 @@ Work:
   migrations plus table smoke, and
   `pnpm --dir packages/sdk-server-ts run d1:local:dev` for Wrangler dev.
 - Use `GET /readyz` on the local Worker as the exact readiness gate. It must
-  report `backend: "cloudflare_d1_do"`, 40 console tables, 20 signer tables,
+  report `backend: "cloudflare_d1_do"`, 40 console tables, 21 signer tables,
   and a configured Durable Object admission reservation.
 - Use `/console/*` on the same local Worker for real D1-backed console route
   development. Local console auth reads optional `X-Console-*` headers and falls
@@ -1044,9 +1045,9 @@ Work:
   modules from Worker-facing files.
 - The first D1-backed signer metadata methods are in place for identity lists,
   app-session version create/rotate/validate, WebAuthn authenticator inventory,
-  and NEAR public-key inventory. Continue porting mutating auth, Email OTP,
-  WebAuthn verification, wallet registration, recovery, signed delegate, and
-  threshold methods behind the same port.
+  and NEAR public-key inventory. Continue porting the remaining mutating auth,
+  Email OTP registration/recovery, WebAuthn verification, wallet registration,
+  recovery, signed delegate, and threshold methods behind the same port.
 - D1-backed identity link/unlink is also in place. Continue using conditional
   D1 mutations for signer state transitions that need invariants enforced by the
   database rather than relying on route-level read/modify/write checks.
@@ -1055,9 +1056,12 @@ Work:
   and production should provide `ACCOUNT_ID_DERIVATION_SECRET` through Cloudflare
   secrets or the configured KMS adapter.
 - Read-only Email OTP enrollment lookup, recovery escrow status reads, and
-  one-time grant consumption are in place for D1. Continue porting Email OTP
-  challenge issuance, Email OTP rate limiting, and registration-attempt lifecycle
-  as separate conditional-D1 slices.
+  login challenge issuance, local memory dev outbox reads, verification, grant
+  minting, one-time grant consumption, and D1 fixed-window rate limiting are in
+  place for D1. Continue porting provider email delivery, Email OTP
+  registration-attempt lifecycle, device-recovery challenge verification,
+  recovery-key consumption, and recovery-code rotation as separate
+  conditional-D1 slices.
 - Email OTP strong-auth freshness is in place for D1 using an auth-state upsert
   that preserves existing failure/login fields while updating
   `lastStrongAuthAtMs`.
@@ -1152,7 +1156,7 @@ curl http://127.0.0.1:8787/relay/healthz
 ```
 
 The local `/readyz` response must confirm `cloudflare_d1_do`, 40 console
-tables, 20 signer tables, `CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, and a
+tables, 21 signer tables, `CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, and a
 successful Durable Object normal-signing admission reservation.
 
 ## Immediate Next Steps
@@ -1177,7 +1181,7 @@ Completed baseline:
 - `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` now enforces
   the no-Postgres Worker runtime graph from the Cloudflare entrypoints.
 - The SDK local command path runs D1 migrations and table smoke for the
-  simplified D1/DO surface, and `/readyz` enforces 40 console tables, 20 signer
+  simplified D1/DO surface, and `/readyz` enforces 40 console tables, 21 signer
   tables, and Durable Object admission readiness.
 - The same SDK local Worker serves `/console/*` through the D1-backed
   Cloudflare console router, so console route development can use Wrangler D1
@@ -1201,17 +1205,20 @@ Completed baseline:
   and last-identity semantics aligned with the current signer behavior.
 - Non-Google OIDC wallet resolution now uses the D1 identity overlay and hosted
   account derivation. Google Email OTP session resolution remains fail-closed
-  until the Email OTP stores move behind D1/DO.
-- Email OTP enrollment reads now use the D1 overlay. Email OTP mutating flows
-  remain fail-closed until their D1 conditional-write contracts are implemented.
-- Email OTP strong-auth freshness checks now use the D1 overlay. Challenge,
-  verification, grant, recovery, and registration-attempt flows remain
-  fail-closed.
+  until the Google registration-attempt and session-resolution contracts move
+  behind D1/DO.
+- Email OTP enrollment reads now use the D1 overlay.
+- Email OTP strong-auth freshness checks now use the D1 overlay and share the
+  same auth-state writer as OTP failure/lockout updates.
 - Email OTP recovery-code status now uses the D1 overlay. Recovery key
   consumption and rotation remain fail-closed until their conditional-D1 mutation
   contracts are implemented.
-- Email OTP grant consumption now uses the D1 overlay. Challenge issuance,
-  verification, rate limiting, and registration-attempt flows remain fail-closed.
+- Email OTP login challenge issuance, local memory dev outbox reads,
+  verification, grant minting, one-time grant consumption, and D1 fixed-window
+  rate limiting now use the D1 overlay. Provider email delivery,
+  registration-attempt lifecycle, device recovery, recovery-key consumption, and
+  recovery-code rotation remain fail-closed until their conditional-D1 contracts
+  are implemented.
 
 Proceed in this order:
 

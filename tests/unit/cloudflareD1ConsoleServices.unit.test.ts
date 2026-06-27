@@ -140,7 +140,7 @@ function firstFakeD1Row<T>(query: string): T | null {
     return { table_count: 40 } as T;
   }
   if (query.includes('sqlite_master') && query.includes('signer_email_otp_registration_attempts')) {
-    return { table_count: 20 } as T;
+    return { table_count: 21 } as T;
   }
   return null;
 }
@@ -276,7 +276,7 @@ test('local D1 Worker ready smoke validates D1 tables and DO admission', async (
     namespace: 'seams-local-test',
     schemas: {
       consoleTables: 40,
-      signerTables: 20,
+      signerTables: 21,
     },
     admission: {
       durableObject: 'configured',

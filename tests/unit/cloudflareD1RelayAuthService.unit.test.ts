@@ -102,6 +102,7 @@ function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
     'packages/sdk-server-ts/migrations/d1-signer/0004_signer_identity.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0006_signer_near_public_keys.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0008_signer_email_otp.sql',
+    'packages/sdk-server-ts/migrations/d1-signer/0009_signer_email_otp_rate_limits.sql',
   ]);
 }
 
@@ -923,6 +924,186 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       configured: true,
       clientId: 'google-client',
     });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service issues and verifies login Email OTP challenges', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+      emailOtpMaxAttempts: 2,
+    });
+
+    const challenge = await service.createEmailOtpChallenge({
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      otpChannel: 'email_otp',
+      sessionHash: 'session-hash-a',
+      appSessionVersion: 'session-v1',
+      operation: 'wallet_unlock',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    expect(challenge.delivery).toMatchObject({
+      status: 'sent',
+      mode: 'memory',
+      emailHint: 'a***e@e***e.test',
+    });
+
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+    expect(outbox.otpCode).toMatch(/^[0-9]{6}$/);
+
+    await expect(
+      service.verifyEmailOtpChallenge({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: '000000' === outbox.otpCode ? '111111' : '000000',
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'session-v1',
+        operation: 'wallet_unlock',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'invalid_otp', attemptsRemaining: 1 });
+
+    const verified = await service.verifyEmailOtpChallenge({
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: 'session-hash-a',
+      appSessionVersion: 'session-v1',
+      operation: 'wallet_unlock',
+    });
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) throw new Error(verified.message);
+    expect(verified.challengeId).toBe(challenge.challenge.challengeId);
+    expect(verified.loginGrant).toMatch(/^[A-Za-z0-9_-]+$/);
+
+    await expect(
+      service.readEmailOtpOutboxEntry({
+        challengeId: challenge.challenge.challengeId,
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'not_found' });
+    await expect(
+      service.verifyEmailOtpChallenge({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: outbox.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'session-v1',
+        operation: 'wallet_unlock',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
+
+    await expect(
+      service.consumeEmailOtpGrant({
+        loginGrant: verified.loginGrant,
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'session-v1',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      challengeId: challenge.challenge.challengeId,
+      otpChannel: 'email_otp',
+    });
+    await expect(
+      service.consumeEmailOtpGrant({
+        loginGrant: verified.loginGrant,
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'session-v1',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service enforces Email OTP challenge rate limits', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+      emailOtpChallengeRateLimitMax: 1,
+      emailOtpChallengeRateLimitWindowMs: 60_000,
+    });
+
+    await expect(
+      service.createEmailOtpChallenge({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'session-v1',
+        operation: 'wallet_unlock',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      service.createEmailOtpChallenge({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-b',
+        appSessionVersion: 'session-v1',
+        operation: 'wallet_unlock',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'rate_limited' });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

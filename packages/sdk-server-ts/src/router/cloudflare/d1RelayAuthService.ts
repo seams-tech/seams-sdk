@@ -1,6 +1,11 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
-import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_ACTIONS } from '@shared/utils/emailOtpDomain';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+  isWalletEmailOtpLoginOperation,
+} from '@shared/utils/emailOtpDomain';
 import {
   EMAIL_OTP_RECOVERY_KEY_COUNT,
   EMAIL_OTP_RECOVERY_WRAP_ALG,
@@ -10,7 +15,10 @@ import {
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import type {
   EmailOtpAuthStateRecord,
+  EmailOtpChallengeOperation,
+  EmailOtpChallengeRecord,
   EmailOtpGrantRecord,
+  EmailOtpLoginChallengeOperation,
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
@@ -32,7 +40,75 @@ export interface CloudflareD1RelayAuthServiceOptions {
   readonly relayerPublicKey?: string;
   readonly googleOidcClientId?: string;
   readonly accountIdDerivationSecret?: string;
+  readonly emailOtpDeliveryMode?: string;
+  readonly emailOtpDevOutboxEnabled?: boolean | string;
+  readonly emailOtpProduction?: boolean | string;
+  readonly emailOtpChallengeTtlMs?: number | string;
+  readonly emailOtpGrantTtlMs?: number | string;
+  readonly emailOtpMaxAttempts?: number | string;
+  readonly emailOtpLockoutTtlMs?: number | string;
+  readonly emailOtpCodeLength?: number | string;
+  readonly emailOtpMaxActiveChallengesPerContext?: number | string;
+  readonly emailOtpChallengeRateLimitMax?: number | string;
+  readonly emailOtpChallengeRateLimitWindowMs?: number | string;
+  readonly emailOtpVerifyRateLimitMax?: number | string;
+  readonly emailOtpVerifyRateLimitWindowMs?: number | string;
+  readonly emailOtpGrantRateLimitMax?: number | string;
+  readonly emailOtpGrantRateLimitWindowMs?: number | string;
 }
+
+type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory';
+
+type EmailOtpRuntimeConfig = {
+  readonly deliveryMode: EmailOtpDeliveryMode;
+  readonly devOutboxEnabled: boolean;
+  readonly production: boolean;
+  readonly challengeTtlMs: number;
+  readonly grantTtlMs: number;
+  readonly maxAttempts: number;
+  readonly lockoutTtlMs: number;
+  readonly codeLength: number;
+  readonly maxActiveChallengesPerContext: number;
+  readonly rateLimits: {
+    readonly challenge: EmailOtpRateLimitPolicy;
+    readonly verify: EmailOtpRateLimitPolicy;
+    readonly grant: EmailOtpRateLimitPolicy;
+  };
+};
+
+type EmailOtpRateLimitPolicy = {
+  readonly limit: number;
+  readonly windowMs: number;
+};
+
+type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
+  CloudflareD1RelayAuthServiceOptions,
+  | 'relayerAccount'
+  | 'relayerPublicKey'
+  | 'googleOidcClientId'
+  | 'accountIdDerivationSecret'
+  | 'emailOtpDeliveryMode'
+  | 'emailOtpDevOutboxEnabled'
+  | 'emailOtpProduction'
+  | 'emailOtpChallengeTtlMs'
+  | 'emailOtpGrantTtlMs'
+  | 'emailOtpMaxAttempts'
+  | 'emailOtpLockoutTtlMs'
+  | 'emailOtpCodeLength'
+  | 'emailOtpMaxActiveChallengesPerContext'
+  | 'emailOtpChallengeRateLimitMax'
+  | 'emailOtpChallengeRateLimitWindowMs'
+  | 'emailOtpVerifyRateLimitMax'
+  | 'emailOtpVerifyRateLimitWindowMs'
+  | 'emailOtpGrantRateLimitMax'
+  | 'emailOtpGrantRateLimitWindowMs'
+> & {
+  readonly relayerAccount?: string;
+  readonly relayerPublicKey?: string;
+  readonly googleOidcClientId?: string;
+  readonly accountIdDerivationSecret?: string;
+  readonly emailOtp: EmailOtpRuntimeConfig;
+};
 
 type ListIdentitiesInput = Parameters<CloudflareRelayAuthService['listIdentities']>[0];
 type ListIdentitiesResult = Awaited<ReturnType<CloudflareRelayAuthService['listIdentities']>>;
@@ -77,6 +153,24 @@ type GetEmailOtpRecoveryCodeStatusResult = Awaited<
 type ConsumeEmailOtpGrantInput = Parameters<CloudflareRelayAuthService['consumeEmailOtpGrant']>[0];
 type ConsumeEmailOtpGrantResult = Awaited<
   ReturnType<CloudflareRelayAuthService['consumeEmailOtpGrant']>
+>;
+type CreateEmailOtpChallengeInput = Parameters<
+  CloudflareRelayAuthService['createEmailOtpChallenge']
+>[0];
+type CreateEmailOtpChallengeResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['createEmailOtpChallenge']>
+>;
+type VerifyEmailOtpChallengeInput = Parameters<
+  CloudflareRelayAuthService['verifyEmailOtpChallenge']
+>[0];
+type VerifyEmailOtpChallengeResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyEmailOtpChallenge']>
+>;
+type ReadEmailOtpOutboxEntryInput = Parameters<
+  CloudflareRelayAuthService['readEmailOtpOutboxEntry']
+>[0];
+type ReadEmailOtpOutboxEntryResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['readEmailOtpOutboxEntry']>
 >;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
@@ -131,6 +225,12 @@ type D1EmailOtpAuthStateRow = {
   readonly updated_at_ms?: unknown;
 };
 
+type D1EmailOtpChallengeRow = {
+  readonly challenge_id?: unknown;
+  readonly record_json?: unknown;
+  readonly expires_at_ms?: unknown;
+};
+
 type D1EmailOtpRecoveryEscrowRow = {
   readonly record_json?: unknown;
   readonly updated_at_ms?: unknown;
@@ -139,6 +239,11 @@ type D1EmailOtpRecoveryEscrowRow = {
 type D1EmailOtpGrantRow = {
   readonly record_json?: unknown;
   readonly expires_at_ms?: unknown;
+};
+
+type D1EmailOtpRateLimitRow = {
+  readonly consumed_count?: unknown;
+  readonly reset_at_ms?: unknown;
 };
 
 type D1AuthenticatorRow = {
@@ -187,15 +292,204 @@ type NearPublicKeyRecord = {
   readonly updatedAtMs?: number;
 };
 
+type EmailOtpOutboxEntry = {
+  readonly walletId: string;
+  readonly userId: string;
+  readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
+  readonly emailHint: string;
+  readonly otpCode: string;
+  readonly expiresAtMs: number;
+};
+
+type EmailOtpAuthStatePatch = {
+  readonly otpFailureCount?: number | null;
+  readonly lastOtpFailureAtMs?: number | null;
+  readonly otpLockedUntilMs?: number | null;
+  readonly lastEmailOtpLoginAtMs?: number | null;
+  readonly lastStrongAuthAtMs?: number | null;
+};
+
+type EmailOtpRateLimitScope = 'challenge' | 'verify' | 'grant';
+
 function requireD1RelayAuthScopeString(input: unknown, field: string): string {
   const value = toOptionalTrimmedString(input);
   if (!value) throw new Error(`${field} is required for Cloudflare D1 relay auth service`);
   return value;
 }
 
+function parseBooleanFlag(input: unknown, fallback: boolean, field: string): boolean {
+  if (input == null || input === '') return fallback;
+  if (typeof input === 'boolean') return input;
+  const value = toOptionalTrimmedString(input)?.toLowerCase();
+  switch (value) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'on':
+      return true;
+    case '0':
+    case 'false':
+    case 'no':
+    case 'off':
+      return false;
+    default:
+      throw new Error(`${field} must be a boolean flag`);
+  }
+}
+
+function configuredInteger(input: {
+  readonly field: string;
+  readonly raw: unknown;
+  readonly fallback: number;
+  readonly min: number;
+  readonly max: number;
+}): number {
+  if (input.raw == null || input.raw === '') return input.fallback;
+  const value = typeof input.raw === 'number' ? input.raw : Number(input.raw);
+  if (!Number.isFinite(value)) throw new Error(`${input.field} must be a finite number`);
+  if (value < input.min || value > input.max) {
+    throw new Error(`${input.field} must be between ${input.min} and ${input.max}`);
+  }
+  return Math.floor(value);
+}
+
+function normalizeEmailOtpDeliveryMode(input: unknown): EmailOtpDeliveryMode {
+  const value = toOptionalTrimmedString(input)?.toLowerCase() || 'email_provider';
+  switch (value) {
+    case 'email_provider':
+    case 'log':
+    case 'memory':
+      return value;
+    default:
+      throw new Error('emailOtpDeliveryMode must be one of email_provider, log, or memory');
+  }
+}
+
+function emailOtpRateLimitPolicy(input: {
+  readonly limitField: string;
+  readonly limitRaw: unknown;
+  readonly limitFallback: number;
+  readonly limitMax: number;
+  readonly windowField: string;
+  readonly windowRaw: unknown;
+  readonly windowFallback: number;
+}): EmailOtpRateLimitPolicy {
+  return {
+    limit: configuredInteger({
+      field: input.limitField,
+      raw: input.limitRaw,
+      fallback: input.limitFallback,
+      min: 1,
+      max: input.limitMax,
+    }),
+    windowMs: configuredInteger({
+      field: input.windowField,
+      raw: input.windowRaw,
+      fallback: input.windowFallback,
+      min: 1_000,
+      max: 24 * 60 * 60_000,
+    }),
+  };
+}
+
+function normalizeEmailOtpConfig(
+  input: CloudflareD1RelayAuthServiceOptions,
+): EmailOtpRuntimeConfig {
+  const production = parseBooleanFlag(input.emailOtpProduction, false, 'emailOtpProduction');
+  const deliveryMode = normalizeEmailOtpDeliveryMode(input.emailOtpDeliveryMode);
+  const challengeDefault = production
+    ? { limit: 5, windowMs: 5 * 60_000 }
+    : { limit: 100, windowMs: 60_000 };
+  const verifyDefault = production
+    ? { limit: 10, windowMs: 5 * 60_000 }
+    : { limit: 100, windowMs: 60_000 };
+  const grantDefault = production
+    ? { limit: 8, windowMs: 5 * 60_000 }
+    : { limit: 100, windowMs: 60_000 };
+  return {
+    deliveryMode,
+    production,
+    devOutboxEnabled:
+      deliveryMode === 'memory' &&
+      !production &&
+      parseBooleanFlag(input.emailOtpDevOutboxEnabled, true, 'emailOtpDevOutboxEnabled'),
+    challengeTtlMs: configuredInteger({
+      field: 'emailOtpChallengeTtlMs',
+      raw: input.emailOtpChallengeTtlMs,
+      fallback: 5 * 60_000,
+      min: 30_000,
+      max: 15 * 60_000,
+    }),
+    grantTtlMs: configuredInteger({
+      field: 'emailOtpGrantTtlMs',
+      raw: input.emailOtpGrantTtlMs,
+      fallback: 30_000,
+      min: 10_000,
+      max: 5 * 60_000,
+    }),
+    maxAttempts: configuredInteger({
+      field: 'emailOtpMaxAttempts',
+      raw: input.emailOtpMaxAttempts,
+      fallback: 5,
+      min: 1,
+      max: 10,
+    }),
+    lockoutTtlMs: configuredInteger({
+      field: 'emailOtpLockoutTtlMs',
+      raw: input.emailOtpLockoutTtlMs,
+      fallback: 15 * 60_000,
+      min: 60_000,
+      max: 24 * 60 * 60_000,
+    }),
+    codeLength: configuredInteger({
+      field: 'emailOtpCodeLength',
+      raw: input.emailOtpCodeLength,
+      fallback: 6,
+      min: 6,
+      max: 8,
+    }),
+    maxActiveChallengesPerContext: configuredInteger({
+      field: 'emailOtpMaxActiveChallengesPerContext',
+      raw: input.emailOtpMaxActiveChallengesPerContext,
+      fallback: 5,
+      min: 1,
+      max: 20,
+    }),
+    rateLimits: {
+      challenge: emailOtpRateLimitPolicy({
+        limitField: 'emailOtpChallengeRateLimitMax',
+        limitRaw: input.emailOtpChallengeRateLimitMax,
+        limitFallback: challengeDefault.limit,
+        limitMax: 500,
+        windowField: 'emailOtpChallengeRateLimitWindowMs',
+        windowRaw: input.emailOtpChallengeRateLimitWindowMs,
+        windowFallback: challengeDefault.windowMs,
+      }),
+      verify: emailOtpRateLimitPolicy({
+        limitField: 'emailOtpVerifyRateLimitMax',
+        limitRaw: input.emailOtpVerifyRateLimitMax,
+        limitFallback: verifyDefault.limit,
+        limitMax: 1000,
+        windowField: 'emailOtpVerifyRateLimitWindowMs',
+        windowRaw: input.emailOtpVerifyRateLimitWindowMs,
+        windowFallback: verifyDefault.windowMs,
+      }),
+      grant: emailOtpRateLimitPolicy({
+        limitField: 'emailOtpGrantRateLimitMax',
+        limitRaw: input.emailOtpGrantRateLimitMax,
+        limitFallback: grantDefault.limit,
+        limitMax: 1000,
+        windowField: 'emailOtpGrantRateLimitWindowMs',
+        windowRaw: input.emailOtpGrantRateLimitWindowMs,
+        windowFallback: grantDefault.windowMs,
+      }),
+    },
+  };
+}
+
 function normalizeD1RelayAuthOptions(
   input: CloudflareD1RelayAuthServiceOptions,
-): CloudflareD1RelayAuthServiceOptions {
+): NormalizedCloudflareD1RelayAuthServiceOptions {
   return {
     database: input.database,
     namespace: requireD1RelayAuthScopeString(input.namespace, 'namespace'),
@@ -206,6 +500,7 @@ function normalizeD1RelayAuthOptions(
     relayerPublicKey: toOptionalTrimmedString(input.relayerPublicKey),
     googleOidcClientId: toOptionalTrimmedString(input.googleOidcClientId),
     accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),
+    emailOtp: normalizeEmailOtpConfig(input),
   };
 }
 
@@ -445,6 +740,168 @@ function parseEmailOtpAuthStateRow(
   const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
   if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
   return record;
+}
+
+function parseEmailOtpChallengeOperation(input: unknown): EmailOtpChallengeOperation | null {
+  const operation = toOptionalTrimmedString(input);
+  if (!operation) return null;
+  if (isWalletEmailOtpLoginOperation(operation)) return operation;
+  return null;
+}
+
+function parseEmailOtpLoginOperation(input: unknown): EmailOtpLoginChallengeOperation {
+  const operation = toOptionalTrimmedString(input);
+  if (operation && isWalletEmailOtpLoginOperation(operation)) return operation;
+  return WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+}
+
+function parseEmailOtpChallengeRecord(input: unknown): EmailOtpChallengeRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const challengeSubjectId = toOptionalTrimmedString(record.challengeSubjectId);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const otpChannel = toOptionalTrimmedString(record.otpChannel);
+  const email = toOptionalTrimmedString(record.email)?.toLowerCase() || '';
+  const otpCode = toOptionalTrimmedString(record.otpCode);
+  const sessionHash = toOptionalTrimmedString(record.sessionHash);
+  const appSessionVersion = toOptionalTrimmedString(record.appSessionVersion);
+  const action = toOptionalTrimmedString(record.action);
+  const operation = parseEmailOtpChallengeOperation(record.operation);
+  const createdAtMs = positiveSafeInteger(record.createdAtMs);
+  const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
+  const attemptCount = nonNegativeSafeInteger(record.attemptCount);
+  const maxAttempts = positiveSafeInteger(record.maxAttempts);
+  if (
+    version !== 'email_otp_challenge_v1' ||
+    !challengeId ||
+    !challengeSubjectId ||
+    !walletId ||
+    !email ||
+    !otpCode ||
+    !sessionHash ||
+    !appSessionVersion ||
+    action !== WALLET_EMAIL_OTP_ACTIONS.login ||
+    !operation ||
+    otpChannel !== EMAIL_OTP_CHANNEL ||
+    !createdAtMs ||
+    !expiresAtMs ||
+    attemptCount === null ||
+    !maxAttempts ||
+    expiresAtMs <= createdAtMs
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_challenge_v1',
+    challengeId,
+    challengeSubjectId,
+    walletId,
+    ...(orgId ? { orgId } : {}),
+    otpChannel: EMAIL_OTP_CHANNEL,
+    email,
+    otpCode,
+    sessionHash,
+    appSessionVersion,
+    action: WALLET_EMAIL_OTP_ACTIONS.login,
+    operation,
+    createdAtMs,
+    expiresAtMs,
+    attemptCount,
+    maxAttempts,
+  };
+}
+
+function parseEmailOtpChallengeRow(
+  row: D1EmailOtpChallengeRow | null,
+): EmailOtpChallengeRecord | null {
+  const record = parseEmailOtpChallengeRecord(row?.record_json);
+  const expiresAtMs = positiveSafeInteger(row?.expires_at_ms);
+  if (!record || !expiresAtMs || record.expiresAtMs !== expiresAtMs) return null;
+  return record;
+}
+
+function emailOtpChallengeContextValues(input: {
+  readonly challengeSubjectId: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly sessionHash: string;
+  readonly appSessionVersion: string;
+  readonly operation: EmailOtpLoginChallengeOperation;
+}): readonly unknown[] {
+  return [
+    input.challengeSubjectId,
+    input.walletId,
+    input.orgId,
+    EMAIL_OTP_CHANNEL,
+    input.sessionHash,
+    input.appSessionVersion,
+    WALLET_EMAIL_OTP_ACTIONS.login,
+    input.operation,
+  ];
+}
+
+function emailOtpChallengeRecord(input: {
+  readonly challengeId: string;
+  readonly challengeSubjectId: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly email: string;
+  readonly otpCode: string;
+  readonly sessionHash: string;
+  readonly appSessionVersion: string;
+  readonly operation: EmailOtpLoginChallengeOperation;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+  readonly maxAttempts: number;
+}): EmailOtpChallengeRecord {
+  return {
+    version: 'email_otp_challenge_v1',
+    challengeId: input.challengeId,
+    challengeSubjectId: input.challengeSubjectId,
+    walletId: input.walletId,
+    orgId: input.orgId,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    email: input.email,
+    otpCode: input.otpCode,
+    sessionHash: input.sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    action: WALLET_EMAIL_OTP_ACTIONS.login,
+    operation: input.operation,
+    createdAtMs: input.createdAtMs,
+    expiresAtMs: input.expiresAtMs,
+    attemptCount: 0,
+    maxAttempts: input.maxAttempts,
+  };
+}
+
+function emailOtpGrantRecord(input: {
+  readonly grantToken: string;
+  readonly userId: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly challengeId: string;
+  readonly sessionHash: string;
+  readonly appSessionVersion: string;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+}): EmailOtpGrantRecord {
+  return {
+    version: 'email_otp_grant_v1',
+    grantToken: input.grantToken,
+    userId: input.userId,
+    walletId: input.walletId,
+    orgId: input.orgId,
+    challengeId: input.challengeId,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash: input.sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    action: WALLET_EMAIL_OTP_ACTIONS.unseal,
+    issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.expiresAtMs,
+  };
 }
 
 function parseEmailOtpGrantRecord(input: unknown): EmailOtpGrantRecord | null {
@@ -719,8 +1176,135 @@ function parseNearPublicKeyKind(
   }
 }
 
+function maskEmail(email: string): string {
+  const trimmed = email.trim().toLowerCase();
+  const atIndex = trimmed.indexOf('@');
+  if (atIndex <= 0 || atIndex === trimmed.length - 1) return 'hidden';
+  const local = trimmed.slice(0, atIndex);
+  const domain = trimmed.slice(atIndex + 1);
+  const localMask =
+    local.length <= 2 ? `${local[0] || '*'}*` : `${local[0]}***${local.slice(-1)}`;
+  const domainParts = domain.split('.');
+  const domainName = domainParts[0] || '';
+  const domainMask =
+    domainName.length <= 2
+      ? `${domainName[0] || '*'}*`
+      : `${domainName[0]}***${domainName.slice(-1)}`;
+  return `${localMask}@${[domainMask, ...domainParts.slice(1)].join('.')}`;
+}
+
+function generateNumericOtp(length: number): string {
+  if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+    throw new Error('crypto.getRandomValues is unavailable in this runtime');
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  let code = '';
+  for (const byte of bytes) code += String(byte % 10);
+  return code;
+}
+
+function emailOtpRateLimitKeys(input: {
+  readonly scope: EmailOtpRateLimitScope;
+  readonly action?: string;
+  readonly policy: EmailOtpRateLimitPolicy;
+  readonly userId?: string;
+  readonly walletId?: string;
+  readonly orgId?: string;
+  readonly clientIp?: string;
+}): readonly string[] {
+  const keySuffix = [
+    `scope=${input.scope}`,
+    `action=${input.action || 'default'}`,
+    `limit=${input.policy.limit}`,
+    `windowMs=${input.policy.windowMs}`,
+  ].join(':');
+  return [
+    input.clientIp ? `${keySuffix}:ip:${input.clientIp}` : '',
+    input.userId ? `${keySuffix}:user:${input.userId}` : '',
+    input.walletId ? `${keySuffix}:wallet:${input.walletId}` : '',
+    input.orgId ? `${keySuffix}:org:${input.orgId}` : '',
+  ].filter(Boolean);
+}
+
+function emailOtpRateLimitExceeded(row: D1EmailOtpRateLimitRow | null): {
+  ok: false;
+  code: 'rate_limited';
+  message: string;
+  retryAfterMs?: number;
+  resetAtMs?: number;
+} {
+  const resetAtMs = positiveSafeInteger(row?.reset_at_ms);
+  const retryAfterMs = resetAtMs ? Math.max(0, resetAtMs - Date.now()) : undefined;
+  return {
+    ok: false,
+    code: 'rate_limited',
+    message: 'Email OTP rate limit exceeded',
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+    ...(resetAtMs ? { resetAtMs } : {}),
+  };
+}
+
+function emailOtpChallengeInvalidOrExpired(): {
+  ok: false;
+  code: string;
+  message: string;
+} {
+  return {
+    ok: false,
+    code: 'challenge_expired_or_invalid',
+    message: 'Email OTP challenge expired or invalid',
+  };
+}
+
+function emailOtpChallengeBindingMismatchCode(input: {
+  readonly record: EmailOtpChallengeRecord;
+  readonly userId: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly sessionHash: string;
+  readonly appSessionVersion: string;
+  readonly operation: EmailOtpLoginChallengeOperation;
+}): string | null {
+  if (input.record.otpChannel !== EMAIL_OTP_CHANNEL) return 'challenge_channel_mismatch';
+  if (input.record.challengeSubjectId !== input.userId) return 'challenge_subject_mismatch';
+  if (input.record.walletId !== input.walletId) return 'challenge_wallet_mismatch';
+  if (String(input.record.orgId || '') !== input.orgId) return 'challenge_org_mismatch';
+  if (input.record.action !== WALLET_EMAIL_OTP_ACTIONS.login) return 'challenge_purpose_mismatch';
+  if (input.record.operation !== input.operation) return 'challenge_purpose_mismatch';
+  if (input.record.sessionHash !== input.sessionHash) return 'challenge_session_mismatch';
+  if (input.record.appSessionVersion !== input.appSessionVersion) {
+    return 'challenge_session_mismatch';
+  }
+  return null;
+}
+
+function emailOtpChallengeWithAttemptCount(
+  record: EmailOtpChallengeRecord,
+  attemptCount: number,
+): EmailOtpChallengeRecord {
+  return {
+    version: 'email_otp_challenge_v1',
+    challengeId: record.challengeId,
+    challengeSubjectId: record.challengeSubjectId,
+    walletId: record.walletId,
+    ...(record.orgId ? { orgId: record.orgId } : {}),
+    otpChannel: EMAIL_OTP_CHANNEL,
+    email: record.email,
+    otpCode: record.otpCode,
+    sessionHash: record.sessionHash,
+    appSessionVersion: record.appSessionVersion,
+    action: record.action,
+    operation: record.operation,
+    createdAtMs: record.createdAtMs,
+    expiresAtMs: record.expiresAtMs,
+    attemptCount,
+    maxAttempts: record.maxAttempts,
+  };
+}
+
 class CloudflareD1RelayAuthMetadataService {
-  private readonly options: CloudflareD1RelayAuthServiceOptions;
+  private readonly options: NormalizedCloudflareD1RelayAuthServiceOptions;
+  private readonly emailOtpMemoryOutbox = new Map<string, EmailOtpOutboxEntry>();
 
   constructor(input: CloudflareD1RelayAuthServiceOptions) {
     this.options = normalizeD1RelayAuthOptions(input);
@@ -1051,6 +1635,318 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async createEmailOtpChallenge(
+    input: CreateEmailOtpChallengeInput,
+  ): Promise<CreateEmailOtpChallengeResult> {
+    try {
+      const userId = toOptionalTrimmedString(input.userId);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const otpChannel = toOptionalTrimmedString(input.otpChannel);
+      const sessionHash = toOptionalTrimmedString(input.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const clientIp = toOptionalTrimmedString(input.clientIp);
+      const operation = parseEmailOtpLoginOperation(input.operation);
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (otpChannel !== EMAIL_OTP_CHANNEL) {
+        return { ok: false, code: 'invalid_body', message: 'otpChannel must be email_otp' };
+      }
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) return enrollment;
+      const authState = await this.readEmailOtpAuthStateForEnrollment(enrollment.enrollment);
+      if (!authState.ok) return authState;
+      if (authState.state?.otpLockedUntilMs && authState.state.otpLockedUntilMs > Date.now()) {
+        return {
+          ok: false,
+          code: 'otp_locked_out',
+          message: 'Email OTP is temporarily locked for this wallet',
+        };
+      }
+
+      const nowMs = Date.now();
+      await this.pruneExpiredEmailOtpChallenges(nowMs);
+      if (input.reuseActiveChallenge === true) {
+        const existing = await this.findLatestActiveEmailOtpChallenge({
+          challengeSubjectId: userId,
+          walletId,
+          orgId,
+          sessionHash,
+          appSessionVersion,
+          operation,
+          nowMs,
+        });
+        if (existing) {
+          return {
+            ok: true,
+            challenge: {
+              challengeId: existing.challengeId,
+              issuedAtMs: existing.createdAtMs,
+              expiresAtMs: existing.expiresAtMs,
+              userId,
+              walletId,
+              orgId,
+              otpChannel: EMAIL_OTP_CHANNEL,
+              sessionHash,
+              appSessionVersion,
+              action: WALLET_EMAIL_OTP_ACTIONS.login,
+              operation,
+            },
+            delivery: {
+              status: 'reused',
+              mode: this.options.emailOtp.deliveryMode,
+              emailHint: maskEmail(existing.email),
+            },
+          };
+        }
+      }
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'challenge',
+        action: WALLET_EMAIL_OTP_ACTIONS.login,
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      await this.enforceEmailOtpActiveChallengeLimit({
+        challengeSubjectId: userId,
+        walletId,
+        orgId,
+        sessionHash,
+        appSessionVersion,
+        operation,
+        nowMs,
+      });
+
+      const challengeId = secureRandomBase64Url(16, 'email otp challenge ids');
+      const otpCode = generateNumericOtp(this.options.emailOtp.codeLength);
+      const expiresAtMs = nowMs + this.options.emailOtp.challengeTtlMs;
+      const record = emailOtpChallengeRecord({
+        challengeId,
+        challengeSubjectId: userId,
+        walletId,
+        orgId,
+        email: enrollment.enrollment.verifiedEmail,
+        otpCode,
+        sessionHash,
+        appSessionVersion,
+        operation,
+        createdAtMs: nowMs,
+        expiresAtMs,
+        maxAttempts: this.options.emailOtp.maxAttempts,
+      });
+      await this.putEmailOtpChallenge(record);
+      const delivery = await this.deliverEmailOtpCode(record);
+      if (!delivery.ok) {
+        await this.deleteEmailOtpChallenge(challengeId);
+        return delivery;
+      }
+
+      return {
+        ok: true,
+        challenge: {
+          challengeId,
+          issuedAtMs: nowMs,
+          expiresAtMs,
+          userId,
+          walletId,
+          orgId,
+          otpChannel: EMAIL_OTP_CHANNEL,
+          sessionHash,
+          appSessionVersion,
+          action: WALLET_EMAIL_OTP_ACTIONS.login,
+          operation,
+        },
+        delivery: {
+          status: 'sent',
+          mode: delivery.deliveryMode,
+          emailHint: delivery.emailHint,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to create Email OTP challenge',
+      };
+    }
+  }
+
+  async verifyEmailOtpChallenge(
+    input: VerifyEmailOtpChallengeInput,
+  ): Promise<VerifyEmailOtpChallengeResult> {
+    try {
+      const userId = toOptionalTrimmedString(input.userId);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const challengeId = toOptionalTrimmedString(input.challengeId);
+      const otpCode = toOptionalTrimmedString(input.otpCode);
+      const otpChannel = toOptionalTrimmedString(input.otpChannel);
+      const sessionHash = toOptionalTrimmedString(input.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const clientIp = toOptionalTrimmedString(input.clientIp);
+      const operation = parseEmailOtpLoginOperation(input.operation);
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!challengeId) {
+        return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
+      }
+      if (!otpCode) return { ok: false, code: 'invalid_body', message: 'Missing otpCode' };
+      if (otpChannel !== EMAIL_OTP_CHANNEL) {
+        return { ok: false, code: 'invalid_body', message: 'otpChannel must be email_otp' };
+      }
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'verify',
+        action: WALLET_EMAIL_OTP_ACTIONS.login,
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) return enrollment;
+      const authState = await this.readEmailOtpAuthStateForEnrollment(enrollment.enrollment);
+      if (!authState.ok) return authState;
+      if (authState.state?.otpLockedUntilMs && authState.state.otpLockedUntilMs > Date.now()) {
+        return {
+          ok: false,
+          code: 'otp_locked_out',
+          message: 'Email OTP is temporarily locked for this wallet',
+          lockedUntilMs: authState.state.otpLockedUntilMs,
+        };
+      }
+
+      const nowMs = Date.now();
+      await this.pruneExpiredEmailOtpChallenges(nowMs);
+      const record = await this.readEmailOtpChallenge(challengeId);
+      if (!record) return emailOtpChallengeInvalidOrExpired();
+      if (nowMs > record.expiresAtMs) {
+        await this.deleteEmailOtpChallenge(record.challengeId);
+        return emailOtpChallengeInvalidOrExpired();
+      }
+
+      const bindingMismatch = emailOtpChallengeBindingMismatchCode({
+        record,
+        userId,
+        walletId,
+        orgId,
+        sessionHash,
+        appSessionVersion,
+        operation,
+      });
+      if (bindingMismatch) {
+        return {
+          ok: false,
+          code: bindingMismatch,
+          message: 'Email OTP challenge is not valid for the current app session',
+        };
+      }
+
+      if (record.otpCode !== otpCode) {
+        return await this.recordEmailOtpInvalidAttempt({
+          enrollment: enrollment.enrollment,
+          authState: authState.state,
+          record,
+        });
+      }
+
+      const consumed = await this.consumeEmailOtpChallenge(record.challengeId);
+      if (!consumed) return emailOtpChallengeInvalidOrExpired();
+      await this.resetEmailOtpFailureState({
+        enrollment: enrollment.enrollment,
+        authState: authState.state,
+      });
+
+      const issuedAtMs = Date.now();
+      const grantExpiresAtMs = issuedAtMs + this.options.emailOtp.grantTtlMs;
+      const loginGrant = secureRandomBase64Url(24, 'email otp login grants');
+      await this.putEmailOtpGrant(
+        emailOtpGrantRecord({
+          grantToken: loginGrant,
+          userId,
+          walletId,
+          orgId,
+          challengeId: consumed.challengeId,
+          sessionHash,
+          appSessionVersion,
+          issuedAtMs,
+          expiresAtMs: grantExpiresAtMs,
+        }),
+      );
+
+      return {
+        ok: true,
+        challengeId: consumed.challengeId,
+        loginGrant,
+        grantExpiresAtMs,
+        otpChannel: EMAIL_OTP_CHANNEL,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to verify Email OTP challenge',
+      };
+    }
+  }
+
+  async readEmailOtpOutboxEntry(
+    input: ReadEmailOtpOutboxEntryInput,
+  ): Promise<ReadEmailOtpOutboxEntryResult> {
+    if (!this.options.emailOtp.devOutboxEnabled) {
+      return { ok: false, code: 'not_found', message: 'Email OTP dev outbox is not enabled' };
+    }
+    const challengeId = toOptionalTrimmedString(input.challengeId);
+    const userId = toOptionalTrimmedString(input.userId);
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!challengeId) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
+    if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+    if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+    const entry = this.emailOtpMemoryOutbox.get(challengeId);
+    if (!entry || entry.userId !== userId || entry.walletId !== walletId) {
+      return { ok: false, code: 'not_found', message: 'Email OTP outbox entry was not found' };
+    }
+    if (Date.now() > entry.expiresAtMs) {
+      this.emailOtpMemoryOutbox.delete(challengeId);
+      return { ok: false, code: 'not_found', message: 'Email OTP outbox entry expired' };
+    }
+    return {
+      ok: true,
+      challengeId,
+      walletId,
+      userId,
+      otpChannel: entry.otpChannel,
+      emailHint: entry.emailHint,
+      otpCode: entry.otpCode,
+      expiresAtMs: entry.expiresAtMs,
+    };
+  }
+
   async consumeEmailOtpGrant(input: ConsumeEmailOtpGrantInput): Promise<ConsumeEmailOtpGrantResult> {
     try {
       const loginGrant = toOptionalTrimmedString(input.loginGrant);
@@ -1060,6 +1956,7 @@ class CloudflareD1RelayAuthMetadataService {
       const otpChannel = toOptionalTrimmedString(input.otpChannel);
       const sessionHash = toOptionalTrimmedString(input.sessionHash);
       const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const clientIp = toOptionalTrimmedString(input.clientIp);
       if (!loginGrant) return { ok: false, code: 'invalid_body', message: 'Missing loginGrant' };
       if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
       if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
@@ -1071,6 +1968,15 @@ class CloudflareD1RelayAuthMetadataService {
       if (!appSessionVersion) {
         return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
       }
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'grant',
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
 
       const record = await this.consumeEmailOtpGrantRecord(loginGrant);
       if (!record || Date.now() > record.expiresAtMs) return emailOtpGrantInvalidOrExpired();
@@ -1489,7 +2395,7 @@ class CloudflareD1RelayAuthMetadataService {
 
   private async putEmailOtpAuthStateForEnrollment(
     enrollment: EmailOtpWalletEnrollmentRecord,
-    patch: { readonly lastStrongAuthAtMs: number },
+    patch: EmailOtpAuthStatePatch,
   ): Promise<EmailOtpAuthStateRecord> {
     const nowMs = Date.now();
     const existing = await this.readEmailOtpAuthState(enrollment.walletId);
@@ -1503,7 +2409,7 @@ class CloudflareD1RelayAuthMetadataService {
       enrollment,
       existing,
       updatedAtMs: nowMs,
-      lastStrongAuthAtMs: patch.lastStrongAuthAtMs,
+      patch,
     });
     await this.scopePrepare(
       `INSERT INTO signer_email_otp_auth_states (
@@ -1536,6 +2442,475 @@ class CloudflareD1RelayAuthMetadataService {
       ],
     ).run();
     return next;
+  }
+
+  private async resetEmailOtpFailureState(input: {
+    readonly enrollment: EmailOtpWalletEnrollmentRecord;
+    readonly authState: EmailOtpAuthStateRecord | null;
+  }): Promise<void> {
+    const hasFailureState =
+      Number(input.authState?.otpFailureCount || 0) > 0 ||
+      input.authState?.lastOtpFailureAtMs != null ||
+      input.authState?.otpLockedUntilMs != null;
+    if (!hasFailureState) return;
+    await this.putEmailOtpAuthStateForEnrollment(input.enrollment, {
+      otpFailureCount: 0,
+      lastOtpFailureAtMs: null,
+      otpLockedUntilMs: null,
+    });
+  }
+
+  private async recordEmailOtpInvalidAttempt(input: {
+    readonly enrollment: EmailOtpWalletEnrollmentRecord;
+    readonly authState: EmailOtpAuthStateRecord | null;
+    readonly record: EmailOtpChallengeRecord;
+  }): Promise<VerifyEmailOtpChallengeResult> {
+    const nextAttemptCount = input.record.attemptCount + 1;
+    const nextFailureCount = Number(input.authState?.otpFailureCount || 0) + 1;
+    const exhausted = nextAttemptCount >= input.record.maxAttempts;
+    const nowMs = Date.now();
+    const lockedUntilMs = exhausted ? nowMs + this.options.emailOtp.lockoutTtlMs : undefined;
+    await this.putEmailOtpAuthStateForEnrollment(input.enrollment, {
+      otpFailureCount: nextFailureCount,
+      lastOtpFailureAtMs: nowMs,
+      ...(lockedUntilMs ? { otpLockedUntilMs: lockedUntilMs } : {}),
+    });
+    if (exhausted) {
+      await this.deleteEmailOtpChallenge(input.record.challengeId);
+      return {
+        ok: false,
+        code: 'otp_attempts_exhausted',
+        message: 'Email OTP challenge exceeded the maximum number of attempts',
+        attemptsRemaining: 0,
+        ...(lockedUntilMs ? { lockedUntilMs } : {}),
+      };
+    }
+    await this.updateEmailOtpChallengeAttemptCount(input.record, nextAttemptCount);
+    return {
+      ok: false,
+      code: 'invalid_otp',
+      message: 'OTP code is invalid',
+      attemptsRemaining: input.record.maxAttempts - nextAttemptCount,
+    };
+  }
+
+  private async pruneExpiredEmailOtpChallenges(nowMs: number): Promise<void> {
+    const result = await this.scopePrepare(
+      `DELETE FROM signer_email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND expires_at_ms <= ?
+      RETURNING challenge_id`,
+      [nowMs],
+    ).all<D1EmailOtpChallengeRow>();
+    for (const row of result.results || []) {
+      const challengeId = toOptionalTrimmedString(row.challenge_id);
+      if (challengeId) this.emailOtpMemoryOutbox.delete(challengeId);
+    }
+  }
+
+  private async readEmailOtpChallenge(
+    challengeId: string,
+  ): Promise<EmailOtpChallengeRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, expires_at_ms
+         FROM signer_email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?
+        LIMIT 1`,
+      [challengeId],
+    ).first<D1EmailOtpChallengeRow>();
+    return parseEmailOtpChallengeRow(row);
+  }
+
+  private async findLatestActiveEmailOtpChallenge(input: {
+    readonly challengeSubjectId: string;
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly sessionHash: string;
+    readonly appSessionVersion: string;
+    readonly operation: EmailOtpLoginChallengeOperation;
+    readonly nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, expires_at_ms
+         FROM signer_email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_subject_id = ?
+          AND wallet_id = ?
+          AND record_org_id = ?
+          AND otp_channel = ?
+          AND session_hash = ?
+          AND app_session_version = ?
+          AND action = ?
+          AND operation = ?
+          AND expires_at_ms > ?
+        ORDER BY created_at_ms DESC
+        LIMIT 1`,
+      [...emailOtpChallengeContextValues(input), input.nowMs],
+    ).first<D1EmailOtpChallengeRow>();
+    return parseEmailOtpChallengeRow(row);
+  }
+
+  private async enforceEmailOtpActiveChallengeLimit(input: {
+    readonly challengeSubjectId: string;
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly sessionHash: string;
+    readonly appSessionVersion: string;
+    readonly operation: EmailOtpLoginChallengeOperation;
+    readonly nowMs: number;
+  }): Promise<void> {
+    let count = await this.countActiveEmailOtpChallenges(input);
+    while (count >= this.options.emailOtp.maxActiveChallengesPerContext) {
+      const deleted = await this.deleteOldestActiveEmailOtpChallenge(input);
+      if (!deleted) return;
+      this.emailOtpMemoryOutbox.delete(deleted.challengeId);
+      count -= 1;
+    }
+  }
+
+  private async countActiveEmailOtpChallenges(input: {
+    readonly challengeSubjectId: string;
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly sessionHash: string;
+    readonly appSessionVersion: string;
+    readonly operation: EmailOtpLoginChallengeOperation;
+    readonly nowMs: number;
+  }): Promise<number> {
+    const row = await this.scopePrepare(
+      `SELECT COUNT(*) AS subject_count
+         FROM signer_email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_subject_id = ?
+          AND wallet_id = ?
+          AND record_org_id = ?
+          AND otp_channel = ?
+          AND session_hash = ?
+          AND app_session_version = ?
+          AND action = ?
+          AND operation = ?
+          AND expires_at_ms > ?`,
+      [...emailOtpChallengeContextValues(input), input.nowMs],
+    ).first<D1IdentityRow>();
+    return parseIdentitySubjectCount(row?.subject_count);
+  }
+
+  private async deleteOldestActiveEmailOtpChallenge(input: {
+    readonly challengeSubjectId: string;
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly sessionHash: string;
+    readonly appSessionVersion: string;
+    readonly operation: EmailOtpLoginChallengeOperation;
+    readonly nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null> {
+    const row = await this.scopePrepare(
+      `DELETE FROM signer_email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = (
+            SELECT challenge_id
+              FROM signer_email_otp_challenges
+             WHERE namespace = ?
+               AND org_id = ?
+               AND project_id = ?
+               AND env_id = ?
+               AND challenge_subject_id = ?
+               AND wallet_id = ?
+               AND record_org_id = ?
+               AND otp_channel = ?
+               AND session_hash = ?
+               AND app_session_version = ?
+               AND action = ?
+               AND operation = ?
+               AND expires_at_ms > ?
+             ORDER BY created_at_ms ASC
+             LIMIT 1
+          )
+      RETURNING record_json, expires_at_ms`,
+      [...this.scopeValues([]), ...this.scopeValues([...emailOtpChallengeContextValues(input), input.nowMs])],
+    ).first<D1EmailOtpChallengeRow>();
+    return parseEmailOtpChallengeRow(row);
+  }
+
+  private async putEmailOtpChallenge(record: EmailOtpChallengeRecord): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_email_otp_challenges (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        challenge_id,
+        challenge_subject_id,
+        wallet_id,
+        record_org_id,
+        otp_channel,
+        session_hash,
+        app_session_version,
+        action,
+        operation,
+        otp_code,
+        record_json,
+        created_at_ms,
+        expires_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        record.challengeId,
+        record.challengeSubjectId,
+        record.walletId,
+        record.orgId || '',
+        EMAIL_OTP_CHANNEL,
+        record.sessionHash,
+        record.appSessionVersion,
+        record.action,
+        record.operation,
+        record.otpCode,
+        JSON.stringify(record),
+        record.createdAtMs,
+        record.expiresAtMs,
+      ],
+    ).run();
+  }
+
+  private async updateEmailOtpChallengeAttemptCount(
+    record: EmailOtpChallengeRecord,
+    attemptCount: number,
+  ): Promise<void> {
+    const next = emailOtpChallengeWithAttemptCount(record, attemptCount);
+    await this.scopePrepare(
+      `UPDATE signer_email_otp_challenges
+          SET record_json = ?,
+              otp_code = ?,
+              expires_at_ms = ?
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?`,
+      [JSON.stringify(next), next.otpCode, next.expiresAtMs, next.challengeId],
+    ).run();
+  }
+
+  private async deleteEmailOtpChallenge(challengeId: string): Promise<void> {
+    await this.scopePrepare(
+      `DELETE FROM signer_email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?`,
+      [challengeId],
+    ).run();
+    this.emailOtpMemoryOutbox.delete(challengeId);
+  }
+
+  private async consumeEmailOtpChallenge(
+    challengeId: string,
+  ): Promise<EmailOtpChallengeRecord | null> {
+    const row = await this.scopePrepare(
+      `DELETE FROM signer_email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?
+      RETURNING record_json, expires_at_ms`,
+      [challengeId],
+    ).first<D1EmailOtpChallengeRow>();
+    this.emailOtpMemoryOutbox.delete(challengeId);
+    return parseEmailOtpChallengeRow(row);
+  }
+
+  private async putEmailOtpGrant(record: EmailOtpGrantRecord): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_email_otp_grants (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        grant_token,
+        user_id,
+        wallet_id,
+        record_org_id,
+        challenge_id,
+        action,
+        record_json,
+        issued_at_ms,
+        expires_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        record.grantToken,
+        record.userId,
+        record.walletId,
+        record.orgId || '',
+        record.challengeId,
+        record.action,
+        JSON.stringify(record),
+        record.issuedAtMs,
+        record.expiresAtMs,
+      ],
+    ).run();
+  }
+
+  private async deliverEmailOtpCode(record: EmailOtpChallengeRecord): Promise<
+    | { ok: true; deliveryMode: EmailOtpDeliveryMode; emailHint: string }
+    | { ok: false; code: string; message: string }
+  > {
+    if (this.options.emailOtp.production && this.options.emailOtp.deliveryMode !== 'email_provider') {
+      return {
+        ok: false,
+        code: 'email_otp_delivery_not_allowed',
+        message: `Email OTP delivery mode ${this.options.emailOtp.deliveryMode} is disabled in production`,
+      };
+    }
+    const emailHint = maskEmail(record.email);
+    if (this.options.emailOtp.deliveryMode === 'email_provider') {
+      return {
+        ok: false,
+        code: 'not_implemented',
+        message: 'Email OTP email_provider delivery is not implemented yet',
+      };
+    }
+    if (this.options.emailOtp.deliveryMode === 'memory') {
+      this.emailOtpMemoryOutbox.set(record.challengeId, {
+        walletId: record.walletId,
+        userId: record.challengeSubjectId,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        emailHint,
+        otpCode: record.otpCode,
+        expiresAtMs: record.expiresAtMs,
+      });
+    }
+    console.warn('[email-otp] development OTP code', {
+      challengeId: record.challengeId,
+      walletId: record.walletId,
+      userId: record.challengeSubjectId,
+      otpChannel: EMAIL_OTP_CHANNEL,
+      action: record.action,
+      operation: record.operation,
+      deliveryMode: this.options.emailOtp.deliveryMode,
+      emailHint,
+      devOtpCode: record.otpCode,
+      expiresAtMs: record.expiresAtMs,
+    });
+    return { ok: true, deliveryMode: this.options.emailOtp.deliveryMode, emailHint };
+  }
+
+  private async consumeEmailOtpRateLimit(input: {
+    readonly scope: EmailOtpRateLimitScope;
+    readonly action?: string;
+    readonly userId?: string;
+    readonly walletId?: string;
+    readonly orgId?: string;
+    readonly clientIp?: string;
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        code: 'rate_limited';
+        message: string;
+        retryAfterMs?: number;
+        resetAtMs?: number;
+      }
+  > {
+    const policy = this.options.emailOtp.rateLimits[input.scope];
+    const keys = emailOtpRateLimitKeys({ ...input, policy });
+    for (const key of keys) {
+      const consumed = await this.consumeEmailOtpRateLimitKey({
+        key,
+        policy,
+        nowMs: Date.now(),
+      });
+      if (!consumed.ok) return consumed;
+    }
+    return { ok: true };
+  }
+
+  private async consumeEmailOtpRateLimitKey(input: {
+    readonly key: string;
+    readonly policy: EmailOtpRateLimitPolicy;
+    readonly nowMs: number;
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        code: 'rate_limited';
+        message: string;
+        retryAfterMs?: number;
+        resetAtMs?: number;
+      }
+  > {
+    const resetAtMs = input.nowMs + input.policy.windowMs;
+    const row = await this.scopePrepare(
+      `INSERT INTO signer_email_otp_rate_limits (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        rate_key,
+        consumed_count,
+        reset_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, rate_key)
+      DO UPDATE SET
+        consumed_count = CASE
+          WHEN signer_email_otp_rate_limits.reset_at_ms <= ?
+            THEN 1
+          ELSE signer_email_otp_rate_limits.consumed_count + 1
+        END,
+        reset_at_ms = CASE
+          WHEN signer_email_otp_rate_limits.reset_at_ms <= ?
+            THEN ?
+          ELSE signer_email_otp_rate_limits.reset_at_ms
+        END,
+        updated_at_ms = ?
+      WHERE signer_email_otp_rate_limits.reset_at_ms <= ?
+         OR signer_email_otp_rate_limits.consumed_count < ?
+      RETURNING consumed_count, reset_at_ms`,
+      [
+        input.key,
+        resetAtMs,
+        input.nowMs,
+        input.nowMs,
+        input.nowMs,
+        resetAtMs,
+        input.nowMs,
+        input.nowMs,
+        input.policy.limit,
+      ],
+    ).first<D1EmailOtpRateLimitRow>();
+    if (row) return { ok: true };
+    const existing = await this.scopePrepare(
+      `SELECT consumed_count, reset_at_ms
+         FROM signer_email_otp_rate_limits
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND rate_key = ?
+        LIMIT 1`,
+      [input.key],
+    ).first<D1EmailOtpRateLimitRow>();
+    return emailOtpRateLimitExceeded(existing);
   }
 
   private async listEmailOtpRecoveryEscrowsForEnrollment(
@@ -1696,8 +3071,28 @@ function emailOtpAuthStateRecord(input: {
   readonly enrollment: EmailOtpWalletEnrollmentRecord;
   readonly existing: EmailOtpAuthStateRecord | null;
   readonly updatedAtMs: number;
-  readonly lastStrongAuthAtMs: number;
+  readonly patch: EmailOtpAuthStatePatch;
 }): EmailOtpAuthStateRecord {
+  const otpFailureCount = patchedNonNegativeAuthStateValue(
+    input.existing?.otpFailureCount,
+    input.patch.otpFailureCount,
+  );
+  const lastOtpFailureAtMs = patchedPositiveAuthStateValue(
+    input.existing?.lastOtpFailureAtMs,
+    input.patch.lastOtpFailureAtMs,
+  );
+  const otpLockedUntilMs = patchedPositiveAuthStateValue(
+    input.existing?.otpLockedUntilMs,
+    input.patch.otpLockedUntilMs,
+  );
+  const lastEmailOtpLoginAtMs = patchedPositiveAuthStateValue(
+    input.existing?.lastEmailOtpLoginAtMs,
+    input.patch.lastEmailOtpLoginAtMs,
+  );
+  const lastStrongAuthAtMs = patchedPositiveAuthStateValue(
+    input.existing?.lastStrongAuthAtMs,
+    input.patch.lastStrongAuthAtMs,
+  );
   return {
     version: 'email_otp_auth_state_v1',
     walletId: input.enrollment.walletId,
@@ -1705,20 +3100,30 @@ function emailOtpAuthStateRecord(input: {
     orgId: input.enrollment.orgId,
     createdAtMs: input.existing?.createdAtMs ?? input.updatedAtMs,
     updatedAtMs: input.updatedAtMs,
-    ...(input.existing?.otpFailureCount != null
-      ? { otpFailureCount: input.existing.otpFailureCount }
-      : {}),
-    ...(input.existing?.lastOtpFailureAtMs
-      ? { lastOtpFailureAtMs: input.existing.lastOtpFailureAtMs }
-      : {}),
-    ...(input.existing?.otpLockedUntilMs
-      ? { otpLockedUntilMs: input.existing.otpLockedUntilMs }
-      : {}),
-    ...(input.existing?.lastEmailOtpLoginAtMs
-      ? { lastEmailOtpLoginAtMs: input.existing.lastEmailOtpLoginAtMs }
-      : {}),
-    lastStrongAuthAtMs: input.lastStrongAuthAtMs,
+    ...(otpFailureCount != null ? { otpFailureCount } : {}),
+    ...(lastOtpFailureAtMs != null ? { lastOtpFailureAtMs } : {}),
+    ...(otpLockedUntilMs != null ? { otpLockedUntilMs } : {}),
+    ...(lastEmailOtpLoginAtMs != null ? { lastEmailOtpLoginAtMs } : {}),
+    ...(lastStrongAuthAtMs != null ? { lastStrongAuthAtMs } : {}),
   };
+}
+
+function patchedPositiveAuthStateValue(
+  current: number | undefined,
+  patch: number | null | undefined,
+): number | undefined {
+  if (patch === null) return undefined;
+  if (patch === undefined) return current;
+  return patch > 0 ? Math.floor(patch) : undefined;
+}
+
+function patchedNonNegativeAuthStateValue(
+  current: number | undefined,
+  patch: number | null | undefined,
+): number | undefined {
+  if (patch === null) return undefined;
+  if (patch === undefined) return current;
+  return patch >= 0 ? Math.floor(patch) : undefined;
 }
 
 export function createCloudflareD1RelayAuthService(
@@ -1739,6 +3144,9 @@ export function createCloudflareD1RelayAuthService(
   service.markEmailOtpStrongAuthSatisfied = metadata.markEmailOtpStrongAuthSatisfied.bind(metadata);
   service.getEmailOtpRecoveryCodeStatus =
     metadata.getEmailOtpRecoveryCodeStatus.bind(metadata);
+  service.createEmailOtpChallenge = metadata.createEmailOtpChallenge.bind(metadata);
+  service.verifyEmailOtpChallenge = metadata.verifyEmailOtpChallenge.bind(metadata);
+  service.readEmailOtpOutboxEntry = metadata.readEmailOtpOutboxEntry.bind(metadata);
   service.consumeEmailOtpGrant = metadata.consumeEmailOtpGrant.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
