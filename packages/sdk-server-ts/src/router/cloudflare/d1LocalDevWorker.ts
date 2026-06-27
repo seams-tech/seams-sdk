@@ -13,6 +13,7 @@ import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
 import {
   createCloudflareD1RelayAuthService,
+  type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1OidcExchangeConfig,
   type CloudflareD1OidcExchangeIssuerConfig,
 } from './d1RelayAuthService';
@@ -38,6 +39,10 @@ interface LocalD1DevEnv {
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
+  readonly SIGNING_SESSION_SEAL_KEY_VERSION?: string;
+  readonly SIGNING_SESSION_SHAMIR_P_B64U?: string;
+  readonly SIGNING_SESSION_SEAL_E_S_B64U?: string;
+  readonly SIGNING_SESSION_SEAL_D_S_B64U?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
@@ -254,6 +259,39 @@ function localOidcExchangeConfig(env: LocalD1DevEnv): CloudflareD1OidcExchangeCo
   };
 }
 
+function localEmailOtpServerSealConfig(
+  env: LocalD1DevEnv,
+): CloudflareD1EmailOtpServerSealConfig | undefined {
+  const keyVersion = normalizeLocalString(env.SIGNING_SESSION_SEAL_KEY_VERSION);
+  const shamirPrimeB64u = normalizeLocalString(env.SIGNING_SESSION_SHAMIR_P_B64U);
+  const serverEncryptExponentB64u = normalizeLocalString(env.SIGNING_SESSION_SEAL_E_S_B64U);
+  const serverDecryptExponentB64u = normalizeLocalString(env.SIGNING_SESSION_SEAL_D_S_B64U);
+  if (
+    !keyVersion &&
+    !shamirPrimeB64u &&
+    !serverEncryptExponentB64u &&
+    !serverDecryptExponentB64u
+  ) {
+    return undefined;
+  }
+  if (
+    !keyVersion ||
+    !shamirPrimeB64u ||
+    !serverEncryptExponentB64u ||
+    !serverDecryptExponentB64u
+  ) {
+    throw new Error(
+      'Email OTP server seal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
+    );
+  }
+  return {
+    keyVersion,
+    shamirPrimeB64u,
+    serverEncryptExponentB64u,
+    serverDecryptExponentB64u,
+  };
+}
+
 function headerString(headers: HeaderRecord, name: string): string {
   const value = headers[name.toLowerCase()] ?? headers[name];
   if (Array.isArray(value)) {
@@ -442,6 +480,7 @@ function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
     googleOidcClientId: env.SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID,
     oidcExchange: localOidcExchangeConfig(env),
     accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
+    emailOtpServerSeal: localEmailOtpServerSealConfig(env),
     emailOtpDeliveryMode: env.EMAIL_OTP_DELIVERY_MODE || 'memory',
     emailOtpDevOutboxEnabled: env.EMAIL_OTP_DEV_OUTBOX_ENABLED ?? true,
     emailOtpRecoveryKeyAttemptRateLimitMax:

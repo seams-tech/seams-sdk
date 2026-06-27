@@ -52,6 +52,16 @@ import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
 } from '../../core/ThresholdService/ethSignerWasm';
+import {
+  formatSigningSessionSealKeyVersionForWire,
+  formatSigningSessionSealShamirPrimeB64uForWire,
+  parseSigningSessionSealKeyVersion,
+  parseSigningSessionSealShamirPrimeB64u,
+} from '../../core/keyMaterialBrands';
+import { createSigningSessionSealShamir3PassCipherAdapter } from '../../threshold/session/signingSessionSeal/crypto/cipher';
+import type {
+  SigningSessionSealCipherAdapter,
+} from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -102,6 +112,13 @@ export type CloudflareD1OidcExchangeConfig = {
   readonly clockSkewSec?: number | string;
 };
 
+export type CloudflareD1EmailOtpServerSealConfig = {
+  readonly keyVersion: string;
+  readonly shamirPrimeB64u: string;
+  readonly serverEncryptExponentB64u: string;
+  readonly serverDecryptExponentB64u: string;
+};
+
 export interface CloudflareD1RelayAuthServiceOptions {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -113,6 +130,7 @@ export interface CloudflareD1RelayAuthServiceOptions {
   readonly googleOidcClientId?: string;
   readonly oidcExchange?: CloudflareD1OidcExchangeConfig;
   readonly accountIdDerivationSecret?: string;
+  readonly emailOtpServerSeal?: CloudflareD1EmailOtpServerSealConfig;
   readonly emailOtpDeliveryMode?: string;
   readonly emailOtpDeliveryProvider?: CloudflareD1EmailOtpDeliveryProvider;
   readonly emailOtpDevOutboxEnabled?: boolean | string;
@@ -162,6 +180,19 @@ type EmailOtpRateLimitPolicy = {
   readonly windowMs: number;
 };
 
+type EmailOtpServerSealRuntimeConfig =
+  | {
+      readonly configured: true;
+      readonly keyVersion: string;
+      readonly shamirPrimeB64u: string;
+      readonly serverEncryptExponentB64u: string;
+      readonly serverDecryptExponentB64u: string;
+    }
+  | {
+      readonly configured: false;
+      readonly message: string;
+    };
+
 type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   CloudflareD1RelayAuthServiceOptions,
   | 'relayerAccount'
@@ -169,6 +200,7 @@ type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   | 'googleOidcClientId'
   | 'oidcExchange'
   | 'accountIdDerivationSecret'
+  | 'emailOtpServerSeal'
   | 'emailOtpDeliveryMode'
   | 'emailOtpDeliveryProvider'
   | 'emailOtpDevOutboxEnabled'
@@ -199,6 +231,7 @@ type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   };
   readonly accountIdDerivationSecret?: string;
   readonly emailOtp: EmailOtpRuntimeConfig;
+  readonly emailOtpServerSeal: EmailOtpServerSealRuntimeConfig;
 };
 
 type ListIdentitiesInput = Parameters<CloudflareRelayAuthService['listIdentities']>[0];
@@ -316,6 +349,18 @@ type VerifyEmailOtpUnlockProofInput = Parameters<
 >[0];
 type VerifyEmailOtpUnlockProofResult = Awaited<
   ReturnType<CloudflareRelayAuthService['verifyEmailOtpUnlockProof']>
+>;
+type ApplyEmailOtpServerSealInput = Parameters<
+  CloudflareRelayAuthService['applyEmailOtpServerSeal']
+>[0];
+type ApplyEmailOtpServerSealResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['applyEmailOtpServerSeal']>
+>;
+type RemoveEmailOtpServerSealInput = Parameters<
+  CloudflareRelayAuthService['removeEmailOtpServerSeal']
+>[0];
+type RemoveEmailOtpServerSealResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['removeEmailOtpServerSeal']>
 >;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
@@ -540,6 +585,18 @@ type ParsedRs256Jwt = {
 type ParsedRs256JwtResult =
   | { readonly ok: true; readonly jwt: ParsedRs256Jwt }
   | JwtVerificationFailure;
+
+type EmailOtpServerSealCipherResult =
+  | {
+      readonly ok: true;
+      readonly keyVersion: string;
+      readonly cipher: SigningSessionSealCipherAdapter;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'not_configured';
+      readonly message: string;
+    };
 
 type AppSessionVersionRecord = {
   readonly version: 'app_session_version_v1';
@@ -1082,6 +1139,53 @@ function normalizeOidcExchangeConfig(
   };
 }
 
+function missingEmailOtpServerSealConfig(): EmailOtpServerSealRuntimeConfig {
+  return {
+    configured: false,
+    message:
+      'Email OTP server seal requires emailOtpServerSeal.keyVersion, emailOtpServerSeal.shamirPrimeB64u, emailOtpServerSeal.serverEncryptExponentB64u, and emailOtpServerSeal.serverDecryptExponentB64u',
+  };
+}
+
+function normalizeEmailOtpServerSealConfig(
+  input: CloudflareD1RelayAuthServiceOptions,
+): EmailOtpServerSealRuntimeConfig {
+  const raw = input.emailOtpServerSeal;
+  if (!raw) return missingEmailOtpServerSealConfig();
+  const keyVersionRaw = toOptionalTrimmedString(raw.keyVersion);
+  const shamirPrimeRaw = toOptionalTrimmedString(raw.shamirPrimeB64u);
+  const serverEncryptExponentB64u = toOptionalTrimmedString(raw.serverEncryptExponentB64u);
+  const serverDecryptExponentB64u = toOptionalTrimmedString(raw.serverDecryptExponentB64u);
+  if (
+    !keyVersionRaw ||
+    !shamirPrimeRaw ||
+    !serverEncryptExponentB64u ||
+    !serverDecryptExponentB64u
+  ) {
+    return missingEmailOtpServerSealConfig();
+  }
+  try {
+    const keyVersion = formatSigningSessionSealKeyVersionForWire(
+      parseSigningSessionSealKeyVersion(keyVersionRaw),
+    );
+    const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
+      parseSigningSessionSealShamirPrimeB64u(shamirPrimeRaw),
+    );
+    return {
+      configured: true,
+      keyVersion,
+      shamirPrimeB64u,
+      serverEncryptExponentB64u,
+      serverDecryptExponentB64u,
+    };
+  } catch (error: unknown) {
+    return {
+      configured: false,
+      message: errorMessage(error) || 'Email OTP Shamir configuration is invalid',
+    };
+  }
+}
+
 function normalizeD1RelayAuthOptions(
   input: CloudflareD1RelayAuthServiceOptions,
 ): NormalizedCloudflareD1RelayAuthServiceOptions {
@@ -1097,6 +1201,7 @@ function normalizeD1RelayAuthOptions(
     oidcExchange: normalizeOidcExchangeConfig(input),
     accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),
     emailOtp: normalizeEmailOtpConfig(input),
+    emailOtpServerSeal: normalizeEmailOtpServerSealConfig(input),
   };
 }
 
@@ -5206,6 +5311,78 @@ class CloudflareD1RelayAuthMetadataService {
     };
   }
 
+  async removeEmailOtpServerSeal(
+    input: RemoveEmailOtpServerSealInput,
+  ): Promise<RemoveEmailOtpServerSealResult> {
+    try {
+      const wrappedCiphertext = toOptionalTrimmedString(input.wrappedCiphertext);
+      if (!wrappedCiphertext) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Missing wrappedCiphertext',
+        };
+      }
+      const shamir = this.createEmailOtpServerSealCipher();
+      if (!shamir.ok) return shamir;
+      const removed = await shamir.cipher.run({
+        operation: 'remove-server-seal',
+        thresholdSessionId: 'email-otp-unseal',
+        ciphertext: wrappedCiphertext,
+        keyVersion: shamir.keyVersion,
+        auth: { userId: 'email_otp', claims: {} },
+      });
+      if (!removed.ok) return removed;
+      return {
+        ok: true,
+        ciphertext: removed.ciphertext,
+        enrollmentSealKeyVersion: removed.keyVersion || shamir.keyVersion,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to remove Email OTP server seal',
+      };
+    }
+  }
+
+  async applyEmailOtpServerSeal(
+    input: ApplyEmailOtpServerSealInput,
+  ): Promise<ApplyEmailOtpServerSealResult> {
+    try {
+      const wrappedCiphertext = toOptionalTrimmedString(input.wrappedCiphertext);
+      if (!wrappedCiphertext) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Missing wrappedCiphertext',
+        };
+      }
+      const shamir = this.createEmailOtpServerSealCipher();
+      if (!shamir.ok) return shamir;
+      const applied = await shamir.cipher.run({
+        operation: 'apply-server-seal',
+        thresholdSessionId: 'email-otp-enroll',
+        ciphertext: wrappedCiphertext,
+        keyVersion: shamir.keyVersion,
+        auth: { userId: 'email_otp', claims: {} },
+      });
+      if (!applied.ok) return applied;
+      return {
+        ok: true,
+        ciphertext: applied.ciphertext,
+        enrollmentSealKeyVersion: applied.keyVersion || shamir.keyVersion,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to apply Email OTP server seal',
+      };
+    }
+  }
+
   async verifyEmailOtpDeviceRecoveryChallenge(
     input: VerifyEmailOtpDeviceRecoveryChallengeInput,
   ): Promise<VerifyEmailOtpDeviceRecoveryChallengeResult> {
@@ -8890,6 +9067,40 @@ class CloudflareD1RelayAuthMetadataService {
     ).run();
   }
 
+  private createEmailOtpServerSealCipher(): EmailOtpServerSealCipherResult {
+    const config = this.options.emailOtpServerSeal;
+    if (!config.configured) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: config.message,
+      };
+    }
+    try {
+      return {
+        ok: true,
+        keyVersion: config.keyVersion,
+        cipher: createSigningSessionSealShamir3PassCipherAdapter({
+          currentKeyVersion: config.keyVersion,
+          keys: [
+            {
+              keyVersion: config.keyVersion,
+              shamirPrimeB64u: config.shamirPrimeB64u,
+              serverEncryptExponentB64u: config.serverEncryptExponentB64u,
+              serverDecryptExponentB64u: config.serverDecryptExponentB64u,
+            },
+          ],
+        }),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: errorMessage(error) || 'Email OTP Shamir configuration is invalid',
+      };
+    }
+  }
+
   private async deliverEmailOtpCode(record: EmailOtpChallengeRecord): Promise<
     | { ok: true; deliveryMode: EmailOtpDeliveryMode; emailHint: string }
     | { ok: false; code: string; message: string }
@@ -9606,6 +9817,8 @@ export function createCloudflareD1RelayAuthService(
   service.readEmailOtpOutboxEntry = metadata.readEmailOtpOutboxEntry.bind(metadata);
   service.createEmailOtpUnlockChallenge = metadata.createEmailOtpUnlockChallenge.bind(metadata);
   service.verifyEmailOtpUnlockProof = metadata.verifyEmailOtpUnlockProof.bind(metadata);
+  service.applyEmailOtpServerSeal = metadata.applyEmailOtpServerSeal.bind(metadata);
+  service.removeEmailOtpServerSeal = metadata.removeEmailOtpServerSeal.bind(metadata);
   service.consumeEmailOtpGrant = metadata.consumeEmailOtpGrant.bind(metadata);
   service.consumeEmailOtpRecoveryKey = metadata.consumeEmailOtpRecoveryKey.bind(metadata);
   service.rotateEmailOtpRecoveryKeys = metadata.rotateEmailOtpRecoveryKeys.bind(metadata);

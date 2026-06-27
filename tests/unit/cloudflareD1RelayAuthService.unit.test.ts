@@ -29,10 +29,19 @@ import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
+import {
+  createSigningSessionSealShamir3PassBigIntRuntime,
+} from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
 
 type SqliteJsonRow = Record<string, unknown>;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const EMAIL_OTP_SERVER_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
+const EMAIL_OTP_SHAMIR_PRIME_B64U = encodePositiveBigIntB64u(257n);
+const EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(3n);
+const EMAIL_OTP_SERVER_DECRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(171n);
+const EMAIL_OTP_CLIENT_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(5n);
+const EMAIL_OTP_CLIENT_DECRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(205n);
 
 type WebAuthnAssertionFixture = {
   readonly credentialIdB64u: string;
@@ -242,6 +251,51 @@ async function createWebAuthnAssertion(input: {
 
 function jsonBase64Url(input: Record<string, unknown>): string {
   return base64UrlEncode(utf8Bytes(JSON.stringify(input)));
+}
+
+function encodePositiveBigIntB64u(value: bigint): string {
+  if (value <= 0n) throw new Error('value must be > 0');
+  const bytesReversed: number[] = [];
+  let cursor = value;
+  while (cursor > 0n) {
+    bytesReversed.push(Number(cursor & 255n));
+    cursor >>= 8n;
+  }
+  bytesReversed.reverse();
+  return base64UrlEncode(Uint8Array.from(bytesReversed));
+}
+
+function addEmailOtpClientSeal(ciphertextB64u: string): string {
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
+  return String(
+    runtime.addServerSeal({
+      ciphertextB64u,
+      exponentB64u: EMAIL_OTP_CLIENT_ENCRYPT_EXPONENT_B64U,
+      shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
+    }),
+  );
+}
+
+function removeEmailOtpClientSeal(ciphertextB64u: string): string {
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
+  return String(
+    runtime.removeServerSeal({
+      ciphertextB64u,
+      exponentB64u: EMAIL_OTP_CLIENT_DECRYPT_EXPONENT_B64U,
+      shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
+    }),
+  );
+}
+
+function addEmailOtpServerSeal(ciphertextB64u: string): string {
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
+  return String(
+    runtime.addServerSeal({
+      ciphertextB64u,
+      exponentB64u: EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U,
+      shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
+    }),
+  );
 }
 
 async function generateGoogleOidcTestKey(kid: string): Promise<{
@@ -1958,6 +2012,80 @@ test('Cloudflare D1 relay auth service verifies generic OIDC exchange tokens', a
     });
   } finally {
     restoreOidcJwksFetchMock(originalFetch);
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service applies and removes Email OTP server seals', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      relayerAccount: 'relay.local',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+      emailOtpServerSeal: {
+        keyVersion: EMAIL_OTP_SERVER_SEAL_KEY_VERSION,
+        shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
+        serverEncryptExponentB64u: EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U,
+        serverDecryptExponentB64u: EMAIL_OTP_SERVER_DECRYPT_EXPONENT_B64U,
+      },
+    });
+    const plaintextSecretB64u = encodePositiveBigIntB64u(19n);
+    const clientWrappedCiphertext = addEmailOtpClientSeal(plaintextSecretB64u);
+
+    const applied = await service.applyEmailOtpServerSeal({
+      wrappedCiphertext: clientWrappedCiphertext,
+    });
+    expect(applied).toMatchObject({
+      ok: true,
+      enrollmentSealKeyVersion: EMAIL_OTP_SERVER_SEAL_KEY_VERSION,
+    });
+    if (!applied.ok) return;
+    expect(applied.ciphertext).not.toBe(clientWrappedCiphertext);
+    expect(removeEmailOtpClientSeal(applied.ciphertext)).toBe(
+      addEmailOtpServerSeal(plaintextSecretB64u),
+    );
+
+    const removed = await service.removeEmailOtpServerSeal({
+      wrappedCiphertext: applied.ciphertext,
+    });
+    expect(removed).toMatchObject({
+      ok: true,
+      enrollmentSealKeyVersion: EMAIL_OTP_SERVER_SEAL_KEY_VERSION,
+    });
+    if (!removed.ok) return;
+    expect(removed.ciphertext).not.toBe(applied.ciphertext);
+    expect(removeEmailOtpClientSeal(removed.ciphertext)).toBe(plaintextSecretB64u);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service fails closed when Email OTP server seal is unconfigured', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      relayerAccount: 'relay.local',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+    });
+    await expect(
+      service.applyEmailOtpServerSeal({
+        wrappedCiphertext: addEmailOtpClientSeal(encodePositiveBigIntB64u(23n)),
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'not_configured',
+    });
+  } finally {
     cleanupTemporaryD1Database(tempDir);
   }
 });
