@@ -3003,11 +3003,55 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
       code: 'key_handle_mismatch',
     });
 
+    await expect(
+      service.finalizeWalletRegistration({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration finalize requires emailOtpEnrollment',
+    });
+
+    const enrollmentSealKeyVersion = 'registration-seal-v1';
+    const unlockKeyVersion = 'registration-unlock-v1';
+    const recoveryCodesIssuedAtMs = Date.now();
+    const privateKey32 = new Uint8Array(32);
+    privateKey32[31] = 7;
+    const publicKey33 = await secp256k1PrivateKey32ToPublicKey33(privateKey32);
+    const publicKeyB64u = base64UrlEncode(publicKey33);
+    const recoveryWrappedEnrollmentEscrows = makeRecoveryWrappedEnrollmentEscrows({
+      walletId: registration.intent.walletId,
+      userId: providerSubject,
+      enrollmentId: `email-otp-device-enrollment-v1:${registration.intent.walletId}`,
+      enrollmentSealKeyVersion,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      issuedAtMs: recoveryCodesIssuedAtMs,
+    });
+
     const finalized = await service.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       idempotencyKey: 'registration-finalize-replay-a',
       ecdsa: {
         expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+      },
+      emailOtpEnrollment: {
+        recoveryWrappedEnrollmentEscrows,
+        enrollmentSealKeyVersion,
+        clientUnlockPublicKeyB64u: publicKeyB64u,
+        unlockKeyVersion,
+        thresholdEcdsaClientVerifyingShareB64u: publicKeyB64u,
+      },
+      emailOtpBackupAck: {
+        kind: 'email_otp_recovery_code_backup_ack_v1',
+        recoveryCodesIssuedAtMs,
+        backupActionKind: 'copy',
+        acknowledgedAtMs: recoveryCodesIssuedAtMs + 1,
+        idempotencyKey: 'registration-backup-ack-a',
       },
     });
     if (!finalized.ok) throw new Error(finalized.message);
@@ -3073,6 +3117,33 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
       emailHashHex,
       registrationAuthorityId: challenge.challenge.challengeId,
     });
+    await expect(
+      service.readEmailOtpEnrollment({
+        walletId: registration.intent.walletId,
+        orgId: scope.orgId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      enrollment: {
+        walletId: registration.intent.walletId,
+        providerUserId: providerSubject,
+        orgId: scope.orgId,
+        verifiedEmail: email,
+        recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        enrollmentSealKeyVersion,
+        unlockKeyVersion,
+      },
+    });
+    await expect(
+      countActiveRecoveryWrappedEnrollmentEscrows({
+        database,
+        namespace: scope.namespace,
+        orgId: scope.orgId,
+        projectId: scope.projectId,
+        envId: scope.envId,
+        walletId: registration.intent.walletId,
+      }),
+    ).resolves.toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
 
     const signerRecord = await readWalletSignerRecord({
       database,

@@ -203,17 +203,25 @@ Line-count cleanup baseline:
 - [x] ECDSA wallet-registration finalize slice recorded before plan-doc update:
   383 code additions and 0 code deletions across the D1 relay auth service and
   unit tests. The same-slice cleanup pass replaced the D1 factory fallback for
-  `finalizeWalletRegistration`; Email OTP enrollment-material persistence
-  remains an explicit follow-up gap, and
-  the shared disabled-service scaffold remains a blocker to physical deletion
-  until the remaining 4 signer and recovery ceremony methods are implemented.
+  `finalizeWalletRegistration`; follow-up gaps moved into the replay and Email
+  OTP enrollment finalize slices below, and the shared disabled-service scaffold
+  remains a blocker to physical deletion until the remaining 4 signer and
+  recovery ceremony methods are implemented.
 - [x] D1 wallet-registration finalize replay slice recorded before plan-doc
   update: 225 code additions and 7 code deletions across the D1 relay auth
   service and unit tests. The same-slice cleanup pass deleted the explicit D1
   `finalizeWalletRegistration` idempotency-unsupported branch, added the D1
   Durable Object replay record parser, and covered replay after ceremony
-  consumption; Email OTP enrollment-material persistence remains an explicit
-  follow-up gap.
+  consumption; Email OTP enrollment-material persistence moved into the next
+  completed slice.
+- [x] D1 wallet-registration Email OTP enrollment finalize slice recorded before
+  plan-doc update: 356 code additions and 7 code deletions across the D1 relay
+  auth service and unit tests. The same-slice cleanup pass deleted the explicit
+  D1 `emailOtpEnrollment`/`emailOtpBackupAck` unsupported branch, requires
+  enrollment material plus backup acknowledgement for Email OTP registration
+  finalize, persists the wallet enrollment, recovery-wrapped enrollment escrows,
+  and auth-state reset in D1, and verifies replay still works after ceremony
+  consumption.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -292,9 +300,6 @@ Remaining before D1 staging:
 
 - Finish only the `CloudflareRelayAuthService` signer methods required by the
   first staging signer, sponsored gas, billing, and reconciliation flows.
-- Add D1 wallet-registration finalize support for Email OTP enrollment material
-  before enabling Email OTP registration as a complete production enrollment
-  path.
 - Keep device linking deferred to refactor 84 while the route returns 410.
 - Keep threshold public-key metadata out of D1 unless a dashboard or
   reconciliation query requires it.
@@ -1077,8 +1082,10 @@ Completed:
   ceremony storage, consume registration Email OTP challenges, bind authority
   proofs to the exact registration intent/runtime scope, emit ECDSA role-local
   prepare state, persist responded ECDSA role-local bootstrap state, persist
-  finalized wallet, active auth-method, and ECDSA wallet signer rows in D1, and
-  consume registration intents and finalize ceremonies exactly once.
+  finalized wallet, active auth-method, ECDSA wallet signer rows, direct Email
+  OTP enrollment material, recovery-wrapped enrollment escrows, and Email OTP
+  auth-state reset rows in D1, and consume registration intents and finalize
+  ceremonies exactly once.
 - [x] Cloudflare relay auth service D1 methods start, respond to, and finalize
   ECDSA add-signer ceremonies through Durable Object intent and ceremony
   storage, bind app-session policy to the exact signer selection/runtime scope,
@@ -1121,8 +1128,6 @@ Remaining:
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
   Object slices: Ed25519 wallet-registration preparation, signed delegates, and
   email recovery HSS responses.
-- [ ] Finish D1 ECDSA wallet-registration finalize follow-up: Email OTP
-  enrollment-material persistence.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found

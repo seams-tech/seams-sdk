@@ -1133,6 +1133,44 @@ type EmailOtpEnrollmentMaterialValidationResult =
       message: string;
     };
 
+type D1EmailOtpRegistrationEnrollmentPersistence =
+  | {
+      readonly providerEnrollmentMove: 'none';
+      readonly previousProviderWalletId?: never;
+      readonly enrollment: EmailOtpWalletEnrollmentRecord;
+      readonly recoveryWrappedEnrollmentEscrows: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
+      readonly existingAuthState: EmailOtpAuthStateRecord | null;
+    }
+  | {
+      readonly providerEnrollmentMove: 'delete_previous';
+      readonly previousProviderWalletId: string;
+      readonly enrollment: EmailOtpWalletEnrollmentRecord;
+      readonly recoveryWrappedEnrollmentEscrows: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
+      readonly existingAuthState: EmailOtpAuthStateRecord | null;
+    };
+
+type D1EmailOtpRegistrationFinalizeEnrollmentResult =
+  | {
+      readonly ok: true;
+      readonly persistence?: D1EmailOtpRegistrationEnrollmentPersistence;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+    };
+
+type D1EmailOtpRegistrationEnrollmentBuildResult =
+  | {
+      readonly ok: true;
+      readonly persistence: D1EmailOtpRegistrationEnrollmentPersistence;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+    };
+
 type EmailOtpRecoveryEnrollmentEscrowBoundary = {
   readonly record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
   readonly binding: ReturnType<typeof buildEmailOtpRecoveryWrapBinding>;
@@ -6392,13 +6430,6 @@ class CloudflareD1RelayAuthMetadataService {
           message: 'Cloudflare D1 registration finalize currently supports ECDSA-only registration',
         };
       }
-      if (request.emailOtpEnrollment || request.emailOtpBackupAck) {
-        return {
-          ok: false,
-          code: 'unsupported',
-          message: 'Cloudflare D1 registration finalize does not yet persist Email OTP enrollment material',
-        };
-      }
       const ceremony = await store.getCeremony(request.registrationCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
@@ -6437,6 +6468,16 @@ class CloudflareD1RelayAuthMetadataService {
       if (!walletKeyResult.ok) return walletKeyResult;
 
       const now = Date.now();
+      const emailOtpEnrollment =
+        await this.emailOtpEnrollmentPersistenceForRegistrationFinalize({
+          authority: ceremony.authority,
+          request,
+          walletId: ceremony.intent.walletId,
+          orgId: ceremony.orgId,
+          nowMs: now,
+        });
+      if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
+
       const wallet = buildD1WalletRecord({
         walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
@@ -6454,6 +6495,12 @@ class CloudflareD1RelayAuthMetadataService {
         authority: ceremony.authority,
         now,
       });
+      if (emailOtpEnrollment.persistence) {
+        const persisted = await this.persistEmailOtpRegistrationEnrollment(
+          emailOtpEnrollment.persistence,
+        );
+        if (!persisted.ok) return persisted;
+      }
 
       const consumed = await store.takeCeremony(ceremony.registrationCeremonyId);
       if (!consumed) {
@@ -8320,6 +8367,237 @@ class CloudflareD1RelayAuthMetadataService {
       };
     }
 
+    return { ok: true };
+  }
+
+  private async emailOtpEnrollmentPersistenceForRegistrationFinalize(input: {
+    readonly authority: RegistrationAuthority;
+    readonly request: FinalizeWalletRegistrationInput;
+    readonly walletId: WalletId;
+    readonly orgId: string;
+    readonly nowMs: number;
+  }): Promise<D1EmailOtpRegistrationFinalizeEnrollmentResult> {
+    if (input.authority.kind !== 'email_otp') {
+      if (input.request.emailOtpEnrollment || input.request.emailOtpBackupAck) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP enrollment material is only valid for Email OTP registration',
+        };
+      }
+      return { ok: true };
+    }
+    if (!input.request.emailOtpEnrollment) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP registration finalize requires emailOtpEnrollment',
+      };
+    }
+    const backupAck = input.request.emailOtpBackupAck;
+    if (!backupAck) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP registration finalize requires emailOtpBackupAck',
+      };
+    }
+    if (
+      input.authority.walletId !== input.walletId ||
+      input.authority.finalWalletId !== input.walletId ||
+      input.authority.orgId !== input.orgId
+    ) {
+      return {
+        ok: false,
+        code: 'authority_binding_mismatch',
+        message: 'Email OTP registration authority does not match finalize scope',
+      };
+    }
+    const backupOfferId = toOptionalTrimmedString(backupAck.offerId);
+    const backupCandidateId = toOptionalTrimmedString(backupAck.candidateId);
+    if (
+      input.authority.proofKind === 'google_sso_registration' &&
+      (backupOfferId !== input.authority.googleEmailOtpRegistrationOfferId ||
+        backupCandidateId !== input.authority.googleEmailOtpRegistrationCandidateId)
+    ) {
+      return {
+        ok: false,
+        code: 'backup_ack_binding_mismatch',
+        message: 'Email OTP recovery-code backup acknowledgement does not match the offer',
+      };
+    }
+    if (
+      input.authority.proofKind !== 'google_sso_registration' &&
+      (backupOfferId || backupCandidateId)
+    ) {
+      return {
+        ok: false,
+        code: 'backup_ack_binding_mismatch',
+        message: 'Email OTP recovery-code backup acknowledgement has unexpected offer metadata',
+      };
+    }
+    const recoveryCodesIssuedAtMs = safeInteger(backupAck.recoveryCodesIssuedAtMs);
+    const acknowledgedAtMs = safeInteger(backupAck.acknowledgedAtMs);
+    if (recoveryCodesIssuedAtMs === null || acknowledgedAtMs === null) {
+      return {
+        ok: false,
+        code: 'backup_ack_invalid',
+        message: 'Email OTP recovery-code backup acknowledgement timestamps are invalid',
+      };
+    }
+    if (acknowledgedAtMs < recoveryCodesIssuedAtMs) {
+      return {
+        ok: false,
+        code: 'backup_ack_invalid',
+        message: 'Email OTP recovery-code backup acknowledgement predates code issuance',
+      };
+    }
+    const enrollment = await this.buildEmailOtpRegistrationEnrollmentPersistence({
+      walletId: input.walletId,
+      orgId: input.orgId,
+      authSubjectId: input.authority.providerSubject,
+      verifiedEmail: input.authority.email,
+      material: input.request.emailOtpEnrollment,
+      nowMs: input.nowMs,
+    });
+    if (!enrollment.ok) return enrollment;
+    const firstEscrow = enrollment.persistence.recoveryWrappedEnrollmentEscrows[0];
+    if (!firstEscrow || firstEscrow.issuedAtMs !== recoveryCodesIssuedAtMs) {
+      return {
+        ok: false,
+        code: 'backup_ack_binding_mismatch',
+        message:
+          'Email OTP recovery-code backup acknowledgement timestamp does not match enrollment',
+      };
+    }
+    return enrollment;
+  }
+
+  private async buildEmailOtpRegistrationEnrollmentPersistence(input: {
+    readonly walletId: WalletId;
+    readonly orgId: string;
+    readonly authSubjectId: string;
+    readonly verifiedEmail: string;
+    readonly material: NonNullable<FinalizeWalletRegistrationInput['emailOtpEnrollment']>;
+    readonly nowMs: number;
+  }): Promise<D1EmailOtpRegistrationEnrollmentBuildResult> {
+    const enrollmentMaterial = await this.validateEmailOtpEnrollmentMaterial(input.material);
+    if (!enrollmentMaterial.ok) return enrollmentMaterial;
+    const orgId = toOptionalTrimmedString(input.orgId) || '';
+    const walletId = toOptionalTrimmedString(input.walletId) || '';
+    const authSubjectId = toOptionalTrimmedString(input.authSubjectId) || '';
+    const verifiedEmail = toOptionalTrimmedString(input.verifiedEmail)?.toLowerCase() || '';
+    if (!orgId || !walletId || !authSubjectId || !verifiedEmail) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP registration enrollment requires wallet, org, and email identity',
+      };
+    }
+    const existing = await this.readEmailOtpWalletEnrollment(walletId);
+    const existingAuthState = await this.readEmailOtpAuthState(walletId);
+    const enrollmentScope = enrollmentMaterial.recoveryWrappedEnrollmentEscrows[0];
+    if (!enrollmentScope) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
+      };
+    }
+    for (const record of enrollmentMaterial.recoveryWrappedEnrollmentEscrows) {
+      if (
+        record.walletId !== walletId ||
+        record.userId !== authSubjectId ||
+        record.authSubjectId !== authSubjectId ||
+        record.enrollmentSealKeyVersion !== enrollmentMaterial.enrollmentSealKeyVersion ||
+        record.recoveryKeyStatus !== 'active'
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow metadata does not match registration',
+        };
+      }
+    }
+    const enrollment: EmailOtpWalletEnrollmentRecord = {
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId,
+      providerUserId: authSubjectId,
+      orgId,
+      verifiedEmail,
+      enrollmentId: enrollmentScope.enrollmentId,
+      enrollmentVersion: enrollmentScope.enrollmentVersion,
+      enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+      signingRootId: enrollmentScope.signingRootId,
+      signingRootVersion: enrollmentScope.signingRootVersion,
+      recoveryWrappedEnrollmentEscrowCount:
+        enrollmentMaterial.recoveryWrappedEnrollmentEscrows.length,
+      clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
+      unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
+      thresholdEcdsaClientVerifyingShareB64u:
+        enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u,
+      createdAtMs: existing?.createdAtMs ?? input.nowMs,
+      updatedAtMs: input.nowMs,
+    };
+    const existingProviderEnrollment = await this.readEmailOtpWalletEnrollmentByProviderUserId({
+      providerUserId: enrollment.providerUserId,
+      orgId: enrollment.orgId,
+    });
+    const recoveryWrappedEnrollmentEscrows =
+      enrollmentMaterial.recoveryWrappedEnrollmentEscrows.map((record) =>
+        emailOtpRecoveryEscrowWithUpdatedAt({ record, updatedAtMs: input.nowMs }),
+      );
+    if (
+      existingProviderEnrollment &&
+      existingProviderEnrollment.walletId !== enrollment.walletId
+    ) {
+      return {
+        ok: true,
+        persistence: {
+          providerEnrollmentMove: 'delete_previous',
+          previousProviderWalletId: existingProviderEnrollment.walletId,
+          enrollment,
+          recoveryWrappedEnrollmentEscrows,
+          existingAuthState,
+        },
+      };
+    }
+    return {
+      ok: true,
+      persistence: {
+        providerEnrollmentMove: 'none',
+        enrollment,
+        recoveryWrappedEnrollmentEscrows,
+        existingAuthState,
+      },
+    };
+  }
+
+  private async persistEmailOtpRegistrationEnrollment(
+    persistence: D1EmailOtpRegistrationEnrollmentPersistence,
+  ): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    if (persistence.providerEnrollmentMove === 'delete_previous') {
+      await this.deleteEmailOtpWalletEnrollment(persistence.previousProviderWalletId);
+    }
+    await this.putEmailOtpWalletEnrollment(persistence.enrollment);
+    await this.putEmailOtpRecoveryEscrows(persistence.recoveryWrappedEnrollmentEscrows);
+    const activeRecoveryWrappedEnrollmentEscrowCount = (
+      await this.listEmailOtpRecoveryEscrowsForEnrollment(persistence.enrollment)
+    ).filter(activeEmailOtpRecoveryEscrow).length;
+    if (activeRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: `Email OTP enrollment persisted ${activeRecoveryWrappedEnrollmentEscrowCount} active recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
+      };
+    }
+    await this.resetEmailOtpAuthStateForEnrollment({
+      enrollment: persistence.enrollment,
+      existingState: persistence.existingAuthState,
+      updatedAtMs: persistence.enrollment.updatedAtMs,
+    });
     return { ok: true };
   }
 
