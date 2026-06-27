@@ -201,16 +201,16 @@ import {
   computeRegistrationNearEd25519SigningKeyId,
   computeRegistrationIntentDigestB64u,
   normalizeAddAuthMethodInput,
+  normalizeAddSignerSelection,
   normalizeEmailOtpRegistrationProof,
-  normalizeNearAccountOwnershipProofV1,
   normalizeRegistrationAuthMethodInput,
+  normalizeRegistrationSignerSelection,
   registrationIntentGrantFromString,
   nearEd25519SigningKeyIdFromString,
   serializeNearAccountOwnershipProofMessageV1,
   walletIdFromString,
   type AddAuthMethodIntentV1,
   type AddSignerIntentV1,
-  type AddSignerSelection,
   type NearEd25519SigningKeyId,
   type NearAccountOwnershipProofV1,
   type RegistrationAuthority,
@@ -219,8 +219,6 @@ import {
   type RegistrationSignerSelection,
   type ResolvedRegistrationNearAccount,
   type RegisterWalletInput,
-  type ThresholdEcdsaRegistrationSpec,
-  type ThresholdEd25519RegistrationSpec,
 } from '@shared/utils/registrationIntent';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import {
@@ -1070,89 +1068,6 @@ type RegistrationIntentWalletResolution =
       walletId?: never;
     };
 
-function normalizeRegistrationNearAccountProvisioning(
-  raw: unknown,
-): RegistrationNearAccountProvisioning | null {
-  if (!isObject(raw)) return null;
-  const kind = toOptionalTrimmedString(raw.kind);
-  switch (kind) {
-    case 'implicit_account':
-      if (
-        Object.prototype.hasOwnProperty.call(raw, 'requestedAccountId') ||
-        Object.prototype.hasOwnProperty.call(raw, 'sponsor')
-      ) {
-        return null;
-      }
-      return {
-        kind: 'implicit_account',
-        accountIdSource: 'ed25519_public_key',
-      };
-    case 'sponsored_named_account': {
-      if (Object.prototype.hasOwnProperty.call(raw, 'accountIdSource')) return null;
-      const parsed = parseNamedNearAccountId(raw.requestedAccountId);
-      if (!parsed.ok) return null;
-      return {
-        kind: 'sponsored_named_account',
-        requestedAccountId: parsed.value,
-        sponsor: 'relayer',
-      };
-    }
-    default:
-      return null;
-  }
-}
-
-function normalizeRegistrationEd25519Spec(
-  value: Record<string, unknown> | null,
-): ThresholdEd25519RegistrationSpec | null {
-  if (!value) return null;
-  if (
-    Object.prototype.hasOwnProperty.call(value, 'nearAccountId') ||
-    Object.prototype.hasOwnProperty.call(value, 'createNearAccount')
-  ) {
-    return null;
-  }
-  const accountProvisioning = normalizeRegistrationNearAccountProvisioning(
-    value.accountProvisioning,
-  );
-  const keyPurpose = toOptionalTrimmedString(value.keyPurpose);
-  const keyVersion = toOptionalTrimmedString(value.keyVersion);
-  const derivationVersion = Number(value.derivationVersion);
-  const participantIds = Array.isArray(value.participantIds)
-    ? value.participantIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
-    : [];
-  if (
-    !accountProvisioning ||
-    !keyPurpose ||
-    !keyVersion ||
-    !Number.isInteger(derivationVersion) ||
-    derivationVersion < 1 ||
-    participantIds.length === 0
-  ) {
-    return null;
-  }
-  return {
-    accountProvisioning,
-    signerSlot: normalizePositiveInteger(value.signerSlot, 1),
-    participantIds,
-    keyPurpose,
-    keyVersion,
-    derivationVersion,
-  };
-}
-
-function normalizeRegistrationEcdsaSpec(
-  value: Record<string, unknown> | null,
-): ThresholdEcdsaRegistrationSpec | null {
-  if (!value) return null;
-  const participantIds = Array.isArray(value.participantIds)
-    ? value.participantIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
-    : [];
-  const chainTargets = Array.isArray(value.chainTargets) ? value.chainTargets : [];
-  if (participantIds.length === 0 || chainTargets.length === 0) return null;
-  return { participantIds, chainTargets };
-}
-
 function sponsoredNamedRegistrationAccountId(
   provisioning: RegistrationNearAccountProvisioning,
 ): string | null {
@@ -1361,152 +1276,6 @@ function addSignerIntentSigningRootId(input: {
     toOptionalTrimmedString(input.signingRootId) ||
     (input.intent.runtimePolicyScope ? deriveSigningRootId(input.intent.runtimePolicyScope) : '')
   );
-}
-
-function normalizeRegistrationSignerSelection(
-  raw: unknown,
-): { ok: true; value: RegistrationSignerSelection } | { ok: false; code: string; message: string } {
-  if (!isObject(raw)) {
-    return { ok: false, code: 'invalid_body', message: 'signerSelection must be an object' };
-  }
-  const mode = String(raw.mode || '').trim();
-  const ed25519Raw = isObject(raw.ed25519) ? raw.ed25519 : null;
-  const ecdsaRaw = isObject(raw.ecdsa) ? raw.ecdsa : null;
-
-  const ed25519 = normalizeRegistrationEd25519Spec(ed25519Raw);
-  const ecdsa = normalizeRegistrationEcdsaSpec(ecdsaRaw);
-  switch (mode) {
-    case 'ed25519_only':
-      return ed25519
-        ? { ok: true, value: { mode, ed25519 } }
-        : { ok: false, code: 'invalid_body', message: 'ed25519 signer spec is invalid' };
-    case 'ecdsa_only':
-      return ecdsa
-        ? { ok: true, value: { mode, ecdsa } }
-        : { ok: false, code: 'invalid_body', message: 'ecdsa signer spec is invalid' };
-    case 'ed25519_and_ecdsa':
-      return ed25519 && ecdsa
-        ? { ok: true, value: { mode, ed25519, ecdsa } }
-        : {
-            ok: false,
-            code: 'invalid_body',
-            message: 'combined registration requires valid ed25519 and ecdsa specs',
-          };
-    default:
-      return { ok: false, code: 'invalid_body', message: 'unsupported registration mode' };
-  }
-}
-
-function normalizeAddSignerSelection(
-  raw: unknown,
-): { ok: true; value: AddSignerSelection } | { ok: false; code: string; message: string } {
-  if (!isObject(raw)) {
-    return { ok: false, code: 'invalid_body', message: 'signerSelection must be an object' };
-  }
-  const mode = String(raw.mode || '').trim();
-  if (mode === 'ecdsa') {
-    const ecdsaRaw = isObject(raw.ecdsa) ? raw.ecdsa : null;
-    const participantIds = Array.isArray(ecdsaRaw?.participantIds)
-      ? ecdsaRaw.participantIds
-          .map((id) => Number(id))
-          .filter((id) => Number.isInteger(id) && id > 0)
-      : [];
-    const chainTargets = Array.isArray(ecdsaRaw?.chainTargets)
-      ? ecdsaRaw.chainTargets.map((target) => thresholdEcdsaChainTargetFromValue(target))
-      : [];
-    if (
-      participantIds.length === 0 ||
-      chainTargets.length === 0 ||
-      chainTargets.some(Boolean) === false
-    ) {
-      return { ok: false, code: 'invalid_body', message: 'ecdsa add-signer spec is invalid' };
-    }
-    const normalizedTargets = chainTargets.filter((target): target is ThresholdEcdsaChainTarget =>
-      Boolean(target),
-    );
-    if (normalizedTargets.length !== chainTargets.length) {
-      return { ok: false, code: 'invalid_body', message: 'ecdsa add-signer spec is invalid' };
-    }
-    return {
-      ok: true,
-      value: {
-        mode: 'ecdsa',
-        ecdsa: {
-          chainTargets: normalizedTargets,
-          participantIds,
-        },
-      },
-    };
-  }
-  if (mode === 'ed25519') {
-    const ed25519Raw = isObject(raw.ed25519) ? raw.ed25519 : null;
-    const ed25519Mode = String(ed25519Raw?.mode || '').trim();
-    const nearAccountId = toOptionalTrimmedString(ed25519Raw?.nearAccountId);
-    const signerSlot = normalizePositiveInteger(ed25519Raw?.signerSlot, 1);
-    const keyPurpose = toOptionalTrimmedString(ed25519Raw?.keyPurpose);
-    const keyVersion = toOptionalTrimmedString(ed25519Raw?.keyVersion);
-    const derivationVersion = normalizePositiveInteger(ed25519Raw?.derivationVersion, 0);
-    const participantIds = Array.isArray(ed25519Raw?.participantIds)
-      ? ed25519Raw.participantIds
-          .map((id) => Number(id))
-          .filter((id) => Number.isInteger(id) && id > 0)
-      : [];
-    if (
-      !nearAccountId ||
-      !keyPurpose ||
-      !keyVersion ||
-      !derivationVersion ||
-      participantIds.length === 0
-    ) {
-      return { ok: false, code: 'invalid_body', message: 'ed25519 add-signer spec is invalid' };
-    }
-    if (ed25519Mode === 'create_near_account') {
-      return {
-        ok: true,
-        value: {
-          mode: 'ed25519',
-          ed25519: {
-            mode: ed25519Mode,
-            nearAccountId,
-            signerSlot,
-            participantIds,
-            keyPurpose,
-            keyVersion,
-            derivationVersion,
-          },
-        },
-      };
-    }
-    if (ed25519Mode === 'link_existing_near_account') {
-      const accountOwnershipProof = normalizeNearAccountOwnershipProofV1(
-        ed25519Raw?.accountOwnershipProof,
-      );
-      if (!accountOwnershipProof) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ed25519 add-signer account ownership proof is required',
-        };
-      }
-      return {
-        ok: true,
-        value: {
-          mode: 'ed25519',
-          ed25519: {
-            mode: ed25519Mode,
-            nearAccountId,
-            signerSlot,
-            participantIds,
-            keyPurpose,
-            keyVersion,
-            derivationVersion,
-            accountOwnershipProof,
-          },
-        },
-      };
-    }
-  }
-  return { ok: false, code: 'invalid_body', message: 'unsupported add-signer mode' };
 }
 
 type AdjacentFlowEcdsaPrepareSpec = {
@@ -6213,7 +5982,9 @@ export class AuthService {
       const rpId = toOptionalTrimmedString(input.request?.rpId);
       if (!rpId) return { ok: false, code: 'invalid_body', message: 'rpId is required' };
 
-      const signerSelection = normalizeAddSignerSelection(input.request?.signerSelection);
+      const signerSelection = normalizeAddSignerSelection(input.request?.signerSelection, {
+        normalizeEcdsaChainTarget: thresholdEcdsaChainTargetFromValue,
+      });
       if (!signerSelection.ok) return signerSelection;
 
       const runtimePolicyScope =
@@ -8474,6 +8245,16 @@ export class AuthService {
         if (policyBindingError) {
           return { ok: false, code: 'invalid_body', message: policyBindingError };
         }
+        const sessionMintStartedAtMs = Date.now();
+        this.logger.info('[wallet-registration][finalize] minting Ed25519 wallet session', {
+          walletId: String(ceremony.intent.walletId),
+          nearAccountId: finalized.nearAccountId,
+          nearEd25519SigningKeyId,
+          thresholdSessionId: String(requestedPolicy.thresholdSessionId || '').trim(),
+          signingGrantId:
+            String(requestedPolicy.signingGrantId || '').trim() ||
+            String(requestedPolicy.thresholdSessionId || '').trim(),
+        });
         const session = await measureRegistrationRouteTiming(
           routeTimings,
           'relaySessionMintMs',
@@ -8495,6 +8276,11 @@ export class AuthService {
               } as any,
             }),
         );
+        this.logger.info('[wallet-registration][finalize] Ed25519 wallet session mint completed', {
+          ok: Boolean(session.ok),
+          code: session.ok ? undefined : session.code || 'internal',
+          durationMs: Date.now() - sessionMintStartedAtMs,
+        });
         if (
           !session.ok ||
           !session.thresholdSessionId ||
@@ -8569,6 +8355,14 @@ export class AuthService {
           }),
       );
       if (!googleEmailOtpActivation.ok) return googleEmailOtpActivation;
+      const persistenceStartedAtMs = Date.now();
+      this.logger.info('[wallet-registration][finalize] persisting registration records', {
+        walletId: String(ceremony.intent.walletId),
+        nearAccountId: finalized.nearAccountId,
+        walletSignerCount: walletSigners.length,
+        hasEmailOtpEnrollment: Boolean(emailOtpEnrollment.persistence),
+        hasGoogleEmailOtpActivation: Boolean(googleEmailOtpActivation.activation),
+      });
       const persisted = await measureRegistrationRouteTiming(
         routeTimings,
         'relayPersistenceMs',
@@ -8590,6 +8384,11 @@ export class AuthService {
             },
           }),
       );
+      this.logger.info('[wallet-registration][finalize] registration persistence completed', {
+        ok: Boolean(persisted.ok),
+        code: persisted.ok ? undefined : persisted.code || 'internal',
+        durationMs: Date.now() - persistenceStartedAtMs,
+      });
       if (!persisted.ok) return persisted;
 
       const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {

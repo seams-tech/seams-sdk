@@ -10,7 +10,11 @@ import type {
 } from './domainIds';
 import { parseWalletId } from './domainIds';
 import { base64UrlEncode } from './encoders';
-import type { ImplicitNearAccountId, NamedNearAccountId } from './near';
+import {
+  parseNamedNearAccountId,
+  type ImplicitNearAccountId,
+  type NamedNearAccountId,
+} from './near';
 
 export type { WalletId, WebAuthnRpId } from './domainIds';
 export type { ImplicitNearAccountId, NamedNearAccountId, NearAccountId } from './near';
@@ -633,6 +637,283 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function trimString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizePositiveInteger(raw: unknown, fallback: number): number {
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : fallback;
+}
+
+function collectPositiveParticipantIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const participantIds: number[] = [];
+  for (const id of raw) {
+    const numericId = Number(id);
+    if (Number.isInteger(numericId) && numericId > 0) participantIds.push(numericId);
+  }
+  return participantIds;
+}
+
+function normalizeUnknownArray(raw: unknown): unknown[] {
+  return Array.isArray(raw) ? raw : [];
+}
+
+function normalizeRegistrationNearAccountProvisioning(
+  raw: unknown,
+): RegistrationNearAccountProvisioning | null {
+  if (!isRecord(raw)) return null;
+  const kind = trimString(raw.kind);
+  switch (kind) {
+    case 'implicit_account':
+      if (
+        Object.prototype.hasOwnProperty.call(raw, 'requestedAccountId') ||
+        Object.prototype.hasOwnProperty.call(raw, 'sponsor')
+      ) {
+        return null;
+      }
+      return {
+        kind: 'implicit_account',
+        accountIdSource: 'ed25519_public_key',
+      };
+    case 'sponsored_named_account': {
+      if (Object.prototype.hasOwnProperty.call(raw, 'accountIdSource')) return null;
+      const parsed = parseNamedNearAccountId(raw.requestedAccountId);
+      if (!parsed.ok) return null;
+      return {
+        kind: 'sponsored_named_account',
+        requestedAccountId: parsed.value,
+        sponsor: 'relayer',
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function normalizeRegistrationEd25519Spec(
+  value: Record<string, unknown> | null,
+): ThresholdEd25519RegistrationSpec | null {
+  if (!value) return null;
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'nearAccountId') ||
+    Object.prototype.hasOwnProperty.call(value, 'createNearAccount')
+  ) {
+    return null;
+  }
+  const accountProvisioning = normalizeRegistrationNearAccountProvisioning(
+    value.accountProvisioning,
+  );
+  const keyPurpose = trimString(value.keyPurpose);
+  const keyVersion = trimString(value.keyVersion);
+  const derivationVersion = Number(value.derivationVersion);
+  const participantIds = collectPositiveParticipantIds(value.participantIds);
+  if (
+    !accountProvisioning ||
+    !keyPurpose ||
+    !keyVersion ||
+    !Number.isInteger(derivationVersion) ||
+    derivationVersion < 1 ||
+    participantIds.length === 0
+  ) {
+    return null;
+  }
+  return {
+    accountProvisioning,
+    signerSlot: normalizePositiveInteger(value.signerSlot, 1),
+    participantIds,
+    keyPurpose,
+    keyVersion,
+    derivationVersion,
+  };
+}
+
+function normalizeRegistrationEcdsaSpec(
+  value: Record<string, unknown> | null,
+): ThresholdEcdsaRegistrationSpec | null {
+  if (!value) return null;
+  const participantIds = collectPositiveParticipantIds(value.participantIds);
+  const chainTargets = normalizeUnknownArray(value.chainTargets);
+  if (participantIds.length === 0 || chainTargets.length === 0) return null;
+  return { participantIds, chainTargets };
+}
+
+export type NormalizeSignerSelectionResult<TSelection> =
+  | { ok: true; value: TSelection }
+  | { ok: false; code: string; message: string };
+
+export type NormalizeAddSignerSelectionOptions = {
+  readonly normalizeEcdsaChainTarget: (target: unknown) => unknown | null;
+};
+
+export function normalizeRegistrationSignerSelection(
+  raw: unknown,
+): NormalizeSignerSelectionResult<RegistrationSignerSelection> {
+  if (!isRecord(raw)) {
+    return { ok: false, code: 'invalid_body', message: 'signerSelection must be an object' };
+  }
+  const mode = trimString(raw.mode);
+  const ed25519Raw = isRecord(raw.ed25519) ? raw.ed25519 : null;
+  const ecdsaRaw = isRecord(raw.ecdsa) ? raw.ecdsa : null;
+
+  const ed25519 = normalizeRegistrationEd25519Spec(ed25519Raw);
+  const ecdsa = normalizeRegistrationEcdsaSpec(ecdsaRaw);
+  switch (mode) {
+    case 'ed25519_only':
+      return ed25519
+        ? { ok: true, value: { mode, ed25519 } }
+        : { ok: false, code: 'invalid_body', message: 'ed25519 signer spec is invalid' };
+    case 'ecdsa_only':
+      return ecdsa
+        ? { ok: true, value: { mode, ecdsa } }
+        : { ok: false, code: 'invalid_body', message: 'ecdsa signer spec is invalid' };
+    case 'ed25519_and_ecdsa':
+      return ed25519 && ecdsa
+        ? { ok: true, value: { mode, ed25519, ecdsa } }
+        : {
+            ok: false,
+            code: 'invalid_body',
+            message: 'combined registration requires valid ed25519 and ecdsa specs',
+          };
+    default:
+      return { ok: false, code: 'invalid_body', message: 'unsupported registration mode' };
+  }
+}
+
+export function normalizeAddSignerSelection(
+  raw: unknown,
+  options: NormalizeAddSignerSelectionOptions,
+): NormalizeSignerSelectionResult<AddSignerSelection> {
+  if (!isRecord(raw)) {
+    return { ok: false, code: 'invalid_body', message: 'signerSelection must be an object' };
+  }
+  const mode = trimString(raw.mode);
+  if (mode === 'ecdsa') return normalizeAddSignerEcdsaSelection(raw.ecdsa, options);
+  if (mode === 'ed25519') return normalizeAddSignerEd25519Selection(raw.ed25519);
+  return { ok: false, code: 'invalid_body', message: 'unsupported add-signer mode' };
+}
+
+function normalizeAddSignerEcdsaSelection(
+  raw: unknown,
+  options: NormalizeAddSignerSelectionOptions,
+): NormalizeSignerSelectionResult<AddSignerSelection> {
+  const ecdsaRaw = isRecord(raw) ? raw : null;
+  const participantIds = collectPositiveParticipantIds(ecdsaRaw?.participantIds);
+  const chainTargets = normalizeAddSignerEcdsaChainTargets(ecdsaRaw?.chainTargets, options);
+  if (participantIds.length === 0 || chainTargets.length === 0) {
+    return { ok: false, code: 'invalid_body', message: 'ecdsa add-signer spec is invalid' };
+  }
+  return {
+    ok: true,
+    value: {
+      mode: 'ecdsa',
+      ecdsa: {
+        chainTargets,
+        participantIds,
+      },
+    },
+  };
+}
+
+function normalizeAddSignerEcdsaChainTargets(
+  raw: unknown,
+  options: NormalizeAddSignerSelectionOptions,
+): unknown[] {
+  if (!Array.isArray(raw)) return [];
+  const chainTargets: unknown[] = [];
+  for (const target of raw) {
+    const normalized = options.normalizeEcdsaChainTarget(target);
+    if (!normalized) return [];
+    chainTargets.push(normalized);
+  }
+  return chainTargets;
+}
+
+function normalizeAddSignerEd25519Selection(
+  raw: unknown,
+): NormalizeSignerSelectionResult<AddSignerSelection> {
+  const ed25519Raw = isRecord(raw) ? raw : null;
+  const ed25519Mode = trimString(ed25519Raw?.mode);
+  const nearAccountId = trimString(ed25519Raw?.nearAccountId);
+  const signerSlot = normalizePositiveInteger(ed25519Raw?.signerSlot, 1);
+  const keyPurpose = trimString(ed25519Raw?.keyPurpose);
+  const keyVersion = trimString(ed25519Raw?.keyVersion);
+  const derivationVersion = normalizePositiveInteger(ed25519Raw?.derivationVersion, 0);
+  const participantIds = collectPositiveParticipantIds(ed25519Raw?.participantIds);
+  if (
+    !nearAccountId ||
+    !keyPurpose ||
+    !keyVersion ||
+    !derivationVersion ||
+    participantIds.length === 0
+  ) {
+    return { ok: false, code: 'invalid_body', message: 'ed25519 add-signer spec is invalid' };
+  }
+  if (ed25519Mode === 'create_near_account') {
+    return {
+      ok: true,
+      value: {
+        mode: 'ed25519',
+        ed25519: {
+          mode: ed25519Mode,
+          nearAccountId,
+          signerSlot,
+          participantIds,
+          keyPurpose,
+          keyVersion,
+          derivationVersion,
+        },
+      },
+    };
+  }
+  if (ed25519Mode === 'link_existing_near_account') {
+    return normalizeAddSignerLinkedEd25519Selection({
+      raw: ed25519Raw,
+      nearAccountId,
+      signerSlot,
+      participantIds,
+      keyPurpose,
+      keyVersion,
+      derivationVersion,
+    });
+  }
+  return { ok: false, code: 'invalid_body', message: 'unsupported add-signer mode' };
+}
+
+function normalizeAddSignerLinkedEd25519Selection(input: {
+  readonly raw: Record<string, unknown> | null;
+  readonly nearAccountId: string;
+  readonly signerSlot: number;
+  readonly participantIds: readonly number[];
+  readonly keyPurpose: string;
+  readonly keyVersion: string;
+  readonly derivationVersion: number;
+}): NormalizeSignerSelectionResult<AddSignerSelection> {
+  const accountOwnershipProof = normalizeNearAccountOwnershipProofV1(
+    input.raw?.accountOwnershipProof,
+  );
+  if (!accountOwnershipProof) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ed25519 add-signer account ownership proof is required',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      mode: 'ed25519',
+      ed25519: {
+        mode: 'link_existing_near_account',
+        nearAccountId: input.nearAccountId,
+        signerSlot: input.signerSlot,
+        participantIds: [...input.participantIds],
+        keyPurpose: input.keyPurpose,
+        keyVersion: input.keyVersion,
+        derivationVersion: input.derivationVersion,
+        accountOwnershipProof,
+      },
+    },
+  };
 }
 
 export function normalizeRegistrationAuthMethodInput(

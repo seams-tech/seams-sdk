@@ -86,6 +86,85 @@ class ThrowingDurableObjectNamespace implements CloudflareDurableObjectNamespace
   }
 }
 
+class RecordingDurableObjectStub implements CloudflareDurableObjectStubLike {
+  readonly requests: Record<string, unknown>[] = [];
+  readonly values = new Map<string, unknown>();
+
+  async fetch(_input: RequestInfo, init?: RequestInit): Promise<Response> {
+    const request = parseRecordingDurableObjectRequest(init?.body);
+    this.requests.push(request);
+    const op = String(request.op || '');
+    if (op === 'set') return this.handleSet(request);
+    if (op === 'authReserveReplayGuard') return this.handleReserveReplayGuard(request);
+    return recordingDurableObjectJson({
+      ok: false,
+      code: 'unsupported_op',
+      message: `Unsupported op: ${op}`,
+    });
+  }
+
+  private handleSet(request: Record<string, unknown>): Response {
+    const key = String(request.key || '').trim();
+    this.values.set(key, request.value);
+    return recordingDurableObjectJson({ ok: true, value: true });
+  }
+
+  private handleReserveReplayGuard(request: Record<string, unknown>): Response {
+    const key = String(request.key || '').trim();
+    const expiresAtMs = Number(request.expiresAtMs);
+    const existing = this.values.get(key);
+    if (isActiveRecordingReplayGuard(existing)) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'replay',
+        message: 'Replay guard already reserved',
+      });
+    }
+    this.values.set(key, { expiresAtMs });
+    return recordingDurableObjectJson({ ok: true, value: { reserved: true } });
+  }
+}
+
+class RecordingDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike {
+  readonly stub = new RecordingDurableObjectStub();
+  readonly objectNames: string[] = [];
+
+  idFromName(name: string): string {
+    this.objectNames.push(name);
+    return name;
+  }
+
+  get(): CloudflareDurableObjectStubLike {
+    return this.stub;
+  }
+}
+
+function parseRecordingDurableObjectRequest(
+  body: BodyInit | null | undefined,
+): Record<string, unknown> {
+  if (typeof body !== 'string') return {};
+  const parsed: unknown = JSON.parse(body);
+  return isSqliteJsonRow(parsed) ? parsed : {};
+}
+
+function recordingDurableObjectJson(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function isActiveRecordingReplayGuard(value: unknown): boolean {
+  if (!isSqliteJsonRow(value)) return false;
+  return Number(value.expiresAtMs || 0) > Date.now();
+}
+
+function isRecordingDurableObjectReplayReservationRequest(
+  request: Record<string, unknown>,
+): boolean {
+  return String(request.op || '') === 'authReserveReplayGuard';
+}
+
 class SqliteCliD1Database implements D1DatabaseLike {
   constructor(readonly databasePath: string) {}
 
@@ -2184,6 +2263,144 @@ test('Cloudflare D1 relay auth service wires threshold signing from Durable Obje
     expect(threshold).not.toBeNull();
     expect(withThreshold.getThresholdSigningService()).toBe(threshold);
     expect(threshold?.getRouterAbNormalSigningWorkerId()).toBe('test-threshold-signing-worker');
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service stores wallet registration intents in Durable Objects', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+      },
+    });
+
+    const registration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'server_generated' },
+        rpId: 'example.com',
+        authMethod: { kind: 'passkey' },
+        signerSelection: {
+          mode: 'ed25519_only',
+          ed25519: {
+            accountProvisioning: { kind: 'implicit_account' },
+            signerSlot: 1,
+            participantIds: [1, 2, 3],
+            keyPurpose: 'wallet-registration',
+            keyVersion: 'v1',
+            derivationVersion: 1,
+          },
+        },
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+    expect(registration.intent.walletId).toMatch(/^seams-wallet-[0-9a-f]{6}$/);
+    expect(registration.intent.runtimePolicyScope).toEqual({
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      signingRootVersion: 'root-v1',
+    });
+
+    const addSigner = await service.createAddSignerIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        walletId: registration.intent.walletId,
+        rpId: 'example.com',
+        signerSelection: {
+          mode: 'ecdsa',
+          ecdsa: {
+            participantIds: [3, 2, 1],
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+          },
+        },
+      },
+    });
+    expect(addSigner.ok).toBe(true);
+    if (!addSigner.ok) throw new Error(addSigner.message);
+
+    const addAuthMethod = await service.createAddAuthMethodIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        walletId: registration.intent.walletId,
+        rpId: 'example.com',
+        authMethod: { kind: 'email_otp', email: 'owner@example.test' },
+      },
+    });
+    expect(addAuthMethod.ok).toBe(true);
+    if (!addAuthMethod.ok) throw new Error(addAuthMethod.message);
+
+    const prefix = 'intent-test:wallet-registration:';
+    const registrationRecord = durableObjects.stub.values.get(
+      `${prefix}intent:${registration.registrationIntentGrant}`,
+    );
+    expect(registrationRecord).toMatchObject({
+      kind: 'intent_allocated',
+      digestB64u: registration.registrationIntentDigestB64u,
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      intent: registration.intent,
+    });
+    expect(
+      durableObjects.stub.requests.some(isRecordingDurableObjectReplayReservationRequest),
+    ).toBe(true);
+
+    const addSignerRecord = durableObjects.stub.values.get(
+      `${prefix}add-signer-intent:${addSigner.addSignerIntentGrant}`,
+    );
+    expect(addSignerRecord).toMatchObject({
+      kind: 'add_signer_intent_allocated',
+      digestB64u: addSigner.addSignerIntentDigestB64u,
+      orgId: scope.orgId,
+      intent: addSigner.intent,
+    });
+    expect(addSigner.intent.signerSelection).toEqual({
+      mode: 'ecdsa',
+      ecdsa: {
+        participantIds: [3, 2, 1],
+        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+      },
+    });
+
+    const addAuthMethodRecord = durableObjects.stub.values.get(
+      `${prefix}add-auth-method-intent:${addAuthMethod.addAuthMethodIntentGrant}`,
+    );
+    expect(addAuthMethodRecord).toMatchObject({
+      kind: 'add_auth_method_intent_allocated',
+      digestB64u: addAuthMethod.addAuthMethodIntentDigestB64u,
+      orgId: scope.orgId,
+      intent: addAuthMethod.intent,
+    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

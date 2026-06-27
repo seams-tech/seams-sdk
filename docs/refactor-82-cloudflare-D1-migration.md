@@ -154,6 +154,12 @@ Line-count cleanup baseline:
 - [x] Non-doc baseline recorded: 46,334 additions and 1,868 deletions after
   excluding docs and Markdown.
 - [x] Docs/Markdown baseline recorded: 995 additions and 2,490 deletions.
+- [x] Intent-allocation slice recorded before plan-doc update: 1,218 code
+  additions and 236 code deletions across D1 relay, shared intent parsing,
+  `AuthService`, and unit tests. The same-phase deletion pass removed duplicate
+  private signer-selection parsers and three disabled Cloudflare relay bindings;
+  the remaining positive delta is a Phase 7 cleanup target once the full
+  ceremony path is proven.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -993,6 +999,16 @@ Completed:
   `THRESHOLD_STORE` through a Durable Object-only factory and expose the ECDSA
   HSS role-local bootstrap, existing-key proof verification, and export-share
   primitive methods.
+- [x] Cloudflare relay auth service D1 methods allocate wallet-registration,
+  add-signer, and add-auth-method intents through the `THRESHOLD_STORE` Durable
+  Object protocol, including generated-wallet replay reservation and signer
+  wallet collision checks.
+- [x] Signer-selection request parsing for registration and add-signer intents
+  lives in the shared boundary parser instead of duplicated private
+  `AuthService` helpers.
+- [x] Deleted the disabled Cloudflare relay bindings for
+  `createRegistrationIntent`, `createAddSignerIntent`, and
+  `createAddAuthMethodIntent`. Remaining disabled signer methods: 12.
 - [x] The Cloudflare service-bundle relay options are wired to the Durable Object
   normal-signing admission store.
 - [x] The Cloudflare service-bundle relay options are wired to D1-backed
@@ -1026,8 +1042,9 @@ Completed:
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: wallet registration and add-signer/add-auth-method ceremonies,
-  signed delegates, and email recovery HSS responses.
+  Object slices: wallet registration and add-signer/add-auth-method
+  start/prepare/respond/finalize ceremonies, signed delegates, and email
+  recovery HSS responses.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
@@ -1097,7 +1114,8 @@ Work:
 - [x] Add Playwright unit coverage for implemented Cloudflare D1 relay auth
   service slices, including recovery-code rotation, generic OIDC JWT exchange,
   Email OTP server-seal transforms, wallet auth-method revocation, Durable
-  Object threshold wiring, and the Worker runtime import guard.
+  Object threshold wiring, D1/DO wallet intent allocation, and the Worker
+  runtime import guard.
 - [x] Keep pure unit fakes for core logic that does not depend on SQL behavior.
 - [ ] Cover every remaining duplicate idempotency, insufficient balance,
   settlement replay, lease races, tenant isolation, sealed-share parsing,
