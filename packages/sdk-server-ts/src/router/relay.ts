@@ -159,6 +159,10 @@ export interface RelayWebhookOptions {
   orgIdClaimKeys?: string[];
 }
 
+export interface RelayEmailRecoveryOptions {
+  enabled: true;
+}
+
 export type RelayEmailOtpExportPolicyPhase = 'challenge' | 'verify';
 
 export type RelayEmailOtpExportPolicyDecision =
@@ -452,6 +456,8 @@ export interface RelayRouterOptions {
   runtimeSnapshots?: RelayRuntimeSnapshotConsumer | null;
   // Optional: webhook emitter for relay session/wallet lifecycle events.
   relayWebhooks?: RelayWebhookOptions | null;
+  // Optional: enable DKIM/TEE email recovery prepare, respond, and ingress routes.
+  emailRecovery?: RelayEmailRecoveryOptions | null;
   /**
    * Optional policy adapter for Email OTP key-export authorization.
    *

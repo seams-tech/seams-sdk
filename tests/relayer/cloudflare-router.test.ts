@@ -357,7 +357,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
 
   test('CORS preflight: allowlist echoes Origin + allows credentials', async () => {
     const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+    });
 
     const res = await callCf(handler, {
       method: 'OPTIONS',
@@ -1087,7 +1089,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
         message: 'Missing user_id',
       }),
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+    });
 
     const res = await callCf(handler, {
       method: 'POST',
@@ -1109,7 +1113,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
         expiresAtMs: 123,
       }),
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+    });
 
     const res = await callCf(handler, {
       method: 'POST',
@@ -1144,7 +1150,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
         };
       },
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+    });
 
     const res = await callCf(handler, {
       method: 'POST',
@@ -4251,7 +4259,10 @@ test.describe('relayer router (cloudflare) – P0', () => {
         } as any,
       }),
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      emailRecovery: { enabled: true },
+    });
 
     const res = await callCf(handler, {
       method: 'POST',

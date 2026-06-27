@@ -53,7 +53,11 @@ import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
 import { handleSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal/transport/cloudflare';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
-import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
+import {
+  attachRelayRouteSurface,
+  isEmailRecoveryRoutesEnabled,
+  resolveRelayRouteSurface,
+} from '../relayRouteSurface';
 import {
   findRouteDefinitionForRequest,
   type RouteDefinition,
@@ -105,6 +109,7 @@ export function createCloudflareRouter(
   const logger = coerceRouterLogger(effectiveOpts.logger);
   const routeSurface = resolveRelayRouteSurface(effectiveOpts, { transport: 'cloudflare' });
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
+  const emailRecoveryRoutesEnabled = isEmailRecoveryRoutesEnabled(effectiveOpts);
   const cloudflareRouteExtensions = getRelayRouteExtensionsForTransport(
     routeExtensions,
     'cloudflare',
@@ -120,7 +125,7 @@ export function createCloudflareRouter(
     handleAuth,
     handleSyncAccount,
     handleLinkDevice,
-    handleEmailRecoveryPrepare,
+    ...(emailRecoveryRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
     handleThresholdEd25519,
     handleThresholdEcdsa,
     async (c: CloudflareRelayContext) =>
@@ -176,7 +181,7 @@ export function createCloudflareRouter(
         });
       };
     }),
-    handleRecoverEmail,
+    ...(emailRecoveryRoutesEnabled ? [handleRecoverEmail] : []),
     handleHealth,
     handleReady,
   ];

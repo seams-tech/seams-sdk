@@ -193,7 +193,10 @@ test.describe('email-recovery prepare routing', () => {
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const router = createRelayRouter(makePreparedRecoveryService(), { session });
+    const router = createRelayRouter(makePreparedRecoveryService(), {
+      emailRecovery: { enabled: true },
+      session,
+    });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/email-recovery/prepare`, {
@@ -230,7 +233,10 @@ test.describe('email-recovery prepare routing', () => {
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const handler = createCloudflareRouter(makePreparedRecoveryService(), { session });
+    const handler = createCloudflareRouter(makePreparedRecoveryService(), {
+      emailRecovery: { enabled: true },
+      session,
+    });
     const { ctx } = makeCfCtx();
 
     const res = await callCf(handler, {
@@ -262,7 +268,10 @@ test.describe('email-recovery prepare routing', () => {
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const router = createRelayRouter(makePreparedRecoveryService(), { session });
+    const router = createRelayRouter(makePreparedRecoveryService(), {
+      emailRecovery: { enabled: true },
+      session,
+    });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/email-recovery/ecdsa/respond`, {
@@ -290,7 +299,10 @@ test.describe('email-recovery prepare routing', () => {
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const handler = createCloudflareRouter(makePreparedRecoveryService(), { session });
+    const handler = createCloudflareRouter(makePreparedRecoveryService(), {
+      emailRecovery: { enabled: true },
+      session,
+    });
     const { ctx } = makeCfCtx();
 
     const res = await callCf(handler, {

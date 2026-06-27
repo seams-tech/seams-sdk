@@ -54,6 +54,7 @@ export interface RouteDefinition {
 }
 
 export interface RelayRouteDefinitionOptions {
+  enableEmailRecovery?: boolean;
   enableHealthz?: boolean;
   enableSigningSessionSeal?: boolean;
   enableReadyz?: boolean;
@@ -1716,31 +1717,6 @@ export function createRelayRouteDefinitions(
       ['authService'],
     ),
     publicRoute(
-      'email_recovery_prepare',
-      'POST',
-      '/email-recovery/prepare',
-      'Prepare email recovery flow',
-      {
-        plane: 'public',
-        proof: 'recovery_proof',
-        rationale: 'Email recovery preparation is a public recovery bootstrap route.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
-      'email_recovery_ecdsa_respond',
-      'POST',
-      '/email-recovery/ecdsa/respond',
-      'Respond to email recovery ECDSA HSS prepare context',
-      {
-        plane: 'public',
-        proof: 'recovery_proof',
-        rationale:
-          'Email recovery ECDSA respond is scoped by the recovery request id and stored prepare context.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
       'router_ab_ed25519_healthz',
       'GET',
       ROUTER_AB_ED25519_HEALTH_PATH,
@@ -2095,18 +2071,6 @@ export function createRelayRouteDefinitions(
       'authService',
       'session',
     ]),
-    publicRoute(
-      'recover_email',
-      'POST',
-      '/recover-email',
-      'Process email recovery ingress',
-      {
-        plane: 'public',
-        rationale:
-          'Recover-email remains auth-free for now and should be revisited if it starts incurring billable execution cost.',
-      },
-      ['authService'],
-    ),
     userSessionRoute('auth_identities', 'GET', '/auth/identities', 'List linked identities', [
       'authService',
       'session',
@@ -2120,6 +2084,48 @@ export function createRelayRouteDefinitions(
       'session',
     ]),
   );
+
+  if (options.enableEmailRecovery) {
+    definitions.push(
+      publicRoute(
+        'email_recovery_prepare',
+        'POST',
+        '/email-recovery/prepare',
+        'Prepare email recovery flow',
+        {
+          plane: 'public',
+          proof: 'recovery_proof',
+          rationale: 'Email recovery preparation is a public recovery bootstrap route.',
+        },
+        ['authService'],
+      ),
+      publicRoute(
+        'email_recovery_ecdsa_respond',
+        'POST',
+        '/email-recovery/ecdsa/respond',
+        'Respond to email recovery ECDSA HSS prepare context',
+        {
+          plane: 'public',
+          proof: 'recovery_proof',
+          rationale:
+            'Email recovery ECDSA respond is scoped by the recovery request id and stored prepare context.',
+        },
+        ['authService'],
+      ),
+      publicRoute(
+        'recover_email',
+        'POST',
+        '/recover-email',
+        'Process email recovery ingress',
+        {
+          plane: 'public',
+          rationale:
+            'Recover-email remains auth-free for now and should be revisited if it starts incurring billable execution cost.',
+        },
+        ['authService'],
+      ),
+    );
+  }
 
   if (options.enableSponsoredEvmCall) {
     definitions.push(

@@ -20,6 +20,10 @@ export interface RelayRouteSurface {
   signedDelegatePath: string;
 }
 
+export function isEmailRecoveryRoutesEnabled(opts: RelayRouterOptions): boolean {
+  return opts.emailRecovery?.enabled === true;
+}
+
 export function resolveRelayRouteDefinitionOptions(
   opts: RelayRouterOptions,
 ): RelayRouteDefinitionOptions {
@@ -30,6 +34,7 @@ export function resolveRelayRouteDefinitionOptions(
   }
   return {
     enableHealthz: Boolean(opts.healthz),
+    enableEmailRecovery: isEmailRecoveryRoutesEnabled(opts),
     enableSigningSessionSeal: Boolean(opts.signingSessionSeal && opts.signingSessionSeal.enabled !== false),
     enableReadyz: Boolean(opts.readyz),
     enableSponsoredEvmCall: Boolean(opts.sponsoredEvmCall),

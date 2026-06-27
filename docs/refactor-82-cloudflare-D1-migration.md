@@ -231,6 +231,15 @@ Line-count cleanup baseline:
   disabled D1 signed-delegate placeholder, and left NEAR signed delegates as an
   explicit opt-in route for non-D1 or future full-family adapter surfaces.
   Remaining disabled signer/recovery ceremony methods after this cleanup: 3.
+- [x] Cloudflare D1 email-recovery scope cleanup slice recorded before
+  plan-doc update: 145 code additions and 56 code deletions across the relay
+  route surface, Express and Cloudflare routers, Cloudflare email-recovery route
+  typing, D1 smoke tests, and relayer tests. The same-slice cleanup pass made
+  DKIM/TEE email recovery prepare, ECDSA respond, and ingress routes explicit
+  opt-in routes, removed `prepareEmailRecovery` and `respondEmailRecoveryEcdsa`
+  from the D1 Cloudflare relay auth port, removed both disabled D1 placeholders,
+  and proved the local D1 worker returns 404 for `/relay/email-recovery/prepare`.
+  Remaining disabled signer/recovery ceremony methods after this cleanup: 1.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -1135,14 +1144,17 @@ Completed:
   scope. The Cloudflare D1 service bundle omits the `/signed-delegate` route,
   and signed-delegate execution is typed as a narrow opt-in route dependency
   outside `CloudflareRelayAuthService`.
+- [x] DKIM/TEE email recovery prepare, ECDSA respond, and `/recover-email`
+  ingress are excluded from the simplified first D1 staging scope. Non-D1
+  route users must opt in with `emailRecovery: { enabled: true }`; the D1 local
+  worker smoke test proves the recovery route is absent.
 
 Remaining:
 
-- [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: email recovery HSS responses if recovery must be enabled in
-  first D1 staging.
-- [ ] Keep Ed25519 wallet-registration preparation out of D1 staging until
-  start, respond, and finalize are scoped as one complete Ed25519 route slice.
+- [ ] Resolve the final disabled Cloudflare D1 auth method:
+  `prepareWalletRegistration`. Keep Ed25519 wallet-registration preparation out
+  of D1 staging until start, respond, and finalize are scoped as one complete
+  Ed25519 route slice.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found

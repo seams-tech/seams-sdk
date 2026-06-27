@@ -1,4 +1,5 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { AuthService } from '../../../core/AuthService';
 import { json, readJson } from '../http';
 import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
@@ -8,6 +9,22 @@ import {
   parsePrepareEmailRecoveryRequest,
   parseRespondEmailRecoveryEcdsaRequest,
 } from '../../emailRecoveryRequestValidation';
+
+type CloudflareEmailRecoveryAuthService = Pick<
+  AuthService,
+  'prepareEmailRecovery' | 'respondEmailRecoveryEcdsa'
+>;
+
+function hasEmailRecoveryAuthService(
+  service: unknown,
+): service is CloudflareEmailRecoveryAuthService {
+  if (!service || typeof service !== 'object') return false;
+  const candidate = service as Record<string, unknown>;
+  return (
+    typeof candidate.prepareEmailRecovery === 'function' &&
+    typeof candidate.respondEmailRecoveryEcdsa === 'function'
+  );
+}
 
 export async function handleEmailRecoveryPrepare(
   ctx: CloudflareRelayContext,
@@ -26,6 +43,16 @@ export async function handleEmailRecoveryPrepare(
   if (prepareParsed && !prepareParsed.ok) return json(prepareParsed.body, { status: prepareParsed.status });
   const respondParsed = isPrepare ? null : parseRespondEmailRecoveryEcdsaRequest(body);
   if (respondParsed && !respondParsed.ok) return json(respondParsed.body, { status: respondParsed.status });
+  if (!hasEmailRecoveryAuthService(ctx.service)) {
+    return json(
+      {
+        ok: false,
+        code: 'email_recovery_auth_unavailable',
+        message: 'Email recovery auth methods are unavailable for this Cloudflare router',
+      },
+      { status: 501 },
+    );
+  }
 
   const result = prepareParsed
     ? await ctx.service.prepareEmailRecovery(prepareParsed.request)

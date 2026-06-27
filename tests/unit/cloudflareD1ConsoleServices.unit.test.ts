@@ -301,6 +301,17 @@ test('local D1 Worker exposes relay smoke routes under relay prefix', async () =
     cors: { allowedOrigins: ['http://127.0.0.1:8787', 'http://localhost:8787'] },
   });
 
+  const emailRecovery = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/relay/email-recovery/prepare', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    env,
+    ctx,
+  );
+  expect(emailRecovery.status).toBe(404);
+
   const sponsored = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {
       method: 'POST',

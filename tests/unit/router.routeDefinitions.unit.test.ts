@@ -84,6 +84,7 @@ const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
 test.describe('route definition scaffolding', () => {
   test('relay route ids are unique and core policies are encoded', async () => {
     const routes = createRelayRouteDefinitions({
+      enableEmailRecovery: true,
       enableHealthz: true,
       enableSigningSessionSeal: true,
       enableReadyz: true,

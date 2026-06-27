@@ -26,7 +26,11 @@ import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
 import { registerSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
-import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
+import {
+  attachRelayRouteSurface,
+  isEmailRecoveryRoutesEnabled,
+  resolveRelayRouteSurface,
+} from '../relayRouteSurface';
 import type { RouteDefinition } from '../routeDefinitions';
 import {
   getRelayRouteExtensionRoutes,
@@ -67,6 +71,7 @@ export function createRelayRouter(
   const logger = coerceRouterLogger(effectiveOpts.logger);
   const routeSurface = resolveRelayRouteSurface(effectiveOpts, { transport: 'express' });
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
+  const emailRecoveryRoutesEnabled = isEmailRecoveryRoutesEnabled(effectiveOpts);
   const expressRouteExtensions = getRelayRouteExtensionsForTransport(
     routeExtensions,
     'express',
@@ -91,7 +96,9 @@ export function createRelayRouter(
   registerAuthRoutes(router, ctx);
   registerSyncAccountRoutes(router, ctx);
   registerLinkDeviceRoutes(router, ctx);
-  registerEmailRecoveryRoutes(router, ctx);
+  if (emailRecoveryRoutesEnabled) {
+    registerEmailRecoveryRoutes(router, ctx);
+  }
   registerThresholdEd25519Routes(router, ctx);
   registerThresholdEcdsaRoutes(router, ctx);
   registerSigningSessionSealRoutes(router, {
@@ -102,7 +109,9 @@ export function createRelayRouter(
   registerWebAuthnAuthenticatorRoutes(router, ctx);
   registerNearPublicKeysRoutes(router, ctx);
   registerSessionRoutes(router, ctx);
-  registerRecoverEmailRoute(router, ctx);
+  if (emailRecoveryRoutesEnabled) {
+    registerRecoverEmailRoute(router, ctx);
+  }
   for (const extension of expressRouteExtensions) {
     extension.registerExpressRoutes({
       router,
