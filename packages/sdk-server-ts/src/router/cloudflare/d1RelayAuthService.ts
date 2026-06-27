@@ -75,6 +75,7 @@ import type {
   WalletAddSignerFinalizeResponse,
   WalletAddSignerHssRespondResponse,
   WalletAddSignerStartResponse,
+  WalletRegistrationHssRespondResponse,
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
@@ -403,6 +404,9 @@ type CreateRegistrationIntentInput = Parameters<
 >[0];
 type StartWalletRegistrationInput = Parameters<
   CloudflareRelayAuthService['startWalletRegistration']
+>[0];
+type RespondWalletRegistrationHssInput = Parameters<
+  CloudflareRelayAuthService['respondWalletRegistrationHss']
 >[0];
 type CreateAddSignerIntentInput = Parameters<
   CloudflareRelayAuthService['createAddSignerIntent']
@@ -1529,6 +1533,26 @@ class CloudflareD1RegistrationCeremonyIntentStore {
     });
   }
 
+  async getCeremony(
+    registrationCeremonyId: string,
+  ): Promise<StoredWalletRegistrationCeremony | null> {
+    const id = toOptionalTrimmedString(registrationCeremonyId);
+    if (!id) return null;
+    const value = await this.get('ceremony', id);
+    const ceremony = parseD1StoredWalletRegistrationCeremony(value);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
+  async updateCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void> {
+    await this.put({
+      scope: 'ceremony',
+      id: ceremony.registrationCeremonyId,
+      record: ceremony,
+      expiresAtMs: ceremony.expiresAtMs,
+    });
+  }
+
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
     await this.put({
       scope: 'add-signer-intent',
@@ -1927,6 +1951,99 @@ function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | null {
     authMethod,
     signerSelection: signerSelection.value,
     nonceB64u,
+  };
+}
+
+function parseD1StoredWalletRegistrationCeremony(
+  raw: unknown,
+): StoredWalletRegistrationCeremony | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
+  const intent = parseD1RegistrationIntent(record.intent);
+  const digestB64u = toOptionalTrimmedString(record.digestB64u);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  const authority = parseD1RegistrationAuthority(record.authority);
+  const signerState = parseD1StoredWalletRegistrationSignerState(record.signerState);
+  if (
+    !registrationCeremonyId ||
+    !intent ||
+    !digestB64u ||
+    !orgId ||
+    expiresAtMs === null ||
+    !authority ||
+    !signerState
+  ) {
+    return null;
+  }
+  const ceremony: StoredWalletRegistrationCeremony = {
+    registrationCeremonyId,
+    intent,
+    digestB64u,
+    orgId,
+    expiresAtMs,
+    authority,
+    signerState,
+  };
+  const signingRootId = toOptionalTrimmedString(record.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
+  const expectedOrigin = toOptionalTrimmedString(record.expectedOrigin);
+  if (signingRootId) ceremony.signingRootId = signingRootId;
+  if (signingRootVersion) ceremony.signingRootVersion = signingRootVersion;
+  if (expectedOrigin) ceremony.expectedOrigin = expectedOrigin;
+  return ceremony;
+}
+
+function parseD1StoredWalletRegistrationSignerState(
+  raw: unknown,
+): StoredWalletRegistrationCeremony['signerState'] | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const kind = toOptionalTrimmedString(record.kind);
+  if (kind === 'ecdsa_prepared') return parseD1StoredEcdsaRegistrationPrepared(record);
+  if (kind === 'ecdsa_responded') return parseD1StoredEcdsaRegistrationResponded(record);
+  return null;
+}
+
+function parseD1StoredEcdsaRegistrationPrepared(
+  record: Record<string, unknown>,
+): Extract<StoredWalletRegistrationCeremony['signerState'], { kind: 'ecdsa_prepared' }> | null {
+  const hssKind = toOptionalTrimmedString(record.hssKind);
+  const chainTargets = Array.isArray(record.chainTargets)
+    ? normalizeThresholdEcdsaChainTargets(record.chainTargets)
+    : null;
+  const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
+  if (hssKind !== 'evm_family_ecdsa_keygen' || !chainTargets || !prepare) return null;
+  return {
+    kind: 'ecdsa_prepared',
+    hssKind,
+    chainTargets,
+    prepare,
+  };
+}
+
+function parseD1StoredEcdsaRegistrationResponded(
+  record: Record<string, unknown>,
+): Extract<StoredWalletRegistrationCeremony['signerState'], { kind: 'ecdsa_responded' }> | null {
+  const hssKind = toOptionalTrimmedString(record.hssKind);
+  const chainTargets = Array.isArray(record.chainTargets)
+    ? normalizeThresholdEcdsaChainTargets(record.chainTargets)
+    : null;
+  const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
+  const responded = toRecordValue(record.responded);
+  const bootstrap = parseD1EcdsaHssServerBootstrapResponse(responded?.bootstrap);
+  if (hssKind !== 'evm_family_ecdsa_keygen' || !chainTargets || !prepare || !bootstrap) {
+    return null;
+  }
+  return {
+    kind: 'ecdsa_responded',
+    hssKind,
+    chainTargets,
+    prepare,
+    responded: {
+      bootstrap,
+    },
   };
 }
 
@@ -2478,6 +2595,39 @@ function toD1EcdsaHssClientBootstrapRequest(
       ? { runtimePolicyScope: clientBootstrap.runtimePolicyScope }
       : {}),
   };
+}
+
+function buildD1EcdsaRegistrationRespondedCeremony(input: {
+  readonly ceremony: StoredWalletRegistrationCeremony;
+  readonly bootstrap: EcdsaHssServerBootstrapResponse;
+}): StoredWalletRegistrationCeremony {
+  const state = input.ceremony.signerState;
+  if (state.kind !== 'ecdsa_prepared') {
+    throw new Error('ECDSA registration ceremony must be prepared before respond');
+  }
+  const ceremony: StoredWalletRegistrationCeremony = {
+    registrationCeremonyId: input.ceremony.registrationCeremonyId,
+    intent: input.ceremony.intent,
+    digestB64u: input.ceremony.digestB64u,
+    orgId: input.ceremony.orgId,
+    expiresAtMs: input.ceremony.expiresAtMs,
+    authority: input.ceremony.authority,
+    signerState: {
+      kind: 'ecdsa_responded',
+      hssKind: state.hssKind,
+      chainTargets: state.chainTargets,
+      prepare: state.prepare,
+      responded: {
+        bootstrap: input.bootstrap,
+      },
+    },
+  };
+  if (input.ceremony.signingRootId) ceremony.signingRootId = input.ceremony.signingRootId;
+  if (input.ceremony.signingRootVersion) {
+    ceremony.signingRootVersion = input.ceremony.signingRootVersion;
+  }
+  if (input.ceremony.expectedOrigin) ceremony.expectedOrigin = input.ceremony.expectedOrigin;
+  return ceremony;
 }
 
 function buildD1EcdsaAddSignerRespondedCeremony(input: {
@@ -5917,6 +6067,85 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to start wallet registration ceremony',
+      };
+    }
+  }
+
+  async respondWalletRegistrationHss(
+    request: RespondWalletRegistrationHssInput,
+  ): Promise<WalletRegistrationHssRespondResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      const ceremony = await store.getCeremony(request.registrationCeremonyId);
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      }
+      if (ceremony.intent.signerSelection.mode !== 'ecdsa_only') {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 registration HSS respond currently supports ECDSA-only signer selection',
+        };
+      }
+      if (!request.ecdsa) {
+        return { ok: false, code: 'invalid_body', message: 'missing ECDSA HSS response' };
+      }
+      if (request.ed25519) {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 registration HSS respond does not support Ed25519 input',
+        };
+      }
+      if (ceremony.signerState.kind !== 'ecdsa_prepared') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA HSS response already recorded',
+        };
+      }
+      const expected = ceremony.signerState.prepare;
+      const actual = request.ecdsa.clientBootstrap;
+      if (!isMatchingD1EcdsaClientBootstrap(expected, actual)) {
+        return { ok: false, code: 'invalid_body', message: 'ECDSA bootstrap identity mismatch' };
+      }
+      const threshold = this.getThresholdSigningService();
+      if (!threshold) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'threshold signing is not configured on this server',
+        };
+      }
+      const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
+        toD1EcdsaHssClientBootstrapRequest(actual),
+      );
+      if (!bootstrap.ok) {
+        return {
+          ok: false,
+          code: bootstrap.code || 'hss_respond_failed',
+          message: bootstrap.message || 'ECDSA HSS bootstrap failed',
+        };
+      }
+      await store.updateCeremony(
+        buildD1EcdsaRegistrationRespondedCeremony({
+          ceremony,
+          bootstrap: bootstrap.value,
+        }),
+      );
+      return {
+        ok: true,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        ecdsa: {
+          bootstrap: bootstrap.value,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to respond to wallet registration ceremony',
       };
     }
   }
@@ -13578,6 +13807,7 @@ export function createCloudflareD1RelayAuthService(
   const metadata = new CloudflareD1RelayAuthMetadataService(input);
   service.createRegistrationIntent = metadata.createRegistrationIntent.bind(metadata);
   service.startWalletRegistration = metadata.startWalletRegistration.bind(metadata);
+  service.respondWalletRegistrationHss = metadata.respondWalletRegistrationHss.bind(metadata);
   service.createAddSignerIntent = metadata.createAddSignerIntent.bind(metadata);
   service.startWalletAddSigner = metadata.startWalletAddSigner.bind(metadata);
   service.respondWalletAddSignerHss = metadata.respondWalletAddSignerHss.bind(metadata);

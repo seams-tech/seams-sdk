@@ -2717,6 +2717,167 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
   }
 });
 
+test('Cloudflare D1 relay auth service responds to ECDSA wallet registration ceremonies through Durable Objects', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const rpId = 'example.com';
+    const email = 'owner@example.test';
+    const providerSubject = 'google:registration-user';
+    const appSessionVersion = 'registration-session-v1';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    let bootstrapRequest: EcdsaHssClientBootstrapRequest | null = null;
+    const thresholdSigningService = {
+      async ecdsaHssRoleLocalBootstrap(request: EcdsaHssClientBootstrapRequest) {
+        bootstrapRequest = request;
+        return {
+          ok: true as const,
+          value: testEcdsaServerBootstrapResponse(request),
+        };
+      },
+    } as unknown as ThresholdSigningService;
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+      thresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const registration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'server_generated' },
+        rpId,
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          email,
+          otpCode: 'intent-otp-placeholder',
+          appSessionJwt: 'intent-session-placeholder',
+        },
+        signerSelection: {
+          mode: 'ecdsa_only',
+          ecdsa: {
+            participantIds: [1, 2, 3],
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+          },
+        },
+      },
+    });
+    if (!registration.ok) throw new Error(registration.message);
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+      orgId: scope.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: registration.registrationIntentDigestB64u,
+      appSessionVersion,
+    });
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+    });
+    if (!outbox.ok) throw new Error(outbox.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+    });
+    if (!started.ok) throw new Error(started.message);
+    if (!started.ecdsa) throw new Error('Expected ECDSA registration start payload');
+
+    const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        clientBootstrap,
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    expect(responded.ecdsa?.bootstrap).toMatchObject({
+      keyHandle: 'test-add-signer-ecdsa-key-handle',
+      walletId: registration.intent.walletId,
+      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      thresholdSessionId: clientBootstrap.thresholdSessionId,
+      signingGrantId: clientBootstrap.signingGrantId,
+    });
+    expect(bootstrapRequest).toMatchObject({
+      sessionId: clientBootstrap.thresholdSessionId,
+      signingGrantId: clientBootstrap.signingGrantId,
+      runtimePolicyScope: registration.intent.runtimePolicyScope,
+    });
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toMatchObject({
+      signerState: {
+        kind: 'ecdsa_responded',
+        hssKind: 'evm_family_ecdsa_keygen',
+        prepare: started.ecdsa.prepare,
+        responded: {
+          bootstrap: {
+            keyHandle: 'test-add-signer-ecdsa-key-handle',
+            thresholdSessionId: clientBootstrap.thresholdSessionId,
+            signingGrantId: clientBootstrap.signingGrantId,
+          },
+        },
+      },
+    });
+
+    await expect(
+      service.respondWalletRegistrationHss({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          clientBootstrap,
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_state',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods through D1 and Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
