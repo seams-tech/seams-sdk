@@ -118,18 +118,18 @@ This six-phase sequence is the authoritative execution path for refactor 82. The
 remaining sections define the invariants and detailed ownership model for those
 phases.
 
-1. [x] Phase 1: Inventory current Postgres coupling in `seams-console` and
-   `seams-signer`.
-2. [x] Phase 2: Define D1 schemas and Durable Object ownership boundaries for
-   the current staging baseline.
-3. [ ] Phase 3: Add D1/DO adapters behind existing domain-store interfaces. In
-   progress.
-4. [ ] Phase 4: Make local development run on Wrangler/Miniflare D1 by default.
-   In progress.
-5. [ ] Phase 5: Port staging-required tests to D1/DO adapters. In progress.
-6. [ ] Phase 6: Deploy D1/DO staging only after local D1 smoke, Durable Object
-   tests, sponsored gas reconciliation checks, signer custody checks, and
-   restore drills pass.
+- [x] Phase 1: Inventory current Postgres coupling in `seams-console` and
+  `seams-signer`.
+- [x] Phase 2: Define D1 schemas and Durable Object ownership boundaries for the
+  current staging baseline.
+- [ ] Phase 3: Add D1/DO adapters behind existing domain-store interfaces. In
+  progress.
+- [ ] Phase 4: Make local development run on Wrangler/Miniflare D1 by default.
+  In progress.
+- [ ] Phase 5: Port staging-required tests to D1/DO adapters. In progress.
+- [ ] Phase 6: Deploy D1/DO staging only after local D1 smoke, Durable Object
+  tests, sponsored gas reconciliation checks, signer custody checks, and restore
+  drills pass.
 
 Definition of done for the first cut:
 
@@ -434,30 +434,30 @@ Current Postgres coupling is concentrated in:
 
 Before D1 staging, these D1/DO adapters must exist behind domain-store ports:
 
-- Console D1 remaining: none for the simplified first D1 staging scope.
-- Console D1 in place: org/project/env, account/profile, team RBAC, policies,
+- [x] Console D1 remaining: none for the simplified first D1 staging scope.
+- [x] Console D1 in place: org/project/env, account/profile, team RBAC, policies,
   wallet index, API keys, approvals, key exports, audit, bootstrap tokens,
   billing ledger sponsored settlement, prepaid reservations, sponsorship spend
   caps, sponsored calls, runtime snapshots, compact observability
   read/ingestion services, and the webhook route service.
-- Signer D1 remaining: threshold public-key metadata only if dashboard or
+- [ ] Signer D1 remaining: threshold public-key metadata only if dashboard or
   reconciliation views require it.
-- Signer D1 in place: WebAuthn, wallet metadata, wallet auth methods, identity
+- [x] Signer D1 in place: WebAuthn, wallet metadata, wallet auth methods, identity
   links, app-session versions, recovery sessions, recovery executions, NEAR
   public keys, email recovery preparations, Email OTP login challenge/grant
   flow, Email OTP device-recovery challenge/grant flow, Email OTP recovery-key
   consumption, Email OTP recovery-key failure-attempt reporting, Email OTP
   provider delivery, Email OTP unlock challenge/proof flow, Email OTP rate
   limits, and sealed signing-root secret shares.
-- Durable Objects in place: registration intents, HSS preparations,
+- [x] Durable Objects in place: registration intents, HSS preparations,
   registration ceremonies, add-signer/add-auth-method ceremonies, finalize
   replay records, signing-session use counts, wallet signing budgets,
   idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
   sessions, normal-signing admission storage, and signing-root coordination.
-- Durable Objects remaining for staging: any missing local default wiring and
+- [ ] Durable Objects remaining for staging: any missing local default wiring and
   contract coverage for the signer admission, budget, replay, presignature, and
   signing-root paths used by sponsored gas signing.
-- Postgres escape hatch: refactor 82 keeps the route type, domain-store port
+- [x] Postgres escape hatch: refactor 82 keeps the route type, domain-store port
   contracts, schema semantics, transaction semantics, D1-to-Postgres migration
   playbook, and readiness bar in this document. Live Postgres migrations,
   adapters, and shared contract-test execution are required before any
@@ -1091,26 +1091,27 @@ The local `/readyz` response must confirm `cloudflare_d1_do`, 40 console
 tables, 21 signer tables, `CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, and a
 successful Durable Object normal-signing admission reservation.
 
-## Immediate Next Tasks
+## Immediate Phase Tracker
 
 Proceed in this order:
 
-1. [x] Inventory only remaining Postgres coupling that is still on a
-   staging-required console, signer, sponsored gas, billing, or reconciliation
-   request path.
-2. [x] Freeze D1 schemas and Durable Object ownership boundaries for those
-   paths.
-3. [ ] Add the remaining D1/DO adapters behind existing domain-store ports,
-   keeping Worker imports on D1/DO leaf modules and the runtime dependency guard
-   passing.
-4. [ ] Make local development run through Wrangler/Miniflare D1 and local Durable
-   Object storage by default. Docker Postgres stays outside the default D1/DO
-   staging workflow.
-5. [ ] Port staging-required persistence tests to D1/DO adapters and keep pure
-   core tests on fakes where SQL or Durable Object semantics are irrelevant.
-6. [ ] Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
-   tests, sponsored gas reconciliation checks, signer custody checks, Time
-   Travel bookmark capture, and R2 export/restore drills pass.
+- [x] Phase 1: Inventory only remaining Postgres coupling that is still on a
+  staging-required console, signer, sponsored gas, billing, or reconciliation
+  request path.
+- [x] Phase 2: Freeze D1 schemas and Durable Object ownership boundaries for
+  those paths.
+- [ ] Phase 3: Add the remaining D1/DO adapters behind existing domain-store
+  ports, keeping Worker imports on D1/DO leaf modules and the runtime dependency
+  guard passing.
+- [ ] Phase 4: Make local development run through Wrangler/Miniflare D1 and
+  local Durable Object storage by default. Docker Postgres stays outside the
+  default D1/DO staging workflow.
+- [ ] Phase 5: Port staging-required persistence tests to D1/DO adapters and
+  keep pure core tests on fakes where SQL or Durable Object semantics are
+  irrelevant.
+- [ ] Phase 6: Deploy D1/DO staging only after local D1 smoke, Durable Object
+  coordination tests, sponsored gas reconciliation checks, signer custody
+  checks, Time Travel bookmark capture, and R2 export/restore drills pass.
 
 Execution rule: no half-Postgres staging. If D1/DO is the target, staging starts
 life on D1/DO.
