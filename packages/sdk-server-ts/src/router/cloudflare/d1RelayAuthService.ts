@@ -1,8 +1,15 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  EMAIL_OTP_RECOVERY_KEY_COUNT,
+  EMAIL_OTP_RECOVERY_WRAP_ALG,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+} from '@shared/utils/emailOtpRecoveryKey';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import type {
   EmailOtpAuthStateRecord,
+  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
 import type {
@@ -59,6 +66,12 @@ type MarkEmailOtpStrongAuthSatisfiedInput = Parameters<
 type MarkEmailOtpStrongAuthSatisfiedResult = Awaited<
   ReturnType<CloudflareRelayAuthService['markEmailOtpStrongAuthSatisfied']>
 >;
+type GetEmailOtpRecoveryCodeStatusInput = Parameters<
+  CloudflareRelayAuthService['getEmailOtpRecoveryCodeStatus']
+>[0];
+type GetEmailOtpRecoveryCodeStatusResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['getEmailOtpRecoveryCodeStatus']>
+>;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
 >[0];
@@ -108,6 +121,11 @@ type D1EmailOtpEnrollmentRow = {
 };
 
 type D1EmailOtpAuthStateRow = {
+  readonly record_json?: unknown;
+  readonly updated_at_ms?: unknown;
+};
+
+type D1EmailOtpRecoveryEscrowRow = {
   readonly record_json?: unknown;
   readonly updated_at_ms?: unknown;
 };
@@ -219,6 +237,10 @@ function nonNegativeSafeInteger(input: unknown): number | null {
   const value = typeof input === 'number' ? input : Number(input);
   if (!Number.isSafeInteger(value) || value < 0) return null;
   return Math.floor(value);
+}
+
+function isB64uString(input: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(input);
 }
 
 function optionalNonNegativeInteger(input: unknown): number | undefined {
@@ -412,6 +434,132 @@ function parseEmailOtpAuthStateRow(
   const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
   if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
   return record;
+}
+
+function parseEmailOtpRecoveryEscrowRecord(
+  input: unknown,
+): EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const alg = toOptionalTrimmedString(record.alg);
+  const secretKind = toOptionalTrimmedString(record.secretKind);
+  const escrowKind = toOptionalTrimmedString(record.escrowKind);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const userId = toOptionalTrimmedString(record.userId);
+  const authSubjectId = toOptionalTrimmedString(record.authSubjectId);
+  const authMethod = toOptionalTrimmedString(record.authMethod);
+  const enrollmentId = toOptionalTrimmedString(record.enrollmentId);
+  const enrollmentVersion = toOptionalTrimmedString(record.enrollmentVersion);
+  const enrollmentSealKeyVersion = toOptionalTrimmedString(record.enrollmentSealKeyVersion);
+  const signingRootId = toOptionalTrimmedString(record.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
+  const recoveryKeyId = toOptionalTrimmedString(record.recoveryKeyId);
+  const recoveryKeyLabel = toOptionalTrimmedString(record.recoveryKeyLabel);
+  const recoveryKeyStatus = toOptionalTrimmedString(record.recoveryKeyStatus);
+  const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
+  const wrappedDeviceEnrollmentEscrowB64u = toOptionalTrimmedString(
+    record.wrappedDeviceEnrollmentEscrowB64u,
+  );
+  const aadHashB64u = toOptionalTrimmedString(record.aadHashB64u);
+  const issuedAtMs = positiveSafeInteger(record.issuedAtMs);
+  const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
+  const consumedAtMs =
+    record.consumedAtMs == null ? undefined : positiveSafeInteger(record.consumedAtMs);
+  const revokedAtMs =
+    record.revokedAtMs == null ? undefined : positiveSafeInteger(record.revokedAtMs);
+  if (
+    version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1' ||
+    alg !== EMAIL_OTP_RECOVERY_WRAP_ALG ||
+    secretKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND ||
+    escrowKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND ||
+    !walletId ||
+    !userId ||
+    !authSubjectId ||
+    authMethod !== 'google_sso_email_otp' ||
+    !enrollmentId ||
+    !enrollmentVersion ||
+    !enrollmentSealKeyVersion ||
+    !signingRootId ||
+    !signingRootVersion ||
+    !recoveryKeyId ||
+    !nonceB64u ||
+    !wrappedDeviceEnrollmentEscrowB64u ||
+    !aadHashB64u ||
+    !recoveryKeyStatus ||
+    !issuedAtMs ||
+    !updatedAtMs ||
+    userId !== authSubjectId ||
+    !isB64uString(nonceB64u) ||
+    !isB64uString(wrappedDeviceEnrollmentEscrowB64u) ||
+    !isB64uString(aadHashB64u) ||
+    hasRecordField(record, 'acknowledgedAtMs') ||
+    hasRecordField(record, 'abandonedAtMs') ||
+    hasRecordField(record, 'cleanupReason') ||
+    updatedAtMs < issuedAtMs
+  ) {
+    return null;
+  }
+  const base = {
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1' as const,
+    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+    walletId,
+    userId,
+    authSubjectId,
+    authMethod: 'google_sso_email_otp' as const,
+    enrollmentId,
+    enrollmentVersion,
+    enrollmentSealKeyVersion,
+    signingRootId,
+    signingRootVersion,
+    recoveryKeyId,
+    ...(recoveryKeyLabel ? { recoveryKeyLabel } : {}),
+    nonceB64u,
+    wrappedDeviceEnrollmentEscrowB64u,
+    aadHashB64u,
+    issuedAtMs,
+    updatedAtMs,
+  };
+  switch (recoveryKeyStatus) {
+    case 'active':
+      if (consumedAtMs !== undefined || revokedAtMs !== undefined) return null;
+      return { ...base, recoveryKeyStatus };
+    case 'consumed':
+      if (consumedAtMs == null || revokedAtMs !== undefined) return null;
+      return { ...base, recoveryKeyStatus, consumedAtMs };
+    case 'revoked':
+      if (consumedAtMs !== undefined || revokedAtMs == null) return null;
+      return { ...base, recoveryKeyStatus, revokedAtMs };
+    default:
+      return null;
+  }
+}
+
+function parseEmailOtpRecoveryEscrowRow(
+  row: D1EmailOtpRecoveryEscrowRow | null,
+): EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null {
+  const record = parseEmailOtpRecoveryEscrowRecord(row?.record_json);
+  const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
+  if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
+  return record;
+}
+
+function emailOtpRecoveryEscrowMatchesEnrollment(input: {
+  readonly escrow: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
+  readonly enrollment: EmailOtpWalletEnrollmentRecord;
+}): boolean {
+  return (
+    input.escrow.walletId === input.enrollment.walletId &&
+    input.escrow.userId === input.enrollment.providerUserId &&
+    input.escrow.authSubjectId === input.enrollment.providerUserId &&
+    input.escrow.enrollmentId === input.enrollment.enrollmentId &&
+    input.escrow.enrollmentVersion === input.enrollment.enrollmentVersion &&
+    input.escrow.enrollmentSealKeyVersion === input.enrollment.enrollmentSealKeyVersion &&
+    input.escrow.signingRootId === input.enrollment.signingRootId &&
+    input.escrow.signingRootVersion === input.enrollment.signingRootVersion
+  );
 }
 
 function resolveHostedOidcWalletScope(input: unknown): {
@@ -766,6 +914,70 @@ class CloudflareD1RelayAuthMetadataService {
     const nowMs = Date.now();
     await this.putEmailOtpAuthStateForEnrollment(enrollment, { lastStrongAuthAtMs: nowMs });
     return { ok: true, walletId, lastStrongAuthAtMs: nowMs };
+  }
+
+  async getEmailOtpRecoveryCodeStatus(
+    input: GetEmailOtpRecoveryCodeStatusInput,
+  ): Promise<GetEmailOtpRecoveryCodeStatusResult> {
+    try {
+      const userId = toOptionalTrimmedString(input.userId);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) {
+        if (enrollment.code === 'not_found') return emailOtpRecoveryNotEnrolledStatus(walletId);
+        return enrollment;
+      }
+
+      const records = await this.listEmailOtpRecoveryEscrowsForEnrollment(enrollment.enrollment);
+      let activeRecoveryCodeCount = 0;
+      let consumedRecoveryCodeCount = 0;
+      let revokedRecoveryCodeCount = 0;
+      let issuedAtMs: number | null = null;
+      for (const record of records) {
+        switch (record.recoveryKeyStatus) {
+          case 'active':
+            activeRecoveryCodeCount += 1;
+            break;
+          case 'consumed':
+            consumedRecoveryCodeCount += 1;
+            break;
+          case 'revoked':
+            revokedRecoveryCodeCount += 1;
+            break;
+        }
+        issuedAtMs =
+          issuedAtMs === null ? record.issuedAtMs : Math.min(issuedAtMs, record.issuedAtMs);
+      }
+      return {
+        ok: true,
+        status:
+          activeRecoveryCodeCount === EMAIL_OTP_RECOVERY_KEY_COUNT ? 'ready' : 'incomplete',
+        walletId,
+        enrollmentId: enrollment.enrollment.enrollmentId,
+        enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+        expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        activeRecoveryCodeCount,
+        consumedRecoveryCodeCount,
+        revokedRecoveryCodeCount,
+        totalRecoveryCodeCount: records.length,
+        issuedAtMs,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to read Email OTP recovery-code status',
+      };
+    }
   }
 
   async getOrCreateAppSessionVersion(
@@ -1200,6 +1412,30 @@ class CloudflareD1RelayAuthMetadataService {
     return next;
   }
 
+  private async listEmailOtpRecoveryEscrowsForEnrollment(
+    enrollment: EmailOtpWalletEnrollmentRecord,
+  ): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
+    const result = await this.scopePrepare(
+      `SELECT record_json, updated_at_ms
+         FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+        ORDER BY issued_at_ms ASC, recovery_key_id ASC`,
+      [enrollment.walletId],
+    ).all<D1EmailOtpRecoveryEscrowRow>();
+    const records: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
+    for (const row of result.results || []) {
+      const escrow = parseEmailOtpRecoveryEscrowRow(row);
+      if (!escrow) continue;
+      if (!emailOtpRecoveryEscrowMatchesEnrollment({ escrow, enrollment })) continue;
+      records.push(escrow);
+    }
+    return records;
+  }
+
   private async readAppSessionVersion(userId: string): Promise<string | null> {
     const row = await this.scopePrepare(
       `SELECT session_version
@@ -1290,6 +1526,22 @@ function emailOtpEnrollmentTenantMismatch(): ReadEmailOtpEnrollmentResult {
   };
 }
 
+function emailOtpRecoveryNotEnrolledStatus(walletId: string): GetEmailOtpRecoveryCodeStatusResult {
+  return {
+    ok: true,
+    status: 'not_enrolled',
+    walletId,
+    enrollmentId: '',
+    enrollmentSealKeyVersion: '',
+    expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+    activeRecoveryCodeCount: 0,
+    consumedRecoveryCodeCount: 0,
+    revokedRecoveryCodeCount: 0,
+    totalRecoveryCodeCount: 0,
+    issuedAtMs: null,
+  };
+}
+
 function emailOtpAuthStateRecord(input: {
   readonly enrollment: EmailOtpWalletEnrollmentRecord;
   readonly existing: EmailOtpAuthStateRecord | null;
@@ -1335,6 +1587,8 @@ export function createCloudflareD1RelayAuthService(
   service.readActiveEmailOtpEnrollment = metadata.readActiveEmailOtpEnrollment.bind(metadata);
   service.isEmailOtpStrongAuthRequired = metadata.isEmailOtpStrongAuthRequired.bind(metadata);
   service.markEmailOtpStrongAuthSatisfied = metadata.markEmailOtpStrongAuthSatisfied.bind(metadata);
+  service.getEmailOtpRecoveryCodeStatus =
+    metadata.getEmailOtpRecoveryCodeStatus.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);

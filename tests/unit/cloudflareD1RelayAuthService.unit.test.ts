@@ -447,6 +447,73 @@ async function insertEmailOtpAuthState(input: {
     .run();
 }
 
+async function insertEmailOtpRecoveryEscrow(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly recoveryKeyId: string;
+  readonly recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
+  readonly issuedAtMs: number;
+  readonly updatedAtMs: number;
+}): Promise<void> {
+  const record = emailOtpRecoveryEscrowRecord(input);
+  await input.database
+    .prepare(
+      `INSERT INTO signer_email_otp_recovery_wrapped_enrollment_escrows (
+        namespace, org_id, project_id, env_id, wallet_id, recovery_key_id, recovery_key_status,
+        record_json, issued_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      record.walletId,
+      record.recoveryKeyId,
+      record.recoveryKeyStatus,
+      JSON.stringify(record),
+      record.issuedAtMs,
+      record.updatedAtMs,
+    )
+    .run();
+}
+
+function emailOtpRecoveryEscrowRecord(input: {
+  readonly orgId: string;
+  readonly recoveryKeyId: string;
+  readonly recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
+  readonly issuedAtMs: number;
+  readonly updatedAtMs: number;
+}) {
+  return {
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+    alg: 'chacha20poly1305-hkdf-sha256-v1',
+    secretKind: 'email_otp_device_enrollment_escrow',
+    escrowKind: 'recovery_wrapped_enrollment_escrow',
+    walletId: 'email-wallet.testnet',
+    userId: 'google:email-user',
+    authSubjectId: 'google:email-user',
+    authMethod: 'google_sso_email_otp',
+    enrollmentId: 'enrollment-a',
+    enrollmentVersion: 'enrollment-v1',
+    enrollmentSealKeyVersion: 'seal-v1',
+    signingRootId: 'project-a:env-a',
+    signingRootVersion: 'root-v1',
+    recoveryKeyId: input.recoveryKeyId,
+    recoveryKeyStatus: input.recoveryKeyStatus,
+    nonceB64u: `nonce-${input.recoveryKeyId}`,
+    wrappedDeviceEnrollmentEscrowB64u: `wrapped-${input.recoveryKeyId}`,
+    aadHashB64u: `aad-${input.recoveryKeyId}`,
+    issuedAtMs: input.issuedAtMs,
+    updatedAtMs: input.updatedAtMs,
+    ...(input.recoveryKeyStatus === 'consumed' ? { consumedAtMs: input.updatedAtMs } : {}),
+    ...(input.recoveryKeyStatus === 'revoked' ? { revokedAtMs: input.updatedAtMs } : {}),
+  };
+}
+
 test('Cloudflare D1 relay auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -469,6 +536,30 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
     await insertWebAuthn({ database, ...scope });
     await insertNearPublicKey({ database, ...scope });
     await insertEmailOtpEnrollment({ database, ...scope });
+    await insertEmailOtpRecoveryEscrow({
+      database,
+      ...scope,
+      recoveryKeyId: 'recovery-active',
+      recoveryKeyStatus: 'active',
+      issuedAtMs: 900,
+      updatedAtMs: 910,
+    });
+    await insertEmailOtpRecoveryEscrow({
+      database,
+      ...scope,
+      recoveryKeyId: 'recovery-consumed',
+      recoveryKeyStatus: 'consumed',
+      issuedAtMs: 880,
+      updatedAtMs: 920,
+    });
+    await insertEmailOtpRecoveryEscrow({
+      database,
+      ...scope,
+      recoveryKeyId: 'recovery-revoked',
+      recoveryKeyStatus: 'revoked',
+      issuedAtMs: 890,
+      updatedAtMs: 930,
+    });
 
     const service = createCloudflareD1RelayAuthService({
       database,
@@ -622,6 +713,44 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       walletId: 'email-wallet.testnet',
       lastEmailOtpLoginAtMs: 800,
       lastStrongAuthAtMs: strongAuth.lastStrongAuthAtMs,
+    });
+    await expect(
+      service.getEmailOtpRecoveryCodeStatus({
+        userId: 'google:not-enrolled',
+        walletId: 'missing-email-wallet.testnet',
+        orgId: scope.orgId,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      status: 'not_enrolled',
+      walletId: 'missing-email-wallet.testnet',
+      enrollmentId: '',
+      enrollmentSealKeyVersion: '',
+      expectedRecoveryCodeCount: 10,
+      activeRecoveryCodeCount: 0,
+      consumedRecoveryCodeCount: 0,
+      revokedRecoveryCodeCount: 0,
+      totalRecoveryCodeCount: 0,
+      issuedAtMs: null,
+    });
+    await expect(
+      service.getEmailOtpRecoveryCodeStatus({
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      status: 'incomplete',
+      walletId: 'email-wallet.testnet',
+      enrollmentId: 'enrollment-a',
+      enrollmentSealKeyVersion: 'seal-v1',
+      expectedRecoveryCodeCount: 10,
+      activeRecoveryCodeCount: 1,
+      consumedRecoveryCodeCount: 1,
+      revokedRecoveryCodeCount: 1,
+      totalRecoveryCodeCount: 3,
+      issuedAtMs: 880,
     });
     const session = await service.getOrCreateAppSessionVersion({ userId: scope.userId });
     expect(session.ok).toBe(true);
