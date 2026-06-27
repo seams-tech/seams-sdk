@@ -3005,6 +3005,7 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
 
     const finalized = await service.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'registration-finalize-replay-a',
       ecdsa: {
         expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
       },
@@ -3097,6 +3098,25 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
     expect(
       durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
     ).toBeUndefined();
+    await expect(
+      service.finalizeWalletRegistration({
+        registrationCeremonyId: started.registrationCeremonyId,
+        idempotencyKey: 'registration-finalize-replay-a',
+        ecdsa: {
+          expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      walletId: registration.intent.walletId,
+      ecdsa: {
+        walletKeys: [
+          {
+            keyHandle: 'test-add-signer-ecdsa-key-handle',
+          },
+        ],
+      },
+    });
     await expect(
       service.finalizeWalletRegistration({
         registrationCeremonyId: started.registrationCeremonyId,

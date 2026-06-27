@@ -203,10 +203,17 @@ Line-count cleanup baseline:
 - [x] ECDSA wallet-registration finalize slice recorded before plan-doc update:
   383 code additions and 0 code deletions across the D1 relay auth service and
   unit tests. The same-slice cleanup pass replaced the D1 factory fallback for
-  `finalizeWalletRegistration`; D1 registration finalize idempotency replay and
-  Email OTP enrollment-material persistence remain explicit follow-up gaps, and
+  `finalizeWalletRegistration`; Email OTP enrollment-material persistence
+  remains an explicit follow-up gap, and
   the shared disabled-service scaffold remains a blocker to physical deletion
   until the remaining 4 signer and recovery ceremony methods are implemented.
+- [x] D1 wallet-registration finalize replay slice recorded before plan-doc
+  update: 225 code additions and 7 code deletions across the D1 relay auth
+  service and unit tests. The same-slice cleanup pass deleted the explicit D1
+  `finalizeWalletRegistration` idempotency-unsupported branch, added the D1
+  Durable Object replay record parser, and covered replay after ceremony
+  consumption; Email OTP enrollment-material persistence remains an explicit
+  follow-up gap.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -285,9 +292,9 @@ Remaining before D1 staging:
 
 - Finish only the `CloudflareRelayAuthService` signer methods required by the
   first staging signer, sponsored gas, billing, and reconciliation flows.
-- Add D1 wallet-registration finalize support for idempotency replay and Email
-  OTP enrollment material before enabling Email OTP registration as a complete
-  production enrollment path.
+- Add D1 wallet-registration finalize support for Email OTP enrollment material
+  before enabling Email OTP registration as a complete production enrollment
+  path.
 - Keep device linking deferred to refactor 84 while the route returns 410.
 - Keep threshold public-key metadata out of D1 unless a dashboard or
   reconciliation query requires it.
@@ -1114,8 +1121,8 @@ Remaining:
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
   Object slices: Ed25519 wallet-registration preparation, signed delegates, and
   email recovery HSS responses.
-- [ ] Finish D1 ECDSA wallet-registration finalize follow-ups: idempotency
-  replay and Email OTP enrollment-material persistence.
+- [ ] Finish D1 ECDSA wallet-registration finalize follow-up: Email OTP
+  enrollment-material persistence.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found

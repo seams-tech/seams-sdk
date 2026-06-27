@@ -92,6 +92,7 @@ import type {
   StoredWalletAddAuthMethodCeremony,
   StoredRegistrationIntent,
   StoredWalletRegistrationCeremony,
+  StoredWalletRegistrationFinalizeReplay,
 } from '../../core/RegistrationCeremonyStore';
 import {
   thresholdEcdsaChainTargetKey,
@@ -379,6 +380,7 @@ type CloudflareRegistrationIntentDoRequest =
 type RegistrationCeremonyIntentScope =
   | 'intent'
   | 'ceremony'
+  | 'finalize-replay'
   | 'add-auth-method-intent'
   | 'add-signer-intent'
   | 'add-auth-method'
@@ -388,6 +390,7 @@ type RegistrationCeremonyIntentScope =
 type RegistrationIntentDoPutInput =
   | StoredRegistrationIntent
   | StoredWalletRegistrationCeremony
+  | StoredWalletRegistrationFinalizeReplay
   | StoredAddSignerIntent
   | StoredWalletAddSignerCeremony
   | StoredAddAuthMethodIntent
@@ -1569,6 +1572,27 @@ class CloudflareD1RegistrationCeremonyIntentStore {
     return ceremony;
   }
 
+  async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
+    await this.put({
+      scope: 'finalize-replay',
+      id: registrationFinalizeReplayKey(replay),
+      record: replay,
+      expiresAtMs: replay.expiresAtMs,
+    });
+  }
+
+  async getFinalizeReplay(input: {
+    readonly registrationCeremonyId: string;
+    readonly idempotencyKey: string;
+  }): Promise<StoredWalletRegistrationFinalizeReplay | null> {
+    const key = registrationFinalizeReplayKey(input);
+    if (!key) return null;
+    const value = await this.get('finalize-replay', key);
+    const replay = parseD1StoredWalletRegistrationFinalizeReplay(value);
+    if (!replay || replay.expiresAtMs <= Date.now()) return null;
+    return replay;
+  }
+
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
     await this.put({
       scope: 'add-signer-intent',
@@ -1843,6 +1867,16 @@ function generatedWalletReservationKey(input: {
   return `${encodeURIComponent(rpId)}:${walletId}`;
 }
 
+function registrationFinalizeReplayKey(input: {
+  readonly registrationCeremonyId: string;
+  readonly idempotencyKey: string;
+}): string {
+  const registrationCeremonyId = toOptionalTrimmedString(input.registrationCeremonyId);
+  const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
+  if (!registrationCeremonyId || !idempotencyKey) return '';
+  return `${encodeURIComponent(registrationCeremonyId)}:${encodeURIComponent(idempotencyKey)}`;
+}
+
 function createD1GeneratedWalletId(): GeneratedImplicitWalletId {
   const bytes = new Uint8Array(3);
   crypto.getRandomValues(bytes);
@@ -2009,6 +2043,158 @@ function parseD1StoredWalletRegistrationCeremony(
   if (signingRootVersion) ceremony.signingRootVersion = signingRootVersion;
   if (expectedOrigin) ceremony.expectedOrigin = expectedOrigin;
   return ceremony;
+}
+
+function parseD1StoredWalletRegistrationFinalizeReplay(
+  raw: unknown,
+): StoredWalletRegistrationFinalizeReplay | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'wallet_registration_finalize_replay_v1') return null;
+  const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
+  const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
+  const response = parseD1WalletRegistrationFinalizeReplayResponse(record.response);
+  const createdAtMs = safeInteger(record.createdAtMs);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  if (
+    !registrationCeremonyId ||
+    !idempotencyKey ||
+    !response ||
+    createdAtMs === null ||
+    createdAtMs <= 0 ||
+    expiresAtMs === null ||
+    expiresAtMs <= 0
+  ) {
+    return null;
+  }
+  return {
+    kind: 'wallet_registration_finalize_replay_v1',
+    registrationCeremonyId,
+    idempotencyKey,
+    response,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function parseD1WalletRegistrationFinalizeReplayResponse(
+  raw: unknown,
+): Extract<WalletRegistrationFinalizeResponse, { ok: true }> | null {
+  const record = toRecordValue(raw);
+  if (!record || record.ok !== true || record.kind !== undefined) return null;
+  if (
+    record.ed25519 !== undefined ||
+    record.accountProvisioning !== undefined ||
+    record.resolvedAccount !== undefined
+  ) {
+    return null;
+  }
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const authMethod = parseD1WalletRegistrationFinalizeAuthMethod(record.authMethod);
+  const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
+  if (!walletId || !rpId || !authMethod || !ecdsa) return null;
+  return {
+    ok: true,
+    walletId,
+    rpId,
+    authMethod,
+    ecdsa,
+  };
+}
+
+function parseD1WalletRegistrationFinalizeAuthMethod(
+  raw: unknown,
+): WalletRegistrationFinalizeAuthMethod | null {
+  const record = toRecordValue(raw);
+  const kind = toOptionalTrimmedString(record?.kind);
+  if (kind === 'passkey') {
+    const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);
+    const credentialPublicKeyB64u = toOptionalTrimmedString(record?.credentialPublicKeyB64u);
+    if (!credentialIdB64u || !credentialPublicKeyB64u) return null;
+    return {
+      kind: 'passkey',
+      credentialIdB64u,
+      credentialPublicKeyB64u,
+    };
+  }
+  if (kind === 'email_otp') {
+    const registrationAuthorityId = toOptionalTrimmedString(record?.registrationAuthorityId);
+    return registrationAuthorityId
+      ? {
+          kind: 'email_otp',
+          registrationAuthorityId,
+        }
+      : null;
+  }
+  return null;
+}
+
+function parseD1WalletRegistrationFinalizeEcdsa(
+  raw: unknown,
+): { readonly walletKeys: WalletRegistrationEcdsaWalletKey[] } | null {
+  const record = toRecordValue(raw);
+  if (!record || !Array.isArray(record.walletKeys) || record.walletKeys.length === 0) {
+    return null;
+  }
+  const walletKeys: WalletRegistrationEcdsaWalletKey[] = [];
+  for (const walletKey of record.walletKeys) {
+    const parsed = parseD1WalletRegistrationEcdsaWalletKey(walletKey);
+    if (!parsed) return null;
+    walletKeys.push(parsed);
+  }
+  return { walletKeys };
+}
+
+function parseD1WalletRegistrationEcdsaWalletKey(
+  raw: unknown,
+): WalletRegistrationEcdsaWalletKey | null {
+  const record = toRecordValue(raw);
+  if (!record || record.keyScope !== 'evm-family') return null;
+  const chainTarget = thresholdEcdsaChainTargetFromValue(record.chainTarget);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const walletKeyId = toOptionalTrimmedString(record.walletKeyId);
+  const keyHandle = toOptionalTrimmedString(record.keyHandle);
+  const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
+  const signingRootId = toOptionalTrimmedString(record.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
+  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
+    record.thresholdEcdsaPublicKeyB64u,
+  );
+  const thresholdOwnerAddress = toOptionalTrimmedString(record.thresholdOwnerAddress);
+  const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
+  const relayerVerifyingShareB64u = toOptionalTrimmedString(record.relayerVerifyingShareB64u);
+  const participantIds = parseD1PositiveIntegerArray(record.participantIds);
+  if (
+    !chainTarget ||
+    !walletId ||
+    !walletKeyId ||
+    !keyHandle ||
+    !ecdsaThresholdKeyId ||
+    !signingRootId ||
+    !signingRootVersion ||
+    !thresholdEcdsaPublicKeyB64u ||
+    !thresholdOwnerAddress ||
+    !relayerKeyId ||
+    !relayerVerifyingShareB64u ||
+    !participantIds
+  ) {
+    return null;
+  }
+  return {
+    keyScope: 'evm-family',
+    chainTarget,
+    walletId,
+    walletKeyId,
+    keyHandle,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    thresholdEcdsaPublicKeyB64u,
+    thresholdOwnerAddress,
+    relayerKeyId,
+    relayerVerifyingShareB64u,
+    participantIds,
+  };
 }
 
 function parseD1StoredWalletRegistrationSignerState(
@@ -6191,12 +6377,13 @@ class CloudflareD1RelayAuthMetadataService {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
-      if (toOptionalTrimmedString(request.idempotencyKey)) {
-        return {
-          ok: false,
-          code: 'unsupported',
-          message: 'Cloudflare D1 registration finalize idempotency replay is not implemented',
-        };
+      const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
+      if (idempotencyKey) {
+        const replay = await store.getFinalizeReplay({
+          registrationCeremonyId: request.registrationCeremonyId,
+          idempotencyKey,
+        });
+        if (replay) return replay.response;
       }
       if (request.ed25519) {
         return {
@@ -6279,7 +6466,7 @@ class CloudflareD1RelayAuthMetadataService {
           message: 'ECDSA HSS response is required before finalize',
         };
       }
-      return {
+      const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {
         ok: true,
         walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
@@ -6288,6 +6475,17 @@ class CloudflareD1RelayAuthMetadataService {
           walletKeys: walletKeyResult.walletKeys,
         },
       };
+      if (idempotencyKey) {
+        await store.putFinalizeReplay({
+          kind: 'wallet_registration_finalize_replay_v1',
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          idempotencyKey,
+          response,
+          createdAtMs: now,
+          expiresAtMs: ceremony.expiresAtMs,
+        });
+      }
+      return response;
     } catch (error: unknown) {
       return {
         ok: false,
