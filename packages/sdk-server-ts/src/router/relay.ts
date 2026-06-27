@@ -24,8 +24,11 @@ import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import type { ConsoleWalletService } from '../console/wallets';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
-import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
-import type { SponsorshipSpendPricingService } from '../sponsorship';
+import type {
+  SponsoredEvmCallExecutorConfig,
+  SponsoredEvmExecutionAdapterResolver,
+} from '../sponsorship/evmExecutorTypes';
+import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
@@ -514,6 +517,7 @@ export interface RelayRouterOptions {
     ledger: ConsoleSponsoredCallService;
     runtimeSnapshots: ConsoleRuntimeSnapshotService;
     config: SponsoredEvmCallExecutorConfig | null;
+    resolveExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
   };
   /**
    * Optional route extensions mounted by the relay router. Each extension declares

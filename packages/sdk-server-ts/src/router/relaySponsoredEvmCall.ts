@@ -20,20 +20,24 @@ import {
   type SponsoredEvmPolicyMismatch,
 } from '../sponsorship/evm';
 import { DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID } from '../sponsorship/evmRoutes';
-import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
+import type {
+  SponsoredEvmCallExecutorConfig,
+  SponsoredEvmExecutionAdapterResolver,
+} from '../sponsorship/evmExecutorTypes';
 import {
   buildSponsoredSpendCapSourceEventId,
-  executeSponsorshipAdapter,
-  isSponsorshipPrepaidBalanceEnforcementError,
   isSponsorshipSpendCapEnforcementError,
   releaseSponsoredSpendCap,
-  reserveSponsoredPrepaidBalance,
   reserveSponsoredSpendCap,
-  resolveSponsoredEvmExecutionAdapter,
   settleSponsoredSpendCap,
   type SponsorshipSpendCapSettlement,
   type SponsorshipSpendPricingService,
-} from '../sponsorship';
+} from '../sponsorship/spendCaps';
+import {
+  isSponsorshipPrepaidBalanceEnforcementError,
+  reserveSponsoredPrepaidBalance,
+} from '../sponsorship/prepaidBalance';
+import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import { resolvePublishableKeyApiCredentialAuth } from './relayApiCredentialAuth';
@@ -114,13 +118,14 @@ type SponsoredEvmCallDetails = {
 
 type MatchedSponsoredEvmExecution = {
   matchedPolicy: SponsoredEvmPolicyMatch;
-  adapter: NonNullable<ReturnType<typeof resolveSponsoredEvmExecutionAdapter>>;
+  adapter: NonNullable<ReturnType<SponsoredEvmExecutionAdapterResolver>>;
 };
 
 export interface RelaySponsoredEvmCallService {
   billing: ConsoleBillingService;
   config: SponsoredEvmCallExecutorConfig | null;
   corsOrigins: readonly string[];
+  resolveExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   prepaidReservations: ConsoleBillingPrepaidReservationService | null;
   pricing: SponsorshipSpendPricingService | null;
@@ -582,7 +587,18 @@ export async function handleRelaySponsoredEvmCall(
           response: buildSponsorshipPolicyMismatchResponse(matchedPolicy),
         };
       }
-      const adapter = resolveSponsoredEvmExecutionAdapter({
+      const resolveExecutionAdapter = relaySponsoredEvmCall.resolveExecutionAdapter || null;
+      if (!resolveExecutionAdapter) {
+        return {
+          ok: false,
+          response: routeJson(503, {
+            ok: false,
+            code: 'sponsored_evm_executor_not_wired',
+            message: 'Sponsored EVM execution is not wired on this route',
+          }),
+        };
+      }
+      const adapter = resolveExecutionAdapter({
         config: sponsoredEvmConfig,
         chainId: parsedBody.chainId,
         call: parsedBody.call,

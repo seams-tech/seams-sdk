@@ -33,6 +33,7 @@ export async function handleSponsoredEvmCall(
         billing: options.billing,
         config: options.config,
         corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
+        resolveExecutionAdapter: options.resolveExecutionAdapter || null,
         observabilityIngestion: ctx.opts.observabilityIngestion || null,
         prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
         publishableKeyAuth,

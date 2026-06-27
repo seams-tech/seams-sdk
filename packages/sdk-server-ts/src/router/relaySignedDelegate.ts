@@ -13,20 +13,24 @@ import type { ConsoleWebhookService } from '../console/webhooks';
 import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   buildSponsoredSpendCapSourceEventId,
-  createSponsoredNearDelegateExecutionAdapter,
-  executeSponsorshipAdapter,
-  isSponsorshipPrepaidBalanceEnforcementError,
   isSponsorshipSpendCapEnforcementError,
-  matchResolvedSponsoredNearDelegatePolicy,
-  parseResolvedSponsoredNearDelegatePolicies,
   releaseSponsoredSpendCap,
-  reserveSponsoredPrepaidBalance,
   reserveSponsoredSpendCap,
-  settleSponsoredPrepaidBalance,
   settleSponsoredSpendCap,
   type SponsorshipSpendCapSettlement,
   type SponsorshipSpendPricingService,
-} from '../sponsorship';
+} from '../sponsorship/spendCaps';
+import {
+  matchResolvedSponsoredNearDelegatePolicy,
+  parseResolvedSponsoredNearDelegatePolicies,
+} from '../sponsorship/near';
+import {
+  isSponsorshipPrepaidBalanceEnforcementError,
+  reserveSponsoredPrepaidBalance,
+  settleSponsoredPrepaidBalance,
+} from '../sponsorship/prepaidBalance';
+import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
+import { createSponsoredNearDelegateExecutionAdapter } from '../sponsorship/nearExecutionAdapter';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';

@@ -4,6 +4,7 @@ import { handleRelaySponsoredEvmCall } from '../../relaySponsoredEvmCall';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { sendExpressRouteResponse } from '../../routeResponses';
 import type { ExpressRelayContext } from '../createRelayRouter';
+import { resolveSponsoredEvmExecutionAdapter } from '../../../sponsorship/evmExecutionAdapter';
 
 export function registerSponsoredEvmCallRoutes(
   router: ExpressRouter,
@@ -23,6 +24,7 @@ export function registerSponsoredEvmCallRoutes(
     billing: options.billing,
     config: options.config,
     corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
+    resolveExecutionAdapter: options.resolveExecutionAdapter || resolveSponsoredEvmExecutionAdapter,
     observabilityIngestion: ctx.opts.observabilityIngestion || null,
     prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
     publishableKeyAuth,

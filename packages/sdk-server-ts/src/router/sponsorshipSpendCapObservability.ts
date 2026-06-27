@@ -8,7 +8,7 @@ import type {
 import type {
   SponsorshipSpendCapReservationHandle,
   SponsorshipSpendCapSettlement,
-} from '../sponsorship';
+} from '../sponsorship/spendCaps';
 
 type SponsorshipSpendCapLogBase = {
   logger: NormalizedRouterLogger;

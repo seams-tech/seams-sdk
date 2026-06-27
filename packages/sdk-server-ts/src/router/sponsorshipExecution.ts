@@ -40,7 +40,7 @@ import type { ConsoleBillingPrepaidReservationContext } from '../console/billing
 import type { ConsoleSponsoredCallContext } from '../console/sponsoredCalls/service';
 import type { D1PreparedStatementLike } from '../storage/tenantRoute';
 import type { RouteResponse } from './routeExecutionContext';
-import type { SponsorshipSpendPricingService } from '../sponsorship';
+import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type {
   SponsoredPrepaidReservationHandle,
   SponsoredPrepaidReservationSettlement,

@@ -32,6 +32,12 @@ import {
   type SponsoredEvmCall,
 } from './evm';
 import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from './evmRoutes';
+import type {
+  SponsoredEvmCallExecutorConfig,
+  SponsoredEvmChainExecutorConfig,
+  SponsoredEvmExecutionAdapterResolver,
+  SponsoredEvmExecutionResult,
+} from './evmExecutorTypes';
 
 export {
   DEFAULT_SPONSORED_EVM_CALL_ROUTE,
@@ -42,19 +48,6 @@ const DEFAULT_SPONSORED_EVM_RPC_URL = 'https://rpc.moderato.tempo.xyz';
 const DEFAULT_SPONSORED_EVM_CHAIN_ID = 42_431;
 const DEFAULT_MAX_PRIORITY_FEE_PER_GAS = 2_000_000_000n;
 const DEFAULT_MAX_FEE_PER_GAS = 40_000_000_000n;
-
-export type SponsoredEvmChainExecutorConfig = {
-  chainId: number;
-  rpcUrl: string;
-  sponsorAddress: `0x${string}`;
-  sponsorPrivateKeyHex: `0x${string}`;
-  maxPriorityFeePerGasFloor: bigint;
-  maxFeePerGasFloor: bigint;
-};
-
-export type SponsoredEvmCallExecutorConfig = {
-  executorsByChain: ReadonlyMap<number, SponsoredEvmChainExecutorConfig>;
-};
 
 export type RegisterSponsoredEvmCallRouteArgs = {
   router: Pick<ExpressRouter, 'post' | 'options'>;
@@ -71,13 +64,6 @@ export type RegisterSponsoredEvmCallRouteArgs = {
   config: SponsoredEvmCallExecutorConfig | null;
   route?: string;
   logger?: RouterLogger;
-};
-
-type SponsoredEvmExecution = {
-  txHash: `0x${string}`;
-  gasUsed: string;
-  effectiveGasPrice: string;
-  feeAmount: string;
 };
 
 function normalizeTxHashOrThrow(value: unknown): `0x${string}` {
@@ -201,7 +187,7 @@ async function resolveFeeCaps(args: {
 export async function executeSponsoredEvmCall(args: {
   executor: SponsoredEvmChainExecutorConfig;
   call: SponsoredEvmCall;
-}): Promise<SponsoredEvmExecution> {
+}): Promise<SponsoredEvmExecutionResult> {
   const client = createEvmClient({ rpcUrl: args.executor.rpcUrl });
   const nonce = await client.getTransactionCount({
     address: args.executor.sponsorAddress,
@@ -360,6 +346,25 @@ export function resolveSponsoredEvmExecutorForChain(
   return config.executorsByChain.get(chainId) || null;
 }
 
+const resolveSponsoredEvmExecutionAdapterForRoute: SponsoredEvmExecutionAdapterResolver = (
+  input,
+) => {
+  const executor = resolveSponsoredEvmExecutorForChain(input.config, input.chainId);
+  if (!executor) return null;
+  return {
+    executorKind: 'evm_eoa',
+    meta: {
+      chainId: executor.chainId,
+      sponsorAddress: executor.sponsorAddress,
+    },
+    execute: async () =>
+      await executeSponsoredEvmCall({
+        executor,
+        call: input.call,
+      }),
+  };
+};
+
 export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRouteArgs): void {
   const logger = coerceRouterLogger(args.logger || console);
   const routePath = String(args.route || '').trim() || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
@@ -399,6 +404,7 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
           billing: args.billing,
           config: args.config,
           corsOrigins: args.corsOrigins,
+          resolveExecutionAdapter: resolveSponsoredEvmExecutionAdapterForRoute,
           observabilityIngestion: args.observabilityIngestion || null,
           prepaidReservations: args.prepaidReservations || null,
           publishableKeyAuth,

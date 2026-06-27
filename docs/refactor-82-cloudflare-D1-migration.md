@@ -135,6 +135,10 @@ Completed so far:
   coverage for the simplified sponsored EVM gas route. The first local route is
   `/relay/sponsorships/evm/call`; execution and threshold signing remain
   disabled until their dedicated Worker-safe slices land.
+- Split the sponsored EVM route contract from the current Node/WASM EVM executor
+  resolver. Node/Express supplies the existing resolver explicitly; Cloudflare
+  D1/DO routes stay import-clean and require a Worker-safe resolver before
+  execution is enabled.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -974,8 +978,10 @@ Work:
   first mounted route is `/relay/sponsorships/evm/call`, which proves the D1
   relay service bundle can be constructed under Wrangler without importing the
   mixed AuthService or EVM executor graph.
-- Add the Worker-safe sponsored EVM executor split before enabling local EVM
-  execution through `/relay/sponsorships/evm/call`.
+- Add a Worker-safe sponsored EVM executor resolver before enabling local EVM
+  execution through `/relay/sponsorships/evm/call`. The route contract already
+  accepts an explicit resolver, and the current Node/Express resolver remains
+  isolated outside Worker-facing imports.
 - Keep threshold signing disabled on the local relay mount until the dedicated
   signer AuthService slice is complete. This keeps mixed Postgres-backed
   AuthService modules out of the Cloudflare Worker bundle.
@@ -1106,7 +1112,7 @@ Completed baseline:
   without Docker Postgres.
 - The same SDK local Worker serves `/relay/*` through D1-backed relay storage
   bundle smoke coverage for the simplified sponsored EVM route. Full prepaid
-  sponsorship execution still requires the Worker-safe EVM executor split.
+  sponsorship execution still requires a Worker-safe EVM executor resolver.
 
 Proceed in this order:
 
@@ -1118,7 +1124,7 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
    Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
    dependency test.
-4. Add the Worker-safe sponsored EVM executor split, then add the
+4. Add the Worker-safe sponsored EVM executor resolver, then add the
    Cloudflare-safe signer AuthService slice. The SDK package path, console route
    path, and sponsored-gas relay smoke route already use Wrangler/Miniflare D1
    and local Durable Object storage.

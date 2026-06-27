@@ -83,7 +83,7 @@ import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from '../routerAbNormalSigningAdmissionCore';
-import type { SponsoredEvmCallExecutorConfig } from '../../sponsorship/evmRelay';
+import type { SponsoredEvmCallExecutorConfig } from '../../sponsorship/evmExecutorTypes';
 import type { SponsorshipSpendPricingService } from '../../sponsorship/spendCaps';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,

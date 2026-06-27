@@ -29,6 +29,9 @@ export {
 export type {
   SponsoredEvmChainExecutorConfig,
   SponsoredEvmCallExecutorConfig,
+  SponsoredEvmExecutionResult,
+} from './evmExecutorTypes';
+export type {
   RegisterSponsoredEvmCallRouteArgs,
 } from './evmRelay';
 export {
@@ -44,7 +47,7 @@ export {
 export type {
   SponsorshipExecutionAdapter,
   SponsoredEvmExecutionAdapter,
-  SponsoredEvmExecutionResult,
+  SponsoredEvmExecutionAdapterResolver,
   SponsoredNearDelegateExecutionAdapter,
   SponsoredNearDelegateExecutionResult,
 } from './engine';
