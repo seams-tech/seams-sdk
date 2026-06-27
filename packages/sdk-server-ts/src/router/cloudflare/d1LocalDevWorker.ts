@@ -32,6 +32,7 @@ interface LocalD1DevEnv {
   readonly SEAMS_LOCAL_RELAYER_ACCOUNT?: string;
   readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
+  readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_ID?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
@@ -370,6 +371,7 @@ function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
     relayerAccount: env.SEAMS_LOCAL_RELAYER_ACCOUNT,
     relayerPublicKey: env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY,
     googleOidcClientId: env.SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID,
+    accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
   });
 }
 

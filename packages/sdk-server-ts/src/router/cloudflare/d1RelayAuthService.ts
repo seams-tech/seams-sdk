@@ -1,5 +1,6 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
+import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -17,6 +18,7 @@ export interface CloudflareD1RelayAuthServiceOptions {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
   readonly googleOidcClientId?: string;
+  readonly accountIdDerivationSecret?: string;
 }
 
 type ListIdentitiesInput = Parameters<CloudflareRelayAuthService['listIdentities']>[0];
@@ -25,6 +27,10 @@ type LinkIdentityInput = Parameters<CloudflareRelayAuthService['linkIdentity']>[
 type LinkIdentityResult = Awaited<ReturnType<CloudflareRelayAuthService['linkIdentity']>>;
 type UnlinkIdentityInput = Parameters<CloudflareRelayAuthService['unlinkIdentity']>[0];
 type UnlinkIdentityResult = Awaited<ReturnType<CloudflareRelayAuthService['unlinkIdentity']>>;
+type ResolveOidcWalletIdInput = Parameters<CloudflareRelayAuthService['resolveOidcWalletId']>[0];
+type ResolveOidcWalletIdResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['resolveOidcWalletId']>
+>;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
 >[0];
@@ -132,6 +138,7 @@ function normalizeD1RelayAuthOptions(
     relayerAccount: toOptionalTrimmedString(input.relayerAccount),
     relayerPublicKey: toOptionalTrimmedString(input.relayerPublicKey),
     googleOidcClientId: toOptionalTrimmedString(input.googleOidcClientId),
+    accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),
   };
 }
 
@@ -203,6 +210,26 @@ function identitySubjectRecord(input: {
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };
+}
+
+function resolveHostedOidcWalletScope(input: unknown): {
+  readonly projectId: string;
+  readonly envId: string;
+} {
+  const scope = isRecord(input) ? input : {};
+  const orgId = toOptionalTrimmedString(scope.orgId);
+  const projectId = toOptionalTrimmedString(scope.projectId);
+  const envId = toOptionalTrimmedString(scope.envId);
+  if (orgId && projectId && envId) return { projectId, envId };
+  throw new Error(
+    'runtimePolicyScope.orgId, runtimePolicyScope.projectId, and runtimePolicyScope.envId are required for hosted wallet id derivation',
+  );
+}
+
+function codedError(code: string, message: string): Error & { code: string } {
+  const error = new Error(message) as Error & { code: string };
+  error.code = code;
+  return error;
 }
 
 function appSessionRecord(input: {
@@ -427,6 +454,39 @@ class CloudflareD1RelayAuthMetadataService {
         message: errorMessage(error) || 'Failed to unlink identity',
       };
     }
+  }
+
+  async resolveOidcWalletId(
+    input: ResolveOidcWalletIdInput,
+  ): Promise<ResolveOidcWalletIdResult> {
+    const providerSubject = toOptionalTrimmedString(input.providerSubject ?? input.sub);
+    if (!providerSubject) {
+      throw new Error('Cannot resolve OIDC wallet id without provider subject');
+    }
+    if (providerSubject.startsWith('google:')) {
+      throw codedError(
+        'not_configured',
+        'Google Email OTP session resolution is not configured for Cloudflare D1 relay auth',
+      );
+    }
+
+    const linkedWalletId = await this.readIdentityUserIdBySubject(`wallet:${providerSubject}`);
+    if (linkedWalletId && isValidAccountId(linkedWalletId)) return linkedWalletId;
+
+    const scope = resolveHostedOidcWalletScope(input.runtimePolicyScope);
+    const verifiedEmail = toOptionalTrimmedString(input.email);
+    return await deriveHostedNearAccountId({
+      accountIdDerivationSecret: requireD1RelayAuthScopeString(
+        this.options.accountIdDerivationSecret,
+        'ACCOUNT_ID_DERIVATION_SECRET',
+      ),
+      relayerAccount: requireD1RelayAuthScopeString(this.options.relayerAccount, 'relayerAccount'),
+      projectId: scope.projectId,
+      envId: scope.envId,
+      authProvider: 'oidc',
+      providerSubject,
+      ...(verifiedEmail ? { verifiedEmail } : {}),
+    });
   }
 
   async getOrCreateAppSessionVersion(
@@ -851,6 +911,7 @@ export function createCloudflareD1RelayAuthService(
   service.listIdentities = metadata.listIdentities.bind(metadata);
   service.linkIdentity = metadata.linkIdentity.bind(metadata);
   service.unlinkIdentity = metadata.unlinkIdentity.bind(metadata);
+  service.resolveOidcWalletId = metadata.resolveOidcWalletId.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);

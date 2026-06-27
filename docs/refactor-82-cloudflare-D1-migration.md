@@ -164,6 +164,10 @@ Completed so far:
   relay auth port. Link conflicts, sole-identity moves, and last-identity unlink
   rejection are enforced with conditional SQLite/D1 mutations, then mapped back
   to the existing domain result shapes.
+- Added D1-backed non-Google OIDC wallet resolution behind the relay auth port.
+  The resolver checks `wallet:{providerSubject}` identity links first, then uses
+  the Worker-safe hosted account derivation helper with `ACCOUNT_ID_DERIVATION_SECRET`
+  and the scoped project/environment values.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -1032,6 +1036,10 @@ Work:
 - D1-backed identity link/unlink is also in place. Continue using conditional
   D1 mutations for signer state transitions that need invariants enforced by the
   database rather than relying on route-level read/modify/write checks.
+- D1-backed non-Google OIDC wallet resolution is in place. Keep derivation
+  secrets outside D1: local Wrangler uses a dummy `[vars]` value, while staging
+  and production should provide `ACCOUNT_ID_DERIVATION_SECRET` through Cloudflare
+  secrets or the configured KMS adapter.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
@@ -1170,6 +1178,9 @@ Completed baseline:
   inventory, and NEAR public-key inventory.
 - Identity link/unlink now uses the same D1 overlay and keeps conflict, move,
   and last-identity semantics aligned with the current signer behavior.
+- Non-Google OIDC wallet resolution now uses the D1 identity overlay and hosted
+  account derivation. Google Email OTP session resolution remains fail-closed
+  until the Email OTP stores move behind D1/DO.
 
 Proceed in this order:
 

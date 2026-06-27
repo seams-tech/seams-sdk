@@ -373,6 +373,12 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
     };
     await insertIdentity({ database, ...scope, subject: 'google:alice' });
     await insertIdentity({ database, ...scope, orgId: 'org-b', subject: 'google:bob' });
+    await insertIdentity({
+      database,
+      ...scope,
+      userId: 'linked.testnet',
+      subject: 'wallet:oidc:linked',
+    });
     await insertWebAuthn({ database, ...scope });
     await insertNearPublicKey({ database, ...scope });
 
@@ -385,6 +391,7 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       relayerAccount: 'relay.local',
       relayerPublicKey: 'relay-public-key',
       googleOidcClientId: 'google-client',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
 
     await expect(service.listIdentities({ userId: scope.userId })).resolves.toEqual({
@@ -447,6 +454,28 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
         allowMoveIfSoleIdentity: true,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'already_linked' });
+    await expect(
+      service.resolveOidcWalletId({
+        providerSubject: 'oidc:linked',
+        runtimePolicyScope: {
+          orgId: scope.orgId,
+          projectId: scope.projectId,
+          envId: scope.envId,
+          signingRootVersion: 'v1',
+        },
+      }),
+    ).resolves.toBe('linked.testnet');
+    const derivedOidcWalletId = await service.resolveOidcWalletId({
+      providerSubject: 'oidc:new-user',
+      email: 'new-user@example.test',
+      runtimePolicyScope: {
+        orgId: scope.orgId,
+        projectId: scope.projectId,
+        envId: scope.envId,
+        signingRootVersion: 'v1',
+      },
+    });
+    expect(derivedOidcWalletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relay\.local$/);
     const session = await service.getOrCreateAppSessionVersion({ userId: scope.userId });
     expect(session.ok).toBe(true);
     if (!session.ok) throw new Error(session.message);

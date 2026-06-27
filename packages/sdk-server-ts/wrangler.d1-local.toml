@@ -26,3 +26,6 @@ new_sqlite_classes = ["ThresholdStoreDurableObject"]
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-local"
+SEAMS_LOCAL_RELAYER_ACCOUNT = "relay.local"
+SEAMS_LOCAL_RELAYER_PUBLIC_KEY = "ed25519:local-relay-public-key"
+ACCOUNT_ID_DERIVATION_SECRET = "local-dev-account-id-derivation-secret"
