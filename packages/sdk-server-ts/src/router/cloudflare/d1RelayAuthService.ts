@@ -1,7 +1,7 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64Decode, base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import {
   parseGoogleProviderSubject,
   parseOrgId,
@@ -52,6 +52,11 @@ import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
 } from '../../core/ThresholdService/ethSignerWasm';
+import {
+  D1WalletAuthMethodStore,
+  type WalletAuthMethodRecord,
+  type WalletAuthMethodStore,
+} from '../../core/d1WalletAuthMethodStore';
 import {
   formatSigningSessionSealKeyVersionForWire,
   formatSigningSessionSealShamirPrimeB64uForWire,
@@ -350,6 +355,12 @@ type VerifyEmailOtpUnlockProofInput = Parameters<
 type VerifyEmailOtpUnlockProofResult = Awaited<
   ReturnType<CloudflareRelayAuthService['verifyEmailOtpUnlockProof']>
 >;
+type RevokeWalletAuthMethodInput = Parameters<
+  CloudflareRelayAuthService['revokeWalletAuthMethod']
+>[0];
+type RevokeWalletAuthMethodResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['revokeWalletAuthMethod']>
+>;
 type ApplyEmailOtpServerSealInput = Parameters<
   CloudflareRelayAuthService['applyEmailOtpServerSeal']
 >[0];
@@ -596,6 +607,44 @@ type EmailOtpServerSealCipherResult =
       readonly ok: false;
       readonly code: 'not_configured';
       readonly message: string;
+    };
+
+type D1RevokeWalletAuthMethodTarget =
+  | {
+      readonly kind: 'passkey';
+      readonly credentialIdB64u: string;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly email: string;
+    };
+
+type D1RevokeWalletAuthMethodAuth =
+  | {
+      readonly kind: 'webauthn_assertion';
+      readonly credential: unknown;
+    }
+  | {
+      readonly kind: 'app_session';
+      readonly policy: {
+        readonly permission: 'wallet_auth_method_revoke';
+        readonly walletId: WalletId;
+        readonly target: D1RevokeWalletAuthMethodTarget;
+        readonly expiresAtMs: number;
+      };
+    };
+
+type D1RevokeWalletAuthMethodBoundary =
+  | {
+      readonly ok: true;
+      readonly walletId: WalletId;
+      readonly rpId: string;
+      readonly target: D1RevokeWalletAuthMethodTarget;
+      readonly auth: D1RevokeWalletAuthMethodAuth;
+    }
+  | {
+      readonly ok: false;
+      readonly result: RevokeWalletAuthMethodResult;
     };
 
 type AppSessionVersionRecord = {
@@ -1337,6 +1386,152 @@ function webAuthnCredentialIdB64uFromCredential(input: unknown):
       code: 'invalid_body',
       message: errorMessage(error) || 'Invalid credential rawId',
     };
+  }
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex;
+}
+
+function parseD1RevokeWalletAuthMethodTarget(
+  input: unknown,
+): D1RevokeWalletAuthMethodTarget | null {
+  if (!isRecord(input)) return null;
+  const kind = toOptionalTrimmedString(input.kind);
+  if (kind === 'passkey') {
+    const credentialIdB64u = toOptionalTrimmedString(input.credentialIdB64u);
+    if (!credentialIdB64u || Object.prototype.hasOwnProperty.call(input, 'email')) return null;
+    return { kind: 'passkey', credentialIdB64u };
+  }
+  if (kind === 'email_otp') {
+    const email = toOptionalTrimmedString(input.email).toLowerCase();
+    if (!email || Object.prototype.hasOwnProperty.call(input, 'credentialIdB64u')) return null;
+    return { kind: 'email_otp', email };
+  }
+  return null;
+}
+
+function d1RevokeWalletAuthMethodInvalidBody(message: string): D1RevokeWalletAuthMethodBoundary {
+  return {
+    ok: false,
+    result: {
+      ok: false,
+      code: 'invalid_body',
+      message,
+    },
+  };
+}
+
+function parseD1RevokeWalletAuthMethodAuth(input: {
+  readonly raw: unknown;
+  readonly walletId: WalletId;
+}): D1RevokeWalletAuthMethodAuth | null {
+  if (!isRecord(input.raw)) return null;
+  const kind = toOptionalTrimmedString(input.raw.kind);
+  if (kind === 'webauthn_assertion') {
+    return {
+      kind: 'webauthn_assertion',
+      credential: input.raw.credential,
+    };
+  }
+  if (kind !== 'app_session') return null;
+  const rawPolicy = isRecord(input.raw.policy) ? input.raw.policy : null;
+  const target = parseD1RevokeWalletAuthMethodTarget(rawPolicy?.target);
+  const expiresAtMs = Math.floor(Number(rawPolicy?.expiresAtMs));
+  const permission = toOptionalTrimmedString(rawPolicy?.permission);
+  const policyWalletId = walletIdFromString(toOptionalTrimmedString(rawPolicy?.walletId));
+  if (
+    !rawPolicy ||
+    permission !== 'wallet_auth_method_revoke' ||
+    !policyWalletId ||
+    !target ||
+    !Number.isSafeInteger(expiresAtMs)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'app_session',
+    policy: {
+      permission: 'wallet_auth_method_revoke',
+      walletId: policyWalletId,
+      target,
+      expiresAtMs,
+    },
+  };
+}
+
+function parseD1RevokeWalletAuthMethodInput(
+  input: RevokeWalletAuthMethodInput,
+): D1RevokeWalletAuthMethodBoundary {
+  const raw: Record<string, unknown> = isRecord(input) ? input : {};
+  const walletId = walletIdFromString(toOptionalTrimmedString(raw.walletId));
+  if (!walletId) return d1RevokeWalletAuthMethodInvalidBody('walletId is required');
+  const parsedRpId = parseWebAuthnRpId(raw.rpId);
+  if (!parsedRpId.ok) return d1RevokeWalletAuthMethodInvalidBody('rpId is required');
+  const target = parseD1RevokeWalletAuthMethodTarget(raw.target);
+  if (!target) return d1RevokeWalletAuthMethodInvalidBody('target is required');
+  const auth = parseD1RevokeWalletAuthMethodAuth({
+    raw: raw.auth,
+    walletId,
+  });
+  if (!auth) return d1RevokeWalletAuthMethodInvalidBody('auth is required');
+  return {
+    ok: true,
+    walletId,
+    rpId: parsedRpId.value,
+    target,
+    auth,
+  };
+}
+
+function d1RevokeTargetsEqual(
+  left: D1RevokeWalletAuthMethodTarget,
+  right: D1RevokeWalletAuthMethodTarget,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case 'passkey':
+      return right.kind === 'passkey' && left.credentialIdB64u === right.credentialIdB64u;
+    case 'email_otp':
+      return right.kind === 'email_otp' && left.email === right.email;
+  }
+}
+
+function activeWalletAuthMethodRecord(record: WalletAuthMethodRecord): boolean {
+  return record.status === 'active';
+}
+
+function revokedD1WalletAuthMethodRecord(input: {
+  readonly record: WalletAuthMethodRecord;
+  readonly updatedAtMs: number;
+}): WalletAuthMethodRecord {
+  switch (input.record.kind) {
+    case 'passkey':
+      return {
+        version: 'wallet_auth_method_v1',
+        kind: 'passkey',
+        status: 'revoked',
+        walletId: input.record.walletId,
+        rpId: input.record.rpId,
+        credentialIdB64u: input.record.credentialIdB64u,
+        credentialPublicKeyB64u: input.record.credentialPublicKeyB64u,
+        counter: input.record.counter,
+        createdAtMs: input.record.createdAtMs,
+        updatedAtMs: input.updatedAtMs,
+      };
+    case 'email_otp':
+      return {
+        version: 'wallet_auth_method_v1',
+        kind: 'email_otp',
+        status: 'revoked',
+        walletId: input.record.walletId,
+        emailHashHex: input.record.emailHashHex,
+        registrationAuthorityId: input.record.registrationAuthorityId,
+        createdAtMs: input.record.createdAtMs,
+        updatedAtMs: input.updatedAtMs,
+      };
   }
 }
 
@@ -3797,6 +3992,7 @@ class CloudflareD1RelayAuthMetadataService {
   private googleJwksFetchPromise: Promise<JsonWebKeyCache> | null = null;
   private readonly oidcJwksCacheByUrl = new Map<string, JsonWebKeyCache>();
   private readonly oidcJwksFetchPromiseByUrl = new Map<string, Promise<JsonWebKeyCache>>();
+  private walletAuthMethodStore: WalletAuthMethodStore | null = null;
 
   constructor(input: CloudflareD1RelayAuthServiceOptions) {
     this.options = normalizeD1RelayAuthOptions(input);
@@ -5309,6 +5505,115 @@ class CloudflareD1RelayAuthMetadataService {
       grantExpiresAtMs,
       otpChannel: EMAIL_OTP_CHANNEL,
     };
+  }
+
+  async revokeWalletAuthMethod(
+    input: RevokeWalletAuthMethodInput,
+  ): Promise<RevokeWalletAuthMethodResult> {
+    try {
+      const parsed = parseD1RevokeWalletAuthMethodInput(input);
+      if (!parsed.ok) return parsed.result;
+      if (parsed.auth.kind === 'app_session') {
+        if (parsed.auth.policy.walletId !== parsed.walletId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'auth-method revoke policy wallet mismatch',
+          };
+        }
+        if (!d1RevokeTargetsEqual(parsed.auth.policy.target, parsed.target)) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'auth-method revoke policy target mismatch',
+          };
+        }
+        if (parsed.auth.policy.expiresAtMs <= Date.now()) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'auth-method revoke policy is expired',
+          };
+        }
+      }
+
+      const walletAuthMethodStore = this.getWalletAuthMethodStore();
+      const walletMethods = await walletAuthMethodStore.listForWallet({
+        walletId: parsed.walletId,
+        rpId: parsed.rpId,
+      });
+      const activeWalletMethods = walletMethods.filter(activeWalletAuthMethodRecord);
+      if (activeWalletMethods.length === 0) {
+        return { ok: false, code: 'not_found', message: 'wallet has no active auth methods' };
+      }
+      if (parsed.auth.kind === 'webauthn_assertion') {
+        const authorizationCredentialId = webAuthnCredentialIdB64uFromCredential(
+          parsed.auth.credential,
+        );
+        if (!authorizationCredentialId.ok) return authorizationCredentialId;
+        const authorizationMethod = await walletAuthMethodStore.getPasskey({
+          rpId: parsed.rpId,
+          credentialIdB64u: authorizationCredentialId.credentialIdB64u,
+        });
+        if (
+          !authorizationMethod ||
+          authorizationMethod.kind !== 'passkey' ||
+          authorizationMethod.walletId !== parsed.walletId ||
+          authorizationMethod.status !== 'active'
+        ) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'WebAuthn authorization credential is not active for this wallet',
+          };
+        }
+      }
+
+      const targetRecord = await this.findWalletAuthMethodRecordForRevokeTarget({
+        walletAuthMethodStore,
+        walletId: parsed.walletId,
+        rpId: parsed.rpId,
+        target: parsed.target,
+      });
+      if (!targetRecord) {
+        return { ok: false, code: 'not_found', message: 'wallet auth method not found' };
+      }
+      if (targetRecord.status !== 'active') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'wallet auth method is already revoked',
+        };
+      }
+      if (activeWalletMethods.length <= 1) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'wallet must retain at least one active auth method',
+        };
+      }
+      await walletAuthMethodStore.put(
+        revokedD1WalletAuthMethodRecord({
+          record: targetRecord,
+          updatedAtMs: Date.now(),
+        }),
+      );
+      return {
+        ok: true,
+        walletId: parsed.walletId,
+        rpId: parsed.rpId,
+        authMethod: {
+          kind: targetRecord.kind,
+          status: 'revoked',
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to revoke wallet auth method',
+      };
+    }
   }
 
   async removeEmailOtpServerSeal(
@@ -8123,6 +8428,49 @@ class CloudflareD1RelayAuthMetadataService {
     ).run();
   }
 
+  private getWalletAuthMethodStore(): WalletAuthMethodStore {
+    if (this.walletAuthMethodStore) return this.walletAuthMethodStore;
+    this.walletAuthMethodStore = new D1WalletAuthMethodStore({
+      database: this.options.database,
+      namespace: this.options.namespace,
+      orgId: this.options.orgId,
+      projectId: this.options.projectId,
+      envId: this.options.envId,
+      ensureSchema: false,
+    });
+    return this.walletAuthMethodStore;
+  }
+
+  private async findWalletAuthMethodRecordForRevokeTarget(input: {
+    readonly walletAuthMethodStore: WalletAuthMethodStore;
+    readonly walletId: WalletId;
+    readonly rpId: string;
+    readonly target: D1RevokeWalletAuthMethodTarget;
+  }): Promise<WalletAuthMethodRecord | null> {
+    switch (input.target.kind) {
+      case 'passkey': {
+        const record = await input.walletAuthMethodStore.getPasskey({
+          rpId: input.rpId,
+          credentialIdB64u: input.target.credentialIdB64u,
+        });
+        if (!record || record.kind !== 'passkey' || record.walletId !== input.walletId) {
+          return null;
+        }
+        return record;
+      }
+      case 'email_otp': {
+        const emailBytes = new TextEncoder().encode(input.target.email);
+        const emailHashHex = bytesToHex(await sha256BytesPortable(emailBytes));
+        const record = await input.walletAuthMethodStore.getEmailOtp({
+          walletId: input.walletId,
+          emailHashHex,
+        });
+        if (!record || record.kind !== 'email_otp') return null;
+        return record;
+      }
+    }
+  }
+
   private scopePrepare(sql: string, values: readonly unknown[]): D1PreparedStatementLike {
     return this.options.database.prepare(sql).bind(...this.scopeValues(values));
   }
@@ -9817,6 +10165,7 @@ export function createCloudflareD1RelayAuthService(
   service.readEmailOtpOutboxEntry = metadata.readEmailOtpOutboxEntry.bind(metadata);
   service.createEmailOtpUnlockChallenge = metadata.createEmailOtpUnlockChallenge.bind(metadata);
   service.verifyEmailOtpUnlockProof = metadata.verifyEmailOtpUnlockProof.bind(metadata);
+  service.revokeWalletAuthMethod = metadata.revokeWalletAuthMethod.bind(metadata);
   service.applyEmailOtpServerSeal = metadata.applyEmailOtpServerSeal.bind(metadata);
   service.removeEmailOtpServerSeal = metadata.removeEmailOtpServerSeal.bind(metadata);
   service.consumeEmailOtpGrant = metadata.consumeEmailOtpGrant.bind(metadata);

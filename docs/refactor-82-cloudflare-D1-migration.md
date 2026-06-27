@@ -202,9 +202,9 @@ runtime. The current codebase already has the important boundaries in place:
   recovery-session status transitions, recovery-execution upserts for the email
   recovery route, Email OTP device recovery, Email OTP recovery-key
   consumption, recovery-key failure reporting, recovery-code rotation, Email
-  OTP provider delivery, Email OTP enrollment verification/persistence, and
-  generic OIDC JWT exchange. Email OTP server-seal apply/remove runs through
-  the Worker-safe Shamir cipher boundary.
+  OTP provider delivery, Email OTP enrollment verification/persistence, wallet
+  auth-method revocation, and generic OIDC JWT exchange. Email OTP server-seal
+  apply/remove runs through the Worker-safe Shamir cipher boundary.
 - Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the property.
@@ -964,6 +964,10 @@ Completed:
 - [x] Cloudflare relay auth service D1 methods apply and remove Email OTP
   server seals through configured Worker Shamir key material and fail closed
   when that material is absent.
+- [x] Cloudflare relay auth service D1 methods revoke wallet auth methods
+  through the D1 wallet auth-method leaf store, bind app-session revoke policy
+  to the requested wallet and target, and reject removal of the last active auth
+  method.
 - [x] Cloudflare relay auth service D1 methods return explicit ECDSA key
   inventory diagnostics while threshold metadata storage remains deferred.
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
@@ -985,6 +989,9 @@ Completed:
   full-family Postgres adapter surface, not the D1/DO staging Worker helper.
 - [x] Cloudflare signer routes are typed against `CloudflareRelayAuthService`.
 - [x] Signer metadata methods live in Worker-safe D1 leaf modules.
+- [x] The D1 wallet auth-method store lives in a Worker-safe leaf module; the
+  mixed Node/Postgres factory re-exports it without making Worker code import
+  Postgres storage.
 - [x] WebAuthn login and sync verification run through the D1 relay auth service,
   including one-time challenge consumption and atomic authenticator-counter
   updates.
@@ -997,8 +1004,8 @@ Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
   Object slices: wallet registration and add-signer/add-auth-method ceremonies,
-  signed delegates, email recovery HSS responses, wallet auth revocation, and
-  threshold signing admission.
+  signed delegates, email recovery HSS responses, and threshold signing
+  admission.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
@@ -1067,7 +1074,8 @@ Work:
   tests.
 - [x] Add Playwright unit coverage for implemented Cloudflare D1 relay auth
   service slices, including recovery-code rotation, generic OIDC JWT exchange,
-  Email OTP server-seal transforms, and the Worker runtime import guard.
+  Email OTP server-seal transforms, wallet auth-method revocation, and the
+  Worker runtime import guard.
 - [x] Keep pure unit fakes for core logic that does not depend on SQL behavior.
 - [ ] Cover every remaining duplicate idempotency, insufficient balance,
   settlement replay, lease races, tenant isolation, sealed-share parsing,

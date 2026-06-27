@@ -180,6 +180,12 @@ async function sha256(input: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', input));
 }
 
+function hexBytes(bytes: Uint8Array): string {
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex;
+}
+
 async function createWebAuthnAssertionFixture(): Promise<WebAuthnAssertionFixture> {
   const keyPair = (await crypto.subtle.generateKey(
     { name: 'ECDSA', namedCurve: 'P-256' },
@@ -764,6 +770,160 @@ async function insertSignerWallet(input: {
       record.updatedAtMs,
     )
     .run();
+}
+
+type TestWalletAuthMethodRecord =
+  | {
+      readonly version: 'wallet_auth_method_v1';
+      readonly kind: 'passkey';
+      readonly status: 'active' | 'revoked';
+      readonly walletId: string;
+      readonly rpId: string;
+      readonly credentialIdB64u: string;
+      readonly credentialPublicKeyB64u: string;
+      readonly counter: number;
+      readonly createdAtMs: number;
+      readonly updatedAtMs: number;
+      readonly emailHashHex?: never;
+      readonly registrationAuthorityId?: never;
+    }
+  | {
+      readonly version: 'wallet_auth_method_v1';
+      readonly kind: 'email_otp';
+      readonly status: 'active' | 'revoked';
+      readonly walletId: string;
+      readonly emailHashHex: string;
+      readonly registrationAuthorityId: string;
+      readonly createdAtMs: number;
+      readonly updatedAtMs: number;
+      readonly rpId?: never;
+      readonly credentialIdB64u?: never;
+      readonly credentialPublicKeyB64u?: never;
+      readonly counter?: never;
+    };
+
+type TestWalletAuthMethodIdentity = {
+  readonly walletAuthMethodId: string;
+  readonly rpId: string;
+  readonly authIdentifierKey: string;
+  readonly credentialIdB64u: string | null;
+  readonly credentialPublicKeyB64u: string | null;
+  readonly emailHashHex: string | null;
+  readonly registrationAuthorityId: string | null;
+};
+
+function testWalletAuthMethodIdentity(
+  record: TestWalletAuthMethodRecord,
+): TestWalletAuthMethodIdentity {
+  switch (record.kind) {
+    case 'passkey':
+      return {
+        walletAuthMethodId: `passkey:${record.rpId}:${record.credentialIdB64u}`,
+        rpId: record.rpId,
+        authIdentifierKey: record.credentialIdB64u,
+        credentialIdB64u: record.credentialIdB64u,
+        credentialPublicKeyB64u: record.credentialPublicKeyB64u,
+        emailHashHex: null,
+        registrationAuthorityId: null,
+      };
+    case 'email_otp':
+      return {
+        walletAuthMethodId: `email_otp:${record.walletId}:${record.emailHashHex}`,
+        rpId: '',
+        authIdentifierKey: record.emailHashHex,
+        credentialIdB64u: null,
+        credentialPublicKeyB64u: null,
+        emailHashHex: record.emailHashHex,
+        registrationAuthorityId: record.registrationAuthorityId,
+      };
+  }
+}
+
+async function insertWalletAuthMethod(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly record: TestWalletAuthMethodRecord;
+}): Promise<void> {
+  const identity = testWalletAuthMethodIdentity(input.record);
+  await input.database
+    .prepare(
+      `INSERT INTO signer_wallet_auth_methods (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        rp_id,
+        kind,
+        status,
+        wallet_auth_method_id,
+        auth_identifier_key,
+        credential_id_b64u,
+        credential_public_key_b64u,
+        email_hash_hex,
+        registration_authority_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.record.walletId,
+      identity.rpId,
+      input.record.kind,
+      input.record.status,
+      identity.walletAuthMethodId,
+      identity.authIdentifierKey,
+      identity.credentialIdB64u,
+      identity.credentialPublicKeyB64u,
+      identity.emailHashHex,
+      identity.registrationAuthorityId,
+      JSON.stringify(input.record),
+      input.record.createdAtMs,
+      input.record.updatedAtMs,
+    )
+    .run();
+}
+
+async function readWalletAuthMethodRecord(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletAuthMethodId: string;
+}): Promise<SqliteJsonRow> {
+  const row = await input.database
+    .prepare(
+      `SELECT record_json
+         FROM signer_wallet_auth_methods
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_auth_method_id = ?
+        LIMIT 1`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.walletAuthMethodId,
+    )
+    .first<SqliteJsonRow>();
+  const raw = row?.record_json;
+  if (typeof raw !== 'string') throw new Error('wallet auth method record_json missing');
+  const parsed: unknown = JSON.parse(raw);
+  if (!isSqliteJsonRow(parsed)) throw new Error('wallet auth method record_json invalid');
+  return parsed;
 }
 
 async function insertEmailOtpEnrollment(input: {
@@ -1839,6 +1999,130 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
     expect(service.getGoogleOidcPublicConfig()).toEqual({
       configured: true,
       clientId: 'google-client',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = 'wallet-auth.testnet';
+    const rpId = 'example.com';
+    const email = 'owner@example.test';
+    const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
+    const passkeyRecord: TestWalletAuthMethodRecord = {
+      version: 'wallet_auth_method_v1',
+      kind: 'passkey',
+      status: 'active',
+      walletId,
+      rpId,
+      credentialIdB64u: 'credential-a',
+      credentialPublicKeyB64u: 'public-key-a',
+      counter: 0,
+      createdAtMs: 1_000,
+      updatedAtMs: 1_000,
+    };
+    const emailOtpRecord: TestWalletAuthMethodRecord = {
+      version: 'wallet_auth_method_v1',
+      kind: 'email_otp',
+      status: 'active',
+      walletId,
+      emailHashHex,
+      registrationAuthorityId: 'google:owner',
+      createdAtMs: 1_100,
+      updatedAtMs: 1_100,
+    };
+    await insertSignerWallet({ database, ...scope, walletId, rpId });
+    await insertWalletAuthMethod({ database, ...scope, record: passkeyRecord });
+    await insertWalletAuthMethod({ database, ...scope, record: emailOtpRecord });
+
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+    });
+
+    await expect(
+      service.revokeWalletAuthMethod({
+        walletId,
+        rpId,
+        target: { kind: 'email_otp', email },
+        auth: {
+          kind: 'app_session',
+          policy: {
+            permission: 'wallet_auth_method_revoke',
+            walletId,
+            target: { kind: 'email_otp', email },
+            expiresAtMs: Date.now() + 60_000,
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      walletId,
+      rpId,
+      authMethod: {
+        kind: 'email_otp',
+        status: 'revoked',
+      },
+    });
+
+    await expect(
+      readWalletAuthMethodRecord({
+        database,
+        ...scope,
+        walletAuthMethodId: `email_otp:${walletId}:${emailHashHex}`,
+      }),
+    ).resolves.toMatchObject({
+      kind: 'email_otp',
+      status: 'revoked',
+      walletId,
+      emailHashHex,
+    });
+
+    await expect(
+      service.revokeWalletAuthMethod({
+        walletId,
+        rpId,
+        target: { kind: 'passkey', credentialIdB64u: 'credential-a' },
+        auth: {
+          kind: 'app_session',
+          policy: {
+            permission: 'wallet_auth_method_revoke',
+            walletId,
+            target: { kind: 'passkey', credentialIdB64u: 'credential-a' },
+            expiresAtMs: Date.now() + 60_000,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_state',
+      message: 'wallet must retain at least one active auth method',
+    });
+
+    await expect(
+      readWalletAuthMethodRecord({
+        database,
+        ...scope,
+        walletAuthMethodId: 'passkey:example.com:credential-a',
+      }),
+    ).resolves.toMatchObject({
+      kind: 'passkey',
+      status: 'active',
+      walletId,
+      credentialIdB64u: 'credential-a',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);

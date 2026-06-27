@@ -12,153 +12,31 @@ import {
   getPostgresUrlFromConfig,
   type PgQueryExecutor,
 } from '../storage/postgres';
-import { formatD1ExecStatement } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
-  walletIdFromString,
-  type WalletAuthMethodRecord as SharedWalletAuthMethodRecord,
-} from '@shared/utils/registrationIntent';
+  D1WalletAuthMethodStore,
+  normalizeWalletAuthMethod,
+  walletAuthMethodId,
+} from './d1WalletAuthMethodStore';
+import type {
+  D1WalletAuthMethodStoreOptions,
+  WalletAuthMethodRecord,
+  WalletAuthMethodStore,
+} from './d1WalletAuthMethodStore';
 
-export type WalletAuthMethodRecord = SharedWalletAuthMethodRecord;
-
-export interface WalletAuthMethodStore {
-  put(record: WalletAuthMethodRecord): Promise<void>;
-  getPasskey(input: {
-    rpId: string;
-    credentialIdB64u: string;
-  }): Promise<WalletAuthMethodRecord | null>;
-  getEmailOtp(input: {
-    walletId: string;
-    emailHashHex: string;
-  }): Promise<WalletAuthMethodRecord | null>;
-  listForWallet(input: {
-    walletId: string;
-    rpId?: string;
-  }): Promise<WalletAuthMethodRecord[]>;
-}
-
-export interface D1WalletAuthMethodStoreSchemaOptions {
-  readonly database: D1DatabaseLike;
-}
-
-export interface D1WalletAuthMethodStoreOptions {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly ensureSchema?: boolean;
-}
-
-type NormalizedD1WalletAuthMethodStoreOptions = {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly ensureSchema: boolean;
-};
-
-type D1WalletAuthMethodStoreScope = {
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-};
-
-type D1WalletAuthMethodRow = {
-  readonly record_json?: unknown;
-};
-
-export const WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL = Object.freeze([
-  `
-    CREATE TABLE IF NOT EXISTS signer_wallet_auth_methods (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      env_id TEXT NOT NULL,
-      wallet_id TEXT NOT NULL,
-      rp_id TEXT NOT NULL DEFAULT '',
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL,
-      wallet_auth_method_id TEXT NOT NULL,
-      auth_identifier_key TEXT NOT NULL,
-      credential_id_b64u TEXT,
-      credential_public_key_b64u TEXT,
-      email_hash_hex TEXT,
-      registration_authority_id TEXT,
-      record_json TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, project_id, env_id, wallet_auth_method_id),
-      CHECK (length(wallet_id) > 0),
-      CHECK (kind IN ('passkey', 'email_otp')),
-      CHECK (status IN ('active', 'revoked')),
-      CHECK (length(wallet_auth_method_id) > 0),
-      CHECK (length(auth_identifier_key) > 0),
-      CHECK (json_valid(record_json)),
-      CHECK (created_at_ms >= 0),
-      CHECK (updated_at_ms >= created_at_ms)
-    )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS signer_wallet_auth_methods_wallet_idx
-      ON signer_wallet_auth_methods (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        rp_id,
-        status
-      )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS signer_wallet_auth_methods_identifier_idx
-      ON signer_wallet_auth_methods (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        kind,
-        auth_identifier_key
-      )
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS signer_wallet_auth_methods_passkey_uidx
-      ON signer_wallet_auth_methods (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        rp_id,
-        credential_id_b64u
-      )
-      WHERE kind = 'passkey' AND credential_id_b64u IS NOT NULL
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS signer_wallet_auth_methods_email_uidx
-      ON signer_wallet_auth_methods (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        email_hash_hex
-      )
-      WHERE kind = 'email_otp' AND email_hash_hex IS NOT NULL
-  `,
-] as const);
-
-export async function ensureWalletAuthMethodStoreD1Schema(
-  options: D1WalletAuthMethodStoreSchemaOptions,
-): Promise<void> {
-  for (const statement of WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL) {
-    await options.database.exec(formatD1ExecStatement(statement));
-  }
-}
+export {
+  D1WalletAuthMethodStore,
+  WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL,
+  ensureWalletAuthMethodStoreD1Schema,
+  normalizeWalletAuthMethod,
+} from './d1WalletAuthMethodStore';
+export type {
+  D1WalletAuthMethodStoreOptions,
+  D1WalletAuthMethodStoreSchemaOptions,
+  WalletAuthMethodRecord,
+  WalletAuthMethodStore,
+} from './d1WalletAuthMethodStore';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -174,12 +52,6 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   return p.endsWith(':') ? p : `${p}:`;
 }
 
-function walletAuthMethodId(record: WalletAuthMethodRecord): string {
-  return record.kind === 'passkey'
-    ? `passkey:${record.rpId}:${record.credentialIdB64u}`
-    : `email_otp:${record.walletId}:${record.emailHashHex}`;
-}
-
 export function resolveWalletAuthMethodStoreNamespace(
   config: Record<string, unknown>,
 ): string {
@@ -187,74 +59,6 @@ export function resolveWalletAuthMethodStoreNamespace(
   if (explicit) return toPrefixWithColon(explicit, '');
   const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
   return `${toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`)}wallet-auth-method:`;
-}
-
-export function normalizeWalletAuthMethod(
-  raw: unknown,
-): WalletAuthMethodRecord | null {
-  if (!isObject(raw)) return null;
-  const version = trimString(raw.version);
-  const kind = trimString(raw.kind);
-  const status = trimString(raw.status);
-  const walletId = walletIdFromString(trimString(raw.walletId));
-  const rpId = trimString(raw.rpId);
-  const createdAtMs = Math.floor(Number(raw.createdAtMs));
-  const updatedAtMs = Math.floor(Number(raw.updatedAtMs));
-  if (
-    version !== 'wallet_auth_method_v1' ||
-    (kind !== 'passkey' && kind !== 'email_otp') ||
-    (status !== 'active' && status !== 'revoked') ||
-    !walletId ||
-    !Number.isSafeInteger(createdAtMs) ||
-    !Number.isSafeInteger(updatedAtMs)
-  ) {
-    return null;
-  }
-  if (kind === 'passkey') {
-    const parsedRpId = parseWebAuthnRpId(raw.rpId);
-    if (!parsedRpId.ok) return null;
-    const credentialIdB64u = trimString(raw.credentialIdB64u);
-    const credentialPublicKeyB64u = trimString(raw.credentialPublicKeyB64u);
-    const counter = Math.floor(Number(raw.counter));
-    if (!credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
-      return null;
-    }
-    return {
-      version: 'wallet_auth_method_v1',
-      kind: 'passkey',
-      status,
-      walletId,
-      rpId: parsedRpId.value,
-      credentialIdB64u,
-      credentialPublicKeyB64u,
-      counter,
-      createdAtMs,
-      updatedAtMs,
-    };
-  }
-  if (rpId) return null;
-  const emailHashHex = trimString(raw.emailHashHex);
-  const registrationAuthorityId = trimString(raw.registrationAuthorityId);
-  if (!emailHashHex || !registrationAuthorityId) return null;
-  return {
-    version: 'wallet_auth_method_v1',
-    kind: 'email_otp',
-    status,
-    walletId,
-    emailHashHex,
-    registrationAuthorityId,
-    createdAtMs,
-    updatedAtMs,
-  };
-}
-
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
 }
 
 function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
@@ -279,19 +83,6 @@ function requireD1ScopeString(input: unknown, field: string): string {
   return normalized;
 }
 
-function normalizeD1WalletAuthMethodStoreOptions(
-  input: D1WalletAuthMethodStoreOptions,
-): NormalizedD1WalletAuthMethodStoreOptions {
-  return {
-    database: input.database,
-    namespace: requireD1ScopeString(input.namespace, 'namespace'),
-    orgId: requireD1ScopeString(input.orgId, 'orgId'),
-    projectId: requireD1ScopeString(input.projectId, 'projectId'),
-    envId: requireD1ScopeString(input.envId, 'envId'),
-    ensureSchema: input.ensureSchema !== false,
-  };
-}
-
 function d1ScopeFromConfig(input: {
   readonly config: Record<string, unknown>;
   readonly namespace: string;
@@ -302,42 +93,6 @@ function d1ScopeFromConfig(input: {
     projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
     envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
   };
-}
-
-function bindWalletAuthMethodIdentity(record: WalletAuthMethodRecord): {
-  readonly rpId: string;
-  readonly authIdentifierKey: string;
-  readonly credentialIdB64u: string | null;
-  readonly credentialPublicKeyB64u: string | null;
-  readonly emailHashHex: string | null;
-  readonly registrationAuthorityId: string | null;
-} {
-  switch (record.kind) {
-    case 'passkey':
-      return {
-        rpId: record.rpId,
-        authIdentifierKey: record.credentialIdB64u,
-        credentialIdB64u: record.credentialIdB64u,
-        credentialPublicKeyB64u: record.credentialPublicKeyB64u,
-        emailHashHex: null,
-        registrationAuthorityId: null,
-      };
-    case 'email_otp':
-      return {
-        rpId: '',
-        authIdentifierKey: record.emailHashHex,
-        credentialIdB64u: null,
-        credentialPublicKeyB64u: null,
-        emailHashHex: record.emailHashHex,
-        registrationAuthorityId: record.registrationAuthorityId,
-      };
-    default:
-      return assertNeverWalletAuthMethod(record);
-  }
-}
-
-function assertNeverWalletAuthMethod(record: never): never {
-  throw new Error(`Unexpected wallet auth method record: ${JSON.stringify(record)}`);
 }
 
 export async function putWalletAuthMethodWithExecutor(input: {
@@ -438,200 +193,6 @@ class InMemoryWalletAuthMethodStore implements WalletAuthMethodStore {
         record.walletId === input.walletId &&
         (record.kind === 'email_otp' || !input.rpId || record.rpId === input.rpId),
     );
-  }
-}
-
-export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
-  readonly adapterKind = 'd1';
-  private readonly database: D1DatabaseLike;
-  private readonly scope: D1WalletAuthMethodStoreScope;
-  private readonly ensureSchemaOnUse: boolean;
-  private schemaReady = false;
-
-  constructor(input: D1WalletAuthMethodStoreOptions) {
-    const normalized = normalizeD1WalletAuthMethodStoreOptions(input);
-    this.database = normalized.database;
-    this.scope = {
-      namespace: normalized.namespace,
-      orgId: normalized.orgId,
-      projectId: normalized.projectId,
-      envId: normalized.envId,
-    };
-    this.ensureSchemaOnUse = normalized.ensureSchema;
-  }
-
-  private async ensureSchema(): Promise<void> {
-    if (!this.ensureSchemaOnUse || this.schemaReady) return;
-    await ensureWalletAuthMethodStoreD1Schema({ database: this.database });
-    this.schemaReady = true;
-  }
-
-  async put(record: WalletAuthMethodRecord): Promise<void> {
-    await this.ensureSchema();
-    const parsed = normalizeWalletAuthMethod(record);
-    if (!parsed) throw new Error('Invalid wallet auth method record');
-    const identity = bindWalletAuthMethodIdentity(parsed);
-    await this.database
-      .prepare(
-        `INSERT INTO signer_wallet_auth_methods (
-          namespace,
-          org_id,
-          project_id,
-          env_id,
-          wallet_id,
-          rp_id,
-          kind,
-          status,
-          wallet_auth_method_id,
-          auth_identifier_key,
-          credential_id_b64u,
-          credential_public_key_b64u,
-          email_hash_hex,
-          registration_authority_id,
-          record_json,
-          created_at_ms,
-          updated_at_ms
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (namespace, org_id, project_id, env_id, wallet_auth_method_id)
-        DO UPDATE SET
-          wallet_id = EXCLUDED.wallet_id,
-          rp_id = EXCLUDED.rp_id,
-          kind = EXCLUDED.kind,
-          status = EXCLUDED.status,
-          auth_identifier_key = EXCLUDED.auth_identifier_key,
-          credential_id_b64u = EXCLUDED.credential_id_b64u,
-          credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
-          email_hash_hex = EXCLUDED.email_hash_hex,
-          registration_authority_id = EXCLUDED.registration_authority_id,
-          record_json = EXCLUDED.record_json,
-          created_at_ms = MIN(
-            signer_wallet_auth_methods.created_at_ms,
-            EXCLUDED.created_at_ms
-          ),
-          updated_at_ms = MAX(
-            signer_wallet_auth_methods.updated_at_ms,
-            EXCLUDED.updated_at_ms
-          )`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        parsed.walletId,
-        identity.rpId,
-        parsed.kind,
-        parsed.status,
-        walletAuthMethodId(parsed),
-        identity.authIdentifierKey,
-        identity.credentialIdB64u,
-        identity.credentialPublicKeyB64u,
-        identity.emailHashHex,
-        identity.registrationAuthorityId,
-        JSON.stringify(parsed),
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      )
-      .run();
-  }
-
-  async getPasskey(input: {
-    rpId: string;
-    credentialIdB64u: string;
-  }): Promise<WalletAuthMethodRecord | null> {
-    await this.ensureSchema();
-    const rpId = toOptionalTrimmedString(input.rpId);
-    const credentialIdB64u = toOptionalTrimmedString(input.credentialIdB64u);
-    if (!rpId || !credentialIdB64u) return null;
-    const row = await this.database
-      .prepare(
-        `SELECT record_json
-           FROM signer_wallet_auth_methods
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_auth_method_id = ?
-          LIMIT 1`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        `passkey:${rpId}:${credentialIdB64u}`,
-      )
-      .first<D1WalletAuthMethodRow>();
-    return normalizeWalletAuthMethod(parseD1RecordJson(row?.record_json));
-  }
-
-  async getEmailOtp(input: {
-    walletId: string;
-    emailHashHex: string;
-  }): Promise<WalletAuthMethodRecord | null> {
-    await this.ensureSchema();
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const emailHashHex = toOptionalTrimmedString(input.emailHashHex);
-    if (!walletId || !emailHashHex) return null;
-    const row = await this.database
-      .prepare(
-        `SELECT record_json
-           FROM signer_wallet_auth_methods
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_auth_method_id = ?
-          LIMIT 1`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        `email_otp:${walletId}:${emailHashHex}`,
-      )
-      .first<D1WalletAuthMethodRow>();
-    return normalizeWalletAuthMethod(parseD1RecordJson(row?.record_json));
-  }
-
-  async listForWallet(input: {
-    walletId: string;
-    rpId?: string;
-  }): Promise<WalletAuthMethodRecord[]> {
-    await this.ensureSchema();
-    const walletId = toOptionalTrimmedString(input.walletId);
-    if (!walletId) return [];
-    const rpId = toOptionalTrimmedString(input.rpId);
-    const result = await this.database
-      .prepare(
-        `SELECT record_json
-           FROM signer_wallet_auth_methods
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_id = ?
-            AND (kind = 'email_otp' OR ? = '' OR rp_id = ?)
-          ORDER BY created_at_ms ASC`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        walletId,
-        rpId,
-        rpId,
-      )
-      .all<D1WalletAuthMethodRow>();
-    const records: WalletAuthMethodRecord[] = [];
-    for (const row of result.results || []) {
-      const parsed = normalizeWalletAuthMethod(parseD1RecordJson(row.record_json));
-      if (parsed) records.push(parsed);
-    }
-    return records;
   }
 }
 
