@@ -4,22 +4,18 @@ import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../con
 import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
 import type { CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { ThresholdStoreDurableObject } from './durableObjects/thresholdStore';
-import type { CloudflareD1RelayRouterStorageOptions } from './d1ConsoleServices';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
 } from '../../core/types';
+import { createCloudflareRouter } from './createCloudflareRouter';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
-import { handleRelaySponsoredEvmCall } from '../relaySponsoredEvmCall';
-import { coerceRouterLogger, type NormalizedRouterLogger } from '../logger';
-import { toFetchRouteResponse } from '../routeResponses';
-import type { RouteDefinition } from '../routeDefinitions';
+import { createDisabledCloudflareRelayAuthService } from './disabledRelayAuthService';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '../../sponsorship/evmWorkerExecutionAdapter';
-import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../../sponsorship/evmRoutes';
 
 export { ThresholdStoreDurableObject };
 
@@ -74,13 +70,6 @@ const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 const LOCAL_RELAY_CORS_ORIGINS = Object.freeze(['http://127.0.0.1:8787', 'http://localhost:8787']);
 const localConsoleHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
 const localRelayHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
-
-type LocalRelayHandlerContext = {
-  readonly env: LocalD1DevEnv;
-  readonly relayOptions: CloudflareD1RelayRouterStorageOptions;
-  readonly logger: NormalizedRouterLogger;
-  readonly sponsoredEvmRoute: RouteDefinition;
-};
 
 const CONSOLE_READY_TABLES = Object.freeze([
   'console_organizations',
@@ -350,150 +339,17 @@ async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler
       sponsoredEvmCallConfig,
     },
   });
-  const context: LocalRelayHandlerContext = {
-    env,
-    relayOptions: bundle.relayRouterOptions,
-    logger: coerceRouterLogger(null),
-    sponsoredEvmRoute: createLocalSponsoredEvmRoute(bundle.relayRouterOptions),
-  };
-  const handler = new LocalRelayHandler(context);
-  return handler.fetch.bind(handler);
-}
-
-function createLocalSponsoredEvmRoute(
-  relayOptions: CloudflareD1RelayRouterStorageOptions,
-): RouteDefinition {
-  const path =
-    normalizeLocalString(relayOptions.sponsoredEvmCall.route) || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
-  return {
-    id: 'sponsored_evm_call',
-    surface: 'relay',
-    method: 'POST',
-    path,
-    auth: {
-      plane: 'api_credentials',
-      credentials: ['publishable_key'],
-      environmentBinding: 'required',
-      originBinding: 'required',
-    },
-    metering: { kind: 'gas', ledger: 'evm' },
-    requiredServices: ['relaySponsoredEvmCall'],
-    summary: 'Execute a sponsored EVM call',
-  };
-}
-
-class LocalRelayHandler {
-  constructor(private readonly context: LocalRelayHandlerContext) {}
-
-  async fetch(request: Request): Promise<Response> {
-    return await handleLocalRelayRequest(this.context, request);
-  }
-}
-
-async function handleLocalRelayRequest(
-  context: LocalRelayHandlerContext,
-  request: Request,
-): Promise<Response> {
-  const url = new URL(request.url);
-  const method = request.method.toUpperCase();
-  if (method === 'OPTIONS') return localRelayCorsResponse(request);
-  if (method === 'GET' && url.pathname === '/healthz') {
-    return localRelayJsonResponse(
-      {
-        ok: true,
-        thresholdEd25519: { configured: false },
-        cors: { allowedOrigins: [...LOCAL_RELAY_CORS_ORIGINS] },
-      },
-      request,
-    );
-  }
-  if (method === 'GET' && url.pathname === '/readyz') {
-    await assertLocalD1DoReady(context.env);
-    return localRelayJsonResponse(
-      {
-        ok: true,
-        thresholdEd25519: { configured: false },
-        cors: { allowedOrigins: [...LOCAL_RELAY_CORS_ORIGINS] },
-      },
-      request,
-    );
-  }
-  if (method === 'POST' && url.pathname === context.sponsoredEvmRoute.path) {
-    return await handleLocalRelaySponsoredEvmCall(context, request);
-  }
-  return localRelayJsonResponse({ ok: false, code: 'not_found', message: 'Not Found' }, request, {
-    status: 404,
-  });
-}
-
-function localRelayCorsResponse(request: Request): Response {
-  const response = new Response(null, { status: 204 });
-  applyLocalRelayCorsHeaders(response.headers, request);
-  return response;
-}
-
-async function handleLocalRelaySponsoredEvmCall(
-  context: LocalRelayHandlerContext,
-  request: Request,
-): Promise<Response> {
-  const relayOptions = context.relayOptions;
-  const response = await handleRelaySponsoredEvmCall({
-    body: await readLocalRelayJson(request),
-    headers: Object.fromEntries(request.headers.entries()),
-    logger: context.logger,
-    origin: normalizeLocalString(request.headers.get('origin')),
-    route: context.sponsoredEvmRoute,
-    services: {
-      relaySponsoredEvmCall: {
-        billing: relayOptions.sponsoredEvmCall.billing,
-        config: relayOptions.sponsoredEvmCall.config,
-        corsOrigins: [...LOCAL_RELAY_CORS_ORIGINS],
-        resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
-        observabilityIngestion: relayOptions.observabilityIngestion,
-        prepaidReservations: relayOptions.sponsorship.prepaidReservations || null,
-        pricing: relayOptions.sponsorship.pricing || null,
-        publishableKeyAuth: relayOptions.publishableKeyAuth,
-        runtimeSnapshots: relayOptions.sponsoredEvmCall.runtimeSnapshots,
-        spendCaps: relayOptions.sponsorship.spendCaps || null,
-        sponsoredCalls: relayOptions.sponsoredEvmCall.ledger,
-        webhooks: null,
-      },
+  return createCloudflareRouter(createDisabledCloudflareRelayAuthService(), {
+    ...bundle.relayRouterOptions,
+    healthz: true,
+    readyz: true,
+    threshold: null,
+    corsOrigins: [...LOCAL_RELAY_CORS_ORIGINS],
+    sponsoredEvmCall: {
+      ...bundle.relayRouterOptions.sponsoredEvmCall,
+      resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
     },
   });
-  return localRelayCorsFetchRouteResponse(toFetchRouteResponse(response), request);
-}
-
-async function readLocalRelayJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
-function localRelayJsonResponse(
-  body: Record<string, unknown>,
-  request: Request,
-  init?: ResponseInit,
-): Response {
-  const response = jsonResponse(body, init);
-  applyLocalRelayCorsHeaders(response.headers, request);
-  return response;
-}
-
-function localRelayCorsFetchRouteResponse(response: Response, request: Request): Response {
-  applyLocalRelayCorsHeaders(response.headers, request);
-  return response;
-}
-
-function applyLocalRelayCorsHeaders(headers: Headers, request: Request): void {
-  const origin = normalizeLocalString(request.headers.get('origin'));
-  if (LOCAL_RELAY_CORS_ORIGINS.includes(origin)) {
-    headers.set('access-control-allow-origin', origin);
-    headers.append('vary', 'Origin');
-  }
-  headers.set('access-control-allow-methods', 'GET,POST,OPTIONS');
-  headers.set('access-control-allow-headers', 'content-type,authorization,x-api-key');
 }
 
 function localRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler> {

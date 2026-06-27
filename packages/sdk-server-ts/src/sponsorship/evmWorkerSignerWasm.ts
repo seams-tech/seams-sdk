@@ -5,6 +5,7 @@ import initEthSignerWasm, {
   secp256k1_private_key_32_to_public_key_33,
   secp256k1_public_key_33_to_ethereum_address_20,
   sign_secp256k1_recoverable,
+  verify_secp256k1_recoverable_signature_against_public_key_33,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
 
 export type WorkerEip1559UnsignedTx = {
@@ -135,6 +136,25 @@ export async function signWorkerSecp256k1Recoverable(input: {
   requireWorkerEthSignerReady();
   const out = sign_secp256k1_recoverable(input.digest32, input.privateKey32) as Uint8Array;
   return checkedBytes('sign_secp256k1_recoverable output', out, 65);
+}
+
+export async function verifyWorkerSecp256k1RecoverableSignatureAgainstPublicKey33(input: {
+  digest32: Uint8Array;
+  signature65: Uint8Array;
+  publicKey33: Uint8Array;
+}): Promise<Uint8Array> {
+  await ensureWorkerEthSignerWasm();
+  requireWorkerEthSignerReady();
+  const out = verify_secp256k1_recoverable_signature_against_public_key_33(
+    input.digest32,
+    input.signature65,
+    input.publicKey33,
+  ) as Uint8Array;
+  return checkedBytes(
+    'verify_secp256k1_recoverable_signature_against_public_key_33 output',
+    out,
+    33,
+  );
 }
 
 export async function encodeWorkerEip1559SignedTxFromSignature65(input: {

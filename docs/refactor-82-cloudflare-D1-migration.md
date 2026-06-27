@@ -140,9 +140,9 @@ Completed so far:
   D1/DO routes stay import-clean and require a Worker-safe resolver before
   execution is enabled.
 - Added a Worker-safe sponsored EVM executor resolver backed by the generated
-  `eth_signer` WASM loader URL path. Local D1 relay now calls the real
-  sponsored EVM route handler and supplies the Worker resolver plus
-  `SPONSORED_EVM_EXECUTORS_JSON` config when present.
+  `eth_signer` WASM loader URL path. Local D1 relay now uses the real
+  Cloudflare relay router with D1-backed relay storage and supplies the Worker
+  resolver plus `SPONSORED_EVM_EXECUTORS_JSON` config when present.
 - Added an explicit `CloudflareRelayAuthService` route port for the Cloudflare
   router, Cloudflare email handler, self-hosted signing Worker, Email OTP route
   helpers, wallet unlock helpers, recovery tracking, wallet registration,
@@ -150,6 +150,10 @@ Completed so far:
   route factories now depend on the signer method surface they need, while the
   concrete mixed `AuthService` class stays on Node/Express paths until its
   D1/DO-backed replacement is built.
+- Added an explicit disabled `CloudflareRelayAuthService` implementation for
+  the local D1 relay Worker. It lets local sponsored-gas development use the
+  real Cloudflare relay router while signer routes remain unavailable until the
+  D1/DO signer service implementation replaces it.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -990,16 +994,19 @@ Work:
   development. Local console auth reads optional `X-Console-*` headers and falls
   back to deterministic local claims.
 - Use `/relay/*` on the same local Worker for relay smoke development. The
-  first mounted route is `/relay/sponsorships/evm/call`, which proves the D1
-  relay service bundle can be constructed under Wrangler without importing the
-  mixed AuthService or EVM executor graph.
+  local relay mount is the real Cloudflare relay router with D1-backed relay
+  storage and the disabled signer service. The first exercised route is
+  `/relay/sponsorships/evm/call`, which proves the D1 relay service bundle can
+  be constructed under Wrangler without importing the mixed AuthService or EVM
+  executor graph.
 - Keep local EVM execution on `/relay/sponsorships/evm/call` behind
   `SPONSORED_EVM_EXECUTORS_JSON`. The route contract accepts an explicit
   resolver, Node/Express supplies the existing Node resolver, and the local D1
   Worker supplies the Worker-safe resolver.
-- Keep threshold signing disabled on the local relay mount until the dedicated
-  signer AuthService slice is complete. This keeps mixed Postgres-backed
-  AuthService modules out of the Cloudflare Worker bundle.
+- Keep threshold signing and signer routes disabled on the local relay mount
+  until the dedicated D1/DO signer service implementation is complete. This
+  keeps mixed Postgres-backed AuthService modules out of the Cloudflare Worker
+  bundle.
 - Add the D1/DO implementation of `CloudflareRelayAuthService`. It must build
   signer stores from `SIGNER_DB` and signer coordination from Durable Objects,
   then pass that service to signer routes without importing mixed Postgres
@@ -1126,13 +1133,17 @@ Completed baseline:
   Cloudflare console router, so console route development can use Wrangler D1
   without Docker Postgres.
 - The same SDK local Worker serves `/relay/*` through the real sponsored EVM
-  route handler with D1-backed relay storage. Without
+  route in the real Cloudflare relay router with D1-backed relay storage.
+  Without
   `SPONSORED_EVM_EXECUTORS_JSON`, the route returns the expected disabled
   response; with executor config, it uses the Worker-safe EVM resolver.
 - Cloudflare route factories and shared route helpers now depend on the
   `CloudflareRelayAuthService` port instead of the concrete mixed
   `AuthService` class. This is the boundary the D1/DO signer service
   implementation must satisfy.
+- The local D1 relay Worker uses a disabled `CloudflareRelayAuthService` to
+  keep the real router mounted while signer methods fail closed until the D1/DO
+  implementation lands.
 
 Proceed in this order:
 

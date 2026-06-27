@@ -41,7 +41,7 @@ import {
   signingRootScopeFromRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../core/ThresholdService/ethSignerWasm';
+import { verifyWorkerSecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../sponsorship/evmWorkerSignerWasm';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import {
   handleRouterAbEcdsaHssNormalSigningRouteCore,
@@ -426,11 +426,11 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     return { ok: false, code: 'unauthorized', message: 'Invalid Email OTP enrollment' };
   }
   try {
-    const recovered33 = await verifySecp256k1RecoverableSignatureAgainstPublicKey33(
-      base64UrlDecode(proof.digest32B64u),
-      base64UrlDecode(proof.signature65B64u),
-      base64UrlDecode(verifier),
-    );
+    const recovered33 = await verifyWorkerSecp256k1RecoverableSignatureAgainstPublicKey33({
+      digest32: base64UrlDecode(proof.digest32B64u),
+      signature65: base64UrlDecode(proof.signature65B64u),
+      publicKey33: base64UrlDecode(verifier),
+    });
     if (base64UrlEncode(recovered33) !== verifier) {
       return { ok: false, code: 'unauthorized', message: 'Invalid client root proof' };
     }
