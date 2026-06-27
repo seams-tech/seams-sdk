@@ -11,6 +11,12 @@ const cloudflareRuntimeRoots = [
   ...listTypeScriptFiles('packages/sdk-server-ts/src/router/cloudflare'),
 ].filter(isRuntimeSourceFile);
 
+const forbiddenCloudflarePostgresEnvTokens = [
+  'BILLING_POSTGRES_URL',
+  'RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL',
+  'WEBHOOK_RETRY_POSTGRES_URL',
+] as const;
+
 function isRuntimeSourceFile(relativePath: string): boolean {
   return !relativePath.endsWith('.typecheck.ts');
 }
@@ -179,7 +185,23 @@ function cloudflareRuntimeDependencyViolations(): string[] {
   return violations.sort();
 }
 
+function cloudflarePostgresEnvTokenViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of cloudflareRuntimeRoots) {
+    const source = readSource(relativePath);
+    for (const token of forbiddenCloudflarePostgresEnvTokens) {
+      if (source.includes(token)) violations.push(`${relativePath} contains ${token}`);
+    }
+  }
+  return violations.sort();
+}
+
 test('Cloudflare router runtime graph stays D1/DO-only at persistence boundaries', () => {
   const violations = cloudflareRuntimeDependencyViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Cloudflare Worker env shape does not expose Postgres cron fallbacks', () => {
+  const violations = cloudflarePostgresEnvTokenViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });

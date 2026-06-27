@@ -22,19 +22,16 @@ export interface RelayCloudflareWorkerEnv {
   RECOVER_EMAIL_RECIPIENT?: string;
   // Optional console billing monthly finalization
   BILLING_FINALIZATION_ENABLED?: string;
-  BILLING_POSTGRES_URL?: string;
   BILLING_NAMESPACE?: string;
   BILLING_FINALIZATION_PERIOD_MONTH_UTC?: string;
   BILLING_FINALIZATION_ORG_IDS?: string;
   // Optional runtime snapshot outbox dispatch
   RUNTIME_SNAPSHOT_OUTBOX_ENABLED?: string;
-  RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL?: string;
   RUNTIME_SNAPSHOT_OUTBOX_NAMESPACE?: string;
   RUNTIME_SNAPSHOT_OUTBOX_ORG_IDS?: string;
   RUNTIME_SNAPSHOT_OUTBOX_LIMIT?: string;
   // Optional webhook retry dispatch
   WEBHOOK_RETRY_ENABLED?: string;
-  WEBHOOK_RETRY_POSTGRES_URL?: string;
   WEBHOOK_RETRY_NAMESPACE?: string;
   WEBHOOK_RETRY_ORG_IDS?: string;
   WEBHOOK_RETRY_LIMIT?: string;

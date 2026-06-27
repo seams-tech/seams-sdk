@@ -5,7 +5,6 @@ function normalizeEnvValue(value) {
 }
 
 const candidates = [
-  { key: 'BILLING_POSTGRES_URL', value: normalizeEnvValue(process.env.BILLING_POSTGRES_URL) },
   { key: 'CONSOLE_POSTGRES_URL', value: normalizeEnvValue(process.env.CONSOLE_POSTGRES_URL) },
   { key: 'POSTGRES_URL', value: normalizeEnvValue(process.env.POSTGRES_URL) },
 ];
@@ -13,7 +12,7 @@ const candidates = [
 const selected = candidates.find((entry) => entry.value.length > 0) || null;
 if (!selected) {
   console.error(
-    '[test:relayer:console-postgres] Missing Postgres URL. Set BILLING_POSTGRES_URL, CONSOLE_POSTGRES_URL, or POSTGRES_URL.',
+    '[test:relayer:console-postgres] Missing Postgres URL. Set CONSOLE_POSTGRES_URL or POSTGRES_URL.',
   );
   process.exit(1);
 }
