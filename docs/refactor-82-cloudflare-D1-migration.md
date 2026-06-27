@@ -179,6 +179,9 @@ Completed so far:
   parses `signer_email_otp_recovery_wrapped_enrollment_escrows`, verifies each
   escrow matches the active enrollment, and returns active/consumed/revoked
   recovery-code counts.
+- Added D1-backed Email OTP grant consumption. `consumeEmailOtpGrant` now uses
+  tenant-scoped `DELETE ... RETURNING` against `signer_email_otp_grants`, so
+  valid grants, expired grants, and binding mismatches are all one-time use.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -1051,10 +1054,10 @@ Work:
   secrets outside D1: local Wrangler uses a dummy `[vars]` value, while staging
   and production should provide `ACCOUNT_ID_DERIVATION_SECRET` through Cloudflare
   secrets or the configured KMS adapter.
-- Read-only Email OTP enrollment lookup and recovery escrow status reads are in
-  place for D1. Continue porting Email OTP challenge issuance, grant
-  consumption, and registration-attempt lifecycle as separate conditional-D1
-  slices.
+- Read-only Email OTP enrollment lookup, recovery escrow status reads, and
+  one-time grant consumption are in place for D1. Continue porting Email OTP
+  challenge issuance, Email OTP rate limiting, and registration-attempt lifecycle
+  as separate conditional-D1 slices.
 - Email OTP strong-auth freshness is in place for D1 using an auth-state upsert
   that preserves existing failure/login fields while updating
   `lastStrongAuthAtMs`.
@@ -1207,6 +1210,8 @@ Completed baseline:
 - Email OTP recovery-code status now uses the D1 overlay. Recovery key
   consumption and rotation remain fail-closed until their conditional-D1 mutation
   contracts are implemented.
+- Email OTP grant consumption now uses the D1 overlay. Challenge issuance,
+  verification, rate limiting, and registration-attempt flows remain fail-closed.
 
 Proceed in this order:
 

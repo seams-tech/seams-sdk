@@ -481,6 +481,62 @@ async function insertEmailOtpRecoveryEscrow(input: {
     .run();
 }
 
+async function insertEmailOtpGrant(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly grantToken: string;
+  readonly appSessionVersion: string;
+}): Promise<void> {
+  const record = emailOtpGrantRecord(input);
+  await input.database
+    .prepare(
+      `INSERT INTO signer_email_otp_grants (
+        namespace, org_id, project_id, env_id, grant_token, user_id, wallet_id, record_org_id,
+        challenge_id, action, record_json, issued_at_ms, expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      record.grantToken,
+      record.userId,
+      record.walletId,
+      record.orgId,
+      record.challengeId,
+      record.action,
+      JSON.stringify(record),
+      record.issuedAtMs,
+      record.expiresAtMs,
+    )
+    .run();
+}
+
+function emailOtpGrantRecord(input: {
+  readonly orgId: string;
+  readonly grantToken: string;
+  readonly appSessionVersion: string;
+}) {
+  return {
+    version: 'email_otp_grant_v1',
+    grantToken: input.grantToken,
+    userId: 'google:email-user',
+    walletId: 'email-wallet.testnet',
+    orgId: input.orgId,
+    challengeId: `challenge-${input.grantToken}`,
+    otpChannel: 'email_otp',
+    sessionHash: 'session-hash-a',
+    appSessionVersion: input.appSessionVersion,
+    action: 'wallet_email_otp_unseal',
+    issuedAtMs: Date.now() - 1_000,
+    expiresAtMs: Date.now() + 60_000,
+  };
+}
+
 function emailOtpRecoveryEscrowRecord(input: {
   readonly orgId: string;
   readonly recoveryKeyId: string;
@@ -559,6 +615,18 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       recoveryKeyStatus: 'revoked',
       issuedAtMs: 890,
       updatedAtMs: 930,
+    });
+    await insertEmailOtpGrant({
+      database,
+      ...scope,
+      grantToken: 'grant-valid',
+      appSessionVersion: 'grant-session-v1',
+    });
+    await insertEmailOtpGrant({
+      database,
+      ...scope,
+      grantToken: 'grant-mismatch',
+      appSessionVersion: 'grant-session-v2',
     });
 
     const service = createCloudflareD1RelayAuthService({
@@ -752,6 +820,54 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       totalRecoveryCodeCount: 3,
       issuedAtMs: 880,
     });
+    await expect(
+      service.consumeEmailOtpGrant({
+        loginGrant: 'grant-valid',
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'grant-session-v1',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      challengeId: 'challenge-grant-valid',
+      otpChannel: 'email_otp',
+    });
+    await expect(
+      service.consumeEmailOtpGrant({
+        loginGrant: 'grant-valid',
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'grant-session-v1',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
+    await expect(
+      service.consumeEmailOtpGrant({
+        loginGrant: 'grant-mismatch',
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'wrong-session',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'recovery_grant_binding_mismatch' });
+    await expect(
+      service.consumeEmailOtpGrant({
+        loginGrant: 'grant-mismatch',
+        userId: 'google:email-user',
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-a',
+        appSessionVersion: 'grant-session-v2',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
     const session = await service.getOrCreateAppSessionVersion({ userId: scope.userId });
     expect(session.ok).toBe(true);
     if (!session.ok) throw new Error(session.message);

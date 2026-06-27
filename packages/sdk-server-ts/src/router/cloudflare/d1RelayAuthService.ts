@@ -1,5 +1,6 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
+import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_ACTIONS } from '@shared/utils/emailOtpDomain';
 import {
   EMAIL_OTP_RECOVERY_KEY_COUNT,
   EMAIL_OTP_RECOVERY_WRAP_ALG,
@@ -9,6 +10,7 @@ import {
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import type {
   EmailOtpAuthStateRecord,
+  EmailOtpGrantRecord,
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
@@ -72,6 +74,10 @@ type GetEmailOtpRecoveryCodeStatusInput = Parameters<
 type GetEmailOtpRecoveryCodeStatusResult = Awaited<
   ReturnType<CloudflareRelayAuthService['getEmailOtpRecoveryCodeStatus']>
 >;
+type ConsumeEmailOtpGrantInput = Parameters<CloudflareRelayAuthService['consumeEmailOtpGrant']>[0];
+type ConsumeEmailOtpGrantResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['consumeEmailOtpGrant']>
+>;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
 >[0];
@@ -128,6 +134,11 @@ type D1EmailOtpAuthStateRow = {
 type D1EmailOtpRecoveryEscrowRow = {
   readonly record_json?: unknown;
   readonly updated_at_ms?: unknown;
+};
+
+type D1EmailOtpGrantRow = {
+  readonly record_json?: unknown;
+  readonly expires_at_ms?: unknown;
 };
 
 type D1AuthenticatorRow = {
@@ -433,6 +444,66 @@ function parseEmailOtpAuthStateRow(
   const record = parseEmailOtpAuthStateRecord(row?.record_json);
   const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
   if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
+  return record;
+}
+
+function parseEmailOtpGrantRecord(input: unknown): EmailOtpGrantRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const grantToken = toOptionalTrimmedString(record.grantToken);
+  const userId = toOptionalTrimmedString(record.userId);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const otpChannel = toOptionalTrimmedString(record.otpChannel);
+  const sessionHash = toOptionalTrimmedString(record.sessionHash);
+  const appSessionVersion = toOptionalTrimmedString(record.appSessionVersion);
+  const action = toOptionalTrimmedString(record.action);
+  const issuedAtMs = positiveSafeInteger(record.issuedAtMs);
+  const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
+  if (
+    version !== 'email_otp_grant_v1' ||
+    !grantToken ||
+    !userId ||
+    !walletId ||
+    !challengeId ||
+    otpChannel !== EMAIL_OTP_CHANNEL ||
+    !sessionHash ||
+    !appSessionVersion ||
+    !action ||
+    !issuedAtMs ||
+    !expiresAtMs ||
+    expiresAtMs <= issuedAtMs
+  ) {
+    return null;
+  }
+  if (
+    action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_grant_v1',
+    grantToken,
+    userId,
+    walletId,
+    ...(orgId ? { orgId } : {}),
+    challengeId,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash,
+    appSessionVersion,
+    action,
+    issuedAtMs,
+    expiresAtMs,
+  };
+}
+
+function parseEmailOtpGrantRow(row: D1EmailOtpGrantRow | null): EmailOtpGrantRecord | null {
+  const record = parseEmailOtpGrantRecord(row?.record_json);
+  const expiresAtMs = positiveSafeInteger(row?.expires_at_ms);
+  if (!record || !expiresAtMs || record.expiresAtMs !== expiresAtMs) return null;
   return record;
 }
 
@@ -980,6 +1051,61 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async consumeEmailOtpGrant(input: ConsumeEmailOtpGrantInput): Promise<ConsumeEmailOtpGrantResult> {
+    try {
+      const loginGrant = toOptionalTrimmedString(input.loginGrant);
+      const userId = toOptionalTrimmedString(input.userId);
+      const walletId = toOptionalTrimmedString(input.walletId);
+      const orgId = toOptionalTrimmedString(input.orgId);
+      const otpChannel = toOptionalTrimmedString(input.otpChannel);
+      const sessionHash = toOptionalTrimmedString(input.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      if (!loginGrant) return { ok: false, code: 'invalid_body', message: 'Missing loginGrant' };
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (otpChannel !== EMAIL_OTP_CHANNEL) {
+        return { ok: false, code: 'invalid_body', message: 'otpChannel must be email_otp' };
+      }
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+
+      const record = await this.consumeEmailOtpGrantRecord(loginGrant);
+      if (!record || Date.now() > record.expiresAtMs) return emailOtpGrantInvalidOrExpired();
+      if (record.action !== WALLET_EMAIL_OTP_ACTIONS.unseal) {
+        return emailOtpGrantInvalidOrExpired();
+      }
+      const bindingMismatch =
+        record.userId !== userId ||
+        record.walletId !== walletId ||
+        record.otpChannel !== EMAIL_OTP_CHANNEL ||
+        record.sessionHash !== sessionHash ||
+        record.appSessionVersion !== appSessionVersion ||
+        record.orgId !== orgId;
+      if (bindingMismatch) {
+        return {
+          ok: false,
+          code: 'recovery_grant_binding_mismatch',
+          message: 'Recovery grant is not valid for the current app session',
+        };
+      }
+
+      return {
+        ok: true,
+        challengeId: record.challengeId,
+        otpChannel: EMAIL_OTP_CHANNEL,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to consume Email OTP grant',
+      };
+    }
+  }
+
   async getOrCreateAppSessionVersion(
     input: GetOrCreateAppSessionVersionInput,
   ): Promise<GetOrCreateAppSessionVersionResult> {
@@ -1436,6 +1562,22 @@ class CloudflareD1RelayAuthMetadataService {
     return records;
   }
 
+  private async consumeEmailOtpGrantRecord(
+    loginGrant: string,
+  ): Promise<EmailOtpGrantRecord | null> {
+    const row = await this.scopePrepare(
+      `DELETE FROM signer_email_otp_grants
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND grant_token = ?
+      RETURNING record_json, expires_at_ms`,
+      [loginGrant],
+    ).first<D1EmailOtpGrantRow>();
+    return parseEmailOtpGrantRow(row);
+  }
+
   private async readAppSessionVersion(userId: string): Promise<string | null> {
     const row = await this.scopePrepare(
       `SELECT session_version
@@ -1542,6 +1684,14 @@ function emailOtpRecoveryNotEnrolledStatus(walletId: string): GetEmailOtpRecover
   };
 }
 
+function emailOtpGrantInvalidOrExpired(): ConsumeEmailOtpGrantResult {
+  return {
+    ok: false,
+    code: 'login_grant_invalid_or_expired',
+    message: 'Login grant is invalid or expired',
+  };
+}
+
 function emailOtpAuthStateRecord(input: {
   readonly enrollment: EmailOtpWalletEnrollmentRecord;
   readonly existing: EmailOtpAuthStateRecord | null;
@@ -1589,6 +1739,7 @@ export function createCloudflareD1RelayAuthService(
   service.markEmailOtpStrongAuthSatisfied = metadata.markEmailOtpStrongAuthSatisfied.bind(metadata);
   service.getEmailOtpRecoveryCodeStatus =
     metadata.getEmailOtpRecoveryCodeStatus.bind(metadata);
+  service.consumeEmailOtpGrant = metadata.consumeEmailOtpGrant.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);
