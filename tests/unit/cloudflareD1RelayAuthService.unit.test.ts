@@ -125,6 +125,78 @@ function cleanupTemporaryD1Database(tempDir: string): void {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
+function utf8Bytes(input: string): Uint8Array {
+  return new TextEncoder().encode(input);
+}
+
+function jsonBase64Url(input: Record<string, unknown>): string {
+  return base64UrlEncode(utf8Bytes(JSON.stringify(input)));
+}
+
+async function generateGoogleOidcTestKey(kid: string): Promise<{
+  readonly kid: string;
+  readonly privateKey: CryptoKey;
+  readonly publicJwk: JsonWebKey;
+}> {
+  const keyPair = (await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify'],
+  )) as CryptoKeyPair;
+  const exportedPublicJwk = (await crypto.subtle.exportKey('jwk', keyPair.publicKey)) as JsonWebKey;
+  return {
+    kid,
+    privateKey: keyPair.privateKey,
+    publicJwk: {
+      ...exportedPublicJwk,
+      kid,
+      use: 'sig',
+      alg: 'RS256',
+    },
+  };
+}
+
+async function makeSignedGoogleIdToken(input: {
+  readonly privateKey: CryptoKey;
+  readonly kid: string;
+  readonly payload: Record<string, unknown>;
+}): Promise<string> {
+  const headerB64u = jsonBase64Url({ alg: 'RS256', typ: 'JWT', kid: input.kid });
+  const payloadB64u = jsonBase64Url(input.payload);
+  const data = utf8Bytes(`${headerB64u}.${payloadB64u}`);
+  const signature = new Uint8Array(
+    await crypto.subtle.sign({ name: 'RSASSA-PKCS1-v1_5' }, input.privateKey, data),
+  );
+  return `${headerB64u}.${payloadB64u}.${base64UrlEncode(signature)}`;
+}
+
+let googleJwksFetchMockPublicJwk: JsonWebKey | null = null;
+
+async function googleJwksFetchMock(input: RequestInfo | URL): Promise<Response> {
+  expect(String(input)).toBe('https://www.googleapis.com/oauth2/v3/certs');
+  return new Response(JSON.stringify({ keys: [googleJwksFetchMockPublicJwk] }), {
+    status: 200,
+    headers: { 'cache-control': 'public, max-age=300' },
+  });
+}
+
+function installGoogleJwksFetchMock(publicJwk: JsonWebKey): typeof globalThis.fetch {
+  const originalFetch = globalThis.fetch;
+  googleJwksFetchMockPublicJwk = publicJwk;
+  globalThis.fetch = googleJwksFetchMock;
+  return originalFetch;
+}
+
+function restoreGoogleJwksFetchMock(originalFetch: typeof globalThis.fetch): void {
+  globalThis.fetch = originalFetch;
+  googleJwksFetchMockPublicJwk = null;
+}
+
 function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
   return applyMigrations(database, [
     'packages/sdk-server-ts/migrations/d1-signer/0003_signer_webauthn.sql',
@@ -1121,6 +1193,77 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       clientId: 'google-client',
     });
   } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service verifies Google OIDC tokens and links identity', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  const key = await generateGoogleOidcTestKey('google-kid-success');
+  const originalFetch = installGoogleJwksFetchMock(key.publicJwk);
+  try {
+    await applySignerMigrations(database);
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      relayerAccount: 'relay.local',
+      googleOidcClientId: 'google-client',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+    });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const idToken = await makeSignedGoogleIdToken({
+      privateKey: key.privateKey,
+      kid: key.kid,
+      payload: {
+        iss: 'https://accounts.google.com',
+        aud: 'google-client',
+        sub: 'subject-123',
+        email: 'Alice@Example.Test',
+        email_verified: true,
+        name: 'Alice Example',
+        given_name: 'Alice',
+        family_name: 'Example',
+        hd: 'example.test',
+        iat: nowSec,
+        exp: nowSec + 300,
+      },
+    });
+
+    const verified = await service.verifyGoogleLogin({ idToken });
+    expect(verified).toMatchObject({
+      ok: true,
+      verified: true,
+      userId: 'google:subject-123',
+      providerSubject: 'google:subject-123',
+      sub: 'subject-123',
+      email: 'Alice@Example.Test',
+      emailVerified: true,
+      hostedDomain: 'example.test',
+    });
+    await expect(service.listIdentities({ userId: 'google:subject-123' })).resolves.toEqual({
+      ok: true,
+      subjects: ['google:subject-123'],
+    });
+
+    const parts = idToken.split('.');
+    const tamperedPayloadB64u = jsonBase64Url({
+      iss: 'https://accounts.google.com',
+      aud: 'google-client',
+      sub: 'subject-999',
+      iat: nowSec,
+      exp: nowSec + 300,
+    });
+    const tampered = `${parts[0]}.${tamperedPayloadB64u}.${parts[2]}`;
+    await expect(service.verifyGoogleLogin({ idToken: tampered })).resolves.toMatchObject({
+      ok: false,
+      verified: false,
+      code: 'invalid_signature',
+    });
+  } finally {
+    restoreGoogleJwksFetchMock(originalFetch);
     cleanupTemporaryD1Database(tempDir);
   }
 });

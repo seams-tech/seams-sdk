@@ -335,6 +335,16 @@ type ResolveGoogleEmailOtpSessionInput = Parameters<
 type ResolveGoogleEmailOtpSessionResult = Awaited<
   ReturnType<CloudflareRelayAuthService['resolveGoogleEmailOtpSession']>
 >;
+type VerifyGoogleLoginInput = Parameters<CloudflareRelayAuthService['verifyGoogleLogin']>[0];
+type VerifyGoogleLoginResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyGoogleLogin']>
+>;
+type VerifyGoogleLoginFailure = {
+  readonly ok: false;
+  readonly verified: false;
+  readonly code: string;
+  readonly message: string;
+};
 type GoogleEmailOtpRegistrationOfferForResponse = Extract<
   ResolveGoogleEmailOtpSessionResult,
   { readonly ok: true; readonly mode: 'register_started' }
@@ -411,6 +421,11 @@ type D1AuthenticatorRow = {
 
 type D1RecordJsonRow = {
   readonly record_json?: unknown;
+};
+
+type JsonWebKeyCache = {
+  readonly keysByKid: Map<string, JsonWebKey>;
+  readonly expiresAtMs: number;
 };
 
 type AppSessionVersionRecord = {
@@ -2049,6 +2064,75 @@ function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
   return out;
 }
 
+function parseJwtSegmentJson(input: string | undefined): Record<string, unknown> | null {
+  if (!input) return null;
+  try {
+    const decoded = base64UrlDecode(input);
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(decoded));
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJwtAud(input: unknown): string[] {
+  const values: string[] = [];
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const value = toOptionalTrimmedString(item);
+      if (value) values.push(value);
+    }
+    return values;
+  }
+  const value = toOptionalTrimmedString(input);
+  return value ? [value] : [];
+}
+
+function parseCacheControlMaxAgeSec(input: unknown): number | null {
+  const header = toOptionalTrimmedString(input);
+  if (!header) return null;
+  for (const part of header.split(',')) {
+    const segment = part.trim().toLowerCase();
+    if (!segment.startsWith('max-age=')) continue;
+    const value = Number(segment.slice('max-age='.length));
+    if (Number.isFinite(value) && value > 0) return Math.floor(value);
+  }
+  return null;
+}
+
+function parseGoogleJwks(input: unknown): Map<string, JsonWebKey> | null {
+  if (!isRecord(input)) return null;
+  const rawKeys = input.keys;
+  if (!Array.isArray(rawKeys)) return null;
+  const keysByKid = new Map<string, JsonWebKey>();
+  for (const rawKey of rawKeys) {
+    if (!isRecord(rawKey)) continue;
+    const kid = toOptionalTrimmedString(rawKey.kid);
+    const kty = toOptionalTrimmedString(rawKey.kty);
+    const use = toOptionalTrimmedString(rawKey.use);
+    const alg = toOptionalTrimmedString(rawKey.alg);
+    const n = toOptionalTrimmedString(rawKey.n);
+    const e = toOptionalTrimmedString(rawKey.e);
+    if (!kid || kty !== 'RSA' || use !== 'sig' || alg !== 'RS256' || !n || !e) continue;
+    keysByKid.set(kid, {
+      kty: 'RSA',
+      use: 'sig',
+      alg: 'RS256',
+      n,
+      e,
+    });
+  }
+  return keysByKid.size > 0 ? keysByKid : null;
+}
+
+function parseBooleanJwtClaim(input: unknown): boolean | undefined {
+  if (typeof input === 'boolean') return input;
+  const value = toOptionalTrimmedString(input)?.toLowerCase();
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
 async function sha256BytesPortable(input: Uint8Array): Promise<Uint8Array> {
   const subtle = globalThis.crypto?.subtle;
   if (subtle && typeof subtle.digest === 'function') {
@@ -2695,6 +2779,8 @@ function emailOtpChallengeWithAttemptCount(
 class CloudflareD1RelayAuthMetadataService {
   private readonly options: NormalizedCloudflareD1RelayAuthServiceOptions;
   private readonly emailOtpMemoryOutbox = new Map<string, EmailOtpOutboxEntry>();
+  private googleJwksCache: JsonWebKeyCache | null = null;
+  private googleJwksFetchPromise: Promise<JsonWebKeyCache> | null = null;
 
   constructor(input: CloudflareD1RelayAuthServiceOptions) {
     this.options = normalizeD1RelayAuthOptions(input);
@@ -4519,6 +4605,314 @@ class CloudflareD1RelayAuthMetadataService {
       configured: Boolean(clientId),
       ...(clientId ? { clientId } : {}),
     };
+  }
+
+  async verifyGoogleLogin(input: VerifyGoogleLoginInput): Promise<VerifyGoogleLoginResult> {
+    try {
+      const clientId = toOptionalTrimmedString(this.options.googleOidcClientId);
+      if (!clientId) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'not_configured',
+          message: 'Google OIDC is not configured on this Worker',
+        };
+      }
+      const idToken = toOptionalTrimmedString(input.idToken ?? input.id_token);
+      if (!idToken) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token is required',
+        };
+      }
+      const subtle = globalThis.crypto?.subtle;
+      if (!subtle) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unsupported',
+          message: 'WebCrypto (crypto.subtle) is unavailable in this runtime',
+        };
+      }
+
+      const parts = idToken.split('.');
+      if (parts.length !== 3) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token must be a JWT (3 segments)',
+        };
+      }
+      const headerB64u = parts[0] || '';
+      const payloadB64u = parts[1] || '';
+      const signatureB64u = parts[2] || '';
+      const header = parseJwtSegmentJson(headerB64u);
+      if (!header) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid id_token header encoding',
+        };
+      }
+      const payload = parseJwtSegmentJson(payloadB64u);
+      if (!payload) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid id_token payload encoding',
+        };
+      }
+
+      const kid = toOptionalTrimmedString(header.kid);
+      const alg = toOptionalTrimmedString(header.alg);
+      if (!kid) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token header.kid is required',
+        };
+      }
+      if (alg !== 'RS256') {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token header.alg must be RS256',
+        };
+      }
+
+      const jwks = await this.getGoogleJwks();
+      const jwk = jwks.keysByKid.get(kid);
+      if (!jwk) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_kid',
+          message: 'Unknown Google key id (kid)',
+        };
+      }
+
+      let signatureBytes: Uint8Array;
+      try {
+        signatureBytes = base64UrlDecode(signatureB64u);
+      } catch {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid id_token signature encoding',
+        };
+      }
+      const dataBytes = new TextEncoder().encode(`${headerB64u}.${payloadB64u}`);
+      const key = await subtle.importKey(
+        'jwk',
+        jwk,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['verify'],
+      );
+      const verified = await subtle.verify(
+        { name: 'RSASSA-PKCS1-v1_5' },
+        key,
+        toArrayBufferCopy(signatureBytes),
+        toArrayBufferCopy(dataBytes),
+      );
+      if (!verified) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_signature',
+          message: 'Invalid Google id_token signature',
+        };
+      }
+
+      const claims = this.validateGoogleIdTokenClaims({ payload, clientId });
+      if (!claims.ok) return claims;
+      const providerSubject = `google:${claims.sub}`;
+      let userId = providerSubject;
+      const linked = await this.readIdentityUserIdBySubject(providerSubject);
+      if (linked) userId = linked;
+      await this.linkIdentity({
+        userId,
+        subject: providerSubject,
+        allowMoveIfSoleIdentity: false,
+      });
+      return {
+        ok: true,
+        verified: true,
+        userId,
+        providerSubject,
+        sub: claims.sub,
+        ...(claims.email ? { email: claims.email } : {}),
+        ...(claims.name ? { name: claims.name } : {}),
+        ...(claims.givenName ? { given_name: claims.givenName } : {}),
+        ...(claims.familyName ? { family_name: claims.familyName } : {}),
+        ...(typeof claims.emailVerified === 'boolean'
+          ? { emailVerified: claims.emailVerified }
+          : {}),
+        ...(claims.hostedDomain ? { hostedDomain: claims.hostedDomain } : {}),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Google OIDC verification failed',
+      };
+    }
+  }
+
+  private validateGoogleIdTokenClaims(input: {
+    readonly payload: Record<string, unknown>;
+    readonly clientId: string;
+  }):
+    | {
+        readonly ok: true;
+        readonly sub: string;
+        readonly email?: string;
+        readonly name?: string;
+        readonly givenName?: string;
+        readonly familyName?: string;
+        readonly emailVerified?: boolean;
+        readonly hostedDomain?: string;
+      }
+    | VerifyGoogleLoginFailure {
+    const payload = input.payload;
+    const iss = toOptionalTrimmedString(payload.iss);
+    if (iss !== 'https://accounts.google.com' && iss !== 'accounts.google.com') {
+      return {
+        ok: false,
+        verified: false,
+        code: 'invalid_issuer',
+        message: 'Invalid Google id_token issuer',
+      };
+    }
+    const nowSec = Math.floor(Date.now() / 1000);
+    const exp = Number(payload.exp);
+    if (!Number.isFinite(exp) || exp <= 0) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'invalid_claims',
+        message: 'Invalid Google id_token exp',
+      };
+    }
+    if (nowSec >= exp) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'expired',
+        message: 'Google id_token is expired',
+      };
+    }
+    if (payload.nbf !== undefined) {
+      const nbf = Number(payload.nbf);
+      if (!Number.isFinite(nbf)) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Invalid Google id_token nbf',
+        };
+      }
+      if (nowSec < nbf) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'not_yet_valid',
+          message: 'Google id_token is not yet valid',
+        };
+      }
+    }
+
+    const aud = parseJwtAud(payload.aud);
+    if (aud.length === 0) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'invalid_claims',
+        message: 'Missing Google id_token aud',
+      };
+    }
+    if (!aud.includes(input.clientId)) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'invalid_audience',
+        message: 'Google id_token audience mismatch',
+      };
+    }
+
+    const sub = toOptionalTrimmedString(payload.sub);
+    if (!sub) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'invalid_claims',
+        message: 'Missing Google id_token sub',
+      };
+    }
+    const email = toOptionalTrimmedString(payload.email);
+    const name = toOptionalTrimmedString(payload.name);
+    const givenName = toOptionalTrimmedString(payload.given_name);
+    const familyName = toOptionalTrimmedString(payload.family_name);
+    const emailVerified = parseBooleanJwtClaim(payload.email_verified);
+    const hostedDomain = toOptionalTrimmedString(payload.hd);
+    return {
+      ok: true,
+      sub,
+      ...(email ? { email } : {}),
+      ...(name ? { name } : {}),
+      ...(givenName ? { givenName } : {}),
+      ...(familyName ? { familyName } : {}),
+      ...(typeof emailVerified === 'boolean' ? { emailVerified } : {}),
+      ...(hostedDomain ? { hostedDomain } : {}),
+    };
+  }
+
+  private async getGoogleJwks(): Promise<JsonWebKeyCache> {
+    const nowMs = Date.now();
+    if (this.googleJwksCache && nowMs < this.googleJwksCache.expiresAtMs) {
+      return this.googleJwksCache;
+    }
+    if (this.googleJwksFetchPromise) return await this.googleJwksFetchPromise;
+    this.googleJwksFetchPromise = this.fetchGoogleJwks(nowMs);
+    try {
+      return await this.googleJwksFetchPromise;
+    } finally {
+      this.googleJwksFetchPromise = null;
+    }
+  }
+
+  private async fetchGoogleJwks(nowMs: number): Promise<JsonWebKeyCache> {
+    if (typeof fetch !== 'function') {
+      throw new Error('fetch is unavailable in this runtime');
+    }
+    const response = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(
+        `Google OIDC certs fetch failed (HTTP ${response.status}): ${text.slice(0, 200)}`,
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      throw new Error('Google OIDC certs returned non-JSON response');
+    }
+    const keysByKid = parseGoogleJwks(parsed);
+    if (!keysByKid) throw new Error('Google OIDC certs returned no usable RSA keys');
+    const maxAgeSec = parseCacheControlMaxAgeSec(response.headers.get('cache-control')) || 60 * 60;
+    const value = { keysByKid, expiresAtMs: nowMs + maxAgeSec * 1000 };
+    this.googleJwksCache = value;
+    return value;
   }
 
   private async resolveGoogleEmailOtpLoginSession(input: {
@@ -6442,5 +6836,6 @@ export function createCloudflareD1RelayAuthService(
     metadata.listWebAuthnAuthenticatorsForUser.bind(metadata);
   service.listNearPublicKeysForUser = metadata.listNearPublicKeysForUser.bind(metadata);
   service.getGoogleOidcPublicConfig = metadata.getGoogleOidcPublicConfig.bind(metadata);
+  service.verifyGoogleLogin = metadata.verifyGoogleLogin.bind(metadata);
   return service;
 }
