@@ -287,6 +287,8 @@ async function makeSignedGoogleIdToken(input: {
 }
 
 let googleJwksFetchMockPublicJwk: JsonWebKey | null = null;
+let oidcJwksFetchMockUrl = '';
+let oidcJwksFetchMockPublicJwk: JsonWebKey | null = null;
 
 async function googleJwksFetchMock(input: RequestInfo | URL): Promise<Response> {
   expect(String(input)).toBe('https://www.googleapis.com/oauth2/v3/certs');
@@ -306,6 +308,31 @@ function installGoogleJwksFetchMock(publicJwk: JsonWebKey): typeof globalThis.fe
 function restoreGoogleJwksFetchMock(originalFetch: typeof globalThis.fetch): void {
   globalThis.fetch = originalFetch;
   googleJwksFetchMockPublicJwk = null;
+}
+
+async function oidcJwksFetchMock(input: RequestInfo | URL): Promise<Response> {
+  expect(String(input)).toBe(oidcJwksFetchMockUrl);
+  return new Response(JSON.stringify({ keys: [oidcJwksFetchMockPublicJwk] }), {
+    status: 200,
+    headers: { 'cache-control': 'public, max-age=300' },
+  });
+}
+
+function installOidcJwksFetchMock(input: {
+  readonly jwksUrl: string;
+  readonly publicJwk: JsonWebKey;
+}): typeof globalThis.fetch {
+  const originalFetch = globalThis.fetch;
+  oidcJwksFetchMockUrl = input.jwksUrl;
+  oidcJwksFetchMockPublicJwk = input.publicJwk;
+  globalThis.fetch = oidcJwksFetchMock;
+  return originalFetch;
+}
+
+function restoreOidcJwksFetchMock(originalFetch: typeof globalThis.fetch): void {
+  globalThis.fetch = originalFetch;
+  oidcJwksFetchMockUrl = '';
+  oidcJwksFetchMockPublicJwk = null;
 }
 
 function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
@@ -1831,6 +1858,106 @@ test('Cloudflare D1 relay auth service verifies Google OIDC tokens and links ide
     });
   } finally {
     restoreGoogleJwksFetchMock(originalFetch);
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service verifies generic OIDC exchange tokens', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  const key = await generateGoogleOidcTestKey('oidc-kid-success');
+  const jwksUrl = 'https://issuer.example.com/.well-known/jwks.json';
+  const originalFetch = installOidcJwksFetchMock({
+    jwksUrl,
+    publicJwk: key.publicJwk,
+  });
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const providerSubject = 'oidc:https://issuer.example.com:subject-123';
+    await insertIdentity({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      userId: 'linked-oidc-wallet.testnet',
+      subject: providerSubject,
+    });
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      relayerAccount: 'relay.local',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+      oidcExchange: {
+        clockSkewSec: 0,
+        issuers: [
+          {
+            issuer: 'https://issuer.example.com/',
+            audiences: ['wallet-app'],
+            jwksUrl,
+          },
+        ],
+      },
+    });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const token = await makeSignedGoogleIdToken({
+      privateKey: key.privateKey,
+      kid: key.kid,
+      payload: {
+        iss: 'https://issuer.example.com',
+        aud: 'wallet-app',
+        sub: 'subject-123',
+        email: 'oidc-user@example.test',
+        name: 'OIDC User',
+        given_name: 'OIDC',
+        family_name: 'User',
+        iat: nowSec,
+        exp: nowSec + 300,
+      },
+    });
+
+    await expect(service.verifyOidcJwtExchange({ token })).resolves.toMatchObject({
+      ok: true,
+      verified: true,
+      userId: 'linked-oidc-wallet.testnet',
+      providerSubject,
+      iss: 'https://issuer.example.com',
+      aud: ['wallet-app'],
+      sub: 'subject-123',
+      email: 'oidc-user@example.test',
+      name: 'OIDC User',
+      given_name: 'OIDC',
+      family_name: 'User',
+    });
+    await expect(service.listIdentities({ userId: 'linked-oidc-wallet.testnet' })).resolves.toEqual({
+      ok: true,
+      subjects: [providerSubject],
+    });
+
+    const parts = token.split('.');
+    const tamperedPayloadB64u = jsonBase64Url({
+      iss: 'https://issuer.example.com',
+      aud: 'wallet-app',
+      sub: 'subject-999',
+      iat: nowSec,
+      exp: nowSec + 300,
+    });
+    const tampered = `${parts[0]}.${tamperedPayloadB64u}.${parts[2]}`;
+    await expect(service.verifyOidcJwtExchange({ token: tampered })).resolves.toMatchObject({
+      ok: false,
+      verified: false,
+      code: 'invalid_signature',
+    });
+  } finally {
+    restoreOidcJwksFetchMock(originalFetch);
     cleanupTemporaryD1Database(tempDir);
   }
 });

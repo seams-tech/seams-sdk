@@ -202,7 +202,8 @@ runtime. The current codebase already has the important boundaries in place:
   recovery-session status transitions, recovery-execution upserts for the email
   recovery route, Email OTP device recovery, Email OTP recovery-key
   consumption, recovery-key failure reporting, recovery-code rotation, Email
-  OTP provider delivery, and Email OTP enrollment verification/persistence.
+  OTP provider delivery, Email OTP enrollment verification/persistence, and
+  generic OIDC JWT exchange.
 - Durable Objects cover registration ceremonies, signing admission, signing
   budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
   signing-root coordination where serialized mutation is the property.
@@ -956,6 +957,9 @@ Completed:
   material, and store the recovery-wrapped enrollment escrow set.
 - [x] Cloudflare relay auth service D1 methods can rate-limit, create, reuse,
   and restart Google Email OTP registration attempts during session exchange.
+- [x] Cloudflare relay auth service D1 methods verify generic OIDC JWT exchange
+  tokens with Worker-safe JWKS caching, issuer/audience claim checks, and D1
+  identity linking.
 - [x] Cloudflare relay auth service D1 methods return explicit ECDSA key
   inventory diagnostics while threshold metadata storage remains deferred.
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
@@ -990,7 +994,7 @@ Remaining:
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
   Object slices: wallet registration and add-signer/add-auth-method ceremonies,
   signed delegates, Email OTP seal management, email recovery HSS responses,
-  wallet auth revocation, OIDC JWT exchange, and threshold signing admission.
+  wallet auth revocation, and threshold signing admission.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
@@ -1058,8 +1062,8 @@ Work:
 - [x] Move implemented staging-required persistence flows onto D1/DO adapter
   tests.
 - [x] Add Playwright unit coverage for implemented Cloudflare D1 relay auth
-  service slices, including recovery-code rotation, and the Worker runtime
-  import guard.
+  service slices, including recovery-code rotation, generic OIDC JWT exchange,
+  and the Worker runtime import guard.
 - [x] Keep pure unit fakes for core logic that does not depend on SQL behavior.
 - [ ] Cover every remaining duplicate idempotency, insufficient balance,
   settlement replay, lease races, tenant isolation, sealed-share parsing,

@@ -11,7 +11,11 @@ import type {
 import { createCloudflareRouter } from './createCloudflareRouter';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
-import { createCloudflareD1RelayAuthService } from './d1RelayAuthService';
+import {
+  createCloudflareD1RelayAuthService,
+  type CloudflareD1OidcExchangeConfig,
+  type CloudflareD1OidcExchangeIssuerConfig,
+} from './d1RelayAuthService';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
@@ -32,6 +36,7 @@ interface LocalD1DevEnv {
   readonly SEAMS_LOCAL_RELAYER_ACCOUNT?: string;
   readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
+  readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
@@ -190,6 +195,63 @@ class LocalD1DevReadyCheck {
 
 function normalizeLocalString(input: unknown): string {
   return typeof input === 'string' ? input.trim() : '';
+}
+
+function localStringArray(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const values: string[] = [];
+  const seen = new Set<string>();
+  for (const item of input) {
+    const value = normalizeLocalString(item);
+    if (!value || seen.has(value)) continue;
+    values.push(value);
+    seen.add(value);
+  }
+  return values;
+}
+
+function localOidcExchangeIssuerConfig(
+  input: unknown,
+): CloudflareD1OidcExchangeIssuerConfig | null {
+  if (!isRecord(input)) return null;
+  const issuer = normalizeLocalString(input.issuer);
+  const jwksUrl = normalizeLocalString(input.jwksUrl);
+  const audiences = localStringArray(input.audiences);
+  const subjectPrefix = normalizeLocalString(input.subjectPrefix);
+  if (!issuer || !jwksUrl || audiences.length === 0) return null;
+  return {
+    issuer,
+    jwksUrl,
+    audiences,
+    ...(subjectPrefix ? { subjectPrefix } : {}),
+  };
+}
+
+function localClockSkewSec(input: unknown): number | string | undefined {
+  if (typeof input === 'number' && Number.isFinite(input)) return input;
+  const value = normalizeLocalString(input);
+  return value || undefined;
+}
+
+function localOidcExchangeConfig(env: LocalD1DevEnv): CloudflareD1OidcExchangeConfig | undefined {
+  const raw = normalizeLocalString(env.SEAMS_LOCAL_OIDC_EXCHANGE_JSON);
+  if (!raw) return undefined;
+  const parsed = parseJsonObject(raw);
+  if (!parsed) throw new Error('SEAMS_LOCAL_OIDC_EXCHANGE_JSON must be a JSON object');
+  const issuersRaw = Array.isArray(parsed.issuers) ? parsed.issuers : [];
+  const issuers: CloudflareD1OidcExchangeIssuerConfig[] = [];
+  for (const issuerRaw of issuersRaw) {
+    const issuer = localOidcExchangeIssuerConfig(issuerRaw);
+    if (issuer) issuers.push(issuer);
+  }
+  if (issuers.length === 0) {
+    throw new Error('SEAMS_LOCAL_OIDC_EXCHANGE_JSON must define at least one OIDC issuer');
+  }
+  const clockSkewSec = localClockSkewSec(parsed.clockSkewSec);
+  return {
+    issuers,
+    ...(clockSkewSec !== undefined ? { clockSkewSec } : {}),
+  };
 }
 
 function headerString(headers: HeaderRecord, name: string): string {
@@ -378,6 +440,7 @@ function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
     relayerAccount: env.SEAMS_LOCAL_RELAYER_ACCOUNT,
     relayerPublicKey: env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY,
     googleOidcClientId: env.SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID,
+    oidcExchange: localOidcExchangeConfig(env),
     accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
     emailOtpDeliveryMode: env.EMAIL_OTP_DELIVERY_MODE || 'memory',
     emailOtpDevOutboxEnabled: env.EMAIL_OTP_DEV_OUTBOX_ENABLED ?? true,
