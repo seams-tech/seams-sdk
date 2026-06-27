@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { isoCBOR } from '@simplewebauthn/server/helpers';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -28,6 +29,12 @@ import {
 type SqliteJsonRow = Record<string, unknown>;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+type WebAuthnAssertionFixture = {
+  readonly credentialIdB64u: string;
+  readonly credentialPublicKeyB64u: string;
+  readonly privateKey: CryptoKey;
+};
 
 class RecordingEmailOtpDeliveryProvider {
   readonly calls: CloudflareD1EmailOtpDeliveryProviderInput[] = [];
@@ -127,6 +134,106 @@ function cleanupTemporaryD1Database(tempDir: string): void {
 
 function utf8Bytes(input: string): Uint8Array {
   return new TextEncoder().encode(input);
+}
+
+function concatBytes(...inputs: readonly Uint8Array[]): Uint8Array {
+  const length = inputs.reduce((total, item) => total + item.length, 0);
+  const out = new Uint8Array(length);
+  let offset = 0;
+  for (const item of inputs) {
+    out.set(item, offset);
+    offset += item.length;
+  }
+  return out;
+}
+
+function derIntegerBytes(input: Uint8Array): Uint8Array {
+  const bytes = [...input];
+  while (bytes.length > 1 && bytes[0] === 0 && ((bytes[1] || 0) & 0x80) === 0) bytes.shift();
+  if (((bytes[0] || 0) & 0x80) !== 0) bytes.unshift(0);
+  return new Uint8Array([0x02, bytes.length, ...bytes]);
+}
+
+function rawP256SignatureToDer(input: Uint8Array): Uint8Array {
+  if (input.length !== 64) throw new Error('Expected raw P-256 signature to be 64 bytes');
+  const r = derIntegerBytes(input.slice(0, 32));
+  const s = derIntegerBytes(input.slice(32));
+  const body = concatBytes(r, s);
+  if (body.length >= 128) throw new Error('Unexpected long-form DER signature length');
+  return new Uint8Array([0x30, body.length, ...body]);
+}
+
+async function sha256(input: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', input));
+}
+
+async function createWebAuthnAssertionFixture(): Promise<WebAuthnAssertionFixture> {
+  const keyPair = (await crypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    true,
+    ['sign', 'verify'],
+  )) as CryptoKeyPair;
+  const jwk = (await crypto.subtle.exportKey('jwk', keyPair.publicKey)) as JsonWebKey;
+  const x = base64UrlDecode(String(jwk.x || ''));
+  const y = base64UrlDecode(String(jwk.y || ''));
+  const cosePublicKey = isoCBOR.encode(
+    new Map<number, number | Uint8Array>([
+      [1, 2],
+      [3, -7],
+      [-1, 1],
+      [-2, x],
+      [-3, y],
+    ]),
+  );
+  const credentialIdB64u = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)));
+  return {
+    credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(cosePublicKey),
+    privateKey: keyPair.privateKey,
+  };
+}
+
+async function createWebAuthnAssertion(input: {
+  readonly fixture: WebAuthnAssertionFixture;
+  readonly rpId: string;
+  readonly origin: string;
+  readonly challengeB64u: string;
+  readonly counter: number;
+}): Promise<Record<string, unknown>> {
+  const rpIdHash = await sha256(utf8Bytes(input.rpId));
+  const flags = new Uint8Array([0x01]);
+  const counter = new Uint8Array(4);
+  new DataView(counter.buffer).setUint32(0, input.counter, false);
+  const authenticatorData = concatBytes(rpIdHash, flags, counter);
+  const clientDataJSON = utf8Bytes(
+    JSON.stringify({
+      type: 'webauthn.get',
+      challenge: input.challengeB64u,
+      origin: input.origin,
+      crossOrigin: false,
+    }),
+  );
+  const signedBytes = concatBytes(authenticatorData, await sha256(clientDataJSON));
+  const rawSignature = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      input.fixture.privateKey,
+      signedBytes,
+    ),
+  );
+  return {
+    id: input.fixture.credentialIdB64u,
+    rawId: input.fixture.credentialIdB64u,
+    type: 'public-key',
+    authenticatorAttachment: null,
+    response: {
+      clientDataJSON: base64UrlEncode(clientDataJSON),
+      authenticatorData: base64UrlEncode(authenticatorData),
+      signature: base64UrlEncode(rawP256SignatureToDer(rawSignature)),
+      userHandle: null,
+    },
+    clientExtensionResults: {},
+  };
 }
 
 function jsonBase64Url(input: Record<string, unknown>): string {
@@ -366,7 +473,17 @@ async function insertWebAuthn(input: {
   readonly projectId: string;
   readonly envId: string;
   readonly userId: string;
+  readonly rpId?: string;
+  readonly credentialIdB64u?: string;
+  readonly credentialPublicKeyB64u?: string;
+  readonly counter?: number;
+  readonly signerSlot?: number;
 }): Promise<void> {
+  const rpId = input.rpId || 'example.com';
+  const credentialIdB64u = input.credentialIdB64u || 'credential-a';
+  const credentialPublicKeyB64u = input.credentialPublicKeyB64u || 'credential-public-key-a';
+  const counter = input.counter ?? 0;
+  const signerSlot = input.signerSlot ?? 2;
   await input.database
     .prepare(
       `INSERT INTO signer_webauthn_authenticators (
@@ -380,9 +497,9 @@ async function insertWebAuthn(input: {
       input.projectId,
       input.envId,
       input.userId,
-      'credential-a',
-      'credential-public-key-a',
-      0,
+      credentialIdB64u,
+      credentialPublicKeyB64u,
+      counter,
       200,
       300,
     )
@@ -399,18 +516,18 @@ async function insertWebAuthn(input: {
       input.orgId,
       input.projectId,
       input.envId,
-      'example.com',
-      'credential-a',
+      rpId,
+      credentialIdB64u,
       input.userId,
-      2,
+      signerSlot,
       JSON.stringify({
         version: 'webauthn_credential_binding_v1',
-        rpId: 'example.com',
-        credentialIdB64u: 'credential-a',
+        rpId,
+        credentialIdB64u,
         userId: input.userId,
         nearAccountId: 'near.testnet',
         nearEd25519SigningKeyId: 'ed25519:key',
-        signerSlot: 2,
+        signerSlot,
         publicKey: 'ed25519:public',
         createdAtMs: 150,
         updatedAtMs: 250,
@@ -446,6 +563,38 @@ async function readWebAuthnChallengeRow(input: {
       input.projectId,
       input.envId,
       input.challengeId,
+    )
+    .first<SqliteJsonRow>();
+}
+
+async function readWebAuthnAuthenticatorRow(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly userId: string;
+  readonly credentialIdB64u: string;
+}): Promise<SqliteJsonRow | null> {
+  return await input.database
+    .prepare(
+      `SELECT credential_public_key_b64u, counter, updated_at_ms
+         FROM signer_webauthn_authenticators
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?
+          AND credential_id_b64u = ?
+        LIMIT 1`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.userId,
+      input.credentialIdB64u,
     )
     .first<SqliteJsonRow>();
 }
@@ -1198,6 +1347,14 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
         },
       ],
     });
+    const webAuthnFixture = await createWebAuthnAssertionFixture();
+    await insertWebAuthn({
+      database,
+      ...scope,
+      credentialIdB64u: webAuthnFixture.credentialIdB64u,
+      credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+      signerSlot: 4,
+    });
     const loginOptions = await service.createWebAuthnLoginOptions({
       userId: scope.userId,
       rpId: 'example.com',
@@ -1230,6 +1387,33 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       challengeB64u: loginOptions.challengeB64u,
       expiresAtMs: loginOptions.expiresAtMs,
     });
+    const loginAssertion = await createWebAuthnAssertion({
+      fixture: webAuthnFixture,
+      rpId: 'example.com',
+      origin: 'https://example.com',
+      challengeB64u: String(loginOptions.challengeB64u || ''),
+      counter: 1,
+    });
+    await expect(
+      service.verifyWebAuthnLogin({
+        challengeId: loginChallengeId,
+        webauthn_authentication: loginAssertion,
+        expected_origin: 'https://example.com',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      verified: true,
+      userId: scope.userId,
+      rpId: 'example.com',
+    });
+    await expect(
+      readWebAuthnAuthenticatorRow({
+        database,
+        ...scope,
+        userId: scope.userId,
+        credentialIdB64u: webAuthnFixture.credentialIdB64u,
+      }),
+    ).resolves.toMatchObject({ counter: 1 });
     await expect(
       service.createWebAuthnLoginOptions({ userId: 'bad user', rpId: 'example.com' }),
     ).resolves.toMatchObject({
@@ -1247,7 +1431,10 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
     const syncChallengeId = String(syncOptions.challengeId || '');
     expect(syncChallengeId).not.toBe('');
     expect(syncOptions.challengeB64u).toEqual(expect.any(String));
-    expect(syncOptions.credentialIds).toEqual(['credential-a']);
+    expect(syncOptions.credentialIds).toEqual([
+      'credential-a',
+      webAuthnFixture.credentialIdB64u,
+    ]);
     expect(syncOptions.walletBinding).toEqual({
       walletId: scope.userId,
       nearAccountId: 'near.testnet',
@@ -1275,6 +1462,40 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       challengeB64u: syncOptions.challengeB64u,
       expiresAtMs: syncOptions.expiresAtMs,
     });
+    const syncAssertion = await createWebAuthnAssertion({
+      fixture: webAuthnFixture,
+      rpId: 'example.com',
+      origin: 'https://example.com',
+      challengeB64u: String(syncOptions.challengeB64u || ''),
+      counter: 2,
+    });
+    await expect(
+      service.verifyWebAuthnSyncAccount({
+        challengeId: syncChallengeId,
+        webauthn_authentication: syncAssertion,
+        expected_origin: 'https://example.com',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      verified: true,
+      accountId: scope.userId,
+      walletId: scope.userId,
+      nearAccountId: 'near.testnet',
+      nearEd25519SigningKeyId: 'ed25519:key',
+      rpId: 'example.com',
+      signerSlot: 4,
+      publicKey: 'ed25519:public',
+      credentialIdB64u: webAuthnFixture.credentialIdB64u,
+      credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+    });
+    await expect(
+      readWebAuthnAuthenticatorRow({
+        database,
+        ...scope,
+        userId: scope.userId,
+        credentialIdB64u: webAuthnFixture.credentialIdB64u,
+      }),
+    ).resolves.toMatchObject({ counter: 2 });
     await expect(
       service.createWebAuthnSyncAccountOptions({
         account_id: scope.userId,

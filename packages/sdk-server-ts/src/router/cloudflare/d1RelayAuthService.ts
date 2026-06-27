@@ -1,11 +1,12 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base64Decode, base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseGoogleProviderSubject,
   parseOrgId,
   parseVerifiedGoogleEmail,
+  parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
@@ -24,6 +25,7 @@ import {
 } from '@shared/utils/emailOtpRecoveryKey';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import { buildRecoveryExecutionRecord } from '../../core/recoveryExecutionRecords';
+import type { WebAuthnAuthenticationCredential } from '../../core/types';
 import type {
   EmailOtpAuthStateRecord,
   EmailOtpChallengeAction,
@@ -56,6 +58,12 @@ import type {
 } from '../../storage/tenantRoute';
 import type { CloudflareRelayAuthService } from '../authServicePort';
 import { createDisabledCloudflareRelayAuthService } from './disabledRelayAuthService';
+
+type SimpleWebAuthnVerifier = (args: unknown) => Promise<unknown>;
+
+type SimpleWebAuthnServerModule = {
+  readonly verifyAuthenticationResponse?: SimpleWebAuthnVerifier;
+};
 
 export type CloudflareD1EmailOtpDeliveryProviderInput = {
   readonly challengeId: string;
@@ -330,6 +338,22 @@ type CreateWebAuthnSyncAccountOptionsInput = Parameters<
 type CreateWebAuthnSyncAccountOptionsResult = Awaited<
   ReturnType<CloudflareRelayAuthService['createWebAuthnSyncAccountOptions']>
 >;
+type VerifyWebAuthnAuthenticationLiteInput = Parameters<
+  CloudflareRelayAuthService['verifyWebAuthnAuthenticationLite']
+>[0];
+type VerifyWebAuthnAuthenticationLiteResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyWebAuthnAuthenticationLite']>
+>;
+type VerifyWebAuthnLoginInput = Parameters<CloudflareRelayAuthService['verifyWebAuthnLogin']>[0];
+type VerifyWebAuthnLoginResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyWebAuthnLogin']>
+>;
+type VerifyWebAuthnSyncAccountInput = Parameters<
+  CloudflareRelayAuthService['verifyWebAuthnSyncAccount']
+>[0];
+type VerifyWebAuthnSyncAccountResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyWebAuthnSyncAccount']>
+>;
 type ListNearPublicKeysInput = Parameters<
   CloudflareRelayAuthService['listNearPublicKeysForUser']
 >[0];
@@ -434,6 +458,8 @@ type D1RecoveryExecutionRow = {
 
 type D1AuthenticatorRow = {
   readonly credential_id_b64u?: unknown;
+  readonly credential_public_key_b64u?: unknown;
+  readonly counter?: unknown;
   readonly created_at_ms?: unknown;
   readonly updated_at_ms?: unknown;
 };
@@ -471,8 +497,22 @@ type WebAuthnCredentialBindingRecord = {
   readonly nearEd25519SigningKeyId?: string;
   readonly signerSlot: number;
   readonly publicKey?: string;
+  readonly relayerKeyId?: string;
+  readonly keyVersion?: string;
+  readonly recoveryExportCapable?: boolean;
+  readonly clientParticipantId?: number;
+  readonly relayerParticipantId?: number;
+  readonly participantIds?: number[];
   readonly createdAtMs?: number;
   readonly updatedAtMs?: number;
+};
+
+type WebAuthnAuthenticatorRecord = {
+  readonly credentialIdB64u: string;
+  readonly credentialPublicKeyB64u: string;
+  readonly counter: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
 };
 
 type WebAuthnSyncWalletBinding = {
@@ -860,6 +900,18 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
 }
 
+async function loadSimpleWebAuthnServer(): Promise<SimpleWebAuthnServerModule> {
+  try {
+    return (await import('@simplewebauthn/server')) as SimpleWebAuthnServerModule;
+  } catch (error: unknown) {
+    throw new Error(
+      `Server WebAuthn route selected but '@simplewebauthn/server' dependency is not available: ${
+        errorMessage(error) || 'import failed'
+      }`,
+    );
+  }
+}
+
 function appSessionVersion(): string {
   return secureRandomBase64Url(32, 'app session versions');
 }
@@ -887,6 +939,130 @@ function parseJsonObject(input: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function decodeBase64UrlOrBase64(input: string, fieldName: string): Uint8Array {
+  try {
+    return base64UrlDecode(input);
+  } catch {
+    try {
+      return base64Decode(input);
+    } catch (error: unknown) {
+      throw new Error(
+        `Invalid ${fieldName}: expected base64url/base64 string (${
+          errorMessage(error) || 'decode failed'
+        })`,
+      );
+    }
+  }
+}
+
+function parseClientDataJsonBase64url(clientDataJSONB64u: string): {
+  readonly challenge: string;
+  readonly origin: string;
+  readonly type: string;
+} {
+  const bytes = decodeBase64UrlOrBase64(
+    clientDataJSONB64u,
+    'webauthn_authentication.response.clientDataJSON',
+  );
+  const json = new TextDecoder().decode(bytes);
+  const record = parseJsonObject(json);
+  if (!record) throw new Error('Invalid clientDataJSON: expected object');
+  const challenge = toOptionalTrimmedString(record.challenge);
+  const origin = toOptionalTrimmedString(record.origin);
+  const type = toOptionalTrimmedString(record.type);
+  if (!challenge) throw new Error('Invalid clientDataJSON.challenge');
+  if (!origin) throw new Error('Invalid clientDataJSON.origin');
+  if (!type) throw new Error('Invalid clientDataJSON.type');
+  return { challenge, origin, type };
+}
+
+function originHostnameOrEmpty(origin: string): string {
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isHostWithinRpId(host: string, rpId: string): boolean {
+  const normalizedHost = host.toLowerCase();
+  const normalizedRpId = rpId.toLowerCase();
+  if (!normalizedHost || !normalizedRpId) return false;
+  const env = typeof process !== 'undefined' ? process.env : {};
+  if (
+    (env.NO_CADDY === '1' || env.VITE_NO_CADDY === '1') &&
+    (normalizedHost === 'localhost' || normalizedHost === '127.0.0.1') &&
+    normalizedRpId.endsWith('.localhost')
+  ) {
+    return true;
+  }
+  return normalizedHost === normalizedRpId || normalizedHost.endsWith(`.${normalizedRpId}`);
+}
+
+function webAuthnCredentialIdB64uFromCredential(input: unknown):
+  | { readonly ok: true; readonly credentialIdB64u: string }
+  | { readonly ok: false; readonly code: string; readonly message: string } {
+  const credential = isRecord(input) ? input : {};
+  const rawId = toOptionalTrimmedString(credential.rawId);
+  const id = toOptionalTrimmedString(credential.id);
+  const selected = rawId || id;
+  if (!selected) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Missing webauthn_authentication.id/rawId',
+    };
+  }
+  try {
+    return {
+      ok: true,
+      credentialIdB64u: base64UrlEncode(
+        decodeBase64UrlOrBase64(selected, 'webauthn_authentication.rawId'),
+      ),
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: errorMessage(error) || 'Invalid credential rawId',
+    };
+  }
+}
+
+function parseD1WebAuthnAuthenticationCredential(
+  input: unknown,
+): WebAuthnAuthenticationCredential | null {
+  const credential = isRecord(input) ? input : null;
+  const response = isRecord(credential?.response) ? credential.response : null;
+  const id = toOptionalTrimmedString(credential?.id);
+  const rawId = toOptionalTrimmedString(credential?.rawId);
+  const type = toOptionalTrimmedString(credential?.type);
+  const clientDataJSON = toOptionalTrimmedString(response?.clientDataJSON);
+  const authenticatorData = toOptionalTrimmedString(response?.authenticatorData);
+  const signature = toOptionalTrimmedString(response?.signature);
+  const userHandle =
+    response?.userHandle === null ? null : toOptionalTrimmedString(response?.userHandle) || null;
+  const authenticatorAttachment =
+    credential?.authenticatorAttachment === null
+      ? null
+      : toOptionalTrimmedString(credential?.authenticatorAttachment) || null;
+  if (!id || !rawId || type !== 'public-key') return null;
+  if (!clientDataJSON || !authenticatorData || !signature) return null;
+  return {
+    id,
+    rawId,
+    type,
+    authenticatorAttachment,
+    response: {
+      clientDataJSON,
+      authenticatorData,
+      signature,
+      userHandle,
+    },
+    clientExtensionResults: credential?.clientExtensionResults ?? null,
+  };
 }
 
 function positiveInteger(input: unknown): number | null {
@@ -2611,6 +2787,78 @@ function appSessionRecord(input: {
   };
 }
 
+function parseWebAuthnLoginChallengeRecord(input: unknown): WebAuthnLoginChallengeRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const userId = toOptionalTrimmedString(record.userId);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
+  const createdAtMs = positiveInteger(record.createdAtMs);
+  const expiresAtMs = positiveInteger(record.expiresAtMs);
+  if (version !== 'webauthn_login_challenge_v1') return null;
+  if (!challengeId || !userId || !rpId || !challengeB64u) return null;
+  if (createdAtMs === null || expiresAtMs === null) return null;
+  return {
+    version: 'webauthn_login_challenge_v1',
+    challengeId,
+    userId,
+    rpId,
+    challengeB64u,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function parseWebAuthnSyncChallengeRecord(input: unknown): WebAuthnSyncChallengeRecord | null {
+  const record = parseJsonObject(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const expectedUserId = toOptionalTrimmedString(record.expectedUserId);
+  const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
+  const createdAtMs = positiveInteger(record.createdAtMs);
+  const expiresAtMs = positiveInteger(record.expiresAtMs);
+  if (version !== 'webauthn_sync_challenge_v1') return null;
+  if (!challengeId || !rpId || !challengeB64u) return null;
+  if (createdAtMs === null || expiresAtMs === null) return null;
+  return {
+    version: 'webauthn_sync_challenge_v1',
+    challengeId,
+    rpId,
+    ...(expectedUserId ? { expectedUserId } : {}),
+    challengeB64u,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function parseWebAuthnAuthenticator(
+  row: D1AuthenticatorRow | null,
+): WebAuthnAuthenticatorRecord | null {
+  const credentialIdB64u = toOptionalTrimmedString(row?.credential_id_b64u);
+  const credentialPublicKeyB64u = toOptionalTrimmedString(row?.credential_public_key_b64u);
+  const counter = nonNegativeSafeInteger(row?.counter);
+  const createdAtMs = positiveInteger(row?.created_at_ms);
+  const updatedAtMs = positiveInteger(row?.updated_at_ms);
+  if (!credentialIdB64u || !credentialPublicKeyB64u) return null;
+  if (counter === null || createdAtMs === null || updatedAtMs === null) return null;
+  return { credentialIdB64u, credentialPublicKeyB64u, counter, createdAtMs, updatedAtMs };
+}
+
+function optionalNumberArray(input: unknown): number[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const values: number[] = [];
+  for (const item of input) {
+    const value = nonNegativeSafeInteger(item);
+    if (value === null) return undefined;
+    values.push(value);
+  }
+  return values;
+}
+
 function parseWebAuthnBinding(row: D1RecordJsonRow): WebAuthnCredentialBindingRecord | null {
   const record = parseJsonObject(row.record_json);
   if (!record) return null;
@@ -2619,16 +2867,34 @@ function parseWebAuthnBinding(row: D1RecordJsonRow): WebAuthnCredentialBindingRe
   const userId = toOptionalTrimmedString(record.userId);
   const signerSlot = positiveInteger(record.signerSlot);
   if (!rpId || !credentialIdB64u || !userId || signerSlot === null) return null;
+  const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
+  const nearEd25519SigningKeyId = toOptionalTrimmedString(record.nearEd25519SigningKeyId);
+  const publicKey = toOptionalTrimmedString(record.publicKey);
+  const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
+  const keyVersion = toOptionalTrimmedString(record.keyVersion);
+  const clientParticipantId = optionalNonNegativeInteger(record.clientParticipantId);
+  const relayerParticipantId = optionalNonNegativeInteger(record.relayerParticipantId);
+  const participantIds = optionalNumberArray(record.participantIds);
+  const createdAtMs = optionalNonNegativeInteger(record.createdAtMs);
+  const updatedAtMs = optionalNonNegativeInteger(record.updatedAtMs);
   return {
     rpId,
     credentialIdB64u,
     userId,
-    nearAccountId: toOptionalTrimmedString(record.nearAccountId),
-    nearEd25519SigningKeyId: toOptionalTrimmedString(record.nearEd25519SigningKeyId),
     signerSlot,
-    publicKey: toOptionalTrimmedString(record.publicKey),
-    createdAtMs: optionalNonNegativeInteger(record.createdAtMs),
-    updatedAtMs: optionalNonNegativeInteger(record.updatedAtMs),
+    ...(nearAccountId ? { nearAccountId } : {}),
+    ...(nearEd25519SigningKeyId ? { nearEd25519SigningKeyId } : {}),
+    ...(publicKey ? { publicKey } : {}),
+    ...(relayerKeyId ? { relayerKeyId } : {}),
+    ...(keyVersion ? { keyVersion } : {}),
+    ...(typeof record.recoveryExportCapable === 'boolean'
+      ? { recoveryExportCapable: record.recoveryExportCapable }
+      : {}),
+    ...(clientParticipantId !== undefined ? { clientParticipantId } : {}),
+    ...(relayerParticipantId !== undefined ? { relayerParticipantId } : {}),
+    ...(participantIds ? { participantIds } : {}),
+    ...(createdAtMs !== undefined ? { createdAtMs } : {}),
+    ...(updatedAtMs !== undefined ? { updatedAtMs } : {}),
   };
 }
 
@@ -4847,6 +5113,413 @@ class CloudflareD1RelayAuthMetadataService {
     }
   }
 
+  async verifyWebAuthnAuthenticationLite(
+    input: VerifyWebAuthnAuthenticationLiteInput,
+  ): Promise<VerifyWebAuthnAuthenticationLiteResult> {
+    try {
+      const userId = toOptionalTrimmedString(input.userId);
+      const rpId = parseWebAuthnRpId(input.rpId);
+      const expectedChallenge = toOptionalTrimmedString(input.expectedChallenge);
+      const expectedOrigin = toOptionalTrimmedString(input.expected_origin);
+      const credential = parseD1WebAuthnAuthenticationCredential(input.webauthn_authentication);
+      if (!userId) {
+        return { success: false, verified: false, code: 'invalid_body', message: 'Missing userId' };
+      }
+      if (!rpId.ok) {
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: rpId.error.message,
+        };
+      }
+      if (!expectedChallenge) {
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing expectedChallenge',
+        };
+      }
+      if (!expectedOrigin) {
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn authentication verification',
+        };
+      }
+      if (!credential) {
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing webauthn_authentication',
+        };
+      }
+
+      try {
+        const clientData = parseClientDataJsonBase64url(
+          toOptionalTrimmedString(parseJsonObject(credential.response)?.clientDataJSON),
+        );
+        if (!isHostWithinRpId(originHostnameOrEmpty(clientData.origin), String(rpId.value))) {
+          return {
+            success: false,
+            verified: false,
+            code: 'invalid_origin',
+            message: 'WebAuthn origin is not within rpId',
+          };
+        }
+      } catch (error: unknown) {
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: errorMessage(error) || 'Invalid webauthn_authentication.response.clientDataJSON',
+        };
+      }
+
+      const credentialId = webAuthnCredentialIdB64uFromCredential(credential);
+      if (!credentialId.ok) {
+        return {
+          success: false,
+          verified: false,
+          code: credentialId.code,
+          message: credentialId.message,
+        };
+      }
+      const authenticator = await this.readWebAuthnAuthenticator({
+        userId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+      });
+      if (!authenticator) {
+        return {
+          success: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not registered for user',
+        };
+      }
+
+      const mod = await loadSimpleWebAuthnServer();
+      const verifyAuthenticationResponse = mod.verifyAuthenticationResponse;
+      if (typeof verifyAuthenticationResponse !== 'function') {
+        return {
+          success: false,
+          verified: false,
+          code: 'unsupported',
+          message: 'WebAuthn verifier is unavailable in this runtime',
+        };
+      }
+
+      let credentialPublicKeyBytes: Uint8Array;
+      try {
+        credentialPublicKeyBytes = decodeBase64UrlOrBase64(
+          authenticator.credentialPublicKeyB64u,
+          'authenticator.credentialPublicKeyB64u',
+        );
+      } catch (error: unknown) {
+        return {
+          success: false,
+          verified: false,
+          code: 'internal',
+          message: `Stored credential public key is invalid: ${
+            errorMessage(error) || 'decode failed'
+          }`,
+        };
+      }
+
+      let verification: unknown;
+      try {
+        verification = await verifyAuthenticationResponse({
+          response: credential,
+          expectedChallenge,
+          expectedOrigin,
+          expectedRPID: rpId.value,
+          credential: {
+            id: credentialId.credentialIdB64u,
+            publicKey: credentialPublicKeyBytes,
+            counter: authenticator.counter,
+          },
+          requireUserVerification: false,
+        });
+      } catch (error: unknown) {
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_assertion',
+          message: errorMessage(error) || 'Authentication assertion verification threw',
+        };
+      }
+
+      const verificationRecord = isRecord(verification) ? verification : {};
+      if (verificationRecord.verified !== true) {
+        return {
+          success: false,
+          verified: false,
+          code: 'not_verified',
+          message: 'Authentication verification failed',
+        };
+      }
+      const authenticationInfo = parseJsonObject(verificationRecord.authenticationInfo);
+      const newCounter = nonNegativeSafeInteger(authenticationInfo?.newCounter);
+      if (newCounter !== null) {
+        await this.updateWebAuthnAuthenticatorCounter({
+          userId,
+          credentialIdB64u: credentialId.credentialIdB64u,
+          newCounter,
+          updatedAtMs: Date.now(),
+        });
+      }
+      return { success: true, verified: true };
+    } catch (error: unknown) {
+      return {
+        success: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Verification failed',
+      };
+    }
+  }
+
+  async verifyWebAuthnLogin(
+    input: VerifyWebAuthnLoginInput,
+  ): Promise<VerifyWebAuthnLoginResult> {
+    try {
+      const challengeId = toOptionalTrimmedString(input.challengeId ?? input.challenge_id);
+      if (!challengeId) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
+      const challenge = await this.consumeWebAuthnLoginChallenge(challengeId);
+      if (!challenge) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_expired_or_invalid',
+          message: 'Login challenge expired or invalid',
+        };
+      }
+      const expectedOrigin = toOptionalTrimmedString(input.expected_origin);
+      if (!expectedOrigin) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn authentication verification',
+        };
+      }
+      const rpId = parseWebAuthnRpId(challenge.rpId);
+      if (!rpId.ok) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'internal',
+          message: `Stored login challenge rpId is invalid: ${rpId.error.message}`,
+        };
+      }
+      const credential = parseD1WebAuthnAuthenticationCredential(input.webauthn_authentication);
+      if (!credential) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing webauthn_authentication',
+        };
+      }
+      const verification = await this.verifyWebAuthnAuthenticationLite({
+        userId: challenge.userId,
+        rpId: rpId.value,
+        expectedChallenge: challenge.challengeB64u,
+        webauthn_authentication: credential,
+        expected_origin: expectedOrigin,
+      });
+      if (!verification.success || !verification.verified) {
+        return {
+          ok: false,
+          verified: false,
+          code: verification.code || 'not_verified',
+          message: verification.message || 'Authentication verification failed',
+        };
+      }
+      try {
+        await this.linkIdentity({
+          userId: challenge.userId,
+          subject: `near:${challenge.userId}`,
+          allowMoveIfSoleIdentity: false,
+        });
+      } catch {
+        // Best-effort identity alias for login UX.
+      }
+      return { ok: true, verified: true, userId: challenge.userId, rpId: challenge.rpId };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Login verification failed',
+      };
+    }
+  }
+
+  async verifyWebAuthnSyncAccount(
+    input: VerifyWebAuthnSyncAccountInput,
+  ): Promise<VerifyWebAuthnSyncAccountResult> {
+    try {
+      const challengeId = toOptionalTrimmedString(input.challengeId ?? input.challenge_id);
+      if (!challengeId) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
+      const challenge = await this.consumeWebAuthnSyncChallenge(challengeId);
+      if (!challenge) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_expired_or_invalid',
+          message: 'Sync challenge expired or invalid',
+        };
+      }
+      const credential = parseD1WebAuthnAuthenticationCredential(input.webauthn_authentication);
+      if (!credential) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing webauthn_authentication',
+        };
+      }
+      const credentialId = webAuthnCredentialIdB64uFromCredential(credential);
+      if (!credentialId.ok) {
+        return {
+          ok: false,
+          verified: false,
+          code: credentialId.code,
+          message: credentialId.message,
+        };
+      }
+      const binding = await this.readWebAuthnBindingByCredential({
+        rpId: challenge.rpId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+      });
+      if (!binding) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not registered on this relay',
+        };
+      }
+      if (challenge.expectedUserId && binding.userId !== challenge.expectedUserId) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: `Credential is not registered for account ${challenge.expectedUserId}`,
+        };
+      }
+      const expectedOrigin = toOptionalTrimmedString(input.expected_origin);
+      if (!expectedOrigin) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn authentication verification',
+        };
+      }
+      const rpId = parseWebAuthnRpId(binding.rpId);
+      if (!rpId.ok) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'internal',
+          message: `Stored sync credential binding rpId is invalid: ${rpId.error.message}`,
+        };
+      }
+      const verification = await this.verifyWebAuthnAuthenticationLite({
+        userId: binding.userId,
+        rpId: rpId.value,
+        expectedChallenge: challenge.challengeB64u,
+        webauthn_authentication: credential,
+        expected_origin: expectedOrigin,
+      });
+      if (!verification.success || !verification.verified) {
+        return {
+          ok: false,
+          verified: false,
+          code: verification.code || 'not_verified',
+          message: verification.message || 'Authentication verification failed',
+        };
+      }
+      const authenticator = await this.readWebAuthnAuthenticator({
+        userId: binding.userId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+      });
+      if (!authenticator) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not registered for user',
+        };
+      }
+      const walletBinding = webAuthnSyncWalletBindingFromCredentialBinding(binding);
+      if (!walletBinding) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'internal',
+          message: 'Credential binding is missing wallet identity fields',
+        };
+      }
+      if (isRecord(input.threshold_ed25519)) {
+        const thresholdSessionPolicy = parseJsonObject(input.threshold_ed25519.session_policy);
+        if (thresholdSessionPolicy) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'not_configured',
+            message: 'Threshold signing is not configured on this Worker',
+          };
+        }
+      }
+      const thresholdEd25519 = binding.relayerKeyId && binding.publicKey
+        ? {
+            relayerKeyId: binding.relayerKeyId,
+            publicKey: binding.publicKey,
+            ...(binding.keyVersion ? { keyVersion: binding.keyVersion } : {}),
+            ...(typeof binding.recoveryExportCapable === 'boolean'
+              ? { recoveryExportCapable: binding.recoveryExportCapable }
+              : {}),
+            ...(typeof binding.clientParticipantId === 'number'
+              ? { clientParticipantId: binding.clientParticipantId }
+              : {}),
+            ...(typeof binding.relayerParticipantId === 'number'
+              ? { relayerParticipantId: binding.relayerParticipantId }
+              : {}),
+            ...(binding.participantIds ? { participantIds: binding.participantIds } : {}),
+          }
+        : undefined;
+      return {
+        ok: true,
+        verified: true,
+        accountId: walletBinding.walletId,
+        walletId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+        walletBinding,
+        rpId: walletBinding.rpId,
+        signerSlot: walletBinding.signerSlot,
+        ...(binding.publicKey ? { publicKey: binding.publicKey } : {}),
+        ...(binding.relayerKeyId ? { relayerKeyId: binding.relayerKeyId } : {}),
+        credentialIdB64u: credentialId.credentialIdB64u,
+        credentialPublicKeyB64u: authenticator.credentialPublicKeyB64u,
+        ...(thresholdEd25519 ? { thresholdEd25519 } : {}),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Sync verification failed',
+      };
+    }
+  }
+
   async listNearPublicKeysForUser(
     input: ListNearPublicKeysInput,
   ): Promise<ListNearPublicKeysResult> {
@@ -5830,6 +6503,115 @@ class CloudflareD1RelayAuthMetadataService {
         input.expiresAtMs,
       ],
     ).run();
+  }
+
+  private async consumeWebAuthnLoginChallenge(
+    challengeId: string,
+  ): Promise<WebAuthnLoginChallengeRecord | null> {
+    const row = await this.consumeWebAuthnChallenge({
+      challengeId,
+      challengeKind: 'login',
+    });
+    return parseWebAuthnLoginChallengeRecord(row?.record_json);
+  }
+
+  private async consumeWebAuthnSyncChallenge(
+    challengeId: string,
+  ): Promise<WebAuthnSyncChallengeRecord | null> {
+    const row = await this.consumeWebAuthnChallenge({
+      challengeId,
+      challengeKind: 'sync',
+    });
+    return parseWebAuthnSyncChallengeRecord(row?.record_json);
+  }
+
+  private async consumeWebAuthnChallenge(input: {
+    readonly challengeId: string;
+    readonly challengeKind: WebAuthnChallengeKind;
+  }): Promise<D1RecordJsonRow | null> {
+    return await this.scopePrepare(
+      `DELETE FROM signer_webauthn_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?
+          AND challenge_kind = ?
+          AND expires_at_ms > ?
+        RETURNING record_json`,
+      [input.challengeId, input.challengeKind, Date.now()],
+    ).first<D1RecordJsonRow>();
+  }
+
+  private async readWebAuthnAuthenticator(input: {
+    readonly userId: string;
+    readonly credentialIdB64u: string;
+  }): Promise<WebAuthnAuthenticatorRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
+         FROM signer_webauthn_authenticators
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?
+          AND credential_id_b64u = ?
+        LIMIT 1`,
+      [input.userId, input.credentialIdB64u],
+    ).first<D1AuthenticatorRow>();
+    return parseWebAuthnAuthenticator(row);
+  }
+
+  private async updateWebAuthnAuthenticatorCounter(input: {
+    readonly userId: string;
+    readonly credentialIdB64u: string;
+    readonly newCounter: number;
+    readonly updatedAtMs: number;
+  }): Promise<void> {
+    await this.options.database
+      .prepare(
+        `UPDATE signer_webauthn_authenticators
+          SET counter = ?,
+              updated_at_ms = ?
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?
+          AND credential_id_b64u = ?
+          AND counter < ?`,
+      )
+      .bind(
+        input.newCounter,
+        input.updatedAtMs,
+        this.options.namespace,
+        this.options.orgId,
+        this.options.projectId,
+        this.options.envId,
+        input.userId,
+        input.credentialIdB64u,
+        input.newCounter,
+      )
+      .run();
+  }
+
+  private async readWebAuthnBindingByCredential(input: {
+    readonly rpId: string;
+    readonly credentialIdB64u: string;
+  }): Promise<WebAuthnCredentialBindingRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json
+         FROM signer_webauthn_credential_bindings
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND rp_id = ?
+          AND credential_id_b64u = ?
+        LIMIT 1`,
+      [input.rpId, input.credentialIdB64u],
+    ).first<D1RecordJsonRow>();
+    return parseWebAuthnBinding(row || {});
   }
 
   private async readIdentityLinkBySubject(subject: string): Promise<D1IdentityRow | null> {
@@ -7193,6 +7975,10 @@ export function createCloudflareD1RelayAuthService(
   service.createWebAuthnLoginOptions = metadata.createWebAuthnLoginOptions.bind(metadata);
   service.createWebAuthnSyncAccountOptions =
     metadata.createWebAuthnSyncAccountOptions.bind(metadata);
+  service.verifyWebAuthnAuthenticationLite =
+    metadata.verifyWebAuthnAuthenticationLite.bind(metadata);
+  service.verifyWebAuthnLogin = metadata.verifyWebAuthnLogin.bind(metadata);
+  service.verifyWebAuthnSyncAccount = metadata.verifyWebAuthnSyncAccount.bind(metadata);
   service.listNearPublicKeysForUser = metadata.listNearPublicKeysForUser.bind(metadata);
   service.getGoogleOidcPublicConfig = metadata.getGoogleOidcPublicConfig.bind(metadata);
   service.verifyGoogleLogin = metadata.verifyGoogleLogin.bind(metadata);
