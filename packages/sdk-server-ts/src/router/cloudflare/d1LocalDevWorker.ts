@@ -38,6 +38,7 @@ interface LocalD1DevEnv {
   readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
+  readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly SIGNING_SESSION_SEAL_KEY_VERSION?: string;
   readonly SIGNING_SESSION_SHAMIR_P_B64U?: string;
@@ -454,7 +455,6 @@ async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler
     ...bundle.relayRouterOptions,
     healthz: true,
     readyz: true,
-    threshold: null,
     corsOrigins: [...LOCAL_RELAY_CORS_ORIGINS],
     sponsoredEvmCall: {
       ...bundle.relayRouterOptions.sponsoredEvmCall,
@@ -491,6 +491,14 @@ function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
+    thresholdStore: {
+      kind: 'cloudflare-do',
+      namespace: env.THRESHOLD_STORE,
+      THRESHOLD_PREFIX: localTenantStorageNamespace(env),
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID:
+        normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
+        'local-d1-threshold-signing-worker',
+    },
   });
 }
 

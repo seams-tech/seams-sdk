@@ -12,6 +12,10 @@ import type {
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type {
+  CloudflareDurableObjectNamespaceLike,
+  CloudflareDurableObjectStubLike,
+} from '../../packages/sdk-server-ts/src/core/types';
+import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RelayAuthService';
@@ -61,6 +65,24 @@ class RecordingEmailOtpDeliveryProvider {
   ): Promise<CloudflareD1EmailOtpDeliveryProviderResult> {
     this.calls.push(input);
     return this.result;
+  }
+}
+
+class ThrowingDurableObjectStub implements CloudflareDurableObjectStubLike {
+  async fetch(): Promise<Response> {
+    throw new Error('Unexpected Durable Object fetch in threshold wiring test');
+  }
+}
+
+class ThrowingDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike {
+  private readonly stub = new ThrowingDurableObjectStub();
+
+  idFromName(name: string): string {
+    return name;
+  }
+
+  get(): CloudflareDurableObjectStubLike {
+    return this.stub;
   }
 }
 
@@ -2124,6 +2146,44 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
       walletId,
       credentialIdB64u: 'credential-a',
     });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 relay auth service wires threshold signing from Durable Object config', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const withoutThreshold = createCloudflareD1RelayAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      relayerAccount: 'relay.local',
+      relayerPublicKey: 'relay-public-key',
+    });
+    expect(withoutThreshold.getThresholdSigningService()).toBeNull();
+
+    const withThreshold = createCloudflareD1RelayAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      relayerAccount: 'relay.local',
+      relayerPublicKey: 'relay-public-key',
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new ThrowingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'seams-local-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const threshold = withThreshold.getThresholdSigningService();
+    expect(threshold).not.toBeNull();
+    expect(withThreshold.getThresholdSigningService()).toBe(threshold);
+    expect(threshold?.getRouterAbNormalSigningWorkerId()).toBe('test-threshold-signing-worker');
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

@@ -26,7 +26,12 @@ import {
 } from '@shared/utils/emailOtpRecoveryKey';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import { buildRecoveryExecutionRecord } from '../../core/recoveryExecutionRecords';
-import type { WebAuthnAuthenticationCredential } from '../../core/types';
+import type {
+  ThresholdStoreConfigInput,
+  WebAuthnAuthenticationCredential,
+} from '../../core/types';
+import { createCloudflareDurableObjectThresholdSigningService } from '../../core/ThresholdService/createCloudflareDurableObjectThresholdSigningService';
+import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
 import type {
   EmailOtpAuthStateRecord,
   EmailOtpChallengeAction,
@@ -74,6 +79,9 @@ import type {
 } from '../../storage/tenantRoute';
 import type { CloudflareRelayAuthService } from '../authServicePort';
 import { createDisabledCloudflareRelayAuthService } from './disabledRelayAuthService';
+
+const DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT = 'cloudflare-disabled-relayer.local';
+const DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY = 'disabled-relayer-public-key';
 
 type SimpleWebAuthnVerifier = (args: unknown) => Promise<unknown>;
 
@@ -156,6 +164,8 @@ export interface CloudflareD1RelayAuthServiceOptions {
   readonly emailOtpRecoveryKeyAttemptRateLimitWindowMs?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
+  readonly thresholdStore?: ThresholdStoreConfigInput | null;
+  readonly thresholdSigningService?: ThresholdSigningService | null;
 }
 
 type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory';
@@ -226,6 +236,8 @@ type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   | 'emailOtpRecoveryKeyAttemptRateLimitWindowMs'
   | 'emailOtpGoogleRegistrationAttemptRateLimitMax'
   | 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs'
+  | 'thresholdStore'
+  | 'thresholdSigningService'
 > & {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
@@ -237,6 +249,8 @@ type NormalizedCloudflareD1RelayAuthServiceOptions = Omit<
   readonly accountIdDerivationSecret?: string;
   readonly emailOtp: EmailOtpRuntimeConfig;
   readonly emailOtpServerSeal: EmailOtpServerSealRuntimeConfig;
+  readonly thresholdStore?: ThresholdStoreConfigInput | null;
+  readonly thresholdSigningService?: ThresholdSigningService | null;
 };
 
 type ListIdentitiesInput = Parameters<CloudflareRelayAuthService['listIdentities']>[0];
@@ -458,6 +472,24 @@ type ListWalletEcdsaKeyFactsInventoryInput = Parameters<
 >[0];
 type ListWalletEcdsaKeyFactsInventoryResult = Awaited<
   ReturnType<CloudflareRelayAuthService['listWalletEcdsaKeyFactsInventory']>
+>;
+type EcdsaHssRoleLocalBootstrapInput = Parameters<
+  CloudflareRelayAuthService['ecdsaHssRoleLocalBootstrap']
+>[0];
+type EcdsaHssRoleLocalBootstrapResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['ecdsaHssRoleLocalBootstrap']>
+>;
+type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyInput = Parameters<
+  CloudflareRelayAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
+>[0];
+type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']>
+>;
+type EcdsaHssRoleLocalExportShareInput = Parameters<
+  CloudflareRelayAuthService['ecdsaHssRoleLocalExportShare']
+>[0];
+type EcdsaHssRoleLocalExportShareResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['ecdsaHssRoleLocalExportShare']>
 >;
 type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitInput = Parameters<
   CloudflareRelayAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']
@@ -1251,6 +1283,8 @@ function normalizeD1RelayAuthOptions(
     accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),
     emailOtp: normalizeEmailOtpConfig(input),
     emailOtpServerSeal: normalizeEmailOtpServerSealConfig(input),
+    thresholdStore: input.thresholdStore,
+    thresholdSigningService: input.thresholdSigningService,
   };
 }
 
@@ -3779,6 +3813,14 @@ function singletonRejectedDiagnostic(reason: string): Record<string, number> {
   return { [reason]: 1 };
 }
 
+async function unsupportedCloudflareD1NearAccessKeyList(): Promise<never> {
+  throw new Error('Cloudflare D1 relay auth service does not support NEAR access-key reads');
+}
+
+async function unsupportedCloudflareD1NearTransactionDispatch(): Promise<never> {
+  throw new Error('Cloudflare D1 relay auth service does not support NEAR transaction dispatch');
+}
+
 function emptyThresholdEcdsaKeyInventoryResult(input: {
   readonly userId: string;
   readonly inputCount: number;
@@ -3993,6 +4035,8 @@ class CloudflareD1RelayAuthMetadataService {
   private readonly oidcJwksCacheByUrl = new Map<string, JsonWebKeyCache>();
   private readonly oidcJwksFetchPromiseByUrl = new Map<string, Promise<JsonWebKeyCache>>();
   private walletAuthMethodStore: WalletAuthMethodStore | null = null;
+  private thresholdSigningService: ThresholdSigningService | null = null;
+  private thresholdSigningServiceInitialized = false;
 
   constructor(input: CloudflareD1RelayAuthServiceOptions) {
     this.options = normalizeD1RelayAuthOptions(input);
@@ -7268,6 +7312,81 @@ class CloudflareD1RelayAuthMetadataService {
     });
   }
 
+  async getThresholdRelayerAccount(): Promise<{
+    readonly accountId: string;
+    readonly publicKey: string;
+  }> {
+    return {
+      accountId: this.options.relayerAccount || DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT,
+      publicKey: this.options.relayerPublicKey || DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY,
+    };
+  }
+
+  getThresholdSigningService(): ThresholdSigningService | null {
+    if (this.thresholdSigningServiceInitialized) return this.thresholdSigningService;
+    this.thresholdSigningServiceInitialized = true;
+    if (this.options.thresholdSigningService !== undefined) {
+      this.thresholdSigningService = this.options.thresholdSigningService;
+      return this.thresholdSigningService;
+    }
+    if (!this.options.thresholdStore) {
+      this.thresholdSigningService = null;
+      return null;
+    }
+    this.thresholdSigningService = createCloudflareDurableObjectThresholdSigningService({
+      thresholdStore: this.options.thresholdStore,
+      auth: {
+        getRelayerAccount: this.getThresholdRelayerAccount.bind(this),
+        verifyWebAuthnAuthenticationLite: this.verifyWebAuthnAuthenticationLite.bind(this),
+        viewAccessKeyList: unsupportedCloudflareD1NearAccessKeyList,
+        dispatchNearSignedTransactionBorsh: unsupportedCloudflareD1NearTransactionDispatch,
+      },
+    });
+    return this.thresholdSigningService;
+  }
+
+  async ecdsaHssRoleLocalBootstrap(
+    request: EcdsaHssRoleLocalBootstrapInput,
+  ): Promise<EcdsaHssRoleLocalBootstrapResult> {
+    const threshold = this.getThresholdSigningService();
+    if (!threshold) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold signing service is not configured',
+      };
+    }
+    return await threshold.ecdsaHssRoleLocalBootstrap(request);
+  }
+
+  async verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
+    request: VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyInput,
+  ): Promise<VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyResult> {
+    const threshold = this.getThresholdSigningService();
+    if (!threshold) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold signing service is not configured',
+      };
+    }
+    return await threshold.verifyEcdsaHssRoleLocalClientRootProofForExistingKey(request);
+  }
+
+  async ecdsaHssRoleLocalExportShare(
+    input: EcdsaHssRoleLocalExportShareInput,
+  ): Promise<EcdsaHssRoleLocalExportShareResult> {
+    const threshold = this.getThresholdSigningService();
+    if (!threshold) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold signing service is not configured',
+      };
+    }
+    return await threshold.ecdsaHssRoleLocalExportShare(input);
+  }
+
   getGoogleOidcPublicConfig(): ReturnType<CloudflareRelayAuthService['getGoogleOidcPublicConfig']> {
     const clientId = toOptionalTrimmedString(this.options.googleOidcClientId);
     return {
@@ -10193,6 +10312,11 @@ export function createCloudflareD1RelayAuthService(
     metadata.listThresholdEcdsaKeyIdentityTargetsForUser.bind(metadata);
   service.listWalletEcdsaKeyFactsInventory =
     metadata.listWalletEcdsaKeyFactsInventory.bind(metadata);
+  service.getThresholdSigningService = metadata.getThresholdSigningService.bind(metadata);
+  service.ecdsaHssRoleLocalBootstrap = metadata.ecdsaHssRoleLocalBootstrap.bind(metadata);
+  service.verifyEcdsaHssRoleLocalClientRootProofForExistingKey =
+    metadata.verifyEcdsaHssRoleLocalClientRootProofForExistingKey.bind(metadata);
+  service.ecdsaHssRoleLocalExportShare = metadata.ecdsaHssRoleLocalExportShare.bind(metadata);
   service.getGoogleOidcPublicConfig = metadata.getGoogleOidcPublicConfig.bind(metadata);
   service.verifyGoogleLogin = metadata.verifyGoogleLogin.bind(metadata);
   service.verifyOidcJwtExchange = metadata.verifyOidcJwtExchange.bind(metadata);
