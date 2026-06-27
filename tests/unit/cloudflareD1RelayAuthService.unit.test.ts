@@ -2878,6 +2878,241 @@ test('Cloudflare D1 relay auth service responds to ECDSA wallet registration cer
   }
 });
 
+test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration ceremonies through Durable Objects', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const rpId = 'example.com';
+    const email = 'owner@example.test';
+    const providerSubject = 'google:registration-user';
+    const appSessionVersion = 'registration-session-v1';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const thresholdSigningService = {
+      async ecdsaHssRoleLocalBootstrap(request: EcdsaHssClientBootstrapRequest) {
+        return {
+          ok: true as const,
+          value: testEcdsaServerBootstrapResponse(request),
+        };
+      },
+    } as unknown as ThresholdSigningService;
+    const service = createCloudflareD1RelayAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'memory',
+      thresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const registration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'server_generated' },
+        rpId,
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          email,
+          otpCode: 'intent-otp-placeholder',
+          appSessionJwt: 'intent-session-placeholder',
+        },
+        signerSelection: {
+          mode: 'ecdsa_only',
+          ecdsa: {
+            participantIds: [1, 2, 3],
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+          },
+        },
+      },
+    });
+    if (!registration.ok) throw new Error(registration.message);
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+      orgId: scope.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: registration.registrationIntentDigestB64u,
+      appSessionVersion,
+    });
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+    });
+    if (!outbox.ok) throw new Error(outbox.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+    });
+    if (!started.ok) throw new Error(started.message);
+    if (!started.ecdsa) throw new Error('Expected ECDSA registration start payload');
+
+    const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        clientBootstrap,
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+
+    await expect(
+      service.finalizeWalletRegistration({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          expectedKeyHandles: ['wrong-key-handle'],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'key_handle_mismatch',
+    });
+
+    const finalized = await service.finalizeWalletRegistration({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+      },
+    });
+    if (!finalized.ok) throw new Error(finalized.message);
+    expect(finalized).toMatchObject({
+      walletId: registration.intent.walletId,
+      rpId,
+      authMethod: {
+        kind: 'email_otp',
+        registrationAuthorityId: challenge.challenge.challengeId,
+      },
+      ecdsa: {
+        walletKeys: [
+          {
+            keyScope: 'evm-family',
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
+            walletId: registration.intent.walletId,
+            walletKeyId: started.ecdsa.prepare.walletKeyId,
+            keyHandle: 'test-add-signer-ecdsa-key-handle',
+            ecdsaThresholdKeyId: started.ecdsa.prepare.ecdsaThresholdKeyId,
+            signingRootId: `${scope.projectId}:${scope.envId}`,
+            signingRootVersion: 'root-v1',
+            thresholdOwnerAddress: '0x0000000000000000000000000000000000000001',
+            relayerKeyId: started.ecdsa.prepare.relayerKeyId,
+            participantIds: [1, 2, 3],
+          },
+        ],
+      },
+    });
+
+    const walletRow = await database
+      .prepare(
+        `SELECT record_json
+           FROM signer_wallets
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+          LIMIT 1`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        registration.intent.walletId,
+      )
+      .first<SqliteJsonRow>();
+    expect(walletRow?.record_json).toContain(registration.intent.walletId);
+
+    const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
+    await expect(
+      readWalletAuthMethodRecord({
+        database,
+        ...scope,
+        walletAuthMethodId: `email_otp:${registration.intent.walletId}:${emailHashHex}`,
+      }),
+    ).resolves.toMatchObject({
+      version: 'wallet_auth_method_v1',
+      kind: 'email_otp',
+      status: 'active',
+      walletId: registration.intent.walletId,
+      emailHashHex,
+      registrationAuthorityId: challenge.challenge.challengeId,
+    });
+
+    const signerRecord = await readWalletSignerRecord({
+      database,
+      ...scope,
+      walletId: registration.intent.walletId,
+      signerFamily: 'ecdsa',
+      signerId: 'ecdsa:evm:eip155:8453',
+    });
+    expect(signerRecord).toMatchObject({
+      version: 'wallet_signer_ecdsa_v1',
+      walletId: registration.intent.walletId,
+      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      signerId: 'ecdsa:evm:eip155:8453',
+      chainTargetKey: 'evm:eip155:8453',
+      walletKey: {
+        keyHandle: 'test-add-signer-ecdsa-key-handle',
+        ecdsaThresholdKeyId: started.ecdsa.prepare.ecdsaThresholdKeyId,
+        thresholdOwnerAddress: '0x0000000000000000000000000000000000000001',
+      },
+    });
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toBeUndefined();
+    await expect(
+      service.finalizeWalletRegistration({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods through D1 and Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {

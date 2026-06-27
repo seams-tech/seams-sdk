@@ -200,6 +200,13 @@ Line-count cleanup baseline:
   `respondWalletRegistrationHss`; the shared disabled-service scaffold remains
   a blocker to physical deletion until the remaining 5 signer and recovery
   ceremony methods are implemented.
+- [x] ECDSA wallet-registration finalize slice recorded before plan-doc update:
+  383 code additions and 0 code deletions across the D1 relay auth service and
+  unit tests. The same-slice cleanup pass replaced the D1 factory fallback for
+  `finalizeWalletRegistration`; D1 registration finalize idempotency replay and
+  Email OTP enrollment-material persistence remain explicit follow-up gaps, and
+  the shared disabled-service scaffold remains a blocker to physical deletion
+  until the remaining 4 signer and recovery ceremony methods are implemented.
 - [ ] Each remaining implementation commit either removes the staging path it
   supersedes or records the concrete blocker in this plan.
 - [ ] Phase 7 records the final before/after counts and explains any remaining
@@ -278,6 +285,9 @@ Remaining before D1 staging:
 
 - Finish only the `CloudflareRelayAuthService` signer methods required by the
   first staging signer, sponsored gas, billing, and reconciliation flows.
+- Add D1 wallet-registration finalize support for idempotency replay and Email
+  OTP enrollment material before enabling Email OTP registration as a complete
+  production enrollment path.
 - Keep device linking deferred to refactor 84 while the route returns 410.
 - Keep threshold public-key metadata out of D1 unless a dashboard or
   reconciliation query requires it.
@@ -1055,19 +1065,20 @@ Completed:
   consume registration Email OTP challenges, bind app-session policy to the
   exact intent/runtime scope, persist wallet auth-method rows in D1, and consume
   ceremonies exactly once.
-- [x] Cloudflare relay auth service D1 methods start and respond to ECDSA-only wallet
-  registration ceremonies through Durable Object intent and ceremony storage,
-  consume registration Email OTP challenges, bind authority proofs to the exact
-  registration intent/runtime scope, emit ECDSA role-local prepare state,
-  persist responded ECDSA role-local bootstrap state, and consume registration
-  intents exactly once.
+- [x] Cloudflare relay auth service D1 methods start, respond to, and finalize
+  ECDSA-only wallet registration ceremonies through Durable Object intent and
+  ceremony storage, consume registration Email OTP challenges, bind authority
+  proofs to the exact registration intent/runtime scope, emit ECDSA role-local
+  prepare state, persist responded ECDSA role-local bootstrap state, persist
+  finalized wallet, active auth-method, and ECDSA wallet signer rows in D1, and
+  consume registration intents and finalize ceremonies exactly once.
 - [x] Cloudflare relay auth service D1 methods start, respond to, and finalize
   ECDSA add-signer ceremonies through Durable Object intent and ceremony
   storage, bind app-session policy to the exact signer selection/runtime scope,
   emit ECDSA role-local prepare state, persist responded ECDSA role-local
   bootstrap state, persist finalized ECDSA wallet signer rows in D1, and
   consume add-signer intents and finalize ceremonies exactly once. Remaining
-  disabled signer/recovery ceremony methods: 5.
+  disabled signer/recovery ceremony methods: 4.
 - [x] The Cloudflare service-bundle relay options are wired to the Durable Object
   normal-signing admission store.
 - [x] The Cloudflare service-bundle relay options are wired to D1-backed
@@ -1101,8 +1112,10 @@ Completed:
 Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
-  Object slices: wallet registration, Ed25519 add-signer start/respond/finalize
-  ceremonies, signed delegates, and email recovery HSS responses.
+  Object slices: Ed25519 wallet-registration preparation, signed delegates, and
+  email recovery HSS responses.
+- [ ] Finish D1 ECDSA wallet-registration finalize follow-ups: idempotency
+  replay and Email OTP enrollment-material persistence.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found

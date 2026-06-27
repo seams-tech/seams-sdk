@@ -75,6 +75,8 @@ import type {
   WalletAddSignerFinalizeResponse,
   WalletAddSignerHssRespondResponse,
   WalletAddSignerStartResponse,
+  WalletRegistrationFinalizeAuthMethod,
+  WalletRegistrationFinalizeResponse,
   WalletRegistrationHssRespondResponse,
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
@@ -407,6 +409,9 @@ type StartWalletRegistrationInput = Parameters<
 >[0];
 type RespondWalletRegistrationHssInput = Parameters<
   CloudflareRelayAuthService['respondWalletRegistrationHss']
+>[0];
+type FinalizeWalletRegistrationInput = Parameters<
+  CloudflareRelayAuthService['finalizeWalletRegistration']
 >[0];
 type CreateAddSignerIntentInput = Parameters<
   CloudflareRelayAuthService['createAddSignerIntent']
@@ -1551,6 +1556,17 @@ class CloudflareD1RegistrationCeremonyIntentStore {
       record: ceremony,
       expiresAtMs: ceremony.expiresAtMs,
     });
+  }
+
+  async takeCeremony(
+    registrationCeremonyId: string,
+  ): Promise<StoredWalletRegistrationCeremony | null> {
+    const id = toOptionalTrimmedString(registrationCeremonyId);
+    if (!id) return null;
+    const value = await this.getDel('ceremony', id);
+    const ceremony = parseD1StoredWalletRegistrationCeremony(value);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
   }
 
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
@@ -3020,6 +3036,25 @@ function unreachableAddAuthMethodAuthority(value: never): never {
 
 function unreachableRegistrationStartAuthority(value: never): never {
   throw new Error(`Unhandled registration start authority kind: ${String(value)}`);
+}
+
+function walletRegistrationFinalizeAuthMethodFromAuthority(
+  authority: RegistrationAuthority,
+): WalletRegistrationFinalizeAuthMethod {
+  switch (authority.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey',
+        credentialIdB64u: authority.credentialIdB64u,
+        credentialPublicKeyB64u: authority.credentialPublicKeyB64u,
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp',
+        registrationAuthorityId: authority.registrationAuthorityId,
+      };
+  }
+  return unreachableRegistrationAuthority(authority);
 }
 
 function walletAuthMethodRecordFromRegistrationAuthority(input: {
@@ -6146,6 +6181,118 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to respond to wallet registration ceremony',
+      };
+    }
+  }
+
+  async finalizeWalletRegistration(
+    request: FinalizeWalletRegistrationInput,
+  ): Promise<WalletRegistrationFinalizeResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      if (!store) return missingRegistrationCeremonyDoStore();
+      if (toOptionalTrimmedString(request.idempotencyKey)) {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 registration finalize idempotency replay is not implemented',
+        };
+      }
+      if (request.ed25519) {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 registration finalize currently supports ECDSA-only registration',
+        };
+      }
+      if (request.emailOtpEnrollment || request.emailOtpBackupAck) {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 registration finalize does not yet persist Email OTP enrollment material',
+        };
+      }
+      const ceremony = await store.getCeremony(request.registrationCeremonyId);
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      }
+      if (ceremony.intent.signerSelection.mode !== 'ecdsa_only') {
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'Cloudflare D1 registration finalize currently supports ECDSA-only signer selection',
+        };
+      }
+      if (!request.ecdsa) {
+        return { ok: false, code: 'invalid_body', message: 'missing ECDSA finalize input' };
+      }
+      if (ceremony.signerState.kind !== 'ecdsa_responded') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA HSS response is required before finalize',
+        };
+      }
+      const bootstrap = ceremony.signerState.responded.bootstrap;
+      const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
+      if (expectedKeyHandles.some((keyHandle) => keyHandle !== bootstrap.keyHandle)) {
+        return {
+          ok: false,
+          code: 'key_handle_mismatch',
+          message: 'ECDSA finalize expected key handle mismatch',
+        };
+      }
+      const walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
+        bootstrap,
+        chainTargets: ceremony.signerState.chainTargets,
+        errorContext: 'ECDSA registration finalize',
+      });
+      if (!walletKeyResult.ok) return walletKeyResult;
+
+      const now = Date.now();
+      const wallet = buildD1WalletRecord({
+        walletId: ceremony.intent.walletId,
+        rpId: ceremony.intent.rpId,
+        now,
+      });
+      const walletSigners = buildD1WalletEcdsaSignerRecords({
+        walletId: ceremony.intent.walletId,
+        walletKeys: walletKeyResult.walletKeys,
+        now,
+      });
+      const walletStore = this.getWalletStore();
+      await walletStore.putSubject(wallet);
+      await walletStore.putSigners(walletSigners);
+      await this.persistAddAuthMethodAuthority({
+        authority: ceremony.authority,
+        now,
+      });
+
+      const consumed = await store.takeCeremony(ceremony.registrationCeremonyId);
+      if (!consumed) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      }
+      if (consumed.signerState.kind !== 'ecdsa_responded') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA HSS response is required before finalize',
+        };
+      }
+      return {
+        ok: true,
+        walletId: ceremony.intent.walletId,
+        rpId: ceremony.intent.rpId,
+        authMethod: walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority),
+        ecdsa: {
+          walletKeys: walletKeyResult.walletKeys,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to finalize wallet registration ceremony',
       };
     }
   }
@@ -13808,6 +13955,7 @@ export function createCloudflareD1RelayAuthService(
   service.createRegistrationIntent = metadata.createRegistrationIntent.bind(metadata);
   service.startWalletRegistration = metadata.startWalletRegistration.bind(metadata);
   service.respondWalletRegistrationHss = metadata.respondWalletRegistrationHss.bind(metadata);
+  service.finalizeWalletRegistration = metadata.finalizeWalletRegistration.bind(metadata);
   service.createAddSignerIntent = metadata.createAddSignerIntent.bind(metadata);
   service.startWalletAddSigner = metadata.startWalletAddSigner.bind(metadata);
   service.respondWalletAddSignerHss = metadata.respondWalletAddSignerHss.bind(metadata);
