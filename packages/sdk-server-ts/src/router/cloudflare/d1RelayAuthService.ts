@@ -1,6 +1,7 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseGoogleProviderSubject,
   parseOrgId,
@@ -323,6 +324,12 @@ type CreateWebAuthnLoginOptionsInput = Parameters<
 type CreateWebAuthnLoginOptionsResult = Awaited<
   ReturnType<CloudflareRelayAuthService['createWebAuthnLoginOptions']>
 >;
+type CreateWebAuthnSyncAccountOptionsInput = Parameters<
+  CloudflareRelayAuthService['createWebAuthnSyncAccountOptions']
+>[0];
+type CreateWebAuthnSyncAccountOptionsResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['createWebAuthnSyncAccountOptions']>
+>;
 type ListNearPublicKeysInput = Parameters<
   CloudflareRelayAuthService['listNearPublicKeysForUser']
 >[0];
@@ -454,10 +461,20 @@ type WebAuthnCredentialBindingRecord = {
   readonly rpId: string;
   readonly credentialIdB64u: string;
   readonly userId: string;
+  readonly nearAccountId?: string;
+  readonly nearEd25519SigningKeyId?: string;
   readonly signerSlot: number;
   readonly publicKey?: string;
   readonly createdAtMs?: number;
   readonly updatedAtMs?: number;
+};
+
+type WebAuthnSyncWalletBinding = {
+  readonly walletId: string;
+  readonly nearAccountId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly rpId: string;
+  readonly signerSlot: number;
 };
 
 type WebAuthnLoginChallengeRecord = {
@@ -469,6 +486,18 @@ type WebAuthnLoginChallengeRecord = {
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
 };
+
+type WebAuthnSyncChallengeRecord = {
+  readonly version: 'webauthn_sync_challenge_v1';
+  readonly challengeId: string;
+  readonly rpId: string;
+  readonly expectedUserId?: string;
+  readonly challengeB64u: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+type WebAuthnChallengeKind = 'login' | 'sync';
 
 type NearPublicKeyRecord = {
   readonly publicKey: string;
@@ -2551,6 +2580,16 @@ function codedError(code: string, message: string): Error & { code: string } {
   return error;
 }
 
+function parseBoundaryWalletIdForD1(input: unknown): string | null {
+  const value = toOptionalTrimmedString(input);
+  if (!value) return null;
+  try {
+    return String(walletIdFromString(value));
+  } catch {
+    return null;
+  }
+}
+
 function appSessionRecord(input: {
   readonly userId: string;
   readonly appSessionVersion: string;
@@ -2578,10 +2617,25 @@ function parseWebAuthnBinding(row: D1RecordJsonRow): WebAuthnCredentialBindingRe
     rpId,
     credentialIdB64u,
     userId,
+    nearAccountId: toOptionalTrimmedString(record.nearAccountId),
+    nearEd25519SigningKeyId: toOptionalTrimmedString(record.nearEd25519SigningKeyId),
     signerSlot,
     publicKey: toOptionalTrimmedString(record.publicKey),
     createdAtMs: optionalNonNegativeInteger(record.createdAtMs),
     updatedAtMs: optionalNonNegativeInteger(record.updatedAtMs),
+  };
+}
+
+function webAuthnSyncWalletBindingFromCredentialBinding(
+  binding: WebAuthnCredentialBindingRecord,
+): WebAuthnSyncWalletBinding | null {
+  if (!binding.nearAccountId || !binding.nearEd25519SigningKeyId) return null;
+  return {
+    walletId: binding.userId,
+    nearAccountId: binding.nearAccountId,
+    nearEd25519SigningKeyId: binding.nearEd25519SigningKeyId,
+    rpId: binding.rpId,
+    signerSlot: binding.signerSlot,
   };
 }
 
@@ -4610,33 +4664,13 @@ class CloudflareD1RelayAuthMetadataService {
         expiresAtMs,
       };
 
-      await this.scopePrepare(
-        `INSERT INTO signer_webauthn_challenges (
-          namespace,
-          org_id,
-          project_id,
-          env_id,
-          challenge_id,
-          challenge_kind,
-          record_json,
-          created_at_ms,
-          expires_at_ms
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (namespace, org_id, project_id, env_id, challenge_id)
-        DO UPDATE SET
-          challenge_kind = EXCLUDED.challenge_kind,
-          record_json = EXCLUDED.record_json,
-          created_at_ms = EXCLUDED.created_at_ms,
-          expires_at_ms = EXCLUDED.expires_at_ms`,
-        [
-          challengeId,
-          'login',
-          JSON.stringify(record),
-          createdAtMs,
-          expiresAtMs,
-        ],
-      ).run();
+      await this.writeWebAuthnChallenge({
+        challengeId,
+        challengeKind: 'login',
+        record,
+        createdAtMs,
+        expiresAtMs,
+      });
 
       return { ok: true, challengeId, challengeB64u, expiresAtMs };
     } catch (error: unknown) {
@@ -4644,6 +4678,80 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to create login options',
+      };
+    }
+  }
+
+  async createWebAuthnSyncAccountOptions(
+    input: CreateWebAuthnSyncAccountOptionsInput,
+  ): Promise<CreateWebAuthnSyncAccountOptionsResult> {
+    try {
+      const rpId = toOptionalTrimmedString(input.rp_id);
+      if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rp_id' };
+
+      const expectedUserIdRaw = toOptionalTrimmedString(input.account_id);
+      const expectedUserId = expectedUserIdRaw
+        ? parseBoundaryWalletIdForD1(expectedUserIdRaw)
+        : null;
+      if (expectedUserIdRaw && !expectedUserId) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid wallet account_id' };
+      }
+
+      const createdAtMs = Date.now();
+      const expiresAtMs = createdAtMs + webAuthnLoginChallengeTtlMs(input.ttlMs ?? input.ttl_ms);
+      const challengeId = secureRandomBase64Url(16, 'WebAuthn sync challenge id');
+      const challengeB64u = secureRandomBase64Url(32, 'WebAuthn sync challenge');
+      let credentialIds: string[] | undefined;
+      let walletBinding: WebAuthnSyncWalletBinding | undefined;
+
+      if (expectedUserId) {
+        credentialIds = [];
+        const seenCredentialIds = new Set<string>();
+        const rows = await this.readWebAuthnBindingRows({ userId: expectedUserId, rpId });
+        for (const row of rows) {
+          const binding = parseWebAuthnBinding(row);
+          if (!binding) continue;
+          const credentialId = toOptionalTrimmedString(binding.credentialIdB64u);
+          if (credentialId && !seenCredentialIds.has(credentialId)) {
+            seenCredentialIds.add(credentialId);
+            credentialIds.push(credentialId);
+          }
+          if (!walletBinding) {
+            walletBinding = webAuthnSyncWalletBindingFromCredentialBinding(binding) || undefined;
+          }
+        }
+      }
+
+      const record: WebAuthnSyncChallengeRecord = {
+        version: 'webauthn_sync_challenge_v1',
+        challengeId,
+        rpId,
+        ...(expectedUserId ? { expectedUserId } : {}),
+        challengeB64u,
+        createdAtMs,
+        expiresAtMs,
+      };
+      await this.writeWebAuthnChallenge({
+        challengeId,
+        challengeKind: 'sync',
+        record,
+        createdAtMs,
+        expiresAtMs,
+      });
+
+      return {
+        ok: true,
+        challengeId,
+        challengeB64u,
+        ...(credentialIds ? { credentialIds } : {}),
+        ...(walletBinding ? { walletBinding } : {}),
+        expiresAtMs,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to create sync account options',
       };
     }
   }
@@ -5593,6 +5701,42 @@ class CloudflareD1RelayAuthMetadataService {
       this.options.envId,
       ...values,
     ];
+  }
+
+  private async writeWebAuthnChallenge(input: {
+    readonly challengeId: string;
+    readonly challengeKind: WebAuthnChallengeKind;
+    readonly record: WebAuthnLoginChallengeRecord | WebAuthnSyncChallengeRecord;
+    readonly createdAtMs: number;
+    readonly expiresAtMs: number;
+  }): Promise<void> {
+    await this.scopePrepare(
+      `INSERT INTO signer_webauthn_challenges (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        challenge_id,
+        challenge_kind,
+        record_json,
+        created_at_ms,
+        expires_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (namespace, org_id, project_id, env_id, challenge_id)
+      DO UPDATE SET
+        challenge_kind = EXCLUDED.challenge_kind,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = EXCLUDED.created_at_ms,
+        expires_at_ms = EXCLUDED.expires_at_ms`,
+      [
+        input.challengeId,
+        input.challengeKind,
+        JSON.stringify(input.record),
+        input.createdAtMs,
+        input.expiresAtMs,
+      ],
+    ).run();
   }
 
   private async readIdentityLinkBySubject(subject: string): Promise<D1IdentityRow | null> {
@@ -6925,6 +7069,8 @@ export function createCloudflareD1RelayAuthService(
   service.listWebAuthnAuthenticatorsForUser =
     metadata.listWebAuthnAuthenticatorsForUser.bind(metadata);
   service.createWebAuthnLoginOptions = metadata.createWebAuthnLoginOptions.bind(metadata);
+  service.createWebAuthnSyncAccountOptions =
+    metadata.createWebAuthnSyncAccountOptions.bind(metadata);
   service.listNearPublicKeysForUser = metadata.listNearPublicKeysForUser.bind(metadata);
   service.getGoogleOidcPublicConfig = metadata.getGoogleOidcPublicConfig.bind(metadata);
   service.verifyGoogleLogin = metadata.verifyGoogleLogin.bind(metadata);

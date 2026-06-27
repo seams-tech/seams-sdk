@@ -1237,6 +1237,53 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       code: 'invalid_body',
       message: 'Invalid userId',
     });
+    const syncOptions = await service.createWebAuthnSyncAccountOptions({
+      rp_id: 'example.com',
+      account_id: scope.userId,
+      ttl_ms: 60_000,
+    });
+    expect(syncOptions.ok).toBe(true);
+    if (!syncOptions.ok) throw new Error(syncOptions.message);
+    const syncChallengeId = String(syncOptions.challengeId || '');
+    expect(syncChallengeId).not.toBe('');
+    expect(syncOptions.challengeB64u).toEqual(expect.any(String));
+    expect(syncOptions.credentialIds).toEqual(['credential-a']);
+    expect(syncOptions.walletBinding).toEqual({
+      walletId: scope.userId,
+      nearAccountId: 'near.testnet',
+      nearEd25519SigningKeyId: 'ed25519:key',
+      rpId: 'example.com',
+      signerSlot: 2,
+    });
+    const syncChallengeRow = await readWebAuthnChallengeRow({
+      database,
+      ...scope,
+      challengeId: syncChallengeId,
+    });
+    expect(syncChallengeRow?.challenge_kind).toBe('sync');
+    expect(syncChallengeRow?.expires_at_ms).toBe(syncOptions.expiresAtMs);
+    const rawSyncChallengeRecord = syncChallengeRow?.record_json;
+    if (typeof rawSyncChallengeRecord !== 'string') {
+      throw new Error('Expected WebAuthn sync challenge record_json');
+    }
+    const syncChallengeRecord: unknown = JSON.parse(rawSyncChallengeRecord);
+    expect(syncChallengeRecord).toMatchObject({
+      version: 'webauthn_sync_challenge_v1',
+      challengeId: syncChallengeId,
+      rpId: 'example.com',
+      expectedUserId: scope.userId,
+      challengeB64u: syncOptions.challengeB64u,
+      expiresAtMs: syncOptions.expiresAtMs,
+    });
+    await expect(
+      service.createWebAuthnSyncAccountOptions({
+        account_id: scope.userId,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'Missing rp_id',
+    });
     await expect(service.listNearPublicKeysForUser({ userId: scope.userId })).resolves.toEqual({
       ok: true,
       keys: [
