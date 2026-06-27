@@ -114,7 +114,7 @@ Authoritative Cloudflare references:
 
 ## Phased First-Cut Plan
 
-This six-phase sequence is the authoritative execution path for refactor 82. The
+This seven-phase sequence is the authoritative execution path for refactor 82. The
 remaining sections define the invariants and detailed ownership model for those
 phases.
 
@@ -130,6 +130,21 @@ phases.
 - [ ] Phase 6: Deploy D1/DO staging only after local D1 smoke, Durable Object
   tests, sponsored gas reconciliation checks, signer custody checks, and restore
   drills pass.
+- [ ] Phase 7: Delete legacy staging code, stale compatibility paths, temporary
+  refactor scaffolding, and obsolete tests after the D1/DO staging path is proven.
+
+Operating rule for Phases 3-6:
+
+- [ ] Each implementation phase includes a deletion pass before the phase is
+  marked complete.
+- [ ] New D1/DO adapters replace the staging paths they supersede during the same
+  phase unless a concrete staging blocker is recorded in the phase notes.
+- [ ] Compatibility code lives only at request and persistence boundaries, with a
+  named deletion condition.
+- [ ] Source guards prevent old paths from returning and are reviewed for deletion
+  once the D1/DO architecture is stable.
+- [ ] Phase completion records before/after line counts. Phase 7 targets a
+  net-negative or near-neutral non-doc line count after staging works.
 
 Definition of done for the first cut:
 
@@ -145,6 +160,8 @@ Definition of done for the first cut:
   storage without Docker Postgres for staging-required flows.
 - [ ] The Postgres escape hatch remains a documented full-family contract with
   a migration playbook and readiness bar.
+- [ ] Legacy staging/runtime paths introduced or preserved during the migration
+  are deleted, with a before/after line-count report.
 
 Deferred until a concrete trigger:
 
@@ -951,6 +968,9 @@ Completed:
   full-family Postgres adapter surface, not the D1/DO staging Worker helper.
 - [x] Cloudflare signer routes are typed against `CloudflareRelayAuthService`.
 - [x] Signer metadata methods live in Worker-safe D1 leaf modules.
+- [x] WebAuthn login and sync verification run through the D1 relay auth service,
+  including one-time challenge consumption and atomic authenticator-counter
+  updates.
 - [x] Device linking remains deferred to refactor 84 while the feature remains
   disabled at the route and service layers.
 - [x] Threshold public-key metadata D1 tables remain deferred until a dashboard
@@ -960,8 +980,7 @@ Remaining:
 
 - [ ] Finish the staging-required signer auth methods as separate D1 or Durable
   Object slices: remaining Email OTP registration attempt lifecycle methods,
-  WebAuthn verification, wallet registration, signed delegates, and threshold
-  signing admission.
+  wallet registration, signed delegates, and threshold signing admission.
 - [ ] Keep the signer Email OTP D1 adapter slice covered by migration, local
   smoke, and contract tests as each remaining method lands.
 - [ ] Add contract tests for any missing Durable Object staging behavior found
@@ -1066,6 +1085,41 @@ Exit criteria:
 - [ ] Dashboard reconciliation, sponsored gas settlement, signer custody, and
   restore drills pass before production planning begins.
 
+### Phase 7: Delete Legacy Migration Scaffolding
+
+Status: pending.
+
+Work:
+
+- [ ] Build a deletion inventory from `git diff --stat`, `git diff --name-only`,
+  `rg "POSTGRES|Postgres|postgres|legacy|compat|TODO|temporary"`, and the
+  Refactor 82 guard allowlist.
+- [ ] Remove legacy staging/runtime code that exists only to keep the pre-D1
+  workflow alive: stale Worker env fields, unused compatibility adapters,
+  duplicate in-memory/Postgres-only request paths, temporary shims, and route
+  wiring that cannot run in the D1/DO staging topology.
+- [ ] Revisit the Postgres escape hatch. Keep only a minimal typed contract when
+  there is an active product requirement for a full-family backend. Delete the
+  implementation, exports, docs, tests, and fixtures if there is no concrete
+  trigger.
+- [ ] Delete or rewrite tests, fixtures, mocks, docs, and source guards that
+  encode obsolete Postgres/default-runtime behavior. Keep compatibility coverage
+  only at explicit request or persistence boundaries that are still intentional.
+- [ ] Collapse duplicate D1/local/dev helpers that were added during migration
+  once the final Cloudflare Worker entrypoint is authoritative.
+- [ ] Record the cleanup result in this document: files removed, net lines
+  deleted, remaining intentional non-D1 code, and why each survivor still exists.
+
+Exit criteria:
+
+- [ ] `rg "POSTGRES_URL|CONSOLE_POSTGRES_URL|BILLING_POSTGRES_URL"` finds only
+  intentionally retained Node/Postgres tooling or no matches.
+- [ ] Cloudflare runtime and staging-required code paths have no legacy fallback
+  branches.
+- [ ] The Refactor 82 guard allowlist is smaller after cleanup, and any remaining
+  allowlist entry has an owner and deletion condition.
+- [ ] The final cleanup pass removes substantially more code than it adds.
+
 ## Validation
 
 Minimum checks before first D1 staging deploy:
@@ -1115,6 +1169,8 @@ Proceed in this order:
 - [ ] Phase 6: Deploy D1/DO staging only after local D1 smoke, Durable Object
   coordination tests, sponsored gas reconciliation checks, signer custody
   checks, Time Travel bookmark capture, and R2 export/restore drills pass.
+- [ ] Phase 7: Delete legacy migration scaffolding, stale compatibility paths,
+  obsolete tests, and temporary guards after D1/DO staging is proven.
 
 Execution rule: no half-Postgres staging. If D1/DO is the target, staging starts
 life on D1/DO.
