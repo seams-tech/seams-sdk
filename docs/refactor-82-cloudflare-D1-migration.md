@@ -97,179 +97,48 @@ Authoritative Cloudflare references:
 - Cloudflare Secrets Store is the hosted signer KEK source. External KMS/HSM
   support stays behind the signer KEK provider interface.
 
-## Current Implementation Status
+## Current Baseline
 
-Completed so far:
+Refactor 82 is a D1/DO-first staging migration. It does not add a dual-backend
+runtime. The current codebase already has the important boundaries in place:
 
-- Added tenant storage route types that make D1/DO and Postgres full-family
-  choices.
-- Added D1 adapters for org/project/environment records, account profiles,
-  team RBAC, policies, wallet index, API keys, approvals, key exports, audit,
-  bootstrap tokens, billing account/ledger settlement, prepaid billing
-  reservations, sponsorship spend caps, sponsored call records, runtime
-  snapshot storage/outbox, webhook endpoint/delivery persistence, compact
-  observability incident/request-rollup storage, signer wallet metadata/auth
-  method storage, signer WebAuthn storage, signer identity/app-session storage,
-  signer recovery session/execution storage, signer NEAR public key storage,
-  signer email recovery preparation storage, signer Email OTP storage, and
+- `TenantStorageRoute` models D1/DO and Postgres as mutually exclusive backend
+  families.
+- Cloudflare Worker-facing routes use D1/DO leaf modules and are guarded by a
+  runtime import scan that rejects Postgres storage, mixed console barrels, and
+  the session-seal index barrel.
+- Local Wrangler/Miniflare D1 is configured for `CONSOLE_DB`, `SIGNER_DB`, and
+  `THRESHOLD_STORE`; `/readyz` verifies 40 console tables, 21 signer tables,
+  and a Durable Object normal-signing admission operation.
+- Console D1 adapters cover the first staging dashboard surface: org, project,
+  environment, account/profile, team RBAC, policies, API keys, wallet index,
+  approvals, key exports, audit, bootstrap tokens, billing, prepaid
+  reservations, sponsorship spend caps, sponsored-call records, runtime
+  snapshots, webhooks, compact observability, Stripe credit purchases, monthly
+  usage statements, and billing finalization.
+- Signer D1 adapters cover wallet metadata/auth methods, WebAuthn storage,
+  identity links, app-session versions, recovery sessions/executions, NEAR
+  public keys, email recovery preparations, Email OTP storage, Email OTP login
+  challenge/grant/rate-limit flow, Email OTP unlock challenge/proof flow, and
   sealed signing-root secret shares.
-- Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
-  secrets, and external KMS/HSM clients.
-- Wired D1 org/project/env, Team RBAC, account/profile, policies, API keys,
-  wallet index, approvals, key exports, audit, bootstrap tokens, billing, prepaid
-  reservations, sponsorship spend caps, sponsored calls, runtime snapshots, and
-  observability read/ingestion services, webhook retry dispatch, and signer
-  secret storage into the Cloudflare service bundle. Webhooks are wired when a
-  webhook signing-secret cipher is configured.
-- Added local Wrangler/Miniflare D1 configuration, append-only migrations,
-  smoke Worker, and package scripts.
-- Verified local D1 migrations and `/readyz` smoke against Wrangler.
-- Wired the local D1/DO smoke Worker `/readyz` path to verify the required
-  local D1 table sets, currently 40 console tables and 21 signer tables, and
-  exercise the Durable Object normal-signing admission operation without
-  importing Postgres-backed modules.
-- Wired the local Wrangler Worker `/console/*` path to the real Cloudflare
-  console router backed by the D1/DO service bundle, with local-only static
-  console auth and `/console/readyz` coverage.
-- Wired the local Wrangler Worker `/relay/*` path to D1 relay bundle smoke
-  coverage for the simplified sponsored EVM gas route. The first local route is
-  `/relay/sponsorships/evm/call`; execution and threshold signing remain
-  disabled until their dedicated Worker-safe slices land.
-- Split the sponsored EVM route contract from the current Node/WASM EVM executor
-  resolver. Node/Express supplies the existing resolver explicitly; Cloudflare
-  D1/DO routes stay import-clean and require a Worker-safe resolver before
-  execution is enabled.
-- Added a Worker-safe sponsored EVM executor resolver backed by the generated
-  `eth_signer` WASM loader URL path. Local D1 relay now uses the real
-  Cloudflare relay router with D1-backed relay storage and supplies the Worker
-  resolver plus `SPONSORED_EVM_EXECUTORS_JSON` config when present.
-- Added an explicit `CloudflareRelayAuthService` route port for the Cloudflare
-  router, Cloudflare email handler, self-hosted signing Worker, Email OTP route
-  helpers, wallet unlock helpers, recovery tracking, wallet registration,
-  signed delegates, and the NEAR sponsored-delegate executor. Worker-facing
-  route factories now depend on the signer method surface they need, while the
-  concrete mixed `AuthService` class stays on Node/Express paths until its
-  D1/DO-backed replacement is built.
-- Added an explicit disabled `CloudflareRelayAuthService` implementation for
-  the local D1 relay Worker. It lets local sponsored-gas development use the
-  real Cloudflare relay router while signer routes remain unavailable until the
-  D1/DO signer service implementation replaces it.
-- Added the first D1-backed `CloudflareRelayAuthService` signer metadata slice
-  for local Cloudflare relay development. It reads identity links, app-session
-  versions, WebAuthn authenticator inventory, and NEAR public-key inventory
-  directly from tenant-scoped `SIGNER_DB` tables without importing mixed
-  Postgres-capable signer store modules. Protocol, threshold, and custody
-  methods still fail closed until their D1/DO implementations land.
-- Added D1-backed identity link/unlink mutations behind the same Worker-safe
-  relay auth port. Link conflicts, sole-identity moves, and last-identity unlink
-  rejection are enforced with conditional SQLite/D1 mutations, then mapped back
-  to the existing domain result shapes.
-- Added D1-backed non-Google OIDC wallet resolution behind the relay auth port.
-  The resolver checks `wallet:{providerSubject}` identity links first, then uses
-  the Worker-safe hosted account derivation helper with `ACCOUNT_ID_DERIVATION_SECRET`
-  and the scoped project/environment values.
-- Added read-only D1-backed Email OTP enrollment lookup behind the relay auth
-  port. `readEmailOtpEnrollment` and `readActiveEmailOtpEnrollment` now parse
-  tenant-scoped `signer_email_otp_wallet_enrollments` records at the D1 boundary;
-  OTP challenge, verification, grant, and recovery mutations still fail closed.
-- Added D1-backed Email OTP strong-auth freshness checks. The relay auth port now
-  reads and upserts `signer_email_otp_auth_states` for
-  `isEmailOtpStrongAuthRequired` and `markEmailOtpStrongAuthSatisfied`.
-- Added D1-backed Email OTP recovery-code status reads. The relay auth port now
-  parses `signer_email_otp_recovery_wrapped_enrollment_escrows`, verifies each
-  escrow matches the active enrollment, and returns active/consumed/revoked
-  recovery-code counts.
-- Added D1-backed Email OTP login challenge issuance, local memory dev outbox
-  reads, verification, grant minting, grant consumption, and fixed-window rate
-  limiting for challenge, verify, and grant scopes. Challenge verification and
-  grant consumption both use tenant-scoped one-time D1 mutations.
-- Added D1-backed Email OTP unlock challenge issuance and secp256k1 unlock-proof
-  verification. Unlock challenges use one-time tenant-scoped D1 consumption and
-  successful proof verification updates Email OTP auth-state login freshness.
-- Added targeted SQLite-backed D1 adapter contract tests for
-  org/project/environment tenant scoping, account profile and organization
-  resolution, team RBAC owner/member lifecycle invariants, policy default
-  bootstrap/versioning/assignment resolution, API key auth and tenant scoping,
-  wallet index filters/search/pagination and tenant scoping, approval MFA and
-  conditional-decision transitions, key export MFA approval thresholds,
-  duplicate-approver rejection, tenant scoping, webhook sealed-secret storage,
-  category dispatch, dead-letter creation, replay resolution, retry claim
-  leasing, audit
-  event/evidence tenant scoping, bootstrap token redemption atomicity, prepaid
-  reservation atomicity, sponsorship spend-cap atomic
-  reservation/settlement/release, sponsored-call idempotency, atomic sponsored
-  gas settlement, observability event dedupe/redaction, compact request
-  rollups, observability tenant scoping, signer wallet metadata/auth-method
-  tenant scoping, signer WebAuthn tenant scoping and one-time challenge
-  consumption, signer identity/app-session tenant scoping, signer recovery
-  session/execution tenant scoping, recovery-session expiry reads,
-  recovery-execution status queries, signer NEAR public key tenant scoping, and
-  signer email recovery preparation tenant scoping, expiry, deletion, signer
-  Email OTP tenant scoping, one-time grant/unlock consumption,
-  registration-attempt lifecycle queries, and signer secret tenant scoping.
-- Completed the first Postgres-coupling inventory and ownership matrix.
-- Added D1 runtime snapshot outbox lease-race coverage.
-- Added Durable Object ECDSA presignature reservation and pool-fill CAS
-  coverage.
-- Added Cloudflare Durable Object normal-signing admission storage and contract
-  coverage for atomic quota reservation, project-policy decisions, and abuse
-  decisions.
-- Wired the Cloudflare D1/DO service bundle to expose relay router options with
-  the Durable Object normal-signing admission adapter selected by default.
-- Expanded the Cloudflare D1/DO service bundle relay options to use the same D1
-  services for API-key auth, publishable-key auth, usage metering, bootstrap
-  grants, signed delegate billing/ledger hooks, sponsorship reservations/spend
-  caps, sponsored EVM call billing/ledger hooks, wallet reads, org/project/env
-  lookup, runtime snapshots, and observability ingestion.
-- Split the D1 signing-root secret store and Durable Object normal-signing
-  admission adapter into Postgres-free leaf modules. The Cloudflare D1 service
-  bundle imports those leaves directly, so its D1/DO graph no longer pulls the
-  mixed Postgres store modules for those paths.
-- Added D1 sponsored gas settlement finalization for prepaid EVM calls. The
-  D1 path batches reservation settlement, billing ledger debit, and
-  sponsored-call record insertion, and requires the sponsored-call idempotency
-  key to prevent retry debits.
-- Removed the live Postgres branch from the shared sponsored execution recorder
-  so Cloudflare sponsored EVM and signed-delegate route imports do not pull
-  Postgres helpers while D1/DO staging is the target backend family.
-- Switched the Cloudflare cron helper from Postgres URLs, advisory locks, and
-  Postgres default runners to D1 database bindings and D1 default runners.
-- Pointed Cloudflare cron imports at D1 leaf modules and generic type leaves so
-  the cron Worker graph does not link mixed Postgres console barrels.
-- Removed Postgres adapter exports from the Worker-facing
-  `cloudflare-adaptor` barrel and filled in existing D1 exports for prepaid
-  reservations, sponsored-call records, and webhook retry dispatch.
-- Pointed the Cloudflare console router, Cloudflare observability route helper,
-  API credential helper, and app-session auth helper at console leaf modules so
-  Worker request paths do not import mixed console barrels at runtime.
-- Pointed Cloudflare adaptor runtime exports, sponsored settlement helpers,
-  platform billing helpers, API wallet helpers, sponsorship billing events, and
-  runtime snapshot payload helpers at leaf modules. The non-Express router
-  runtime graph now has no console barrel imports or re-exports.
-- Pointed Cloudflare router session-seal handling and route definition path
-  builders at session-seal transport leaves so Worker routes do not link the
-  Postgres idempotency backend exports from the session-seal barrel.
-- Added a Cloudflare runtime dependency guard that walks runtime imports from
-  the Worker entrypoints and fails on Postgres storage, console Postgres
-  adapters, mixed console barrels, and the session-seal index barrel.
-- Split the remaining transitive Worker-path imports in onboarding, gas
-  sponsorship, prepaid balance, spend-cap enforcement, webhook observability,
-  and observability ingestion so the guard passes against the current graph.
-- Added D1 Stripe credit purchase persistence, purchase receipt documents,
-  receipt line items, and webhook event idempotency.
-- Added persisted D1 monthly usage statements, MAW debit reconciliation, and
-  the D1 monthly billing finalization runner.
+- Durable Objects cover registration ceremonies, signing admission, signing
+  budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
+  signing-root coordination where serialized mutation is the property.
+- The signer KEK boundary supports Cloudflare Secrets Store, Wrangler secrets,
+  and external KMS/HSM clients.
 
 Remaining before D1 staging:
 
-- Finish only the console and signer D1 adapters required by the first staging
-  dashboard, signer, sponsored gas, billing, and reconciliation flows.
+- Finish only the `CloudflareRelayAuthService` signer methods required by the
+  first staging signer, sponsored gas, billing, and reconciliation flows.
+- Keep device linking deferred to refactor 84 while the route returns 410.
+- Keep threshold public-key metadata out of D1 unless a dashboard or
+  reconciliation query requires it.
 - Keep local Wrangler/Miniflare smoke coverage in lockstep with every required
-  D1 table, and add only the remaining coordination tests required by staging
-  signer flows.
-- Add staging import, restore, and R2 export drills.
-- Keep the Postgres escape hatch as a typed full-family contract until a tenant
-  or deployment actually needs Postgres.
+  D1 table and Durable Object path.
+- Add staging import, restore, Time Travel bookmark, and weekly R2 export drills.
+- Keep Postgres as a typed full-family escape hatch contract until a tenant or
+  deployment actually needs it.
 
 ## Scope
 
@@ -998,6 +867,11 @@ Work:
 - Keep signer metadata methods in Worker-safe D1 leaf modules. Do not import
   mixed core signer store modules from Cloudflare routes because those modules
   still include Postgres runtime imports.
+- Finish the staging-required signer auth methods as separate conditional-D1 or
+  Durable Object slices: provider email delivery, Email OTP registration
+  attempts, device recovery, recovery-key consumption, recovery-code rotation,
+  WebAuthn verification, wallet registration, recovery execution, signed
+  delegates, and threshold signing admission.
 
 Exit criteria:
 
@@ -1016,68 +890,22 @@ Work:
 
 - Keep the default SDK local console/signer path on Wrangler/Miniflare D1 and
   local Durable Object storage for staging-required flows.
-- Keep `/readyz` validating the required local D1 table sets and Durable Object
-  normal-signing admission operation.
-- Keep Docker Postgres available only for legacy tests and unfinished non-staging
-  paths while those paths are being removed from the default workflow.
 - Use `pnpm --dir packages/sdk-server-ts run d1:local:prepare` for local
   migrations plus table smoke, and
   `pnpm --dir packages/sdk-server-ts run d1:local:dev` for Wrangler dev.
 - Use `GET /readyz` on the local Worker as the exact readiness gate. It must
   report `backend: "cloudflare_d1_do"`, 40 console tables, 21 signer tables,
   and a configured Durable Object admission reservation.
-- Use `/console/*` on the same local Worker for real D1-backed console route
-  development. Local console auth reads optional `X-Console-*` headers and falls
-  back to deterministic local claims.
-- Use `/relay/*` on the same local Worker for relay smoke development. The
-  local relay mount is the real Cloudflare relay router with D1-backed relay
-  storage and the disabled signer service. The first exercised route is
-  `/relay/sponsorships/evm/call`, which proves the D1 relay service bundle can
-  be constructed under Wrangler without importing the mixed AuthService or EVM
-  executor graph.
-- Keep local EVM execution on `/relay/sponsorships/evm/call` behind
-  `SPONSORED_EVM_EXECUTORS_JSON`. The route contract accepts an explicit
-  resolver, Node/Express supplies the existing Node resolver, and the local D1
-  Worker supplies the Worker-safe resolver.
-- Keep threshold signing and signer routes disabled on the local relay mount
-  until the dedicated D1/DO signer service implementation is complete. This
-  keeps mixed Postgres-backed AuthService modules out of the Cloudflare Worker
-  bundle.
-- Add the D1/DO implementation of `CloudflareRelayAuthService`. It must build
-  signer stores from `SIGNER_DB` and signer coordination from Durable Objects,
-  then pass that service to signer routes without importing mixed Postgres
-  modules from Worker-facing files.
-- The first D1-backed signer metadata methods are in place for identity lists,
-  app-session version create/rotate/validate, WebAuthn authenticator inventory,
-  and NEAR public-key inventory. Continue porting the remaining mutating auth,
-  Email OTP registration/recovery, WebAuthn verification, wallet registration,
-  recovery, signed delegate, and threshold methods behind the same port.
-- D1-backed identity link/unlink is also in place. Continue using conditional
-  D1 mutations for signer state transitions that need invariants enforced by the
-  database rather than relying on route-level read/modify/write checks.
-- D1-backed non-Google OIDC wallet resolution is in place. Keep derivation
-  secrets outside D1: local Wrangler uses a dummy `[vars]` value, while staging
-  and production should provide `ACCOUNT_ID_DERIVATION_SECRET` through Cloudflare
-  secrets or the configured KMS adapter.
-- Read-only Email OTP enrollment lookup, recovery escrow status reads, and
-  login challenge issuance, local memory dev outbox reads, verification, grant
-  minting, one-time grant consumption, and D1 fixed-window rate limiting are in
-  place for D1. Email OTP unlock challenge issuance and secp256k1 unlock-proof
-  verification are also in place. Continue porting provider email delivery,
-  Email OTP registration-attempt lifecycle, device-recovery challenge
-  verification, recovery-key consumption, and recovery-code rotation as separate
-  conditional-D1 slices.
-- Email OTP strong-auth freshness is in place for D1 using an auth-state upsert
-  that preserves existing failure/login fields while updating
-  `lastStrongAuthAtMs`.
+- Use `/console/*` for real D1-backed console route development.
+- Use `/relay/*` for sponsored-gas relay smoke development, with local EVM
+  execution configured through `SPONSORED_EVM_EXECUTORS_JSON` when needed.
+- Keep signer routes fail-closed until their D1/DO `CloudflareRelayAuthService`
+  methods are implemented.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
-- The signer AuthService slice must cover wallet metadata/auth methods, WebAuthn,
-  identity/app-session versions, recovery sessions/executions, NEAR public keys,
-  email recovery preparations, Email OTP records, sealed signing-root shares,
-  and Durable Object coordination for registration ceremonies, session/budget
-  use, replay guards, presignature pools, and signing-root operations.
+- Keep Docker Postgres available only for legacy tests and unfinished
+  non-staging paths while those paths are removed from the default workflow.
 - Reset clean local state by deleting
   `packages/sdk-server-ts/.wrangler/state/seams-d1`; add a fixture seed/import
   command only after the staging fixture format is chosen.
@@ -1166,85 +994,22 @@ successful Durable Object normal-signing admission reservation.
 
 ## Immediate Next Steps
 
-Completed baseline:
-
-- The first Postgres-coupling inventory and ownership matrix exist.
-- The core D1 adapters for the first dashboard, billing, sponsored gas,
-  reconciliation, webhook, and signer metadata slices are implemented with local
-  migrations, smoke coverage, and focused adapter tests.
-- The storage route type already models D1/DO and Postgres as full-family
-  choices.
-- The Cloudflare D1 service bundle imports Postgres-free D1 signing-root and
-  Durable Object admission leaf modules.
-- The Worker-facing `cloudflare-adaptor` barrel exposes D1/DO and in-memory
-  test helpers without re-exporting Postgres adapters or mixed storage route
-  unions.
-- The Cloudflare console router and observability route helper import service,
-  request, error, type, and D1 leaves directly instead of mixed console barrels.
-- A runtime import scan over non-Express router modules reports no console
-  barrel imports or re-exports. Express remains the Node/Postgres-facing path.
-- `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` now enforces
-  the no-Postgres Worker runtime graph from the Cloudflare entrypoints.
-- The SDK local command path runs D1 migrations and table smoke for the
-  simplified D1/DO surface, and `/readyz` enforces 40 console tables, 21 signer
-  tables, and Durable Object admission readiness.
-- The same SDK local Worker serves `/console/*` through the D1-backed
-  Cloudflare console router, so console route development can use Wrangler D1
-  without Docker Postgres.
-- The same SDK local Worker serves `/relay/*` through the real sponsored EVM
-  route in the real Cloudflare relay router with D1-backed relay storage.
-  Without
-  `SPONSORED_EVM_EXECUTORS_JSON`, the route returns the expected disabled
-  response; with executor config, it uses the Worker-safe EVM resolver.
-- Cloudflare route factories and shared route helpers now depend on the
-  `CloudflareRelayAuthService` port instead of the concrete mixed
-  `AuthService` class. This is the boundary the D1/DO signer service
-  implementation must satisfy.
-- The local D1 relay Worker uses a disabled `CloudflareRelayAuthService` to
-  keep the real router mounted while signer protocol methods fail closed until
-  the D1/DO implementation lands.
-- The local D1 relay Worker now overlays D1-backed signer metadata methods on
-  that fail-closed service for identity lists, app-session versions, WebAuthn
-  inventory, and NEAR public-key inventory.
-- Identity link/unlink now uses the same D1 overlay and keeps conflict, move,
-  and last-identity semantics aligned with the current signer behavior.
-- Non-Google OIDC wallet resolution now uses the D1 identity overlay and hosted
-  account derivation. Google Email OTP session resolution remains fail-closed
-  until the Google registration-attempt and session-resolution contracts move
-  behind D1/DO.
-- Email OTP enrollment reads now use the D1 overlay.
-- Email OTP strong-auth freshness checks now use the D1 overlay and share the
-  same auth-state writer as OTP failure/lockout updates.
-- Email OTP recovery-code status now uses the D1 overlay. Recovery key
-  consumption and rotation remain fail-closed until their conditional-D1 mutation
-  contracts are implemented.
-- Email OTP login challenge issuance, local memory dev outbox reads,
-  verification, grant minting, one-time grant consumption, and D1 fixed-window
-  rate limiting now use the D1 overlay. Email OTP unlock challenge issuance and
-  secp256k1 unlock-proof verification also use the D1 overlay. Provider email
-  delivery, registration-attempt lifecycle, device recovery, recovery-key
-  consumption, and recovery-code rotation remain fail-closed until their
-  conditional-D1 contracts are implemented.
-
 Proceed in this order:
 
-1. Inventory any remaining Postgres coupling in `seams-signer` and
-   `seams-console` against the simplified staging scope.
-2. Freeze D1 schemas and Durable Object ownership boundaries only for the
-   staging-required dashboard, signer, sponsored gas, billing, and
-   reconciliation flows.
-3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
-   Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
-   dependency test.
-4. Add the D1/DO implementation of `CloudflareRelayAuthService`. The SDK
-   package path, console route path, sponsored-gas relay route, and route
-   service port already use Wrangler/Miniflare D1 and local Durable Object
-   storage.
-5. Port staging-required persistence tests to the D1/DO adapters and keep pure
-   unit tests on fakes where SQL or Durable Object semantics are irrelevant.
+1. Inventory only remaining Postgres coupling that is still on a
+   staging-required console, signer, sponsored gas, billing, or reconciliation
+   request path.
+2. Freeze D1 schemas and Durable Object ownership boundaries for those paths.
+3. Add the remaining D1/DO adapters behind existing domain-store ports, keeping
+   Worker imports on D1/DO leaf modules and the runtime dependency guard passing.
+4. Make local development run through Wrangler/Miniflare D1 and local Durable
+   Object storage by default. Docker Postgres stays outside the default D1/DO
+   staging workflow.
+5. Port staging-required persistence tests to D1/DO adapters and keep pure core
+   tests on fakes where SQL or Durable Object semantics are irrelevant.
 6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
-   tests, sponsored gas reconciliation checks, signer custody checks, and backup
-   drills pass.
+   tests, sponsored gas reconciliation checks, signer custody checks, Time
+   Travel bookmark capture, and R2 export/restore drills pass.
 
 Execution rule: no half-Postgres staging. If D1/DO is the target, staging starts
 life on D1/DO.
