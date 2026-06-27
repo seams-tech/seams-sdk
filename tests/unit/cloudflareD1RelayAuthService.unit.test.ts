@@ -391,6 +391,62 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       ok: true,
       subjects: ['google:alice'],
     });
+    await expect(
+      service.linkIdentity({ userId: 'wallet-b', subject: 'google:alice' }),
+    ).resolves.toMatchObject({ ok: false, code: 'already_linked' });
+    await expect(
+      service.linkIdentity({ userId: scope.userId, subject: 'google:carol' }),
+    ).resolves.toEqual({ ok: true });
+    await expect(service.listIdentities({ userId: scope.userId })).resolves.toEqual({
+      ok: true,
+      subjects: ['google:alice', 'google:carol'],
+    });
+    await expect(
+      service.unlinkIdentity({ userId: scope.userId, subject: 'google:alice' }),
+    ).resolves.toEqual({ ok: true });
+    await expect(service.listIdentities({ userId: scope.userId })).resolves.toEqual({
+      ok: true,
+      subjects: ['google:carol'],
+    });
+    await expect(
+      service.unlinkIdentity({ userId: scope.userId, subject: 'google:carol' }),
+    ).resolves.toMatchObject({ ok: false, code: 'cannot_unlink_last_identity' });
+    await insertIdentity({
+      database,
+      ...scope,
+      userId: 'wallet-solo',
+      subject: 'google:solo',
+    });
+    await expect(
+      service.linkIdentity({
+        userId: scope.userId,
+        subject: 'google:solo',
+        allowMoveIfSoleIdentity: true,
+      }),
+    ).resolves.toEqual({ ok: true, movedFromUserId: 'wallet-solo' });
+    await expect(service.listIdentities({ userId: 'wallet-solo' })).resolves.toEqual({
+      ok: true,
+      subjects: [],
+    });
+    await insertIdentity({
+      database,
+      ...scope,
+      userId: 'wallet-many',
+      subject: 'google:many-a',
+    });
+    await insertIdentity({
+      database,
+      ...scope,
+      userId: 'wallet-many',
+      subject: 'google:many-b',
+    });
+    await expect(
+      service.linkIdentity({
+        userId: scope.userId,
+        subject: 'google:many-a',
+        allowMoveIfSoleIdentity: true,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'already_linked' });
     const session = await service.getOrCreateAppSessionVersion({ userId: scope.userId });
     expect(session.ok).toBe(true);
     if (!session.ok) throw new Error(session.message);

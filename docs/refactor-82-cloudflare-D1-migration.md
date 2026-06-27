@@ -160,6 +160,10 @@ Completed so far:
   directly from tenant-scoped `SIGNER_DB` tables without importing mixed
   Postgres-capable signer store modules. Protocol, threshold, and custody
   methods still fail closed until their D1/DO implementations land.
+- Added D1-backed identity link/unlink mutations behind the same Worker-safe
+  relay auth port. Link conflicts, sole-identity moves, and last-identity unlink
+  rejection are enforced with conditional SQLite/D1 mutations, then mapped back
+  to the existing domain result shapes.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -1025,6 +1029,9 @@ Work:
   and NEAR public-key inventory. Continue porting mutating auth, Email OTP,
   WebAuthn verification, wallet registration, recovery, signed delegate, and
   threshold methods behind the same port.
+- D1-backed identity link/unlink is also in place. Continue using conditional
+  D1 mutations for signer state transitions that need invariants enforced by the
+  database rather than relying on route-level read/modify/write checks.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
@@ -1161,6 +1168,8 @@ Completed baseline:
 - The local D1 relay Worker now overlays D1-backed signer metadata methods on
   that fail-closed service for identity lists, app-session versions, WebAuthn
   inventory, and NEAR public-key inventory.
+- Identity link/unlink now uses the same D1 overlay and keeps conflict, move,
+  and last-identity semantics aligned with the current signer behavior.
 
 Proceed in this order:
 

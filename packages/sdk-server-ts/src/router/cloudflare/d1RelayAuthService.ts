@@ -1,6 +1,10 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { D1DatabaseLike, D1PreparedStatementLike } from '../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../storage/tenantRoute';
 import type { CloudflareRelayAuthService } from '../authServicePort';
 import { createDisabledCloudflareRelayAuthService } from './disabledRelayAuthService';
 
@@ -17,6 +21,10 @@ export interface CloudflareD1RelayAuthServiceOptions {
 
 type ListIdentitiesInput = Parameters<CloudflareRelayAuthService['listIdentities']>[0];
 type ListIdentitiesResult = Awaited<ReturnType<CloudflareRelayAuthService['listIdentities']>>;
+type LinkIdentityInput = Parameters<CloudflareRelayAuthService['linkIdentity']>[0];
+type LinkIdentityResult = Awaited<ReturnType<CloudflareRelayAuthService['linkIdentity']>>;
+type UnlinkIdentityInput = Parameters<CloudflareRelayAuthService['unlinkIdentity']>[0];
+type UnlinkIdentityResult = Awaited<ReturnType<CloudflareRelayAuthService['unlinkIdentity']>>;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
 >[0];
@@ -48,8 +56,11 @@ type ListNearPublicKeysResult = Awaited<
   ReturnType<CloudflareRelayAuthService['listNearPublicKeysForUser']>
 >;
 
-type D1SubjectRow = {
+type D1IdentityRow = {
   readonly subject?: unknown;
+  readonly user_id?: unknown;
+  readonly created_at_ms?: unknown;
+  readonly subject_count?: unknown;
 };
 
 type D1SessionRow = {
@@ -71,6 +82,14 @@ type AppSessionVersionRecord = {
   readonly version: 'app_session_version_v1';
   readonly userId: string;
   readonly appSessionVersion: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+
+type IdentitySubjectRecord = {
+  readonly version: 'identity_subject_v1';
+  readonly subject: string;
+  readonly userId: string;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 };
@@ -155,6 +174,35 @@ function parseAppSessionCreatedAt(input: unknown, fallback: number): number {
   const record = parseJsonObject(input);
   const value = positiveInteger(record?.createdAtMs);
   return value ?? fallback;
+}
+
+function parseIdentityCreatedAt(input: unknown, fallback: number): number {
+  return positiveInteger(input) ?? fallback;
+}
+
+function parseIdentitySubjectCount(input: unknown): number {
+  const value = typeof input === 'number' ? input : Number(input);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function d1MutationChanges(result: D1ResultLike<unknown>): number {
+  const value = result.meta?.changes ?? result.meta?.rows_written;
+  return parseIdentitySubjectCount(value);
+}
+
+function identitySubjectRecord(input: {
+  readonly subject: string;
+  readonly userId: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+}): IdentitySubjectRecord {
+  return {
+    version: 'identity_subject_v1',
+    subject: input.subject,
+    userId: input.userId,
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+  };
 }
 
 function appSessionRecord(input: {
@@ -244,7 +292,7 @@ class CloudflareD1RelayAuthMetadataService {
             AND user_id = ?
           ORDER BY created_at_ms ASC`,
         [userId],
-      ).all<D1SubjectRow>();
+      ).all<D1IdentityRow>();
       const subjects: string[] = [];
       for (const row of result.results || []) {
         const subject = toOptionalTrimmedString(row.subject);
@@ -256,6 +304,127 @@ class CloudflareD1RelayAuthMetadataService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to list identities',
+      };
+    }
+  }
+
+  async linkIdentity(input: LinkIdentityInput): Promise<LinkIdentityResult> {
+    try {
+      const userId = toOptionalTrimmedString(input.userId);
+      const subject = toOptionalTrimmedString(input.subject);
+      if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+      if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+      const now = Date.now();
+      const existing = await this.readIdentityLinkBySubject(subject);
+      const existingUserId = toOptionalTrimmedString(existing?.user_id);
+      const createdAtMs = parseIdentityCreatedAt(existing?.created_at_ms, now);
+
+      if (existingUserId && existingUserId !== userId) {
+        return await this.moveIdentityIfAllowed({
+          userId,
+          subject,
+          existingUserId,
+          createdAtMs,
+          updatedAtMs: now,
+          allowMoveIfSoleIdentity: Boolean(input.allowMoveIfSoleIdentity),
+        });
+      }
+
+      await this.scopePrepare(
+        `INSERT INTO signer_identity_links (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          subject,
+          user_id,
+          record_json,
+          created_at_ms,
+          updated_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (namespace, org_id, project_id, env_id, subject)
+        DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          record_json = EXCLUDED.record_json,
+          updated_at_ms = EXCLUDED.updated_at_ms
+        WHERE signer_identity_links.user_id = EXCLUDED.user_id`,
+        [
+          subject,
+          userId,
+          JSON.stringify(identitySubjectRecord({ subject, userId, createdAtMs, updatedAtMs: now })),
+          createdAtMs,
+          now,
+        ],
+      ).run();
+
+      const finalUserId = await this.readIdentityUserIdBySubject(subject);
+      if (finalUserId === userId) return { ok: true };
+      if (finalUserId) return identityAlreadyLinked();
+      return { ok: false, code: 'internal', message: 'Failed to link identity' };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to link identity',
+      };
+    }
+  }
+
+  async unlinkIdentity(input: UnlinkIdentityInput): Promise<UnlinkIdentityResult> {
+    try {
+      const userId = toOptionalTrimmedString(input.userId);
+      const subject = toOptionalTrimmedString(input.subject);
+      if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+      if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+      const deleted = d1MutationChanges(
+        await this.options.database
+          .prepare(
+            `DELETE FROM signer_identity_links
+              WHERE namespace = ?
+                AND org_id = ?
+                AND project_id = ?
+                AND env_id = ?
+                AND subject = ?
+                AND user_id = ?
+                AND (
+                  SELECT COUNT(*)
+                    FROM signer_identity_links
+                   WHERE namespace = ?
+                     AND org_id = ?
+                     AND project_id = ?
+                     AND env_id = ?
+                     AND user_id = ?
+                ) > 1`,
+          )
+          .bind(
+            ...this.scopeValues([subject, userId]),
+            ...this.scopeValues([userId]),
+          )
+          .run(),
+      );
+      if (deleted > 0) return { ok: true };
+
+      const existingUserId = await this.readIdentityUserIdBySubject(subject);
+      if (existingUserId !== userId) {
+        return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
+      }
+      const subjectCount = await this.readIdentitySubjectCountForUserId(userId);
+      if (subjectCount <= 1) {
+        return {
+          ok: false,
+          code: 'cannot_unlink_last_identity',
+          message: 'Refusing to remove the last remaining identity',
+        };
+      }
+      return { ok: false, code: 'internal', message: 'Failed to unlink identity' };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to unlink identity',
       };
     }
   }
@@ -487,15 +656,106 @@ class CloudflareD1RelayAuthMetadataService {
   }
 
   private scopePrepare(sql: string, values: readonly unknown[]): D1PreparedStatementLike {
-    return this.options.database
-      .prepare(sql)
-      .bind(
-        this.options.namespace,
-        this.options.orgId,
-        this.options.projectId,
-        this.options.envId,
-        ...values,
-      );
+    return this.options.database.prepare(sql).bind(...this.scopeValues(values));
+  }
+
+  private scopeValues(values: readonly unknown[]): readonly unknown[] {
+    return [
+      this.options.namespace,
+      this.options.orgId,
+      this.options.projectId,
+      this.options.envId,
+      ...values,
+    ];
+  }
+
+  private async readIdentityLinkBySubject(subject: string): Promise<D1IdentityRow | null> {
+    return await this.scopePrepare(
+      `SELECT user_id, created_at_ms
+         FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND subject = ?
+        LIMIT 1`,
+      [subject],
+    ).first<D1IdentityRow>();
+  }
+
+  private async readIdentityUserIdBySubject(subject: string): Promise<string | null> {
+    const row = await this.readIdentityLinkBySubject(subject);
+    return toOptionalTrimmedString(row?.user_id) || null;
+  }
+
+  private async readIdentitySubjectCountForUserId(userId: string): Promise<number> {
+    const row = await this.scopePrepare(
+      `SELECT COUNT(*) AS subject_count
+         FROM signer_identity_links
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND user_id = ?`,
+      [userId],
+    ).first<D1IdentityRow>();
+    return parseIdentitySubjectCount(row?.subject_count);
+  }
+
+  private async moveIdentityIfAllowed(input: {
+    readonly userId: string;
+    readonly subject: string;
+    readonly existingUserId: string;
+    readonly createdAtMs: number;
+    readonly updatedAtMs: number;
+    readonly allowMoveIfSoleIdentity: boolean;
+  }): Promise<LinkIdentityResult> {
+    if (!input.allowMoveIfSoleIdentity) return identityAlreadyLinked();
+
+    const moved = d1MutationChanges(
+      await this.options.database
+        .prepare(
+          `UPDATE signer_identity_links
+              SET user_id = ?,
+                  record_json = ?,
+                  updated_at_ms = ?
+            WHERE namespace = ?
+              AND org_id = ?
+              AND project_id = ?
+              AND env_id = ?
+              AND subject = ?
+              AND user_id = ?
+              AND (
+                SELECT COUNT(*)
+                  FROM signer_identity_links
+                 WHERE namespace = ?
+                   AND org_id = ?
+                   AND project_id = ?
+                   AND env_id = ?
+                   AND user_id = ?
+              ) = 1`,
+        )
+        .bind(
+          input.userId,
+          JSON.stringify(
+            identitySubjectRecord({
+              subject: input.subject,
+              userId: input.userId,
+              createdAtMs: input.createdAtMs,
+              updatedAtMs: input.updatedAtMs,
+            }),
+          ),
+          input.updatedAtMs,
+          ...this.scopeValues([input.subject, input.existingUserId]),
+          ...this.scopeValues([input.existingUserId]),
+        )
+        .run(),
+    );
+
+    if (moved > 0) return { ok: true, movedFromUserId: input.existingUserId };
+    const subjectCount = await this.readIdentitySubjectCountForUserId(input.existingUserId);
+    if (subjectCount !== 1) return identityMoveDisallowed();
+    return identityAlreadyLinked();
   }
 
   private async readAppSessionVersion(userId: string): Promise<string | null> {
@@ -564,6 +824,22 @@ function compareAuthenticatorSlots(
   return (Number(left.signerSlot || 0) || 0) - (Number(right.signerSlot || 0) || 0);
 }
 
+function identityAlreadyLinked(): LinkIdentityResult {
+  return {
+    ok: false,
+    code: 'already_linked',
+    message: 'Subject is already linked to a different user',
+  };
+}
+
+function identityMoveDisallowed(): LinkIdentityResult {
+  return {
+    ok: false,
+    code: 'already_linked',
+    message: 'Subject is linked to a different user with other identities; merge is not allowed',
+  };
+}
+
 export function createCloudflareD1RelayAuthService(
   input: CloudflareD1RelayAuthServiceOptions,
 ): CloudflareRelayAuthService {
@@ -573,6 +849,8 @@ export function createCloudflareD1RelayAuthService(
   });
   const metadata = new CloudflareD1RelayAuthMetadataService(input);
   service.listIdentities = metadata.listIdentities.bind(metadata);
+  service.linkIdentity = metadata.linkIdentity.bind(metadata);
+  service.unlinkIdentity = metadata.unlinkIdentity.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);
