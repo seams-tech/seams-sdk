@@ -101,6 +101,7 @@ function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
     'packages/sdk-server-ts/migrations/d1-signer/0003_signer_webauthn.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0004_signer_identity.sql',
     'packages/sdk-server-ts/migrations/d1-signer/0006_signer_near_public_keys.sql',
+    'packages/sdk-server-ts/migrations/d1-signer/0008_signer_email_otp.sql',
   ]);
 }
 
@@ -360,6 +361,54 @@ async function insertNearPublicKey(input: {
     .run();
 }
 
+async function insertEmailOtpEnrollment(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+}): Promise<void> {
+  const record = {
+    version: 'email_otp_wallet_enrollment_v1',
+    walletId: 'email-wallet.testnet',
+    providerUserId: 'google:email-user',
+    orgId: input.orgId,
+    verifiedEmail: 'alice@example.test',
+    enrollmentId: 'enrollment-a',
+    enrollmentVersion: 'enrollment-v1',
+    enrollmentSealKeyVersion: 'seal-v1',
+    signingRootId: 'project-a:env-a',
+    signingRootVersion: 'root-v1',
+    recoveryWrappedEnrollmentEscrowCount: 3,
+    clientUnlockPublicKeyB64u: 'client-unlock-public-key',
+    unlockKeyVersion: 'unlock-v1',
+    thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-verifying-share',
+    createdAtMs: 600,
+    updatedAtMs: 700,
+  };
+  await input.database
+    .prepare(
+      `INSERT INTO signer_email_otp_wallet_enrollments (
+        namespace, org_id, project_id, env_id, wallet_id, provider_user_id, record_org_id,
+        verified_email, record_json, created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      record.walletId,
+      record.providerUserId,
+      record.orgId,
+      record.verifiedEmail,
+      JSON.stringify(record),
+      record.createdAtMs,
+      record.updatedAtMs,
+    )
+    .run();
+}
+
 test('Cloudflare D1 relay auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -381,6 +430,7 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
     });
     await insertWebAuthn({ database, ...scope });
     await insertNearPublicKey({ database, ...scope });
+    await insertEmailOtpEnrollment({ database, ...scope });
 
     const service = createCloudflareD1RelayAuthService({
       database,
@@ -476,6 +526,34 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       },
     });
     expect(derivedOidcWalletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relay\.local$/);
+    await expect(
+      service.readEmailOtpEnrollment({
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      enrollment: {
+        walletId: 'email-wallet.testnet',
+        providerUserId: 'google:email-user',
+        orgId: scope.orgId,
+        verifiedEmail: 'alice@example.test',
+      },
+    });
+    await expect(
+      service.readActiveEmailOtpEnrollment({
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        providerUserId: 'google:other-user',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'provider_identity_mismatch' });
+    await expect(
+      service.readActiveEmailOtpEnrollment({
+        walletId: 'email-wallet.testnet',
+        orgId: 'org-b',
+        providerUserId: 'google:email-user',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'tenant_scope_mismatch' });
     const session = await service.getOrCreateAppSessionVersion({ userId: scope.userId });
     expect(session.ok).toBe(true);
     if (!session.ok) throw new Error(session.message);

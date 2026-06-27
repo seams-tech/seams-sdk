@@ -1,6 +1,7 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
+import type { EmailOtpWalletEnrollmentRecord } from '../../core/EmailOtpStores';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -30,6 +31,18 @@ type UnlinkIdentityResult = Awaited<ReturnType<CloudflareRelayAuthService['unlin
 type ResolveOidcWalletIdInput = Parameters<CloudflareRelayAuthService['resolveOidcWalletId']>[0];
 type ResolveOidcWalletIdResult = Awaited<
   ReturnType<CloudflareRelayAuthService['resolveOidcWalletId']>
+>;
+type ReadEmailOtpEnrollmentInput = Parameters<
+  CloudflareRelayAuthService['readEmailOtpEnrollment']
+>[0];
+type ReadEmailOtpEnrollmentResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['readEmailOtpEnrollment']>
+>;
+type ReadActiveEmailOtpEnrollmentInput = Parameters<
+  CloudflareRelayAuthService['readActiveEmailOtpEnrollment']
+>[0];
+type ReadActiveEmailOtpEnrollmentResult = Awaited<
+  ReturnType<CloudflareRelayAuthService['readActiveEmailOtpEnrollment']>
 >;
 type GetOrCreateAppSessionVersionInput = Parameters<
   CloudflareRelayAuthService['getOrCreateAppSessionVersion']
@@ -72,6 +85,11 @@ type D1IdentityRow = {
 type D1SessionRow = {
   readonly session_version?: unknown;
   readonly record_json?: unknown;
+};
+
+type D1EmailOtpEnrollmentRow = {
+  readonly record_json?: unknown;
+  readonly updated_at_ms?: unknown;
 };
 
 type D1AuthenticatorRow = {
@@ -171,6 +189,12 @@ function positiveInteger(input: unknown): number | null {
   return Math.floor(value);
 }
 
+function positiveSafeInteger(input: unknown): number | null {
+  const value = typeof input === 'number' ? input : Number(input);
+  if (!Number.isSafeInteger(value) || value <= 0) return null;
+  return Math.floor(value);
+}
+
 function optionalNonNegativeInteger(input: unknown): number | undefined {
   const value = typeof input === 'number' ? input : Number(input);
   if (!Number.isFinite(value) || value < 0) return undefined;
@@ -210,6 +234,85 @@ function identitySubjectRecord(input: {
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };
+}
+
+function hasRecordField(record: Record<string, unknown>, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, field);
+}
+
+function parseEmailOtpWalletEnrollmentRecord(
+  input: unknown,
+): EmailOtpWalletEnrollmentRecord | null {
+  const record = parseJsonObject(input);
+  if (!record || hasRecordField(record, 'enrollmentEscrowCiphertextB64u')) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const providerUserId = toOptionalTrimmedString(record.providerUserId);
+  const orgId = toOptionalTrimmedString(record.orgId);
+  const verifiedEmail = toOptionalTrimmedString(record.verifiedEmail)?.toLowerCase() || '';
+  const enrollmentId = toOptionalTrimmedString(record.enrollmentId);
+  const enrollmentVersion = toOptionalTrimmedString(record.enrollmentVersion);
+  const enrollmentSealKeyVersion = toOptionalTrimmedString(record.enrollmentSealKeyVersion);
+  const signingRootId = toOptionalTrimmedString(record.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
+  const recoveryWrappedEnrollmentEscrowCount = positiveSafeInteger(
+    record.recoveryWrappedEnrollmentEscrowCount,
+  );
+  const clientUnlockPublicKeyB64u = toOptionalTrimmedString(record.clientUnlockPublicKeyB64u);
+  const unlockKeyVersion = toOptionalTrimmedString(record.unlockKeyVersion);
+  const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
+    record.thresholdEcdsaClientVerifyingShareB64u,
+  );
+  const createdAtMs = positiveSafeInteger(record.createdAtMs);
+  const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
+  if (
+    version !== 'email_otp_wallet_enrollment_v1' ||
+    !walletId ||
+    !providerUserId ||
+    !orgId ||
+    !verifiedEmail ||
+    !enrollmentId ||
+    !enrollmentVersion ||
+    !enrollmentSealKeyVersion ||
+    !signingRootId ||
+    !signingRootVersion ||
+    !recoveryWrappedEnrollmentEscrowCount ||
+    !clientUnlockPublicKeyB64u ||
+    !unlockKeyVersion ||
+    !thresholdEcdsaClientVerifyingShareB64u ||
+    !createdAtMs ||
+    !updatedAtMs ||
+    updatedAtMs < createdAtMs
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_wallet_enrollment_v1',
+    walletId,
+    providerUserId,
+    orgId,
+    verifiedEmail,
+    enrollmentId,
+    enrollmentVersion,
+    enrollmentSealKeyVersion,
+    signingRootId,
+    signingRootVersion,
+    recoveryWrappedEnrollmentEscrowCount,
+    clientUnlockPublicKeyB64u,
+    unlockKeyVersion,
+    thresholdEcdsaClientVerifyingShareB64u,
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function parseEmailOtpWalletEnrollmentRow(
+  row: D1EmailOtpEnrollmentRow | null,
+): EmailOtpWalletEnrollmentRecord | null {
+  const record = parseEmailOtpWalletEnrollmentRecord(row?.record_json);
+  const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
+  if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
+  return record;
 }
 
 function resolveHostedOidcWalletScope(input: unknown): {
@@ -487,6 +590,44 @@ class CloudflareD1RelayAuthMetadataService {
       providerSubject,
       ...(verifiedEmail ? { verifiedEmail } : {}),
     });
+  }
+
+  async readEmailOtpEnrollment(
+    input: ReadEmailOtpEnrollmentInput,
+  ): Promise<ReadEmailOtpEnrollmentResult> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+    if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+    const enrollment = await this.readEmailOtpWalletEnrollment(walletId);
+    if (!enrollment) {
+      return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+    }
+    if (enrollment.orgId !== orgId) return emailOtpEnrollmentTenantMismatch();
+    return { ok: true, enrollment };
+  }
+
+  async readActiveEmailOtpEnrollment(
+    input: ReadActiveEmailOtpEnrollmentInput,
+  ): Promise<ReadActiveEmailOtpEnrollmentResult> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    const providerUserId = toOptionalTrimmedString(input.providerUserId);
+    if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+    if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+    const enrollment = await this.readEmailOtpWalletEnrollment(walletId);
+    if (!enrollment) {
+      return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+    }
+    if (enrollment.orgId !== orgId) return emailOtpEnrollmentTenantMismatch();
+    if (providerUserId && enrollment.providerUserId !== providerUserId) {
+      return {
+        ok: false,
+        code: 'provider_identity_mismatch',
+        message: 'Email OTP enrollment does not match the requested provider user',
+      };
+    }
+    return { ok: true, enrollment };
   }
 
   async getOrCreateAppSessionVersion(
@@ -818,6 +959,23 @@ class CloudflareD1RelayAuthMetadataService {
     return identityAlreadyLinked();
   }
 
+  private async readEmailOtpWalletEnrollment(
+    walletId: string,
+  ): Promise<EmailOtpWalletEnrollmentRecord | null> {
+    const row = await this.scopePrepare(
+      `SELECT record_json, updated_at_ms
+         FROM signer_email_otp_wallet_enrollments
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+        LIMIT 1`,
+      [walletId],
+    ).first<D1EmailOtpEnrollmentRow>();
+    return parseEmailOtpWalletEnrollmentRow(row);
+  }
+
   private async readAppSessionVersion(userId: string): Promise<string | null> {
     const row = await this.scopePrepare(
       `SELECT session_version
@@ -900,6 +1058,14 @@ function identityMoveDisallowed(): LinkIdentityResult {
   };
 }
 
+function emailOtpEnrollmentTenantMismatch(): ReadEmailOtpEnrollmentResult {
+  return {
+    ok: false,
+    code: 'tenant_scope_mismatch',
+    message: 'Email OTP enrollment does not match the requested orgId',
+  };
+}
+
 export function createCloudflareD1RelayAuthService(
   input: CloudflareD1RelayAuthServiceOptions,
 ): CloudflareRelayAuthService {
@@ -912,6 +1078,8 @@ export function createCloudflareD1RelayAuthService(
   service.linkIdentity = metadata.linkIdentity.bind(metadata);
   service.unlinkIdentity = metadata.unlinkIdentity.bind(metadata);
   service.resolveOidcWalletId = metadata.resolveOidcWalletId.bind(metadata);
+  service.readEmailOtpEnrollment = metadata.readEmailOtpEnrollment.bind(metadata);
+  service.readActiveEmailOtpEnrollment = metadata.readActiveEmailOtpEnrollment.bind(metadata);
   service.getOrCreateAppSessionVersion = metadata.getOrCreateAppSessionVersion.bind(metadata);
   service.rotateAppSessionVersion = metadata.rotateAppSessionVersion.bind(metadata);
   service.validateAppSessionVersion = metadata.validateAppSessionVersion.bind(metadata);

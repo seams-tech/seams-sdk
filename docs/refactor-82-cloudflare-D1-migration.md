@@ -168,6 +168,10 @@ Completed so far:
   The resolver checks `wallet:{providerSubject}` identity links first, then uses
   the Worker-safe hosted account derivation helper with `ACCOUNT_ID_DERIVATION_SECRET`
   and the scoped project/environment values.
+- Added read-only D1-backed Email OTP enrollment lookup behind the relay auth
+  port. `readEmailOtpEnrollment` and `readActiveEmailOtpEnrollment` now parse
+  tenant-scoped `signer_email_otp_wallet_enrollments` records at the D1 boundary;
+  OTP challenge, verification, grant, and recovery mutations still fail closed.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -1040,6 +1044,10 @@ Work:
   secrets outside D1: local Wrangler uses a dummy `[vars]` value, while staging
   and production should provide `ACCOUNT_ID_DERIVATION_SECRET` through Cloudflare
   secrets or the configured KMS adapter.
+- Read-only Email OTP enrollment lookup is in place for D1. Continue porting
+  Email OTP challenge issuance, grant consumption, auth-state mutation, recovery
+  escrow reads, and registration-attempt lifecycle as separate conditional-D1
+  slices.
 - Keep `apps/web-server` as the Node/Express legacy runner until it is replaced
   by the Cloudflare Worker app path. Do not add a D1-via-Express shim; local D1
   should go through Wrangler/Miniflare bindings.
@@ -1181,6 +1189,8 @@ Completed baseline:
 - Non-Google OIDC wallet resolution now uses the D1 identity overlay and hosted
   account derivation. Google Email OTP session resolution remains fail-closed
   until the Email OTP stores move behind D1/DO.
+- Email OTP enrollment reads now use the D1 overlay. Email OTP mutating flows
+  remain fail-closed until their D1 conditional-write contracts are implemented.
 
 Proceed in this order:
 
