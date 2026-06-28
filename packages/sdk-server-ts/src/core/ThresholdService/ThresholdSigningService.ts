@@ -39,7 +39,7 @@ import {
   type ParseResult,
   type RouterAbNormalSigningServerPolicy,
 } from './routerAbNormalSigningPolicy';
-import type { SessionClaims } from '../../router/relay';
+import type { SessionClaims } from '../../router/routerApi';
 import type { AccessKeyList } from '../rpcClients/near/NearClient';
 import type {
   ThresholdEcdsaIntegratedKeyStore,
@@ -101,6 +101,7 @@ import type {
   ThresholdEd25519HssRespondWithSessionResponse,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519RegistrationAccountScope,
+  ThresholdEd25519AuthorityScope,
   Ed25519SessionPolicy,
   EcdsaHssClientBootstrapRequest,
   EcdsaHssExportShareRequest,
@@ -136,8 +137,10 @@ import {
   ensureRelayerKeyIsActiveAccessKey,
   extractAuthorizeSigningPublicKey,
   parseRouterAbEd25519WalletSessionClaims,
+  parseThresholdEd25519AuthorityScope,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
+  thresholdEd25519AuthorityScopesMatch,
   toNearPublicKeyStr,
   type RouterAbEd25519WalletSessionClaims,
   type RouterAbEcdsaHssWalletSessionClaims,
@@ -215,9 +218,7 @@ function budgetScopeFromBinding(input: {
     : { kind: 'passkey_rp', rpId: input.budgetScopeId };
 }
 
-function walletBudgetScopeId(
-  scope: WalletSigningBudgetSessionRecord['budgetScope'],
-): string {
+function walletBudgetScopeId(scope: WalletSigningBudgetSessionRecord['budgetScope']): string {
   switch (scope.kind) {
     case 'passkey_rp':
       return scope.rpId;
@@ -226,6 +227,17 @@ function walletBudgetScopeId(
   }
   scope satisfies never;
   return '';
+}
+
+function passkeyRpAuthorityScope(rpId: WebAuthnRpId): ThresholdEd25519AuthorityScope {
+  return { kind: 'passkey_rp', rpId };
+}
+
+function thresholdEd25519AuthorityScopeRpId(scope: ThresholdEd25519AuthorityScope): WebAuthnRpId {
+  switch (scope.kind) {
+    case 'passkey_rp':
+      return scope.rpId;
+  }
 }
 
 function walletBudgetBindingMatches(input: {
@@ -742,7 +754,7 @@ function parseThresholdEd25519SessionRequest(
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   thresholdSessionId: string;
   signingGrantId: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -777,7 +789,16 @@ function parseThresholdEd25519SessionRequest(
   const nearEd25519SigningKeyId = toOptionalTrimmedString(
     (policyRaw as Record<string, unknown>).nearEd25519SigningKeyId,
   );
-  const rpId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).rpId);
+  if (Object.prototype.hasOwnProperty.call(policyRaw, 'rpId')) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.rpId belongs in sessionPolicy.authorityScope',
+    };
+  }
+  const authorityScope = parseThresholdEd25519AuthorityScope(
+    (policyRaw as Record<string, unknown>).authorityScope,
+  );
   const thresholdSessionId = toOptionalTrimmedString(
     (policyRaw as Record<string, unknown>).thresholdSessionId,
   );
@@ -855,7 +876,7 @@ function parseThresholdEd25519SessionRequest(
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
-    !rpId ||
+    !authorityScope ||
     !thresholdSessionId ||
     !signingGrantId ||
     !policyRelayerKeyId
@@ -864,7 +885,7 @@ function parseThresholdEd25519SessionRequest(
       ok: false,
       code: 'invalid_body',
       message:
-        'sessionPolicy{walletId,nearAccountId,nearEd25519SigningKeyId,rpId,relayerKeyId,thresholdSessionId,signingGrantId} are required',
+        'sessionPolicy{walletId,nearAccountId,nearEd25519SigningKeyId,authorityScope,relayerKeyId,thresholdSessionId,signingGrantId} are required',
     };
   }
   if (policyRelayerKeyId !== relayerKeyId) {
@@ -927,7 +948,7 @@ function parseThresholdEd25519SessionRequest(
       walletId,
       nearAccountId,
       nearEd25519SigningKeyId,
-      rpId,
+      authorityScope,
       thresholdSessionId,
       signingGrantId,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -1093,10 +1114,7 @@ function parseNearEd25519SigningKeyIdField(
   }
 }
 
-function parseWebAuthnRpIdField(
-  raw: unknown,
-  fieldName: string,
-): ParseResult<WebAuthnRpId> {
+function parseWebAuthnRpIdField(raw: unknown, fieldName: string): ParseResult<WebAuthnRpId> {
   const parsed = parseWebAuthnRpId(raw);
   if (parsed.ok) return { ok: true, value: parsed.value };
   return {
@@ -2152,11 +2170,21 @@ export class ThresholdSigningService {
         message: 'Router A/B Ed25519 SigningWorker material is not available',
       };
     }
+    const claimsRpId = parseWebAuthnRpId(claims.rpId);
+    if (!claimsRpId.ok) {
+      return {
+        ok: false,
+        status: 403,
+        code: 'forbidden',
+        message: 'Router A/B Ed25519 Wallet Session authority scope is invalid',
+      };
+    }
+    const claimsAuthorityScope = passkeyRpAuthorityScope(claimsRpId.value);
     if (
       stored.walletId !== claims.walletId ||
       stored.nearAccountId !== claims.nearAccountId ||
       stored.nearEd25519SigningKeyId !== claims.nearEd25519SigningKeyId ||
-      stored.rpId !== claims.rpId ||
+      !thresholdEd25519AuthorityScopesMatch(stored.authorityScope, claimsAuthorityScope) ||
       stored.publicKey !== claims.relayerKeyId
     ) {
       return {
@@ -2475,6 +2503,13 @@ export class ThresholdSigningService {
     ) {
       throw new Error('[threshold-ed25519] missing scope while attempting relayer share self-heal');
     }
+    const parsedRpId = parseWebAuthnRpId(rpId);
+    if (!parsedRpId.ok) {
+      throw new Error(
+        '[threshold-ed25519] invalid authority scope while attempting relayer share self-heal',
+      );
+    }
+    const authorityScope = passkeyRpAuthorityScope(parsedRpId.value);
 
     const startedAt = Date.now();
     let repairKeyVersion = '';
@@ -2499,7 +2534,7 @@ export class ThresholdSigningService {
         existing.nearAccountId !== nearAccountId ||
         existing.walletId !== walletId ||
         existing.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
-        existing.rpId !== rpId ||
+        !thresholdEd25519AuthorityScopesMatch(existing.authorityScope, authorityScope) ||
         existing.publicKey !== relayerKeyId
       ) {
         throw new Error(
@@ -2512,7 +2547,9 @@ export class ThresholdSigningService {
       }
       repairKeyVersion = keyVersion;
       const existingSigningShareB64u = toOptionalTrimmedString(existing.relayerSigningShareB64u);
-      const existingVerifyingShareB64u = toOptionalTrimmedString(existing.relayerVerifyingShareB64u);
+      const existingVerifyingShareB64u = toOptionalTrimmedString(
+        existing.relayerVerifyingShareB64u,
+      );
       if (existingSigningShareB64u && existingVerifyingShareB64u) {
         const derivedExistingVerifyingShare =
           await deriveThresholdEd25519VerifyingShareFromSigningShare({
@@ -2846,7 +2883,8 @@ export class ThresholdSigningService {
         input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
       return { ok: true, budgetSessionId: input.curveSessionId, store };
     }
-    const walletBudgetSession = await this.walletBudgetSessionStore.getSession(walletBudgetSessionId);
+    const walletBudgetSession =
+      await this.walletBudgetSessionStore.getSession(walletBudgetSessionId);
     if (!walletBudgetSession) {
       return {
         ok: false,
@@ -2860,7 +2898,8 @@ export class ThresholdSigningService {
         if (
           !curveSession ||
           walletBudgetSession.walletId !== curveSession.userId ||
-          walletBudgetScopeId(walletBudgetSession.budgetScope) !== curveSession.rpId ||
+          walletBudgetScopeId(walletBudgetSession.budgetScope) !==
+            thresholdEd25519AuthorityScopeRpId(curveSession.authorityScope) ||
           !walletBudgetBindingMatches({
             record: walletBudgetSession,
             curve: 'ed25519',
@@ -2898,7 +2937,11 @@ export class ThresholdSigningService {
         break;
       }
     }
-    return { ok: true, budgetSessionId: walletBudgetSessionId, store: this.walletBudgetSessionStore };
+    return {
+      ok: true,
+      budgetSessionId: walletBudgetSessionId,
+      store: this.walletBudgetSessionStore,
+    };
   }
 
   private createRouterAbEcdsaHssPoolFillSessionId(): string {
@@ -2947,7 +2990,7 @@ export class ThresholdSigningService {
     walletId: string;
     nearAccountId: string;
     nearEd25519SigningKeyId: string;
-    rpId: string;
+    authorityScope: ThresholdEd25519AuthorityScope;
     relayerKeyId: string;
     keyVersion: string;
     recoveryExportCapable: true;
@@ -2959,11 +3002,20 @@ export class ThresholdSigningService {
     const walletId = toOptionalTrimmedString(input.walletId);
     const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
     const nearEd25519SigningKeyId = toOptionalTrimmedString(input.nearEd25519SigningKeyId);
-    const rpId = toOptionalTrimmedString(input.rpId);
+    const authorityScope = input.authorityScope;
+    const rpId = thresholdEd25519AuthorityScopeRpId(authorityScope);
     const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
     const keyVersion = toOptionalTrimmedString(input.keyVersion);
     const publicKey = toOptionalTrimmedString(input.publicKey);
-    if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !rpId || !relayerKeyId || !keyVersion || !publicKey) {
+    if (
+      !walletId ||
+      !nearAccountId ||
+      !nearEd25519SigningKeyId ||
+      !rpId ||
+      !relayerKeyId ||
+      !keyVersion ||
+      !publicKey
+    ) {
       return {
         ok: false,
         code: 'invalid_body',
@@ -2983,7 +3035,7 @@ export class ThresholdSigningService {
       stored.nearAccountId !== nearAccountId ||
       stored.walletId !== walletId ||
       stored.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
-      stored.rpId !== rpId ||
+      !thresholdEd25519AuthorityScopesMatch(stored.authorityScope, authorityScope) ||
       stored.publicKey !== publicKey ||
       stored.keyVersion !== keyVersion ||
       stored.recoveryExportCapable !== true
@@ -3027,6 +3079,9 @@ export class ThresholdSigningService {
       if (!rpId) {
         return { ok: false, code: 'invalid_body', message: 'rpId is required' };
       }
+      const parsedRpId = parseWebAuthnRpIdField(rpId, 'rpId');
+      if (!parsedRpId.ok) return parsedRpId;
+      const authorityScope = passkeyRpAuthorityScope(parsedRpId.value);
       const keyVersion = toOptionalTrimmedString((input as { keyVersion?: unknown }).keyVersion);
       const publicKey = toOptionalTrimmedString((input as { publicKey?: unknown }).publicKey);
       const relayerKeyId = toOptionalTrimmedString(
@@ -3052,7 +3107,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
-        rpId,
+        authorityScope,
         relayerKeyId,
         keyVersion,
         recoveryExportCapable: true,
@@ -3065,7 +3120,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
-        rpId,
+        authorityScope,
         publicKey: keyMaterial.publicKey,
         relayerSigningShareB64u: keyMaterial.relayerSigningShareB64u,
         relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
@@ -3117,8 +3172,26 @@ export class ThresholdSigningService {
           message: 'Missing required ed25519 session bootstrap identity inputs',
         };
       }
+      const parsedRpId = parseWebAuthnRpIdField(rpId, 'rpId');
+      if (!parsedRpId.ok) return parsedRpId;
+      const authorityScope = passkeyRpAuthorityScope(parsedRpId.value);
 
       const policy = (input.sessionPolicy || {}) as Ed25519SessionPolicy;
+      if (Object.prototype.hasOwnProperty.call(policy, 'rpId')) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.rpId belongs in authorityScope',
+        };
+      }
+      const policyAuthorityScope = parseThresholdEd25519AuthorityScope(policy.authorityScope);
+      if (!policyAuthorityScope) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.authorityScope is required',
+        };
+      }
       const runtimePolicyScope = (() => {
         const raw = policy.runtimePolicyScope;
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
@@ -3184,11 +3257,11 @@ export class ThresholdSigningService {
           message: 'threshold_ed25519.session_policy.nearEd25519SigningKeyId mismatch',
         };
       }
-      if (String(policy.rpId || '').trim() !== rpId) {
+      if (!thresholdEd25519AuthorityScopesMatch(policyAuthorityScope, authorityScope)) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy.rpId mismatch',
+          message: 'threshold_ed25519.session_policy.authorityScope mismatch',
         };
       }
       if (String(policy.relayerKeyId || '').trim() !== relayerKeyId) {
@@ -3257,7 +3330,10 @@ export class ThresholdSigningService {
             message: 'threshold sessionId already exists for a different user',
           };
         }
-        if (existingSession.walletId !== walletId || existingSession.nearAccountId !== nearAccountId) {
+        if (
+          existingSession.walletId !== walletId ||
+          existingSession.nearAccountId !== nearAccountId
+        ) {
           return {
             ok: false,
             code: 'unauthorized',
@@ -3278,11 +3354,11 @@ export class ThresholdSigningService {
             message: 'threshold sessionId already exists for a different relayerKeyId',
           };
         }
-        if (existingSession.rpId !== rpId) {
+        if (!thresholdEd25519AuthorityScopesMatch(existingSession.authorityScope, authorityScope)) {
           return {
             ok: false,
             code: 'unauthorized',
-            message: 'threshold sessionId already exists for a different rpId',
+            message: 'threshold sessionId already exists for a different authority scope',
           };
         }
         const sameParticipantIds =
@@ -3332,7 +3408,7 @@ export class ThresholdSigningService {
           walletId,
           nearAccountId,
           nearEd25519SigningKeyId,
-          rpId,
+          authorityScope,
           participantIds,
         },
         ttlMs,
@@ -3439,7 +3515,13 @@ export class ThresholdSigningService {
     const walletKeyId = toOptionalTrimmedString(input.walletKeyId);
     const ecdsaHssKeyVersion = parseEcdsaHssKeyVersionOrDefault(input.walletKeyVersion);
     const walletKeyVersion = ecdsaHssKeyVersionWire(ecdsaHssKeyVersion);
-    if (!signingRootId || !signingRootVersion || !walletId || !ecdsaThresholdKeyId || !walletKeyId) {
+    if (
+      !signingRootId ||
+      !signingRootVersion ||
+      !walletId ||
+      !ecdsaThresholdKeyId ||
+      !walletKeyId
+    ) {
       return {
         ok: false,
         code: 'invalid_body',
@@ -3470,8 +3552,7 @@ export class ThresholdSigningService {
         signingRootVersion,
         ecdsaHssKeyVersion,
       );
-      const canonicalSigningRootVersion =
-        canonicalEcdsaHssSigningRootVersion(signingRootVersion);
+      const canonicalSigningRootVersion = canonicalEcdsaHssSigningRootVersion(signingRootVersion);
       const hssContext = {
         applicationBindingDigest: await computeSdkEcdsaHssApplicationBindingDigest32({
           walletId: requireSdkEcdsaHssWalletId(walletId),
@@ -3610,7 +3691,7 @@ export class ThresholdSigningService {
           message: 'threshold sessionId already exists for a different relayerKeyId',
         };
       }
-	      if (existingSession.walletKeyId !== walletKeyId) {
+      if (existingSession.walletKeyId !== walletKeyId) {
         return {
           ok: false,
           code: 'unauthorized',
@@ -3635,10 +3716,10 @@ export class ThresholdSigningService {
         };
       }
       const walletBudget = await this.ensureSigningGrantBudget({
-	        signingGrantId,
-	        binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
-	        userId: walletId,
-	        walletKeyId,
+        signingGrantId,
+        binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
+        userId: walletId,
+        walletKeyId,
         participantIds: existingSession.participantIds,
         ttlMs,
         remainingUses,
@@ -3671,10 +3752,10 @@ export class ThresholdSigningService {
       remainingUses,
     });
     const walletBudget = await this.ensureSigningGrantBudget({
-	      signingGrantId,
-	      binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
-	      userId: walletId,
-	      walletKeyId,
+      signingGrantId,
+      binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
+      userId: walletId,
+      walletKeyId,
       participantIds,
       ttlMs,
       remainingUses,
@@ -4227,7 +4308,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
-        rpId,
+        authorityScope,
         thresholdSessionId,
         signingGrantId,
         runtimePolicyScope,
@@ -4239,11 +4320,12 @@ export class ThresholdSigningService {
       const sessionId = thresholdSessionId;
       const routerAbPolicy = this.validateRouterAbNormalSigningSessionPolicy(routerAbNormalSigning);
       if (!routerAbPolicy.ok) return routerAbPolicy;
+      const rpId = thresholdEd25519AuthorityScopeRpId(authorityScope);
       context = {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
-        rpId,
+        authorityScope,
         relayerKeyId,
         thresholdSessionId,
         signingGrantId,
@@ -4267,8 +4349,8 @@ export class ThresholdSigningService {
           : '';
       const hasAppSessionAuth = Boolean(
         sessionAuth.kind === 'verified_wallet' &&
-          sessionAuth.walletAuth.kind === 'app_session' &&
-          sessionWalletId === walletId,
+        sessionAuth.walletAuth.kind === 'app_session' &&
+        sessionWalletId === walletId,
       );
       const policySigningRoot = resolveEcdsaSigningRootFromScope(
         request.sessionPolicy?.runtimePolicyScope,
@@ -4313,7 +4395,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
-        rpId,
+        authorityScope,
         relayerKeyId,
         thresholdSessionId,
         signingGrantId,
@@ -4342,11 +4424,11 @@ export class ThresholdSigningService {
             message: 'threshold sessionId already exists for a different relayerKeyId',
           };
         }
-        if (existingSession.rpId !== rpId) {
+        if (!thresholdEd25519AuthorityScopesMatch(existingSession.authorityScope, authorityScope)) {
           return {
             ok: false,
             code: 'unauthorized',
-            message: 'threshold sessionId already exists for a different rpId',
+            message: 'threshold sessionId already exists for a different authority scope',
           };
         }
         const sameParticipantIds =
@@ -4387,7 +4469,7 @@ export class ThresholdSigningService {
             message: 'expected_origin is required for threshold-ed25519 passkey session mint',
           };
         }
-        const webAuthnRpId = parseWebAuthnRpIdField(rpId, 'sessionPolicy.rpId');
+        const webAuthnRpId = parseWebAuthnRpIdField(rpId, 'sessionPolicy.authorityScope.rpId');
         if (!webAuthnRpId.ok) return webAuthnRpId;
         const verification = await this.verifyWebAuthnAuthenticationLite!({
           userId: walletId,
@@ -4454,7 +4536,7 @@ export class ThresholdSigningService {
           walletId,
           nearAccountId,
           nearEd25519SigningKeyId,
-          rpId,
+          authorityScope,
           participantIds,
         },
         ttlMs,
@@ -4570,9 +4652,7 @@ export class ThresholdSigningService {
     }
     let nearEd25519SigningKeyId: NearEd25519SigningKeyId;
     try {
-      nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(
-        input.claims.nearEd25519SigningKeyId,
-      );
+      nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(input.claims.nearEd25519SigningKeyId);
     } catch {
       return {
         ok: false,
@@ -4657,7 +4737,11 @@ export class ThresholdSigningService {
   }): ThresholdEd25519HssSessionError | null {
     const expectedSigningRootId = toOptionalTrimmedString(input.expectedSigningRootId);
     const actualSigningRootId = toOptionalTrimmedString(input.actualSigningRootId);
-    if (expectedSigningRootId && actualSigningRootId && expectedSigningRootId !== actualSigningRootId) {
+    if (
+      expectedSigningRootId &&
+      actualSigningRootId &&
+      expectedSigningRootId !== actualSigningRootId
+    ) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -5331,8 +5415,13 @@ export class ThresholdSigningService {
         'wallet_key_id',
       );
       if (!requestNearEd25519SigningKeyId.ok) return requestNearEd25519SigningKeyId;
-      const rpId = parseWebAuthnRpIdField(rec.rpId, 'rpId');
-      if (!rpId.ok) return rpId;
+      const rpId = toOptionalTrimmedString(rec.rpId);
+      if (!rpId) {
+        return { ok: false, code: 'invalid_body', message: 'rpId is required' };
+      }
+      const parsedRpId = parseWebAuthnRpIdField(rpId, 'rpId');
+      if (!parsedRpId.ok) return parsedRpId;
+      const authorityScope = passkeyRpAuthorityScope(parsedRpId.value);
       if (
         registrationAccountScope.value.nearEd25519SigningKeyId !==
         requestNearEd25519SigningKeyId.value
@@ -5421,7 +5510,7 @@ export class ThresholdSigningService {
           walletId: registrationAccountScope.value.walletId,
           nearAccountId: resolvedNearAccountId.value,
           nearEd25519SigningKeyId,
-          rpId: rpId.value,
+          authorityScope,
           publicKey: registrationMaterial.publicKey,
           relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
           relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,

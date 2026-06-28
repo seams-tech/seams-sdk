@@ -1,25 +1,25 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import {
-  handleRelayWalletAddAuthMethodFinalize,
-  handleRelayWalletAddAuthMethodIntent,
-  handleRelayWalletRevokeAuthMethod,
-  handleRelayWalletAddAuthMethodStart,
-  handleRelayWalletAddSignerFinalize,
-  handleRelayWalletAddSignerHssRespond,
-  handleRelayWalletAddSignerIntent,
-  handleRelayWalletAddSignerStart,
-  handleRelayWalletRegistrationFinalize,
-  handleRelayWalletRegistrationHssRespond,
-  handleRelayWalletRegistrationIntent,
-  handleRelayWalletRegistrationPrepare,
-  handleRelayWalletRegistrationStart,
-  handleRelayWalletEcdsaKeyFactsInventory,
+  handleRouterApiWalletAddAuthMethodFinalize,
+  handleRouterApiWalletAddAuthMethodIntent,
+  handleRouterApiWalletRevokeAuthMethod,
+  handleRouterApiWalletAddAuthMethodStart,
+  handleRouterApiWalletAddSignerFinalize,
+  handleRouterApiWalletAddSignerHssRespond,
+  handleRouterApiWalletAddSignerIntent,
+  handleRouterApiWalletAddSignerStart,
+  handleRouterApiWalletRegistrationFinalize,
+  handleRouterApiWalletRegistrationHssRespond,
+  handleRouterApiWalletRegistrationIntent,
+  handleRouterApiWalletRegistrationPrepare,
+  handleRouterApiWalletRegistrationStart,
+  handleRouterApiWalletEcdsaKeyFactsInventory,
 } from '../../walletRegistrationRoutes';
 import type { RouteResponse } from '../../routeExecutionContext';
-import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
+import { resolveSourceIpFromExpressRequest } from '../../routerApiKeyAuth';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { sendExpressRouteResponse } from '../../routeResponses';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 
 const ROUTE_IDS = [
   'wallet_registration_intent',
@@ -39,14 +39,27 @@ const ROUTE_IDS = [
 ] as const;
 
 type WalletRegistrationRouteId = (typeof ROUTE_IDS)[number];
+type RegistrationPrepareAuthService = NonNullable<
+  ExpressRouterApiContext['opts']['ed25519RegistrationPrepare']
+>['authService'];
 
 function isOptionalWalletRegistrationRouteId(routeId: WalletRegistrationRouteId): boolean {
   return routeId === 'wallet_registration_prepare';
 }
 
+function requireRegistrationPrepareAuthService(
+  ctx: ExpressRouterApiContext,
+): RegistrationPrepareAuthService {
+  const prepare = ctx.opts.ed25519RegistrationPrepare;
+  if (!prepare) {
+    throw new Error('wallet_registration_prepare route registered without prepare auth service');
+  }
+  return prepare.authService;
+}
+
 export function registerWalletRegistrationRoutes(
   router: ExpressRouter,
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
 ): void {
   for (const routeId of ROUTE_IDS) {
     const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
@@ -64,8 +77,7 @@ export function registerWalletRegistrationRoutes(
           logger: ctx.logger,
           origin: String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined,
           pathParams: {
-            walletId:
-              typeof params.walletId === 'string' ? params.walletId : undefined,
+            walletId: typeof params.walletId === 'string' ? params.walletId : undefined,
           },
           route,
           services: {
@@ -84,32 +96,38 @@ export function registerWalletRegistrationRoutes(
         };
         const response: RouteResponse<unknown> =
           routeId === 'wallet_registration_intent'
-            ? await handleRelayWalletRegistrationIntent(common)
+            ? await handleRouterApiWalletRegistrationIntent(common)
             : routeId === 'wallet_registration_prepare'
-              ? await handleRelayWalletRegistrationPrepare(common)
-            : routeId === 'wallet_registration_start'
-              ? await handleRelayWalletRegistrationStart(common)
-              : routeId === 'wallet_registration_hss_respond'
-                ? await handleRelayWalletRegistrationHssRespond(common)
-                : routeId === 'wallet_registration_finalize'
-                  ? await handleRelayWalletRegistrationFinalize(common)
-                  : routeId === 'wallet_add_signer_intent'
-                    ? await handleRelayWalletAddSignerIntent(common)
-                    : routeId === 'wallet_add_signer_start'
-                      ? await handleRelayWalletAddSignerStart(common)
-                      : routeId === 'wallet_add_signer_hss_respond'
-                        ? await handleRelayWalletAddSignerHssRespond(common)
-                        : routeId === 'wallet_add_signer_finalize'
-                          ? await handleRelayWalletAddSignerFinalize(common)
-                          : routeId === 'wallet_add_auth_method_intent'
-                            ? await handleRelayWalletAddAuthMethodIntent(common)
-                            : routeId === 'wallet_add_auth_method_start'
-                              ? await handleRelayWalletAddAuthMethodStart(common)
-                              : routeId === 'wallet_add_auth_method_finalize'
-                                ? await handleRelayWalletAddAuthMethodFinalize(common)
-                                : routeId === 'wallet_revoke_auth_method'
-                                  ? await handleRelayWalletRevokeAuthMethod(common)
-                          : await handleRelayWalletEcdsaKeyFactsInventory(common);
+              ? await handleRouterApiWalletRegistrationPrepare({
+                  ...common,
+                  services: {
+                    ...common.services,
+                    registrationPrepareAuthService: requireRegistrationPrepareAuthService(ctx),
+                  },
+                })
+              : routeId === 'wallet_registration_start'
+                ? await handleRouterApiWalletRegistrationStart(common)
+                : routeId === 'wallet_registration_hss_respond'
+                  ? await handleRouterApiWalletRegistrationHssRespond(common)
+                  : routeId === 'wallet_registration_finalize'
+                    ? await handleRouterApiWalletRegistrationFinalize(common)
+                    : routeId === 'wallet_add_signer_intent'
+                      ? await handleRouterApiWalletAddSignerIntent(common)
+                      : routeId === 'wallet_add_signer_start'
+                        ? await handleRouterApiWalletAddSignerStart(common)
+                        : routeId === 'wallet_add_signer_hss_respond'
+                          ? await handleRouterApiWalletAddSignerHssRespond(common)
+                          : routeId === 'wallet_add_signer_finalize'
+                            ? await handleRouterApiWalletAddSignerFinalize(common)
+                            : routeId === 'wallet_add_auth_method_intent'
+                              ? await handleRouterApiWalletAddAuthMethodIntent(common)
+                              : routeId === 'wallet_add_auth_method_start'
+                                ? await handleRouterApiWalletAddAuthMethodStart(common)
+                                : routeId === 'wallet_add_auth_method_finalize'
+                                  ? await handleRouterApiWalletAddAuthMethodFinalize(common)
+                                  : routeId === 'wallet_revoke_auth_method'
+                                    ? await handleRouterApiWalletRevokeAuthMethod(common)
+                                    : await handleRouterApiWalletEcdsaKeyFactsInventory(common);
         sendExpressRouteResponse(res, response);
       } catch (error: unknown) {
         const message =

@@ -1,5 +1,5 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import {
   parseAppSessionClaims,
   parseEcdsaHssClientBootstrapRequest,
@@ -11,7 +11,7 @@ import {
 } from '../../../core/ThresholdService/validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
-import { parseSessionKind, resolveThresholdScheme } from '../../relay';
+import { parseSessionKind, resolveThresholdScheme } from '../../routerApi';
 import {
   buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
   resolveThresholdRuntimePolicyScope,
@@ -249,7 +249,7 @@ function validateEd25519SessionBridgeForEcdsaHssBootstrap(input: {
 }
 
 async function authorizeEcdsaHssRoleLocalBootstrap(input: {
-  ctx: ExpressRelayContext;
+  ctx: ExpressRouterApiContext;
   headers: Request['headers'];
   request: NonNullable<ReturnType<typeof parseEcdsaHssClientBootstrapRequest>>;
 }): Promise<
@@ -477,7 +477,7 @@ function parseForwardHop(value: string | undefined): number {
 const presignPriorityGate = new PresignPriorityGate();
 
 async function handle<T extends { ok: boolean; code?: string; message?: string }>(
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
   req: Request,
   res: Response,
   route: string,
@@ -513,7 +513,7 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
 }
 
 async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
-  ctx: ExpressRelayContext;
+  ctx: ExpressRouterApiContext;
   req: Request;
   res: Response;
   routePath: string;
@@ -578,7 +578,7 @@ async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
 
 export function registerThresholdEcdsaRoutes(
   router: ExpressRouter,
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
 ): void {
   ctx.logger.info('[threshold-ecdsa] routes', { enabled: Boolean(ctx.opts.threshold) });
 

@@ -1,10 +1,8 @@
 import type { AuthService } from '../core/AuthService';
 
-export type ThresholdRelayAuthService = Pick<AuthService, 'getThresholdSigningService'>;
+export type ThresholdRouterApiAuthService = Pick<AuthService, 'getThresholdSigningService'>;
 
-export type CloudflareEmailAuthService = Pick<AuthService, 'emailRecovery'>;
-
-export type CloudflareRelayAuthServiceMethod =
+export type CloudflareRouterApiAuthServiceMethod =
   | 'applyEmailOtpServerSeal'
   | 'cleanupGoogleEmailOtpDevRegistrationState'
   | 'consumeEmailOtpGrant'
@@ -12,9 +10,6 @@ export type CloudflareRelayAuthServiceMethod =
   | 'consumeEmailOtpRecoveryKey'
   | 'createAddAuthMethodIntent'
   | 'createAddSignerIntent'
-  | 'createEmailOtpChallenge'
-  | 'createEmailOtpDeviceRecoveryChallenge'
-  | 'createEmailOtpEnrollmentChallenge'
   | 'createEmailOtpUnlockChallenge'
   | 'createRegistrationIntent'
   | 'createWebAuthnLoginOptions'
@@ -69,5 +64,40 @@ export type CloudflareRelayAuthServiceMethod =
   | 'verifyWebAuthnLogin'
   | 'verifyWebAuthnSyncAccount';
 
-export type CloudflareRelayAuthService = CloudflareEmailAuthService &
-  Pick<AuthService, CloudflareRelayAuthServiceMethod>;
+type CloudflareEmailOtpDeliveryMode =
+  | 'email_provider'
+  | 'log'
+  | 'memory'
+  | 'dev_d1_outbox';
+
+type CloudflareEmailOtpDelivery<T> = T extends { mode: unknown }
+  ? Omit<T, 'mode'> & { readonly mode: CloudflareEmailOtpDeliveryMode }
+  : T;
+
+type CloudflareEmailOtpDeliveryResult<T> = T extends { delivery: infer Delivery }
+  ? Omit<T, 'delivery'> & { readonly delivery: CloudflareEmailOtpDelivery<Delivery> }
+  : T;
+
+type AuthServiceMethod = (...args: any[]) => unknown;
+
+type AuthServiceMethodKey = {
+  [K in keyof AuthService]: AuthService[K] extends AuthServiceMethod ? K : never;
+}[keyof AuthService];
+
+type AuthServiceMethodAt<M extends AuthServiceMethodKey> = Extract<
+  AuthService[M],
+  AuthServiceMethod
+>;
+
+type CloudflareEmailOtpMethod<M extends AuthServiceMethodKey> = (
+  input: Parameters<AuthServiceMethodAt<M>>[0],
+) => Promise<CloudflareEmailOtpDeliveryResult<Awaited<ReturnType<AuthServiceMethodAt<M>>>>>;
+
+export interface CloudflareRouterApiEmailOtpChallengeService {
+  createEmailOtpChallenge: CloudflareEmailOtpMethod<'createEmailOtpChallenge'>;
+  createEmailOtpDeviceRecoveryChallenge: CloudflareEmailOtpMethod<'createEmailOtpDeviceRecoveryChallenge'>;
+  createEmailOtpEnrollmentChallenge: CloudflareEmailOtpMethod<'createEmailOtpEnrollmentChallenge'>;
+}
+
+export type CloudflareRouterApiAuthService = Pick<AuthService, CloudflareRouterApiAuthServiceMethod> &
+  CloudflareRouterApiEmailOtpChallengeService;

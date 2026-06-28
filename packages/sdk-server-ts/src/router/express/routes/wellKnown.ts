@@ -1,5 +1,5 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import {
   normalizeRorHost,
   resolveWellKnownSigningSessionSealCapabilities,
@@ -11,7 +11,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
 } from '@shared/utils/routerAbPublicKeyset';
 
-export function registerWellKnownRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
+export function registerWellKnownRoutes(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
   const routerAbKeysetPaths = [
     ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
     `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH}/`,

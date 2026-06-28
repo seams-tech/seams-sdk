@@ -1,4 +1,4 @@
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import {
@@ -11,7 +11,7 @@ import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { resolveThresholdScheme } from '../../relay';
+import { resolveThresholdScheme } from '../../routerApi';
 import {
   resolveThresholdRuntimePolicyScope,
   signRouterAbEd25519WalletSessionJwt,
@@ -40,29 +40,12 @@ import {
 } from '../../thresholdEd25519RequestValidation';
 import { buildThresholdEd25519VerifiedWalletAuth } from '../../thresholdEd25519VerifiedWalletAuth';
 
-function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
-  return body.kind === 'email_otp_registration';
-}
-
-function rejectLegacyEmailOtpRegistrationHssRequest(): {
-  ok: false;
-  code: 'invalid_body';
-  message: string;
-} {
-  return {
-    ok: false,
-    code: 'invalid_body',
-    message:
-      'Router A/B email_otp_registration HSS requests are no longer supported; use wallet registration with explicit accountProvisioning.',
-  };
-}
-
 function publicEd25519WalletSessionResult<T extends { thresholdSessionId?: string }>(result: T): T {
   return result;
 }
 
 async function handleRouterAbEd25519NormalSigningRoute(input: {
-  ctx: CloudflareRelayContext;
+  ctx: CloudflareRouterApiContext;
   body: Record<string, unknown>;
   privatePath: RouterAbEd25519PrivateSigningPath;
   phase: 'prepare' | 'presign-pool-prepare' | 'finalize';
@@ -81,7 +64,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
 }
 
 export async function handleThresholdEd25519(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
     const resolved = resolveThresholdScheme(
@@ -312,7 +295,7 @@ export async function handleThresholdEd25519(
       const walletId = String(result.walletId || '').trim();
       const nearAccountId = String(result.nearAccountId || '').trim();
       const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId || '').trim();
-      const rpId = String(b.sessionPolicy?.rpId || '').trim();
+      const rpId = String(b.sessionPolicy?.authorityScope.rpId || '').trim();
       const relayerKeyId = String(b.relayerKeyId || '').trim();
       const thresholdExpiresAtMs = (() => {
         const ms =
@@ -335,7 +318,11 @@ export async function handleThresholdEd25519(
       }
       if (!rpId) {
         return json(
-          { ok: false, code: 'internal', message: 'threshold session missing sessionPolicy.rpId' },
+          {
+            ok: false,
+            code: 'internal',
+            message: 'threshold session missing sessionPolicy.authorityScope.rpId',
+          },
           { status: 500 },
         );
       }
@@ -417,10 +404,6 @@ export async function handleThresholdEd25519(
         };
         return json(result, { status: 501 });
       }
-      if (isEmailOtpRegistrationHssRequest(b)) {
-        const result = rejectLegacyEmailOtpRegistrationHssRequest();
-        return json(result, { status: thresholdEd25519StatusCode(result) });
-      }
       if (!parsedBody.ok) {
         return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });
       }
@@ -469,10 +452,6 @@ export async function handleThresholdEd25519(
         };
         return json(result, { status: 501 });
       }
-      if (isEmailOtpRegistrationHssRequest(b)) {
-        const result = rejectLegacyEmailOtpRegistrationHssRequest();
-        return json(result, { status: thresholdEd25519StatusCode(result) });
-      }
       if (!parsedBody.ok) {
         return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });
       }
@@ -512,10 +491,6 @@ export async function handleThresholdEd25519(
           message: 'Threshold Ed25519 HSS is not configured on this server',
         };
         return json(result, { status: 501 });
-      }
-      if (isEmailOtpRegistrationHssRequest(b)) {
-        const result = rejectLegacyEmailOtpRegistrationHssRequest();
-        return json(result, { status: thresholdEd25519StatusCode(result) });
       }
       if (!parsedBody.ok) {
         return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });

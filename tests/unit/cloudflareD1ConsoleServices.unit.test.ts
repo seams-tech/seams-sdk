@@ -370,26 +370,26 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
     },
   });
 
-  const admission = bundle.relayRouterOptions.routerAbNormalSigningAdmission;
+  const admission = bundle.routerApiRouterOptions.routerAbNormalSigningAdmission;
   const input = createAdmissionInput();
 
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
-  expect(bundle.relayRouterOptions).not.toHaveProperty('signedDelegate');
-  expect(bundle.relayRouterOptions.sponsorship).toMatchObject({
+  expect(bundle.routerApiRouterOptions).not.toHaveProperty('signedDelegate');
+  expect(bundle.routerApiRouterOptions.sponsorship).toMatchObject({
     spendCaps: bundle.spendCaps,
     pricing: sponsorshipPricing,
     prepaidReservations: bundle.prepaidReservations,
   });
-  expect(bundle.relayRouterOptions).not.toHaveProperty('sponsoredEvmCall');
-  expect(bundle.relayRouterOptions.bootstrapTokenStore).toBe(bundle.bootstrapTokens);
-  expect(bundle.relayRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
-  expect(bundle.relayRouterOptions.wallets).toBe(bundle.wallets);
-  expect(bundle.relayRouterOptions.observabilityIngestion).toBe(bundle.observabilityIngestion);
-  expect(typeof bundle.relayRouterOptions.apiKeyAuth.authenticate).toBe('function');
-  expect(typeof bundle.relayRouterOptions.publishableKeyAuth.authenticate).toBe('function');
-  expect(typeof bundle.relayRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
-  expect(typeof bundle.relayRouterOptions.bootstrapGrantBroker.authenticatePublishableKey).toBe(
+  expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
+  expect(bundle.routerApiRouterOptions.bootstrapTokenStore).toBe(bundle.bootstrapTokens);
+  expect(bundle.routerApiRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
+  expect(bundle.routerApiRouterOptions.wallets).toBe(bundle.wallets);
+  expect(bundle.routerApiRouterOptions.observabilityIngestion).toBe(bundle.observabilityIngestion);
+  expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
+  expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
+  expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
+  expect(typeof bundle.routerApiRouterOptions.bootstrapGrantBroker.authenticatePublishableKey).toBe(
     'function',
   );
 });
@@ -409,7 +409,7 @@ test('Cloudflare D1 console-only bundle omits signer custody bindings', async ()
   });
 
   expect(bundle).not.toHaveProperty('tenantStorageRouteResolver');
-  expect(bundle).not.toHaveProperty('relayRouterOptions');
+  expect(bundle).not.toHaveProperty('routerApiRouterOptions');
   expect(bundle).not.toHaveProperty('bootstrapTokens');
   expect(bundle).not.toHaveProperty('spendCaps');
   expect(bundle.consoleRouterOptions).not.toHaveProperty('tenantStorageRouteResolver');
@@ -438,14 +438,14 @@ test('D1 relay storage options expose sponsored EVM only with executor config', 
     },
   });
 
-  expect(bundle.relayRouterOptions.sponsoredEvmCall).toMatchObject({
+  expect(bundle.routerApiRouterOptions.sponsoredEvmCall).toMatchObject({
     billing: bundle.billing,
     ledger: bundle.sponsoredCalls,
     runtimeSnapshots: bundle.runtimeSnapshots,
     config: sponsoredEvmCallConfig,
   });
-  expect(bundle.relayRouterOptions.sponsoredEvmCall?.publishableKeyAuth).toBe(
-    bundle.relayRouterOptions.publishableKeyAuth,
+  expect(bundle.routerApiRouterOptions.sponsoredEvmCall?.publishableKeyAuth).toBe(
+    bundle.routerApiRouterOptions.publishableKeyAuth,
   );
 });
 
@@ -478,7 +478,7 @@ test('local D1 Worker ready smoke validates D1 tables and DO admission', async (
   });
 });
 
-test('local D1 Worker exposes relay smoke routes under relay prefix', async () => {
+test('local D1 Worker routes smoke requests through the Router API handler', async () => {
   const database = new FakeD1Database();
   const env = {
     CONSOLE_DB: database,
@@ -554,9 +554,31 @@ test('local D1 Worker exposes relay smoke routes under relay prefix', async () =
     ctx,
   );
   expect(sponsored.status).toBe(404);
+
+  const bootstrapGrant = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/v1/registration/bootstrap-grants', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'https://localhost:8443',
+      },
+      body: JSON.stringify({
+        environmentId: 'project_local:local',
+        rpId: 'localhost',
+        flow: 'registration_v1',
+      }),
+    }),
+    env,
+    ctx,
+  );
+  expect(bootstrapGrant.status).toBe(401);
+  await expect(bootstrapGrant.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'publishable_key_missing',
+  });
 });
 
-test('local D1 Worker mounts sponsored EVM relay route when local executor config is present', async () => {
+test('local D1 Worker mounts sponsored EVM Router API route when local executor config is present', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {

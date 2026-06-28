@@ -23,7 +23,7 @@ import {
   validateRouterAbEcdsaHssWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from './commonRouterUtils';
-import { parseSessionKind, type SessionAdapter } from './relay';
+import { parseSessionKind, type SessionAdapter } from './routerApi';
 import {
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,

@@ -4,21 +4,22 @@ import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import { createRelayRouter } from '../../packages/sdk-server-ts/src/router/express/createRelayRouter';
+import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express/createRouterApiRouter';
 import {
-  createRelayRouterModule,
-  type RelayRouterModule,
+  createRouterApiModule,
+  type RouterApiModule,
 } from '../../packages/sdk-server-ts/src/router/modules';
-import type { RelayRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/routerApiKeyAuth';
+import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
-import { getRelayRouteSurface } from '../../packages/sdk-server-ts/src/router/relayRouteSurface';
+import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/routerApiRouteSurface';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
 import {
   createDefaultVoiceIdService,
-  createVoiceIdRelayRouterModule,
+  createVoiceIdRouterApiModule,
   createVoiceIdServerCapability,
 } from '../../voiceId/server/src/index';
 import { callCf } from '../relayer/helpers';
@@ -29,7 +30,7 @@ type ExpressRouteEntry = {
   path: string;
 };
 
-type CloudflareRelayHandler = ReturnType<typeof createCloudflareRouter>;
+type CloudflareRouterApiHandler = ReturnType<typeof createCloudflareRouter>;
 
 const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
   keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -62,6 +63,29 @@ const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
     public_key: 'x25519:3333333333333333333333333333333333333333333333333333333333333333',
   },
 });
+
+function makeSponsoredEvmExecutorConfig() {
+  return {
+    executorsByChain: new Map([
+      [
+        42_431,
+        {
+          chainId: 42_431,
+          rpcUrl: 'https://rpc.example.test',
+          sponsorAddress: '0x2222222222222222222222222222222222222222' as const,
+          sponsorPrivateKeyHex:
+            '0x1111111111111111111111111111111111111111111111111111111111111111' as const,
+          maxPriorityFeePerGasFloor: 2_000_000_000n,
+          maxFeePerGasFloor: 40_000_000_000n,
+        },
+      ],
+    ]),
+  };
+}
+
+function makeTestPublishableKeyAuth() {
+  return createRouterApiPublishableKeyAuthAdapter(createInMemoryConsoleApiKeyService());
+}
 
 function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
   const entries: ExpressRouteEntry[] = [];
@@ -126,7 +150,7 @@ function voiceIdTestRoute(id: string, method: 'GET' | 'POST', path: string) {
 }
 
 async function callCfFormData(
-  handler: CloudflareRelayHandler,
+  handler: CloudflareRouterApiHandler,
   path: string,
   form: FormData,
 ): Promise<{
@@ -171,6 +195,12 @@ function okValue<TValue>(body: Record<string, unknown> | null): TValue {
 }
 
 const VOICE_ID_TEST_INTENT_DIGEST = 'A'.repeat(43);
+
+const EMAIL_RECOVERY_EXECUTION_SERVICE = {
+  async requestEmailRecovery() {
+    return { success: true };
+  },
+};
 
 function voiceIdIntentBindingBody(): Record<string, unknown> {
   return {
@@ -232,30 +262,29 @@ function voiceIdSampleForm(input: {
   return form;
 }
 
-test.describe('relay route surface wiring', () => {
+test.describe('Router API route surface wiring', () => {
   test('attached route surface matches registered express routes', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       healthz: true,
       readyz: true,
       signingSessionSeal: {
-        enabled: true,
         basePath: '/threshold/custom-signing-session',
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },
-      signedDelegate: { route: '/delegate/submit' },
+      signedDelegate: { route: '/delegate/submit', authService: service },
       sponsoredEvmCall: {
         route: '/gas/relay',
-        apiKeys: {} as any,
+        publishableKeyAuth: makeTestPublishableKeyAuth(),
         billing: {} as any,
         ledger: {} as any,
         runtimeSnapshots: {} as any,
-        config: null,
+        config: makeSponsoredEvmExecutorConfig(),
       },
     });
 
-    const surface = getRelayRouteSurface(router);
+    const surface = getRouterApiRouteSurface(router);
     expect(surface).toBeTruthy();
     expect(surface?.mePath).toBe('/session/me');
     expect(surface?.signedDelegatePath).toBe('/delegate/submit');
@@ -279,14 +308,14 @@ test.describe('relay route surface wiring', () => {
     expect([...actualKeys].filter((key) => !expectedKeys.has(key))).toEqual([]);
   });
 
-  test('conditional relay route families are only attached when enabled', async () => {
+  test('conditional Router API route families are only attached when enabled', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {});
-    const surface = getRelayRouteSurface(router);
+    const router = createRouterApiRouter(service, {});
+    const surface = getRouterApiRouteSurface(router);
     const ids = new Set((surface?.routeDefinitions || []).map((route) => route.id));
 
-    expect(ids.has('relay_healthz')).toBe(false);
-    expect(ids.has('relay_readyz')).toBe(false);
+    expect(ids.has('router_api_healthz')).toBe(false);
+    expect(ids.has('router_api_readyz')).toBe(false);
     expect(ids.has('wallet_registration_prepare')).toBe(false);
     expect(ids.has('signed_delegate')).toBe(false);
     expect(ids.has('sponsored_evm_call')).toBe(false);
@@ -294,35 +323,70 @@ test.describe('relay route surface wiring', () => {
     expect(ids.has('signing_session_seal_remove_server_seal')).toBe(false);
   });
 
-  test('cloudflare and express attach the same configured relay route surface', async () => {
+  test('email recovery route surface separates prepare-only and executable ingress branches', async () => {
+    const service = makeFakeAuthService();
+    const prepareOnlySurface = getRouterApiRouteSurface(
+      createRouterApiRouter(service, {
+        emailRecovery: {
+          kind: 'prepare_only',
+          authService: service,
+        },
+      }),
+    );
+    const prepareOnlyIds = new Set(
+      (prepareOnlySurface?.routeDefinitions || []).map((route) => route.id),
+    );
+
+    expect(prepareOnlyIds.has('email_recovery_prepare')).toBe(true);
+    expect(prepareOnlyIds.has('email_recovery_ecdsa_respond')).toBe(true);
+    expect(prepareOnlyIds.has('recover_email')).toBe(false);
+
+    const executableSurface = getRouterApiRouteSurface(
+      createRouterApiRouter(service, {
+        emailRecovery: {
+          kind: 'prepare_and_execute',
+          authService: service,
+          executionService: EMAIL_RECOVERY_EXECUTION_SERVICE,
+        },
+      }),
+    );
+    const executableIds = new Set(
+      (executableSurface?.routeDefinitions || []).map((route) => route.id),
+    );
+
+    expect(executableIds.has('email_recovery_prepare')).toBe(true);
+    expect(executableIds.has('email_recovery_ecdsa_respond')).toBe(true);
+    expect(executableIds.has('recover_email')).toBe(true);
+  });
+
+  test('cloudflare and express attach the same configured Router API route surface', async () => {
     const service = makeFakeAuthService();
     const options = {
       healthz: true,
       signingSessionSeal: {
-        enabled: true,
         basePath: '/threshold/custom-signing-session',
         service: {} as any,
       },
       readyz: true,
       sessionRoutes: { state: '/session/me' },
-      signedDelegate: { route: '/delegate/submit' },
+      signedDelegate: { route: '/delegate/submit', authService: service },
       sponsoredEvmCall: {
         route: '/gas/relay',
-        apiKeys: {} as any,
+        publishableKeyAuth: makeTestPublishableKeyAuth(),
         billing: {} as any,
         ledger: {} as any,
         runtimeSnapshots: {} as any,
-        config: null,
+        config: makeSponsoredEvmExecutorConfig(),
       },
     };
 
-    const expressSurface = getRelayRouteSurface(createRelayRouter(service, options));
-    const cloudflareSurface = getRelayRouteSurface(createCloudflareRouter(service, options));
+    const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
+    const cloudflareSurface = getRouterApiRouteSurface(createCloudflareRouter(service, options));
 
     expect(cloudflareSurface).toEqual(expressSurface);
   });
 
-  test('cloudflare handler recognizes every seeded relay route definition', async () => {
+  test('cloudflare handler recognizes every seeded Router API route definition', async () => {
     const service = makeFakeAuthService();
     const apiKeys = createInMemoryConsoleApiKeyService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -333,15 +397,14 @@ test.describe('relay route surface wiring', () => {
       readyz: true,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
       signingSessionSeal: {
-        enabled: true,
         basePath: '/threshold/custom-signing-session',
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },
-      signedDelegate: { route: '/delegate/submit' },
+      signedDelegate: { route: '/delegate/submit', authService: service },
       sponsoredEvmCall: {
         route: '/gas/relay',
-        apiKeys,
+        publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
         billing: {
           async recordUsageEvent() {
             return {
@@ -363,25 +426,10 @@ test.describe('relay route surface wiring', () => {
         } as any,
         ledger,
         runtimeSnapshots,
-        config: {
-          executorsByChain: new Map([
-            [
-              42_431,
-              {
-                chainId: 42_431,
-                rpcUrl: 'https://rpc.example.test',
-                sponsorAddress: '0x2222222222222222222222222222222222222222',
-                sponsorPrivateKeyHex:
-                  '0x1111111111111111111111111111111111111111111111111111111111111111',
-                maxPriorityFeePerGasFloor: 2_000_000_000n,
-                maxFeePerGasFloor: 40_000_000_000n,
-              },
-            ],
-          ]),
-        },
+        config: makeSponsoredEvmExecutorConfig(),
       },
     });
-    const surface = getRelayRouteSurface(handler);
+    const surface = getRouterApiRouteSurface(handler);
     expect(surface).toBeTruthy();
 
     for (const route of surface?.routeDefinitions || []) {
@@ -408,7 +456,7 @@ test.describe('relay route surface wiring', () => {
       '/voiceid/express-owner-presence',
     );
     const universalRoute = voiceIdTestRoute('voiceid_capabilities', 'GET', '/voiceid/capabilities');
-    const extensions: RelayRouteExtension[] = [
+    const extensions: RouterApiRouteExtension[] = [
       {
         kind: 'cloudflare_route_extension',
         id: 'voiceid-cloudflare',
@@ -449,7 +497,7 @@ test.describe('relay route surface wiring', () => {
     ];
 
     const cloudflareHandler = createCloudflareRouter(service, { routeExtensions: extensions });
-    const cloudflareSurface = getRelayRouteSurface(cloudflareHandler);
+    const cloudflareSurface = getRouterApiRouteSurface(cloudflareHandler);
     const cloudflareIds = new Set(
       (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
     );
@@ -468,8 +516,8 @@ test.describe('relay route surface wiring', () => {
       runtime: 'cloudflare',
     });
 
-    const expressRouter = createRelayRouter(service, { routeExtensions: extensions });
-    const expressSurface = getRelayRouteSurface(expressRouter);
+    const expressRouter = createRouterApiRouter(service, { routeExtensions: extensions });
+    const expressSurface = getRouterApiRouteSurface(expressRouter);
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
     expect(expressIds.has('voiceid_owner_presence_cloudflare')).toBe(false);
     expect(expressIds.has('voiceid_owner_presence_express')).toBe(true);
@@ -483,9 +531,9 @@ test.describe('relay route surface wiring', () => {
     expect(expressKeys.has('POST /voiceid/owner-presence')).toBe(false);
   });
 
-  test('route extensions cannot shadow existing relay routes', async () => {
+  test('route extensions cannot shadow existing Router API routes', async () => {
     const service = makeFakeAuthService();
-    const extension: RelayRouteExtension = {
+    const extension: RouterApiRouteExtension = {
       kind: 'cloudflare_route_extension',
       id: 'conflicting-extension',
       routes: [voiceIdTestRoute('conflicting_session_state', 'GET', '/session/state')],
@@ -493,15 +541,15 @@ test.describe('relay route surface wiring', () => {
     };
 
     expect(() => createCloudflareRouter(service, { routeExtensions: [extension] })).toThrow(
-      /duplicate relay route definition path GET \/session\/state/,
+      /duplicate Router API route definition path GET \/session\/state/,
     );
   });
 
-  test('relay routers run without optional VoiceID module registered', async () => {
+  test('Router API routers run without optional VoiceID module registered', async () => {
     const service = makeFakeAuthService();
 
     const cloudflareHandler = createCloudflareRouter(service, {});
-    const cloudflareSurface = getRelayRouteSurface(cloudflareHandler);
+    const cloudflareSurface = getRouterApiRouteSurface(cloudflareHandler);
     const cloudflareIds = new Set(
       (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
     );
@@ -513,8 +561,8 @@ test.describe('relay route surface wiring', () => {
     });
     expect(missingVoiceIdResponse.status).toBe(404);
 
-    const expressRouter = createRelayRouter(service, {});
-    const expressSurface = getRelayRouteSurface(expressRouter);
+    const expressRouter = createRouterApiRouter(service, {});
+    const expressSurface = getRouterApiRouteSurface(expressRouter);
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
     expect(expressIds.has('voice_id_health')).toBe(false);
 
@@ -524,9 +572,9 @@ test.describe('relay route surface wiring', () => {
     expect(expressKeys.has('GET /voice-id/health')).toBe(false);
   });
 
-  test('relay modules register VoiceID routes across Cloudflare and Express', async () => {
+  test('Router API modules register VoiceID routes across Cloudflare and Express', async () => {
     const service = makeFakeAuthService();
-    const voiceIdModule: RelayRouterModule = createVoiceIdRelayRouterModule(
+    const voiceIdModule: RouterApiModule = createVoiceIdRouterApiModule(
       createVoiceIdServerCapability({
         kind: 'service',
         service: createDefaultVoiceIdService({ verifierMode: 'fake' }),
@@ -534,7 +582,7 @@ test.describe('relay route surface wiring', () => {
     );
 
     const cloudflareHandler = createCloudflareRouter(service, { modules: [voiceIdModule] });
-    const cloudflareSurface = getRelayRouteSurface(cloudflareHandler);
+    const cloudflareSurface = getRouterApiRouteSurface(cloudflareHandler);
     const cloudflareIds = new Set(
       (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
     );
@@ -646,8 +694,8 @@ test.describe('relay route surface wiring', () => {
     expect(ownerPresence.decision.kind).toBe('accepted');
     expect(ownerPresence.decision.evidence?.intentDigest).toBe(VOICE_ID_TEST_INTENT_DIGEST);
 
-    const expressRouter = createRelayRouter(service, { modules: [voiceIdModule] });
-    const expressSurface = getRelayRouteSurface(expressRouter);
+    const expressRouter = createRouterApiRouter(service, { modules: [voiceIdModule] });
+    const expressSurface = getRouterApiRouteSurface(expressRouter);
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
     expect(expressIds.has('voice_id_health')).toBe(true);
     expect(expressIds.has('voice_id_verification_sample')).toBe(true);
@@ -661,20 +709,20 @@ test.describe('relay route surface wiring', () => {
     expect(expressKeys.has('POST /voice-id/owner-presence/authorize')).toBe(true);
   });
 
-  test('relay modules reject duplicate module ids', async () => {
+  test('Router API modules reject duplicate module ids', async () => {
     const service = makeFakeAuthService();
     const route = voiceIdTestRoute('voiceid_duplicate_module_route', 'GET', '/voiceid/dupe');
-    const extension: RelayRouteExtension = {
+    const extension: RouterApiRouteExtension = {
       kind: 'cloudflare_route_extension',
       id: 'duplicate-module-extension',
       routes: [route],
       handleCloudflareRoute: () => new Response(null, { status: 204 }),
     };
-    const first = createRelayRouterModule({ id: 'voiceid', routeExtensions: [extension] });
-    const second = createRelayRouterModule({ id: 'voiceid', routeExtensions: [extension] });
+    const first = createRouterApiModule({ id: 'voiceid', routeExtensions: [extension] });
+    const second = createRouterApiModule({ id: 'voiceid', routeExtensions: [extension] });
 
     expect(() => createCloudflareRouter(service, { modules: [first, second] })).toThrow(
-      /duplicate relay router module id voiceid/,
+      /duplicate Router API module id voiceid/,
     );
   });
 });

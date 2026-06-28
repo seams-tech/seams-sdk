@@ -1,7 +1,7 @@
 import { toOptionalRecordString } from '@shared/utils/validation';
 import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
-import type { CloudflareRelayAuthService } from './authServicePort';
-import type { RelayRouterOptions } from './relay';
+import type { CloudflareRouterApiAuthService } from './authServicePort';
+import type { RouterApiOptions } from './routerApi';
 import {
   authorizeEmailOtpExportPolicy,
   emailOtpExportDeniedDecisionFromResult,
@@ -40,7 +40,7 @@ export type EmitEmailOtpRouteWebhook = (input: {
 }) => Promise<void>;
 
 async function requireEmailOtpEnrollmentMutationAuth(input: {
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
   claims: Record<string, unknown>;
   walletId: string;
 }): Promise<EmailOtpRouteResponse | null> {
@@ -102,7 +102,7 @@ export async function handleEmailOtpRegistrationChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -164,7 +164,7 @@ export async function handleEmailOtpRegistrationSealRoute(input: {
   body: unknown;
   claims: Record<string, unknown>;
   userId: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -208,7 +208,7 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -335,8 +335,8 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
-  opts: RelayRouterOptions;
+  service: CloudflareRouterApiAuthService;
+  opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -472,7 +472,7 @@ export async function handleEmailOtpDeviceRecoveryChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -527,7 +527,7 @@ export async function handleEmailOtpRecoveryWrappedEscrowsRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -600,7 +600,7 @@ export async function handleEmailOtpRecoveryKeyConsumeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -670,7 +670,7 @@ export async function handleEmailOtpRecoveryKeyStatusRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -702,7 +702,7 @@ export async function handleEmailOtpRecoveryKeyRotateRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -754,7 +754,7 @@ export async function handleEmailOtpRecoveryKeyAttemptFailedRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -845,7 +845,7 @@ function readEmailOtpOrgIdFromClaims(claims: Record<string, unknown>): string {
 }
 
 async function readServerKnownEmailOtpAddress(input: {
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
   walletId: string;
   orgId?: string;
   providerUserId?: string;
@@ -895,8 +895,8 @@ export async function handleEmailOtpSigningSessionChallengeRoute(input: {
   appSessionVersion: string;
   sessionHash: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
-  opts: RelayRouterOptions;
+  service: CloudflareRouterApiAuthService;
+  opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1017,8 +1017,8 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
-  opts: RelayRouterOptions;
+  service: CloudflareRouterApiAuthService;
+  opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1193,8 +1193,8 @@ export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
-  opts: RelayRouterOptions;
+  service: CloudflareRouterApiAuthService;
+  opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1256,8 +1256,8 @@ export async function handleEmailOtpSigningSessionVerifyRoute(input: {
   appSessionVersion: string;
   sessionHash: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
-  opts: RelayRouterOptions;
+  service: CloudflareRouterApiAuthService;
+  opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1424,7 +1424,7 @@ export async function handleEmailOtpUnsealRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1487,7 +1487,7 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
   appSessionVersion: string;
   sessionHash: string;
   clientIp?: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1557,7 +1557,7 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
 
 export async function handleEmailOtpDevCleanupGoogleRegistrationRoute(input: {
   body: unknown;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const body = input.body && typeof input.body === 'object' ? input.body : {};
   const verified = await input.service.verifyGoogleLogin({
@@ -1598,7 +1598,7 @@ export async function handleEmailOtpDevOtpOutboxRoute(input: {
   walletId?: string;
   claims: Record<string, unknown>;
   userId: string;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<EmailOtpRouteResponse> {
   const challengeId = String(input.challengeId || '').trim();
   const sessionWalletId = getSessionWalletId(input.claims, input.userId);

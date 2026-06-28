@@ -1,17 +1,17 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import {
-  handleRelayApiWalletGet,
-  handleRelayApiWalletList,
-  handleRelayApiWalletSearch,
-} from '../../relayApiWallets';
-import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
+  handleRouterApiWalletGet,
+  handleRouterApiWalletList,
+  handleRouterApiWalletSearch,
+} from '../../routerApiWallets';
+import { resolveSourceIpFromExpressRequest } from '../../routerApiKeyAuth';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { sendExpressRouteResponse } from '../../routeResponses';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 
 export function registerApiWalletRoutes(
   router: ExpressRouter,
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
 ): void {
   const listRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_list');
   const searchRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_search');
@@ -22,7 +22,7 @@ export function registerApiWalletRoutes(
 
   router.get(listRoute.path, async (req: Request, res: Response) => {
     const headers = (req.headers || {}) as Record<string, string | string[] | undefined>;
-    const response = await handleRelayApiWalletList({
+    const response = await handleRouterApiWalletList({
       headers,
       logger: ctx.logger,
       query: (req as any).query || {},
@@ -42,7 +42,7 @@ export function registerApiWalletRoutes(
 
   router.get(searchRoute.path, async (req: Request, res: Response) => {
     const headers = (req.headers || {}) as Record<string, string | string[] | undefined>;
-    const response = await handleRelayApiWalletSearch({
+    const response = await handleRouterApiWalletSearch({
       headers,
       logger: ctx.logger,
       query: (req as any).query || {},
@@ -63,7 +63,7 @@ export function registerApiWalletRoutes(
   router.get(getRoute.path, async (req: Request, res: Response) => {
     const headers = (req.headers || {}) as Record<string, string | string[] | undefined>;
     const params = req as Request & { params?: { id?: string } };
-    const response = await handleRelayApiWalletGet({
+    const response = await handleRouterApiWalletGet({
       headers,
       logger: ctx.logger,
       route: getRoute,

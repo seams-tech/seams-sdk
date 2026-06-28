@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, makeFakeAuthService, startExpressRouter } from './helpers';
 
@@ -22,7 +22,7 @@ function createStubSigningSessionSealOptionsWithCapabilities() {
 test.describe('relayer health/ready + well-known', () => {
   test('express: GET /healthz includes threshold hints when enabled', async () => {
     const service = makeFakeAuthService({ getThresholdSigningService: () => ({}) as any });
-    const router = createRelayRouter(service, { healthz: true, readyz: true });
+    const router = createRouterApiRouter(service, { healthz: true, readyz: true });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/healthz`, { method: 'GET' });
@@ -36,7 +36,7 @@ test.describe('relayer health/ready + well-known', () => {
 
   test('express: GET /readyz returns 200 when relayer account is available', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { readyz: true });
+    const router = createRouterApiRouter(service, { readyz: true });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/readyz`, { method: 'GET' });
@@ -53,7 +53,7 @@ test.describe('relayer health/ready + well-known', () => {
         throw new Error('relayer not reachable');
       },
     });
-    const router = createRelayRouter(service, { readyz: true });
+    const router = createRouterApiRouter(service, { readyz: true });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/readyz`, { method: 'GET' });
@@ -68,7 +68,7 @@ test.describe('relayer health/ready + well-known', () => {
   test('express: GET /.well-known/webauthn sets Cache-Control and returns origins', async () => {
     const calls: Array<{ rpId: string; host?: string }> = [];
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       ror: {
         rpId: 'wallet.example.localhost',
         provider: {
@@ -103,7 +103,7 @@ test.describe('relayer health/ready + well-known', () => {
 
   test('express: well-known includes sealed refresh capabilities when signing-session seal is configured', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signingSessionSeal: createStubSigningSessionSealOptionsWithCapabilities() as any,
     });
     const srv = await startExpressRouter(router);

@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { createInMemoryConsoleOrgProjectEnvService } from '@server/console/orgProjectEnv';
-import { handleRelayWalletRegistrationIntent } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
+import { handleRouterApiWalletRegistrationIntent } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import {
-  createRelayRouteDefinitions,
+  createRouterApiRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
-import type { RelayApiKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/relay';
+import type { RouterApiKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import {
   implicitNearAccountProvisioning,
   parseGeneratedImplicitWalletId,
@@ -29,7 +29,7 @@ function namedProvisioning(accountId: string) {
   return sponsoredNamedNearAccountProvisioning(parsed.value);
 }
 
-const routeDefinitions = createRelayRouteDefinitions({
+const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
   enableSigningSessionSeal: true,
   enableReadyz: true,
@@ -101,7 +101,7 @@ function makeService(): AuthService {
   });
 }
 
-function makeApiKeyAuth(): RelayApiKeyAuthAdapter {
+function makeApiKeyAuth(): RouterApiKeyAuthAdapter {
   return {
     authenticate: async (request) => {
       expect(request).toMatchObject({
@@ -145,11 +145,10 @@ async function makeOrgProjectEnv() {
 test.describe('wallet registration intent relayer modes', () => {
   test('requires an exact origin before API credential auth', async () => {
     let authCalled = false;
-    const response = await handleRelayWalletRegistrationIntent({
+    const response = await handleRouterApiWalletRegistrationIntent({
       body: {
         wallet: { kind: 'server_generated' },
-        rpId: 'wallet.example.test',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: modeCases[0].signerSelection,
       },
       headers: {
@@ -191,11 +190,10 @@ test.describe('wallet registration intent relayer modes', () => {
 
   test('passes environment and normalized origin context to intent creation', async () => {
     let capturedRequest: unknown = null;
-    const response = await handleRelayWalletRegistrationIntent({
+    const response = await handleRouterApiWalletRegistrationIntent({
       body: {
         wallet: { kind: 'server_generated' },
-        rpId: 'wallet.example.test',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: modeCases[0].signerSelection,
       },
       headers: {
@@ -219,8 +217,7 @@ test.describe('wallet registration intent relayer modes', () => {
               intent: {
                 version: 'registration_intent_v1',
                 walletId: 'wallet_route_context',
-                rpId: 'wallet.example.test',
-                authMethod: { kind: 'passkey' },
+                authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
                 signerSelection: modeCases[0].signerSelection,
                 runtimePolicyScope: {
                   orgId: ORG_ID,
@@ -239,7 +236,7 @@ test.describe('wallet registration intent relayer modes', () => {
         apiKeyAuth: makeApiKeyAuth(),
         orgProjectEnv: await makeOrgProjectEnv(),
       },
-    } as unknown as Parameters<typeof handleRelayWalletRegistrationIntent>[0]);
+    } as unknown as Parameters<typeof handleRouterApiWalletRegistrationIntent>[0]);
 
     expect(route('wallet_registration_intent').metering).toEqual({ kind: 'none' });
     expect(response.status).toBe(200);
@@ -259,14 +256,13 @@ test.describe('wallet registration intent relayer modes', () => {
 
   for (const entry of modeCases) {
     test(`creates ${entry.mode} registration intents through the relayer route`, async () => {
-      const response = await handleRelayWalletRegistrationIntent({
+      const response = await handleRouterApiWalletRegistrationIntent({
         body: {
           wallet:
             entry.mode === 'ecdsa_only'
               ? { kind: 'server_generated' }
               : { kind: 'provided', walletId: 'wallet_alice' },
-          rpId: 'wallet.example.test',
-          authMethod: { kind: 'passkey' },
+          authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
           signerSelection: entry.signerSelection,
         },
         headers: {
@@ -291,7 +287,10 @@ test.describe('wallet registration intent relayer modes', () => {
       expect(response.status).toBe(200);
       expect(response.body.ok).toBe(true);
       if (!response.body.ok) throw new Error(response.body.message);
-      expect(response.body.intent.rpId).toBe('wallet.example.test');
+      expect(response.body.intent.authMethod).toMatchObject({
+        kind: 'passkey',
+        rpId: 'wallet.example.test',
+      });
       expect(response.body.intent.runtimePolicyScope).toEqual({
         orgId: ORG_ID,
         projectId: PROJECT_ID,
@@ -304,11 +303,10 @@ test.describe('wallet registration intent relayer modes', () => {
   }
 
   test('creates an implicit Ed25519 registration intent with a generated wallet ID', async () => {
-    const response = await handleRelayWalletRegistrationIntent({
+    const response = await handleRouterApiWalletRegistrationIntent({
       body: {
         wallet: { kind: 'server_generated' },
-        rpId: 'wallet.example.test',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {

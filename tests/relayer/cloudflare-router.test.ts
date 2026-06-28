@@ -22,11 +22,9 @@ import {
   createInMemoryConsoleSponsorshipSpendCapService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
-  createRelayPublishableKeyAuthAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
 } from '@server/router/cloudflare-adaptor';
-import {
-  THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-} from '@server/core/ThresholdService/schemes/schemeIds';
+import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import {
   callCf,
   getPath,
@@ -186,7 +184,7 @@ function makeSignedDelegateBillingSpyWithOptions(input?: { initialBalanceMinor?:
   return makeSignedDelegateBillingSpyWithBalance([], input?.initialBalanceMinor ?? 5_000);
 }
 
-function makeRelayObservabilityCollector(
+function makeRouterApiObservabilityCollector(
   ingested: Array<{
     ingestCtx: Record<string, unknown>;
     event: Record<string, unknown>;
@@ -401,6 +399,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -409,7 +408,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
 
     const res = await callCf(handler, {
@@ -477,6 +476,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -485,7 +485,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
 
     const res = await callCf(handler, {
@@ -556,6 +556,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -564,8 +565,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
-      observabilityIngestion: makeRelayObservabilityCollector(ingested) as any,
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
+      observabilityIngestion: makeRouterApiObservabilityCollector(ingested) as any,
     });
 
     const res = await callCf(handler, {
@@ -645,6 +646,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -654,7 +656,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         prepaidReservations,
         spendCaps,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
 
     const res = await callCf(handler, {
@@ -744,6 +746,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -752,7 +755,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
 
     const res = await callCf(handler, {
@@ -844,6 +847,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -852,7 +856,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
 
     const hash = 'd'.repeat(64);
@@ -929,6 +933,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -937,7 +942,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
 
     const hash = 'f'.repeat(64);
@@ -1034,6 +1039,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -1042,7 +1048,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
 
     const request = {
@@ -1408,7 +1414,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-auth-identities-parse-fail',
       },
@@ -1515,7 +1521,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-parse-fail',
       },
@@ -1565,7 +1571,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-cookie-parse-fail',
       },
@@ -1615,7 +1621,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-cookie-nonmatch',
       },
@@ -1861,7 +1867,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
   test('POST /session/exchange: Google register consumes registration attempt rate limit before resolution', async () => {
     let resolverCalled = false;
     let rateLimitInput: Record<string, unknown> | null = null;
-    const session = makeSessionAdapter({ signJwt: async () => 'unused-rate-limited-google-cf-jwt' });
+    const session = makeSessionAdapter({
+      signJwt: async () => 'unused-rate-limited-google-cf-jwt',
+    });
     const service = makeFakeAuthService({
       verifyGoogleLogin: async () => ({
         ok: true,
@@ -2963,7 +2971,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-passkey-exchange',
       },
@@ -3165,7 +3173,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-warm',
       },
@@ -3228,7 +3236,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-1',
       },
@@ -3390,29 +3398,13 @@ test.describe('relayer router (cloudflare) – P0', () => {
   });
 
   test('POST /router-ab/wallet-budget/status: stale threshold session returns typed not_found', async () => {
+    const { claims } = buildEcdsaCurveCollisionBudgetStatusFixture('cf-stale', {
+      claimExpiresAtMs: Date.now() - 1_000,
+    });
     const session = makeSessionAdapter({
       parse: async () => ({
         ok: true,
-        claims: {
-          sub: 'budget-stale-cf.testnet',
-          walletId: 'budget-stale-cf.testnet',
-          kind: 'threshold_ecdsa_session_v1',
-          thresholdSessionId: 'threshold-login-stale-cf',
-          signingGrantId: 'wsess-stale-cf',
-          subjectId: 'budget-stale-cf.testnet',
-          chainTarget: {
-            kind: 'evm',
-            namespace: 'eip155',
-            chainId: 5042002,
-            networkSlug: 'arc-testnet',
-          },
-          ecdsaThresholdKeyId: 'ecdsa-key-stale-cf',
-          keyHandle: 'key-handle-stale-cf',
-          relayerKeyId: 'relayer-key-stale-cf',
-          rpId: 'example.localhost',
-          thresholdExpiresAtMs: Date.now() + 60_000,
-          participantIds: [1, 2],
-        },
+        claims,
       }),
     });
     const service = makeFakeAuthService();
@@ -3438,16 +3430,16 @@ test.describe('relayer router (cloudflare) – P0', () => {
       origin: 'https://example.localhost',
       headers: { Authorization: 'Bearer stale-token' },
       body: {
-        signingGrantId: 'wsess-stale-cf',
-        thresholdSessionId: 'threshold-login-stale-cf',
+        signingGrantId: claims.signingGrantId,
+        thresholdSessionId: claims.thresholdSessionId,
       },
     });
 
     expect(res.status).toBe(200);
     expect(res.json).toEqual({
       ok: true,
-      signingGrantId: 'wsess-stale-cf',
-      thresholdSessionId: 'threshold-login-stale-cf',
+      signingGrantId: claims.signingGrantId,
+      thresholdSessionId: claims.thresholdSessionId,
       status: 'not_found',
       statusCode: 'unauthorized',
     });
@@ -3503,13 +3495,15 @@ test.describe('relayer router (cloudflare) – P0', () => {
   });
 
   test('POST /router-ab/wallet-budget/status: exhausted wallet budget returns exhausted projection', async () => {
-    const { claims, ecdsaStatus, walletBudgetStatus } =
-      buildEcdsaCurveCollisionBudgetStatusFixture('cf-exhausted', {
+    const { claims, ecdsaStatus, walletBudgetStatus } = buildEcdsaCurveCollisionBudgetStatusFixture(
+      'cf-exhausted',
+      {
         walletRemainingUses: 0,
         walletCommittedRemainingUses: 0,
         walletReservedUses: 0,
         walletAvailableUses: 0,
-      });
+      },
+    );
     const session = makeSessionAdapter({
       parse: async () => ({ ok: true, claims }),
     });
@@ -3557,10 +3551,12 @@ test.describe('relayer router (cloudflare) – P0', () => {
   });
 
   test('POST /router-ab/wallet-budget/status: expired wallet session returns typed not_found', async () => {
-    const { claims, ecdsaStatus, walletBudgetStatus } =
-      buildEcdsaCurveCollisionBudgetStatusFixture('cf-expired', {
+    const { claims, ecdsaStatus, walletBudgetStatus } = buildEcdsaCurveCollisionBudgetStatusFixture(
+      'cf-expired',
+      {
         claimExpiresAtMs: Date.now() - 1_000,
-      });
+      },
+    );
     const session = makeSessionAdapter({
       parse: async () => ({ ok: true, claims }),
     });
@@ -3725,7 +3721,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-expired',
       },
@@ -3870,7 +3866,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-invalid-version',
       },
@@ -4161,7 +4157,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-cf-2',
       },
@@ -4261,7 +4257,11 @@ test.describe('relayer router (cloudflare) – P0', () => {
     });
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
-      emailRecovery: { enabled: true },
+      emailRecovery: {
+        kind: 'prepare_and_execute',
+        authService: service,
+        executionService: emailRecovery,
+      },
     });
 
     const res = await callCf(handler, {
@@ -4285,5 +4285,55 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(202);
     expect(res.json?.queued).toBe(true);
     expect(waited.length).toBe(1);
+  });
+
+  test('POST /recover-email: prepare-only email recovery does not mount ingress or mutate session', async () => {
+    let getRecoverySessionCalls = 0;
+    let updateRecoverySessionStatusCalls = 0;
+    const payload = buildRecoveryEmailPayload({
+      nearAccountId: 'bob.testnet',
+      recoverySessionId: 'ABC123',
+      newNearPublicKey: 'ed25519:pk',
+      newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+      deadlineEpochSeconds: 1_893_456_000,
+    });
+    const service = makeFakeAuthService({
+      getRecoverySession: async () => {
+        getRecoverySessionCalls += 1;
+        return { ok: false, code: 'invalid_args', message: 'not found' };
+      },
+      updateRecoverySessionStatus: async () => {
+        updateRecoverySessionStatusCalls += 1;
+        return { ok: false, code: 'invalid_args', message: 'not found' };
+      },
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      emailRecovery: {
+        kind: 'prepare_only',
+        authService: service,
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/recover-email',
+      origin: 'https://example.localhost',
+      body: {
+        from: 'sender@example.com',
+        to: 'recover@web3authn.org',
+        headers: { Subject: buildRecoveryEmailSubject(payload) },
+        raw: [
+          `Subject: ${buildRecoveryEmailSubject(payload)}`,
+          '',
+          buildRecoveryEmailBody(payload),
+        ].join('\r\n'),
+        rawSize: 1,
+      },
+    });
+
+    expect(res.status).toBe(404);
+    expect(getRecoverySessionCalls).toBe(0);
+    expect(updateRecoverySessionStatusCalls).toBe(0);
   });
 });

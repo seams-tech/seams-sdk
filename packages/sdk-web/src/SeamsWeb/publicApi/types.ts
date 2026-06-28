@@ -31,7 +31,7 @@ import type {
 } from '@/core/rpcClients/near/NearClient';
 import type {
   ActionResult,
-  DelegateRelayResult,
+  DelegateRouterApiResult,
   EmailOtpAuthPolicy,
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
@@ -631,14 +631,12 @@ export interface RegistrationCapability {
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
     wallet: RegisterWalletInput;
-    rpId: string;
     signerSelection: RegistrationSignerSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
   registerWithEmailOtp(args: {
     authMethod: Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
     wallet: RegisterWalletInput;
-    rpId: string;
     signerSelection: RegistrationSignerSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
@@ -790,7 +788,7 @@ export interface NearSignerCapability {
     hash: string;
     signal?: AbortSignal;
     options?: DelegateRelayHooksOptions;
-  }): Promise<DelegateRelayResult>;
+  }): Promise<DelegateRouterApiResult>;
 
   signAndSendDelegateAction(args: {
     walletSession: WalletSessionRef;

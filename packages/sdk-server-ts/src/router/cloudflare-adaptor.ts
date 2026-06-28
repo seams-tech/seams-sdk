@@ -1,31 +1,31 @@
 export type {
-  RelayRouterOptions,
+  RouterApiOptions,
   ThresholdSigningAdapter,
-  RelayApiKeyAuthFailureCode,
-  RelayApiKeyAuthRequest,
-  RelayApiKeyPrincipal,
-  RelayApiKeyAuthResult,
-  RelayApiKeyAuthAdapter,
-  RelayPublishableKeyAuthFailureCode,
-  RelayPublishableKeyAuthRequest,
-  RelayPublishableKeyAuthResult,
-  RelayPublishableKeyAuthAdapter,
-  RelayUsageMeterAction,
-  RelayUsageMeterEvent,
-  RelayUsageMeterAdapter,
-  RelayBootstrapGrantMode,
-  RelayBootstrapGrantFailureCode,
-  RelayBootstrapGrantClientContext,
-  RelayBootstrapGrantIssueRequest,
-  RelayBootstrapGrant,
-  RelayBootstrapGrantPaymentRequirement,
-  RelayBootstrapGrantIssueResult,
-  RelayBootstrapTokenRecord,
-  RelayBootstrapGrantBroker,
-  RelayRuntimePolicyScope,
-  RelayRuntimeSnapshotEnvelope,
-  RelayRuntimeSnapshotConsumer,
-} from './relay';
+  RouterApiKeyAuthFailureCode,
+  RouterApiKeyAuthRequest,
+  RouterApiKeyPrincipal,
+  RouterApiKeyAuthResult,
+  RouterApiKeyAuthAdapter,
+  RouterApiPublishableKeyAuthFailureCode,
+  RouterApiPublishableKeyAuthRequest,
+  RouterApiPublishableKeyAuthResult,
+  RouterApiPublishableKeyAuthAdapter,
+  RouterApiUsageMeterAction,
+  RouterApiUsageMeterEvent,
+  RouterApiUsageMeterAdapter,
+  RouterApiBootstrapGrantMode,
+  RouterApiBootstrapGrantFailureCode,
+  RouterApiBootstrapGrantClientContext,
+  RouterApiBootstrapGrantIssueRequest,
+  RouterApiBootstrapGrant,
+  RouterApiBootstrapGrantPaymentRequirement,
+  RouterApiBootstrapGrantIssueResult,
+  RouterApiBootstrapTokenRecord,
+  RouterApiBootstrapGrantBroker,
+  RouterApiRuntimePolicyScope,
+  RouterApiRuntimeSnapshotEnvelope,
+  RouterApiRuntimeSnapshotConsumer,
+} from './routerApi';
 export {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_PATH,
@@ -60,23 +60,25 @@ export type {
   RouterAbNormalSigningQuotaStore,
 } from './routerAbNormalSigningAdmissionCore';
 export type {
-  RelayCloudflareRouteExtensionInput,
-  RelayCloudflareRouteExtension,
-  RelayExpressRouteExtensionInput,
-  RelayExpressRouteExtension,
-  RelayRouteExtension,
-  RelayRouteExtensionTransport,
+  RouterApiCloudflareRouteExtensionInput,
+  RouterApiCloudflareRouteExtension,
+  RouterApiExpressRouteExtensionInput,
+  RouterApiExpressRouteExtension,
+  RouterApiRouteExtension,
+  RouterApiRouteExtensionTransport,
 } from './routeExtensions';
-export type { RelayRouterModule, RelayRouterModuleKind, RelayRouterModuleOptions } from './modules';
-export { createRelayRouterModule } from './modules';
+export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './modules';
+export { createRouterApiModule } from './modules';
 export type { RouteDefinition } from './routeDefinitions';
 export { defineRoute } from './routeDefinitions';
 export type {
   ConsoleRouterOptions,
+} from './console';
+export type {
   ConsoleAuthAdapter,
   ConsoleAuthClaims,
   ConsoleRole,
-} from './console';
+} from './consoleAuth';
 export type {
   ConsoleOrganizationStatus,
   ConsoleProjectStatus,
@@ -171,14 +173,14 @@ export type {
   CreateConsoleAuditExportRequest,
 } from '../console/auditExports';
 export type {
-  RelayBootstrapGrantRateLimitPolicy,
-  RelayBootstrapGrantQuotaPolicy,
-  RelayBootstrapGrantBrokerOptions,
+  RouterApiBootstrapGrantRateLimitPolicy,
+  RouterApiBootstrapGrantQuotaPolicy,
+  RouterApiBootstrapGrantBrokerOptions,
 } from './bootstrapGrantBroker';
 export {
-  RelayBootstrapGrantError,
-  createRelayBootstrapGrantBroker,
-  parseRelayBootstrapGrantIssueBody,
+  RouterApiBootstrapGrantError,
+  createRouterApiBootstrapGrantBroker,
+  parseRouterApiBootstrapGrantIssueBody,
 } from './bootstrapGrantBroker';
 export {
   CONSOLE_BOOTSTRAP_TOKENS_D1_RUNTIME,
@@ -848,7 +850,7 @@ export {
 
 export type {
   CfEnv,
-  RelayCloudflareWorkerEnv,
+  RouterApiCloudflareWorkerEnv,
   SeamsD1DoTenantStorageWorkerEnv,
   CfExecutionContext,
   CfScheduledEvent,
@@ -861,8 +863,11 @@ export type {
   CloudflareD1ConsoleAdapterOptions,
   CloudflareD1ConsoleRouteOptions,
   CloudflareD1ConsoleRouterStorageOptions,
-  CloudflareD1RelayRouterStorageOptions,
+  CloudflareD1RouterApiStorageOptions,
   CloudflareD1ConsoleServiceBundle,
+  CloudflareD1ConsoleOnlyServiceBundle,
+  CloudflareD1ConsoleOnlyServiceBundleOptions,
+  CloudflareD1ConsoleOnlyStorageBindings,
   CloudflareD1ConsoleServiceBundleOptions,
   CloudflareD1ConsoleStorageBindingNames,
   CloudflareD1ConsoleStorageBindings,
@@ -871,7 +876,8 @@ export type {
 } from './cloudflare/d1ConsoleServices';
 export {
   asConsoleRouterOptions,
-  asRelayRouterOptions,
+  asRouterApiOptions,
+  createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1SigningRootSecretAdapters,
 } from './cloudflare/d1ConsoleServices';
@@ -909,22 +915,22 @@ export { createCloudflareEmailHandler } from './cloudflare/email';
 export type { CloudflareCronOptions } from './cloudflare/cron';
 export { createCloudflareCron } from './cloudflare/cron';
 export type {
-  RelayRuntimeSnapshotPublishedUpdate,
-  InMemoryRelayRuntimeSnapshotConsumer,
+  RouterApiRuntimeSnapshotPublishedUpdate,
+  InMemoryRouterApiRuntimeSnapshotConsumer,
 } from './runtimeSnapshotConsumer';
 export {
   validateRuntimeSnapshotExpectation,
-  createInMemoryRelayRuntimeSnapshotConsumer,
+  createInMemoryRouterApiRuntimeSnapshotConsumer,
 } from './runtimeSnapshotConsumer';
 export {
-  createRelayApiKeyAuthAdapter,
-  createRelayPublishableKeyAuthAdapter,
-  createRelayBillingUsageMeterAdapter,
+  createRouterApiKeyAuthAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiBillingUsageMeterAdapter,
   extractBearerCredential,
-  extractRelayEnvironmentId,
+  extractRouterApiEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
-} from './relayApiKeyAuth';
+} from './routerApiKeyAuth';
 
 export { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
 export { createCloudflareConsoleRouter } from './cloudflare/createCloudflareConsoleRouter';

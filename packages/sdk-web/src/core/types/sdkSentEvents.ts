@@ -3,7 +3,7 @@ import type { ConfirmationConfig } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 import type {
   ActionResult,
-  DelegateRelayResult,
+  DelegateRouterApiResult,
   LoginAndCreateSessionResult,
   LoginResult,
   RegistrationResult,
@@ -873,7 +873,7 @@ export interface DelegateActionHooksOptions {
 export interface DelegateRelayHooksOptions {
   onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
-  afterCall?: AfterCall<DelegateRelayResult>;
+  afterCall?: AfterCall<DelegateRouterApiResult>;
 }
 
 export type SignAndSendDelegateActionHooksOptions = Omit<

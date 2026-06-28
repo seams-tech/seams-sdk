@@ -1,17 +1,17 @@
 import {
-  handleRelayApiWalletGet,
-  handleRelayApiWalletList,
-  handleRelayApiWalletSearch,
-} from '../../relayApiWallets';
-import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
+  handleRouterApiWalletGet,
+  handleRouterApiWalletList,
+  handleRouterApiWalletSearch,
+} from '../../routerApiWallets';
+import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { toFetchRouteResponse } from '../../routeResponses';
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 
 const API_WALLET_DETAIL_PREFIX = '/v1/wallets/';
 
 export async function handleApiWallets(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   const listRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_list');
   const searchRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_search');
@@ -31,7 +31,7 @@ export async function handleApiWallets(
   } as const;
 
   if (ctx.method === listRoute.method && ctx.pathname === listRoute.path) {
-    const response = await handleRelayApiWalletList({
+    const response = await handleRouterApiWalletList({
       ...common,
       query: Object.fromEntries(ctx.url.searchParams.entries()),
       route: listRoute,
@@ -40,7 +40,7 @@ export async function handleApiWallets(
   }
 
   if (ctx.method === searchRoute.method && ctx.pathname === searchRoute.path) {
-    const response = await handleRelayApiWalletSearch({
+    const response = await handleRouterApiWalletSearch({
       ...common,
       query: Object.fromEntries(ctx.url.searchParams.entries()),
       route: searchRoute,
@@ -55,7 +55,7 @@ export async function handleApiWallets(
   ) {
     const walletId = decodeURIComponent(ctx.pathname.slice(API_WALLET_DETAIL_PREFIX.length));
     if (walletId && !walletId.includes('/')) {
-      const response = await handleRelayApiWalletGet({
+      const response = await handleRouterApiWalletGet({
         ...common,
         route: getRoute,
         walletId,

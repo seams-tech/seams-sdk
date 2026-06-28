@@ -1,4 +1,4 @@
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import {
   parseAppSessionClaims,
@@ -11,7 +11,7 @@ import {
 } from '../../../core/ThresholdService/validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
-import { parseSessionKind, resolveThresholdScheme } from '../../relay';
+import { parseSessionKind, resolveThresholdScheme } from '../../routerApi';
 import {
   buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
   resolveThresholdRuntimePolicyScope,
@@ -71,7 +71,7 @@ function publicEcdsaHssBootstrapValue<T extends { thresholdSessionId: string }>(
 }
 
 async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
-  ctx: CloudflareRelayContext;
+  ctx: CloudflareRouterApiContext;
   body: Record<string, unknown>;
   privatePath: RouterAbEcdsaHssPrivateSigningPath;
   phase: 'prepare' | 'finalize';
@@ -224,7 +224,7 @@ function validateEd25519SessionBridgeForEcdsaHssBootstrap(input: {
 }
 
 async function authorizeEcdsaHssRoleLocalBootstrap(input: {
-  ctx: CloudflareRelayContext;
+  ctx: CloudflareRouterApiContext;
   request: NonNullable<ReturnType<typeof parseEcdsaHssClientBootstrapRequest>>;
 }): Promise<
   | { ok: true; runtimePolicyScope?: EcdsaRuntimePolicyScope }
@@ -442,7 +442,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
 
 const presignPriorityGate = new PresignPriorityGate();
 
-export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleThresholdEcdsa(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ECDSA_HSS_HEALTH_PATH) {
     const resolved = resolveThresholdScheme(
       ctx.opts.threshold,

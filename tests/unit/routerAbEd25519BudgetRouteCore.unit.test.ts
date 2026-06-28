@@ -4,7 +4,7 @@ import {
   ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
   type RouterAbNormalSigningAdmissionAdapter,
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/relay';
+import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import type {
   RouterAbNormalSigningBudgetCommitInput,
   RouterAbNormalSigningBudgetReleaseInput,

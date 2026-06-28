@@ -5,10 +5,10 @@ import {
   type RouterAbEd25519WalletSessionClaims,
   type RouterAbEcdsaHssWalletSessionClaims,
 } from '../core/ThresholdService/validation';
-import type { SessionAdapter } from './relay';
-import type { RelayPublishableKeyAuthAdapter } from './relay';
+import type { SessionAdapter } from './routerApi';
+import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
-import { extractBearerCredential } from './relayApiKeyAuth';
+import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
@@ -742,7 +742,7 @@ export async function resolveThresholdRuntimePolicyScope(input: {
   runtimeEnvironmentIdRaw?: unknown;
   headers: Headers | Record<string, string | string[] | undefined>;
   origin?: string | null;
-  publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
+  publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
 }): Promise<ThresholdRuntimePolicyScopeResolution> {
   if (isPlainObject(input.explicitScopeRaw)) {

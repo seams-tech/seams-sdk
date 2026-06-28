@@ -37,13 +37,13 @@ import {
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolvePublishableKeyApiCredentialAuth } from './relayApiCredentialAuth';
-import { extractRelayEnvironmentId } from './relayApiKeyAuth';
+import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeJson } from './routeResponses';
-import type { RelayPublishableKeyAuthAdapter } from './relay';
+import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
 import {
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
@@ -74,19 +74,19 @@ interface SignedDelegateExecutionAssessment extends SponsorshipExecutionAssessme
   gasBurnt: string | null;
 }
 
-export type SignedDelegateRelayAuthService = SponsoredNearDelegateAuthService &
+export type SignedDelegateRouterApiAuthService = SponsoredNearDelegateAuthService &
   Pick<AuthService, 'getRelayerAccount'>;
 
 type MatchedSponsoredNearDelegate =
   NonNullable<ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>>;
 
-interface RelaySignedDelegateServices {
-  authService: SignedDelegateRelayAuthService;
+interface RouterApiSignedDelegateServices {
+  authService: SignedDelegateRouterApiAuthService;
   billing?: ConsoleBillingService | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   prepaidReservations?: ConsoleBillingPrepaidReservationService | null;
   pricing?: SponsorshipSpendPricingService | null;
-  publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
+  publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
   runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
   spendCaps?: ConsoleSponsorshipSpendCapService | null;
   sponsoredCalls?: ConsoleSponsoredCallService | null;
@@ -95,13 +95,13 @@ interface RelaySignedDelegateServices {
   webhookRoles?: string[];
 }
 
-export interface RelaySignedDelegateInput {
+export interface RouterApiSignedDelegateInput {
   body: unknown;
   headers: HeaderRecord;
   logger: NormalizedRouterLogger;
   origin?: string;
   route: RouteDefinition;
-  services: RelaySignedDelegateServices;
+  services: RouterApiSignedDelegateServices;
 }
 
 function parseSignedDelegateBody(body: unknown): SignedDelegateRequestBody {
@@ -479,7 +479,7 @@ async function meterSignedDelegate(input: {
       ? TContext
       : never
     : never;
-  services: RelaySignedDelegateServices;
+  services: RouterApiSignedDelegateServices;
   signedDelegate: unknown;
   prepaidSettlement?: {
     reservationId: string | null;
@@ -625,8 +625,8 @@ async function meterSignedDelegate(input: {
   });
 }
 
-export async function handleRelaySignedDelegate(
-  input: RelaySignedDelegateInput,
+export async function handleRouterApiSignedDelegate(
+  input: RouterApiSignedDelegateInput,
 ): Promise<RouteResponse<Record<string, unknown> | RouteErrorBody>> {
   const publishableKeyAuth = input.services.publishableKeyAuth || null;
   const resolved = await enforceRoutePolicy({
@@ -649,7 +649,7 @@ export async function handleRelaySignedDelegate(
         ? {
           apiCredentials: async () =>
             await resolvePublishableKeyApiCredentialAuth({
-              environmentId: extractRelayEnvironmentId(input.headers) || undefined,
+              environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
               headers: input.headers,
               missingEnvironmentMessage:
                 'Environment header is required for signed delegate execution',
@@ -679,7 +679,7 @@ export async function handleRelaySignedDelegate(
     const sponsorshipRuntime = await resolveSponsorshipRuntimeForPublishableKeyRoute({
       resolved,
       runtimeSnapshots: input.services.runtimeSnapshots,
-      environmentId: extractRelayEnvironmentId(input.headers) || '',
+      environmentId: extractRouterApiEnvironmentId(input.headers) || '',
       actorUserId: 'signed-delegate-executor',
       runtimeSnapshotsUnavailableMessage: 'Runtime snapshots are not configured on this server',
       runtimeSnapshotNotFoundMessage: 'No runtime snapshot is available for this environment',

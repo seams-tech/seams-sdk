@@ -1,4 +1,4 @@
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
@@ -9,7 +9,7 @@ import {
   parseSyncAccountVerifyRequest,
 } from '../../syncAccountRequestValidation';
 
-export async function handleSyncAccount(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
 
   if (ctx.pathname === '/sync-account/options') {

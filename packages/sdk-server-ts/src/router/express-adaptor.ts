@@ -1,32 +1,32 @@
 export type {
-  RelayRouterOptions,
+  RouterApiOptions,
   SessionAdapter,
   ThresholdSigningAdapter,
-  RelayApiKeyAuthFailureCode,
-  RelayApiKeyAuthRequest,
-  RelayApiKeyPrincipal,
-  RelayApiKeyAuthResult,
-  RelayApiKeyAuthAdapter,
-  RelayPublishableKeyAuthFailureCode,
-  RelayPublishableKeyAuthRequest,
-  RelayPublishableKeyAuthResult,
-  RelayPublishableKeyAuthAdapter,
-  RelayUsageMeterAction,
-  RelayUsageMeterEvent,
-  RelayUsageMeterAdapter,
-  RelayBootstrapGrantMode,
-  RelayBootstrapGrantFailureCode,
-  RelayBootstrapGrantClientContext,
-  RelayBootstrapGrantIssueRequest,
-  RelayBootstrapGrant,
-  RelayBootstrapGrantPaymentRequirement,
-  RelayBootstrapGrantIssueResult,
-  RelayBootstrapTokenRecord,
-  RelayBootstrapGrantBroker,
-  RelayRuntimePolicyScope,
-  RelayRuntimeSnapshotEnvelope,
-  RelayRuntimeSnapshotConsumer,
-} from './relay';
+  RouterApiKeyAuthFailureCode,
+  RouterApiKeyAuthRequest,
+  RouterApiKeyPrincipal,
+  RouterApiKeyAuthResult,
+  RouterApiKeyAuthAdapter,
+  RouterApiPublishableKeyAuthFailureCode,
+  RouterApiPublishableKeyAuthRequest,
+  RouterApiPublishableKeyAuthResult,
+  RouterApiPublishableKeyAuthAdapter,
+  RouterApiUsageMeterAction,
+  RouterApiUsageMeterEvent,
+  RouterApiUsageMeterAdapter,
+  RouterApiBootstrapGrantMode,
+  RouterApiBootstrapGrantFailureCode,
+  RouterApiBootstrapGrantClientContext,
+  RouterApiBootstrapGrantIssueRequest,
+  RouterApiBootstrapGrant,
+  RouterApiBootstrapGrantPaymentRequirement,
+  RouterApiBootstrapGrantIssueResult,
+  RouterApiBootstrapTokenRecord,
+  RouterApiBootstrapGrantBroker,
+  RouterApiRuntimePolicyScope,
+  RouterApiRuntimeSnapshotEnvelope,
+  RouterApiRuntimeSnapshotConsumer,
+} from './routerApi';
 export {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_PATH,
@@ -44,18 +44,14 @@ export type {
 export {
   CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  PostgresRouterAbNormalSigningAdmissionStore,
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
-  createPostgresRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-  ensurePostgresRouterAbNormalSigningAdmissionStoreSchema,
 } from './routerAbNormalSigningAdmissionStore';
 export type {
   CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
   InMemoryRouterAbNormalSigningAdmissionStoreOptions,
-  PostgresRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
@@ -65,23 +61,29 @@ export type {
   RouterAbNormalSigningQuotaStore,
 } from './routerAbNormalSigningAdmissionStore';
 export type {
-  RelayCloudflareRouteExtensionInput,
-  RelayCloudflareRouteExtension,
-  RelayExpressRouteExtensionInput,
-  RelayExpressRouteExtension,
-  RelayRouteExtension,
-  RelayRouteExtensionTransport,
+  RouterApiCloudflareRouteExtensionInput,
+  RouterApiCloudflareRouteExtension,
+  RouterApiExpressRouteExtensionInput,
+  RouterApiExpressRouteExtension,
+  RouterApiRouteExtension,
+  RouterApiRouteExtensionTransport,
 } from './routeExtensions';
-export type { RelayRouterModule, RelayRouterModuleKind, RelayRouterModuleOptions } from './modules';
-export { createRelayRouterModule } from './modules';
+export type {
+  RouterApiModule,
+  RouterApiModuleKind,
+  RouterApiModuleOptions,
+} from './modules';
+export { createRouterApiModule } from './modules';
 export type { RouteDefinition } from './routeDefinitions';
 export { defineRoute } from './routeDefinitions';
 export type {
   ConsoleRouterOptions,
+} from './console';
+export type {
   ConsoleAuthAdapter,
   ConsoleAuthClaims,
   ConsoleRole,
-} from './console';
+} from './consoleAuth';
 export type {
   ConsoleOrganizationStatus,
   ConsoleProjectStatus,
@@ -102,8 +104,6 @@ export type {
   D1ConsoleOrgProjectEnvSchemaOptions,
   D1ConsoleOrgProjectEnvServiceOptions,
   InMemoryConsoleOrgProjectEnvServiceOptions,
-  PostgresConsoleOrgProjectEnvSchemaOptions,
-  PostgresConsoleOrgProjectEnvServiceOptions,
 } from '../console/orgProjectEnv';
 export type {
   ConsoleTeamPermissionCategory,
@@ -124,8 +124,6 @@ export type {
   D1ConsoleTeamRbacSchemaOptions,
   D1ConsoleTeamRbacServiceOptions,
   InMemoryConsoleTeamRbacServiceOptions,
-  PostgresConsoleTeamRbacSchemaOptions,
-  PostgresConsoleTeamRbacServiceOptions,
 } from '../console/teamRbac';
 export type {
   ConsoleApprovalOperationType,
@@ -146,8 +144,6 @@ export type {
   D1ConsoleApprovalSchemaOptions,
   D1ConsoleApprovalServiceOptions,
   InMemoryConsoleApprovalServiceOptions,
-  PostgresConsoleApprovalSchemaOptions,
-  PostgresConsoleApprovalServiceOptions,
 } from '../console/approvals';
 export type {
   ConsoleAuditActorType,
@@ -171,8 +167,6 @@ export type {
   D1ConsoleAuditSchemaOptions,
   D1ConsoleAuditServiceOptions,
   InMemoryConsoleAuditServiceOptions,
-  PostgresConsoleAuditSchemaOptions,
-  PostgresConsoleAuditServiceOptions,
 } from '../console/audit';
 export type {
   ConsoleAuditExportDomain,
@@ -239,8 +233,6 @@ export type {
   D1ConsoleAccountSchemaOptions,
   D1ConsoleAccountServiceOptions,
   InMemoryConsoleAccountServiceOptions,
-  PostgresConsoleAccountSchemaOptions,
-  PostgresConsoleAccountServiceOptions,
 } from '../console/account';
 export type {
   ConsoleWalletChain,
@@ -261,8 +253,6 @@ export type {
   D1ConsoleWalletSchemaOptions,
   D1ConsoleWalletServiceOptions,
   InMemoryConsoleWalletServiceOptions,
-  PostgresConsoleWalletSchemaOptions,
-  PostgresConsoleWalletServiceOptions,
 } from '../console/wallets';
 export type {
   ConsolePolicyStatus,
@@ -288,8 +278,6 @@ export type {
   D1ConsolePolicySchemaOptions,
   D1ConsolePolicyServiceOptions,
   InMemoryConsolePolicyServiceOptions,
-  PostgresConsolePolicySchemaOptions,
-  PostgresConsolePolicyServiceOptions,
 } from '../console/policies';
 export type {
   ConsoleApiKeyAuthFailureCode,
@@ -313,8 +301,6 @@ export type {
   D1ConsoleApiKeysSchemaOptions,
   D1ConsoleApiKeysServiceOptions,
   InMemoryConsoleApiKeyServiceOptions,
-  PostgresConsoleApiKeySchemaOptions,
-  PostgresConsoleApiKeyServiceOptions,
 } from '../console/apiKeys';
 export type {
   ConsoleBootstrapTokenStatus,
@@ -334,8 +320,6 @@ export type {
   D1ConsoleBootstrapTokenSchemaOptions,
   D1ConsoleBootstrapTokenServiceOptions,
   InMemoryConsoleBootstrapTokenServiceOptions,
-  PostgresConsoleBootstrapTokenSchemaOptions,
-  PostgresConsoleBootstrapTokenServiceOptions,
 } from '../console/bootstrapTokens';
 export type {
   ConsoleBillingContext,
@@ -347,10 +331,6 @@ export type {
   D1ConsoleBillingServiceOptions,
   D1ConsoleBillingMonthlyFinalizationOptions,
   D1ConsoleBillingMonthlyFinalizationResult,
-  PostgresConsoleBillingSchemaOptions,
-  PostgresConsoleBillingServiceOptions,
-  PostgresConsoleBillingMonthlyFinalizationOptions,
-  PostgresConsoleBillingMonthlyFinalizationResult,
   StripeCheckoutSessionLookupProviderInput,
   StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderInput,
@@ -374,8 +354,6 @@ export type {
   ConsoleBillingPrepaidReservationContext,
   ConsoleBillingPrepaidReservationService,
   InMemoryConsoleBillingPrepaidReservationServiceOptions,
-  PostgresConsoleBillingPrepaidReservationSchemaOptions,
-  PostgresConsoleBillingPrepaidReservationServiceOptions,
 } from '../console/billingPrepaidReservations';
 export type {
   ConsoleSponsoredCallApiKeyKind,
@@ -395,8 +373,6 @@ export type {
   ConsoleSponsoredCallContext,
   ConsoleSponsoredCallService,
   InMemoryConsoleSponsoredCallServiceOptions,
-  PostgresConsoleSponsoredCallSchemaOptions,
-  PostgresConsoleSponsoredCallServiceOptions,
 } from '../console/sponsoredCalls';
 export type {
   ConsoleWebhookEventCategory,
@@ -432,10 +408,6 @@ export type {
   D1ConsoleWebhookRetryDispatchOptions,
   D1ConsoleWebhookRetryDispatchResult,
   D1ConsoleWebhookServiceOptions,
-  PostgresConsoleWebhookSchemaOptions,
-  PostgresConsoleWebhookServiceOptions,
-  PostgresConsoleWebhookRetryDispatchOptions,
-  PostgresConsoleWebhookRetryDispatchResult,
   ConsoleWebhookService,
 } from '../console/webhooks';
 export type {
@@ -458,8 +430,6 @@ export type {
   D1ConsoleSponsorshipSpendCapSchemaOptions,
   D1ConsoleSponsorshipSpendCapServiceOptions,
   InMemoryConsoleSponsorshipSpendCapServiceOptions,
-  PostgresConsoleSponsorshipSpendCapSchemaOptions,
-  PostgresConsoleSponsorshipSpendCapServiceOptions,
 } from '../console/sponsorshipSpendCaps';
 export type {
   ConsoleKeyExportMode,
@@ -479,8 +449,6 @@ export type {
   D1ConsoleKeyExportSchemaOptions,
   D1ConsoleKeyExportServiceOptions,
   InMemoryConsoleKeyExportServiceOptions,
-  PostgresConsoleKeyExportSchemaOptions,
-  PostgresConsoleKeyExportServiceOptions,
 } from '../console/keyExports';
 export type {
   ConsoleRuntimeSnapshotPayload,
@@ -494,11 +462,7 @@ export type {
   ConsoleRuntimeSnapshotContext,
   ConsoleRuntimeSnapshotService,
   InMemoryConsoleRuntimeSnapshotServiceOptions,
-  PostgresConsoleRuntimeSnapshotSchemaOptions,
-  PostgresConsoleRuntimeSnapshotServiceOptions,
   ConsoleRuntimeSnapshotOutboxEvent,
-  PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
-  PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
 } from '../console/runtimeSnapshots';
 export type {
   ConsoleObservabilityModuleState,
@@ -535,17 +499,12 @@ export type {
   D1ConsoleObservabilitySchemaOptions,
   D1ConsoleObservabilityServiceOptions,
   D1ConsoleObservabilityIngestionServiceOptions,
-  PostgresConsoleObservabilitySchemaOptions,
-  PostgresConsoleObservabilityServiceOptions,
   ConsoleObservabilityIngestionService,
-  PostgresConsoleObservabilityIngestionServiceOptions,
 } from '../console/observability';
 export {
   createD1ConsoleOrgProjectEnvService,
   ensureConsoleOrgProjectEnvD1Schema,
   createInMemoryConsoleOrgProjectEnvService,
-  ensureConsoleOrgProjectEnvPostgresSchema,
-  createPostgresConsoleOrgProjectEnvService,
   isConsoleOrgProjectEnvError,
   ConsoleOrgProjectEnvError,
 } from '../console/orgProjectEnv';
@@ -553,8 +512,6 @@ export {
   createD1ConsoleTeamRbacService,
   ensureConsoleTeamRbacD1Schema,
   createInMemoryConsoleTeamRbacService,
-  ensureConsoleTeamRbacPostgresSchema,
-  createPostgresConsoleTeamRbacService,
   parseListConsoleTeamMembersRequest,
   parseInviteConsoleTeamMemberRequest,
   parseUpdateConsoleTeamMemberRolesRequest,
@@ -568,8 +525,6 @@ export {
   ensureConsoleApprovalsD1Schema,
   getConsoleApprovalsD1Runtime,
   createInMemoryConsoleApprovalService,
-  ensureConsoleApprovalsPostgresSchema,
-  createPostgresConsoleApprovalService,
   parseListConsoleApprovalsRequest,
   parseCreateConsoleApprovalRequest,
   parseApproveConsoleApprovalRequest,
@@ -584,8 +539,6 @@ export {
   ensureConsoleAuditD1Schema,
   getConsoleAuditD1Runtime,
   createInMemoryConsoleAuditService,
-  ensureConsoleAuditPostgresSchema,
-  createPostgresConsoleAuditService,
   parseListConsoleAuditEventsRequest,
   parseListConsoleAuditEvidenceRequest,
   isConsoleAuditError,
@@ -617,8 +570,6 @@ export {
   createD1ConsoleAccountService,
   ensureConsoleAccountD1Schema,
   createInMemoryConsoleAccountService,
-  ensureConsoleAccountPostgresSchema,
-  createPostgresConsoleAccountService,
   parsePatchConsoleAccountProfileRequest,
   parseCreateConsoleAccountOrganizationRequest,
   parseUpdateConsoleAccountOrganizationRequest,
@@ -633,8 +584,6 @@ export {
   ensureConsoleWalletsD1Schema,
   getConsoleWalletsD1Runtime,
   createInMemoryConsoleWalletService,
-  ensureConsoleWalletsPostgresSchema,
-  createPostgresConsoleWalletService,
   isConsoleWalletError,
   ConsoleWalletError,
 } from '../console/wallets';
@@ -643,11 +592,11 @@ export {
   createD1ConsolePolicyService,
   ensureConsolePolicyD1Schema,
 } from '../console/policies';
+
 export {
-  ensureConsolePoliciesPostgresSchema,
-  createPostgresConsolePolicyService,
-} from '../console/policies/postgres';
-export { isConsolePolicyError, ConsolePolicyError } from '../console/policies/errors';
+  isConsolePolicyError,
+  ConsolePolicyError,
+} from '../console/policies/errors';
 export {
   CONSOLE_API_KEYS_D1_RUNTIME,
   CONSOLE_API_KEYS_D1_SCHEMA_SQL,
@@ -655,8 +604,6 @@ export {
   ensureConsoleApiKeysD1Schema,
   getConsoleApiKeysD1Runtime,
   createInMemoryConsoleApiKeyService,
-  ensureConsoleApiKeysPostgresSchema,
-  createPostgresConsoleApiKeyService,
   isConsoleApiKeyError,
   ConsoleApiKeyError,
 } from '../console/apiKeys';
@@ -667,9 +614,6 @@ export {
   getConsoleBillingD1Runtime,
   createSponsoredExecutionDebitD1InsertStatement,
   runD1ConsoleBillingMonthlyFinalization,
-  ensureConsoleBillingPostgresSchema,
-  createPostgresConsoleBillingService,
-  runPostgresConsoleBillingMonthlyFinalization,
   createDefaultBillingProviderAdapters,
   resolveBillingProviderAdapters,
   isConsoleBillingError,
@@ -677,15 +621,11 @@ export {
 } from '../console/billing';
 export {
   createInMemoryConsoleBillingPrepaidReservationService,
-  ensureConsoleBillingPrepaidReservationPostgresSchema,
-  createPostgresConsoleBillingPrepaidReservationService,
   isConsoleBillingPrepaidReservationError,
   ConsoleBillingPrepaidReservationError,
 } from '../console/billingPrepaidReservations';
 export {
   createInMemoryConsoleSponsoredCallService,
-  ensureConsoleSponsoredCallPostgresSchema,
-  createPostgresConsoleSponsoredCallService,
   listConsoleSponsoredCallReconciliationPage,
   parseListConsoleSponsoredCallRecordsRequest,
   isConsoleSponsoredCallError,
@@ -698,11 +638,8 @@ export {
   createD1ConsoleWebhookService,
   createInMemoryConsoleWebhookService,
   ensureConsoleWebhooksD1Schema,
-  ensureConsoleWebhooksPostgresSchema,
   getConsoleWebhooksD1Runtime,
-  createPostgresConsoleWebhookService,
   runD1ConsoleWebhookRetryDispatch,
-  runPostgresConsoleWebhookRetryDispatch,
   isConsoleWebhookError,
   ConsoleWebhookError,
 } from '../console/webhooks';
@@ -713,8 +650,6 @@ export {
   ensureConsoleSponsorshipSpendCapD1Schema,
   getConsoleSponsorshipSpendCapD1Runtime,
   createInMemoryConsoleSponsorshipSpendCapService,
-  ensureConsoleSponsorshipSpendCapPostgresSchema,
-  createPostgresConsoleSponsorshipSpendCapService,
   isConsoleSponsorshipSpendCapError,
   ConsoleSponsorshipSpendCapError,
 } from '../console/sponsorshipSpendCaps';
@@ -725,8 +660,6 @@ export {
   ensureConsoleKeyExportsD1Schema,
   getConsoleKeyExportsD1Runtime,
   createInMemoryConsoleKeyExportService,
-  ensureConsoleKeyExportsPostgresSchema,
-  createPostgresConsoleKeyExportService,
   parseListConsoleKeyExportsRequest,
   parseCreateConsoleKeyExportRequest,
   parseApproveConsoleKeyExportRequest,
@@ -735,10 +668,6 @@ export {
 } from '../console/keyExports';
 export {
   createInMemoryConsoleRuntimeSnapshotService,
-  ensureConsoleRuntimeSnapshotsPostgresSchema,
-  createPostgresConsoleRuntimeSnapshotService,
-  runPostgresConsoleRuntimeSnapshotOutboxDispatch,
-  runPostgresConsoleRuntimeSnapshotRetentionCleanup,
   parseListConsoleRuntimeSnapshotsRequest,
   parseGetLatestConsoleRuntimeSnapshotRequest,
   parsePublishConsoleRuntimeSnapshotRequest,
@@ -754,11 +683,8 @@ export {
   createD1ConsoleObservabilityIngestionService,
   createInMemoryConsoleObservabilityService,
   ensureConsoleObservabilityD1Schema,
-  ensureConsoleObservabilityPostgresSchema,
   getConsoleObservabilityD1Runtime,
   getConsoleObservabilityIngestionD1Runtime,
-  createPostgresConsoleObservabilityService,
-  createPostgresConsoleObservabilityIngestionService,
   redactConsoleObservabilityMetadata,
   buildWebhookDeadLetterObservabilityEvent,
   buildWebhookRetryExhaustedObservabilityEvent,
@@ -773,7 +699,7 @@ export {
   isConsoleObservabilityError,
   ConsoleObservabilityError,
 } from '../console/observability';
-export { createRelayRouter } from './express/createRelayRouter';
+export { createRouterApiRouter } from './express/createRouterApiRouter';
 export { createConsoleRouter } from './express/createConsoleRouter';
 export type {
   ConsoleSsoProvisioningOptions,
@@ -785,23 +711,23 @@ export {
   createAppSessionConsoleAuthAdapter,
 } from './consoleAppSessionAuth';
 export {
-  createRelayApiKeyAuthAdapter,
-  createRelayPublishableKeyAuthAdapter,
-  createRelayBillingUsageMeterAdapter,
+  createRouterApiKeyAuthAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiBillingUsageMeterAdapter,
   extractBearerCredential,
-  extractRelayEnvironmentId,
+  extractRouterApiEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
-} from './relayApiKeyAuth';
+} from './routerApiKeyAuth';
 export type {
-  RelayBootstrapGrantRateLimitPolicy,
-  RelayBootstrapGrantQuotaPolicy,
-  RelayBootstrapGrantBrokerOptions,
+  RouterApiBootstrapGrantRateLimitPolicy,
+  RouterApiBootstrapGrantQuotaPolicy,
+  RouterApiBootstrapGrantBrokerOptions,
 } from './bootstrapGrantBroker';
 export {
-  RelayBootstrapGrantError,
-  createRelayBootstrapGrantBroker,
-  parseRelayBootstrapGrantIssueBody,
+  RouterApiBootstrapGrantError,
+  createRouterApiBootstrapGrantBroker,
+  parseRouterApiBootstrapGrantIssueBody,
 } from './bootstrapGrantBroker';
 export {
   CONSOLE_BOOTSTRAP_TOKENS_D1_RUNTIME,
@@ -810,14 +736,12 @@ export {
   ensureConsoleBootstrapTokensD1Schema,
   getConsoleBootstrapTokensD1Runtime,
   createInMemoryConsoleBootstrapTokenService,
-  ensureConsoleBootstrapTokensPostgresSchema,
-  createPostgresConsoleBootstrapTokenService,
 } from '../console/bootstrapTokens';
 export type {
-  RelayRuntimeSnapshotPublishedUpdate,
-  InMemoryRelayRuntimeSnapshotConsumer,
+  RouterApiRuntimeSnapshotPublishedUpdate,
+  InMemoryRouterApiRuntimeSnapshotConsumer,
 } from './runtimeSnapshotConsumer';
 export {
   validateRuntimeSnapshotExpectation,
-  createInMemoryRelayRuntimeSnapshotConsumer,
+  createInMemoryRouterApiRuntimeSnapshotConsumer,
 } from './runtimeSnapshotConsumer';

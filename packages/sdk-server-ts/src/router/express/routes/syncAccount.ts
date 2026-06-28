@@ -1,5 +1,5 @@
 import type { Router as ExpressRouter } from 'express';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
@@ -9,7 +9,7 @@ import {
   parseSyncAccountVerifyRequest,
 } from '../../syncAccountRequestValidation';
 
-export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
+export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
   router.post('/sync-account/options', async (req: any, res: any) => {
     try {
       const parsed = parseSyncAccountOptionsRequest(req?.body);

@@ -1,4 +1,4 @@
-import type { CloudflareRelayAuthService } from './authServicePort';
+import type { CloudflareRouterApiAuthService } from './authServicePort';
 import type { AuthService } from '../core/AuthService';
 import type {
   CreateAddAuthMethodIntentRequest,
@@ -55,8 +55,8 @@ import {
 } from './commonRouterUtils';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolveRegistrationBootstrapApiCredentialAuth } from './relayApiCredentialAuth';
-import type { RelayApiKeyAuthAdapter, SessionAdapter } from './relay';
+import { resolveRegistrationBootstrapApiCredentialAuth } from './routerApiCredentialAuth';
+import type { RouterApiKeyAuthAdapter, SessionAdapter } from './routerApi';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
@@ -94,39 +94,39 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 
-type RelayWalletRegistrationServices = {
-  authService: CloudflareRelayAuthService & Partial<WalletRegistrationPrepareAuthService>;
-  apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+type WalletRegistrationPrepareAuthService = Pick<AuthService, 'prepareWalletRegistration'>;
+
+type RouterApiWalletRegistrationServices = {
+  authService: CloudflareRouterApiAuthService;
+  apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
 };
 
-type WalletRegistrationPrepareAuthService = Pick<AuthService, 'prepareWalletRegistration'>;
+type RouterApiWalletRegistrationPrepareServices = RouterApiWalletRegistrationServices & {
+  registrationPrepareAuthService: WalletRegistrationPrepareAuthService;
+};
 
-function hasWalletRegistrationPrepareAuthService(
-  service: unknown,
-): service is WalletRegistrationPrepareAuthService {
-  if (!service || typeof service !== 'object') return false;
-  const candidate = service as Record<string, unknown>;
-  return typeof candidate.prepareWalletRegistration === 'function';
-}
-
-type RelayWalletRegistrationInput = {
+type RouterApiWalletRegistrationInput = {
   body: unknown;
   headers: HeaderRecord;
   logger: NormalizedRouterLogger;
   origin?: string;
   pathParams?: Record<string, string | undefined>;
   route: RouteDefinition;
-  services: RelayWalletRegistrationServices;
+  services: RouterApiWalletRegistrationServices;
   sourceIp?: string;
+};
+
+type RouterApiWalletRegistrationPrepareInput = Omit<RouterApiWalletRegistrationInput, 'services'> & {
+  services: RouterApiWalletRegistrationPrepareServices;
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
 
-function exposesRegistrationRouteDiagnostics(input: RelayWalletRegistrationInput): boolean {
+function exposesRegistrationRouteDiagnostics(input: RouterApiWalletRegistrationInput): boolean {
   const raw =
     input.headers['x-seams-benchmark-diagnostics'] ??
     input.headers['X-Seams-Benchmark-Diagnostics'];
@@ -146,7 +146,7 @@ function stripRegistrationRouteDiagnostics<T>(response: T): T {
 }
 
 function requireWebAuthnExpectedOrigin(
-  input: RelayWalletRegistrationInput,
+  input: RouterApiWalletRegistrationInput,
 ): { ok: true; expectedOrigin: string } | { ok: false; response: RouteResponse<RouteErrorBody> } {
   const expectedOrigin = normalizeCorsOrigin(input.origin);
   if (expectedOrigin) return { ok: true, expectedOrigin };
@@ -174,7 +174,7 @@ function requireWebAuthnRpId(
 type Ed25519SessionCarrier = {
   ok: true;
   walletId: string;
-  rpId: string;
+  rpId?: string;
   ed25519?: {
     nearAccountId: string;
     relayerKeyId: string;
@@ -346,7 +346,7 @@ function parseParticipantIds(raw: unknown, field: string): ParseResult<number[]>
 }
 
 async function attachEd25519WalletSessionJwt(
-  input: RelayWalletRegistrationInput,
+  input: RouterApiWalletRegistrationInput,
   result: Ed25519SessionCarrier,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
   const ed25519 = result.ed25519;
@@ -354,6 +354,9 @@ async function attachEd25519WalletSessionJwt(
   if (!session) return null;
   if (session.sessionKind !== 'jwt') {
     return routeError(400, 'invalid_body', 'Ed25519 Wallet Session must use jwt sessionKind');
+  }
+  if (!result.rpId) {
+    return routeError(400, 'invalid_body', 'Ed25519 Wallet Session requires a passkey rpId');
   }
   const signed = await signRouterAbEd25519WalletSessionJwt({
     session: input.services.session,
@@ -383,7 +386,7 @@ async function attachEd25519WalletSessionJwt(
 }
 
 async function attachEcdsaWalletSessionJwt(
-  input: RelayWalletRegistrationInput,
+  input: RouterApiWalletRegistrationInput,
   bootstrap: EcdsaHssServerBootstrapResponse | undefined,
   runtimePolicyScope?: RuntimePolicyScope,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
@@ -413,16 +416,16 @@ async function attachEcdsaWalletSessionJwt(
       participantIds: bootstrap.participantIds,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle: bootstrap.keyHandle,
-        stableKeyContext: {
-          walletId: bootstrap.walletId,
-          walletKeyId: bootstrap.walletKeyId,
-          keyScope: 'evm-family',
-          ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
-          signingRootId: bootstrap.signingRootId,
-          signingRootVersion: bootstrap.signingRootVersion,
-          applicationBindingDigestB64u: bootstrap.applicationBindingDigestB64u,
-          contextBinding32B64u: bootstrap.contextBinding32B64u,
-        },
+      stableKeyContext: {
+        walletId: bootstrap.walletId,
+        walletKeyId: bootstrap.walletKeyId,
+        keyScope: 'evm-family',
+        ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
+        signingRootId: bootstrap.signingRootId,
+        signingRootVersion: bootstrap.signingRootVersion,
+        applicationBindingDigestB64u: bootstrap.applicationBindingDigestB64u,
+        contextBinding32B64u: bootstrap.contextBinding32B64u,
+      },
       publicIdentity: bootstrap.publicIdentity,
       activationEpoch: bootstrap.thresholdSessionId,
       signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
@@ -796,8 +799,6 @@ function parseCreateRegistrationIntentRequest(
 ): ParseResult<CreateRegistrationIntentRequest> {
   const wallet = parseRegisterWalletInput(body.wallet);
   if (!wallet.ok) return wallet;
-  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
-  if (!rpId.ok) return rpId;
   const authMethod = normalizeRegistrationAuthMethodInput(body.authMethod);
   if (!authMethod) {
     return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
@@ -808,7 +809,6 @@ function parseCreateRegistrationIntentRequest(
     ok: true,
     value: {
       wallet: wallet.value,
-      rpId: rpId.value,
       authMethod,
       signerSelection: signerSelection.value,
     },
@@ -819,15 +819,12 @@ function parseCreateAddSignerIntentRequest(
   body: Record<string, unknown>,
   walletId: string,
 ): ParseResult<CreateAddSignerIntentRequest> {
-  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
-  if (!rpId.ok) return rpId;
   const signerSelection = parseAddSignerSelection(body.signerSelection);
   if (!signerSelection.ok) return signerSelection;
   return {
     ok: true,
     value: {
       walletId: walletIdFromString(walletId),
-      rpId: rpId.value,
       signerSelection: signerSelection.value,
     },
   };
@@ -837,8 +834,6 @@ function parseCreateAddAuthMethodIntentRequest(
   body: Record<string, unknown>,
   walletId: string,
 ): ParseResult<CreateAddAuthMethodIntentRequest> {
-  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
-  if (!rpId.ok) return rpId;
   const authMethod = normalizeAddAuthMethodInput(body.authMethod);
   if (!authMethod) {
     return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
@@ -847,7 +842,6 @@ function parseCreateAddAuthMethodIntentRequest(
     ok: true,
     value: {
       walletId: walletIdFromString(walletId),
-      rpId: rpId.value,
       authMethod,
     },
   };
@@ -1085,9 +1079,8 @@ async function parseWalletAddSignerStartBody(
   }
   const signerSelection = parseAddSignerSelection(intent.signerSelection);
   if (!signerSelection.ok) return signerSelection;
-  const rpId = typeof intent.rpId === 'string' ? intent.rpId.trim() : '';
   const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
-  if (!rpId || !nonceB64u) {
+  if (!nonceB64u) {
     return { ok: false, code: 'invalid_body', message: 'add-signer intent is incomplete' };
   }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
@@ -1095,7 +1088,6 @@ async function parseWalletAddSignerStartBody(
   const normalizedIntent: AddSignerIntentV1 = {
     version: 'add_signer_intent_v1',
     walletId: walletIdFromString(walletId),
-    rpId,
     signerSelection: signerSelection.value,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
     nonceB64u,
@@ -1112,6 +1104,10 @@ async function parseWalletAddSignerStartBody(
     return { ok: false, code: 'invalid_body', message: 'add-signer auth is required' };
   }
   if (auth.kind === 'webauthn_assertion') {
+    const authRpId = parseWebAuthnRpId(auth.rpId);
+    if (!authRpId.ok) {
+      return { ok: false, code: 'invalid_body', message: authRpId.error.message };
+    }
     const credential = parseWebAuthnAuthenticationCredential(auth.credential);
     if (!credential.ok) return credential;
     const expectedChallengeDigestB64u =
@@ -1134,6 +1130,7 @@ async function parseWalletAddSignerStartBody(
         intent: normalizedIntent,
         auth: {
           kind: 'webauthn_assertion',
+          rpId: authRpId.value,
           credential: credential.value,
           expectedChallengeDigestB64u,
         },
@@ -1213,9 +1210,8 @@ async function parseWalletRegistrationStartBody(
   }
   const signerSelection = parseRegistrationSignerSelection(intent.signerSelection);
   if (!signerSelection.ok) return signerSelection;
-  const rpId = typeof intent.rpId === 'string' ? intent.rpId.trim() : '';
   const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
-  if (!rpId || !nonceB64u) {
+  if (!nonceB64u) {
     return { ok: false, code: 'invalid_body', message: 'registration intent is incomplete' };
   }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
@@ -1223,7 +1219,6 @@ async function parseWalletRegistrationStartBody(
   const normalizedIntent: RegistrationIntentV1 = {
     version: 'registration_intent_v1',
     walletId: walletIdFromString(walletId),
-    rpId,
     authMethod,
     signerSelection: signerSelection.value,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
@@ -1348,9 +1343,8 @@ async function parseWalletRegistrationPrepareBody(
       message: 'registration prepare requires an Ed25519 signer selection',
     };
   }
-  const rpId = typeof intent.rpId === 'string' ? intent.rpId.trim() : '';
   const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
-  if (!rpId || !nonceB64u) {
+  if (!nonceB64u) {
     return { ok: false, code: 'invalid_body', message: 'registration intent is incomplete' };
   }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
@@ -1358,7 +1352,6 @@ async function parseWalletRegistrationPrepareBody(
   const normalizedIntent: RegistrationIntentV1 = {
     version: 'registration_intent_v1',
     walletId: walletIdFromString(walletId),
-    rpId,
     authMethod,
     signerSelection: signerSelection.value,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
@@ -1408,7 +1401,7 @@ async function parseWalletRegistrationPrepareBody(
 }
 
 function registrationPrepareGateContextFromRoute(
-  input: RelayWalletRegistrationInput,
+  input: RouterApiWalletRegistrationInput,
 ): WalletRegistrationPrepareGateContext {
   const sourceIp = String(input.sourceIp || '').trim();
   if (sourceIp) return { kind: 'source_ip', sourceIp };
@@ -1443,9 +1436,8 @@ async function parseWalletAddAuthMethodStartBody(
       message: 'add-auth-method authMethod is invalid',
     };
   }
-  const rpId = typeof intent.rpId === 'string' ? intent.rpId.trim() : '';
   const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
-  if (!rpId || !nonceB64u) {
+  if (!nonceB64u) {
     return { ok: false, code: 'invalid_body', message: 'add-auth-method intent is incomplete' };
   }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
@@ -1453,7 +1445,6 @@ async function parseWalletAddAuthMethodStartBody(
   const normalizedIntent: AddAuthMethodIntentV1 = {
     version: 'add_auth_method_intent_v1',
     walletId: walletIdFromString(walletId),
-    rpId,
     authMethod,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
     nonceB64u,
@@ -1472,6 +1463,10 @@ async function parseWalletAddAuthMethodStartBody(
   }
   let existingAuth: WalletAddAuthMethodStartRequest['auth'];
   if (auth.kind === 'webauthn_assertion') {
+    const authRpId = parseWebAuthnRpId(auth.rpId);
+    if (!authRpId.ok) {
+      return { ok: false, code: 'invalid_body', message: authRpId.error.message };
+    }
     const credential = parseWebAuthnAuthenticationCredential(auth.credential);
     if (!credential.ok) return credential;
     const expectedChallengeDigestB64u =
@@ -1487,6 +1482,7 @@ async function parseWalletAddAuthMethodStartBody(
     }
     existingAuth = {
       kind: 'webauthn_assertion',
+      rpId: authRpId.value,
       credential: credential.value,
       expectedChallengeDigestB64u,
     };
@@ -2052,8 +2048,13 @@ async function parseWalletRevokeAuthMethodRequest(
   body: Record<string, unknown>,
   walletId: string,
 ): Promise<ParseResult<WalletRevokeAuthMethodRequest>> {
-  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
-  if (!rpId.ok) return rpId;
+  if (Object.prototype.hasOwnProperty.call(body, 'rpId')) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'rpId belongs on passkey target or WebAuthn auth',
+    };
+  }
   const target = normalizeWalletAuthMethodTarget(body.target);
   if (!target) {
     return {
@@ -2072,6 +2073,14 @@ async function parseWalletRevokeAuthMethodRequest(
   }
   let existingAuth: WalletRevokeAuthMethodRequest['auth'];
   if (auth.kind === 'webauthn_assertion') {
+    const rpId = parseWebAuthnRpId(auth.rpId);
+    if (!rpId.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: rpId.error.message,
+      };
+    }
     const credential = parseWebAuthnAuthenticationCredential(auth.credential);
     if (!credential.ok) return credential;
     const expectedChallengeDigestB64u =
@@ -2087,6 +2096,7 @@ async function parseWalletRevokeAuthMethodRequest(
     }
     existingAuth = {
       kind: 'webauthn_assertion',
+      rpId: rpId.value,
       credential: credential.value,
       expectedChallengeDigestB64u,
     };
@@ -2152,15 +2162,14 @@ async function parseWalletRevokeAuthMethodRequest(
     ok: true,
     value: {
       walletId: walletIdFromString(walletId),
-      rpId: rpId.value,
       auth: existingAuth,
       target,
     },
   };
 }
 
-export async function handleRelayWalletRegistrationIntent(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletRegistrationIntent(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<CreateRegistrationIntentResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2222,8 +2231,8 @@ export async function handleRelayWalletRegistrationIntent(
   return routeJson(result.ok ? 200 : 400, result);
 }
 
-export async function handleRelayWalletAddSignerIntent(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletAddSignerIntent(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<CreateAddSignerIntentResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2289,8 +2298,8 @@ export async function handleRelayWalletAddSignerIntent(
   return routeJson(result.ok ? 200 : 400, result);
 }
 
-export async function handleRelayWalletRegistrationStart(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletRegistrationStart(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationStartResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2304,22 +2313,16 @@ export async function handleRelayWalletRegistrationStart(
   return routeJson(result.ok ? 200 : 400, response);
 }
 
-export async function handleRelayWalletRegistrationPrepare(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletRegistrationPrepare(
+  input: RouterApiWalletRegistrationPrepareInput,
 ): Promise<RouteResponse<WalletRegistrationPrepareResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
   const request = await parseWalletRegistrationPrepareBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  if (!hasWalletRegistrationPrepareAuthService(input.services.authService)) {
-    return routeError(
-      501,
-      'internal',
-      'Ed25519 wallet registration prepare is unavailable for this router',
-    );
-  }
-  const result = await input.services.authService.prepareWalletRegistration({
+  const prepareAuthService = input.services.registrationPrepareAuthService;
+  const result = await prepareAuthService.prepareWalletRegistration({
     ...request.value,
     prepareGate: registrationPrepareGateContextFromRoute(input),
   });
@@ -2329,8 +2332,8 @@ export async function handleRelayWalletRegistrationPrepare(
   return routeJson(result.ok ? 200 : 400, response);
 }
 
-export async function handleRelayWalletRegistrationHssRespond(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletRegistrationHssRespond(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationHssRespondResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2352,8 +2355,8 @@ export async function handleRelayWalletRegistrationHssRespond(
   return routeJson(result.ok ? 200 : 400, response);
 }
 
-export async function handleRelayWalletRegistrationFinalize(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletRegistrationFinalize(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationFinalizeResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2371,10 +2374,13 @@ export async function handleRelayWalletRegistrationFinalize(
   });
   if (result.ok) {
     const jwtStartedAtMs = Date.now();
-    input.logger.info('[wallet-registration][finalize-route] attaching Ed25519 wallet session jwt', {
-      walletId: result.walletId,
-      hasEd25519Session: Boolean(result.ed25519?.session),
-    });
+    input.logger.info(
+      '[wallet-registration][finalize-route] attaching Ed25519 wallet session jwt',
+      {
+        walletId: result.walletId,
+        hasEd25519Session: Boolean(result.ed25519?.session),
+      },
+    );
     const signingError = await attachEd25519WalletSessionJwt(input, result);
     input.logger.info('[wallet-registration][finalize-route] Ed25519 wallet session jwt attached', {
       ok: !signingError,
@@ -2396,8 +2402,8 @@ export async function handleRelayWalletRegistrationFinalize(
   });
 }
 
-export async function handleRelayWalletAddSignerStart(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletAddSignerStart(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletAddSignerStartResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2411,7 +2417,7 @@ export async function handleRelayWalletAddSignerStart(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
-    const parsedRpId = requireWebAuthnRpId(parsedBody.value.intent.rpId);
+    const parsedRpId = requireWebAuthnRpId(parsedBody.value.auth.rpId);
     if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       userId: walletId,
@@ -2455,8 +2461,8 @@ export async function handleRelayWalletAddSignerStart(
   return routeJson(result.ok ? 200 : 400, result);
 }
 
-export async function handleRelayWalletAddSignerHssRespond(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletAddSignerHssRespond(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletAddSignerHssRespondResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2475,8 +2481,8 @@ export async function handleRelayWalletAddSignerHssRespond(
   return routeJson(result.ok ? 200 : 400, result);
 }
 
-export async function handleRelayWalletAddSignerFinalize(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletAddSignerFinalize(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletAddSignerFinalizeResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2493,8 +2499,8 @@ export async function handleRelayWalletAddSignerFinalize(
   });
 }
 
-export async function handleRelayWalletAddAuthMethodIntent(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletAddAuthMethodIntent(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<CreateAddAuthMethodIntentResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2560,8 +2566,8 @@ export async function handleRelayWalletAddAuthMethodIntent(
   return routeJson(result.ok ? 200 : 400, result);
 }
 
-export async function handleRelayWalletAddAuthMethodStart(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletAddAuthMethodStart(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletAddAuthMethodStartResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2575,7 +2581,7 @@ export async function handleRelayWalletAddAuthMethodStart(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
-    const parsedRpId = requireWebAuthnRpId(parsedBody.value.intent.rpId);
+    const parsedRpId = requireWebAuthnRpId(parsedBody.value.auth.rpId);
     if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       userId: walletId,
@@ -2619,8 +2625,8 @@ export async function handleRelayWalletAddAuthMethodStart(
   return routeJson(result.ok ? 200 : 400, result);
 }
 
-export async function handleRelayWalletAddAuthMethodFinalize(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletAddAuthMethodFinalize(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletAddAuthMethodFinalizeResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2633,8 +2639,8 @@ export async function handleRelayWalletAddAuthMethodFinalize(
   });
 }
 
-export async function handleRelayWalletRevokeAuthMethod(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletRevokeAuthMethod(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRevokeAuthMethodResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
@@ -2648,11 +2654,9 @@ export async function handleRelayWalletRevokeAuthMethod(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
-    const parsedRpId = requireWebAuthnRpId(parsedBody.value.rpId);
-    if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       userId: walletId,
-      rpId: parsedRpId.rpId,
+      rpId: parsedBody.value.auth.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
@@ -2694,8 +2698,8 @@ export async function handleRelayWalletRevokeAuthMethod(
   });
 }
 
-export async function handleRelayWalletEcdsaKeyFactsInventory(
-  input: RelayWalletRegistrationInput,
+export async function handleRouterApiWalletEcdsaKeyFactsInventory(
+  input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<RouteErrorBody | Record<string, unknown>>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');

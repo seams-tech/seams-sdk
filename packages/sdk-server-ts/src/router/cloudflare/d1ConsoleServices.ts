@@ -56,7 +56,7 @@ import type { ConsoleObservabilityMetadataRedactionPolicy } from '../../console/
 import {
   createInMemoryConsoleOnboardingService,
   type ConsoleOnboardingService,
-} from '../../console/onboarding';
+} from '../../console/onboarding/service';
 import { createD1ConsolePolicyService } from '../../console/policies/d1';
 import type { ConsolePolicyService } from '../../console/policies/service';
 import { createD1ConsoleSponsoredCallService } from '../../console/sponsoredCalls/d1';
@@ -70,19 +70,19 @@ import type { ConsoleWalletService } from '../../console/wallets/service';
 import { createD1ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/service';
 import type {
-  RelayApiKeyAuthAdapter,
-  RelayBootstrapGrantBroker,
-  RelayPublishableKeyAuthAdapter,
-  RelayRouterOptions,
-  RelayUsageMeterAdapter,
-} from '../relay';
+  RouterApiKeyAuthAdapter,
+  RouterApiBootstrapGrantBroker,
+  RouterApiPublishableKeyAuthAdapter,
+  RouterApiOptions,
+  RouterApiUsageMeterAdapter,
+} from '../routerApi';
 import type { ConsoleRouterOptions } from '../console';
 import {
-  createRelayApiKeyAuthAdapter,
-  createRelayBillingUsageMeterAdapter,
-  createRelayPublishableKeyAuthAdapter,
-} from '../relayApiKeyAuth';
-import { createRelayBootstrapGrantBroker } from '../bootstrapGrantBroker';
+  createRouterApiKeyAuthAdapter,
+  createRouterApiBillingUsageMeterAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
+} from '../routerApiKeyAuth';
+import { createRouterApiBootstrapGrantBroker } from '../bootstrapGrantBroker';
 import type { RouterAbNormalSigningAdmissionAdapter } from '../routerAbPrivateSigningWorker';
 import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
@@ -197,15 +197,15 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
 }
 
-export interface CloudflareD1RelayRouterStorageOptions {
-  readonly sponsorship: NonNullable<RelayRouterOptions['sponsorship']>;
+export interface CloudflareD1RouterApiStorageOptions {
+  readonly sponsorship: NonNullable<RouterApiOptions['sponsorship']>;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
-  readonly apiKeyAuth: RelayApiKeyAuthAdapter;
-  readonly publishableKeyAuth: RelayPublishableKeyAuthAdapter;
-  readonly apiKeyUsageMeter: RelayUsageMeterAdapter;
-  readonly bootstrapGrantBroker: RelayBootstrapGrantBroker;
+  readonly apiKeyAuth: RouterApiKeyAuthAdapter;
+  readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
+  readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
+  readonly bootstrapGrantBroker: RouterApiBootstrapGrantBroker;
   readonly bootstrapTokenStore: ConsoleBootstrapTokenService;
-  readonly sponsoredEvmCall?: NonNullable<RelayRouterOptions['sponsoredEvmCall']>;
+  readonly sponsoredEvmCall?: NonNullable<RouterApiOptions['sponsoredEvmCall']>;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly wallets: ConsoleWalletService;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
@@ -234,7 +234,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
   readonly consoleRouterOptions: CloudflareD1ConsoleRouterStorageOptions;
-  readonly relayRouterOptions: CloudflareD1RelayRouterStorageOptions;
+  readonly routerApiRouterOptions: CloudflareD1RouterApiStorageOptions;
 }
 
 export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
@@ -242,7 +242,7 @@ export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
   | 'tenantStorageRouteResolver'
   | 'bootstrapTokens'
   | 'spendCaps'
-  | 'relayRouterOptions'
+  | 'routerApiRouterOptions'
   | 'consoleRouterOptions'
 > & {
   readonly consoleRouterOptions: ConsoleRouterOptions;
@@ -916,7 +916,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   };
 }
 
-function createCloudflareD1RelayRouterStorageOptions(input: {
+function createCloudflareD1RouterApiStorageOptions(input: {
   readonly options: NormalizedCloudflareD1ConsoleServiceBundleOptions;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly wallets: ConsoleWalletService;
@@ -928,14 +928,14 @@ function createCloudflareD1RelayRouterStorageOptions(input: {
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
-}): CloudflareD1RelayRouterStorageOptions {
+}): CloudflareD1RouterApiStorageOptions {
   const { options } = input;
   const admissionStore = createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore({
     namespace: options.thresholdStore,
     storageNamespace: options.namespace,
   });
   const sponsoredEvmCallConfig = options.sponsoredEvmCallConfig || null;
-  const publishableKeyAuth = createRelayPublishableKeyAuthAdapter(input.apiKeys);
+  const publishableKeyAuth = createRouterApiPublishableKeyAuthAdapter(input.apiKeys);
   return {
     sponsorship: {
       spendCaps: input.spendCaps,
@@ -943,13 +943,13 @@ function createCloudflareD1RelayRouterStorageOptions(input: {
       prepaidReservations: input.prepaidReservations,
     },
     observabilityIngestion: input.observabilityIngestion,
-    apiKeyAuth: createRelayApiKeyAuthAdapter(input.apiKeys),
+    apiKeyAuth: createRouterApiKeyAuthAdapter(input.apiKeys),
     publishableKeyAuth,
-    apiKeyUsageMeter: createRelayBillingUsageMeterAdapter(input.billing, {
+    apiKeyUsageMeter: createRouterApiBillingUsageMeterAdapter(input.billing, {
       orgProjectEnv: input.orgProjectEnv,
       wallets: input.wallets,
     }),
-    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
       apiKeys: input.apiKeys,
       tokenStore: input.bootstrapTokens,
       orgProjectEnv: input.orgProjectEnv,
@@ -995,7 +995,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     tenantStorageNamespace: normalized.namespace,
     ...services,
   });
-  const relayRouterOptions = createCloudflareD1RelayRouterStorageOptions({
+  const routerApiRouterOptions = createCloudflareD1RouterApiStorageOptions({
     options: normalized,
     orgProjectEnv: services.orgProjectEnv,
     wallets: services.wallets,
@@ -1015,7 +1015,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     bootstrapTokens,
     spendCaps,
     consoleRouterOptions,
-    relayRouterOptions,
+    routerApiRouterOptions,
   };
 }
 
@@ -1039,8 +1039,8 @@ export function asConsoleRouterOptions(
   return input;
 }
 
-export function asRelayRouterOptions(
-  input: CloudflareD1RelayRouterStorageOptions,
-): CloudflareD1RelayRouterStorageOptions {
+export function asRouterApiOptions(
+  input: CloudflareD1RouterApiStorageOptions,
+): CloudflareD1RouterApiStorageOptions {
   return input;
 }

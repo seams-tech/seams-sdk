@@ -1,17 +1,17 @@
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { toFetchRouteResponse } from '../../routeResponses';
-import { handleRelayBootstrapGrant } from '../../relayBootstrapGrant';
+import { handleRouterApiBootstrapGrant } from '../../routerApiBootstrapGrant';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { readJson } from '../http';
 
-export async function handleBootstrapGrant(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleBootstrapGrant(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, 'registration_bootstrap_grants');
   if (!route) {
     throw new Error('Missing route definition for registration_bootstrap_grants');
   }
   if (ctx.method !== route.method || ctx.pathname !== route.path) return null;
 
-  const response = await handleRelayBootstrapGrant({
+  const response = await handleRouterApiBootstrapGrant({
     body: await readJson(ctx.request),
     headers: Object.fromEntries(ctx.request.headers.entries()),
     logger: ctx.logger,

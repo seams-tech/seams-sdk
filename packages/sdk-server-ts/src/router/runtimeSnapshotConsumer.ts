@@ -1,8 +1,8 @@
 import type {
-  RelayRuntimeSnapshotEnvelope,
-  RelayRuntimeSnapshotConsumer,
-  RelayRuntimePolicyScope,
-} from './relay';
+  RouterApiRuntimeSnapshotEnvelope,
+  RouterApiRuntimeSnapshotConsumer,
+  RouterApiRuntimePolicyScope,
+} from './routerApi';
 import type { ThresholdRuntimeSnapshotExpectation } from '../core/types';
 
 type RuntimeSnapshotValidationErrorCode =
@@ -18,15 +18,15 @@ type RuntimeSnapshotValidationResult =
   | { ok: true }
   | { ok: false; code: RuntimeSnapshotValidationErrorCode; message: string };
 
-export interface RelayRuntimeSnapshotPublishedUpdate {
-  scope: RelayRuntimePolicyScope;
-  envelope: RelayRuntimeSnapshotEnvelope;
+export interface RouterApiRuntimeSnapshotPublishedUpdate {
+  scope: RouterApiRuntimePolicyScope;
+  envelope: RouterApiRuntimeSnapshotEnvelope;
 }
 
-export interface InMemoryRelayRuntimeSnapshotConsumer {
-  runtimeSnapshots: RelayRuntimeSnapshotConsumer;
-  applyPublishedUpdate: (update: RelayRuntimeSnapshotPublishedUpdate) => void;
-  applyOutboxEvent: (event: { payload: unknown }) => RelayRuntimeSnapshotPublishedUpdate;
+export interface InMemoryRouterApiRuntimeSnapshotConsumer {
+  runtimeSnapshots: RouterApiRuntimeSnapshotConsumer;
+  applyPublishedUpdate: (update: RouterApiRuntimeSnapshotPublishedUpdate) => void;
+  applyOutboxEvent: (event: { payload: unknown }) => RouterApiRuntimeSnapshotPublishedUpdate;
 }
 
 function parseExpectation(
@@ -74,8 +74,8 @@ function parseExpectation(
 }
 
 export async function validateRuntimeSnapshotExpectation(input: {
-  runtimeSnapshots: RelayRuntimeSnapshotConsumer | null | undefined;
-  scope?: RelayRuntimePolicyScope;
+  runtimeSnapshots: RouterApiRuntimeSnapshotConsumer | null | undefined;
+  scope?: RouterApiRuntimePolicyScope;
   expectationRaw: unknown;
 }): Promise<RuntimeSnapshotValidationResult> {
   const expectationResult = parseExpectation(input.expectationRaw);
@@ -135,13 +135,13 @@ export async function validateRuntimeSnapshotExpectation(input: {
   return { ok: true };
 }
 
-function makeScopeKey(scope: RelayRuntimePolicyScope): string {
+function makeScopeKey(scope: RouterApiRuntimePolicyScope): string {
   return `${scope.orgId}::${scope.projectId}::${scope.envId}`;
 }
 
 function parsePublishedUpdateFromOutboxPayload(
   payloadRaw: unknown,
-): RelayRuntimeSnapshotPublishedUpdate | null {
+): RouterApiRuntimeSnapshotPublishedUpdate | null {
   if (!payloadRaw || typeof payloadRaw !== 'object' || Array.isArray(payloadRaw)) return null;
   const payload = payloadRaw as Record<string, unknown>;
   const snapshotRaw = payload.snapshot;
@@ -186,12 +186,12 @@ function parsePublishedUpdateFromOutboxPayload(
   };
 }
 
-export function createInMemoryRelayRuntimeSnapshotConsumer(): InMemoryRelayRuntimeSnapshotConsumer {
-  const latestByScope = new Map<string, RelayRuntimeSnapshotEnvelope>();
+export function createInMemoryRouterApiRuntimeSnapshotConsumer(): InMemoryRouterApiRuntimeSnapshotConsumer {
+  const latestByScope = new Map<string, RouterApiRuntimeSnapshotEnvelope>();
 
   return {
     runtimeSnapshots: {
-      async getLatestSnapshot(scope): Promise<RelayRuntimeSnapshotEnvelope | null> {
+      async getLatestSnapshot(scope): Promise<RouterApiRuntimeSnapshotEnvelope | null> {
         const latest = latestByScope.get(makeScopeKey(scope));
         return latest
           ? {
@@ -211,7 +211,7 @@ export function createInMemoryRelayRuntimeSnapshotConsumer(): InMemoryRelayRunti
         effectiveAt: update.envelope.effectiveAt,
       });
     },
-    applyOutboxEvent(event): RelayRuntimeSnapshotPublishedUpdate {
+    applyOutboxEvent(event): RouterApiRuntimeSnapshotPublishedUpdate {
       const parsed = parsePublishedUpdateFromOutboxPayload(event.payload);
       if (!parsed) {
         throw new Error('Invalid runtime snapshot outbox payload');

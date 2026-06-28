@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import type {
   RouterAbNormalSigningAdmissionAdapter,
   RouterAbNormalSigningAdmissionInput,
@@ -220,7 +220,7 @@ async function withAuthBoundaryRouter<T>(
       return null;
     },
   });
-  const router = createRelayRouter(service, {
+  const router = createRouterApiRouter(service, {
     session: makeSessionAdapter({ parse: parseSession }),
     threshold: thresholdOption,
     routerAbNormalSigningAdmission: ALLOW_ROUTER_AB_NORMAL_SIGNING_ADMISSION,
@@ -334,7 +334,7 @@ async function withReplayProtectedNormalSigningRouter<T>(
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
   });
-  const router = createRelayRouter(service, {
+  const router = createRouterApiRouter(service, {
     session: makeSessionAdapter({ parse: parseSession }),
     threshold: thresholdOption,
     routerAbNormalSigningAdmission: ALLOW_ROUTER_AB_NORMAL_SIGNING_ADMISSION,
@@ -441,7 +441,7 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
   });
-  const router = createRelayRouter(service, {
+  const router = createRouterApiRouter(service, {
     session: makeSessionAdapter({ parse: parseSession }),
     threshold: thresholdOption,
     routerAbNormalSigningAdmission: admissionAdapter,
@@ -555,7 +555,7 @@ async function withBudgetedNormalSigningRouter<T>(
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
   });
-  const router = createRelayRouter(service, {
+  const router = createRouterApiRouter(service, {
     session: makeSessionAdapter({ parse: parseSession }),
     threshold: thresholdOption,
     routerAbNormalSigningAdmission: ALLOW_ROUTER_AB_NORMAL_SIGNING_ADMISSION,

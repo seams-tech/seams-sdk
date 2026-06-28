@@ -1,36 +1,17 @@
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import {
-  handleRelaySignedDelegate,
-  type SignedDelegateRelayAuthService,
-} from '../../relaySignedDelegate';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
+import { handleRouterApiSignedDelegate } from '../../routerApiSignedDelegate';
 import { findRouteDefinitionById } from '../../routeDefinitions';
-import { routeJson, toFetchRouteResponse } from '../../routeResponses';
+import { toFetchRouteResponse } from '../../routeResponses';
 import { readJson } from '../http';
 
-function hasSignedDelegateAuthService(service: unknown): service is SignedDelegateRelayAuthService {
-  if (!service || typeof service !== 'object') return false;
-  const candidate = service as Record<string, unknown>;
-  return (
-    typeof candidate.executeSignedDelegate === 'function' &&
-    typeof candidate.getRelayerAccount === 'function'
-  );
-}
-
-export async function handleSignedDelegate(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleSignedDelegate(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, 'signed_delegate');
   if (!route) return null;
   if (ctx.method !== route.method || ctx.pathname !== route.path) return null;
-  if (!hasSignedDelegateAuthService(ctx.service)) {
-    return toFetchRouteResponse(
-      routeJson(501, {
-        ok: false,
-        code: 'signed_delegate_auth_unavailable',
-        message: 'Signed-delegate execution is not configured for this Cloudflare router',
-      }),
-    );
-  }
+  const signedDelegate = ctx.opts.signedDelegate;
+  if (!signedDelegate) return null;
 
-  const response = await handleRelaySignedDelegate({
+  const response = await handleRouterApiSignedDelegate({
     body: await readJson(ctx.request),
     headers: Object.fromEntries(ctx.request.headers.entries()),
     logger: ctx.logger,
@@ -39,18 +20,18 @@ export async function handleSignedDelegate(ctx: CloudflareRelayContext): Promise
       undefined,
     route,
     services: {
-      authService: ctx.service,
-      billing: ctx.opts.signedDelegate?.billing,
+      authService: signedDelegate.authService,
+      billing: signedDelegate.billing,
       observabilityIngestion: ctx.opts.observabilityIngestion || null,
       prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
       pricing: ctx.opts.sponsorship?.pricing || null,
       publishableKeyAuth: ctx.opts.publishableKeyAuth,
-      runtimeSnapshots: ctx.opts.signedDelegate?.runtimeSnapshots || null,
+      runtimeSnapshots: signedDelegate.runtimeSnapshots || null,
       spendCaps: ctx.opts.sponsorship?.spendCaps || null,
-      sponsoredCalls: ctx.opts.signedDelegate?.ledger,
-      webhooks: ctx.opts.relayWebhooks?.service || null,
-      webhookActorUserId: ctx.opts.relayWebhooks?.actorUserId,
-      webhookRoles: ctx.opts.relayWebhooks?.roles,
+      sponsoredCalls: signedDelegate.ledger,
+      webhooks: ctx.opts.routerApiWebhooks?.service || null,
+      webhookActorUserId: ctx.opts.routerApiWebhooks?.actorUserId,
+      webhookRoles: ctx.opts.routerApiWebhooks?.roles,
     },
   });
   return toFetchRouteResponse(response);

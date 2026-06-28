@@ -1,23 +1,26 @@
 import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
 import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
 import type { ConsoleRouterOptions } from '../console';
-import type { RelayRouterOptions } from '../relay';
+import type { RouterApiOptions } from '../routerApi';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
   type D1DatabaseLike,
   type D1PreparedStatementLike,
   type PostgresTenantStorageRoute,
 } from '../../storage/tenantRoute';
+import { parseOrgId, type OrgId } from '@shared/utils/domainIds';
 import type {
   CloudflareD1ConsoleRouterStorageOptions,
-  CloudflareD1RelayRouterStorageOptions,
+  CloudflareD1RouterApiStorageOptions,
+  CloudflareD1ConsoleOnlyServiceBundleOptions,
   CloudflareD1ConsoleServiceBundle,
   CloudflareD1ConsoleServiceBundleOptions,
   CloudflareD1SigningRootSecretAdapterOptions,
 } from './d1ConsoleServices';
 import {
   asConsoleRouterOptions,
-  asRelayRouterOptions,
+  asRouterApiOptions,
+  createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1SigningRootSecretAdapters,
 } from './d1ConsoleServices';
 
@@ -47,6 +50,14 @@ const database: D1DatabaseLike = {
     return null;
   },
 };
+
+function orgIdFromString(input: string): OrgId {
+  const parsed = parseOrgId(input);
+  if (!parsed.ok) {
+    throw new Error(`invalid test org id ${input}`);
+  }
+  return parsed.value;
+}
 
 const thresholdStore: CloudflareDurableObjectNamespaceLike = {
   idFromName(name: string): unknown {
@@ -79,6 +90,48 @@ const bundleOptions: CloudflareD1ConsoleServiceBundleOptions = {
   },
 };
 
+const consoleOnlyBundleOptions: CloudflareD1ConsoleOnlyServiceBundleOptions = {
+  bindings: {
+    consoleDatabase: database,
+  },
+  route: {
+    namespace: 'seams',
+  },
+};
+
+const invalidConsoleOnlySignerDatabase: CloudflareD1ConsoleOnlyServiceBundleOptions = {
+  bindings: {
+    consoleDatabase: database,
+    // @ts-expect-error Console-only staging bundles cannot receive signer metadata D1.
+    signerMetadataDatabase: database,
+  },
+  route: {
+    namespace: 'seams',
+  },
+};
+
+const invalidConsoleOnlySignerDurableObject: CloudflareD1ConsoleOnlyServiceBundleOptions = {
+  bindings: {
+    consoleDatabase: database,
+    // @ts-expect-error Console-only staging bundles cannot receive threshold Durable Objects.
+    thresholdStore,
+  },
+  route: {
+    namespace: 'seams',
+  },
+};
+
+const invalidConsoleOnlySignerKekProvider: CloudflareD1ConsoleOnlyServiceBundleOptions = {
+  bindings: {
+    consoleDatabase: database,
+    // @ts-expect-error Console-only staging bundles cannot receive signer KEK providers.
+    kekProvider,
+  },
+  route: {
+    namespace: 'seams',
+  },
+};
+
 const routeResolver = createStaticCloudflareTenantStorageRouteResolverFromBindings({
   routeVersion: 1,
   topology: 'shared',
@@ -96,7 +149,7 @@ const routeResolver = createStaticCloudflareTenantStorageRouteResolverFromBindin
 
 const cloudflareRoute = routeResolver.resolveTenantStorageRoute({
   namespace: 'seams',
-  orgId: 'org_1',
+  orgId: orgIdFromString('org_1'),
 });
 
 const signerSecretOptions: CloudflareD1SigningRootSecretAdapterOptions = {
@@ -165,7 +218,7 @@ const missingNamespace: CloudflareD1ConsoleServiceBundleOptions = {
 };
 
 declare const routerStorageOptions: CloudflareD1ConsoleRouterStorageOptions;
-declare const relayStorageOptions: CloudflareD1RelayRouterStorageOptions;
+declare const relayStorageOptions: CloudflareD1RouterApiStorageOptions;
 declare const serviceBundle: CloudflareD1ConsoleServiceBundle;
 
 const consoleOptions: ConsoleRouterOptions = {
@@ -173,16 +226,22 @@ const consoleOptions: ConsoleRouterOptions = {
   healthz: true,
 };
 
-const relayOptions: RelayRouterOptions = {
-  ...asRelayRouterOptions(relayStorageOptions),
+const relayOptions: RouterApiOptions = {
+  ...asRouterApiOptions(relayStorageOptions),
   healthz: true,
 };
 
-const relayOptionsFromBundle: RelayRouterOptions = {
-  ...asRelayRouterOptions(serviceBundle.relayRouterOptions),
+const relayOptionsFromBundle: RouterApiOptions = {
+  ...asRouterApiOptions(serviceBundle.routerApiRouterOptions),
 };
 
+const consoleOnlyBundle = createCloudflareD1ConsoleOnlyServiceBundle(consoleOnlyBundleOptions);
+
 void bundleOptions;
+void consoleOnlyBundleOptions;
+void invalidConsoleOnlySignerDatabase;
+void invalidConsoleOnlySignerDurableObject;
+void invalidConsoleOnlySignerKekProvider;
 void signerSecretAdapters;
 void invalidPostgresSignerSecretOptions;
 void missingSignerSecretEnvId;
@@ -191,3 +250,4 @@ void missingNamespace;
 void consoleOptions;
 void relayOptions;
 void relayOptionsFromBundle;
+void consoleOnlyBundle;

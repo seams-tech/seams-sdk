@@ -1,11 +1,11 @@
 import type { Router as ExpressRouter } from 'express';
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
-import { emitRelayWebhookEvent } from '../../relayWebhooks';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../routerApi';
+import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 
 export function registerNearPublicKeysRoutes(
   router: ExpressRouter,
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
 ): void {
   const sessionCookieName =
     String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
@@ -61,9 +61,9 @@ export function registerNearPublicKeysRoutes(
         (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
     if (!shouldEmit) return;
 
-    await emitRelayWebhookEvent({
+    await emitRouterApiWebhookEvent({
       logger: ctx.logger,
-      webhooks: ctx.opts.relayWebhooks,
+      webhooks: ctx.opts.routerApiWebhooks,
       eventType: 'session.warm.expired',
       claims: input.claims,
       userId: input.userId,

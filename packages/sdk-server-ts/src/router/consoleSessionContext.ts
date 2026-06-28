@@ -1,5 +1,5 @@
 import type { SwitchConsoleAccountOrganizationContextResult } from '../console/account';
-import type { SessionAdapter, SessionClaims } from './relay';
+import type { SessionAdapter, SessionClaims } from './routerApi';
 
 const RESERVED_SESSION_CLAIMS = new Set([
   'sub',

@@ -5,7 +5,7 @@ import type {
   DelegateRelayHooksOptions,
 } from '@/core/types/sdkSentEvents';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import type { DelegateRelayResult, SignDelegateActionResult } from '@/core/types/seams';
+import type { DelegateRouterApiResult, SignDelegateActionResult } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import { toError } from '@shared/utils/errors';
@@ -26,7 +26,7 @@ async function yieldForUiPaint(): Promise<void> {
   await Promise.resolve();
 }
 
-export interface RelayDelegateRequest {
+export interface RouterApiDelegateRequest {
   hash: string;
   signedDelegate: SignedDelegate | WasmSignedDelegate;
 }
@@ -143,12 +143,12 @@ const normalizeSignedDelegateForRelay = (
 
 export async function sendDelegateActionViaRelayer(args: {
   url: string;
-  payload: RelayDelegateRequest;
+  payload: RouterApiDelegateRequest;
   signal?: AbortSignal;
   options?: DelegateRelayHooksOptions;
-}): Promise<DelegateRelayResult> {
+}): Promise<DelegateRouterApiResult> {
   const { url, payload, signal, options } = args;
-  const normalizedPayload: RelayDelegateRequest = {
+  const normalizedPayload: RouterApiDelegateRequest = {
     ...payload,
     signedDelegate: normalizeSignedDelegateForRelay(payload.signedDelegate),
   };
@@ -187,7 +187,7 @@ export async function sendDelegateActionViaRelayer(args: {
   }
 
   if (!res.ok) {
-    const response: DelegateRelayResult = {
+    const response: DelegateRouterApiResult = {
       ok: false,
       error: `Relayer HTTP ${res.status}`,
     };
@@ -202,7 +202,7 @@ export async function sendDelegateActionViaRelayer(args: {
     const parsed: unknown = await res.json();
     json = isObject(parsed) ? parsed : {};
   } catch (err: unknown) {
-    const response: DelegateRelayResult = {
+    const response: DelegateRouterApiResult = {
       ok: false,
       error: 'Relayer returned non-JSON response',
     };
@@ -213,7 +213,7 @@ export async function sendDelegateActionViaRelayer(args: {
     return response;
   }
 
-  const response: DelegateRelayResult = {
+  const response: DelegateRouterApiResult = {
     ok: Boolean(json.ok ?? true),
     relayerTxHash:
       typeof json.relayerTxHash === 'string'

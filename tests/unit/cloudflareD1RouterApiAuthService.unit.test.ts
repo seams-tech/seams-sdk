@@ -1,16 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import type {
-  D1DatabaseLike,
-  D1PreparedStatementLike,
-  D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -25,9 +16,15 @@ import type {
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1RelayAuthService';
-import { createCloudflareD1RelayAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RelayAuthService';
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
+import {
+  implicitNearAccountProvisioning,
+  walletIdFromString,
+} from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   EMAIL_OTP_RECOVERY_KEY_COUNT,
   EMAIL_OTP_RECOVERY_WRAP_ALG,
@@ -43,6 +40,12 @@ import {
 import {
   createSigningSessionSealShamir3PassBigIntRuntime,
 } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
+import {
+  applyD1MigrationFiles,
+  cleanupTemporaryD1Database,
+  createTemporaryD1Database,
+  listD1MigrationFiles,
+} from '../helpers/sqliteD1';
 
 type SqliteJsonRow = Record<string, unknown>;
 type TestEcdsaClientSharePublicKey =
@@ -50,7 +53,6 @@ type TestEcdsaClientSharePublicKey =
 type TestEcdsaRelayerPublicKey =
   EcdsaHssServerBootstrapResponse['publicIdentity']['relayerPublicKey33B64u'];
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EMAIL_OTP_SERVER_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
 const EMAIL_OTP_SHAMIR_PRIME_B64U = encodePositiveBigIntB64u(257n);
 const EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(3n);
@@ -63,6 +65,11 @@ type WebAuthnAssertionFixture = {
   readonly credentialPublicKeyB64u: string;
   readonly privateKey: CryptoKey;
 };
+
+function requireParsedDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid test domain id');
+  return result.value;
+}
 
 class RecordingEmailOtpDeliveryProvider {
   readonly calls: CloudflareD1EmailOtpDeliveryProviderInput[] = [];
@@ -193,6 +200,10 @@ function isRecordingDurableObjectReplayReservationRequest(
   return String(request.op || '') === 'authReserveReplayGuard';
 }
 
+function recordingDurableObjectRequestKey(request: Record<string, unknown>): string {
+  return String(request.key || '').trim();
+}
+
 function testEcdsaClientBootstrap(
   prepare: WalletRegistrationEcdsaPreparePayload['prepare'],
 ): WalletRegistrationEcdsaClientBootstrap {
@@ -254,89 +265,14 @@ function testEcdsaServerBootstrapResponse(
   };
 }
 
-class SqliteCliD1Database implements D1DatabaseLike {
-  constructor(readonly databasePath: string) {}
-
-  prepare(query: string): D1PreparedStatementLike {
-    return new SqliteCliD1PreparedStatement(this.databasePath, query, []);
-  }
-
-  async batch<T = unknown>(statements: readonly D1PreparedStatementLike[]): Promise<readonly T[]> {
-    const sqlStatements: string[] = [];
-    for (const statement of statements) sqlStatements.push(sqlFromD1PreparedStatement(statement));
-    runSqlite(this.databasePath, `BEGIN IMMEDIATE; ${sqlStatements.join(' ')} COMMIT;`);
-    return sqlStatements.map(successfulD1BatchResult) as readonly T[];
-  }
-
-  async exec(query: string): Promise<unknown> {
-    runSqlite(this.databasePath, query);
-    return null;
-  }
-}
-
-class SqliteCliD1PreparedStatement implements D1PreparedStatementLike {
-  constructor(
-    private readonly databasePath: string,
-    private readonly query: string,
-    private readonly values: readonly unknown[],
-  ) {}
-
-  bind(...values: readonly unknown[]): D1PreparedStatementLike {
-    return new SqliteCliD1PreparedStatement(this.databasePath, this.query, values);
-  }
-
-  async first<T = unknown>(columnName?: string): Promise<T | null> {
-    const result = await this.all<SqliteJsonRow>();
-    const row = result.results?.[0] || null;
-    if (!row) return null;
-    if (!columnName) return row as T;
-    const value = row[columnName];
-    return value === undefined ? null : (value as T);
-  }
-
-  async all<T = unknown>(): Promise<D1ResultLike<T>> {
-    const results = runSqliteJson(this.databasePath, this.toSql());
-    return {
-      success: true,
-      results: results as readonly T[],
-      meta: { rows_read: results.length, rows_written: 0 },
-    };
-  }
-
-  async run<T = unknown>(): Promise<D1ResultLike<T>> {
-    const sql = `${this.toSql()} SELECT changes() AS changes, last_insert_rowid() AS last_row_id;`;
-    const results = runSqliteJson(this.databasePath, sql);
-    const metaRow = results.at(-1) || {};
-    return {
-      success: true,
-      results: [] as readonly T[],
-      meta: {
-        changes: toInteger(metaRow.changes),
-        last_row_id: toInteger(metaRow.last_row_id),
-        rows_written: toInteger(metaRow.changes),
-      },
-    };
-  }
-
-  toSql(): string {
-    return interpolateSql(this.query, this.values);
-  }
-}
-
-function createTemporaryD1Database(): { readonly database: D1DatabaseLike; readonly tempDir: string } {
-  const tempDir = mkdtempSync(path.join(tmpdir(), 'seams-d1-relay-auth-test-'));
-  return {
-    database: new SqliteCliD1Database(path.join(tempDir, 'test.sqlite')),
-    tempDir,
-  };
-}
-
-function cleanupTemporaryD1Database(tempDir: string): void {
-  rmSync(tempDir, { recursive: true, force: true });
-}
-
 function utf8Bytes(input: string): Uint8Array {
   return new TextEncoder().encode(input);
+}
+
+function arrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
+  const out = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(out).set(bytes);
+  return out;
 }
 
 function concatBytes(...inputs: readonly Uint8Array[]): Uint8Array {
@@ -367,7 +303,7 @@ function rawP256SignatureToDer(input: Uint8Array): Uint8Array {
 }
 
 async function sha256(input: Uint8Array): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', input));
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', arrayBufferCopy(input)));
 }
 
 function hexBytes(bytes: Uint8Array): string {
@@ -427,7 +363,7 @@ async function createWebAuthnAssertion(input: {
     await crypto.subtle.sign(
       { name: 'ECDSA', hash: 'SHA-256' },
       input.fixture.privateKey,
-      signedBytes,
+      arrayBufferCopy(signedBytes),
     ),
   );
   return {
@@ -513,12 +449,11 @@ async function generateGoogleOidcTestKey(kid: string): Promise<{
   return {
     kid,
     privateKey: keyPair.privateKey,
-    publicJwk: {
-      ...exportedPublicJwk,
+    publicJwk: Object.assign(exportedPublicJwk, {
       kid,
       use: 'sig',
       alg: 'RS256',
-    },
+    }),
   };
 }
 
@@ -531,7 +466,11 @@ async function makeSignedGoogleIdToken(input: {
   const payloadB64u = jsonBase64Url(input.payload);
   const data = utf8Bytes(`${headerB64u}.${payloadB64u}`);
   const signature = new Uint8Array(
-    await crypto.subtle.sign({ name: 'RSASSA-PKCS1-v1_5' }, input.privateKey, data),
+    await crypto.subtle.sign(
+      { name: 'RSASSA-PKCS1-v1_5' },
+      input.privateKey,
+      arrayBufferCopy(data),
+    ),
   );
   return `${headerB64u}.${payloadB64u}.${base64UrlEncode(signature)}`;
 }
@@ -586,131 +525,16 @@ function restoreOidcJwksFetchMock(originalFetch: typeof globalThis.fetch): void 
 }
 
 function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
-  return applyMigrations(database, [
-    'packages/sdk-server-ts/migrations/d1-signer/0002_signer_wallet_metadata.sql',
-    'packages/sdk-server-ts/migrations/d1-signer/0003_signer_webauthn.sql',
-    'packages/sdk-server-ts/migrations/d1-signer/0004_signer_identity.sql',
-    'packages/sdk-server-ts/migrations/d1-signer/0005_signer_recovery.sql',
-    'packages/sdk-server-ts/migrations/d1-signer/0006_signer_near_public_keys.sql',
-    'packages/sdk-server-ts/migrations/d1-signer/0008_signer_email_otp.sql',
-    'packages/sdk-server-ts/migrations/d1-signer/0009_signer_email_otp_rate_limits.sql',
-  ]);
-}
-
-async function applyMigrations(
-  database: D1DatabaseLike,
-  migrationPaths: readonly string[],
-): Promise<void> {
-  for (const migrationPath of migrationPaths) {
-    await database.exec(readFileSync(path.join(repoRoot, migrationPath), 'utf8'));
-  }
-}
-
-function runSqlite(databasePath: string, sql: string): void {
-  const result = spawnSync('sqlite3', [databasePath, sql], {
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status === 0) return;
-  throw new Error(formatSqliteError(result.stderr, sql));
-}
-
-function runSqliteJson(databasePath: string, sql: string): readonly SqliteJsonRow[] {
-  const result = spawnSync('sqlite3', ['-json', databasePath, sql], {
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status !== 0) throw new Error(formatSqliteError(result.stderr, sql));
-  const stdout = result.stdout.trim();
-  if (!stdout) return [];
-  const parsed: unknown = JSON.parse(stdout);
-  if (!Array.isArray(parsed)) {
-    throw new Error(`sqlite3 JSON output was not an array: ${stdout}`);
-  }
-  return parsed.filter(isSqliteJsonRow);
-}
-
-function formatSqliteError(stderr: string, sql: string): string {
-  return `sqlite3 failed: ${stderr.trim() || 'unknown error'}\nSQL: ${sql}`;
+  return applyD1MigrationFiles(database, listD1MigrationFiles('d1-signer'));
 }
 
 function isSqliteJsonRow(input: unknown): input is SqliteJsonRow {
   return Boolean(input && typeof input === 'object' && !Array.isArray(input));
 }
 
-function interpolateSql(query: string, values: readonly unknown[]): string {
-  const segments = splitSqlByPlaceholders(query);
-  if (segments.length - 1 !== values.length) {
-    throw new Error(
-      `SQL placeholder count ${segments.length - 1} did not match bound value count ${values.length}`,
-    );
-  }
-  let sql = segments[0] || '';
-  for (let index = 0; index < values.length; index += 1) {
-    sql += `${sqlLiteral(values[index])}${segments[index + 1] || ''}`;
-  }
-  return ensureSqlStatementTerminator(sql);
-}
-
-function splitSqlByPlaceholders(query: string): readonly string[] {
-  const segments: string[] = [];
-  let current = '';
-  let inSingleQuote = false;
-  for (let index = 0; index < query.length; index += 1) {
-    const char = query[index] || '';
-    const next = query[index + 1] || '';
-    if (char === "'" && inSingleQuote && next === "'") {
-      current += "''";
-      index += 1;
-      continue;
-    }
-    if (char === "'") {
-      inSingleQuote = !inSingleQuote;
-      current += char;
-      continue;
-    }
-    if (char === '?' && !inSingleQuote) {
-      segments.push(current);
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-  segments.push(current);
-  return segments;
-}
-
-function ensureSqlStatementTerminator(sql: string): string {
-  const trimmed = sql.trim();
-  return trimmed.endsWith(';') ? trimmed : `${trimmed};`;
-}
-
-function sqlLiteral(value: unknown): string {
-  if (value === null || value === undefined) return 'NULL';
-  if (typeof value === 'boolean') return value ? '1' : '0';
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  if (typeof value === 'bigint') return value.toString();
-  if (value instanceof Uint8Array) return `X'${Buffer.from(value).toString('hex')}'`;
-  if (value instanceof Date) return quoteSqlString(value.toISOString());
-  return quoteSqlString(String(value));
-}
-
-function quoteSqlString(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 function toInteger(value: unknown): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
-
-function sqlFromD1PreparedStatement(statement: D1PreparedStatementLike): string {
-  if (statement instanceof SqliteCliD1PreparedStatement) return statement.toSql();
-  throw new Error('Expected SqliteCliD1PreparedStatement');
-}
-
-function successfulD1BatchResult(): D1ResultLike<unknown> {
-  return { success: true, results: [], meta: { changes: 1, rows_written: 1 } };
 }
 
 async function insertIdentity(input: {
@@ -895,8 +719,11 @@ async function insertNearPublicKey(input: {
     publicKey: 'ed25519:near-public',
     kind: 'threshold',
     signerSlot: 1,
-    credentialIdB64u: 'credential-a',
-    rpId: 'example.com',
+    authBinding: {
+      kind: 'passkey',
+      credentialIdB64u: 'credential-a',
+      rpId: 'example.com',
+    },
     createdAtMs: 400,
     updatedAtMs: 500,
   };
@@ -931,22 +758,20 @@ async function insertSignerWallet(input: {
   readonly projectId: string;
   readonly envId: string;
   readonly walletId: string;
-  readonly rpId?: string;
 }): Promise<void> {
   const nowMs = Date.now();
   const record = {
     version: 'wallet_v1',
     walletId: input.walletId,
-    rpId: input.rpId || 'example.com',
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   };
   await input.database
     .prepare(
       `INSERT INTO signer_wallets (
-        namespace, org_id, project_id, env_id, wallet_id, rp_id, record_json,
+        namespace, org_id, project_id, env_id, wallet_id, record_json,
         created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.namespace,
@@ -954,7 +779,6 @@ async function insertSignerWallet(input: {
       input.projectId,
       input.envId,
       record.walletId,
-      record.rpId,
       JSON.stringify(record),
       record.createdAtMs,
       record.updatedAtMs,
@@ -1113,6 +937,40 @@ async function readWalletAuthMethodRecord(input: {
   if (typeof raw !== 'string') throw new Error('wallet auth method record_json missing');
   const parsed: unknown = JSON.parse(raw);
   if (!isSqliteJsonRow(parsed)) throw new Error('wallet auth method record_json invalid');
+  return parsed;
+}
+
+async function readSignerWalletRecord(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletId: string;
+}): Promise<SqliteJsonRow> {
+  const row = await input.database
+    .prepare(
+      `SELECT record_json
+         FROM signer_wallets
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+        LIMIT 1`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.walletId,
+    )
+    .first<SqliteJsonRow>();
+  const raw = row?.record_json;
+  if (typeof raw !== 'string') throw new Error('signer wallet record_json missing');
+  const parsed: unknown = JSON.parse(raw);
+  if (!isSqliteJsonRow(parsed)) throw new Error('signer wallet record_json invalid');
   return parsed;
 }
 
@@ -1736,7 +1594,7 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
       appSessionVersion: 'grant-session-v2',
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -2174,8 +2032,11 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
           signerSlot: 1,
           createdAtMs: 400,
           updatedAtMs: 500,
-          rpId: 'example.com',
-          credentialIdB64u: 'credential-a',
+          authBinding: {
+            kind: 'passkey',
+            rpId: 'example.com',
+            credentialIdB64u: 'credential-a',
+          },
         },
       ],
     });
@@ -2247,6 +2108,8 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
     };
     const walletId = 'wallet-auth.testnet';
     const rpId = 'example.com';
+    const walletIdValue = walletIdFromString(walletId);
+    const rpIdValue = requireParsedDomainId(parseWebAuthnRpId(rpId));
     const email = 'owner@example.test';
     const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
     const passkeyRecord: TestWalletAuthMethodRecord = {
@@ -2271,11 +2134,11 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
       createdAtMs: 1_100,
       updatedAtMs: 1_100,
     };
-    await insertSignerWallet({ database, ...scope, walletId, rpId });
+    await insertSignerWallet({ database, ...scope, walletId });
     await insertWalletAuthMethod({ database, ...scope, record: passkeyRecord });
     await insertWalletAuthMethod({ database, ...scope, record: emailOtpRecord });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -2285,14 +2148,13 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
 
     await expect(
       service.revokeWalletAuthMethod({
-        walletId,
-        rpId,
+        walletId: walletIdValue,
         target: { kind: 'email_otp', email },
         auth: {
           kind: 'app_session',
           policy: {
             permission: 'wallet_auth_method_revoke',
-            walletId,
+            walletId: walletIdValue,
             target: { kind: 'email_otp', email },
             expiresAtMs: Date.now() + 60_000,
           },
@@ -2301,7 +2163,6 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
     ).resolves.toEqual({
       ok: true,
       walletId,
-      rpId,
       authMethod: {
         kind: 'email_otp',
         status: 'revoked',
@@ -2323,15 +2184,14 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
 
     await expect(
       service.revokeWalletAuthMethod({
-        walletId,
-        rpId,
-        target: { kind: 'passkey', credentialIdB64u: 'credential-a' },
+        walletId: walletIdValue,
+        target: { kind: 'passkey', rpId: rpIdValue, credentialIdB64u: 'credential-a' },
         auth: {
           kind: 'app_session',
           policy: {
             permission: 'wallet_auth_method_revoke',
-            walletId,
-            target: { kind: 'passkey', credentialIdB64u: 'credential-a' },
+            walletId: walletIdValue,
+            target: { kind: 'passkey', rpId: rpIdValue, credentialIdB64u: 'credential-a' },
             expiresAtMs: Date.now() + 60_000,
           },
         },
@@ -2362,7 +2222,7 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
 test('Cloudflare D1 relay auth service wires threshold signing from Durable Object config', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
-    const withoutThreshold = createCloudflareD1RelayAuthService({
+    const withoutThreshold = createCloudflareD1RouterApiAuthService({
       database,
       namespace: 'seams-local-test',
       orgId: 'org-a',
@@ -2373,7 +2233,7 @@ test('Cloudflare D1 relay auth service wires threshold signing from Durable Obje
     });
     expect(withoutThreshold.getThresholdSigningService()).toBeNull();
 
-    const withThreshold = createCloudflareD1RelayAuthService({
+    const withThreshold = createCloudflareD1RouterApiAuthService({
       database,
       namespace: 'seams-local-test',
       orgId: 'org-a',
@@ -2408,7 +2268,7 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       envId: 'env-a',
     };
     const durableObjects = new RecordingDurableObjectNamespace();
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -2422,6 +2282,7 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       },
     });
 
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
     const registration = await service.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
@@ -2429,12 +2290,11 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       expectedOrigin: 'https://app.example',
       request: {
         wallet: { kind: 'server_generated' },
-        rpId: 'example.com',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId },
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {
-            accountProvisioning: { kind: 'implicit_account' },
+            accountProvisioning: implicitNearAccountProvisioning(),
             signerSlot: 1,
             participantIds: [1, 2, 3],
             keyPurpose: 'wallet-registration',
@@ -2447,6 +2307,8 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
     expect(registration.ok).toBe(true);
     if (!registration.ok) throw new Error(registration.message);
     expect(registration.intent.walletId).toMatch(/^seams-wallet-[0-9a-f]{6}$/);
+    expect(Object.prototype.hasOwnProperty.call(registration.intent, 'rpId')).toBe(false);
+    expect(registration.intent.authMethod).toMatchObject({ kind: 'passkey', rpId: 'example.com' });
     expect(registration.intent.runtimePolicyScope).toEqual({
       orgId: scope.orgId,
       projectId: scope.projectId,
@@ -2461,7 +2323,6 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       expectedOrigin: 'https://app.example',
       request: {
         walletId: registration.intent.walletId,
-        rpId: 'example.com',
         signerSelection: {
           mode: 'ecdsa',
           ecdsa: {
@@ -2481,7 +2342,6 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       expectedOrigin: 'https://app.example',
       request: {
         walletId: registration.intent.walletId,
-        rpId: 'example.com',
         authMethod: { kind: 'email_otp', email: 'owner@example.test' },
       },
     });
@@ -2501,9 +2361,12 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       expectedOrigin: 'https://app.example',
       intent: registration.intent,
     });
-    expect(
-      durableObjects.stub.requests.some(isRecordingDurableObjectReplayReservationRequest),
-    ).toBe(true);
+    const generatedWalletReservationRequest = durableObjects.stub.requests.find(
+      isRecordingDurableObjectReplayReservationRequest,
+    );
+    expect(recordingDurableObjectRequestKey(generatedWalletReservationRequest || {})).toBe(
+      `${prefix}generated-wallet-reservation:${registration.intent.walletId}`,
+    );
 
     const addSignerRecord = durableObjects.stub.values.get(
       `${prefix}add-signer-intent:${addSigner.addSignerIntentGrant}`,
@@ -2551,13 +2414,13 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
     const providerSubject = 'google:registration-user';
     const appSessionVersion = 'registration-session-v1';
     const durableObjects = new RecordingDurableObjectNamespace();
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
       thresholdStore: {
         kind: 'cloudflare-do',
         namespace: durableObjects,
@@ -2573,7 +2436,6 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
       expectedOrigin: 'https://app.example',
       request: {
         wallet: { kind: 'server_generated' },
-        rpId,
         authMethod: {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
@@ -2592,6 +2454,7 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
     });
     expect(registration.ok).toBe(true);
     if (!registration.ok) throw new Error(registration.message);
+    expect(Object.prototype.hasOwnProperty.call(registration.intent, 'rpId')).toBe(false);
 
     const challenge = await service.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
@@ -2742,13 +2605,13 @@ test('Cloudflare D1 relay auth service responds to ECDSA wallet registration cer
         };
       },
     } as unknown as ThresholdSigningService;
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
       thresholdSigningService,
       thresholdStore: {
         kind: 'cloudflare-do',
@@ -2765,7 +2628,6 @@ test('Cloudflare D1 relay auth service responds to ECDSA wallet registration cer
       expectedOrigin: 'https://app.example',
       request: {
         wallet: { kind: 'server_generated' },
-        rpId,
         authMethod: {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
@@ -2901,13 +2763,13 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
         };
       },
     } as unknown as ThresholdSigningService;
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
       thresholdSigningService,
       thresholdStore: {
         kind: 'cloudflare-do',
@@ -2924,7 +2786,6 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
       expectedOrigin: 'https://app.example',
       request: {
         wallet: { kind: 'server_generated' },
-        rpId,
         authMethod: {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
@@ -3055,9 +2916,9 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
       },
     });
     if (!finalized.ok) throw new Error(finalized.message);
+    expect(Object.prototype.hasOwnProperty.call(finalized, 'rpId')).toBe(false);
     expect(finalized).toMatchObject({
       walletId: registration.intent.walletId,
-      rpId,
       authMethod: {
         kind: 'email_otp',
         registrationAuthorityId: challenge.challenge.challengeId,
@@ -3081,26 +2942,19 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
       },
     });
 
-    const walletRow = await database
-      .prepare(
-        `SELECT record_json
-           FROM signer_wallets
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_id = ?
-          LIMIT 1`,
-      )
-      .bind(
-        scope.namespace,
-        scope.orgId,
-        scope.projectId,
-        scope.envId,
-        registration.intent.walletId,
-      )
-      .first<SqliteJsonRow>();
-    expect(walletRow?.record_json).toContain(registration.intent.walletId);
+    const walletRecord = await readSignerWalletRecord({
+      database,
+      ...scope,
+      walletId: registration.intent.walletId,
+    });
+    expect(walletRecord).toMatchObject({
+      version: 'wallet_v1',
+      walletId: registration.intent.walletId,
+      createdAtMs: expect.any(Number),
+      updatedAtMs: expect.any(Number),
+    });
+    expect(Object.prototype.hasOwnProperty.call(walletRecord, 'rpId')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(walletRecord, 'rp_id')).toBe(false);
 
     const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
     await expect(
@@ -3214,13 +3068,13 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
       projectId: 'project-a',
       envId: 'env-a',
     };
-    const walletId = 'add-auth-wallet.testnet';
+    const walletId = walletIdFromString('add-auth-wallet.testnet');
     const rpId = 'example.com';
     const providerSubject = 'google:add-auth-user';
     const email = 'add.auth@example.test';
     const appSessionVersion = 'add-auth-session-v1';
     const durableObjects = new RecordingDurableObjectNamespace();
-    await insertSignerWallet({ database, ...scope, walletId, rpId });
+    await insertSignerWallet({ database, ...scope, walletId });
     await insertWalletAuthMethod({
       database,
       ...scope,
@@ -3238,13 +3092,13 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
       },
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
       thresholdStore: {
         kind: 'cloudflare-do',
         namespace: durableObjects,
@@ -3259,12 +3113,13 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
       expectedOrigin: 'https://app.example',
       request: {
         walletId,
-        rpId,
         authMethod: { kind: 'email_otp', email },
       },
     });
     expect(intent.ok).toBe(true);
     if (!intent.ok) throw new Error(intent.message);
+    expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
+    const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
 
     const challenge = await service.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
@@ -3296,7 +3151,7 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
           permission: 'wallet_auth_method_provision',
           walletId,
           authMethod: intent.intent.authMethod,
-          runtimePolicyScope: intent.intent.runtimePolicyScope,
+          runtimePolicyScope,
           expiresAtMs: Date.now() + 60_000,
         },
       },
@@ -3347,7 +3202,6 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
     expect(finalized).toEqual({
       ok: true,
       walletId,
-      rpId,
       authMethod: {
         kind: 'email_otp',
         status: 'active',
@@ -3397,11 +3251,11 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
       projectId: 'project-a',
       envId: 'env-a',
     };
-    const walletId = 'add-signer-wallet.testnet';
+    const walletId = walletIdFromString('add-signer-wallet.testnet');
     const rpId = 'example.com';
     const durableObjects = new RecordingDurableObjectNamespace();
-    await insertSignerWallet({ database, ...scope, walletId, rpId });
-    const service = createCloudflareD1RelayAuthService({
+    await insertSignerWallet({ database, ...scope, walletId });
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -3422,7 +3276,6 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
       expectedOrigin: 'https://app.example',
       request: {
         walletId,
-        rpId,
         signerSelection: {
           mode: 'ecdsa',
           ecdsa: {
@@ -3434,6 +3287,8 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
     });
     expect(intent.ok).toBe(true);
     if (!intent.ok) throw new Error(intent.message);
+    expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
+    const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
 
     const started = await service.startWalletAddSigner({
       walletId,
@@ -3446,7 +3301,7 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
           permission: 'wallet_signer_provision',
           walletId,
           signerSelection: intent.intent.signerSelection,
-          runtimePolicyScope: intent.intent.runtimePolicyScope,
+          runtimePolicyScope,
           expiresAtMs: Date.now() + 60_000,
         },
       },
@@ -3512,7 +3367,7 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
             permission: 'wallet_signer_provision',
             walletId,
             signerSelection: intent.intent.signerSelection,
-            runtimePolicyScope: intent.intent.runtimePolicyScope,
+            runtimePolicyScope,
             expiresAtMs: Date.now() + 60_000,
           },
         },
@@ -3536,7 +3391,7 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
       projectId: 'project-a',
       envId: 'env-a',
     };
-    const walletId = 'add-signer-respond-wallet.testnet';
+    const walletId = walletIdFromString('add-signer-respond-wallet.testnet');
     const rpId = 'example.com';
     const durableObjects = new RecordingDurableObjectNamespace();
     let bootstrapRequest: EcdsaHssClientBootstrapRequest | null = null;
@@ -3549,8 +3404,8 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
         };
       },
     } as unknown as ThresholdSigningService;
-    await insertSignerWallet({ database, ...scope, walletId, rpId });
-    const service = createCloudflareD1RelayAuthService({
+    await insertSignerWallet({ database, ...scope, walletId });
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -3572,7 +3427,6 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
       expectedOrigin: 'https://app.example',
       request: {
         walletId,
-        rpId,
         signerSelection: {
           mode: 'ecdsa',
           ecdsa: {
@@ -3583,6 +3437,7 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
       },
     });
     if (!intent.ok) throw new Error(intent.message);
+    const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
 
     const started = await service.startWalletAddSigner({
       walletId,
@@ -3595,7 +3450,7 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
           permission: 'wallet_signer_provision',
           walletId,
           signerSelection: intent.intent.signerSelection,
-          runtimePolicyScope: intent.intent.runtimePolicyScope,
+          runtimePolicyScope,
           expiresAtMs: Date.now() + 60_000,
         },
       },
@@ -3621,7 +3476,7 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
     expect(bootstrapRequest).toMatchObject({
       sessionId: clientBootstrap.thresholdSessionId,
       signingGrantId: clientBootstrap.signingGrantId,
-      runtimePolicyScope: intent.intent.runtimePolicyScope,
+      runtimePolicyScope,
     });
 
     const prefix = 'intent-test:wallet-registration:';
@@ -3675,7 +3530,6 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
     if (!finalized.ok) throw new Error(finalized.message);
     expect(finalized).toMatchObject({
       walletId,
-      rpId,
       ecdsa: {
         walletKeys: [
           {
@@ -3740,7 +3594,7 @@ test('Cloudflare D1 relay auth service verifies Google OIDC tokens and links ide
   const originalFetch = installGoogleJwksFetchMock(key.publicJwk);
   try {
     await applySignerMigrations(database);
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: 'seams-local-test',
       orgId: 'org-a',
@@ -3831,7 +3685,7 @@ test('Cloudflare D1 relay auth service verifies generic OIDC exchange tokens', a
       userId: 'linked-oidc-wallet.testnet',
       subject: providerSubject,
     });
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -3908,7 +3762,7 @@ test('Cloudflare D1 relay auth service verifies generic OIDC exchange tokens', a
 test('Cloudflare D1 relay auth service applies and removes Email OTP server seals', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: 'seams-local-test',
       orgId: 'org-a',
@@ -3957,7 +3811,7 @@ test('Cloudflare D1 relay auth service applies and removes Email OTP server seal
 test('Cloudflare D1 relay auth service fails closed when Email OTP server seal is unconfigured', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: 'seams-local-test',
       orgId: 'org-a',
@@ -3995,7 +3849,7 @@ test('Cloudflare D1 relay auth service starts, reuses, and restarts Google Email
       envId: scope.envId,
       signingRootVersion: 'root-v1',
     };
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -4137,7 +3991,7 @@ test('Cloudflare D1 relay auth service rate-limits Google Email OTP registration
       envId: scope.envId,
       signingRootVersion: 'root-v1',
     };
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -4204,7 +4058,7 @@ test('Cloudflare D1 relay auth service rotates Email OTP recovery keys after fre
       updatedAtMs: 930,
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -4279,7 +4133,7 @@ test('Cloudflare D1 relay auth service rejects stale Email OTP recovery-key rota
       updatedAtMs: 910,
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -4326,7 +4180,7 @@ test('Cloudflare D1 relay auth service rejects invalid Email OTP recovery-key ro
       updatedAtMs: 910,
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -4397,7 +4251,7 @@ test('Cloudflare D1 relay auth service tracks recovery sessions and executions',
       metadata: { source: 'fixture' },
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -4525,13 +4379,13 @@ test('Cloudflare D1 relay auth service issues and verifies login Email OTP chall
     };
     await insertEmailOtpEnrollment({ database, ...scope });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
       emailOtpMaxAttempts: 2,
     });
 
@@ -4548,7 +4402,7 @@ test('Cloudflare D1 relay auth service issues and verifies login Email OTP chall
     if (!challenge.ok) throw new Error(challenge.message);
     expect(challenge.delivery).toMatchObject({
       status: 'sent',
-      mode: 'memory',
+      mode: 'dev_d1_outbox',
       emailHint: 'a***e@e***e.test',
     });
 
@@ -4654,13 +4508,13 @@ test('Cloudflare D1 relay auth service issues registration Email OTP challenges'
       envId: 'env-a',
     };
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
     });
 
     const challenge = await service.createEmailOtpEnrollmentChallenge({
@@ -4682,7 +4536,7 @@ test('Cloudflare D1 relay auth service issues registration Email OTP challenges'
       operation: 'registration',
     });
     expect(challenge.delivery).toEqual({
-      mode: 'memory',
+      mode: 'dev_d1_outbox',
       emailHint: 'r***r@e***e.test',
     });
 
@@ -4757,13 +4611,13 @@ test('Cloudflare D1 relay auth service verifies registration Email OTP enrollmen
       walletId,
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
     });
 
     const challenge = await service.createEmailOtpEnrollmentChallenge({
@@ -4895,7 +4749,7 @@ test('Cloudflare D1 relay auth service delivers Email OTP through configured pro
     await insertEmailOtpEnrollment({ database, ...scope });
     const provider = new RecordingEmailOtpDeliveryProvider();
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -4961,7 +4815,7 @@ test('Cloudflare D1 relay auth service fails closed when Email OTP provider is m
     };
     await insertEmailOtpEnrollment({ database, ...scope });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -5031,13 +4885,13 @@ test('Cloudflare D1 relay auth service issues and verifies device recovery Email
       updatedAtMs: 920,
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
       emailOtpRecoveryKeyAttemptRateLimitMax: 1,
       emailOtpRecoveryKeyAttemptRateLimitWindowMs: 60_000,
     });
@@ -5247,13 +5101,13 @@ test('Cloudflare D1 relay auth service enforces Email OTP challenge rate limits'
     };
     await insertEmailOtpEnrollment({ database, ...scope });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      emailOtpDeliveryMode: 'memory',
+      emailOtpDeliveryMode: 'dev_d1_outbox',
       emailOtpChallengeRateLimitMax: 1,
       emailOtpChallengeRateLimitWindowMs: 60_000,
     });
@@ -5305,7 +5159,7 @@ test('Cloudflare D1 relay auth service verifies Email OTP unlock proofs once', a
       clientUnlockPublicKeyB64u: publicKeyB64u,
     });
 
-    const service = createCloudflareD1RelayAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,

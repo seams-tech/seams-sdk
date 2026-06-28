@@ -1,5 +1,5 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { RelayRouterRorOptions } from './provider';
+import type { RouterApiRorOptions } from './provider';
 import { StaticRorOriginsProvider } from './staticProvider';
 import { normalizeCsv, sanitizeRorOrigins } from './normalize';
 
@@ -20,7 +20,7 @@ function hostnameFromOrigin(originRaw: unknown): string {
   }
 }
 
-export function createRorOptions(input: CreateRorOptionsInput): RelayRouterRorOptions | undefined {
+export function createRorOptions(input: CreateRorOptionsInput): RouterApiRorOptions | undefined {
   const expectedOrigin = toOptionalTrimmedString(input.expectedOrigin);
   const expectedWalletOrigin = toOptionalTrimmedString(input.expectedWalletOrigin);
   const rpId = toOptionalTrimmedString(input.rorRpId || hostnameFromOrigin(expectedWalletOrigin))

@@ -3,8 +3,6 @@ import {
   parseAppSessionClaims,
   parseRouterAbEcdsaHssWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
-  parseThresholdEcdsaSessionClaims,
-  parseThresholdEd25519SessionClaims,
 } from '@server/core/ThresholdService/validation';
 import {
   buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
@@ -22,7 +20,7 @@ import {
   buildVerifiedEcdsaWalletSessionAuth,
   buildVerifiedEd25519WalletSessionAuth,
 } from '../../packages/sdk-server-ts/src/router/verifiedWalletSessionAuth';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/relay';
+import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import type { EcdsaHssServerBootstrapResponse } from '@server/core/types';
 import {
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
@@ -192,14 +190,7 @@ function routerAbEcdsaBootstrap(): EcdsaHssServerBootstrapResponse {
   };
 }
 
-test.describe('threshold session auth token claims', () => {
-  test('requires explicit walletId on threshold-ed25519 session tokens', () => {
-    const claims = baseClaims('threshold_ed25519_session_v1');
-
-    expect(parseThresholdEd25519SessionClaims(claims)?.walletId).toBe('alice.testnet');
-    expect(parseThresholdEd25519SessionClaims({ ...claims, walletId: undefined })).toBeNull();
-  });
-
+test.describe('Router A/B Wallet Session token claims', () => {
   test('preserves Google Email OTP registration attempt claims on app sessions', () => {
     const claims = {
       kind: 'app_session_v1',
@@ -251,59 +242,6 @@ test.describe('threshold session auth token claims', () => {
       },
     });
     expect(parseAppSessionClaims({ ...claims, googleEmailOtpResolutionMode: '' })).toBeNull();
-  });
-
-  test('requires explicit walletId on threshold-ecdsa session tokens', () => {
-    const claims = baseClaims('threshold_ecdsa_session_v2');
-
-    expect(parseThresholdEcdsaSessionClaims(claims)?.walletId).toBe('alice.testnet');
-    expect(parseThresholdEcdsaSessionClaims({ ...claims, walletId: undefined })).toBeNull();
-  });
-
-  test('requires explicit signingGrantId on threshold session tokens', () => {
-    expect(
-      parseThresholdEd25519SessionClaims({
-        ...baseClaims('threshold_ed25519_session_v1'),
-        signingGrantId: undefined,
-      }),
-    ).toBeNull();
-    expect(
-      parseThresholdEcdsaSessionClaims({
-        ...baseClaims('threshold_ecdsa_session_v2'),
-        signingGrantId: undefined,
-      }),
-    ).toBeNull();
-  });
-
-  test('rejects threshold-session tokens where JWT sub and walletId disagree', () => {
-    expect(
-      parseThresholdEd25519SessionClaims({
-        ...baseClaims('threshold_ed25519_session_v1'),
-        walletId: 'bob.testnet',
-      }),
-    ).toBeNull();
-    expect(
-      parseThresholdEcdsaSessionClaims({
-        ...baseClaims('threshold_ecdsa_session_v2'),
-        walletId: 'bob.testnet',
-      }),
-    ).toBeNull();
-  });
-
-  test('threshold-ecdsa session tokens require EVM-family key identity claims', () => {
-    const claims = baseClaims('threshold_ecdsa_session_v2');
-
-    expect(parseThresholdEcdsaSessionClaims(claims)?.walletId).toBe('alice.testnet');
-    expect(parseThresholdEcdsaSessionClaims(claims)?.keyHandle).toBe('ehss-key-test');
-    expect(parseThresholdEcdsaSessionClaims(claims)?.keyScope).toBe('evm-family');
-    expect(parseThresholdEcdsaSessionClaims({ ...claims, keyScope: undefined })).toBeNull();
-    expect(parseThresholdEcdsaSessionClaims({ ...claims, keyHandle: undefined })).toBeNull();
-    expect(
-      parseThresholdEcdsaSessionClaims({
-        ...claims,
-        keyScope: 'tempo',
-      }),
-    ).toBeNull();
   });
 
   test('Router A/B Wallet Session parsers reject legacy threshold-session kinds', () => {

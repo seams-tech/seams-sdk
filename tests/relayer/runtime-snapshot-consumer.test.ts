@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
 import {
-  createInMemoryRelayRuntimeSnapshotConsumer,
+  createInMemoryRouterApiRuntimeSnapshotConsumer,
   validateRuntimeSnapshotExpectation,
 } from '@server/router/express-adaptor';
 
 test.describe('runtime snapshot consumer helpers', () => {
   test('applies outbox payload and resolves latest snapshot by scope', async () => {
-    const cache = createInMemoryRelayRuntimeSnapshotConsumer();
+    const cache = createInMemoryRouterApiRuntimeSnapshotConsumer();
     const applied = cache.applyOutboxEvent({
       payload: {
         eventType: 'runtime_snapshot.published.v1',
@@ -36,7 +36,7 @@ test.describe('runtime snapshot consumer helpers', () => {
   });
 
   test('validateRuntimeSnapshotExpectation checks version/checksum against consumer', async () => {
-    const cache = createInMemoryRelayRuntimeSnapshotConsumer();
+    const cache = createInMemoryRouterApiRuntimeSnapshotConsumer();
     cache.applyPublishedUpdate({
       scope: {
         orgId: 'org-runtime-2',
@@ -87,7 +87,7 @@ test.describe('runtime snapshot consumer helpers', () => {
   });
 
   test('invalid outbox payload is rejected', async () => {
-    const cache = createInMemoryRelayRuntimeSnapshotConsumer();
+    const cache = createInMemoryRouterApiRuntimeSnapshotConsumer();
     await expect(() =>
       cache.applyOutboxEvent({
         payload: {

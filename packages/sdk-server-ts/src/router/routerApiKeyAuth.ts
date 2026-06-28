@@ -9,12 +9,12 @@ import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type { ConsoleWalletService } from '../console/wallets';
 import { normalizeSourceIp } from '../console/apiKeys/ipAllowlist';
 import type {
-  RelayApiKeyAuthAdapter,
-  RelayApiKeyAuthResult,
-  RelayPublishableKeyAuthAdapter,
-  RelayPublishableKeyAuthResult,
-  RelayUsageMeterAdapter,
-} from './relay';
+  RouterApiKeyAuthAdapter,
+  RouterApiKeyAuthResult,
+  RouterApiPublishableKeyAuthAdapter,
+  RouterApiPublishableKeyAuthResult,
+  RouterApiUsageMeterAdapter,
+} from './routerApi';
 
 type HeaderBag = Headers | Record<string, unknown>;
 
@@ -40,7 +40,7 @@ function toPrincipal(apiKey: ConsoleApiKey) {
   };
 }
 
-function toRelayAuthResult(result: AuthenticateConsoleApiKeyResult): RelayApiKeyAuthResult {
+function toRouterApiAuthResult(result: AuthenticateConsoleApiKeyResult): RouterApiKeyAuthResult {
   if (result.ok) {
     return {
       ok: true,
@@ -50,9 +50,9 @@ function toRelayAuthResult(result: AuthenticateConsoleApiKeyResult): RelayApiKey
   return result;
 }
 
-function toRelayPublishableAuthResult(
+function toRouterApiPublishableAuthResult(
   result: AuthenticateConsolePublishableKeyResult,
-): RelayPublishableKeyAuthResult {
+): RouterApiPublishableKeyAuthResult {
   if (result.ok) {
     return {
       ok: true,
@@ -62,22 +62,22 @@ function toRelayPublishableAuthResult(
   return result;
 }
 
-export function createRelayApiKeyAuthAdapter(apiKeys: ConsoleApiKeyService): RelayApiKeyAuthAdapter {
+export function createRouterApiKeyAuthAdapter(apiKeys: ConsoleApiKeyService): RouterApiKeyAuthAdapter {
   const authenticateApiKey = apiKeys.authenticateApiKey;
   if (typeof authenticateApiKey !== 'function') {
-    throw new Error('ConsoleApiKeyService.authenticateApiKey is required for relay API key auth');
+    throw new Error('ConsoleApiKeyService.authenticateApiKey is required for Router API key auth');
   }
   return {
     authenticate: async (input) => {
       const result = await authenticateApiKey(input);
-      return toRelayAuthResult(result);
+      return toRouterApiAuthResult(result);
     },
   };
 }
 
-export function createRelayPublishableKeyAuthAdapter(
+export function createRouterApiPublishableKeyAuthAdapter(
   apiKeys: ConsoleApiKeyService,
-): RelayPublishableKeyAuthAdapter {
+): RouterApiPublishableKeyAuthAdapter {
   const authenticatePublishableKey = apiKeys.authenticatePublishableKey;
   if (typeof authenticatePublishableKey !== 'function') {
     throw new Error(
@@ -91,18 +91,18 @@ export function createRelayPublishableKeyAuthAdapter(
         origin: input.origin,
         environmentId: input.environmentId,
       });
-      return toRelayPublishableAuthResult(result);
+      return toRouterApiPublishableAuthResult(result);
     },
   };
 }
 
-export function createRelayBillingUsageMeterAdapter(
+export function createRouterApiBillingUsageMeterAdapter(
   billing: ConsoleBillingService,
   options: {
     orgProjectEnv?: ConsoleOrgProjectEnvService | null;
     wallets?: ConsoleWalletService | null;
   } = {},
-): RelayUsageMeterAdapter {
+): RouterApiUsageMeterAdapter {
   async function recordWalletProjection(input: {
     orgId: string;
     environmentId: string;
@@ -189,7 +189,7 @@ export function extractBearerCredential(headers: HeaderBag): string | null {
   return null;
 }
 
-export function extractRelayEnvironmentId(headers: HeaderBag): string | null {
+export function extractRouterApiEnvironmentId(headers: HeaderBag): string | null {
   const preferred = readHeader(headers, 'x-seams-environment-id');
   if (preferred) return preferred;
   const fallback = readHeader(headers, 'x-environment-id');

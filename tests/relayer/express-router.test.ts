@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import {
+  buildRecoveryEmailBody,
+  buildRecoveryEmailPayload,
+  buildRecoveryEmailSubject,
+} from '@shared/utils/recoveryEmail';
+import {
   createInMemoryConsoleSponsoredCallService,
   resolveStaticSponsoredExecutionPricingFromEnv,
 } from '@server';
@@ -15,12 +20,10 @@ import {
   createInMemoryConsoleSponsorshipSpendCapService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
-  createRelayPublishableKeyAuthAdapter,
-  createRelayRouter,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiRouter,
 } from '@server/router/express-adaptor';
-import {
-  THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-} from '@server/core/ThresholdService/schemes/schemeIds';
+import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import {
   fetchJson,
   getPath,
@@ -180,7 +183,7 @@ function makeSignedDelegateBillingSpyWithOptions(input?: { initialBalanceMinor?:
   return makeSignedDelegateBillingSpyWithBalance([], input?.initialBalanceMinor ?? 5_000);
 }
 
-function makeRelayObservabilityCollector(
+function makeRouterApiObservabilityCollector(
   ingested: Array<{
     ingestCtx: Record<string, unknown>;
     event: Record<string, unknown>;
@@ -334,7 +337,7 @@ function makeEd25519ThresholdAdapter(input: {
 test.describe('relayer router (express) – P0', () => {
   test('CORS preflight: default HTTPS port in allowlist still matches origin without explicit port', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       corsOrigins: ['https://wallet.example.localhost:443'],
     });
     const srv = await startExpressRouter(router);
@@ -365,7 +368,7 @@ test.describe('relayer router (express) – P0', () => {
         message: 'Missing user_id',
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/options`, {
@@ -388,9 +391,10 @@ test.describe('relayer router (express) – P0', () => {
     const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
     const pricing = makeSignedDelegatePricing();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -399,7 +403,7 @@ test.describe('relayer router (express) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -467,9 +471,10 @@ test.describe('relayer router (express) – P0', () => {
       quotaBucket: 'free_registrations_v1',
     });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -478,7 +483,7 @@ test.describe('relayer router (express) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -549,9 +554,10 @@ test.describe('relayer router (express) – P0', () => {
       quotaBucket: 'free_registrations_v1',
     });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -560,8 +566,8 @@ test.describe('relayer router (express) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
-      observabilityIngestion: makeRelayObservabilityCollector(ingested) as any,
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
+      observabilityIngestion: makeRouterApiObservabilityCollector(ingested) as any,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -641,9 +647,10 @@ test.describe('relayer router (express) – P0', () => {
         capsByChain: [{ chainId: getNearSpendCapChainId('TESTNET'), capMinor: 5 }],
       },
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -653,7 +660,7 @@ test.describe('relayer router (express) – P0', () => {
         prepaidReservations,
         spendCaps,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -743,9 +750,10 @@ test.describe('relayer router (express) – P0', () => {
       quotaBucket: 'free_registrations_v1',
     });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -754,7 +762,7 @@ test.describe('relayer router (express) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -846,9 +854,10 @@ test.describe('relayer router (express) – P0', () => {
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots, {
       maxDepositYocto: attachedDepositYocto,
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -857,7 +866,7 @@ test.describe('relayer router (express) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -934,9 +943,10 @@ test.describe('relayer router (express) – P0', () => {
       quotaBucket: 'free_registrations_v1',
     });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -945,7 +955,7 @@ test.describe('relayer router (express) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -993,7 +1003,7 @@ test.describe('relayer router (express) – P0', () => {
         expiresAtMs: 123,
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/options`, {
@@ -1030,7 +1040,7 @@ test.describe('relayer router (express) – P0', () => {
         };
       },
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/sync-account/options`, {
@@ -1073,7 +1083,7 @@ test.describe('relayer router (express) – P0', () => {
         credentialPublicKeyB64u: 'credential-public-key',
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/sync-account/verify`, {
@@ -1096,7 +1106,7 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /auth/passkey/verify: invalid body', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
@@ -1120,7 +1130,7 @@ test.describe('relayer router (express) – P0', () => {
         message: 'nope',
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
@@ -1145,7 +1155,7 @@ test.describe('relayer router (express) – P0', () => {
         rpId: 'example.localhost',
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
@@ -1174,7 +1184,7 @@ test.describe('relayer router (express) – P0', () => {
         rpId: 'example.localhost',
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
@@ -1205,7 +1215,7 @@ test.describe('relayer router (express) – P0', () => {
         rpId: 'example.localhost',
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
@@ -1236,7 +1246,7 @@ test.describe('relayer router (express) – P0', () => {
         emailVerified: true,
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/google/verify`, {
@@ -1287,9 +1297,9 @@ test.describe('relayer router (express) – P0', () => {
 
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-auth-identities-parse-fail',
       },
@@ -1314,7 +1324,7 @@ test.describe('relayer router (express) – P0', () => {
 
   test('GET /session/state: sessions disabled -> 501', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/state`, { method: 'GET' });
@@ -1334,7 +1344,7 @@ test.describe('relayer router (express) – P0', () => {
       }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/state`, { method: 'GET' });
@@ -1354,7 +1364,7 @@ test.describe('relayer router (express) – P0', () => {
       }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/state`, { method: 'GET' });
@@ -1392,9 +1402,9 @@ test.describe('relayer router (express) – P0', () => {
     );
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-parse-fail',
       },
@@ -1443,9 +1453,9 @@ test.describe('relayer router (express) – P0', () => {
     );
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-cookie-parse-fail',
       },
@@ -1498,9 +1508,9 @@ test.describe('relayer router (express) – P0', () => {
     );
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-cookie-nonmatch',
       },
@@ -1535,7 +1545,7 @@ test.describe('relayer router (express) – P0', () => {
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -1586,7 +1596,7 @@ test.describe('relayer router (express) – P0', () => {
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -1638,7 +1648,7 @@ test.describe('relayer router (express) – P0', () => {
       },
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -1688,7 +1698,7 @@ test.describe('relayer router (express) – P0', () => {
       },
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -1749,7 +1759,7 @@ test.describe('relayer router (express) – P0', () => {
       },
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -1804,7 +1814,7 @@ test.describe('relayer router (express) – P0', () => {
       },
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -1885,7 +1895,7 @@ test.describe('relayer router (express) – P0', () => {
       id: 'proj_test_scoped',
       name: 'Scoped Project',
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       orgProjectEnv,
       publishableKeyAuth: {
@@ -1966,7 +1976,7 @@ test.describe('relayer router (express) – P0', () => {
       },
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -2066,7 +2076,7 @@ test.describe('relayer router (express) – P0', () => {
       },
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -2130,7 +2140,7 @@ test.describe('relayer router (express) – P0', () => {
         };
       },
     });
-    const router = createRelayRouter(service);
+    const router = createRouterApiRouter(service);
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(
@@ -2179,7 +2189,7 @@ test.describe('relayer router (express) – P0', () => {
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -2208,7 +2218,7 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /session/exchange: Google Email OTP rejects invalid account_mode', async () => {
     const session = makeSessionAdapter({ signJwt: async () => 'unused-google-jwt' });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -2249,7 +2259,7 @@ test.describe('relayer router (express) – P0', () => {
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -2353,7 +2363,7 @@ test.describe('relayer router (express) – P0', () => {
       },
     });
     const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
-    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const router = createRouterApiRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const exchange = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -2486,9 +2496,9 @@ test.describe('relayer router (express) – P0', () => {
       fallbackRoles: ['admin'],
     });
 
-    const relayRouter = createRelayRouter(service, { session }) as any;
-    relayRouter.use(createConsoleRouter({ auth: consoleAuth }));
-    const srv = await startExpressRouter(relayRouter);
+    const routerApiRouter = createRouterApiRouter(service, { session }) as any;
+    routerApiRouter.use(createConsoleRouter({ auth: consoleAuth }));
+    const srv = await startExpressRouter(routerApiRouter);
     try {
       const exchange = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
@@ -2601,14 +2611,14 @@ test.describe('relayer router (express) – P0', () => {
         bootstrapRoles: [],
       },
     });
-    const relayRouter = createRelayRouter(service, { session }) as any;
-    relayRouter.use(
+    const routerApiRouter = createRouterApiRouter(service, { session }) as any;
+    routerApiRouter.use(
       createConsoleRouter({
         auth: consoleAuth,
         teamRbac,
       }),
     );
-    const srv = await startExpressRouter(relayRouter);
+    const srv = await startExpressRouter(routerApiRouter);
     try {
       const exchange = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
@@ -2702,8 +2712,8 @@ test.describe('relayer router (express) – P0', () => {
         bootstrapRoles: ['owner', 'admin'],
       },
     });
-    const relayRouter = createRelayRouter(service, { session }) as any;
-    relayRouter.use(
+    const routerApiRouter = createRouterApiRouter(service, { session }) as any;
+    routerApiRouter.use(
       createConsoleRouter({
         auth: consoleAuth,
         teamRbac,
@@ -2711,7 +2721,7 @@ test.describe('relayer router (express) – P0', () => {
         audit,
       }),
     );
-    const srv = await startExpressRouter(relayRouter);
+    const srv = await startExpressRouter(routerApiRouter);
     try {
       const exchange = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
@@ -2806,9 +2816,9 @@ test.describe('relayer router (express) – P0', () => {
         bootstrapRoles: ['owner', 'admin'],
       },
     });
-    const relayRouter = createRelayRouter(service, { session }) as any;
-    relayRouter.use(createConsoleRouter({ auth: consoleAuth, teamRbac, orgProjectEnv }));
-    const srv = await startExpressRouter(relayRouter);
+    const routerApiRouter = createRouterApiRouter(service, { session }) as any;
+    routerApiRouter.use(createConsoleRouter({ auth: consoleAuth, teamRbac, orgProjectEnv }));
+    const srv = await startExpressRouter(routerApiRouter);
     try {
       const exchange = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
@@ -2886,9 +2896,9 @@ test.describe('relayer router (express) – P0', () => {
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-passkey-exchange',
       },
@@ -2958,7 +2968,7 @@ test.describe('relayer router (express) – P0', () => {
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -2998,7 +3008,7 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /session/exchange: passkey_assertion requires challengeId', async () => {
     const session = makeSessionAdapter();
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -3024,7 +3034,7 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /session/exchange: passkey_assertion requires webauthn_authentication', async () => {
     const session = makeSessionAdapter();
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -3090,9 +3100,9 @@ test.describe('relayer router (express) – P0', () => {
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-warm',
       },
@@ -3154,9 +3164,9 @@ test.describe('relayer router (express) – P0', () => {
 
     const session = makeSessionAdapter();
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-1',
       },
@@ -3193,7 +3203,7 @@ test.describe('relayer router (express) – P0', () => {
         message: 'WebCrypto unavailable',
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -3222,7 +3232,7 @@ test.describe('relayer router (express) – P0', () => {
         message: 'exchange.token issuer is not allowed',
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -3251,7 +3261,7 @@ test.describe('relayer router (express) – P0', () => {
         message: 'exchange.token audience mismatch',
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -3280,7 +3290,7 @@ test.describe('relayer router (express) – P0', () => {
         message: 'exchange.token is expired',
       }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
@@ -3319,9 +3329,9 @@ test.describe('relayer router (express) – P0', () => {
 
     const session = makeSessionAdapter();
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-signature-format',
       },
@@ -3355,7 +3365,7 @@ test.describe('relayer router (express) – P0', () => {
       buildSetCookie: (t) => `seams-jwt=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/refresh`, {
@@ -3383,7 +3393,7 @@ test.describe('relayer router (express) – P0', () => {
     const service = makeFakeAuthService({
       rotateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'v2' }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/revoke`, {
@@ -3424,7 +3434,7 @@ test.describe('relayer router (express) – P0', () => {
         return { ok: true, appSessionVersion: currentAppSessionVersion };
       },
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const revoke = await fetchJson(`${srv.baseUrl}/session/revoke`, {
@@ -3488,9 +3498,9 @@ test.describe('relayer router (express) – P0', () => {
         message: 'Session revoked',
       }),
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-invalid-version',
       },
@@ -3522,7 +3532,7 @@ test.describe('relayer router (express) – P0', () => {
         expiresAtMs: 123,
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/challenge`, {
@@ -3550,7 +3560,7 @@ test.describe('relayer router (express) – P0', () => {
         unlockKeyVersion: 'email-otp-unlock-v1',
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/challenge`, {
@@ -3580,7 +3590,7 @@ test.describe('relayer router (express) – P0', () => {
         rpId: 'example.localhost',
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/verify`, {
@@ -3609,7 +3619,7 @@ test.describe('relayer router (express) – P0', () => {
         unlockKeyVersion: 'email-otp-unlock-v1',
       }),
     });
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/verify`, {
@@ -3643,7 +3653,7 @@ test.describe('relayer router (express) – P0', () => {
       }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/wallet/state`, { method: 'GET' });
@@ -3667,7 +3677,7 @@ test.describe('relayer router (express) – P0', () => {
     const service = makeFakeAuthService({
       rotateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'v2' }),
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/wallet/lock`, {
@@ -3709,7 +3719,7 @@ test.describe('relayer router (express) – P0', () => {
         return { ok: true, appSessionVersion: currentAppSessionVersion };
       },
     });
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const lock = await fetchJson(`${srv.baseUrl}/wallet/lock`, {
@@ -3773,9 +3783,9 @@ test.describe('relayer router (express) – P0', () => {
       }),
       rotateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'v2' }),
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-2',
       },
@@ -3821,7 +3831,7 @@ test.describe('relayer router (express) – P0', () => {
       refresh: async () => ({ ok: false, code: 'unauthorized', message: 'no token' }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session });
+    const router = createRouterApiRouter(service, { session });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/refresh`, {
@@ -3837,33 +3847,17 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('POST /router-ab/wallet-budget/status: stale threshold session returns typed not_found', async () => {
+    const { claims } = buildEcdsaCurveCollisionBudgetStatusFixture('express-stale', {
+      claimExpiresAtMs: Date.now() - 1_000,
+    });
     const session = makeSessionAdapter({
       parse: async () => ({
         ok: true,
-        claims: {
-          sub: 'budget-stale.testnet',
-          walletId: 'budget-stale.testnet',
-          kind: 'threshold_ecdsa_session_v1',
-          thresholdSessionId: 'threshold-login-stale-express',
-          signingGrantId: 'wsess-stale-express',
-          subjectId: 'budget-stale.testnet',
-          chainTarget: {
-            kind: 'evm',
-            namespace: 'eip155',
-            chainId: 5042002,
-            networkSlug: 'arc-testnet',
-          },
-          ecdsaThresholdKeyId: 'ecdsa-key-stale-express',
-          keyHandle: 'key-handle-stale-express',
-          relayerKeyId: 'relayer-key-stale-express',
-          rpId: 'example.localhost',
-          thresholdExpiresAtMs: Date.now() + 60_000,
-          participantIds: [1, 2],
-        },
+        claims,
       }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       signingSessionSeal: {
         service: {
@@ -3883,15 +3877,15 @@ test.describe('relayer router (express) – P0', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer stale-token' },
         body: JSON.stringify({
-          signingGrantId: 'wsess-stale-express',
-          thresholdSessionId: 'threshold-login-stale-express',
+          signingGrantId: claims.signingGrantId,
+          thresholdSessionId: claims.thresholdSessionId,
         }),
       });
       expect(res.status).toBe(200);
       expect(res.json).toEqual({
         ok: true,
-        signingGrantId: 'wsess-stale-express',
-        thresholdSessionId: 'threshold-login-stale-express',
+        signingGrantId: claims.signingGrantId,
+        thresholdSessionId: claims.thresholdSessionId,
         status: 'not_found',
         statusCode: 'unauthorized',
       });
@@ -3907,7 +3901,7 @@ test.describe('relayer router (express) – P0', () => {
       parse: async () => ({ ok: true, claims }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       signingSessionSeal: {
         service: {
@@ -3950,18 +3944,20 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('POST /router-ab/wallet-budget/status: exhausted wallet budget returns exhausted projection', async () => {
-    const { claims, ecdsaStatus, walletBudgetStatus } =
-      buildEcdsaCurveCollisionBudgetStatusFixture('express-exhausted', {
+    const { claims, ecdsaStatus, walletBudgetStatus } = buildEcdsaCurveCollisionBudgetStatusFixture(
+      'express-exhausted',
+      {
         walletRemainingUses: 0,
         walletCommittedRemainingUses: 0,
         walletReservedUses: 0,
         walletAvailableUses: 0,
-      });
+      },
+    );
     const session = makeSessionAdapter({
       parse: async () => ({ ok: true, claims }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       signingSessionSeal: {
         service: {
@@ -4004,15 +4000,17 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('POST /router-ab/wallet-budget/status: expired wallet session returns typed not_found', async () => {
-    const { claims, ecdsaStatus, walletBudgetStatus } =
-      buildEcdsaCurveCollisionBudgetStatusFixture('express-expired', {
+    const { claims, ecdsaStatus, walletBudgetStatus } = buildEcdsaCurveCollisionBudgetStatusFixture(
+      'express-expired',
+      {
         claimExpiresAtMs: Date.now() - 1_000,
-      });
+      },
+    );
     const session = makeSessionAdapter({
       parse: async () => ({ ok: true, claims }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       signingSessionSeal: {
         service: {
@@ -4052,13 +4050,14 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('POST /router-ab/wallet-budget/status: mismatched threshold session is rejected', async () => {
-    const { claims, ecdsaStatus, walletBudgetStatus } =
-      buildEcdsaCurveCollisionBudgetStatusFixture('express-threshold-mismatch');
+    const { claims, ecdsaStatus, walletBudgetStatus } = buildEcdsaCurveCollisionBudgetStatusFixture(
+      'express-threshold-mismatch',
+    );
     const session = makeSessionAdapter({
       parse: async () => ({ ok: true, claims }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       signingSessionSeal: {
         service: {
@@ -4102,7 +4101,7 @@ test.describe('relayer router (express) – P0', () => {
       parse: async () => ({ ok: true, claims }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       signingSessionSeal: {
         service: {
@@ -4170,9 +4169,9 @@ test.describe('relayer router (express) – P0', () => {
       refresh: async () => ({ ok: false, code: 'unauthorized', message: 'session expired' }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-relay-express-expired',
       },
@@ -4204,7 +4203,7 @@ test.describe('relayer router (express) – P0', () => {
       }),
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session,
       sessionRoutes: { state: '/me' },
     });
@@ -4263,9 +4262,10 @@ test.describe('relayer router (express) – P0', () => {
       quotaBucket: 'free_registrations_v1',
     });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
+        authService: service,
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
@@ -4274,7 +4274,7 @@ test.describe('relayer router (express) – P0', () => {
         pricing: pricing!,
         prepaidReservations,
       },
-      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -4311,6 +4311,58 @@ test.describe('relayer router (express) – P0', () => {
           pricingVersion: 'static-near-testnet-v1',
         }),
       ]);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /recover-email: prepare-only email recovery does not mount ingress or mutate session', async () => {
+    let getRecoverySessionCalls = 0;
+    let updateRecoverySessionStatusCalls = 0;
+    const payload = buildRecoveryEmailPayload({
+      nearAccountId: 'bob.testnet',
+      recoverySessionId: 'ABC123',
+      newNearPublicKey: 'ed25519:pk',
+      newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+      deadlineEpochSeconds: 1_893_456_000,
+    });
+    const service = makeFakeAuthService({
+      getRecoverySession: async () => {
+        getRecoverySessionCalls += 1;
+        return { ok: false, code: 'invalid_args', message: 'not found' };
+      },
+      updateRecoverySessionStatus: async () => {
+        updateRecoverySessionStatusCalls += 1;
+        return { ok: false, code: 'invalid_args', message: 'not found' };
+      },
+    });
+    const router = createRouterApiRouter(service, {
+      emailRecovery: {
+        kind: 'prepare_only',
+        authService: service,
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/recover-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'sender@example.com',
+          to: 'recover@web3authn.org',
+          headers: { Subject: buildRecoveryEmailSubject(payload) },
+          raw: [
+            `Subject: ${buildRecoveryEmailSubject(payload)}`,
+            '',
+            buildRecoveryEmailBody(payload),
+          ].join('\r\n'),
+          rawSize: 1,
+        }),
+      });
+
+      expect(res.status).toBe(404);
+      expect(getRecoverySessionCalls).toBe(0);
+      expect(updateRecoverySessionStatusCalls).toBe(0);
     } finally {
       await srv.close();
     }

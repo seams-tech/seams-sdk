@@ -16,9 +16,9 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBootstrapTokenService,
   createInMemoryConsoleOrgProjectEnvService,
-  createRelayBootstrapGrantBroker,
-  createRelayPublishableKeyAuthAdapter,
-  createRelayRouter,
+  createRouterApiBootstrapGrantBroker,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiRouter,
 } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 import {
@@ -171,13 +171,13 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
     environmentId: managedRegistrationEnvironmentId,
     publishableKey: createdPublishableKey.secret,
   } as const;
-  const router = createRelayRouter(service, {
+  const router = createRouterApiRouter(service, {
     corsOrigins: [frontendOrigin],
     threshold,
     session,
-    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     orgProjectEnv,
-    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
       apiKeys,
       tokenStore: bootstrapTokenStore,
       orgProjectEnv,

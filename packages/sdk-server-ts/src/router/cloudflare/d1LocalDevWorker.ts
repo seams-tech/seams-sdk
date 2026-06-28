@@ -12,9 +12,9 @@ import { createCloudflareRouter } from './createCloudflareRouter';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
 import {
-  createCloudflareD1RelayAuthService,
+  createCloudflareD1RouterApiAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
-} from './d1RelayAuthService';
+} from './d1RouterApiAuthService';
 import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
@@ -101,14 +101,14 @@ const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
 ]);
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const LOCAL_RELAY_CORS_ORIGINS = Object.freeze([
+const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
   'http://127.0.0.1:9090',
   'http://localhost:9090',
   'http://127.0.0.1:8787',
   'http://localhost:8787',
 ]);
 const localConsoleHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
-const localRelayHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
+const localRouterApiHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
 
 const CONSOLE_READY_TABLES = Object.freeze([
   'console_organizations',
@@ -249,24 +249,24 @@ function localGoogleOidcClientId(env: LocalD1DevEnv): string | undefined {
   );
 }
 
-function localRelaySessionSecret(env: LocalD1DevEnv): string {
+function localRouterApiSessionSecret(env: LocalD1DevEnv): string {
   return (
     normalizeLocalString(env.RELAY_SESSION_HMAC_SECRET) ||
     DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET
   );
 }
 
-function localRelaySessionCookieName(env: LocalD1DevEnv): string | undefined {
+function localRouterApiSessionCookieName(env: LocalD1DevEnv): string | undefined {
   return normalizeLocalString(env.SESSION_COOKIE_NAME) || undefined;
 }
 
-function localRelaySessionIssuer(env: LocalD1DevEnv): string {
+function localRouterApiSessionIssuer(env: LocalD1DevEnv): string {
   return (
     normalizeLocalString(env.RELAY_SESSION_ISSUER) || DEFAULT_LOCAL_RELAY_SESSION_ISSUER
   );
 }
 
-function localRelaySessionAudience(env: LocalD1DevEnv): string {
+function localRouterApiSessionAudience(env: LocalD1DevEnv): string {
   return (
     normalizeLocalString(env.RELAY_SESSION_AUDIENCE) || DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE
   );
@@ -444,12 +444,22 @@ function isConsolePath(pathname: string): boolean {
   return pathname === '/console' || pathname.startsWith('/console/');
 }
 
-function isRelayPath(pathname: string): boolean {
+function isRouterApiPath(pathname: string): boolean {
   return (
     pathname === '/relay' ||
     pathname.startsWith('/relay/') ||
+    pathname.startsWith('/.well-known/') ||
     pathname.startsWith('/auth/') ||
-    pathname.startsWith('/session/')
+    pathname.startsWith('/email-recovery/') ||
+    pathname.startsWith('/near/') ||
+    pathname.startsWith('/recover-email') ||
+    pathname.startsWith('/router-ab/') ||
+    pathname.startsWith('/session/') ||
+    pathname.startsWith('/sync-account/') ||
+    pathname.startsWith('/v1/') ||
+    pathname.startsWith('/wallet/') ||
+    pathname.startsWith('/wallets/') ||
+    pathname.startsWith('/webauthn/')
   );
 }
 
@@ -495,7 +505,7 @@ function localConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
   return created;
 }
 
-async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const bundle = await createCloudflareD1ConsoleServiceBundle({
     bindings: {
@@ -512,31 +522,31 @@ async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler
       sponsoredEvmCallConfig,
     },
   });
-  const sponsoredEvmCall = bundle.relayRouterOptions.sponsoredEvmCall
+  const sponsoredEvmCall = bundle.routerApiRouterOptions.sponsoredEvmCall
     ? {
-        ...bundle.relayRouterOptions.sponsoredEvmCall,
+        ...bundle.routerApiRouterOptions.sponsoredEvmCall,
         resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
       }
     : undefined;
-  const sessionCookieName = localRelaySessionCookieName(env);
-  return createCloudflareRouter(createLocalD1RelayAuthService(env), {
-    ...bundle.relayRouterOptions,
+  const sessionCookieName = localRouterApiSessionCookieName(env);
+  return createCloudflareRouter(createLocalD1RouterApiAuthService(env), {
+    ...bundle.routerApiRouterOptions,
     healthz: true,
     readyz: true,
-    corsOrigins: [...LOCAL_RELAY_CORS_ORIGINS],
+    corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
     session: createHmacSessionAdapter({
-      secret: localRelaySessionSecret(env),
+      secret: localRouterApiSessionSecret(env),
       cookieName: sessionCookieName,
-      issuer: localRelaySessionIssuer(env),
-      audience: localRelaySessionAudience(env),
+      issuer: localRouterApiSessionIssuer(env),
+      audience: localRouterApiSessionAudience(env),
     }),
     ...(sessionCookieName ? { sessionCookieName } : {}),
     ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
   });
 }
 
-function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
-  return createCloudflareD1RelayAuthService({
+function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
+  return createCloudflareD1RouterApiAuthService({
     database: env.SIGNER_DB,
     namespace: localTenantStorageNamespace(env),
     orgId:
@@ -574,15 +584,15 @@ function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
   });
 }
 
-function localRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
-  const existing = localRelayHandlers.get(env);
+function localRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const existing = localRouterApiHandlers.get(env);
   if (existing) return existing;
-  const created = createLocalRelayHandler(env);
-  localRelayHandlers.set(env, created);
+  const created = createLocalRouterApiHandler(env);
+  localRouterApiHandlers.set(env, created);
   return created;
 }
 
-function relayRequest(request: Request, pathname: string): Request {
+function routerApiRequest(request: Request, pathname: string): Request {
   const url = new URL(request.url);
   const stripped = pathname.startsWith('/relay')
     ? pathname === '/relay'
@@ -827,9 +837,9 @@ async function fetch(
     const handler = await localConsoleHandler(env);
     return await handler(request, env, ctx);
   }
-  if (isRelayPath(url.pathname)) {
-    const handler = await localRelayHandler(env);
-    return await handler(relayRequest(request, url.pathname), env, ctx);
+  if (isRouterApiPath(url.pathname)) {
+    const handler = await localRouterApiHandler(env);
+    return await handler(routerApiRequest(request, url.pathname), env, ctx);
   }
   return jsonResponse(
     {
@@ -846,6 +856,7 @@ async function fetch(
         '/auth/google/options',
         '/session/exchange',
         '/session/state',
+        '/v1/registration/bootstrap-grants',
         '/relay/sponsorships/evm/call',
       ],
     },

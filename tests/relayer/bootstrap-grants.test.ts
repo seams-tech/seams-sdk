@@ -3,8 +3,8 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBootstrapTokenService,
   createInMemoryConsoleOrgProjectEnvService,
-  createRelayBootstrapGrantBroker,
-  createRelayRouter,
+  createRouterApiBootstrapGrantBroker,
+  createRouterApiRouter,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
@@ -64,7 +64,7 @@ async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
     environmentId,
     flow: 'registration_v1',
     newAccountId: String(relayBody.signerSelection.ed25519.accountProvisioning.requestedAccountId),
-    rpId: String(relayBody.rpId),
+    rpId: String(relayBody.authMethod.rpId),
     clientContext: {
       sdk: 'web',
       sdkVersion: '0.0.0-test',
@@ -75,8 +75,7 @@ async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
 function makeWalletRegistrationIntentBody(overrides?: Partial<Record<string, unknown>>) {
   return {
     wallet: { kind: 'provided', walletId: 'alice.w3a-relayer.testnet' },
-    rpId: 'app.example.com',
-    authMethod: { kind: 'passkey' },
+    authMethod: { kind: 'passkey', rpId: 'app.example.com' },
     signerSelection: {
       mode: 'ed25519_only',
       ed25519: {
@@ -96,14 +95,13 @@ function makeWalletRegistrationIntentBody(overrides?: Partial<Record<string, unk
   };
 }
 
-function makeRelayService() {
+function makeRouterApiService() {
   const service = makeFakeAuthService();
   (service as any).createRegistrationIntent = async (input: Record<string, any>) => ({
     ok: true,
     intent: {
       version: 'registration_intent_v1',
       walletId: input.request.wallet.walletId,
-      rpId: input.request.rpId,
       authMethod: input.request.authMethod,
       signerSelection: input.request.signerSelection,
       nonceB64u: 'nonce-test',
@@ -120,7 +118,7 @@ test.describe('managed bootstrap grants', () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const broker = createRelayBootstrapGrantBroker({
+    const broker = createRouterApiBootstrapGrantBroker({
       apiKeys,
       tokenStore: bootstrapTokens,
       orgProjectEnv,
@@ -131,7 +129,7 @@ test.describe('managed bootstrap grants', () => {
         free_registrations_v1: { maxIssued: 10 },
       },
     });
-    const router = createRelayRouter(makeRelayService(), {
+    const router = createRouterApiRouter(makeRouterApiService(), {
       bootstrapGrantBroker: broker,
       bootstrapTokenStore: bootstrapTokens,
     });
@@ -163,7 +161,7 @@ test.describe('managed bootstrap grants', () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const broker = createRelayBootstrapGrantBroker({
+    const broker = createRouterApiBootstrapGrantBroker({
       apiKeys,
       tokenStore: bootstrapTokens,
       orgProjectEnv,
@@ -174,7 +172,7 @@ test.describe('managed bootstrap grants', () => {
         free_registrations_v1: { maxIssued: 10 },
       },
     });
-    const router = createRelayRouter(makeRelayService(), {
+    const router = createRouterApiRouter(makeRouterApiService(), {
       bootstrapGrantBroker: broker,
       bootstrapTokenStore: bootstrapTokens,
     });
@@ -214,8 +212,8 @@ test.describe('managed bootstrap grants', () => {
       allowedOrigins: ['https://allowed.example.com'],
     });
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const handler = createCloudflareRouter(makeRelayService(), {
-      bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
         apiKeys,
         tokenStore: bootstrapTokens,
         orgProjectEnv,
@@ -240,8 +238,8 @@ test.describe('managed bootstrap grants', () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const handler = createCloudflareRouter(makeRelayService(), {
-      bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
         apiKeys,
         tokenStore: bootstrapTokens,
         orgProjectEnv,
@@ -284,8 +282,8 @@ test.describe('managed bootstrap grants', () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const router = createRelayRouter(makeRelayService(), {
-      bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
         apiKeys,
         tokenStore: bootstrapTokens,
         orgProjectEnv,
@@ -344,8 +342,8 @@ test.describe('managed bootstrap grants', () => {
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService({
       now: () => currentNow,
     });
-    const router = createRelayRouter(makeRelayService(), {
-      bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
         apiKeys,
         tokenStore: bootstrapTokens,
         orgProjectEnv,
@@ -391,8 +389,8 @@ test.describe('managed bootstrap grants', () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const handler = createCloudflareRouter(makeRelayService(), {
-      bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
         apiKeys,
         tokenStore: bootstrapTokens,
         orgProjectEnv,

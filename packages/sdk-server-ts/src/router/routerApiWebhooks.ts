@@ -1,5 +1,5 @@
 import type { NormalizedRouterLogger } from './logger';
-import type { RelayWebhookOptions } from './relay';
+import type { RouterApiWebhookOptions } from './routerApi';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 
 const DEFAULT_ORG_ID_CLAIM_KEYS = ['orgId', 'org_id', 'tenantId', 'tenant_id'] as const;
@@ -16,9 +16,9 @@ function resolveOrgIdFromClaims(
   return null;
 }
 
-export async function emitRelayWebhookEvent(input: {
+export async function emitRouterApiWebhookEvent(input: {
   logger: NormalizedRouterLogger;
-  webhooks: RelayWebhookOptions | null | undefined;
+  webhooks: RouterApiWebhookOptions | null | undefined;
   eventType: string;
   payload: Record<string, unknown>;
   claims?: Record<string, unknown> | null;

@@ -12,7 +12,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '@shared/utils/routerAbPublicKeyset';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import type { ThresholdStoreConfigInput } from '@server/core/types';
@@ -556,7 +556,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
       THRESHOLD_COORDINATOR_PEERS: '[]',
     });
-    const routerA = createRelayRouter(a.service, {
+    const routerA = createRouterApiRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -570,7 +570,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         { instanceId: 'coordinator-a', relayerUrl: srvA.baseUrl },
       ]),
     });
-    const routerB = createRelayRouter(b.service, {
+    const routerB = createRouterApiRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -661,7 +661,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('exports the canonical ECDSA key for the same staged threshold identity', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       threshold,
       session,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -721,7 +721,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('export/share rejects app-session JWTs at the Wallet Session boundary', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       threshold,
       session,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -775,7 +775,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('export/share rejects request userId outside Wallet Session wallet scope', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       threshold,
       session,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -828,7 +828,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('role-local bootstrap provisions ECDSA once, then later bootstrap/export reuse persisted key material', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       threshold,
       session,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -933,7 +933,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
       THRESHOLD_COORDINATOR_PEERS: '[]',
     });
-    const routerA = createRelayRouter(a.service, {
+    const routerA = createRouterApiRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -947,7 +947,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         { instanceId: 'coordinator-a', relayerUrl: srvA.baseUrl },
       ]),
     });
-    const routerB = createRelayRouter(b.service, {
+    const routerB = createRouterApiRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -1071,7 +1071,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
       THRESHOLD_COORDINATOR_PEERS: '[]',
     });
-    const routerA = createRelayRouter(a.service, {
+    const routerA = createRouterApiRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -1083,7 +1083,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-b',
       THRESHOLD_COORDINATOR_PEERS: '[]',
     });
-    const routerB = createRelayRouter(b.service, {
+    const routerB = createRouterApiRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -1173,7 +1173,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
       THRESHOLD_COORDINATOR_PEERS: '[]',
     });
-    const routerA = createRelayRouter(a.service, {
+    const routerA = createRouterApiRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
@@ -1187,7 +1187,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         { instanceId: 'coordinator-a', relayerUrl: srvA.baseUrl },
       ]),
     });
-    const routerB = createRelayRouter(b.service, {
+    const routerB = createRouterApiRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
       routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,

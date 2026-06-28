@@ -1,22 +1,22 @@
 import type { ConsoleApiKey } from '../console/apiKeys';
-import { RelayBootstrapGrantError, parseRelayBootstrapGrantIssueBody } from './bootstrapGrantBroker';
+import { RouterApiBootstrapGrantError, parseRouterApiBootstrapGrantIssueBody } from './bootstrapGrantBroker';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolveBootstrapGrantApiCredentialAuth } from './relayApiCredentialAuth';
-import type { RelayBootstrapGrantBroker } from './relay';
+import { resolveBootstrapGrantApiCredentialAuth } from './routerApiCredentialAuth';
+import type { RouterApiBootstrapGrantBroker } from './routerApi';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeJson } from './routeResponses';
 
-export interface RelayBootstrapGrantInput {
+export interface RouterApiBootstrapGrantInput {
   body: unknown;
   headers: HeaderRecord;
   logger: NormalizedRouterLogger;
   origin?: string;
   route: RouteDefinition;
   services: {
-    bootstrapGrantBroker?: RelayBootstrapGrantBroker | null;
+    bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
   };
 }
 
@@ -35,8 +35,8 @@ function parsePolicyFailureMessage(message: string): { code: string; detail: str
   };
 }
 
-export async function handleRelayBootstrapGrant(
-  input: RelayBootstrapGrantInput,
+export async function handleRouterApiBootstrapGrant(
+  input: RouterApiBootstrapGrantInput,
 ): Promise<RouteResponse<Record<string, unknown> | RouteErrorBody>> {
   const broker = input.services.bootstrapGrantBroker || null;
   let authenticatedApiKey: ConsoleApiKey | null = null;
@@ -91,7 +91,7 @@ export async function handleRelayBootstrapGrant(
   }
 
   try {
-    const parsedBody = parseRelayBootstrapGrantIssueBody(input.body);
+    const parsedBody = parseRouterApiBootstrapGrantIssueBody(input.body);
     if (!authenticatedApiKey) {
       return routeJson(500, {
         ok: false,
@@ -124,7 +124,7 @@ export async function handleRelayBootstrapGrant(
     });
     return routeJson(200, { ok: true, grant: result.grant });
   } catch (error: unknown) {
-    if (error instanceof RelayBootstrapGrantError) {
+    if (error instanceof RouterApiBootstrapGrantError) {
       return routeJson(error.status, {
         ok: false,
         code: error.code,

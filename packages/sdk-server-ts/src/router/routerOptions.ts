@@ -1,10 +1,10 @@
-import type { ThresholdRelayAuthService } from './authServicePort';
-import type { RelayRouterOptions } from './relay';
+import type { ThresholdRouterApiAuthService } from './authServicePort';
+import type { RouterApiOptions } from './routerApi';
 
 export function resolveThresholdOption(
-  service: ThresholdRelayAuthService,
-  opts: RelayRouterOptions,
-): RelayRouterOptions['threshold'] {
+  service: ThresholdRouterApiAuthService,
+  opts: RouterApiOptions,
+): RouterApiOptions['threshold'] {
   // Preserve "explicit null disables threshold" semantics:
   // - `opts.threshold === null` => disabled
   // - `opts.threshold === undefined` => auto-wire from AuthService config

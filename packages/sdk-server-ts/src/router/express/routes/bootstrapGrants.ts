@@ -1,12 +1,12 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import type { ExpressRelayContext } from '../createRelayRouter';
-import { handleRelayBootstrapGrant } from '../../relayBootstrapGrant';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
+import { handleRouterApiBootstrapGrant } from '../../routerApiBootstrapGrant';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { sendExpressRouteResponse } from '../../routeResponses';
 
 export function registerBootstrapGrantRoutes(
   router: ExpressRouter,
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
 ): void {
   const route = findRouteDefinitionById(ctx.routeDefinitions, 'registration_bootstrap_grants');
   if (!route) {
@@ -14,7 +14,7 @@ export function registerBootstrapGrantRoutes(
   }
 
   router.post(route.path, async (req: Request, res: Response) => {
-    const response = await handleRelayBootstrapGrant({
+    const response = await handleRouterApiBootstrapGrant({
       body: req.body,
       headers: (req.headers || {}) as Record<string, string | string[] | undefined>,
       logger: ctx.logger,

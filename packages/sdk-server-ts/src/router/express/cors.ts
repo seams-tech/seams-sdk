@@ -1,12 +1,12 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
-import type { RelayRouterOptions } from '../relay';
+import type { RouterApiOptions } from '../routerApi';
 
 const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
 const CORS_ALLOW_HEADERS =
   'Content-Type,Authorization,X-Seams-Benchmark-Diagnostics,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
 
-function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void {
+function withCors(res: Response, opts?: RouterApiOptions, req?: Request): void {
   const pathname = String((req as any)?.path || '').trim();
 
   // Public CORS: allow any origin to read `/healthz` and `/readyz`.
@@ -45,7 +45,7 @@ function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void
   }
 }
 
-export function installCors(router: ExpressRouter, opts: RelayRouterOptions): void {
+export function installCors(router: ExpressRouter, opts: RouterApiOptions): void {
   // Optional CORS: implemented here to keep setup simple for example relayers.
   // If you prefer custom CORS middleware, omit `corsOrigins` and wire your own.
   router.use((req: Request, res: Response, next: any) => {

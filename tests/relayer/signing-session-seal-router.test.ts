@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   createInMemorySigningSessionSealIdempotencyStore,
@@ -203,7 +203,7 @@ function encodePositiveBigIntB64u(value: bigint): string {
 test.describe('signing-session seal routes', () => {
   test('express apply-server-seal returns sealed payload for owner', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
@@ -230,7 +230,7 @@ test.describe('signing-session seal routes', () => {
 
   test('express apply-server-seal rejects legacy threshold-session JWT claims', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSessionAdapter({
         parse: async () => ({
           ok: true as const,
@@ -265,7 +265,7 @@ test.describe('signing-session seal routes', () => {
     const service = makeFakeAuthService();
     let applyCalls = 0;
     let removeCalls = 0;
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
@@ -680,7 +680,7 @@ test.describe('signing-session seal routes', () => {
 
   test('express apply-server-seal rejects cross-user threshold session', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy({ userId: 'bob.testnet' }),
@@ -706,7 +706,7 @@ test.describe('signing-session seal routes', () => {
   test('express remove-server-seal rejects stolen sealed record without matching threshold-session auth', async () => {
     const service = makeFakeAuthService();
     let removeCalls = 0;
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy({ userId: 'bob.testnet' }),
@@ -745,7 +745,7 @@ test.describe('signing-session seal routes', () => {
   test('express apply-server-seal enforces rate-limit guard', async () => {
     const service = makeFakeAuthService();
     const limiter = createInMemorySigningSessionSealRateLimiter();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
@@ -783,7 +783,7 @@ test.describe('signing-session seal routes', () => {
   test('express remove-server-seal returns expired for expired threshold session', async () => {
     const service = makeFakeAuthService();
     const nowMs = 1_000_000;
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy({ expiresAtMs: nowMs - 1 }),
@@ -810,7 +810,7 @@ test.describe('signing-session seal routes', () => {
   test('express apply-server-seal emits redacted audit event', async () => {
     const service = makeFakeAuthService();
     const auditEvents: Array<Record<string, unknown>> = [];
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
@@ -878,7 +878,7 @@ test.describe('signing-session seal routes', () => {
     const encryptExponentB64u = encodePositiveBigIntB64u(3n);
     const decryptExponentB64u = encodePositiveBigIntB64u(171n);
     const plaintextCiphertextB64u = encodePositiveBigIntB64u(5n);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
@@ -935,7 +935,7 @@ test.describe('signing-session seal routes', () => {
 
   test('express shamir3pass adapter rejects unknown keyVersion on remove', async () => {
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
@@ -976,7 +976,7 @@ test.describe('signing-session seal routes', () => {
   test('express shamir3pass adapter rejects out-of-range ciphertext on apply', async () => {
     const service = makeFakeAuthService();
     const primeB64u = encodePositiveBigIntB64u(257n);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeSession(),
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
@@ -1039,12 +1039,6 @@ test.describe('signing-session seal routes', () => {
 
     expect(() =>
       resolveSigningSessionSealIdempotencyFromEnv({
-        idempotencyKind: 'postgres',
-      }),
-    ).toThrow(/postgres/i);
-
-    expect(() =>
-      resolveSigningSessionSealIdempotencyFromEnv({
         idempotencyKind: 'unsupported-kind',
       }),
     ).toThrow(/unsupported/i);
@@ -1068,38 +1062,5 @@ test.describe('signing-session seal routes', () => {
         windowMs: 2_000,
       }),
     ).toThrow(/upstash/i);
-  });
-
-  test('postgres idempotency store round-trips and expires entries', async () => {
-    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-    test.skip(!postgresUrl, 'POSTGRES_URL not set');
-
-    const namespace = `test:signing-session-idempotency:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
-    const idempotency = resolveSigningSessionSealIdempotencyFromEnv({
-      idempotencyKind: 'postgres',
-      postgresUrl,
-      postgresNamespace: namespace,
-      ttlMs: 5_000,
-    });
-
-    const key = `roundtrip:${Date.now().toString(36)}`;
-    const nowMs = Date.now();
-    const result = {
-      ok: true as const,
-      ciphertext: 'sealed:ciphertext-b64u',
-      keyVersion: 'signing-session-seal-kek-2026-02-r1',
-    };
-
-    await idempotency.store.set({
-      key,
-      result,
-      expiresAtMs: nowMs + 2_000,
-    });
-
-    const replay = await idempotency.store.get({ key, nowMs });
-    expect(replay).toEqual(result);
-
-    const expiredReplay = await idempotency.store.get({ key, nowMs: nowMs + 2_100 });
-    expect(expiredReplay).toBeNull();
   });
 });

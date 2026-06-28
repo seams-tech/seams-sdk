@@ -1,7 +1,7 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 
-export function registerHealthRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
+export function registerHealthRoutes(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
   if (ctx.opts.healthz) {
     router.get('/healthz', async (_req: Request, res: Response) => {
       const thresholdConfigured = Boolean(ctx.opts.threshold);

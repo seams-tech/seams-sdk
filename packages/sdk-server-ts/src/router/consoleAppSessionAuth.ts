@@ -6,8 +6,8 @@ import {
   type ConsoleOrgScopedTeamRole,
   type ConsoleTeamRoleAssignment,
 } from '../console/teamRbac/types';
-import type { ConsoleAuthAdapter } from './console';
-import type { SessionAdapter } from './relay';
+import type { ConsoleAuthAdapter } from './consoleAuth';
+import type { SessionAdapter } from './routerApi';
 
 type AppSessionVersionValidationResult =
   | { ok: true }

@@ -1,8 +1,8 @@
 import type { Router as ExpressRouter } from 'express';
-import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../relay';
-import { emitRelayWebhookEvent } from '../../relayWebhooks';
-import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../routerApi';
+import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
+import { resolveSourceIpFromExpressRequest } from '../../routerApiKeyAuth';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
@@ -49,7 +49,7 @@ import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/ut
 type VerifiedSigningBudgetStatus =
   Extract<ParseWalletSigningBudgetStatusResult, { ok: true }>['walletBudgetStatus'];
 
-export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
+export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
   const hasBearerSessionSignal = (
     headers: Record<string, string | string[] | undefined>,
   ): boolean => {
@@ -101,9 +101,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     sessionKind?: string;
     userId?: string;
   }): Promise<void> => {
-    await emitRelayWebhookEvent({
+    await emitRouterApiWebhookEvent({
       logger: ctx.logger,
-      webhooks: ctx.opts.relayWebhooks,
+      webhooks: ctx.opts.routerApiWebhooks,
       eventType: 'session.exchange.failed',
       userId: input.userId,
       payload: {
@@ -124,9 +124,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     eventId?: string;
     payload?: Record<string, unknown>;
   }): Promise<void> => {
-    await emitRelayWebhookEvent({
+    await emitRouterApiWebhookEvent({
       logger: ctx.logger,
-      webhooks: ctx.opts.relayWebhooks,
+      webhooks: ctx.opts.routerApiWebhooks,
       eventType: input.eventType,
       claims: input.claims || undefined,
       userId: input.userId,
@@ -289,9 +289,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         (Boolean(input.validated.hadBearerSessionSignal) ||
           Boolean(input.validated.hadCookieSessionSignal)));
     if (!shouldEmit) return;
-    await emitRelayWebhookEvent({
+    await emitRouterApiWebhookEvent({
       logger: ctx.logger,
-      webhooks: ctx.opts.relayWebhooks,
+      webhooks: ctx.opts.routerApiWebhooks,
       eventType: 'session.warm.expired',
       claims: input.validated.claims,
       userId: input.validated.userId,
@@ -911,9 +911,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         ok: true,
         session: sessionBody,
       };
-      await emitRelayWebhookEvent({
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: 'session.warm.created',
         userId,
         payload: {
@@ -925,9 +925,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       });
       if (provider === 'passkey') {
         await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
-        await emitRelayWebhookEvent({
+        await emitRouterApiWebhookEvent({
           logger: ctx.logger,
-          webhooks: ctx.opts.relayWebhooks,
+          webhooks: ctx.opts.routerApiWebhooks,
           eventType: 'wallet.unlocked',
           userId,
           eventId: passkeyChallengeId,
@@ -977,9 +977,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       }
       const session = ctx.opts.session;
       if (session) res.set('Set-Cookie', session.buildClearCookie());
-      await emitRelayWebhookEvent({
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: 'session.revoked',
         claims: validated.claims,
         userId: validated.userId,
@@ -1023,9 +1023,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         const code = out.code || 'not_eligible';
         const message = out.message || 'Refresh not eligible';
         if (code === 'unauthorized') {
-          await emitRelayWebhookEvent({
+          await emitRouterApiWebhookEvent({
             logger: ctx.logger,
-            webhooks: ctx.opts.relayWebhooks,
+            webhooks: ctx.opts.routerApiWebhooks,
             eventType: 'session.warm.expired',
             claims: validated.claims,
             userId: validated.userId,
@@ -1040,9 +1040,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(code === 'unauthorized' ? 401 : 400).json({ code, message });
         return;
       }
-      await emitRelayWebhookEvent({
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: 'session.warm.refreshed',
         claims: validated.claims,
         userId: validated.userId,
@@ -1174,10 +1174,10 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         body: req?.body,
         origin,
         service: ctx.service,
-        emitRelayWebhook: async (event) => {
-          await emitRelayWebhookEvent({
+        emitRouterApiWebhook: async (event) => {
+          await emitRouterApiWebhookEvent({
             logger: ctx.logger,
-            webhooks: ctx.opts.relayWebhooks,
+            webhooks: ctx.opts.routerApiWebhooks,
             eventType: event.eventType,
             userId: event.userId,
             eventId: event.eventId,
@@ -1785,9 +1785,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       }
       const session = ctx.opts.session;
       if (session) res.set('Set-Cookie', session.buildClearCookie());
-      await emitRelayWebhookEvent({
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: 'wallet.locked',
         claims: validated.claims,
         userId: validated.userId,

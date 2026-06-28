@@ -1,5 +1,5 @@
-import type { CloudflareRelayAuthService } from '../authServicePort';
-import type { RelayRouterOptions } from '../relay';
+import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiOptions } from '../routerApi';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
@@ -8,7 +8,6 @@ import { handleApiWallets } from './routes/apiWallets';
 import { handleBootstrapGrant } from './routes/bootstrapGrants';
 import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
-import { handleLinkDevice } from './routes/linkDevice';
 import { handleRecoverEmail } from './routes/recoverEmail';
 import { handleWalletRegistration } from './routes/walletRegistration';
 import { handleSponsoredEvmCall } from './routes/sponsoredEvmCall';
@@ -50,25 +49,26 @@ import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
 import { resolveThresholdOption } from '../routerOptions';
-import { validateRelayRouterRorOptions } from '../ror/provider';
+import { validateRouterApiRorOptions } from '../ror/provider';
 import { handleSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal/transport/cloudflare';
-import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../routerApi';
 import {
-  attachRelayRouteSurface,
-  isEmailRecoveryRoutesEnabled,
-  resolveRelayRouteSurface,
-} from '../relayRouteSurface';
+  attachRouterApiRouteSurface,
+  isEmailRecoveryPrepareRoutesEnabled,
+  isRecoverEmailRouteEnabled,
+  resolveRouterApiRouteSurface,
+} from '../routerApiRouteSurface';
 import {
   findRouteDefinitionForRequest,
   type RouteDefinition,
 } from '../routeDefinitions';
 import {
-  getRelayRouteExtensionRoutes,
-  getRelayRouteExtensionsForTransport,
+  getRouterApiRouteExtensionRoutes,
+  getRouterApiRouteExtensionsForTransport,
 } from '../routeExtensions';
-import { resolveRelayRouterModuleRouteExtensions } from '../modules';
+import { resolveRouterApiModuleRouteExtensions } from '../modules';
 
-export interface CloudflareRelayContext {
+export interface CloudflareRouterApiContext {
   request: Request;
   url: URL;
   pathname: string;
@@ -76,8 +76,8 @@ export interface CloudflareRelayContext {
   env?: CfEnv;
   cfCtx?: CfExecutionContext;
 
-  service: CloudflareRelayAuthService;
-  opts: RelayRouterOptions;
+  service: CloudflareRouterApiAuthService;
+  opts: RouterApiOptions;
   logger: NormalizedRouterLogger;
 
   mePath: string;
@@ -86,16 +86,16 @@ export interface CloudflareRelayContext {
 }
 
 export function createCloudflareRouter(
-  service: CloudflareRelayAuthService,
-  opts: RelayRouterOptions = {},
+  service: CloudflareRouterApiAuthService,
+  opts: RouterApiOptions = {},
 ): FetchHandler {
   const notFound = () => new Response('Not Found', { status: 404 });
 
   const threshold = resolveThresholdOption(service, opts);
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
-  const routeExtensions = resolveRelayRouterModuleRouteExtensions(opts);
-  const effectiveOpts: RelayRouterOptions = {
+  const routeExtensions = resolveRouterApiModuleRouteExtensions(opts);
+  const effectiveOpts: RouterApiOptions = {
     ...opts,
     threshold,
     sessionCookieName,
@@ -103,19 +103,20 @@ export function createCloudflareRouter(
     modules: [],
   };
   if (effectiveOpts.ror) {
-    validateRelayRouterRorOptions(effectiveOpts.ror);
+    validateRouterApiRorOptions(effectiveOpts.ror);
   }
 
   const logger = coerceRouterLogger(effectiveOpts.logger);
-  const routeSurface = resolveRelayRouteSurface(effectiveOpts, { transport: 'cloudflare' });
+  const routeSurface = resolveRouterApiRouteSurface(effectiveOpts, { transport: 'cloudflare' });
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
-  const emailRecoveryRoutesEnabled = isEmailRecoveryRoutesEnabled(effectiveOpts);
-  const cloudflareRouteExtensions = getRelayRouteExtensionsForTransport(
+  const emailRecoveryPrepareRoutesEnabled = isEmailRecoveryPrepareRoutesEnabled(effectiveOpts);
+  const recoverEmailRouteEnabled = isRecoverEmailRouteEnabled(effectiveOpts);
+  const cloudflareRouteExtensions = getRouterApiRouteExtensionsForTransport(
     routeExtensions,
     'cloudflare',
   );
 
-  const handlers: Array<(c: CloudflareRelayContext) => Promise<Response | null>> = [
+  const handlers: Array<(c: CloudflareRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleBootstrapGrant,
     handleWalletRegistration,
@@ -124,11 +125,10 @@ export function createCloudflareRouter(
     handleSignedDelegate,
     handleAuth,
     handleSyncAccount,
-    handleLinkDevice,
-    ...(emailRecoveryRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
+    ...(emailRecoveryPrepareRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
     handleThresholdEd25519,
     handleThresholdEcdsa,
-    async (c: CloudflareRelayContext) =>
+    async (c: CloudflareRouterApiContext) =>
       await handleSigningSessionSealRoutes({
         request: c.request,
         pathname: c.pathname,
@@ -167,8 +167,8 @@ export function createCloudflareRouter(
     handleWalletState,
     handleWalletLock,
     ...cloudflareRouteExtensions.map((extension) => {
-      const extensionRoutes = getRelayRouteExtensionRoutes(extension, 'cloudflare');
-      return async (c: CloudflareRelayContext): Promise<Response | null> => {
+      const extensionRoutes = getRouterApiRouteExtensionRoutes(extension, 'cloudflare');
+      return async (c: CloudflareRouterApiContext): Promise<Response | null> => {
         const route = findRouteDefinitionForRequest(extensionRoutes, c.method, c.pathname);
         if (!route) return null;
         return await extension.handleCloudflareRoute({
@@ -181,7 +181,7 @@ export function createCloudflareRouter(
         });
       };
     }),
-    ...(emailRecoveryRoutesEnabled ? [handleRecoverEmail] : []),
+    ...(recoverEmailRouteEnabled ? [handleRecoverEmail] : []),
     handleHealth,
     handleReady,
   ];
@@ -202,7 +202,7 @@ export function createCloudflareRouter(
       return res;
     }
 
-    const baseCtx: Omit<CloudflareRelayContext, 'request' | 'url' | 'pathname' | 'method'> = {
+    const baseCtx: Omit<CloudflareRouterApiContext, 'request' | 'url' | 'pathname' | 'method'> = {
       env,
       cfCtx,
       service,
@@ -213,7 +213,7 @@ export function createCloudflareRouter(
       signedDelegatePath,
     };
 
-    const ctx: CloudflareRelayContext = {
+    const ctx: CloudflareRouterApiContext = {
       ...baseCtx,
       request,
       url,
@@ -240,5 +240,5 @@ export function createCloudflareRouter(
       return res;
     }
   };
-  return attachRelayRouteSurface(handler, routeSurface);
+  return attachRouterApiRouteSurface(handler, routeSurface);
 }

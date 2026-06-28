@@ -7,41 +7,41 @@ import type {
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type {
-  RelayBootstrapGrantBroker,
-  RelayBootstrapGrantClientContext,
-  RelayBootstrapGrantFailureCode,
-  RelayBootstrapGrantIssueRequest,
-  RelayBootstrapGrantIssueResult,
-} from './relay';
+  RouterApiBootstrapGrantBroker,
+  RouterApiBootstrapGrantClientContext,
+  RouterApiBootstrapGrantFailureCode,
+  RouterApiBootstrapGrantIssueRequest,
+  RouterApiBootstrapGrantIssueResult,
+} from './routerApi';
 
-export interface RelayBootstrapGrantRateLimitPolicy {
+export interface RouterApiBootstrapGrantRateLimitPolicy {
   windowMs: number;
   maxIssued: number;
 }
 
-export interface RelayBootstrapGrantQuotaPolicy {
+export interface RouterApiBootstrapGrantQuotaPolicy {
   maxIssued: number;
 }
 
-export interface RelayBootstrapGrantBrokerOptions {
+export interface RouterApiBootstrapGrantBrokerOptions {
   apiKeys: ConsoleApiKeyService;
   tokenStore: ConsoleBootstrapTokenService;
   orgProjectEnv: ConsoleOrgProjectEnvService;
   now?: () => Date;
   tokenTtlMs?: number;
-  defaultRateLimit?: RelayBootstrapGrantRateLimitPolicy;
-  defaultQuota?: RelayBootstrapGrantQuotaPolicy;
-  rateLimitsByBucket?: Record<string, RelayBootstrapGrantRateLimitPolicy>;
-  quotasByBucket?: Record<string, RelayBootstrapGrantQuotaPolicy>;
+  defaultRateLimit?: RouterApiBootstrapGrantRateLimitPolicy;
+  defaultQuota?: RouterApiBootstrapGrantQuotaPolicy;
+  rateLimitsByBucket?: Record<string, RouterApiBootstrapGrantRateLimitPolicy>;
+  quotasByBucket?: Record<string, RouterApiBootstrapGrantQuotaPolicy>;
 }
 
-export class RelayBootstrapGrantError extends Error {
-  readonly code: RelayBootstrapGrantFailureCode;
+export class RouterApiBootstrapGrantError extends Error {
+  readonly code: RouterApiBootstrapGrantFailureCode;
   readonly status: 400 | 409;
 
-  constructor(input: { code: RelayBootstrapGrantFailureCode; status: 400 | 409; message: string }) {
+  constructor(input: { code: RouterApiBootstrapGrantFailureCode; status: 400 | 409; message: string }) {
     super(input.message);
-    this.name = 'RelayBootstrapGrantError';
+    this.name = 'RouterApiBootstrapGrantError';
     this.code = input.code;
     this.status = input.status;
   }
@@ -54,7 +54,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readRequiredString(source: Record<string, unknown>, key: string): string {
   const value = String(source[key] ?? '').trim();
   if (!value) {
-    throw new RelayBootstrapGrantError({
+    throw new RouterApiBootstrapGrantError({
       code: 'invalid_body',
       status: 400,
       message: `Missing required field: ${key}`,
@@ -76,7 +76,7 @@ function normalizeBucketKey(value: string, fallback: string): string {
   return String(value || '').trim() || fallback;
 }
 
-function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContext | undefined {
+function normalizeClientContext(input: unknown): RouterApiBootstrapGrantClientContext | undefined {
   if (!isRecord(input)) return undefined;
   const sdk = String(input.sdk || '').trim();
   const sdkVersion = String(input.sdkVersion || '').trim();
@@ -97,7 +97,7 @@ const REGISTRATION_FLOW_GRANT_ALLOWED_PATHS = [
 function normalizeRegistrationBootstrapGrantFlow(raw: unknown): 'registration_v1' {
   const flow = String(raw || '').trim();
   if (flow !== 'registration_v1') {
-    throw new RelayBootstrapGrantError({
+    throw new RouterApiBootstrapGrantError({
       code: 'invalid_body',
       status: 400,
       message: 'Field flow must be "registration_v1"',
@@ -123,11 +123,11 @@ function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolea
   }
 }
 
-export function parseRelayBootstrapGrantIssueBody(
+export function parseRouterApiBootstrapGrantIssueBody(
   body: unknown,
-): Omit<RelayBootstrapGrantIssueRequest, 'publishableKey' | 'origin'> {
+): Omit<RouterApiBootstrapGrantIssueRequest, 'publishableKey' | 'origin'> {
   if (!isRecord(body)) {
-    throw new RelayBootstrapGrantError({
+    throw new RouterApiBootstrapGrantError({
       code: 'invalid_body',
       status: 400,
       message: 'Expected JSON object request body',
@@ -147,9 +147,9 @@ export function parseRelayBootstrapGrantIssueBody(
   };
 }
 
-export function createRelayBootstrapGrantBroker(
-  options: RelayBootstrapGrantBrokerOptions,
-): RelayBootstrapGrantBroker {
+export function createRouterApiBootstrapGrantBroker(
+  options: RouterApiBootstrapGrantBrokerOptions,
+): RouterApiBootstrapGrantBroker {
   const maybeAuthenticatePublishableKey = options.apiKeys.authenticatePublishableKey;
   if (typeof maybeAuthenticatePublishableKey !== 'function') {
     throw new Error(
@@ -194,8 +194,8 @@ export function createRelayBootstrapGrantBroker(
     newAccountId?: string;
     rpId: string;
     flow: 'registration_v1';
-    clientContext?: RelayBootstrapGrantClientContext;
-  }): Promise<RelayBootstrapGrantIssueResult> {
+    clientContext?: RouterApiBootstrapGrantClientContext;
+  }): Promise<RouterApiBootstrapGrantIssueResult> {
     const origin = normalizeOrigin(input.origin);
     if (!origin) {
       return {

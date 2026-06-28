@@ -14,7 +14,7 @@ interface LinkedDevicesModalProps {
   onClose: () => void;
 }
 
-type RelayAuthenticatorRow = {
+type RouterApiAuthenticatorRow = {
   signerSlot?: number;
   publicKey?: string;
 };
@@ -108,7 +108,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
       // Best-effort: fetch signer metadata from relay-private WebAuthn stores (auth-protected).
       // This annotates access keys with signer slots.
-      const relayMetaByPublicKey = new Map<string, RelayAuthenticatorRow>();
+      const relayMetaByPublicKey = new Map<string, RouterApiAuthenticatorRow>();
       try {
         const relayerUrl = String((seams as any)?.configs?.network.relayer?.url || '')
           .trim()
@@ -145,7 +145,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           const url = `${relayerUrl}/webauthn/authenticators${rpId ? `?rpId=${encodeURIComponent(rpId)}` : ''}`;
           const resp = await fetch(url, { method: 'GET', credentials: 'include' });
           const json = await resp.json().catch(() => ({}) as any);
-          const list: RelayAuthenticatorRow[] =
+          const list: RouterApiAuthenticatorRow[] =
             resp.ok && json?.ok === true && Array.isArray(json?.authenticators)
               ? json.authenticators
               : [];

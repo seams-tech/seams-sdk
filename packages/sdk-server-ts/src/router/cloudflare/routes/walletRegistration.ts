@@ -1,21 +1,21 @@
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import {
-  handleRelayWalletAddAuthMethodFinalize,
-  handleRelayWalletAddAuthMethodIntent,
-  handleRelayWalletRevokeAuthMethod,
-  handleRelayWalletAddAuthMethodStart,
-  handleRelayWalletAddSignerFinalize,
-  handleRelayWalletAddSignerHssRespond,
-  handleRelayWalletAddSignerIntent,
-  handleRelayWalletAddSignerStart,
-  handleRelayWalletRegistrationFinalize,
-  handleRelayWalletRegistrationHssRespond,
-  handleRelayWalletRegistrationIntent,
-  handleRelayWalletRegistrationPrepare,
-  handleRelayWalletRegistrationStart,
-  handleRelayWalletEcdsaKeyFactsInventory,
+  handleRouterApiWalletAddAuthMethodFinalize,
+  handleRouterApiWalletAddAuthMethodIntent,
+  handleRouterApiWalletRevokeAuthMethod,
+  handleRouterApiWalletAddAuthMethodStart,
+  handleRouterApiWalletAddSignerFinalize,
+  handleRouterApiWalletAddSignerHssRespond,
+  handleRouterApiWalletAddSignerIntent,
+  handleRouterApiWalletAddSignerStart,
+  handleRouterApiWalletRegistrationFinalize,
+  handleRouterApiWalletRegistrationHssRespond,
+  handleRouterApiWalletRegistrationIntent,
+  handleRouterApiWalletRegistrationPrepare,
+  handleRouterApiWalletRegistrationStart,
+  handleRouterApiWalletEcdsaKeyFactsInventory,
 } from '../../walletRegistrationRoutes';
-import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
+import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
 import type { RouteResponse } from '../../routeExecutionContext';
 import {
   findRouteDefinitionById,
@@ -43,6 +43,9 @@ const ROUTE_IDS = [
 ] as const;
 
 type WalletRegistrationRouteId = (typeof ROUTE_IDS)[number];
+type RegistrationPrepareAuthService = NonNullable<
+  CloudflareRouterApiContext['opts']['ed25519RegistrationPrepare']
+>['authService'];
 
 function isOptionalWalletRegistrationRouteId(routeId: WalletRegistrationRouteId): boolean {
   return routeId === 'wallet_registration_prepare';
@@ -57,7 +60,7 @@ function readWalletIdFromPath(route: RouteDefinition, pathname: string): string 
   return segment ? decodeURIComponent(segment) : undefined;
 }
 
-function resolveWalletRegistrationRoute(ctx: CloudflareRelayContext): RouteDefinition | null {
+function resolveWalletRegistrationRoute(ctx: CloudflareRouterApiContext): RouteDefinition | null {
   for (const routeId of ROUTE_IDS) {
     const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
     if (!route) {
@@ -69,8 +72,18 @@ function resolveWalletRegistrationRoute(ctx: CloudflareRelayContext): RouteDefin
   return null;
 }
 
+function requireRegistrationPrepareAuthService(
+  ctx: CloudflareRouterApiContext,
+): RegistrationPrepareAuthService {
+  const prepare = ctx.opts.ed25519RegistrationPrepare;
+  if (!prepare) {
+    throw new Error('wallet_registration_prepare route registered without prepare auth service');
+  }
+  return prepare.authService;
+}
+
 export async function handleWalletRegistration(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   const route = resolveWalletRegistrationRoute(ctx);
   if (!route) return null;
@@ -99,31 +112,37 @@ export async function handleWalletRegistration(
   };
   const response: RouteResponse<unknown> =
     route.id === 'wallet_registration_intent'
-      ? await handleRelayWalletRegistrationIntent(common)
+      ? await handleRouterApiWalletRegistrationIntent(common)
       : route.id === 'wallet_registration_prepare'
-        ? await handleRelayWalletRegistrationPrepare(common)
-      : route.id === 'wallet_registration_start'
-        ? await handleRelayWalletRegistrationStart(common)
-        : route.id === 'wallet_registration_hss_respond'
-          ? await handleRelayWalletRegistrationHssRespond(common)
-          : route.id === 'wallet_registration_finalize'
-            ? await handleRelayWalletRegistrationFinalize(common)
-            : route.id === 'wallet_add_signer_intent'
-            ? await handleRelayWalletAddSignerIntent(common)
-            : route.id === 'wallet_add_signer_start'
-              ? await handleRelayWalletAddSignerStart(common)
-              : route.id === 'wallet_add_signer_hss_respond'
-                ? await handleRelayWalletAddSignerHssRespond(common)
-                : route.id === 'wallet_add_signer_finalize'
-                  ? await handleRelayWalletAddSignerFinalize(common)
-                  : route.id === 'wallet_add_auth_method_intent'
-                    ? await handleRelayWalletAddAuthMethodIntent(common)
-                    : route.id === 'wallet_add_auth_method_start'
-                      ? await handleRelayWalletAddAuthMethodStart(common)
-                      : route.id === 'wallet_add_auth_method_finalize'
-                        ? await handleRelayWalletAddAuthMethodFinalize(common)
-                        : route.id === 'wallet_revoke_auth_method'
-                          ? await handleRelayWalletRevokeAuthMethod(common)
-                  : await handleRelayWalletEcdsaKeyFactsInventory(common);
+        ? await handleRouterApiWalletRegistrationPrepare({
+            ...common,
+            services: {
+              ...common.services,
+              registrationPrepareAuthService: requireRegistrationPrepareAuthService(ctx),
+            },
+          })
+        : route.id === 'wallet_registration_start'
+          ? await handleRouterApiWalletRegistrationStart(common)
+          : route.id === 'wallet_registration_hss_respond'
+            ? await handleRouterApiWalletRegistrationHssRespond(common)
+            : route.id === 'wallet_registration_finalize'
+              ? await handleRouterApiWalletRegistrationFinalize(common)
+              : route.id === 'wallet_add_signer_intent'
+                ? await handleRouterApiWalletAddSignerIntent(common)
+                : route.id === 'wallet_add_signer_start'
+                  ? await handleRouterApiWalletAddSignerStart(common)
+                  : route.id === 'wallet_add_signer_hss_respond'
+                    ? await handleRouterApiWalletAddSignerHssRespond(common)
+                    : route.id === 'wallet_add_signer_finalize'
+                      ? await handleRouterApiWalletAddSignerFinalize(common)
+                      : route.id === 'wallet_add_auth_method_intent'
+                        ? await handleRouterApiWalletAddAuthMethodIntent(common)
+                        : route.id === 'wallet_add_auth_method_start'
+                          ? await handleRouterApiWalletAddAuthMethodStart(common)
+                          : route.id === 'wallet_add_auth_method_finalize'
+                            ? await handleRouterApiWalletAddAuthMethodFinalize(common)
+                            : route.id === 'wallet_revoke_auth_method'
+                              ? await handleRouterApiWalletRevokeAuthMethod(common)
+                              : await handleRouterApiWalletEcdsaKeyFactsInventory(common);
   return toFetchRouteResponse(response);
 }

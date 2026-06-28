@@ -1,4 +1,5 @@
 import type { RouterLogger } from './logger';
+import type { AuthService } from '../core/AuthService';
 import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/thresholdServiceSchemes.types';
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type {
@@ -9,9 +10,9 @@ import type {
   ThresholdEd25519HssRespondWithSessionRequest,
   ThresholdEd25519HssRespondWithSessionResponse,
 } from '../core/types';
-import type { RelayRouterRorOptions } from './ror/provider';
-import type { RelayRouterModule } from './modules';
-import type { RelayRouteExtension } from './routeExtensions';
+import type { RouterApiRorOptions } from './ror/provider';
+import type { RouterApiModule } from './modules';
+import type { RouterApiRouteExtension } from './routeExtensions';
 import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
@@ -35,6 +36,7 @@ import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
+import type { EmailRecoveryService } from '../email-recovery';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -124,24 +126,24 @@ export interface ThresholdSigningAdapter {
   };
 }
 
-export type RelayRuntimePolicyScope = RuntimePolicyScope;
+export type RouterApiRuntimePolicyScope = RuntimePolicyScope;
 
-export interface RelayRuntimeSnapshotEnvelope {
+export interface RouterApiRuntimeSnapshotEnvelope {
   snapshotId: string;
   version: number;
   checksum: string;
   effectiveAt: string;
 }
 
-export interface RelayRuntimeSnapshotConsumer {
+export interface RouterApiRuntimeSnapshotConsumer {
   getLatestSnapshot(
-    scope: RelayRuntimePolicyScope,
-  ): Promise<RelayRuntimeSnapshotEnvelope | null> | RelayRuntimeSnapshotEnvelope | null;
+    scope: RouterApiRuntimePolicyScope,
+  ): Promise<RouterApiRuntimeSnapshotEnvelope | null> | RouterApiRuntimeSnapshotEnvelope | null;
 }
 
-export interface RelayWebhookOptions {
+export interface RouterApiWebhookOptions {
   /**
-   * Console webhook service used for relay lifecycle webhook delivery.
+   * Console webhook service used for Router API lifecycle webhook delivery.
    */
   service: ConsoleWebhookService;
   /**
@@ -159,17 +161,40 @@ export interface RelayWebhookOptions {
   orgIdClaimKeys?: string[];
 }
 
-export interface RelayEmailRecoveryOptions {
-  enabled: true;
+export type RouterApiSignedDelegateAuthService = Pick<
+  AuthService,
+  'executeSignedDelegate' | 'getRelayerAccount'
+>;
+
+export type RouterApiEmailRecoveryAuthService = Pick<
+  AuthService,
+  'prepareEmailRecovery' | 'respondEmailRecoveryEcdsa'
+>;
+
+export type RouterApiEmailRecoveryExecutionService = Pick<
+  EmailRecoveryService,
+  'requestEmailRecovery'
+>;
+
+export type RouterApiEmailRecoveryOptions =
+  | {
+      kind: 'prepare_and_execute';
+      authService: RouterApiEmailRecoveryAuthService;
+      executionService: RouterApiEmailRecoveryExecutionService;
+    }
+  | {
+      kind: 'prepare_only';
+      authService: RouterApiEmailRecoveryAuthService;
+      executionService?: never;
+    };
+
+export interface RouterApiEd25519RegistrationPrepareOptions {
+  authService: Pick<AuthService, 'prepareWalletRegistration'>;
 }
 
-export interface RelayEd25519RegistrationPrepareOptions {
-  enabled: true;
-}
+export type RouterApiEmailOtpExportPolicyPhase = 'challenge' | 'verify';
 
-export type RelayEmailOtpExportPolicyPhase = 'challenge' | 'verify';
-
-export type RelayEmailOtpExportPolicyDecision =
+export type RouterApiEmailOtpExportPolicyDecision =
   | {
       ok: true;
       decision: 'ALLOW';
@@ -187,9 +212,9 @@ export type RelayEmailOtpExportPolicyDecision =
       reason?: string;
     };
 
-export interface RelayEmailOtpExportPolicyInput {
+export interface RouterApiEmailOtpExportPolicyInput {
   operation: typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
-  phase: RelayEmailOtpExportPolicyPhase;
+  phase: RouterApiEmailOtpExportPolicyPhase;
   userId: string;
   walletId: string;
   orgId?: string;
@@ -200,13 +225,13 @@ export interface RelayEmailOtpExportPolicyInput {
   sourceIp?: string;
 }
 
-export interface RelayEmailOtpExportPolicyAdapter {
+export interface RouterApiEmailOtpExportPolicyAdapter {
   authorize(
-    input: RelayEmailOtpExportPolicyInput,
-  ): Promise<RelayEmailOtpExportPolicyDecision> | RelayEmailOtpExportPolicyDecision;
+    input: RouterApiEmailOtpExportPolicyInput,
+  ): Promise<RouterApiEmailOtpExportPolicyDecision> | RouterApiEmailOtpExportPolicyDecision;
 }
 
-export type RelayApiKeyAuthFailureCode =
+export type RouterApiKeyAuthFailureCode =
   | 'secret_key_missing'
   | 'secret_key_invalid'
   | 'secret_key_revoked'
@@ -214,7 +239,7 @@ export type RelayApiKeyAuthFailureCode =
   | 'secret_key_ip_blocked'
   | 'secret_key_environment_mismatch';
 
-export interface RelayApiKeyAuthRequest {
+export interface RouterApiKeyAuthRequest {
   secret: string;
   endpoint: string;
   requiredScopes: ApiCredentialScope[];
@@ -222,7 +247,7 @@ export interface RelayApiKeyAuthRequest {
   environmentId?: string;
 }
 
-export interface RelayApiKeyPrincipal {
+export interface RouterApiKeyPrincipal {
   apiKeyId: string;
   orgId: string;
   projectId?: string;
@@ -231,66 +256,66 @@ export interface RelayApiKeyPrincipal {
   scopes: ApiCredentialScope[];
 }
 
-export type RelayApiKeyAuthResult =
-  | { ok: true; principal: RelayApiKeyPrincipal }
+export type RouterApiKeyAuthResult =
+  | { ok: true; principal: RouterApiKeyPrincipal }
   | {
       ok: false;
       status: 401 | 403;
-      code: RelayApiKeyAuthFailureCode;
+      code: RouterApiKeyAuthFailureCode;
       message: string;
     };
 
-export interface RelayApiKeyAuthAdapter {
-  authenticate(input: RelayApiKeyAuthRequest): Promise<RelayApiKeyAuthResult>;
+export interface RouterApiKeyAuthAdapter {
+  authenticate(input: RouterApiKeyAuthRequest): Promise<RouterApiKeyAuthResult>;
 }
 
-export type RelayPublishableKeyAuthFailureCode =
+export type RouterApiPublishableKeyAuthFailureCode =
   | 'publishable_key_missing'
   | 'publishable_key_invalid'
   | 'publishable_key_revoked'
   | 'publishable_key_origin_blocked'
   | 'publishable_key_environment_mismatch';
 
-export interface RelayPublishableKeyAuthRequest {
+export interface RouterApiPublishableKeyAuthRequest {
   secret: string;
   origin: string;
   environmentId: string;
 }
 
-export type RelayPublishableKeyAuthResult =
-  | { ok: true; principal: RelayApiKeyPrincipal }
+export type RouterApiPublishableKeyAuthResult =
+  | { ok: true; principal: RouterApiKeyPrincipal }
   | {
       ok: false;
       status: 401 | 403;
-      code: RelayPublishableKeyAuthFailureCode;
+      code: RouterApiPublishableKeyAuthFailureCode;
       message: string;
     };
 
-export interface RelayPublishableKeyAuthAdapter {
-  authenticate(input: RelayPublishableKeyAuthRequest): Promise<RelayPublishableKeyAuthResult>;
+export interface RouterApiPublishableKeyAuthAdapter {
+  authenticate(input: RouterApiPublishableKeyAuthRequest): Promise<RouterApiPublishableKeyAuthResult>;
 }
 
-export type RelayUsageMeterAction = 'wallet_created';
+export type RouterApiUsageMeterAction = 'wallet_created';
 
-export interface RelayUsageMeterEvent {
+export interface RouterApiUsageMeterEvent {
   orgId: string;
   environmentId: string;
   apiKeyId: string;
   endpoint: string;
   walletId: string;
-  action: RelayUsageMeterAction;
+  action: RouterApiUsageMeterAction;
   succeeded: boolean;
   occurredAt?: string;
   sourceEventId?: string;
 }
 
-export interface RelayUsageMeterAdapter {
-  recordEvent(input: RelayUsageMeterEvent): Promise<void>;
+export interface RouterApiUsageMeterAdapter {
+  recordEvent(input: RouterApiUsageMeterEvent): Promise<void>;
 }
 
-export type RelayBootstrapGrantMode = 'free' | 'paid';
+export type RouterApiBootstrapGrantMode = 'free' | 'paid';
 
-export type RelayBootstrapGrantFailureCode =
+export type RouterApiBootstrapGrantFailureCode =
   | 'publishable_key_missing'
   | 'publishable_key_invalid'
   | 'publishable_key_revoked'
@@ -302,23 +327,23 @@ export type RelayBootstrapGrantFailureCode =
   | 'environment_archived'
   | 'invalid_body';
 
-export interface RelayBootstrapGrantClientContext {
+export interface RouterApiBootstrapGrantClientContext {
   sdk?: string;
   sdkVersion?: string;
   userAgentHint?: string;
 }
 
-export interface RelayBootstrapGrantIssueRequest {
+export interface RouterApiBootstrapGrantIssueRequest {
   publishableKey: string;
   origin: string;
   environmentId: string;
   newAccountId?: string;
   rpId: string;
   flow: 'registration_v1';
-  clientContext?: RelayBootstrapGrantClientContext;
+  clientContext?: RouterApiBootstrapGrantClientContext;
 }
 
-export interface RelayBootstrapGrant {
+export interface RouterApiBootstrapGrant {
   token: string;
   expiresAt: string;
   orgId: string;
@@ -326,28 +351,28 @@ export interface RelayBootstrapGrant {
   envId: string;
   signingRootVersion: string;
   origin: string;
-  mode: RelayBootstrapGrantMode;
+  mode: RouterApiBootstrapGrantMode;
 }
 
-export interface RelayBootstrapGrantPaymentRequirement {
+export interface RouterApiBootstrapGrantPaymentRequirement {
   mode: 'x402';
   productId?: string;
 }
 
-export type RelayBootstrapGrantIssueResult =
+export type RouterApiBootstrapGrantIssueResult =
   | {
       ok: true;
-      grant: RelayBootstrapGrant;
+      grant: RouterApiBootstrapGrant;
     }
   | {
       ok: false;
       status: 400 | 401 | 403 | 409 | 429 | 402;
-      code: RelayBootstrapGrantFailureCode | 'payment_required' | 'payment_invalid';
+      code: RouterApiBootstrapGrantFailureCode | 'payment_required' | 'payment_invalid';
       message: string;
-      payment?: RelayBootstrapGrantPaymentRequirement;
+      payment?: RouterApiBootstrapGrantPaymentRequirement;
     };
 
-export interface RelayBootstrapTokenRecord {
+export interface RouterApiBootstrapTokenRecord {
   id: string;
   tokenHash: string;
   tokenPrefix: string;
@@ -375,17 +400,17 @@ export interface RelayBootstrapTokenRecord {
   updatedAt: string;
 }
 
-export interface RelayBootstrapGrantBroker {
+export interface RouterApiBootstrapGrantBroker {
   authenticatePublishableKey(input: {
     publishableKey: string;
     origin: string;
     environmentId?: string;
   }): Promise<import('../console/apiKeys').AuthenticateConsolePublishableKeyResult>;
   issueGrantForAuthenticatedKey(
-    input: Omit<RelayBootstrapGrantIssueRequest, 'publishableKey'> & {
+    input: Omit<RouterApiBootstrapGrantIssueRequest, 'publishableKey'> & {
       authenticatedApiKey: import('../console/apiKeys').ConsoleApiKey;
     },
-  ): Promise<RelayBootstrapGrantIssueResult>;
+  ): Promise<RouterApiBootstrapGrantIssueResult>;
 }
 
 export type ThresholdSchemeModuleById<S extends ThresholdSchemeId> = Extract<
@@ -421,9 +446,11 @@ export function resolveThresholdScheme<S extends ThresholdSchemeId>(
   return { ok: true, scheme: scheme as ThresholdSchemeModuleById<S> };
 }
 
-export interface RelayRouterOptions {
+export interface RouterApiOptions {
   healthz?: boolean;
   readyz?: boolean;
+  // Optional readiness probe hook for Router API dependencies.
+  readyCheck?: (() => Promise<void> | void) | null;
   /**
    * Optional list(s) of CORS origins (CSV strings or literal origins).
    * Pass raw strings; the router normalizes/merges internally.
@@ -431,11 +458,12 @@ export interface RelayRouterOptions {
   corsOrigins?: Array<string | undefined>;
   /**
    * Optional route for submitting NEP-461 SignedDelegate meta-transactions.
-   * - When omitted: disabled.
-   * - When set: enabled at `route`.
+   * - When omitted: route is not mounted.
+   * - When set: route is mounted at `route`.
    */
   signedDelegate?: {
     route: string;
+    authService: RouterApiSignedDelegateAuthService;
     billing?: ConsoleBillingService | null;
     ledger?: ConsoleSponsoredCallService | null;
     runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
@@ -457,20 +485,20 @@ export interface RelayRouterOptions {
   // Optional: pluggable threshold signing service
   threshold?: ThresholdSigningAdapter | null;
   // Optional: runtime snapshot consumer used to bind authorize requests to latest scoped config.
-  runtimeSnapshots?: RelayRuntimeSnapshotConsumer | null;
-  // Optional: webhook emitter for relay session/wallet lifecycle events.
-  relayWebhooks?: RelayWebhookOptions | null;
+  runtimeSnapshots?: RouterApiRuntimeSnapshotConsumer | null;
+  // Optional: webhook emitter for Router API session/wallet lifecycle events.
+  routerApiWebhooks?: RouterApiWebhookOptions | null;
   // Optional: enable DKIM/TEE email recovery prepare, respond, and ingress routes.
-  emailRecovery?: RelayEmailRecoveryOptions | null;
+  emailRecovery?: RouterApiEmailRecoveryOptions | null;
   // Optional: enable Ed25519 wallet-registration HSS prepare.
-  ed25519RegistrationPrepare?: RelayEd25519RegistrationPrepareOptions | null;
+  ed25519RegistrationPrepare?: RouterApiEd25519RegistrationPrepareOptions | null;
   /**
    * Optional policy adapter for Email OTP key-export authorization.
    *
    * When omitted, local/dev deployments allow `export_key` by default but still
    * emit export-specific audit events with `policySource=default_allow`.
    */
-  emailOtpExportPolicy?: RelayEmailOtpExportPolicyAdapter | null;
+  emailOtpExportPolicy?: RouterApiEmailOtpExportPolicyAdapter | null;
   // Optional observability ingestion adapter used by sponsorship runtime signals.
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   /**
@@ -478,21 +506,21 @@ export interface RelayRouterOptions {
    *
    * When omitted, runtime routes do not enforce API key auth.
    */
-  apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+  apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   /**
    * Optional publishable-key authentication adapter for browser-safe
    * API credential routes like signed delegate execution.
    */
-  publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
+  publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
   /**
    * Optional relay usage-meter adapter used to emit runtime events for
    * billing linkage.
    */
-  apiKeyUsageMeter?: RelayUsageMeterAdapter | null;
+  apiKeyUsageMeter?: RouterApiUsageMeterAdapter | null;
   /**
    * Optional managed bootstrap broker used by browser-safe publishable_key flows.
    */
-  bootstrapGrantBroker?: RelayBootstrapGrantBroker | null;
+  bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
   /**
    * Optional bootstrap-token store used to redeem managed registration grants.
    */
@@ -500,7 +528,7 @@ export interface RelayRouterOptions {
   /**
    * Optional standalone Signing-session seal/unlock routes.
    *
-   * When provided and enabled, routers mount:
+   * When provided, routers mount:
    * - POST `<basePath>/apply-server-seal`
    * - POST `<basePath>/remove-server-seal`
    *
@@ -511,10 +539,10 @@ export interface RelayRouterOptions {
    * Optional ROR configuration for `GET /.well-known/webauthn`.
    * When omitted, the endpoint responds with an empty allowlist.
    */
-  ror?: RelayRouterRorOptions;
+  ror?: RouterApiRorOptions;
   /**
    * Optional Router A/B public deployment keyset served from public discovery
-   * routes for self-hosted and local relay surfaces.
+   * routes for self-hosted and local Router API surfaces.
    */
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   /**
@@ -524,24 +552,24 @@ export interface RelayRouterOptions {
   routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
   sponsoredEvmCall?: {
     route?: string;
-    apiKeys: ConsoleApiKeyService;
+    publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
     billing: ConsoleBillingService;
     ledger: ConsoleSponsoredCallService;
     runtimeSnapshots: ConsoleRuntimeSnapshotService;
-    config: SponsoredEvmCallExecutorConfig | null;
+    config: SponsoredEvmCallExecutorConfig;
     resolveExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
   };
   /**
-   * Optional route extensions mounted by the relay router. Each extension declares
+   * Optional route extensions mounted by the Router API router. Each extension declares
    * explicit runtime support so a Cloudflare Worker can expose Worker-native
    * handlers while an Express server can mount Express-native handlers.
    */
-  routeExtensions?: readonly RelayRouteExtension[];
+  routeExtensions?: readonly RouterApiRouteExtension[];
   /**
-   * Optional high-level relay modules. Modules compose route extensions while
+   * Optional high-level Router API modules. Modules compose route extensions while
    * keeping concrete feature ownership outside wallet/auth router core.
    */
-  modules?: readonly RelayRouterModule[];
+  modules?: readonly RouterApiModule[];
   /**
    * Optional high-level wallet read service used by API credential wallet routes.
    */

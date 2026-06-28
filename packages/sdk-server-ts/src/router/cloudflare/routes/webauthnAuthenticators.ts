@@ -1,10 +1,10 @@
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
-import { emitRelayWebhookEvent } from '../../relayWebhooks';
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../routerApi';
+import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json } from '../http';
 
 export async function handleWebAuthnAuthenticators(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== '/webauthn/authenticators') return null;
@@ -46,9 +46,9 @@ export async function handleWebAuthnAuthenticators(
           (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
       if (!shouldEmit) return;
 
-      await emitRelayWebhookEvent({
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: 'session.warm.expired',
         claims: input.claims,
         userId: input.userId,

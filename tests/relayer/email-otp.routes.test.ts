@@ -4,7 +4,7 @@ import { signSecp256k1Recoverable } from '@server/core/ThresholdService/ethSigne
 import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import {
   createInMemoryConsoleWebhookService,
-  createRelayRouter,
+  createRouterApiRouter,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
@@ -618,7 +618,7 @@ test.describe('Email OTP routes', () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
@@ -664,7 +664,7 @@ test.describe('Email OTP routes', () => {
       createdAtMs: nowMs,
       updatedAtMs: nowMs,
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
@@ -719,7 +719,7 @@ test.describe('Email OTP routes', () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
@@ -1003,11 +1003,11 @@ test.describe('Email OTP routes', () => {
       },
     );
     const authorizations: Array<Record<string, unknown>> = [];
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-email-otp-export-policy-express',
       },
@@ -1128,7 +1128,7 @@ test.describe('Email OTP routes', () => {
     });
     const statusReads: string[] = [];
     const consumeUseCountCalls: string[] = [];
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'app-session': {
           kind: 'app_session_v1',
@@ -1143,7 +1143,7 @@ test.describe('Email OTP routes', () => {
         onStatusRead: (thresholdSessionId) => statusReads.push(thresholdSessionId),
         onConsumeUseCount: (thresholdSessionId) => consumeUseCountCalls.push(thresholdSessionId),
       }),
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-email-otp-signing-session-export',
       },
@@ -1272,7 +1272,7 @@ test.describe('Email OTP routes', () => {
     expect(appVersion.ok).toBe(true);
     const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
     const thresholdClaims = makeThresholdSessionClaims();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'google-app-session': {
           kind: 'app_session_v1',
@@ -1340,7 +1340,7 @@ test.describe('Email OTP routes', () => {
     expect(appVersion.ok).toBe(true);
     const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
     const thresholdClaims = makeThresholdSessionClaims();
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'app-session': {
           kind: 'app_session_v1',
@@ -1424,7 +1424,7 @@ test.describe('Email OTP routes', () => {
     const exhaustedSessionStatus = makeSigningSessionStatusPolicy({
       claims: exhaustedThresholdClaims,
     });
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'app-session': {
           kind: 'app_session_v1',
@@ -1596,7 +1596,7 @@ test.describe('Email OTP routes', () => {
       providerSubject: 'google:alice',
       email: 'alice@example.com',
     };
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'app-session-before-refresh': {
           ...stableClaims,
@@ -1687,7 +1687,7 @@ test.describe('Email OTP routes', () => {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-email-otp-export-policy-cf',
       },
@@ -1749,7 +1749,7 @@ test.describe('Email OTP routes', () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
@@ -1952,7 +1952,7 @@ test.describe('Email OTP routes', () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
@@ -2036,11 +2036,11 @@ test.describe('Email OTP routes', () => {
         eventCategories: ['wallet'],
       },
     );
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-email-otp-express-audit',
       },
@@ -2212,7 +2212,7 @@ test.describe('Email OTP routes', () => {
         eventCategories: ['wallet'],
       },
     );
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'app-session-enroll': {
           kind: 'app_session_v1',
@@ -2229,7 +2229,7 @@ test.describe('Email OTP routes', () => {
           deviceId: 'device-login',
         },
       }),
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-email-otp-express-new-device',
       },
@@ -2303,7 +2303,7 @@ test.describe('Email OTP routes', () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
@@ -2613,7 +2613,7 @@ test.describe('Email OTP routes', () => {
       session: makeAppSessionAdapter(
         (appVersion as { appSessionVersion: string }).appSessionVersion,
       ),
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-email-otp-cf-audit',
       },
@@ -2811,7 +2811,7 @@ test.describe('Email OTP routes', () => {
           deviceId: 'cf-device-login',
         },
       }),
-      relayWebhooks: {
+      routerApiWebhooks: {
         service: webhooks,
         orgId: 'org-email-otp-cf-new-device',
       },
@@ -2910,7 +2910,7 @@ test.describe('Email OTP routes', () => {
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
     const server = await startExpressRouter(
-      createRelayRouter(service, {
+      createRouterApiRouter(service, {
         session: makeAppSessionAdapter(
           (appVersion as { appSessionVersion: string }).appSessionVersion,
         ),
@@ -2959,7 +2959,7 @@ test.describe('Email OTP routes', () => {
     });
     expect(appVersion.ok).toBe(true);
     const server = await startExpressRouter(
-      createRelayRouter(service, {
+      createRouterApiRouter(service, {
         session: makeGoogleEmailOtpAppSessionAdapter(
           (appVersion as { appSessionVersion: string }).appSessionVersion,
         ),

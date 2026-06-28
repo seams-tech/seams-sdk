@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import {
   parseRouterAbPublicKeysetV2,
@@ -43,7 +43,7 @@ const ALLOWED_ORIGIN = 'https://app.example';
 
 test.describe('Router A/B public keyset routes', () => {
   test('express: configured keyset is browser-readable with cache headers', async () => {
-    const router = createRelayRouter(makeFakeAuthService(), {
+    const router = createRouterApiRouter(makeFakeAuthService(), {
       corsOrigins: [ALLOWED_ORIGIN],
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
     });
@@ -76,7 +76,7 @@ test.describe('Router A/B public keyset routes', () => {
   });
 
   test('express: missing keyset returns browser-readable 404', async () => {
-    const router = createRelayRouter(makeFakeAuthService(), {
+    const router = createRouterApiRouter(makeFakeAuthService(), {
       corsOrigins: [ALLOWED_ORIGIN],
     });
     const srv = await startExpressRouter(router);

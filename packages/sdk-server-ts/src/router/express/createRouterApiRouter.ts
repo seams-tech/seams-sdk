@@ -1,7 +1,7 @@
 import type { Router as ExpressRouter } from 'express';
 import express from 'express';
 import type { AuthService } from '../../core/AuthService';
-import type { RelayRouterOptions } from '../relay';
+import type { RouterApiOptions } from '../routerApi';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { installCors } from './cors';
@@ -9,7 +9,6 @@ import { registerBootstrapGrantRoutes } from './routes/bootstrapGrants';
 import { registerApiWalletRoutes } from './routes/apiWallets';
 import { registerEmailRecoveryRoutes } from './routes/emailRecovery';
 import { registerHealthRoutes } from './routes/health';
-import { registerLinkDeviceRoutes } from './routes/linkDevice';
 import { registerRecoverEmailRoute } from './routes/recoverEmail';
 import { registerWalletRegistrationRoutes } from './routes/walletRegistration';
 import { registerSessionRoutes } from './routes/sessions';
@@ -23,41 +22,42 @@ import { registerNearPublicKeysRoutes } from './routes/nearPublicKeys';
 import { registerSponsoredEvmCallRoutes } from './routes/sponsoredEvmCall';
 import { registerWellKnownRoutes } from './routes/wellKnown';
 import { resolveThresholdOption } from '../routerOptions';
-import { validateRelayRouterRorOptions } from '../ror/provider';
+import { validateRouterApiRorOptions } from '../ror/provider';
 import { registerSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal';
-import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../routerApi';
 import {
-  attachRelayRouteSurface,
-  isEmailRecoveryRoutesEnabled,
-  resolveRelayRouteSurface,
-} from '../relayRouteSurface';
+  attachRouterApiRouteSurface,
+  isEmailRecoveryPrepareRoutesEnabled,
+  isRecoverEmailRouteEnabled,
+  resolveRouterApiRouteSurface,
+} from '../routerApiRouteSurface';
 import type { RouteDefinition } from '../routeDefinitions';
 import {
-  getRelayRouteExtensionRoutes,
-  getRelayRouteExtensionsForTransport,
+  getRouterApiRouteExtensionRoutes,
+  getRouterApiRouteExtensionsForTransport,
 } from '../routeExtensions';
-import { resolveRelayRouterModuleRouteExtensions } from '../modules';
+import { resolveRouterApiModuleRouteExtensions } from '../modules';
 
-export interface ExpressRelayContext {
+export interface ExpressRouterApiContext {
   service: AuthService;
-  opts: RelayRouterOptions;
+  opts: RouterApiOptions;
   logger: NormalizedRouterLogger;
   mePath: string;
   routeDefinitions: readonly RouteDefinition[];
   signedDelegatePath: string;
 }
 
-export function createRelayRouter(
+export function createRouterApiRouter(
   service: AuthService,
-  opts: RelayRouterOptions = {},
+  opts: RouterApiOptions = {},
 ): ExpressRouter {
   const router = express.Router();
 
   const threshold = resolveThresholdOption(service, opts);
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
-  const routeExtensions = resolveRelayRouterModuleRouteExtensions(opts);
-  const effectiveOpts: RelayRouterOptions = {
+  const routeExtensions = resolveRouterApiModuleRouteExtensions(opts);
+  const effectiveOpts: RouterApiOptions = {
     ...opts,
     threshold,
     sessionCookieName,
@@ -65,21 +65,22 @@ export function createRelayRouter(
     modules: [],
   };
   if (effectiveOpts.ror) {
-    validateRelayRouterRorOptions(effectiveOpts.ror);
+    validateRouterApiRorOptions(effectiveOpts.ror);
   }
 
   const logger = coerceRouterLogger(effectiveOpts.logger);
-  const routeSurface = resolveRelayRouteSurface(effectiveOpts, { transport: 'express' });
+  const routeSurface = resolveRouterApiRouteSurface(effectiveOpts, { transport: 'express' });
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
-  const emailRecoveryRoutesEnabled = isEmailRecoveryRoutesEnabled(effectiveOpts);
-  const expressRouteExtensions = getRelayRouteExtensionsForTransport(
+  const emailRecoveryPrepareRoutesEnabled = isEmailRecoveryPrepareRoutesEnabled(effectiveOpts);
+  const recoverEmailRouteEnabled = isRecoverEmailRouteEnabled(effectiveOpts);
+  const expressRouteExtensions = getRouterApiRouteExtensionsForTransport(
     routeExtensions,
     'express',
   );
 
   installCors(router, effectiveOpts);
 
-  const ctx: ExpressRelayContext = {
+  const ctx: ExpressRouterApiContext = {
     service,
     opts: effectiveOpts,
     logger,
@@ -95,8 +96,7 @@ export function createRelayRouter(
   registerSignedDelegateRoutes(router, ctx);
   registerAuthRoutes(router, ctx);
   registerSyncAccountRoutes(router, ctx);
-  registerLinkDeviceRoutes(router, ctx);
-  if (emailRecoveryRoutesEnabled) {
+  if (emailRecoveryPrepareRoutesEnabled) {
     registerEmailRecoveryRoutes(router, ctx);
   }
   registerThresholdEd25519Routes(router, ctx);
@@ -109,17 +109,17 @@ export function createRelayRouter(
   registerWebAuthnAuthenticatorRoutes(router, ctx);
   registerNearPublicKeysRoutes(router, ctx);
   registerSessionRoutes(router, ctx);
-  if (emailRecoveryRoutesEnabled) {
+  if (recoverEmailRouteEnabled) {
     registerRecoverEmailRoute(router, ctx);
   }
   for (const extension of expressRouteExtensions) {
     extension.registerExpressRoutes({
       router,
-      routes: getRelayRouteExtensionRoutes(extension, 'express'),
+      routes: getRouterApiRouteExtensionRoutes(extension, 'express'),
     });
   }
   registerHealthRoutes(router, ctx);
   registerWellKnownRoutes(router, ctx);
 
-  return attachRelayRouteSurface(router, routeSurface);
+  return attachRouterApiRouteSurface(router, routeSurface);
 }

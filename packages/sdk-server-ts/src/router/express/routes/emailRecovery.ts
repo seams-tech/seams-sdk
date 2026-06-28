@@ -1,101 +1,102 @@
-import type { Router as ExpressRouter } from 'express';
-import type { ExpressRelayContext } from '../createRelayRouter';
-import {
-  parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
-  signRouterAbEd25519WalletSessionJwt,
-} from '../../commonRouterUtils';
+import type { Request, Response, Router as ExpressRouter } from 'express';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
+import type { RouterApiEmailRecoveryOptions } from '../../routerApi';
+import { signEmailRecoveryThresholdSessionJwt } from '../../emailRecoveryThresholdSession';
 import {
   parsePrepareEmailRecoveryRequest,
   parseRespondEmailRecoveryEcdsaRequest,
 } from '../../emailRecoveryRequestValidation';
 
-export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
-  async function signEmailRecoveryThresholdSession(
-    result: any,
-    rpId: unknown,
-    res: any,
-  ): Promise<boolean> {
-    const thresholdSession = result.thresholdEd25519?.session;
-    if (!thresholdSession) return true;
-    if (thresholdSession.sessionKind !== 'jwt') {
-      res.status(400).json({
-        ok: false,
-        code: 'invalid_body',
-        message: 'threshold_ed25519.session_kind must be jwt',
-      });
-      return false;
+type ConfiguredEmailRecovery = RouterApiEmailRecoveryOptions;
+
+async function handleExpressEmailRecoveryPrepare(input: {
+  req: Request;
+  res: Response;
+  ctx: ExpressRouterApiContext;
+  emailRecovery: ConfiguredEmailRecovery;
+}): Promise<void> {
+  try {
+    const origin = String(input.req.headers?.origin || '').trim() || undefined;
+    const parsed = parsePrepareEmailRecoveryRequest({ body: input.req.body, origin });
+    if (!parsed.ok) {
+      input.res.status(parsed.status).json(parsed.body);
+      return;
     }
-    const sessionInfo = parseRouterAbEd25519BootstrapSessionJwtSessionInfo(thresholdSession);
-    if (!sessionInfo) {
-      res.status(500).json({
-        ok: false,
-        code: 'internal',
-        message: 'invalid thresholdEd25519 session payload for jwt signing',
-      });
-      return false;
+    const result = await input.emailRecovery.authService.prepareEmailRecovery(parsed.request);
+    if (!result.ok) {
+      input.res.status(result.code === 'internal' ? 500 : 400).json(result);
+      return;
     }
-    const signed = await signRouterAbEd25519WalletSessionJwt({
-      session: ctx.opts.session,
-      userId: sessionInfo.walletId,
-      rpId,
-      relayerKeyId: result.thresholdEd25519?.relayerKeyId,
-      sessionInfo,
-      fallbackParticipantIds: result.thresholdEd25519?.participantIds,
-      requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
-      invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
+
+    const signed = await signEmailRecoveryThresholdSessionJwt({
+      result,
+      rpId: parsed.request.rp_id,
+      session: input.ctx.opts.session,
     });
     if (!signed.ok) {
-      res.status(signed.status).json({ ok: false, code: signed.code, message: signed.message });
-      return false;
+      input.res.status(signed.status).json(signed.body);
+      return;
     }
-    result.thresholdEd25519.session.jwt = signed.jwt;
-    return true;
+
+    input.res.status(200).json(result);
+  } catch (e: unknown) {
+    input.res.status(500).json({
+      ok: false,
+      code: 'internal',
+      message: e instanceof Error ? e.message : 'Internal error',
+    });
   }
+}
 
-  router.post('/email-recovery/prepare', async (req: any, res: any) => {
-    try {
-      const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
-      const parsed = parsePrepareEmailRecoveryRequest({ body: req?.body, origin });
-      if (!parsed.ok) {
-        res.status(parsed.status).json(parsed.body);
-        return;
-      }
-      const result = await ctx.service.prepareEmailRecovery(parsed.request);
-      if (!result.ok) {
-        res.status(result.code === 'internal' ? 500 : 400).json(result);
-        return;
-      }
-
-      if (!(await signEmailRecoveryThresholdSession(result, parsed.request.rp_id, res))) return;
-
-      res.status(200).json(result);
-    } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+async function handleExpressEmailRecoveryEcdsaRespond(input: {
+  req: Request;
+  res: Response;
+  ctx: ExpressRouterApiContext;
+  emailRecovery: ConfiguredEmailRecovery;
+}): Promise<void> {
+  try {
+    const parsed = parseRespondEmailRecoveryEcdsaRequest(input.req.body);
+    if (!parsed.ok) {
+      input.res.status(parsed.status).json(parsed.body);
+      return;
     }
+    const result = await input.emailRecovery.authService.respondEmailRecoveryEcdsa(
+      parsed.request,
+    );
+    if (!result.ok) {
+      input.res.status(result.code === 'internal' ? 500 : 400).json(result);
+      return;
+    }
+
+    const signed = await signEmailRecoveryThresholdSessionJwt({
+      result,
+      rpId: result.walletBinding.rpId,
+      session: input.ctx.opts.session,
+    });
+    if (!signed.ok) {
+      input.res.status(signed.status).json(signed.body);
+      return;
+    }
+
+    input.res.status(200).json(result);
+  } catch (e: unknown) {
+    input.res.status(500).json({
+      ok: false,
+      code: 'internal',
+      message: e instanceof Error ? e.message : 'Internal error',
+    });
+  }
+}
+
+export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
+  const emailRecovery = ctx.opts.emailRecovery;
+  if (!emailRecovery) return;
+
+  router.post('/email-recovery/prepare', async (req: Request, res: Response) => {
+    await handleExpressEmailRecoveryPrepare({ req, res, ctx, emailRecovery });
   });
 
-  router.post('/email-recovery/ecdsa/respond', async (req: any, res: any) => {
-    try {
-      const parsed = parseRespondEmailRecoveryEcdsaRequest(req?.body);
-      if (!parsed.ok) {
-        res.status(parsed.status).json(parsed.body);
-        return;
-      }
-      const result = await ctx.service.respondEmailRecoveryEcdsa(parsed.request);
-      if (!result.ok) {
-        res.status(result.code === 'internal' ? 500 : 400).json(result);
-        return;
-      }
-      if (!(await signEmailRecoveryThresholdSession(result, result.walletBinding?.rpId, res))) {
-        return;
-      }
-      res.status(200).json(result);
-    } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
-    }
+  router.post('/email-recovery/ecdsa/respond', async (req: Request, res: Response) => {
+    await handleExpressEmailRecoveryEcdsaRespond({ req, res, ctx, emailRecovery });
   });
 }

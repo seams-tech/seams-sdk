@@ -122,7 +122,6 @@ void registrationCapability.registerWithEmailOtp({
     kind: 'provided',
     walletId: 'alice.testnet' as import('@shared/utils/registrationIntent').WalletId,
   },
-  rpId: 'example.test',
   signerSelection: {
     mode: 'ecdsa_only',
     ecdsa: {
@@ -192,14 +191,14 @@ const invalidEcdsaBootstrapSponsorInput: BootstrapThresholdEcdsaSessionArgs = {
 };
 void invalidEcdsaBootstrapSponsorInput;
 
-const invalidEcdsaBootstrapRelayInput: BootstrapThresholdEcdsaSessionArgs = {
+const invalidEcdsaBootstrapRouterApiInput: BootstrapThresholdEcdsaSessionArgs = {
   kind: 'reuse_warm_ecdsa_bootstrap',
   walletSession,
   chainTarget: tempoChainTarget,
   // @ts-expect-error Public bootstrap rejects projection fields.
   [forbiddenProjectionRelayField]: 'https://relay.example',
 };
-void invalidEcdsaBootstrapRelayInput;
+void invalidEcdsaBootstrapRouterApiInput;
 
 const invalidEcdsaBootstrapProtocolInput: BootstrapThresholdEcdsaSessionArgs = {
   kind: 'reuse_warm_ecdsa_bootstrap',

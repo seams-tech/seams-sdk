@@ -37,7 +37,7 @@ import type { SignedTransaction, AccessKeyList } from '@/core/rpcClients/near/Ne
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
   ActionResult,
-  DelegateRelayResult,
+  DelegateRouterApiResult,
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   WalletSession,
@@ -107,6 +107,7 @@ import {
   implicitNearAccountProvisioning,
   type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
   buildNearWalletRegistrationSignerSelection,
 } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
@@ -292,8 +293,7 @@ export class SeamsWebIframe {
         }
         return await this.registration.registerWallet({
           wallet,
-          rpId,
-          authMethod: args.authMethod || { kind: 'passkey' as const },
+          authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
           signerSelection: buildNearWalletRegistrationSignerSelection({
             configs: this.configs,
             accountProvisioning,
@@ -339,10 +339,10 @@ export class SeamsWebIframe {
         if (!args.participantIds.length) {
           throw new Error('[SeamsWeb][evm] registerEvmWallet requires participant ids');
         }
+        const rpId = this.resolveRegistrationRpId('evm.registerEvmWallet');
         return await this.registration.registerWallet({
           wallet: { kind: 'server_generated' },
-          rpId: this.resolveRegistrationRpId('evm.registerEvmWallet'),
-          authMethod: args.authMethod || { kind: 'passkey' as const },
+          authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
           signerSelection: {
             mode: 'ecdsa_only',
             ecdsa: {
@@ -446,12 +446,20 @@ export class SeamsWebIframe {
     };
   }
 
-  private resolveRegistrationRpId(operation: string): string {
+  private resolveRegistrationRpId(operation: string): WebAuthnRpId {
     const configured = String(this.configs.wallet.iframe?.rpIdOverride || '').trim();
-    if (configured) return configured;
+    if (configured) {
+      const parsed = parseWebAuthnRpId(configured);
+      if (parsed.ok) return parsed.value;
+      throw new Error(parsed.error.message);
+    }
     try {
       const hostname = String(globalThis.location?.hostname || '').trim();
-      if (hostname) return hostname;
+      if (hostname) {
+        const parsed = parseWebAuthnRpId(hostname);
+        if (parsed.ok) return parsed.value;
+        throw new Error(parsed.error.message);
+      }
     } catch {}
     throw new Error(`[SeamsWeb][iframe] ${operation} requires rpId`);
   }
@@ -756,7 +764,7 @@ export class SeamsWebIframe {
     hash: string;
     signal?: AbortSignal;
     options?: DelegateRelayHooksOptions;
-  }): Promise<DelegateRelayResult> {
+  }): Promise<DelegateRouterApiResult> {
     const base = args.relayerUrl.replace(/\/+$/, '');
     const route = (
       this.configs.network.relayer?.routes?.delegateAction || '/signed-delegate'
@@ -817,7 +825,7 @@ export class SeamsWebIframe {
         }
       : undefined;
 
-    let relayResult: DelegateRelayResult;
+    let relayResult: DelegateRouterApiResult;
     try {
       relayResult = await this.sendDelegateActionViaRelayerDomain({
         relayerUrl,

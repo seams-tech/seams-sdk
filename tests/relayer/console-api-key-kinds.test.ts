@@ -3,8 +3,8 @@ import {
   createConsoleRouter,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleOrgProjectEnvService,
-  createRelayApiKeyAuthAdapter,
-  createRelayRouter,
+  createRouterApiKeyAuthAdapter,
+  createRouterApiRouter,
   type ConsoleAuthAdapter,
 } from '@server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
@@ -372,8 +372,8 @@ test.describe('console API key kinds', () => {
       },
     );
 
-    const router = createRelayRouter(makeFakeAuthService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeFakeAuthService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -386,8 +386,7 @@ test.describe('console API key kinds', () => {
         },
         body: JSON.stringify({
           wallet: { kind: 'provided', walletId: 'alice.testnet' },
-          rpId: 'example.com',
-          authMethod: { kind: 'passkey' },
+          authMethod: { kind: 'passkey', rpId: 'example.com' },
           signerSelection: {
             mode: 'ed25519_only',
             ed25519: {

@@ -3,12 +3,12 @@ import { buildPermissionsPolicy, buildWalletCsp } from '@/plugins/headers';
 import { DEFAULT_TEST_CONFIG } from './config';
 import { formatLog, printLog, printStepLine } from './logging';
 
-export interface RelayMockOptions {
+export interface RouterApiMockOptions {
   relayUrl?: string;
   success?: boolean;
 }
 
-export async function mockRelayServer(page: Page, options: RelayMockOptions = {}): Promise<void> {
+export async function mockRouterApiServer(page: Page, options: RouterApiMockOptions = {}): Promise<void> {
   const relayBase = (
     options.relayUrl ??
     DEFAULT_TEST_CONFIG.relayer?.url ??

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import {
   callCf,
@@ -187,14 +187,22 @@ function makePreparedRecoveryService() {
   });
 }
 
+function emailRecoveryAuthOnlyOptions(service: ReturnType<typeof makePreparedRecoveryService>) {
+  return {
+    kind: 'prepare_only' as const,
+    authService: service,
+  };
+}
+
 test.describe('email-recovery prepare routing', () => {
   test('express route signs and returns threshold Ed25519 session auth token', async () => {
     const session = makeSessionAdapter({
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const router = createRelayRouter(makePreparedRecoveryService(), {
-      emailRecovery: { enabled: true },
+    const service = makePreparedRecoveryService();
+    const router = createRouterApiRouter(service, {
+      emailRecovery: emailRecoveryAuthOnlyOptions(service),
       session,
     });
     const srv = await startExpressRouter(router);
@@ -233,8 +241,9 @@ test.describe('email-recovery prepare routing', () => {
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const handler = createCloudflareRouter(makePreparedRecoveryService(), {
-      emailRecovery: { enabled: true },
+    const service = makePreparedRecoveryService();
+    const handler = createCloudflareRouter(service, {
+      emailRecovery: emailRecoveryAuthOnlyOptions(service),
       session,
     });
     const { ctx } = makeCfCtx();
@@ -268,8 +277,9 @@ test.describe('email-recovery prepare routing', () => {
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const router = createRelayRouter(makePreparedRecoveryService(), {
-      emailRecovery: { enabled: true },
+    const service = makePreparedRecoveryService();
+    const router = createRouterApiRouter(service, {
+      emailRecovery: emailRecoveryAuthOnlyOptions(service),
       session,
     });
     const srv = await startExpressRouter(router);
@@ -299,8 +309,9 @@ test.describe('email-recovery prepare routing', () => {
       signJwt: async (sub, claims) =>
         `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
-    const handler = createCloudflareRouter(makePreparedRecoveryService(), {
-      emailRecovery: { enabled: true },
+    const service = makePreparedRecoveryService();
+    const handler = createCloudflareRouter(service, {
+      emailRecovery: emailRecoveryAuthOnlyOptions(service),
       session,
     });
     const { ctx } = makeCfCtx();

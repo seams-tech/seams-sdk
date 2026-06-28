@@ -5,10 +5,11 @@ import {
   signSecp256k1Recoverable,
 } from '@server/core/ThresholdService/ethSignerWasm';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { generateEmailOtpRecoveryKeySet } from '@shared/utils/emailOtpRecoveryKey';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   deriveEmailOtpEcdsaClientRootShare32B64u,
   deriveEmailOtpUnlockAuthSeed,
@@ -112,7 +113,10 @@ function makeAppSessionAdapter(appSessionVersion: string) {
   });
 }
 
-async function seedCanonicalWallet(service: AuthService, walletId = 'alice.testnet'): Promise<void> {
+async function seedCanonicalWallet(
+  service: AuthService,
+  walletId = 'alice.testnet',
+): Promise<void> {
   const walletStore = (service as any).getWalletStore();
   const existing = await walletStore.getWallet({ walletId });
   if (existing) return;
@@ -719,7 +723,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const enrollVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(enrollVersion.ok).toBe(true);
     let recoveryAppSessionVersion = '';
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'app-session-enroll': {
           kind: 'app_session_v1',
@@ -807,18 +811,22 @@ test.describe('Email OTP bootstrap integration', () => {
     }
   });
 
-  test('Email OTP app-session routes reject threshold-session auth tokens', async () => {
+  test('Email OTP app-session routes reject wallet-session auth tokens', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
+      threshold: null,
       session: makeTokenBoundAppSessionAdapter({
-        'threshold-session-token': {
-          kind: 'threshold_ecdsa_session_v1',
+        'wallet-session-token': {
+          kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
           sub: 'alice.testnet',
           walletId: 'alice.testnet',
-          rpId: 'example.localhost',
-          sessionId: 'threshold-ecdsa-session-1',
+          thresholdSessionId: 'threshold-ecdsa-session-1',
+          signingGrantId: 'signing-grant-1',
+          keyScope: 'evm-family',
+          keyHandle: 'ehss-key-1',
+          walletKeyId: 'wallet-key-1',
           relayerKeyId: 'rk-1',
           participantIds: [1, 2],
           thresholdExpiresAtMs: Date.now() + 60_000,
@@ -832,7 +840,7 @@ test.describe('Email OTP bootstrap integration', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer threshold-session-token',
+          Authorization: 'Bearer wallet-session-token',
         },
         body: JSON.stringify({
           walletId: 'alice.testnet',
@@ -847,7 +855,7 @@ test.describe('Email OTP bootstrap integration', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer threshold-session-token',
+          Authorization: 'Bearer wallet-session-token',
         },
         body: JSON.stringify({
           walletId: 'alice.testnet',
@@ -869,7 +877,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
     const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(appSessionVersion),
     });
     const srv = await startExpressRouter(router);
@@ -949,7 +957,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
     const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
-    const router = createRelayRouter(service, {
+    const router = createRouterApiRouter(service, {
       session: makeAppSessionAdapter(appSessionVersion),
     });
     const srv = await startExpressRouter(router);

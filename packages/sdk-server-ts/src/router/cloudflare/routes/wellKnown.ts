@@ -1,4 +1,4 @@
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json } from '../http';
 import {
   normalizeRorHost,
@@ -11,7 +11,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
 } from '@shared/utils/routerAbPublicKeyset';
 
-export async function handleWellKnown(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleWellKnown(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (
     ctx.pathname === ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH ||

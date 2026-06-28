@@ -1,6 +1,6 @@
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
-import { emitRelayWebhookEvent } from '../../relayWebhooks';
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../routerApi';
+import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { headersToRecord, json, readJson } from '../http';
 import {
   parseAuthIdentityMutationRequest,
@@ -19,7 +19,7 @@ function assertNeverAuthIdentityMutation(route: never): never {
   throw new Error(`Unsupported auth identity mutation: ${String((route as any)?.kind || '')}`);
 }
 
-export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   const hasBearerSessionSignal = (): boolean => {
     const authorization = String(ctx.request.headers.get('authorization') || '').trim();
     return authorization.toLowerCase().startsWith('bearer ');
@@ -57,9 +57,9 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
         (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
     if (!shouldEmit) return;
 
-    await emitRelayWebhookEvent({
+    await emitRouterApiWebhookEvent({
       logger: ctx.logger,
-      webhooks: ctx.opts.relayWebhooks,
+      webhooks: ctx.opts.routerApiWebhooks,
       eventType: 'session.warm.expired',
       claims: input.claims,
       userId: input.userId,

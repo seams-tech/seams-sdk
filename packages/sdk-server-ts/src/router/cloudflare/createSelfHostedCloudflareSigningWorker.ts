@@ -1,9 +1,9 @@
 import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
-import type { CloudflareRelayAuthService } from '../authServicePort';
-import type { RelayRouterOptions } from '../relay';
-import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
+import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiOptions } from '../routerApi';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../routerApi';
 import { resolveThresholdOption } from '../routerOptions';
-import { validateRelayRouterRorOptions } from '../ror/provider';
+import { validateRouterApiRorOptions } from '../ror/provider';
 import { coerceRouterLogger } from '../logger';
 import type { NormalizedRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
@@ -18,7 +18,7 @@ import {
 
 type HssWalletId = string & { readonly __hssWalletIdBrand: unique symbol };
 
-type SelfHostedCloudflareRelayContext = Parameters<typeof handleThresholdEd25519>[0];
+type SelfHostedCloudflareRouterApiContext = Parameters<typeof handleThresholdEd25519>[0];
 
 type SelfHostedWorker<Env> = {
   fetch(request: Request, env: Env, ctx: CfExecutionContext): Promise<Response>;
@@ -65,22 +65,22 @@ export type SelfHostedCloudflareSigningWorkerFactoryInput<Env extends CfEnv = Cf
     readonly request: Request;
     readonly env: Env;
     readonly ctx: CfExecutionContext;
-  }) => CloudflareRelayAuthService | Promise<CloudflareRelayAuthService>;
+  }) => CloudflareRouterApiAuthService | Promise<CloudflareRouterApiAuthService>;
   readonly routerOptions?:
-    | RelayRouterOptions
+    | RouterApiOptions
     | ((input: {
         readonly request: Request;
         readonly env: Env;
         readonly ctx: CfExecutionContext;
-        readonly service: CloudflareRelayAuthService;
-      }) => RelayRouterOptions | Promise<RelayRouterOptions>);
+        readonly service: CloudflareRouterApiAuthService;
+      }) => RouterApiOptions | Promise<RouterApiOptions>);
   readonly signingRootAdmin?:
     | SelfHostedSigningRootAdminRoutes
     | ((input: {
         readonly request: Request;
         readonly env: Env;
         readonly ctx: CfExecutionContext;
-        readonly service: CloudflareRelayAuthService;
+        readonly service: CloudflareRouterApiAuthService;
       }) =>
         | SelfHostedSigningRootAdminRoutes
         | null
@@ -170,7 +170,7 @@ function requireHssWalletId(body: unknown, name: string): HssWalletId | null {
 }
 
 function resolveSelfHostedWalletVerifier(
-  ctx: SelfHostedCloudflareRelayContext,
+  ctx: SelfHostedCloudflareRouterApiContext,
 ): SelfHostedEcdsaSigningRootWalletVerifier | null {
   const candidate = ctx.opts.threshold as unknown;
   if (
@@ -191,7 +191,7 @@ function selfHostedSigningRootResultStatus(result: unknown): number {
   return 400;
 }
 
-function selfHostedHealthResponse(ctx: SelfHostedCloudflareRelayContext): Response | null {
+function selfHostedHealthResponse(ctx: SelfHostedCloudflareRouterApiContext): Response | null {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== '/healthz' && ctx.pathname !== '/readyz') return null;
   if (ctx.pathname === '/healthz' && !ctx.opts.healthz) return null;
@@ -208,7 +208,7 @@ function selfHostedHealthResponse(ctx: SelfHostedCloudflareRelayContext): Respon
 }
 
 async function handleSigningRootAdminRoutes(
-  ctx: SelfHostedCloudflareRelayContext,
+  ctx: SelfHostedCloudflareRouterApiContext,
   config?: SelfHostedSigningRootAdminRoutes,
 ): Promise<Response | null> {
   if (!ctx.pathname.startsWith('/self-host/signing-root/')) return null;
@@ -349,10 +349,10 @@ function createSelfHostedContext(input: {
   readonly request: Request;
   readonly env?: CfEnv;
   readonly cfCtx?: CfExecutionContext;
-  readonly service: CloudflareRelayAuthService;
-  readonly opts: RelayRouterOptions;
+  readonly service: CloudflareRouterApiAuthService;
+  readonly opts: RouterApiOptions;
   readonly logger: NormalizedRouterLogger;
-}): SelfHostedCloudflareRelayContext {
+}): SelfHostedCloudflareRouterApiContext {
   const url = new URL(input.request.url);
   return {
     request: input.request,
@@ -371,16 +371,16 @@ function createSelfHostedContext(input: {
 }
 
 export function createSelfHostedCloudflareSigningRouter(
-  service: CloudflareRelayAuthService,
-  opts: RelayRouterOptions = {},
+  service: CloudflareRouterApiAuthService,
+  opts: RouterApiOptions = {},
   selfHostedOpts: SelfHostedCloudflareSigningRouterOptions = {},
 ): FetchHandler {
   const threshold = resolveThresholdOption(service, opts);
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
-  const effectiveOpts: RelayRouterOptions = { ...opts, threshold, sessionCookieName };
+  const effectiveOpts: RouterApiOptions = { ...opts, threshold, sessionCookieName };
   if (effectiveOpts.ror) {
-    validateRelayRouterRorOptions(effectiveOpts.ror);
+    validateRouterApiRorOptions(effectiveOpts.ror);
   }
   const logger = coerceRouterLogger(effectiveOpts.logger);
 

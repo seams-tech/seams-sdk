@@ -1,17 +1,17 @@
 import type {
-  RelayEmailOtpExportPolicyDecision,
-  RelayEmailOtpExportPolicyInput,
-  RelayRouterOptions,
-} from './relay';
+  RouterApiEmailOtpExportPolicyDecision,
+  RouterApiEmailOtpExportPolicyInput,
+  RouterApiOptions,
+} from './routerApi';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 
-export type ResolvedEmailOtpExportPolicyDecision = RelayEmailOtpExportPolicyDecision & {
+export type ResolvedEmailOtpExportPolicyDecision = RouterApiEmailOtpExportPolicyDecision & {
   policySource: 'adapter' | 'default_allow';
 };
 
 export async function authorizeEmailOtpExportPolicy(
-  opts: RelayRouterOptions,
-  input: RelayEmailOtpExportPolicyInput,
+  opts: RouterApiOptions,
+  input: RouterApiEmailOtpExportPolicyInput,
 ): Promise<ResolvedEmailOtpExportPolicyDecision> {
   const adapter = opts.emailOtpExportPolicy;
   if (!adapter) {

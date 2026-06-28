@@ -244,7 +244,7 @@ export type PersistRegisteredThresholdEd25519SessionArgs =
       registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterial;
     });
 
-type ThresholdWarmSessionRelayResult = {
+type ThresholdWarmSessionRouterApiResult = {
   sessionKind?: string;
   thresholdSessionId?: string;
   signingGrantId?: string;
@@ -2111,7 +2111,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   relayerUrl: string;
   relayerKeyId: string;
   signerSlot: number;
-  session: ThresholdWarmSessionRelayResult;
+  session: ThresholdWarmSessionRouterApiResult;
   ed25519HssKeyVersion: Ed25519HssKeyVersion;
   materialCreatedAtMs: number;
   participantIdsHint?: number[];
@@ -2297,7 +2297,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   credential: WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
   signerSlot: number;
   requestedPolicy: ThresholdWarmSessionPolicyDraft;
-  session: ThresholdWarmSessionRelayResult;
+  session: ThresholdWarmSessionRouterApiResult;
   participantIdsHint?: number[];
 }): Promise<{
   sessionId: string;

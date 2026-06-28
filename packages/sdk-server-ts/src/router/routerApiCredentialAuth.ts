@@ -8,13 +8,13 @@ import {
 } from './enforceRoutePolicy';
 import {
   extractBearerCredential,
-  extractRelayEnvironmentId,
-} from './relayApiKeyAuth';
+  extractRouterApiEnvironmentId,
+} from './routerApiKeyAuth';
 import type {
-  RelayApiKeyAuthAdapter,
-  RelayBootstrapGrantBroker,
-  RelayPublishableKeyAuthAdapter,
-} from './relay';
+  RouterApiKeyAuthAdapter,
+  RouterApiBootstrapGrantBroker,
+  RouterApiPublishableKeyAuthAdapter,
+} from './routerApi';
 import type { HeaderRecord } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 
@@ -84,14 +84,14 @@ interface ResolvePublishableKeyApiCredentialAuthInput {
   missingOriginMessage: string;
   missingPublishableKeyMessage: string;
   origin?: string;
-  publishableKeyAuth: RelayPublishableKeyAuthAdapter;
+  publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   route: RouteDefinition;
   routeAuthNotConfiguredMessage: string;
 }
 
 interface ResolveBootstrapGrantApiCredentialAuthInput {
   body: unknown;
-  broker: RelayBootstrapGrantBroker;
+  broker: RouterApiBootstrapGrantBroker;
   headers: HeaderRecord;
   origin?: string;
   onAuthenticated(apiKey: ConsoleApiKey): void;
@@ -99,7 +99,7 @@ interface ResolveBootstrapGrantApiCredentialAuthInput {
 }
 
 interface ResolveRegistrationBootstrapApiCredentialAuthInput {
-  apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+  apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   body: unknown;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   headers: HeaderRecord;
@@ -109,7 +109,7 @@ interface ResolveRegistrationBootstrapApiCredentialAuthInput {
 }
 
 interface ResolveSecretKeyApiCredentialAuthInput {
-  apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+  apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   headers: HeaderRecord;
   route: RouteDefinition;
   sourceIp?: string;
@@ -259,7 +259,7 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
 
   const { apiKeyAuth, bootstrapTokenStore } = input;
   if (!apiKeyAuth && !bootstrapTokenStore) {
-    return routeAuthNotConfigured('Relay API credential auth is not configured for this route');
+    return routeAuthNotConfigured('Router API credential auth is not configured for this route');
   }
 
   const credential = extractBearerCredential(input.headers);
@@ -371,7 +371,7 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
     headers: input.headers,
     route: input.route,
     sourceIp: input.sourceIp,
-    routeAuthNotConfiguredMessage: 'Relay API credential auth is not configured for this route',
+    routeAuthNotConfiguredMessage: 'Router API credential auth is not configured for this route',
   });
 }
 
@@ -406,7 +406,7 @@ export async function resolveSecretKeyApiCredentialAuth(
     };
   }
 
-  const environmentId = extractRelayEnvironmentId(input.headers);
+  const environmentId = extractRouterApiEnvironmentId(input.headers);
   const authResult = await apiKeyAuth.authenticate({
     secret: credential,
     endpoint: `${input.route.method} ${input.route.path}`,

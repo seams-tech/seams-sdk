@@ -1,5 +1,5 @@
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import type { CloudflareRelayAuthService } from './authServicePort';
+import type { CloudflareRouterApiAuthService } from './authServicePort';
 import { parseWalletUnlockBackend } from './emailOtpRequestValidation';
 import {
   emailOtpFailureWebhookEventDescriptors,
@@ -12,7 +12,7 @@ export type WalletUnlockRouteResponse = {
   body: Record<string, unknown>;
 };
 
-export type EmitWalletUnlockRelayWebhook = (input: {
+export type EmitWalletUnlockRouterApiWebhook = (input: {
   eventType: string;
   userId?: string;
   eventId?: string;
@@ -27,7 +27,7 @@ export type EmitWalletUnlockEmailOtpWebhook = (input: {
 
 export async function handleWalletUnlockChallengeRoute(input: {
   body: unknown;
-  service: CloudflareRelayAuthService;
+  service: CloudflareRouterApiAuthService;
 }): Promise<WalletUnlockRouteResponse> {
   if (!input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {
     return {
@@ -69,8 +69,8 @@ export async function handleWalletUnlockChallengeRoute(input: {
 export async function handleWalletUnlockVerifyRoute(input: {
   body: unknown;
   origin?: string;
-  service: CloudflareRelayAuthService;
-  emitRelayWebhook: EmitWalletUnlockRelayWebhook;
+  service: CloudflareRouterApiAuthService;
+  emitRouterApiWebhook: EmitWalletUnlockRouterApiWebhook;
   emitEmailOtpWebhook: EmitWalletUnlockEmailOtpWebhook;
 }): Promise<WalletUnlockRouteResponse> {
   if (!input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {
@@ -150,7 +150,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
   if (unlockBackend === 'passkey') {
     await input.service.markEmailOtpStrongAuthSatisfied({ walletId: result.userId });
   }
-  await input.emitRelayWebhook({
+  await input.emitRouterApiWebhook({
     eventType: 'wallet.unlocked',
     userId: result.userId,
     eventId: challengeId,

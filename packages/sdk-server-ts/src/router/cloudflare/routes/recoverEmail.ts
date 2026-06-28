@@ -1,99 +1,27 @@
 import { parseRecoverEmailRequest } from '../../../email-recovery/emailParsers';
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import {
-  markTrackedRecoverySessionVerified,
-  recordTrackedNearRecoveryExecution,
-  resolveTrackedNearRecoveryExecution,
-  transitionTrackedRecoverySession,
+  prepareTrackedRecoverEmailExecution,
+  recordTrackedRecoverEmailPending,
+  runTrackedRecoverEmailExecution,
+  runTrackedRecoverEmailExecutionAsync,
 } from '../../recoveryExecutionTracking';
 
-export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/recover-email') return null;
-
+function isCloudflareRecoverEmailAsync(ctx: CloudflareRouterApiContext): boolean {
   const prefer = String(ctx.request.headers.get('prefer') || '').toLowerCase();
-  const respondAsync =
+  return (
     prefer.includes('respond-async') ||
     String(ctx.url.searchParams.get('async') || '').trim() === '1' ||
-    String(ctx.url.searchParams.get('respond_async') || '').trim() === '1';
+    String(ctx.url.searchParams.get('respond_async') || '').trim() === '1'
+  );
+}
 
-  const rawBody = await readJson(ctx.request);
-  const parsed = parseRecoverEmailRequest(rawBody);
-  if (!parsed.ok) {
-    return json({ code: parsed.code, message: parsed.message }, { status: parsed.status });
-  }
-  const { accountId, emailBlob, recoveryPayload } = parsed;
-  const trackedRecovery = await resolveTrackedNearRecoveryExecution(ctx.service, {
-    accountId,
-    recoveryPayload,
-  }).catch(() => null);
-  if (!trackedRecovery) {
-    return json(
-      {
-        code: 'invalid_recovery_session',
-        message: 'Recovery email does not match a prepared canonical recovery session',
-      },
-      { status: 400 },
-    );
-  }
-  await markTrackedRecoverySessionVerified(ctx.service, trackedRecovery, {
-    emailBlob,
-  });
+export async function handleRecoverEmail(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/recover-email') return null;
 
-  const persistExecution = async (input: {
-    status: 'pending' | 'submitted' | 'failed';
-    transactionHash?: string;
-    errorCode?: string;
-    errorMessage?: string;
-  }): Promise<void> => {
-    try {
-      await recordTrackedNearRecoveryExecution(ctx.service, trackedRecovery, input);
-    } catch (err: unknown) {
-      ctx.logger.warn('[recover-email] failed to persist recovery execution', {
-        accountId,
-        sessionId: trackedRecovery?.sessionId,
-        error: err instanceof Error ? err.message : String(err || 'unknown error'),
-      });
-    }
-  };
-
-  const markNearRecoverySubmitted = async (transactionHash?: string): Promise<void> => {
-    try {
-      await transitionTrackedRecoverySession(ctx.service, trackedRecovery, {
-        status: 'near_recovered',
-        metadataPatch: {
-          ...(transactionHash ? { nearRecoveryTransactionHash: transactionHash } : {}),
-          nearRecoverySubmittedAtMs: Date.now(),
-        },
-      });
-    } catch (err: unknown) {
-      ctx.logger.warn('[recover-email] failed to mark NEAR recovery submitted', {
-        accountId,
-        sessionId: trackedRecovery?.sessionId,
-        error: err instanceof Error ? err.message : String(err || 'unknown error'),
-      });
-    }
-  };
-
-  const markRecoveryFailed = async (errorCode: string, errorMessage: string): Promise<void> => {
-    try {
-      await transitionTrackedRecoverySession(ctx.service, trackedRecovery, {
-        status: 'failed',
-        metadataPatch: {
-          recoveryFailureCode: errorCode,
-          recoveryFailureMessage: errorMessage,
-        },
-      });
-    } catch (err: unknown) {
-      ctx.logger.warn('[recover-email] failed to update recovery session status', {
-        accountId,
-        sessionId: trackedRecovery?.sessionId,
-        error: err instanceof Error ? err.message : String(err || 'unknown error'),
-      });
-    }
-  };
-
-  if (!ctx.service.emailRecovery) {
+  const emailRecovery = ctx.opts.emailRecovery;
+  if (emailRecovery?.kind !== 'prepare_and_execute') {
     return json(
       {
         code: 'email_recovery_unavailable',
@@ -103,82 +31,57 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
     );
   }
 
-  if (respondAsync && ctx.cfCtx && typeof ctx.cfCtx.waitUntil === 'function') {
-    await persistExecution({ status: 'pending' });
-    ctx.cfCtx.waitUntil(
-      ctx.service.emailRecovery
-        .requestEmailRecovery({ accountId, emailBlob, recoveryPayload })
-        .then(async (result) => {
-          await persistExecution(
-            result?.success
-              ? {
-                  status: 'submitted',
-                  transactionHash: result.transactionHash,
-                }
-              : {
-                  status: 'failed',
-                  errorCode: 'near_email_recovery_submit_failed',
-                  errorMessage: result?.error || result?.message || 'Email recovery failed',
-                },
-          );
-          if (result?.success) {
-            await markNearRecoverySubmitted(result.transactionHash);
-          } else {
-            await markRecoveryFailed(
-              'near_email_recovery_submit_failed',
-              result?.error || result?.message || 'Email recovery failed',
-            );
-          }
-          ctx.logger.info('[recover-email] async complete', {
-            success: result?.success === true,
-            accountId,
-            error: result?.success ? undefined : result?.error,
-          });
-        })
-        .catch(async (err: any) => {
-          await persistExecution({
-            status: 'failed',
-            errorCode: 'near_email_recovery_submit_failed',
-            errorMessage: err?.message || String(err),
-          });
-          await markRecoveryFailed(
-            'near_email_recovery_submit_failed',
-            err?.message || String(err),
-          );
-          ctx.logger.error('[recover-email] async error', {
-            accountId,
-            error: err?.message || String(err),
-          });
-        }),
-    );
-    return json({ success: true, queued: true, accountId }, { status: 202 });
-  }
+  const respondAsync = isCloudflareRecoverEmailAsync(ctx);
 
-  await persistExecution({ status: 'pending' });
-  const result = await ctx.service.emailRecovery.requestEmailRecovery({
+  const rawBody = await readJson(ctx.request);
+  const parsed = parseRecoverEmailRequest(rawBody);
+  if (!parsed.ok) {
+    return json({ code: parsed.code, message: parsed.message }, { status: parsed.status });
+  }
+  const { accountId, emailBlob, recoveryPayload } = parsed;
+  const execution = await prepareTrackedRecoverEmailExecution({
+    service: ctx.service,
     accountId,
     emailBlob,
     recoveryPayload,
   });
-  await persistExecution(
-    result.success
-      ? {
-          status: 'submitted',
-          transactionHash: result.transactionHash,
-        }
-      : {
-          status: 'failed',
-          errorCode: 'near_email_recovery_submit_failed',
-          errorMessage: result.error || result.message || 'Email recovery failed',
-        },
-  );
-  if (result.success) {
-    await markNearRecoverySubmitted(result.transactionHash);
-  } else {
-    await markRecoveryFailed(
-      'near_email_recovery_submit_failed',
-      result.error || result.message || 'Email recovery failed',
+  if (!execution) {
+    return json(
+      {
+        code: 'invalid_recovery_session',
+        message: 'Recovery email does not match a prepared canonical recovery session',
+      },
+      { status: 400 },
     );
   }
+
+  if (respondAsync && ctx.cfCtx && typeof ctx.cfCtx.waitUntil === 'function') {
+    await recordTrackedRecoverEmailPending({
+      service: ctx.service,
+      logger: ctx.logger,
+      execution,
+    });
+    ctx.cfCtx.waitUntil(
+      runTrackedRecoverEmailExecutionAsync({
+        service: ctx.service,
+        executionService: emailRecovery.executionService,
+        logger: ctx.logger,
+        execution,
+      }),
+    );
+    return json({ success: true, queued: true, accountId }, { status: 202 });
+  }
+
+  await recordTrackedRecoverEmailPending({
+    service: ctx.service,
+    logger: ctx.logger,
+    execution,
+  });
+  const result = await runTrackedRecoverEmailExecution({
+    service: ctx.service,
+    executionService: emailRecovery.executionService,
+    logger: ctx.logger,
+    execution,
+  });
   return json(result, { status: result.success ? 202 : 400 });
 }

@@ -5,9 +5,9 @@ import {
   createInMemoryConsoleBootstrapTokenService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryRouterAbNormalSigningAdmissionStore,
-  createRelayBootstrapGrantBroker,
-  createRelayPublishableKeyAuthAdapter,
-  createRelayRouter,
+  createRouterApiBootstrapGrantBroker,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiRouter,
   createRouterAbNormalSigningAdmissionAdapter,
 } from '@server/router/express-adaptor';
 import { deriveThresholdEd25519RegistrationMaterialFromHssFinalize } from '@server/core/ThresholdService/ed25519HssWasm';
@@ -17,7 +17,7 @@ import {
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
 import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
-import type { SessionAdapter } from '@server/router/relay';
+import type { SessionAdapter } from '@server/router/routerApi';
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
@@ -145,7 +145,10 @@ function createThresholdAwareSealedRefreshSessionAdapter(): ReturnType<
       if (parsed.ok) return parsed;
       const claims = decodeUnsignedJwtClaims(readBearerToken(headers));
       const kind = String(claims?.kind || '').trim();
-      if (kind === 'threshold_ed25519_session_v1' || kind === 'threshold_ecdsa_session_v2') {
+      if (
+        kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND ||
+        kind === ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
+      ) {
         return { ok: true as const, claims: claims as Record<string, unknown> };
       }
       return parsed;
@@ -382,9 +385,7 @@ async function installThresholdRegistrationBootstrapMock(
         const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
         const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
         const walletKeyId = String(
-          thresholdEcdsa?.walletKeyId ||
-            thresholdEcdsa?.wallet_key_id ||
-            `wallet-key-${accountId}`,
+          thresholdEcdsa?.walletKeyId || thresholdEcdsa?.wallet_key_id || `wallet-key-${accountId}`,
         ).trim();
         const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
           walletId: accountId,
@@ -478,12 +479,10 @@ async function installThresholdRegistrationBootstrapMock(
                   ethereum_address20_b64u: hexAddress20ToB64u(
                     String(bootstrap.ethereumAddress || ''),
                   ),
-                  client_share_retry_counter: Number(
-                    clientBootstrap.clientShareRetryCounter || 0,
-                  ),
+                  client_share_retry_counter: Number(clientBootstrap.clientShareRetryCounter || 0),
                   server_share_retry_counter: Number(
-                    (bootstrap as { relayerShareRetryCounter?: unknown }).relayerShareRetryCounter ||
-                      0,
+                    (bootstrap as { relayerShareRetryCounter?: unknown })
+                      .relayerShareRetryCounter || 0,
                   ),
                 },
                 signing_worker: {
@@ -610,8 +609,9 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
               put: (
                 relayerKeyId: string,
                 record: {
+                  walletId: string;
                   nearAccountId: string;
-                  rpId: string;
+                  authorityScope: { kind: 'passkey_rp'; rpId: string };
                   publicKey: string;
                   relayerSigningShareB64u: string;
                   relayerVerifyingShareB64u: string;
@@ -624,8 +624,12 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
         ).keyStore;
         if (keyStore?.put) {
           await keyStore.put(registrationMaterial.relayerKeyId, {
+            walletId: String(payload?.new_account_id || '').trim(),
             nearAccountId: String(payload?.new_account_id || '').trim(),
-            rpId: String(payload?.rp_id || '').trim(),
+            authorityScope: {
+              kind: 'passkey_rp',
+              rpId: String(payload?.rp_id || '').trim(),
+            },
             publicKey: registrationMaterial.publicKey,
             relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
             relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
@@ -729,13 +733,13 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
     throw new Error('Missing Wallet Session stores for signing-session seal policy');
   }
 
-  const router = createRelayRouter(service, {
+  const router = createRouterApiRouter(service, {
     corsOrigins: [frontendOrigin, 'https://example.localhost', 'https://wallet.example.localhost'],
     threshold,
     session,
-    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     orgProjectEnv,
-    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
       apiKeys,
       tokenStore: bootstrapTokenStore,
       orgProjectEnv,

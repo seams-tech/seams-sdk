@@ -1,12 +1,11 @@
-import { createRelayPublishableKeyAuthAdapter } from '../../relayApiKeyAuth';
-import { handleRelaySponsoredEvmCall } from '../../relaySponsoredEvmCall';
+import { handleRouterApiSponsoredEvmCall } from '../../routerApiSponsoredEvmCall';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { toFetchRouteResponse } from '../../routeResponses';
 import { readJson } from '../http';
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 
 export async function handleSponsoredEvmCall(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, 'sponsored_evm_call');
   if (!route) return null;
@@ -15,12 +14,7 @@ export async function handleSponsoredEvmCall(
   const options = ctx.opts.sponsoredEvmCall;
   if (!options) return null;
 
-  const publishableKeyAuth =
-    typeof options.apiKeys.authenticatePublishableKey === 'function'
-      ? createRelayPublishableKeyAuthAdapter(options.apiKeys)
-      : null;
-
-  const response = await handleRelaySponsoredEvmCall({
+  const response = await handleRouterApiSponsoredEvmCall({
     body: await readJson(ctx.request),
     headers: Object.fromEntries(ctx.request.headers.entries()),
     logger: ctx.logger,
@@ -29,21 +23,21 @@ export async function handleSponsoredEvmCall(
       undefined,
     route,
     services: {
-      relaySponsoredEvmCall: {
+      routerApiSponsoredEvmCall: {
         billing: options.billing,
         config: options.config,
         corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
         resolveExecutionAdapter: options.resolveExecutionAdapter || null,
         observabilityIngestion: ctx.opts.observabilityIngestion || null,
         prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
-        publishableKeyAuth,
+        publishableKeyAuth: options.publishableKeyAuth,
         pricing: ctx.opts.sponsorship?.pricing || null,
         runtimeSnapshots: options.runtimeSnapshots,
         spendCaps: ctx.opts.sponsorship?.spendCaps || null,
         sponsoredCalls: options.ledger,
-        webhooks: ctx.opts.relayWebhooks?.service || null,
-        webhookActorUserId: ctx.opts.relayWebhooks?.actorUserId,
-        webhookRoles: ctx.opts.relayWebhooks?.roles,
+        webhooks: ctx.opts.routerApiWebhooks?.service || null,
+        webhookActorUserId: ctx.opts.routerApiWebhooks?.actorUserId,
+        webhookRoles: ctx.opts.routerApiWebhooks?.roles,
       },
     },
   });

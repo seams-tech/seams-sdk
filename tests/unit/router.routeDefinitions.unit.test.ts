@@ -8,7 +8,7 @@ import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/ro
 import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/routeExecutionContext';
 import {
   createConsoleRouteDefinitions,
-  createRelayRouteDefinitions,
+  createRouterApiRouteDefinitions,
   defineRoute,
   findRouteDefinitionForRequest,
   type RouteDefinition,
@@ -32,18 +32,13 @@ const THRESHOLD_CONTINUATION_ROUTE_IDS = [
 ] as const;
 
 const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
-  'relay_healthz',
-  'relay_readyz',
+  'router_api_healthz',
+  'router_api_readyz',
   'relay_well_known_webauthn',
   'relay_router_ab_public_keyset',
   'auth_provider_action',
   'sync_account_options',
   'sync_account_verify',
-  'link_device_session_get',
-  'link_device_session_create',
-  'link_device_session_claim',
-  'link_device_prepare',
-  'link_device_ecdsa_respond',
   'email_recovery_prepare',
   'email_recovery_ecdsa_respond',
   'router_ab_ed25519_healthz',
@@ -67,25 +62,21 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
 ] as const;
 
 const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
-  'relay_healthz',
-  'relay_readyz',
+  'router_api_healthz',
+  'router_api_readyz',
   'relay_well_known_webauthn',
   'relay_router_ab_public_keyset',
-  'link_device_session_get',
-  'link_device_session_create',
-  'link_device_session_claim',
-  'link_device_prepare',
-  'link_device_ecdsa_respond',
   'router_ab_ed25519_healthz',
   'router_ab_ecdsa_hss_healthz',
   'recover_email',
 ] as const;
 
 test.describe('route definition scaffolding', () => {
-  test('relay route ids are unique and core policies are encoded', async () => {
-    const routes = createRelayRouteDefinitions({
+  test('Router API route ids are unique and core policies are encoded', async () => {
+    const routes = createRouterApiRouteDefinitions({
       enableEd25519RegistrationPrepare: true,
-      enableEmailRecovery: true,
+      enableEmailRecoveryPrepare: true,
+      enableRecoverEmail: true,
       enableHealthz: true,
       enableSigningSessionSeal: true,
       enableReadyz: true,

@@ -1,36 +1,40 @@
 import { ensureLeadingSlash } from '@shared/utils/validation';
-import type { RelayRouterOptions } from './relay';
+import type { RouterApiOptions } from './routerApi';
 import {
-  createRelayRouteDefinitions,
-  type RelayRouteDefinitionOptions,
+  createRouterApiRouteDefinitions,
+  type RouterApiRouteDefinitionOptions,
   type RouteDefinition,
 } from './routeDefinitions';
 import {
-  assertUniqueRelayRouteDefinitions,
-  getRelayRouteExtensionDefinitions,
-  type RelayRouteExtensionTransport,
+  assertUniqueRouterApiRouteDefinitions,
+  getRouterApiRouteExtensionDefinitions,
+  type RouterApiRouteExtensionTransport,
 } from './routeExtensions';
-import { resolveRelayRouterModuleRouteExtensions } from './modules';
+import { resolveRouterApiModuleRouteExtensions } from './modules';
 
-const RELAY_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.relayRouteSurface');
+const ROUTER_API_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.routerApiRouteSurface');
 
-export interface RelayRouteSurface {
+export interface RouterApiRouteSurface {
   mePath: string;
   routeDefinitions: readonly RouteDefinition[];
   signedDelegatePath: string;
 }
 
-export function isEmailRecoveryRoutesEnabled(opts: RelayRouterOptions): boolean {
-  return opts.emailRecovery?.enabled === true;
+export function isEmailRecoveryPrepareRoutesEnabled(opts: RouterApiOptions): boolean {
+  return Boolean(opts.emailRecovery);
 }
 
-export function isEd25519RegistrationPrepareEnabled(opts: RelayRouterOptions): boolean {
-  return opts.ed25519RegistrationPrepare?.enabled === true;
+export function isRecoverEmailRouteEnabled(opts: RouterApiOptions): boolean {
+  return opts.emailRecovery?.kind === 'prepare_and_execute';
 }
 
-export function resolveRelayRouteDefinitionOptions(
-  opts: RelayRouterOptions,
-): RelayRouteDefinitionOptions {
+export function isEd25519RegistrationPrepareEnabled(opts: RouterApiOptions): boolean {
+  return Boolean(opts.ed25519RegistrationPrepare);
+}
+
+export function resolveRouterApiRouteDefinitionOptions(
+  opts: RouterApiOptions,
+): RouterApiRouteDefinitionOptions {
   const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
   let signedDelegatePath = '';
   if (opts.signedDelegate) {
@@ -39,8 +43,9 @@ export function resolveRelayRouteDefinitionOptions(
   return {
     enableHealthz: Boolean(opts.healthz),
     enableEd25519RegistrationPrepare: isEd25519RegistrationPrepareEnabled(opts),
-    enableEmailRecovery: isEmailRecoveryRoutesEnabled(opts),
-    enableSigningSessionSeal: Boolean(opts.signingSessionSeal && opts.signingSessionSeal.enabled !== false),
+    enableEmailRecoveryPrepare: isEmailRecoveryPrepareRoutesEnabled(opts),
+    enableRecoverEmail: isRecoverEmailRouteEnabled(opts),
+    enableSigningSessionSeal: Boolean(opts.signingSessionSeal),
     enableReadyz: Boolean(opts.readyz),
     enableSponsoredEvmCall: Boolean(opts.sponsoredEvmCall),
     signingSessionSealBasePath: opts.signingSessionSeal?.basePath,
@@ -50,22 +55,22 @@ export function resolveRelayRouteDefinitionOptions(
   };
 }
 
-export function resolveRelayRouteSurface(
-  opts: RelayRouterOptions,
-  input: { transport?: RelayRouteExtensionTransport } = {},
-): RelayRouteSurface {
+export function resolveRouterApiRouteSurface(
+  opts: RouterApiOptions,
+  input: { transport?: RouterApiRouteExtensionTransport } = {},
+): RouterApiRouteSurface {
   const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
   let signedDelegatePath = '';
   if (opts.signedDelegate) {
     signedDelegatePath = ensureLeadingSlash(opts.signedDelegate.route) || '/signed-delegate';
   }
   const transport = input.transport || 'cloudflare';
-  const routeExtensions = resolveRelayRouterModuleRouteExtensions(opts);
+  const routeExtensions = resolveRouterApiModuleRouteExtensions(opts);
   const routeDefinitions = [
-    ...createRelayRouteDefinitions(resolveRelayRouteDefinitionOptions(opts)),
-    ...getRelayRouteExtensionDefinitions(routeExtensions, transport),
+    ...createRouterApiRouteDefinitions(resolveRouterApiRouteDefinitionOptions(opts)),
+    ...getRouterApiRouteExtensionDefinitions(routeExtensions, transport),
   ];
-  assertUniqueRelayRouteDefinitions(routeDefinitions);
+  assertUniqueRouterApiRouteDefinitions(routeDefinitions);
   return {
     mePath,
     routeDefinitions: Object.freeze(routeDefinitions),
@@ -73,11 +78,11 @@ export function resolveRelayRouteSurface(
   };
 }
 
-export function attachRelayRouteSurface<T extends object>(
+export function attachRouterApiRouteSurface<T extends object>(
   target: T,
-  surface: RelayRouteSurface,
+  surface: RouterApiRouteSurface,
 ): T {
-  Object.defineProperty(target, RELAY_ROUTE_SURFACE_SYMBOL, {
+  Object.defineProperty(target, ROUTER_API_ROUTE_SURFACE_SYMBOL, {
     configurable: false,
     enumerable: false,
     value: Object.freeze({
@@ -89,11 +94,11 @@ export function attachRelayRouteSurface<T extends object>(
   return target;
 }
 
-export function getRelayRouteSurface(target: unknown): RelayRouteSurface | null {
+export function getRouterApiRouteSurface(target: unknown): RouterApiRouteSurface | null {
   if (!target || (typeof target !== 'object' && typeof target !== 'function')) return null;
-  const value = (target as Record<PropertyKey, unknown>)[RELAY_ROUTE_SURFACE_SYMBOL];
+  const value = (target as Record<PropertyKey, unknown>)[ROUTER_API_ROUTE_SURFACE_SYMBOL];
   if (!value || typeof value !== 'object') return null;
-  const surface = value as Partial<RelayRouteSurface>;
+  const surface = value as Partial<RouterApiRouteSurface>;
   if (
     typeof surface.mePath !== 'string' ||
     typeof surface.signedDelegatePath !== 'string' ||

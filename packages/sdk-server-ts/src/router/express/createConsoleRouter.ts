@@ -142,8 +142,13 @@ import {
   type ConsoleObservabilityIngestionService,
   type ConsoleObservabilityService,
 } from '../../console/observability';
-import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
-import { authenticateConsoleRequest, hasConsoleRole } from '../console';
+import type { ConsoleRouterOptions } from '../console';
+import {
+  authenticateConsoleRequest,
+  hasConsoleRole,
+  type ConsoleAuthClaims,
+  type ConsoleAuthResult,
+} from '../consoleAuth';
 import {
   emitConsoleApprovalFailureObservabilityEvent,
   emitConsoleBillingFailureObservabilityEvent,
@@ -186,7 +191,7 @@ import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload'
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
-import type { SessionAdapter } from '../relay';
+import type { SessionAdapter } from '../routerApi';
 import {
   emitSponsorshipBalanceTransitionEvents,
   readSponsorshipBillingBalanceSnapshot,

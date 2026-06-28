@@ -1,5 +1,5 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
-import type { RelayRouterOptions } from '../relay';
+import type { RouterApiOptions } from '../routerApi';
 
 const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
 const CORS_ALLOW_HEADERS =
@@ -28,7 +28,7 @@ export function json(
   return new Response(JSON.stringify(body), { status: 200, ...rest, headers });
 }
 
-export function withCors(headers: Headers, opts?: RelayRouterOptions, request?: Request): void {
+export function withCors(headers: Headers, opts?: RouterApiOptions, request?: Request): void {
   const pathname = request ? new URL(request.url).pathname : '';
 
   // Public CORS: allow any origin to read `/healthz` and `/readyz`.

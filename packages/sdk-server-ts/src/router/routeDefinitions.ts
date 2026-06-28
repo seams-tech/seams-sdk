@@ -53,9 +53,10 @@ export interface RouteDefinition {
   summary: string;
 }
 
-export interface RelayRouteDefinitionOptions {
+export interface RouterApiRouteDefinitionOptions {
   enableEd25519RegistrationPrepare?: boolean;
-  enableEmailRecovery?: boolean;
+  enableEmailRecoveryPrepare?: boolean;
+  enableRecoverEmail?: boolean;
   enableHealthz?: boolean;
   enableSigningSessionSeal?: boolean;
   enableReadyz?: boolean;
@@ -1322,8 +1323,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
   ];
 }
 
-export function createRelayRouteDefinitions(
-  options: RelayRouteDefinitionOptions = {},
+export function createRouterApiRouteDefinitions(
+  options: RouterApiRouteDefinitionOptions = {},
 ): RouteDefinition[] {
   const sessionStatePath = String(options.sessionStatePath || '').trim() || '/session/state';
   const sessionStateAliases =
@@ -1339,10 +1340,10 @@ export function createRelayRouteDefinitions(
   if (options.enableHealthz) {
     definitions.push(
       publicRoute(
-        'relay_healthz',
+        'router_api_healthz',
         'GET',
         '/healthz',
-        'Relay health probe',
+        'Router API health probe',
         { plane: 'public', rationale: 'Health probes are intentionally public diagnostics.' },
         ['authService'],
       ),
@@ -1351,10 +1352,10 @@ export function createRelayRouteDefinitions(
   if (options.enableReadyz) {
     definitions.push(
       publicRoute(
-        'relay_readyz',
+        'router_api_readyz',
         'GET',
         '/readyz',
-        'Relay readiness probe',
+        'Router API readiness probe',
         { plane: 'public', rationale: 'Readiness probes are intentionally public diagnostics.' },
         ['authService'],
       ),
@@ -1641,66 +1642,6 @@ export function createRelayRouteDefinitions(
         plane: 'public',
         proof: 'webauthn',
         rationale: 'Sync-account verification is public because the WebAuthn proof is the gate.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
-      'link_device_session_get',
-      'GET',
-      '/link-device/session/:sessionId',
-      'Read link-device session state',
-      {
-        plane: 'public',
-        rationale:
-          'Link-device routes are intentionally public for now and rely on opaque session identifiers.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
-      'link_device_session_create',
-      'POST',
-      '/link-device/session',
-      'Create link-device session',
-      {
-        plane: 'public',
-        rationale:
-          'Link-device routes are intentionally public for now and rely on opaque session identifiers.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
-      'link_device_session_claim',
-      'POST',
-      '/link-device/session/claim',
-      'Claim link-device session',
-      {
-        plane: 'public',
-        rationale:
-          'Link-device routes are intentionally public for now and rely on opaque session identifiers.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
-      'link_device_prepare',
-      'POST',
-      '/link-device/prepare',
-      'Prepare link-device flow',
-      {
-        plane: 'public',
-        rationale:
-          'Link-device routes are intentionally public for now and rely on opaque session identifiers.',
-      },
-      ['authService'],
-    ),
-    publicRoute(
-      'link_device_ecdsa_respond',
-      'POST',
-      '/link-device/ecdsa/respond',
-      'Respond to link-device ECDSA HSS prepare context',
-      {
-        plane: 'public',
-        rationale:
-          'Link-device ECDSA respond is scoped by the opaque link-device session and stored prepare context.',
       },
       ['authService'],
     ),
@@ -2091,7 +2032,7 @@ export function createRelayRouteDefinitions(
     );
   }
 
-  if (options.enableEmailRecovery) {
+  if (options.enableEmailRecoveryPrepare) {
     definitions.push(
       publicRoute(
         'email_recovery_prepare',
@@ -2118,6 +2059,11 @@ export function createRelayRouteDefinitions(
         },
         ['authService'],
       ),
+    );
+  }
+
+  if (options.enableRecoverEmail) {
+    definitions.push(
       publicRoute(
         'recover_email',
         'POST',
@@ -2147,7 +2093,7 @@ export function createRelayRouteDefinitions(
           originBinding: 'required',
         },
         { kind: 'gas', ledger: 'evm' },
-        ['relaySponsoredEvmCall'],
+        ['routerApiSponsoredEvmCall'],
       ),
     );
   }

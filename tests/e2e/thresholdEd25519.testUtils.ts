@@ -25,15 +25,19 @@ import {
   CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
 } from '@server/core/ThresholdService/routerAb/ecdsaHssPresignBridge';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
 import { makeSessionAdapter, startExpressRouter } from '../relayer/helpers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBootstrapTokenService,
   createInMemoryConsoleOrgProjectEnvService,
-  createRelayBootstrapGrantBroker,
-  createRelayPublishableKeyAuthAdapter,
-  createRelayRouter,
+  createRouterApiBootstrapGrantBroker,
+  createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiRouter,
 } from '@server/router/express-adaptor';
 import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 import type { SigningSessionSealRoutesOptions } from '@server/threshold/session/signingSessionSeal';
@@ -170,8 +174,7 @@ export const TEST_RELAYER_ACCOUNT_ID = 'relayer.testnet';
 export const TEST_RELAYER_PUBLIC_KEY = 'ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB';
 export const TEST_RELAYER_PRIVATE_KEY =
   'ed25519:99eUso3aSbE9tqGSTXzo3TLfKb9RkMTURrHKQ1K7Zh3StnzFNUx8FKCPPPPpR479qsw5zv2WNBKmgiz7WqgAJfM';
-export const TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET =
-  'test-router-ab-internal-service-auth';
+export const TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'test-router-ab-internal-service-auth';
 const TEST_ROUTER_AB_ECDSA_HSS_SIGNING_WORKER_PRIVATE_KEY_32 = new Uint8Array(32).fill(0x41);
 const TEST_ROUTER_AB_ECDSA_HSS_RERANDOMIZATION_ENTROPY_32 = new Uint8Array(32).fill(0x29);
 const TEST_ROUTER_AB_SIGNING_WORKER_ID = 'local-signing-worker';
@@ -200,6 +203,13 @@ type ThresholdEcdsaRegistrationBootstrapResult =
       ethereumAddress?: string;
       ecdsaThresholdKeyId?: string;
       clientVerifyingShareB64u?: string;
+      keyHandle?: string;
+      walletKeyId?: string;
+      signingRootId?: string;
+      signingRootVersion?: string;
+      contextBinding32B64u?: string;
+      clientShareRetryCounter?: number;
+      relayerShareRetryCounter?: number;
     }
   | {
       ok: false;
@@ -217,11 +227,7 @@ type LocalRouterAbSigningWorker = {
   close: () => Promise<void>;
 };
 
-function execFileAsync(
-  command: string,
-  args: string[],
-  options: { cwd: string },
-): Promise<void> {
+function execFileAsync(command: string, args: string[], options: { cwd: string }): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(command, args, options, (error, _stdout, stderr) => {
       if (!error) {
@@ -535,7 +541,8 @@ export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
       }
 
       if (path === ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.prepare) {
-        const body = req.body && typeof req.body === 'object' ? (req.body as any).request : req.body;
+        const body =
+          req.body && typeof req.body === 'object' ? (req.body as any).request : req.body;
         const request = parseRouterAbEcdsaHssEvmDigestSigningRequestV1(body);
         const presignature = presignatures.get(request.client_presignature_id);
         if (!presignature) {
@@ -743,8 +750,9 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
     input.threshold as unknown as {
       keyStore?: {
         get: (relayerKeyId: string) => Promise<{
+          walletId: string;
           nearAccountId: string;
-          rpId: string;
+          authorityScope: { kind: 'passkey_rp'; rpId: string };
           publicKey: string;
           keyVersion: string;
           recoveryExportCapable: true;
@@ -754,7 +762,8 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
   ).keyStore?.get(relayerKeyId);
   if (
     existing?.nearAccountId === input.nearAccountId &&
-    existing?.rpId === input.rpId &&
+    existing?.authorityScope.kind === 'passkey_rp' &&
+    existing?.authorityScope.rpId === input.rpId &&
     existing?.publicKey === input.publicKey &&
     existing?.keyVersion === input.keyVersion &&
     existing?.recoveryExportCapable === true
@@ -768,11 +777,11 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
       `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
     );
   }
-	  const keygen = await schemeAny.registration.keygenFromRegistrationMaterial({
-	    walletId: input.nearAccountId,
-	    nearAccountId: input.nearAccountId,
-	    nearEd25519SigningKeyId: input.nearAccountId,
-	    rpId: input.rpId,
+  const keygen = await schemeAny.registration.keygenFromRegistrationMaterial({
+    walletId: input.nearAccountId,
+    nearAccountId: input.nearAccountId,
+    nearEd25519SigningKeyId: input.nearAccountId,
+    rpId: input.rpId,
     keyVersion: input.keyVersion,
     recoveryExportCapable: true,
     publicKey: input.publicKey,
@@ -929,12 +938,12 @@ export async function setupManagedThresholdRegistrationHarness(args: {
     publishableKey: createdPublishableKey.secret,
   } as const;
 
-  const router = createRelayRouter(args.service, {
+  const router = createRouterApiRouter(args.service, {
     corsOrigins: allowedOrigins,
     threshold: args.threshold,
     session,
-    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
-    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+    publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
+    bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
       apiKeys,
       tokenStore: bootstrapTokenStore,
       orgProjectEnv,
@@ -1038,26 +1047,104 @@ export async function installRegistrationBootstrapMock(
       return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
     };
     const signWalletSessionJwt = async (args: {
-      kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
+      kind:
+        | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+        | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
       sessionId: string;
       relayerKeyId: string;
       participantIds: number[];
       expiresAtMs: number;
+      signingGrantId?: string;
+      keyHandle?: string;
+      walletKeyId?: string;
+      ecdsaThresholdKeyId?: string;
+      signingRootId?: string;
+      signingRootVersion?: string;
+      contextBinding32B64u?: string;
+      clientPublicKey33B64u?: string;
+      serverPublicKey33B64u?: string;
+      thresholdPublicKey33B64u?: string;
+      ethereumAddress?: string;
+      clientShareRetryCounter?: number;
+      serverShareRetryCounter?: number;
     }): Promise<string> => {
       if (!input.session?.signJwt) {
-        return args.kind === 'threshold_ed25519_session_v1'
-          ? 'mock-threshold-ed25519-jwt'
-          : 'mock-threshold-ecdsa-jwt';
+        return args.kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+          ? 'mock-router-ab-ed25519-wallet-session-jwt'
+          : 'mock-router-ab-ecdsa-hss-wallet-session-jwt';
       }
       const expSec = Math.floor(args.expiresAtMs / 1000);
+      const signingGrantId = String(args.signingGrantId || args.sessionId).trim();
+      const walletKeyId = String(args.walletKeyId || 'wallet-key-e2e').trim();
+      const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || 'ecdsa-key-e2e').trim();
+      const signingRootId = String(
+        args.signingRootId || input.runtimePolicyScope?.projectId || 'root',
+      ).trim();
+      const signingRootVersion = String(
+        args.signingRootVersion || input.runtimePolicyScope?.signingRootVersion || 'root-v1',
+      ).trim();
+      const keyHandle = String(args.keyHandle || ecdsaThresholdKeyId).trim();
       return await input.session.signJwt(accountId, {
         kind: args.kind,
         walletId: accountId,
-        sessionId: args.sessionId,
+        thresholdSessionId: args.sessionId,
+        signingGrantId,
         relayerKeyId: args.relayerKeyId,
         rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
         participantIds: args.participantIds,
         thresholdExpiresAtMs: args.expiresAtMs,
+        ...(args.kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+          ? {
+              nearAccountId: accountId,
+              nearEd25519SigningKeyId: accountId,
+              routerAbNormalSigning: {
+                kind: 'router_ab_ed25519_normal_signing_v1',
+                signingWorkerId: TEST_ROUTER_AB_SIGNING_WORKER_ID,
+              },
+            }
+          : {
+              keyScope: 'evm-family',
+              keyHandle,
+              walletKeyId,
+              routerAbEcdsaHssNormalSigning: {
+                kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+                scope: {
+                  wallet_key_id: walletKeyId,
+                  wallet_id: accountId,
+                  ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+                  signing_root_id: signingRootId,
+                  signing_root_version: signingRootVersion,
+                  context: {
+                    application_binding_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(7)),
+                  },
+                  public_identity: {
+                    context_binding_b64u:
+                      args.contextBinding32B64u || base64UrlEncode(new Uint8Array(32).fill(8)),
+                    client_public_key33_b64u:
+                      args.clientPublicKey33B64u || base64UrlEncode(new Uint8Array(33).fill(9)),
+                    server_public_key33_b64u:
+                      args.serverPublicKey33B64u || base64UrlEncode(new Uint8Array(33).fill(10)),
+                    threshold_public_key33_b64u:
+                      args.thresholdPublicKey33B64u || base64UrlEncode(new Uint8Array(33).fill(11)),
+                    ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(12)),
+                    client_share_retry_counter: Math.max(
+                      0,
+                      Math.floor(Number(args.clientShareRetryCounter) || 0),
+                    ),
+                    server_share_retry_counter: Math.max(
+                      0,
+                      Math.floor(Number(args.serverShareRetryCounter) || 0),
+                    ),
+                  },
+                  signing_worker: {
+                    server_id: TEST_ROUTER_AB_SIGNING_WORKER_ID,
+                    key_epoch: TEST_ROUTER_AB_SIGNING_WORKER_KEY_EPOCH,
+                    recipient_encryption_key: TEST_ROUTER_AB_SIGNING_WORKER_HPKE_PUBLIC_KEY,
+                  },
+                  activation_epoch: args.sessionId,
+                },
+              },
+            }),
         ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
         iat: nowSec,
         exp: expSec,
@@ -1087,8 +1174,9 @@ export async function installRegistrationBootstrapMock(
               participantIds,
               remainingUses,
               jwt: await signWalletSessionJwt({
-                kind: 'threshold_ed25519_session_v1',
+                kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
                 sessionId,
+                signingGrantId: sessionId,
                 relayerKeyId,
                 participantIds,
                 expiresAtMs,
@@ -1203,11 +1291,33 @@ export async function installRegistrationBootstrapMock(
               participantIds,
               remainingUses,
               jwt: await signWalletSessionJwt({
-                kind: 'threshold_ecdsa_session_v1',
+                kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
                 sessionId,
+                signingGrantId: sessionId,
                 relayerKeyId: thresholdEcdsaRelayerKeyId,
                 participantIds,
                 expiresAtMs,
+                keyHandle: ecdsaBootstrap?.ok === true ? ecdsaBootstrap.keyHandle : undefined,
+                walletKeyId: ecdsaBootstrap?.ok === true ? ecdsaBootstrap.walletKeyId : undefined,
+                ecdsaThresholdKeyId:
+                  ecdsaBootstrap?.ok === true ? ecdsaBootstrap.ecdsaThresholdKeyId : undefined,
+                signingRootId:
+                  ecdsaBootstrap?.ok === true ? ecdsaBootstrap.signingRootId : undefined,
+                signingRootVersion:
+                  ecdsaBootstrap?.ok === true ? ecdsaBootstrap.signingRootVersion : undefined,
+                contextBinding32B64u:
+                  ecdsaBootstrap?.ok === true ? ecdsaBootstrap.contextBinding32B64u : undefined,
+                clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(9)),
+                serverPublicKey33B64u:
+                  ecdsaBootstrap?.ok === true
+                    ? ecdsaBootstrap.relayerVerifyingShareB64u
+                    : undefined,
+                thresholdPublicKey33B64u: thresholdEcdsaPublicKeyB64u,
+                ethereumAddress: thresholdEcdsaEthereumAddress,
+                clientShareRetryCounter:
+                  ecdsaBootstrap?.ok === true ? ecdsaBootstrap.clientShareRetryCounter : undefined,
+                serverShareRetryCounter:
+                  ecdsaBootstrap?.ok === true ? ecdsaBootstrap.relayerShareRetryCounter : undefined,
               }),
             };
           })()
@@ -1550,13 +1660,20 @@ export async function installThresholdEd25519RegistrationMocks(
     const walletSessionJwt =
       sessionId && input.session?.signJwt
         ? await input.session.signJwt(accountId, {
-            kind: 'threshold_ed25519_session_v1',
+            kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
             walletId: accountId,
-            sessionId,
+            nearAccountId: accountId,
+            nearEd25519SigningKeyId: accountId,
+            thresholdSessionId: sessionId,
+            signingGrantId: sessionId,
             relayerKeyId,
             rpId,
             participantIds: effectiveParticipantIds,
             thresholdExpiresAtMs: effectiveExpiresAtMs,
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: TEST_ROUTER_AB_SIGNING_WORKER_ID,
+            },
             ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
             iat: nowSec,
             exp: Math.floor(effectiveExpiresAtMs / 1000),
@@ -1592,9 +1709,18 @@ export async function installThresholdEd25519RegistrationMocks(
             session: {
               sessionKind: 'jwt',
               sessionId,
+              walletId: accountId,
+              nearAccountId: accountId,
+              nearEd25519SigningKeyId: accountId,
+              thresholdSessionId: sessionId,
+              signingGrantId: sessionId,
               expiresAtMs: effectiveExpiresAtMs,
               participantIds: effectiveParticipantIds,
               remainingUses: effectiveRemainingUses,
+              routerAbNormalSigning: {
+                kind: 'router_ab_ed25519_normal_signing_v1',
+                signingWorkerId: TEST_ROUTER_AB_SIGNING_WORKER_ID,
+              },
               jwt: walletSessionJwt,
               ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
             },

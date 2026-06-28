@@ -1,8 +1,8 @@
 import { buildCorsOrigins } from '../../../core/SessionService';
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json } from '../http';
 
-export async function handleHealth(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleHealth(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (!ctx.opts.healthz || ctx.method !== 'GET' || ctx.pathname !== '/healthz') return null;
 
   // Surface simple CORS info for diagnostics (normalized)
@@ -21,7 +21,7 @@ export async function handleHealth(ctx: CloudflareRelayContext): Promise<Respons
   );
 }
 
-export async function handleReady(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleReady(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (!ctx.opts.readyz || ctx.method !== 'GET' || ctx.pathname !== '/readyz') return null;
 
   const allowed = buildCorsOrigins(...(ctx.opts.corsOrigins || []));
@@ -30,6 +30,9 @@ export async function handleReady(ctx: CloudflareRelayContext): Promise<Response
   const thresholdConfigured = Boolean(ctx.opts.threshold);
 
   try {
+    if (ctx.opts.readyCheck) {
+      await ctx.opts.readyCheck();
+    }
     await ctx.service.getRelayerAccount();
     return json(
       {

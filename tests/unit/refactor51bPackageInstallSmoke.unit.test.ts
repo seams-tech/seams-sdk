@@ -143,7 +143,7 @@ test.describe('refactor 51b package install smoke', () => {
       run('pnpm', ['install', '--ignore-scripts', '--prod'], tmpRoot);
 
       const nodeModulesDir = path.join(tmpRoot, 'node_modules');
-      for (const packageName of ['@simplewebauthn/server', 'express', 'pg']) {
+      for (const packageName of ['@simplewebauthn/server', 'express']) {
         expect(hasPnpmPackage(nodeModulesDir, packageName)).toBe(true);
       }
 
@@ -154,19 +154,19 @@ test.describe('refactor 51b package install smoke', () => {
           if (typeof server.AuthService !== 'function') {
             throw new Error('missing AuthService export');
           }
-          if (typeof server.createRelayRouterModule !== 'function') {
-            throw new Error('missing createRelayRouterModule export');
+          if (typeof server.createRouterApiModule !== 'function') {
+            throw new Error('missing createRouterApiModule export');
           }
 
           const expressRouter = await import('@seams/sdk-server/router/express');
-          if (typeof expressRouter.createRelayRouter !== 'function') {
-            throw new Error('missing createRelayRouter export');
+          if (typeof expressRouter.createRouterApiRouter !== 'function') {
+            throw new Error('missing createRouterApiRouter export');
           }
           if (typeof expressRouter.createConsoleRouter !== 'function') {
             throw new Error('missing createConsoleRouter export');
           }
-          if (typeof expressRouter.createPostgresConsoleBootstrapTokenService !== 'function') {
-            throw new Error('missing Express Postgres service export');
+          if (typeof expressRouter.createPostgresConsoleBootstrapTokenService !== 'undefined') {
+            throw new Error('unexpected Express partial Postgres console service export');
           }
 
           const cloudflareRouter = await import('@seams/sdk-server/router/cloudflare');
@@ -181,11 +181,6 @@ test.describe('refactor 51b package install smoke', () => {
           }
           if (typeof cloudflareRouter.createPostgresConsoleBootstrapTokenService !== 'undefined') {
             throw new Error('unexpected Cloudflare Postgres service export');
-          }
-
-          const storage = await import('@seams/sdk-server/storage/postgres');
-          if (typeof storage.getPostgresPool !== 'function') {
-            throw new Error('missing getPostgresPool export');
           }
         `,
       );

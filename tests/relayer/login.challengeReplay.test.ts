@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import { fetchJson, startExpressRouter } from './helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
@@ -28,7 +28,7 @@ test.describe('relayer login challenge replay', () => {
       verified: true,
     });
 
-    const router = createRelayRouter(service, {});
+    const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
 
     try {

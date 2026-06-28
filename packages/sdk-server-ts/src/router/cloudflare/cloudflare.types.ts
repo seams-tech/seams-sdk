@@ -8,7 +8,7 @@ export type CfEnv = object;
  * Convenience env shape for Cloudflare-hosted router deployments.
  * This is optional — you can define your own `Env` type with different binding names.
  */
-export interface RelayCloudflareWorkerEnv {
+export interface RouterApiCloudflareWorkerEnv {
   RELAYER_ACCOUNT_ID: string;
   RELAYER_PRIVATE_KEY: string;
   // Optional overrides (SDK provides defaults when omitted)

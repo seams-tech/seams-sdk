@@ -5,13 +5,13 @@ export interface RorOriginsProvider {
   getAllowedOrigins(input: { rpId: string; host?: string }): Promise<string[]>;
 }
 
-export type RelayRouterRorOptions = {
+export type RouterApiRorOptions = {
   provider: RorOriginsProvider;
   rpId?: string;
   rpIdByHost?: Record<string, string>;
 };
 
-export function validateRelayRouterRorOptions(ror: RelayRouterRorOptions): void {
+export function validateRouterApiRorOptions(ror: RouterApiRorOptions): void {
   if (!ror || typeof ror !== 'object') {
     throw new Error('[router.ror] Invalid ROR options: expected object');
   }
@@ -45,7 +45,7 @@ export function validateRelayRouterRorOptions(ror: RelayRouterRorOptions): void 
 }
 
 export function resolveRorRpId(input: {
-  ror: RelayRouterRorOptions | undefined;
+  ror: RouterApiRorOptions | undefined;
   host?: string;
 }): string | null {
   const ror = input.ror;

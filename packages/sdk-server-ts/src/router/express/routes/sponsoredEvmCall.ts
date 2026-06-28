@@ -1,14 +1,13 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import { createRelayPublishableKeyAuthAdapter } from '../../relayApiKeyAuth';
-import { handleRelaySponsoredEvmCall } from '../../relaySponsoredEvmCall';
+import { handleRouterApiSponsoredEvmCall } from '../../routerApiSponsoredEvmCall';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { sendExpressRouteResponse } from '../../routeResponses';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import { resolveSponsoredEvmExecutionAdapter } from '../../../sponsorship/evmExecutionAdapter';
 
 export function registerSponsoredEvmCallRoutes(
   router: ExpressRouter,
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
 ): void {
   const route = findRouteDefinitionById(ctx.routeDefinitions, 'sponsored_evm_call');
   if (!route) return;
@@ -16,36 +15,32 @@ export function registerSponsoredEvmCallRoutes(
   const options = ctx.opts.sponsoredEvmCall;
   if (!options) return;
 
-  const publishableKeyAuth =
-    typeof options.apiKeys.authenticatePublishableKey === 'function'
-      ? createRelayPublishableKeyAuthAdapter(options.apiKeys)
-      : null;
-  const relaySponsoredEvmCall = {
+  const routerApiSponsoredEvmCall = {
     billing: options.billing,
     config: options.config,
     corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
     resolveExecutionAdapter: options.resolveExecutionAdapter || resolveSponsoredEvmExecutionAdapter,
     observabilityIngestion: ctx.opts.observabilityIngestion || null,
     prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
-    publishableKeyAuth,
+    publishableKeyAuth: options.publishableKeyAuth,
     pricing: ctx.opts.sponsorship?.pricing || null,
     runtimeSnapshots: options.runtimeSnapshots,
     spendCaps: ctx.opts.sponsorship?.spendCaps || null,
     sponsoredCalls: options.ledger,
-    webhooks: ctx.opts.relayWebhooks?.service || null,
-    webhookActorUserId: ctx.opts.relayWebhooks?.actorUserId,
-    webhookRoles: ctx.opts.relayWebhooks?.roles,
+    webhooks: ctx.opts.routerApiWebhooks?.service || null,
+    webhookActorUserId: ctx.opts.routerApiWebhooks?.actorUserId,
+    webhookRoles: ctx.opts.routerApiWebhooks?.roles,
   } as const;
 
   router.post(route.path, async (req: Request, res: Response) => {
-    const response = await handleRelaySponsoredEvmCall({
+    const response = await handleRouterApiSponsoredEvmCall({
       body: req.body,
       headers: (req.headers || {}) as Record<string, string | string[] | undefined>,
       logger: ctx.logger,
       origin: String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined,
       route,
       services: {
-        relaySponsoredEvmCall,
+        routerApiSponsoredEvmCall,
       },
     });
     sendExpressRouteResponse(res, response);

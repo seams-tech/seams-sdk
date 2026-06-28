@@ -2,8 +2,8 @@ import type {
   ThresholdEcdsaSessionClaims,
   ThresholdEd25519SessionClaims,
 } from '../core/ThresholdService/validation';
-import type { ConsoleAuthClaims, ConsoleRole } from './console';
-import type { RelayApiKeyPrincipal, SessionClaims } from './relay';
+import type { ConsoleAuthClaims, ConsoleRole } from './consoleAuth';
+import type { RouterApiKeyPrincipal, SessionClaims } from './routerApi';
 
 import { API_CREDENTIAL_SCOPES } from "@shared/console/apiKeyScopes";
 
@@ -72,7 +72,7 @@ export type RoutePrincipal =
     }
   | {
       kind: 'api_credentials';
-      principal: RelayApiKeyPrincipal;
+      principal: RouterApiKeyPrincipal;
       credentialType: ApiCredentialType;
     }
   | {

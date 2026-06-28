@@ -3,15 +3,17 @@ import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/routerApiKeyAuth';
 import { callCf, makeFakeAuthService } from '../relayer/helpers';
 
 function makeSponsoredOptions() {
+  const apiKeys = createInMemoryConsoleApiKeyService();
   const sponsorAddress = '0x2222222222222222222222222222222222222222' as const;
   const sponsorPrivateKeyHex =
     '0x1111111111111111111111111111111111111111111111111111111111111111' as const;
   return {
     route: '/gas/relay',
-    apiKeys: createInMemoryConsoleApiKeyService(),
+    publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(apiKeys),
     billing: {
       async recordUsageEvent() {
         return {

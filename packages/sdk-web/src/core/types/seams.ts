@@ -473,7 +473,7 @@ export type RegistrationResult =
       thresholdEcdsaPublicKeyB64u?: never;
     };
 
-export type RelaySecretKeyAuthErrorCode =
+export type RouterApiSecretKeyAuthErrorCode =
   | 'secret_key_missing'
   | 'secret_key_invalid'
   | 'secret_key_revoked'
@@ -481,7 +481,7 @@ export type RelaySecretKeyAuthErrorCode =
   | 'secret_key_ip_blocked'
   | 'secret_key_environment_mismatch';
 
-export type RelayBootstrapGrantErrorCode =
+export type RouterApiBootstrapGrantErrorCode =
   | 'publishable_key_missing'
   | 'publishable_key_invalid'
   | 'publishable_key_revoked'
@@ -495,7 +495,7 @@ export type RelayBootstrapGrantErrorCode =
   | 'payment_required'
   | 'payment_invalid';
 
-export type RelayBootstrapTokenErrorCode =
+export type RouterApiBootstrapTokenErrorCode =
   | 'bootstrap_token_missing'
   | 'bootstrap_token_invalid'
   | 'bootstrap_token_expired'
@@ -504,9 +504,9 @@ export type RelayBootstrapTokenErrorCode =
   | 'bootstrap_token_origin_mismatch';
 
 export type RegistrationErrorCode =
-  | RelaySecretKeyAuthErrorCode
-  | RelayBootstrapGrantErrorCode
-  | RelayBootstrapTokenErrorCode
+  | RouterApiSecretKeyAuthErrorCode
+  | RouterApiBootstrapGrantErrorCode
+  | RouterApiBootstrapTokenErrorCode
   | string;
 
 export type LoginResult =
@@ -614,7 +614,7 @@ export interface SignDelegateActionResult {
   logs?: string[];
 }
 
-export interface DelegateRelayResult {
+export interface DelegateRouterApiResult {
   ok: boolean;
   relayerTxHash?: string;
   status?: string;
@@ -624,7 +624,7 @@ export interface DelegateRelayResult {
 
 export interface SignAndSendDelegateActionResult {
   signResult: SignDelegateActionResult;
-  relayResult: DelegateRelayResult;
+  relayResult: DelegateRouterApiResult;
 }
 
 export interface RouterAbEcdsaHssPresignaturePoolPolicyInput {

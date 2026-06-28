@@ -19,7 +19,7 @@ import {
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
-import type { ThresholdSigningAdapter } from '../../packages/sdk-server-ts/src/router/relay';
+import type { ThresholdSigningAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 
 const fakeCtx = {} as CfExecutionContext;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -162,7 +162,7 @@ function signingRootRecordFixture() {
     envId: ENV_ID,
     signingRootId: SIGNING_ROOT_ID,
     walletOrigin: 'https://wallet.example.test',
-    rpId: 'wallet.example.test',
+    authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
     signingRootVersion: 'root-v1',
     rootShareEpoch: 1,
     shareThreshold: 2,
@@ -181,7 +181,7 @@ function signingRootRecordFixture() {
   };
 }
 
-test('self-host Cloudflare signing router exposes health without hosted relay routes', async () => {
+test('self-host Cloudflare signing router exposes health without hosted Router API routes', async () => {
   const router = createSelfHostedCloudflareSigningRouter(fakeAuthService(), {
     healthz: true,
     readyz: true,

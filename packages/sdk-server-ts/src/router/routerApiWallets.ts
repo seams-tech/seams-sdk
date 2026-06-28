@@ -7,48 +7,48 @@ import {
 } from '../console/wallets/requests';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolveSecretKeyApiCredentialAuth } from './relayApiCredentialAuth';
-import type { RelayApiKeyAuthAdapter, RelayApiKeyPrincipal } from './relay';
+import { resolveSecretKeyApiCredentialAuth } from './routerApiCredentialAuth';
+import type { RouterApiKeyAuthAdapter, RouterApiKeyPrincipal } from './routerApi';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import { routeJson } from './routeResponses';
 
-type RelayApiWalletErrorBody = {
+type RouterApiWalletErrorBody = {
   ok: false;
   code: string;
   message: string;
   details?: Record<string, unknown>;
 };
 
-type RelayApiWalletListBody = {
+type RouterApiWalletListBody = {
   ok: true;
   wallets: ConsoleWallet[];
   nextCursor?: string;
 };
 
-type RelayApiWalletGetBody = {
+type RouterApiWalletGetBody = {
   ok: true;
   wallet: ConsoleWallet;
 };
 
-interface RelayApiWalletServices {
-  apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+interface RouterApiWalletServices {
+  apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   wallets?: ConsoleWalletService | null;
 }
 
-interface RelayApiWalletInput {
+interface RouterApiWalletInput {
   headers: HeaderRecord;
   logger: NormalizedRouterLogger;
   route: RouteDefinition;
-  services: RelayApiWalletServices;
+  services: RouterApiWalletServices;
   sourceIp?: string;
 }
 
-interface RelayApiWalletQueryInput extends RelayApiWalletInput {
+interface RouterApiWalletQueryInput extends RouterApiWalletInput {
   query?: Record<string, string | string[] | undefined>;
 }
 
-interface RelayApiWalletGetInput extends RelayApiWalletInput {
+interface RouterApiWalletGetInput extends RouterApiWalletInput {
   walletId?: string;
 }
 
@@ -70,7 +70,7 @@ function parsePolicyFailureMessage(message: string): {
   };
 }
 
-function toApiWalletContext(principal: RelayApiKeyPrincipal): ConsoleWalletsContext {
+function toApiWalletContext(principal: RouterApiKeyPrincipal): ConsoleWalletsContext {
   return {
     orgId: principal.orgId,
     actorUserId: `api_credentials:${principal.apiKeyId}`,
@@ -89,7 +89,7 @@ function bindEnvironmentScope<T extends { environmentId?: string }>(
   };
 }
 
-function walletListResponse(page: ConsoleWalletPage): RouteResponse<RelayApiWalletListBody> {
+function walletListResponse(page: ConsoleWalletPage): RouteResponse<RouterApiWalletListBody> {
   return routeJson(200, {
     ok: true,
     wallets: page.items,
@@ -97,7 +97,7 @@ function walletListResponse(page: ConsoleWalletPage): RouteResponse<RelayApiWall
   });
 }
 
-function walletErrorResponse(error: unknown): RouteResponse<RelayApiWalletErrorBody> {
+function walletErrorResponse(error: unknown): RouteResponse<RouterApiWalletErrorBody> {
   if (isConsoleWalletError(error)) {
     return routeJson(error.status, {
       ok: false,
@@ -114,12 +114,12 @@ function walletErrorResponse(error: unknown): RouteResponse<RelayApiWalletErrorB
 }
 
 async function enforceApiWalletRoute(
-  input: RelayApiWalletInput,
+  input: RouterApiWalletInput,
 ): Promise<
   Awaited<
     ReturnType<
       typeof enforceRoutePolicy<{
-        apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+        apiKeyAuth?: RouterApiKeyAuthAdapter | null;
         wallets?: ConsoleWalletService | null;
       }>
     >
@@ -153,7 +153,7 @@ async function enforceApiWalletRoute(
 
 function apiWalletNotConfiguredResponse(
   status: 500 | 501,
-): RouteResponse<RelayApiWalletErrorBody> {
+): RouteResponse<RouterApiWalletErrorBody> {
   return routeJson(status, {
     ok: false,
     code: 'wallet_api_not_configured',
@@ -161,9 +161,9 @@ function apiWalletNotConfiguredResponse(
   });
 }
 
-export async function handleRelayApiWalletList(
-  input: RelayApiWalletQueryInput,
-): Promise<RouteResponse<RelayApiWalletListBody | RelayApiWalletErrorBody>> {
+export async function handleRouterApiWalletList(
+  input: RouterApiWalletQueryInput,
+): Promise<RouteResponse<RouterApiWalletListBody | RouterApiWalletErrorBody>> {
   const resolved = await enforceApiWalletRoute(input);
   if (!resolved.ok) {
     if (
@@ -204,9 +204,9 @@ export async function handleRelayApiWalletList(
   }
 }
 
-export async function handleRelayApiWalletSearch(
-  input: RelayApiWalletQueryInput,
-): Promise<RouteResponse<RelayApiWalletListBody | RelayApiWalletErrorBody>> {
+export async function handleRouterApiWalletSearch(
+  input: RouterApiWalletQueryInput,
+): Promise<RouteResponse<RouterApiWalletListBody | RouterApiWalletErrorBody>> {
   const resolved = await enforceApiWalletRoute(input);
   if (!resolved.ok) {
     if (
@@ -247,9 +247,9 @@ export async function handleRelayApiWalletSearch(
   }
 }
 
-export async function handleRelayApiWalletGet(
-  input: RelayApiWalletGetInput,
-): Promise<RouteResponse<RelayApiWalletGetBody | RelayApiWalletErrorBody>> {
+export async function handleRouterApiWalletGet(
+  input: RouterApiWalletGetInput,
+): Promise<RouteResponse<RouterApiWalletGetBody | RouterApiWalletErrorBody>> {
   const walletId = String(input.walletId || '').trim();
   if (!walletId) {
     return routeJson(400, {

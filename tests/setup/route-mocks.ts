@@ -6,12 +6,12 @@ import { formatLog, printLog } from './logging';
 // Route-level server-side mocks
 // ============================
 
-export interface RelayMockOptions {
+export interface RouterApiMockOptions {
   relayUrl?: string;
   success?: boolean;
 }
 
-export async function mockRelayServer(page: Page, options: RelayMockOptions = {}): Promise<void> {
+export async function mockRouterApiServer(page: Page, options: RouterApiMockOptions = {}): Promise<void> {
   const relayBase = (
     options.relayUrl ??
     DEFAULT_TEST_CONFIG.relayer?.url ??

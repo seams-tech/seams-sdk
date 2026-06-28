@@ -39,13 +39,13 @@ function isRegistrationErrorCode(raw: unknown): raw is RegistrationErrorCode {
   return REGISTRATION_FAILURE_CODES.includes(value as RegistrationErrorCode);
 }
 
-export class RelayRegistrationError extends Error {
+export class RouterApiRegistrationError extends Error {
   readonly code: RegistrationErrorCode;
   readonly status: number;
 
   constructor(input: { code: RegistrationErrorCode; status: number; message: string }) {
     super(input.message);
-    this.name = 'RelayRegistrationError';
+    this.name = 'RouterApiRegistrationError';
     this.code = input.code;
     this.status = input.status;
   }
@@ -259,7 +259,7 @@ async function requestManagedRegistrationFlowGrant(args: {
     `HTTP ${brokerResponse.status}: ${brokerResponse.statusText}`;
   if (!brokerResponse.ok || brokerResult.ok === false) {
     if (isRegistrationErrorCode(brokerCode)) {
-      throw new RelayRegistrationError({
+      throw new RouterApiRegistrationError({
         code: brokerCode,
         status: brokerResponse.status,
         message: brokerMessage,

@@ -9,7 +9,7 @@ import type {
 import type { RegistrationResult, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { createRegistrationFlowEvent, RegistrationEventPhase } from '@/core/types/sdkSentEvents';
-import { createManagedRegistrationFlowGrant } from '@/SeamsWeb/operations/registration/createAccountRelayServer';
+import { createManagedRegistrationFlowGrant } from '@/SeamsWeb/operations/registration/createAccountRouterApiServer';
 import type {
   RegistrationAccountSurface,
   RegistrationSigningSurface,
@@ -55,6 +55,7 @@ import type {
 import {
   computeRegistrationNearEd25519SigningKeyId,
   nearEd25519SigningKeyIdFromString,
+  registrationEd25519AuthorityScope,
   registrationProvisioningScopeKey,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
@@ -218,7 +219,6 @@ export type RegisterWalletOperationInput = {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  rpId: string;
   signerSelection: RegistrationSignerSelection;
   options: RegistrationHooksOptions;
   authenticatorOptions: AuthenticatorOptions;
@@ -232,7 +232,7 @@ type Ed25519RegistrationSignerSelection =
 export type WalletRegistrationPrecomputeScope = {
   authMethodKind: RegistrationAuthMethodInput['kind'];
   walletScopeKey: string;
-  rpId: string;
+  authorityScopeKey: string;
   signerMode: Extract<RegistrationSignerSelection['mode'], 'ed25519_only' | 'ed25519_and_ecdsa'>;
   accountProvisioningScopeKey: string;
 };
@@ -404,6 +404,25 @@ type RegistrationTimingSummary =
 
 function assertNever(value: never): never {
   throw new Error(`Unexpected registration timing branch: ${String(value)}`);
+}
+
+function registrationAuthorityScopeKey(authMethod: RegistrationAuthMethodInput): string {
+  return JSON.stringify(registrationEd25519AuthorityScope(authMethod));
+}
+
+function registrationBootstrapGrantRpId(input: {
+  context: RegistrationWebContext;
+  authMethod: RegistrationAuthMethodInput;
+  operation: string;
+}): string {
+  const rpId =
+    input.authMethod.kind === 'passkey'
+      ? String(input.authMethod.rpId || '').trim()
+      : String(input.context.signingEngine.getRpId() || '').trim();
+  if (!rpId) {
+    throw new Error(`${input.operation} requires configured rpId for managed registration grant`);
+  }
+  return rpId;
 }
 
 function roundDurationMs(startedAt: number): number {
@@ -1129,7 +1148,7 @@ function registrationPreflightFromEd25519Selection(args: {
 
 async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
   walletId: WalletId;
-  rpId: string;
+  authMethod: RegistrationAuthMethodInput;
   runtimePolicyScope?: {
     projectId: string;
     envId: string;
@@ -1146,7 +1165,7 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
   }
   return await computeRegistrationNearEd25519SigningKeyId({
     walletId: intent.walletId,
-    rpId: requireWebAuthnRpId(intent.rpId),
+    authorityScope: registrationEd25519AuthorityScope(intent.authMethod),
     signingRootId: deriveSigningRootId(runtimePolicyScope),
     signingRootVersion: runtimePolicyScope.signingRootVersion,
     ed25519: intent.signerSelection.ed25519,
@@ -1175,15 +1194,12 @@ function plannedEvmFamilyWalletKeyIdFromRegistrationIntent(intent: {
 function walletRegistrationPrecomputeScopeFromArgs(args: {
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  rpId: string;
   signerSelection: Ed25519RegistrationSignerSelection;
 }): WalletRegistrationPrecomputeScope {
-  const rpId = String(args.rpId || '').trim();
-  if (!rpId) throw new Error('registerWallet requires rpId');
   return {
     authMethodKind: args.authMethod.kind,
     walletScopeKey: walletScopeKey(args.wallet),
-    rpId,
+    authorityScopeKey: registrationAuthorityScopeKey(args.authMethod),
     signerMode: args.signerSelection.mode,
     accountProvisioningScopeKey: registrationProvisioningScopeKey(
       args.signerSelection.ed25519.accountProvisioning,
@@ -1198,7 +1214,7 @@ function assertWalletRegistrationPrecomputeScopeMatches(input: {
   if (
     input.expected.authMethodKind !== input.actual.authMethodKind ||
     input.expected.walletScopeKey !== input.actual.walletScopeKey ||
-    input.expected.rpId !== input.actual.rpId ||
+    input.expected.authorityScopeKey !== input.actual.authorityScopeKey ||
     input.expected.signerMode !== input.actual.signerMode ||
     input.expected.accountProvisioningScopeKey !== input.actual.accountProvisioningScopeKey
   ) {
@@ -1228,7 +1244,6 @@ async function startWalletRegistrationPrecomputeReady(input: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  rpId: string;
   signerSelection: Ed25519RegistrationSignerSelection;
   recorder: RegistrationTimingRecorder;
 }): Promise<WalletRegistrationPrecomputeReady> {
@@ -1244,7 +1259,6 @@ async function startWalletRegistrationPrecomputeReady(input: {
   const scope = walletRegistrationPrecomputeScopeFromArgs({
     authMethod: input.authMethod,
     wallet: input.wallet,
-    rpId: input.rpId,
     signerSelection: input.signerSelection,
   });
   const grantIdentity = registrationGrantIdentityFromEd25519Selection({
@@ -1259,7 +1273,11 @@ async function startWalletRegistrationPrecomputeReady(input: {
     createManagedRegistrationFlowGrant({
       context: input.context,
       identity: grantIdentity,
-      rpId: scope.rpId,
+      rpId: registrationBootstrapGrantRpId({
+        context: input.context,
+        authMethod: input.authMethod,
+        operation: 'registerWallet',
+      }),
     }),
   );
   const intentResponse = await input.recorder.measure('registrationIntentMs', () =>
@@ -1267,7 +1285,6 @@ async function startWalletRegistrationPrecomputeReady(input: {
       relayerUrl,
       request: {
         wallet: input.wallet,
-        rpId: scope.rpId,
         authMethod: input.authMethod,
         signerSelection: input.signerSelection,
       },
@@ -1328,14 +1345,12 @@ export function startWalletRegistrationPrecompute(args: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  rpId: string;
   signerSelection: RegistrationSignerSelection;
 }): WalletRegistrationPrecomputeHandle {
   const signerSelection = requireEd25519RegistrationSignerSelection(args.signerSelection);
   const scope = walletRegistrationPrecomputeScopeFromArgs({
     authMethod: args.authMethod,
     wallet: args.wallet,
-    rpId: args.rpId,
     signerSelection,
   });
   const startedAt = performance.now();
@@ -1348,7 +1363,6 @@ export function startWalletRegistrationPrecompute(args: {
     context: args.context,
     authMethod: args.authMethod,
     wallet: args.wallet,
-    rpId: args.rpId,
     signerSelection,
     recorder,
   });
@@ -1426,6 +1440,13 @@ function createFailedRegistrationTimingSummary(input: {
 
 function emitRegistrationTimingSummary(summary: RegistrationTimingSummary): void {
   console.info(REGISTRATION_TIMING_LABEL, summary);
+}
+
+function logRegistrationProgress(stage: string, details?: Record<string, unknown>): void {
+  console.info('[Registration] progress', {
+    stage,
+    ...(details || {}),
+  });
 }
 
 function registrationRouteDiagnosticsHeaders(): Record<string, string> | undefined {
@@ -1931,7 +1952,6 @@ async function registerEcdsaWalletOnly(args: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  rpId: string;
   signerSelection: Extract<RegistrationSignerSelection, { mode: 'ecdsa_only' }>;
   options: RegistrationHooksOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -1941,14 +1961,9 @@ async function registerEcdsaWalletOnly(args: {
   const { onEvent, onError, afterCall } = options;
   const startedAt = performance.now();
   const registrationTiming = new RegistrationTimingRecorder(startedAt);
-  const rpId = String(args.rpId || '').trim();
   const initialEventAccountId = registrationEventAccountId(
     wallet.kind === 'provided' ? String(wallet.walletId) : 'wallet-registration',
   );
-
-  if (!rpId) {
-    throw new Error('registerWallet requires rpId');
-  }
 
   emitRegistrationEvent(onEvent, initialEventAccountId, {
     authMethod: args.authMethod.kind,
@@ -1974,7 +1989,11 @@ async function registerEcdsaWalletOnly(args: {
           wallet.kind === 'provided'
             ? { kind: 'wallet', walletId: String(wallet.walletId || '').trim() }
             : { kind: 'none' },
-        rpId,
+        rpId: registrationBootstrapGrantRpId({
+          context,
+          authMethod: args.authMethod,
+          operation: 'registerWallet',
+        }),
       }),
     );
     const intentResponse = await registrationTiming.measure('registrationIntentMs', () =>
@@ -1982,7 +2001,6 @@ async function registerEcdsaWalletOnly(args: {
         relayerUrl,
         request: {
           wallet,
-          rpId,
           authMethod: args.authMethod,
           signerSelection,
         },
@@ -2149,7 +2167,7 @@ async function registerEcdsaWalletOnly(args: {
             })()
             : await context.signingEngine.preparePasskeyEcdsaBootstrap({
                 prepare: ecdsaPrepare,
-                rpId,
+                rpId: args.authMethod.rpId,
                 chainTarget: ecdsaChainTarget,
                 passkeyPrfFirstB64u,
               credentialIdB64u: String(
@@ -2190,6 +2208,11 @@ async function registerEcdsaWalletOnly(args: {
         ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
       }),
     );
+    logRegistrationProgress('finalize_response_received', {
+      walletId: finalized.walletId,
+      hasEd25519: Boolean(finalized.ed25519),
+      ecdsaWalletKeyCount: finalized.ecdsa?.walletKeys?.length || 0,
+    });
     registrationTiming.captureRouteDiagnostics(finalized.registrationDiagnostics);
     if ('kind' in finalized && finalized.kind === 'already_finalized_restore_required') {
       const result = alreadyFinalizedRestoreRequiredResult(finalized.walletId);
@@ -2238,7 +2261,7 @@ async function registerEcdsaWalletOnly(args: {
               : {
                   kind: 'passkey',
                   credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(preparedClientBootstrap),
-                  rpId,
+                  rpId: args.authMethod.rpId,
                 },
       });
       if (args.authMethod.kind === 'passkey') {
@@ -2361,7 +2384,6 @@ async function registerWalletInternal(
       context,
       authMethod: args.authMethod,
       wallet,
-      rpId: args.rpId,
       signerSelection,
       options,
       ...(args.confirmationConfigOverride
@@ -2385,10 +2407,6 @@ async function registerWalletInternal(
     }),
   );
   let finalizedNearAccountId: AccountId | null = null;
-  const rpId = String(args.rpId || '').trim();
-  if (!rpId) {
-    throw new Error('registerWallet requires rpId');
-  }
 
   emitRegistrationEvent(onEvent, eventAccountId, {
     authMethod: args.authMethod.kind,
@@ -2414,7 +2432,6 @@ async function registerWalletInternal(
     const expectedPrecomputeScope = walletRegistrationPrecomputeScopeFromArgs({
       authMethod: args.authMethod,
       wallet,
-      rpId,
       signerSelection: requireEd25519RegistrationSignerSelection(signerSelection),
     });
     let startedPrecomputeHandle: WalletRegistrationPrecomputeHandleInternal | null = null;
@@ -2437,7 +2454,6 @@ async function registerWalletInternal(
           context,
           authMethod: args.authMethod,
           wallet,
-          rpId,
           signerSelection: requireEd25519RegistrationSignerSelection(signerSelection),
           recorder: registrationTiming,
         });
@@ -2453,6 +2469,11 @@ async function registerWalletInternal(
       thresholdRuntimePolicyScope,
     } = precomputeReady;
     eventAccountId = registrationEventAccountId(String(intentResponse.intent.walletId));
+    const registrationSessionRpId = registrationBootstrapGrantRpId({
+      context,
+      authMethod: args.authMethod,
+      operation: 'registerWallet',
+    });
     const nearEd25519SigningKeyId = await ed25519RegistrationKeyScopeIdFromIntent(
       intentResponse.intent,
     );
@@ -2647,7 +2668,7 @@ async function registerWalletInternal(
                 })()
               : await context.signingEngine.preparePasskeyEcdsaBootstrap({
                   prepare: ecdsaPrepare,
-                  rpId,
+                  rpId: args.authMethod.rpId,
                   chainTarget: ecdsaChainTarget,
                   passkeyPrfFirstB64u: ecdsaPasskeyPrfFirstB64u,
                   credentialIdB64u: String(
@@ -2738,7 +2759,7 @@ async function registerWalletInternal(
         ed25519: {
           evaluationResult,
           sessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            rpId,
+            rpId: registrationSessionRpId,
             requestedPolicy,
             ...(sponsoredNamedAccountId ? { nearAccountId: sponsoredNamedAccountId } : {}),
           }).session_policy,
@@ -2803,7 +2824,7 @@ async function registerWalletInternal(
         completeRegisteredThresholdEd25519Registration({
           thresholdEd25519: finalizedEd25519,
           expectedSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            rpId,
+            rpId: registrationSessionRpId,
             requestedPolicy,
             walletId: finalized.walletId,
             nearAccountId: String(nearAccountId),
@@ -2822,11 +2843,21 @@ async function registerWalletInternal(
       phase: RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_SUCCEEDED,
       status: 'succeeded',
     });
+    logRegistrationProgress('ed25519_completion_parsed', {
+      walletId: finalized.walletId,
+      nearAccountId: String(nearAccountId),
+      nearEd25519SigningKeyId: finalizedEd25519.nearEd25519SigningKeyId,
+    });
 
     emitRegistrationEvent(onEvent, nearAccountId, {
       authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
+    });
+    logRegistrationProgress('local_ed25519_persistence_started', {
+      walletId: finalized.walletId,
+      nearAccountId: String(nearAccountId),
+      authMethod: args.authMethod.kind,
     });
     const storedRegistration = await registrationTiming.measure(
       'localWalletRegistrationPersistenceMs',
@@ -2864,6 +2895,10 @@ async function registerWalletInternal(
                 clientParticipantId: finalizedEd25519.clientParticipantId,
                 relayerParticipantId: finalizedEd25519.relayerParticipantId,
               });
+        logRegistrationProgress('local_ed25519_record_stored', {
+          walletId: finalized.walletId,
+          signerSlot: stored.signerSlot,
+        });
         const persistedUser = await context.signingEngine.getUserBySignerSlot(
           nearAccountId,
           stored.signerSlot,
@@ -2875,12 +2910,16 @@ async function registerWalletInternal(
             )} signer slot ${stored.signerSlot}`,
           );
         }
+        logRegistrationProgress('profile_account_mapping_verified', {
+          walletId: finalized.walletId,
+          signerSlot: stored.signerSlot,
+        });
         return stored;
       },
     );
     const signerSlot = storedRegistration.signerSlot;
     const thresholdEd25519RegistrationSessionPolicy = buildThresholdWarmSessionRequestEnvelope({
-      rpId,
+      rpId: registrationSessionRpId,
       requestedPolicy,
       walletId: finalized.walletId,
       nearAccountId: String(nearAccountId),
@@ -2888,6 +2927,11 @@ async function registerWalletInternal(
       relayerKeyId: finalizedEd25519.relayerKeyId,
     }).session_policy;
     await registrationTiming.measure('thresholdEd25519SessionPersistenceMs', async () => {
+      logRegistrationProgress('threshold_ed25519_session_persistence_started', {
+        walletId: finalized.walletId,
+        signerSlot,
+        authMethod: args.authMethod.kind,
+      });
       if (args.authMethod.kind === 'email_otp') {
         await persistRegisteredThresholdEd25519Session({
           signingEngine: context.signingEngine,
@@ -2903,12 +2947,16 @@ async function registerWalletInternal(
             }),
           },
           workerCtx: context.signingEngine.getSignerWorkerContext(),
-          rpId,
+          rpId: registrationSessionRpId,
           relayerUrl,
           prfFirstB64u: hssClientMaterial.prfFirstB64u,
           registrationHssClientMaterial: hssClientMaterial,
           registrationSessionPolicy: thresholdEd25519RegistrationSessionPolicy,
           completedRegistration: completedThresholdEd25519Registration,
+        });
+        logRegistrationProgress('threshold_ed25519_email_otp_session_persisted', {
+          walletId: finalized.walletId,
+          signerSlot,
         });
       } else {
         await persistRegisteredThresholdEd25519Session({
@@ -2923,23 +2971,31 @@ async function registerWalletInternal(
               passkeyAuthority?.credential.rawId || passkeyAuthority?.credential.id || '',
             ).trim(),
           },
-          rpId,
+          rpId: registrationSessionRpId,
           relayerUrl,
           prfFirstB64u: hssClientMaterial.prfFirstB64u,
           registrationSessionPolicy: thresholdEd25519RegistrationSessionPolicy,
           completedRegistration: completedThresholdEd25519Registration,
         });
+        logRegistrationProgress('threshold_ed25519_passkey_session_persisted', {
+          walletId: finalized.walletId,
+          signerSlot,
+        });
         const registrationWarmSession = completedThresholdEd25519Registration.registered.session;
         if (!registrationWarmSession) {
           throw new Error('Wallet registration did not return an Ed25519 warm session');
         }
+        logRegistrationProgress('threshold_ed25519_warm_material_reconstruction_started', {
+          walletId: finalized.walletId,
+          signerSlot,
+        });
         await reconstructThresholdEd25519SigningMaterialFromWarmSession({
           context,
           credential: passkeyAuthority!.credential,
           walletId: finalized.walletId,
           nearAccountId,
           nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(finalizedEd25519.nearEd25519SigningKeyId),
-          rpId,
+          rpId: registrationSessionRpId,
           relayerUrl,
           relayerKeyId: finalizedEd25519.relayerKeyId,
           signerSlot,
@@ -2948,6 +3004,10 @@ async function registerWalletInternal(
           materialCreatedAtMs: Date.now(),
           participantIdsHint: finalizedEd25519.participantIds,
         });
+        logRegistrationProgress('threshold_ed25519_warm_material_reconstructed', {
+          walletId: finalized.walletId,
+          signerSlot,
+        });
       }
     });
     if (ecdsaWalletKeys.length > 0) {
@@ -2955,6 +3015,10 @@ async function registerWalletInternal(
         throw new Error('Wallet registration ECDSA session material was not prepared');
       }
       await registrationTiming.measure('ecdsaRegistrationPersistenceMs', async () => {
+        logRegistrationProgress('ecdsa_registration_persistence_started', {
+          walletId: finalized.walletId,
+          walletKeyCount: ecdsaWalletKeys.length,
+        });
         await context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
           walletId: toWalletId(finalized.walletId),
           relayerUrl,
@@ -2974,9 +3038,13 @@ async function registerWalletInternal(
                   kind: 'passkey',
                   credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(
                     ecdsaPreparedClientBootstrap,
-                  ),
-                  rpId,
+                ),
+                  rpId: args.authMethod.rpId,
                 },
+        });
+        logRegistrationProgress('ecdsa_registration_sessions_finalized', {
+          walletId: finalized.walletId,
+          walletKeyCount: ecdsaWalletKeys.length,
         });
         if (args.authMethod.kind === 'passkey') {
           await context.signingEngine.storeWalletEcdsaSignerRecords({
@@ -2989,9 +3057,17 @@ async function registerWalletInternal(
             walletKeys: ecdsaWalletKeys,
           });
         }
+        logRegistrationProgress('ecdsa_signer_records_stored', {
+          walletId: finalized.walletId,
+          walletKeyCount: ecdsaWalletKeys.length,
+        });
       });
     }
     await registrationTiming.measure('walletStateActivationMs', async () => {
+      logRegistrationProgress('wallet_state_activation_started', {
+        walletId: finalized.walletId,
+        nearAccountId: String(nearAccountId),
+      });
       try {
         await context.signingEngine.activateAuthenticatedWalletState({
           walletId: finalized.walletId,
@@ -3001,6 +3077,13 @@ async function registerWalletInternal(
       } catch (initErr) {
         console.warn('Failed to initialize current user after wallet registration:', initErr);
       }
+      logRegistrationProgress('wallet_state_activation_completed', {
+        walletId: finalized.walletId,
+      });
+    });
+    logRegistrationProgress('immediate_signing_lane_assertion_started', {
+      walletId: finalized.walletId,
+      authMethod: args.authMethod.kind,
     });
     await registrationTiming.measure('immediateSigningLaneAssertionMs', () =>
       assertImmediateRegistrationSigningLanes({
@@ -3014,6 +3097,9 @@ async function registerWalletInternal(
         requireSharedSigningGrant: Boolean(ecdsaSelection),
       }),
     );
+    logRegistrationProgress('immediate_signing_lane_assertion_completed', {
+      walletId: finalized.walletId,
+    });
     registrationState.databaseStored = true;
     emitRegistrationEvent(onEvent, nearAccountId, {
       authMethod: args.authMethod.kind,

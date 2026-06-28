@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import { createRouterApiRouter } from '@server/router/express-adaptor';
 import {
   computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
@@ -200,7 +200,7 @@ async function startPasskeyBootstrapRoute(input: {
       throw new Error('Email OTP enrollment lookup should not run for this test');
     },
   };
-  const router = createRelayRouter(service as any, {
+  const router = createRouterApiRouter(service as any, {
     threshold: makeThresholdAdapter() as any,
     session: makeSessionAdapter(input.parseSession ? { parse: input.parseSession } : {}),
     routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,

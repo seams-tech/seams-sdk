@@ -1,7 +1,7 @@
-import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../relay';
-import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
-import { emitRelayWebhookEvent } from '../../relayWebhooks';
-import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../routerApi';
+import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
+import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
+import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { headersToRecord, json, readJson } from '../http';
 import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -49,7 +49,7 @@ type VerifiedSigningBudgetStatus =
   Extract<ParseWalletSigningBudgetStatusResult, { ok: true }>['walletBudgetStatus'];
 
 async function emitSessionExchangeFailed(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
   input: {
     code: string;
     message: string;
@@ -59,9 +59,9 @@ async function emitSessionExchangeFailed(
     userId?: string;
   },
 ): Promise<void> {
-  await emitRelayWebhookEvent({
+  await emitRouterApiWebhookEvent({
     logger: ctx.logger,
-    webhooks: ctx.opts.relayWebhooks,
+    webhooks: ctx.opts.routerApiWebhooks,
     eventType: 'session.exchange.failed',
     userId: input.userId,
     payload: {
@@ -75,7 +75,7 @@ async function emitSessionExchangeFailed(
 }
 
 async function emitEmailOtpWebhookEvent(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
   input: {
     eventType: string;
     claims?: Record<string, unknown> | null;
@@ -85,9 +85,9 @@ async function emitEmailOtpWebhookEvent(
     payload?: Record<string, unknown>;
   },
 ): Promise<void> {
-  await emitRelayWebhookEvent({
+  await emitRouterApiWebhookEvent({
     logger: ctx.logger,
-    webhooks: ctx.opts.relayWebhooks,
+    webhooks: ctx.opts.routerApiWebhooks,
     eventType: input.eventType,
     claims: input.claims || undefined,
     userId: input.userId,
@@ -100,7 +100,7 @@ async function emitEmailOtpWebhookEvent(
 }
 
 async function emitEmailOtpWebhookDescriptor(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
   input: {
     descriptor: { eventType: string; eventId?: string; payload: Record<string, unknown> };
     claims?: Record<string, unknown> | null;
@@ -118,12 +118,12 @@ async function emitEmailOtpWebhookDescriptor(
   });
 }
 
-function hasBearerSessionSignal(ctx: CloudflareRelayContext): boolean {
+function hasBearerSessionSignal(ctx: CloudflareRouterApiContext): boolean {
   const authorization = String(ctx.request.headers.get('authorization') || '').trim();
   return authorization.toLowerCase().startsWith('bearer ');
 }
 
-function hasCookieSessionSignal(ctx: CloudflareRelayContext): boolean {
+function hasCookieSessionSignal(ctx: CloudflareRouterApiContext): boolean {
   const cookie = String(ctx.request.headers.get('cookie') || '').trim();
   if (!cookie) return false;
   const cookieName = String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
@@ -137,7 +137,7 @@ function hasCookieSessionSignal(ctx: CloudflareRelayContext): boolean {
   return false;
 }
 
-async function readAndValidateAppSession(ctx: CloudflareRelayContext): Promise<
+async function readAndValidateAppSession(ctx: CloudflareRouterApiContext): Promise<
   | { ok: true; claims: any; userId: string; appSessionVersion: string }
   | {
       ok: false;
@@ -231,7 +231,7 @@ async function hashAppSessionClaims(claims: Record<string, unknown>): Promise<st
   return hashEmailOtpAppSessionClaims(claims);
 }
 
-async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext): Promise<
+async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRouterApiContext): Promise<
   | {
       ok: true;
       claims: Record<string, unknown>;
@@ -269,7 +269,7 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
 }
 
 async function maybeEmitWarmExpiredFromValidationFailure(input: {
-  ctx: CloudflareRelayContext;
+  ctx: CloudflareRouterApiContext;
   validated:
     | { ok: true; claims: any; userId: string; appSessionVersion: string }
     | {
@@ -294,9 +294,9 @@ async function maybeEmitWarmExpiredFromValidationFailure(input: {
       (Boolean(input.validated.hadBearerSessionSignal) ||
         Boolean(input.validated.hadCookieSessionSignal)));
   if (!shouldEmit) return;
-  await emitRelayWebhookEvent({
+  await emitRouterApiWebhookEvent({
     logger: input.ctx.logger,
-    webhooks: input.ctx.opts.relayWebhooks,
+    webhooks: input.ctx.opts.routerApiWebhooks,
     eventType: 'session.warm.expired',
     claims: input.validated.claims,
     userId: input.validated.userId,
@@ -313,7 +313,7 @@ async function maybeEmitWarmExpiredFromValidationFailure(input: {
   });
 }
 
-export async function handleSessionState(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleSessionState(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== ctx.mePath && ctx.pathname !== '/session/state') return null;
 
@@ -336,7 +336,7 @@ export async function handleSessionState(ctx: CloudflareRelayContext): Promise<R
   }
 }
 
-export async function handleSessionExchange(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/exchange') return null;
 
   try {
@@ -899,9 +899,9 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         ...(oidcName ? { name: oidcName } : {}),
       },
     };
-    await emitRelayWebhookEvent({
+    await emitRouterApiWebhookEvent({
       logger: ctx.logger,
-      webhooks: ctx.opts.relayWebhooks,
+      webhooks: ctx.opts.routerApiWebhooks,
       eventType: 'session.warm.created',
       userId,
       payload: {
@@ -913,9 +913,9 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
     });
     if (provider === 'passkey') {
       await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
-      await emitRelayWebhookEvent({
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: 'wallet.unlocked',
         userId,
         eventId: passkeyChallengeId,
@@ -950,7 +950,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
   }
 }
 
-export async function handleSessionRevoke(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleSessionRevoke(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/revoke') return null;
 
   const validated = await readAndValidateAppSession(ctx);
@@ -972,9 +972,9 @@ export async function handleSessionRevoke(ctx: CloudflareRelayContext): Promise<
   }
 
   const session = ctx.opts.session;
-  await emitRelayWebhookEvent({
+  await emitRouterApiWebhookEvent({
     logger: ctx.logger,
-    webhooks: ctx.opts.relayWebhooks,
+    webhooks: ctx.opts.routerApiWebhooks,
     eventType: 'session.revoked',
     claims: validated.claims,
     userId: validated.userId,
@@ -992,7 +992,7 @@ export async function handleSessionRevoke(ctx: CloudflareRelayContext): Promise<
   );
 }
 
-export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleSessionRefresh(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/refresh') return null;
 
   const body = await readJson(ctx.request);
@@ -1027,9 +1027,9 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
   const out = await session.refresh(Object.fromEntries(ctx.request.headers.entries()));
   if (!out.ok || !out.jwt) {
     if ((out.code || 'not_eligible') === 'unauthorized') {
-      await emitRelayWebhookEvent({
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: 'session.warm.expired',
         claims: validated.claims,
         userId: validated.userId,
@@ -1046,9 +1046,9 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
       { status: out.code === 'unauthorized' ? 401 : 400 },
     );
   }
-  await emitRelayWebhookEvent({
+  await emitRouterApiWebhookEvent({
     logger: ctx.logger,
-    webhooks: ctx.opts.relayWebhooks,
+    webhooks: ctx.opts.routerApiWebhooks,
     eventType: 'session.warm.refreshed',
     claims: validated.claims,
     userId: validated.userId,
@@ -1069,7 +1069,7 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
 }
 
 export async function handleSigningBudgetStatus(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/router-ab/wallet-budget/status') return null;
   try {
@@ -1160,7 +1160,7 @@ export async function handleSigningBudgetStatus(
 }
 
 export async function handleWalletUnlockChallenge(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/challenge') return null;
   const body = await readJson(ctx.request);
@@ -1172,7 +1172,7 @@ export async function handleWalletUnlockChallenge(
 }
 
 export async function handleWalletUnlockVerify(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/verify') return null;
   const body = await readJson(ctx.request);
@@ -1180,10 +1180,10 @@ export async function handleWalletUnlockVerify(
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: ctx.service,
-    emitRelayWebhook: async (event) => {
-      await emitRelayWebhookEvent({
+    emitRouterApiWebhook: async (event) => {
+      await emitRouterApiWebhookEvent({
         logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
+        webhooks: ctx.opts.routerApiWebhooks,
         eventType: event.eventType,
         userId: event.userId,
         eventId: event.eventId,
@@ -1202,7 +1202,7 @@ export async function handleWalletUnlockVerify(
 }
 
 export async function handleWalletEmailOtpRegistrationChallenge(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/registration/challenge')
     return null;
@@ -1228,7 +1228,7 @@ export async function handleWalletEmailOtpRegistrationChallenge(
 }
 
 export async function handleWalletEmailOtpRegistrationFinalize(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/registration/finalize')
     return null;
@@ -1262,7 +1262,7 @@ export async function handleWalletEmailOtpRegistrationFinalize(
 }
 
 export async function handleWalletEmailOtpRegistrationSeal(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/registration/seal') return null;
   const body = await readJson(ctx.request);
@@ -1285,7 +1285,7 @@ export async function handleWalletEmailOtpRegistrationSeal(
 }
 
 export async function handleWalletEmailOtpLoginChallenge(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/challenge') return null;
   const body = await readJson(ctx.request);
@@ -1319,7 +1319,7 @@ export async function handleWalletEmailOtpLoginChallenge(
 }
 
 export async function handleWalletEmailOtpSigningSessionChallenge(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/challenge') {
     return null;
@@ -1349,7 +1349,7 @@ export async function handleWalletEmailOtpSigningSessionChallenge(
 }
 
 export async function handleWalletEmailOtpDeviceRecoveryChallenge(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-challenge') {
     return null;
@@ -1376,7 +1376,7 @@ export async function handleWalletEmailOtpDeviceRecoveryChallenge(
 }
 
 export async function handleWalletEmailOtpLoginVerify(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/verify') return null;
   const body = await readJson(ctx.request);
@@ -1410,7 +1410,7 @@ export async function handleWalletEmailOtpLoginVerify(
 }
 
 export async function handleWalletEmailOtpLoginVerifyAndUnseal(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/verify-and-unseal') {
     return null;
@@ -1446,7 +1446,7 @@ export async function handleWalletEmailOtpLoginVerifyAndUnseal(
 }
 
 export async function handleWalletEmailOtpSigningSessionVerify(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/verify') {
     return null;
@@ -1476,7 +1476,7 @@ export async function handleWalletEmailOtpSigningSessionVerify(
 }
 
 export async function handleWalletEmailOtpRecoveryWrappedEscrows(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-wrapped-escrows') {
     return null;
@@ -1503,7 +1503,7 @@ export async function handleWalletEmailOtpRecoveryWrappedEscrows(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyConsume(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/consume') {
     return null;
@@ -1530,7 +1530,7 @@ export async function handleWalletEmailOtpRecoveryKeyConsume(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyStatus(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/status') {
     return null;
@@ -1557,7 +1557,7 @@ export async function handleWalletEmailOtpRecoveryKeyStatus(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyRotate(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/rotate') {
     return null;
@@ -1584,7 +1584,7 @@ export async function handleWalletEmailOtpRecoveryKeyRotate(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/attempt-failed') {
     return null;
@@ -1611,7 +1611,7 @@ export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
 }
 
 export async function handleWalletEmailOtpUnseal(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/unseal') return null;
   const body = await readJson(ctx.request);
@@ -1644,7 +1644,7 @@ export async function handleWalletEmailOtpUnseal(
 }
 
 export async function handleWalletEmailOtpSigningSessionUnseal(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/unseal') {
     return null;
@@ -1673,7 +1673,7 @@ export async function handleWalletEmailOtpSigningSessionUnseal(
 }
 
 export async function handleWalletEmailOtpDevCleanupGoogleRegistration(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (
     ctx.method !== 'POST' ||
@@ -1691,7 +1691,7 @@ export async function handleWalletEmailOtpDevCleanupGoogleRegistration(
 }
 
 export async function handleWalletEmailOtpDevOtpOutbox(
-  ctx: CloudflareRelayContext,
+  ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'GET' || ctx.pathname !== '/wallet/email-otp/dev/otp-outbox') return null;
   const validated = await readAndValidateAppSession(ctx);
@@ -1714,7 +1714,7 @@ export async function handleWalletEmailOtpDevOtpOutbox(
   return json(response.body, { status: response.status });
 }
 
-export async function handleWalletState(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleWalletState(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'GET' || ctx.pathname !== '/wallet/state') return null;
   const validated = await readAndValidateAppSession(ctx);
   if (!validated.ok) {
@@ -1740,7 +1740,7 @@ export async function handleWalletState(ctx: CloudflareRelayContext): Promise<Re
   return json({ ok: true, locked: false, userId: validated.userId }, { status: 200 });
 }
 
-export async function handleWalletLock(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleWalletLock(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/lock') return null;
   const validated = await readAndValidateAppSession(ctx);
   if (!validated.ok) {
@@ -1773,9 +1773,9 @@ export async function handleWalletLock(ctx: CloudflareRelayContext): Promise<Res
   }
 
   const session = ctx.opts.session;
-  await emitRelayWebhookEvent({
+  await emitRouterApiWebhookEvent({
     logger: ctx.logger,
-    webhooks: ctx.opts.relayWebhooks,
+    webhooks: ctx.opts.routerApiWebhooks,
     eventType: 'wallet.locked',
     claims: validated.claims,
     userId: validated.userId,

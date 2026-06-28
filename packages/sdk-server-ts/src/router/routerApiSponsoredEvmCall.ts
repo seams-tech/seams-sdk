@@ -40,8 +40,8 @@ import {
 import { executeSponsorshipAdapter } from '../sponsorship/executionAdapter';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolvePublishableKeyApiCredentialAuth } from './relayApiCredentialAuth';
-import { extractRelayEnvironmentId } from './relayApiKeyAuth';
+import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
 import {
   recordSponsoredExecution,
   runSponsorshipExecution,
@@ -51,7 +51,7 @@ import {
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
 } from './sponsorshipBillingEvents';
-import type { RelayPublishableKeyAuthAdapter } from './relay';
+import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
 import {
   buildSponsorshipRoutePolicyFailureResponse,
   resolveSponsorshipReplayOrMatch,
@@ -121,15 +121,15 @@ type MatchedSponsoredEvmExecution = {
   adapter: NonNullable<ReturnType<SponsoredEvmExecutionAdapterResolver>>;
 };
 
-export interface RelaySponsoredEvmCallService {
+export interface RouterApiSponsoredEvmCallService {
   billing: ConsoleBillingService;
-  config: SponsoredEvmCallExecutorConfig | null;
+  config: SponsoredEvmCallExecutorConfig;
   corsOrigins: readonly string[];
   resolveExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   prepaidReservations: ConsoleBillingPrepaidReservationService | null;
   pricing: SponsorshipSpendPricingService | null;
-  publishableKeyAuth: RelayPublishableKeyAuthAdapter | null;
+  publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
   spendCaps: ConsoleSponsorshipSpendCapService | null;
   sponsoredCalls: ConsoleSponsoredCallService;
@@ -138,14 +138,14 @@ export interface RelaySponsoredEvmCallService {
   webhookRoles?: string[];
 }
 
-export interface RelaySponsoredEvmCallInput {
+export interface RouterApiSponsoredEvmCallInput {
   body: unknown;
   headers: HeaderRecord;
   logger: NormalizedRouterLogger;
   origin?: string;
   route: RouteDefinition;
   services: {
-    relaySponsoredEvmCall?: RelaySponsoredEvmCallService | null;
+    routerApiSponsoredEvmCall?: RouterApiSponsoredEvmCallService | null;
   };
 }
 
@@ -301,7 +301,7 @@ function parseSponsoredEvmRequestBody(
   body: unknown,
   headers: HeaderRecord,
 ): SponsoredEvmCallRequest {
-  const environmentId = extractRelayEnvironmentId(headers);
+  const environmentId = extractRouterApiEnvironmentId(headers);
   const normalizedBody =
     isPlainObject(body)
       ? ({
@@ -459,12 +459,12 @@ function buildSponsorshipPolicyMismatchResponse(
   });
 }
 
-export async function handleRelaySponsoredEvmCall(
-  input: RelaySponsoredEvmCallInput,
+export async function handleRouterApiSponsoredEvmCall(
+  input: RouterApiSponsoredEvmCallInput,
 ): Promise<RouteResponse<Record<string, unknown> | RouteErrorBody>> {
-  const relaySponsoredEvmCall = input.services.relaySponsoredEvmCall || null;
+  const routerApiSponsoredEvmCall = input.services.routerApiSponsoredEvmCall || null;
 
-  if (!relaySponsoredEvmCall) {
+  if (!routerApiSponsoredEvmCall) {
     const resolved = await enforceRoutePolicy({
       headers: input.headers,
       logger: input.logger,
@@ -481,29 +481,15 @@ export async function handleRelaySponsoredEvmCall(
   }
 
   const origin = normalizeOrigin(input.origin);
-  if (!origin || !isAllowedOrigin(origin, relaySponsoredEvmCall.corsOrigins)) {
+  if (!origin || !isAllowedOrigin(origin, routerApiSponsoredEvmCall.corsOrigins)) {
     return routeJson(403, {
       ok: false,
       code: 'origin_not_allowed',
       message: 'Origin is not allowed',
     });
   }
-  if (!relaySponsoredEvmCall.config || relaySponsoredEvmCall.config.executorsByChain.size === 0) {
-    return routeJson(503, {
-      ok: false,
-      code: 'sponsored_evm_call_disabled',
-      message: 'Sponsored EVM execution is not configured on this server',
-    });
-  }
-  const sponsoredEvmConfig = relaySponsoredEvmCall.config;
-  if (!relaySponsoredEvmCall.publishableKeyAuth) {
-    return routeJson(503, {
-      ok: false,
-      code: 'publishable_key_auth_unavailable',
-      message: 'Publishable key authentication is not configured on this server',
-    });
-  }
-  const publishableKeyAuth = relaySponsoredEvmCall.publishableKeyAuth;
+  const sponsoredEvmConfig = routerApiSponsoredEvmCall.config;
+  const publishableKeyAuth = routerApiSponsoredEvmCall.publishableKeyAuth;
 
   let parsedBody: SponsoredEvmCallRequest;
   try {
@@ -522,7 +508,7 @@ export async function handleRelaySponsoredEvmCall(
     request: { body: parsedBody, headers: input.headers },
     route: input.route,
     services: {
-      relaySponsoredEvmCall,
+      routerApiSponsoredEvmCall,
     },
     resolvers: {
       apiCredentials: async () =>
@@ -552,7 +538,7 @@ export async function handleRelaySponsoredEvmCall(
 
   const sponsorshipRuntime = await resolveSponsorshipRuntimeForPublishableKeyRoute({
     resolved,
-    runtimeSnapshots: relaySponsoredEvmCall.runtimeSnapshots,
+    runtimeSnapshots: routerApiSponsoredEvmCall.runtimeSnapshots,
     environmentId: parsedBody.environmentId,
     actorUserId: 'sponsored-call-executor',
     runtimeSnapshotsUnavailableMessage: 'Runtime snapshots are not configured on this server',
@@ -568,7 +554,7 @@ export async function handleRelaySponsoredEvmCall(
     MatchedSponsoredEvmExecution,
     Record<string, unknown>
   >({
-    sponsoredCalls: relaySponsoredEvmCall.sponsoredCalls,
+    sponsoredCalls: routerApiSponsoredEvmCall.sponsoredCalls,
     sponsorshipCtx: sponsorshipRuntime.sponsorshipCtx,
     idempotencyKey,
     buildReplayResponse: (existing) => buildReplayResponse(existing),
@@ -587,7 +573,7 @@ export async function handleRelaySponsoredEvmCall(
           response: buildSponsorshipPolicyMismatchResponse(matchedPolicy),
         };
       }
-      const resolveExecutionAdapter = relaySponsoredEvmCall.resolveExecutionAdapter || null;
+      const resolveExecutionAdapter = routerApiSponsoredEvmCall.resolveExecutionAdapter || null;
       if (!resolveExecutionAdapter) {
         return {
           ok: false,
@@ -653,14 +639,14 @@ export async function handleRelaySponsoredEvmCall(
   let spendCapReservation = null;
   let prepaidReservation = null;
   const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
-    relaySponsoredEvmCall.billing,
+    routerApiSponsoredEvmCall.billing,
     sponsorshipRuntime.sponsorshipCtx,
   );
   try {
     spendCapReservation = await reserveSponsoredSpendCap({
       spendCap: matched.policy.spendCap,
-      spendCaps: relaySponsoredEvmCall.spendCaps,
-      pricing: relaySponsoredEvmCall.pricing,
+      spendCaps: routerApiSponsoredEvmCall.spendCaps,
+      pricing: routerApiSponsoredEvmCall.pricing,
       ctx: sponsorshipRuntime.sponsorshipCtx,
       chainFamily: 'evm',
       intentKind: 'evm_call',
@@ -719,9 +705,9 @@ export async function handleRelaySponsoredEvmCall(
 
   try {
     prepaidReservation = await reserveSponsoredPrepaidBalance({
-      billing: relaySponsoredEvmCall.billing,
-      prepaidReservations: relaySponsoredEvmCall.prepaidReservations,
-      pricing: relaySponsoredEvmCall.pricing,
+      billing: routerApiSponsoredEvmCall.billing,
+      prepaidReservations: routerApiSponsoredEvmCall.prepaidReservations,
+      pricing: routerApiSponsoredEvmCall.pricing,
       ctx: sponsorshipRuntime.sponsorshipCtx,
       chainFamily: 'evm',
       intentKind: 'evm_call',
@@ -739,7 +725,7 @@ export async function handleRelaySponsoredEvmCall(
       try {
         await releaseSponsoredSpendCap({
           reservation: spendCapReservation,
-          spendCaps: relaySponsoredEvmCall.spendCaps,
+          spendCaps: routerApiSponsoredEvmCall.spendCaps,
           ctx: sponsorshipRuntime.sponsorshipCtx,
         });
       } catch (releaseError: unknown) {
@@ -755,10 +741,10 @@ export async function handleRelaySponsoredEvmCall(
       await emitSponsorshipBlockedObservabilityEvent({
         services: {
           logger: input.logger,
-          observabilityIngestion: relaySponsoredEvmCall.observabilityIngestion || null,
-          webhooks: relaySponsoredEvmCall.webhooks || null,
-          webhookActorUserId: relaySponsoredEvmCall.webhookActorUserId,
-          webhookRoles: relaySponsoredEvmCall.webhookRoles,
+          observabilityIngestion: routerApiSponsoredEvmCall.observabilityIngestion || null,
+          webhooks: routerApiSponsoredEvmCall.webhooks || null,
+          webhookActorUserId: routerApiSponsoredEvmCall.webhookActorUserId,
+          webhookRoles: routerApiSponsoredEvmCall.webhookRoles,
         },
         ctx: sponsorshipRuntime.sponsorshipCtx,
         balance: beforeBalanceState,
@@ -798,8 +784,8 @@ export async function handleRelaySponsoredEvmCall(
       try {
         const settled = await settleSponsoredSpendCap({
           reservation: spendCapReservation,
-          spendCaps: relaySponsoredEvmCall.spendCaps,
-          pricing: relaySponsoredEvmCall.pricing,
+          spendCaps: routerApiSponsoredEvmCall.spendCaps,
+          pricing: routerApiSponsoredEvmCall.pricing,
           ctx: sponsorshipRuntime.sponsorshipCtx,
           chainFamily: 'evm',
           intentKind: 'evm_call',
@@ -849,10 +835,10 @@ export async function handleRelaySponsoredEvmCall(
         });
       }
       const record = await recordSponsoredExecution({
-        billing: relaySponsoredEvmCall.billing,
+        billing: routerApiSponsoredEvmCall.billing,
         billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
         context: sponsorshipRuntime.sponsorshipCtx,
-        ledger: relaySponsoredEvmCall.sponsoredCalls,
+        ledger: routerApiSponsoredEvmCall.sponsoredCalls,
         buildRecord: ({ prepaidSettlement, billingLedgerEntryId }) => ({
           environmentId: parsedBody.environmentId,
           apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
@@ -903,15 +889,15 @@ export async function handleRelaySponsoredEvmCall(
         walletId: parsedBody.walletId,
         balanceEvents: {
           logger: input.logger,
-          webhooks: relaySponsoredEvmCall.webhooks || null,
-          observabilityIngestion: relaySponsoredEvmCall.observabilityIngestion || null,
-          webhookActorUserId: relaySponsoredEvmCall.webhookActorUserId,
-          webhookRoles: relaySponsoredEvmCall.webhookRoles,
+          webhooks: routerApiSponsoredEvmCall.webhooks || null,
+          observabilityIngestion: routerApiSponsoredEvmCall.observabilityIngestion || null,
+          webhookActorUserId: routerApiSponsoredEvmCall.webhookActorUserId,
+          webhookRoles: routerApiSponsoredEvmCall.webhookRoles,
         },
         prepaidSettlementInput: {
           reservation: prepaidReservation,
-          prepaidReservations: relaySponsoredEvmCall.prepaidReservations,
-          pricing: relaySponsoredEvmCall.pricing,
+          prepaidReservations: routerApiSponsoredEvmCall.prepaidReservations,
+          pricing: routerApiSponsoredEvmCall.pricing,
           ctx: sponsorshipRuntime.sponsorshipCtx,
           chainFamily: 'evm',
           intentKind: 'evm_call',
@@ -948,8 +934,8 @@ export async function handleRelaySponsoredEvmCall(
       try {
         const settled = await settleSponsoredSpendCap({
           reservation: spendCapReservation,
-          spendCaps: relaySponsoredEvmCall.spendCaps,
-          pricing: relaySponsoredEvmCall.pricing,
+          spendCaps: routerApiSponsoredEvmCall.spendCaps,
+          pricing: routerApiSponsoredEvmCall.pricing,
           ctx: sponsorshipRuntime.sponsorshipCtx,
           chainFamily: 'evm',
           intentKind: 'evm_call',
@@ -999,10 +985,10 @@ export async function handleRelaySponsoredEvmCall(
         });
       }
       const record = await recordSponsoredExecution({
-        billing: relaySponsoredEvmCall.billing,
+        billing: routerApiSponsoredEvmCall.billing,
         billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
         context: sponsorshipRuntime.sponsorshipCtx,
-        ledger: relaySponsoredEvmCall.sponsoredCalls,
+        ledger: routerApiSponsoredEvmCall.sponsoredCalls,
         buildRecord: ({ prepaidSettlement, billingLedgerEntryId }) => ({
           environmentId: parsedBody.environmentId,
           apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
@@ -1053,15 +1039,15 @@ export async function handleRelaySponsoredEvmCall(
         walletId: parsedBody.walletId,
         balanceEvents: {
           logger: input.logger,
-          webhooks: relaySponsoredEvmCall.webhooks || null,
-          observabilityIngestion: relaySponsoredEvmCall.observabilityIngestion || null,
-          webhookActorUserId: relaySponsoredEvmCall.webhookActorUserId,
-          webhookRoles: relaySponsoredEvmCall.webhookRoles,
+          webhooks: routerApiSponsoredEvmCall.webhooks || null,
+          observabilityIngestion: routerApiSponsoredEvmCall.observabilityIngestion || null,
+          webhookActorUserId: routerApiSponsoredEvmCall.webhookActorUserId,
+          webhookRoles: routerApiSponsoredEvmCall.webhookRoles,
         },
         prepaidSettlementInput: {
           reservation: prepaidReservation,
-          prepaidReservations: relaySponsoredEvmCall.prepaidReservations,
-          pricing: relaySponsoredEvmCall.pricing,
+          prepaidReservations: routerApiSponsoredEvmCall.prepaidReservations,
+          pricing: routerApiSponsoredEvmCall.pricing,
           ctx: sponsorshipRuntime.sponsorshipCtx,
           chainFamily: 'evm',
           intentKind: 'evm_call',

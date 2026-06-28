@@ -207,7 +207,7 @@ test('Refactor 80 public result types use success-specific branches', () => {
   const registrationRange = sourceRange(
     seamsTypesSource,
     'export type RegistrationResult =',
-    'export type RelaySecretKeyAuthErrorCode',
+    'export type RouterApiSecretKeyAuthErrorCode',
   );
   const nep413Range = sourceRange(
     sdkPublicResultsSource,
@@ -270,31 +270,18 @@ test('Refactor 80 sync-account routes parse request bodies at the boundary', () 
   }
 });
 
-test('Refactor 80 link-device routes are refactor-84 stubs', () => {
-  const guardedFiles = [
-    'packages/sdk-server-ts/src/router/express/routes/linkDevice.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/routes/linkDevice.ts',
-  ];
+test('Refactor 80 link-device server routes are absent until the feature returns', () => {
+  const serverRouteSurface = [
+    readRepoSource('packages/sdk-server-ts/src/router/routeDefinitions.ts'),
+    readRepoSource('packages/sdk-server-ts/src/router/express/createRouterApiRouter.ts'),
+    readRepoSource('packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts'),
+  ].join('\n');
 
-  for (const relativePath of guardedFiles) {
-    const source = readRepoSource(relativePath);
-    expect(source).toContain('Linked-device lane creation is disabled until refactor 84 lands');
-    expect(source).toContain('unsupported');
-    expect(source).toContain('410');
-    expect(source).not.toContain('parseRegisterLinkDeviceSessionRequest');
-    expect(source).not.toContain('parseClaimLinkDeviceSessionRequest');
-    expect(source).not.toContain('parsePrepareLinkDeviceRequest');
-    expect(source).not.toContain('parseRespondLinkDeviceEcdsaRequest');
-    expect(source).not.toContain('registerLinkDeviceSession({ ...(req.body || {}) })');
-    expect(source).not.toContain('claimLinkDeviceSession({ ...(req.body || {}) })');
-    expect(source).not.toContain('respondLinkDeviceEcdsa({ ...(req.body || {}) })');
-    expect(source).not.toContain('registerLinkDeviceSession(body as any)');
-    expect(source).not.toContain('claimLinkDeviceSession(body as any)');
-    expect(source).not.toContain('respondLinkDeviceEcdsa(body as any)');
-    expect(source).not.toContain('prepareLinkDevice({');
-    expect(source).not.toContain('body as any');
-    expect(source).not.toContain('(body as Record<string, unknown>).rp_id');
-  }
+  expect(serverRouteSurface).not.toContain('/link-device/');
+  expect(serverRouteSurface).not.toContain('link_device_session');
+  expect(serverRouteSurface).not.toContain('link_device_prepare');
+  expect(serverRouteSurface).not.toContain('registerLinkDeviceRoutes');
+  expect(serverRouteSurface).not.toContain('handleLinkDevice');
 });
 
 test('Refactor 80 email-recovery routes parse request bodies at the boundary', () => {
@@ -469,7 +456,7 @@ test('Refactor 80 threshold ECDSA key-identity route parses body at the boundary
   expect(expressSource).not.toContain("typeof (body as { clientDeviceId?: unknown }).clientDeviceId");
 });
 
-test('Refactor 80 threshold Ed25519 HSS rejects legacy email OTP command by discriminant', () => {
+test('Refactor 80 threshold Ed25519 HSS has no legacy email OTP command branch', () => {
   const guardedFiles = [
     'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
     'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
@@ -477,15 +464,9 @@ test('Refactor 80 threshold Ed25519 HSS rejects legacy email OTP command by disc
 
   for (const relativePath of guardedFiles) {
     const source = readRepoSource(relativePath);
-    const helper = sourceRange(
-      source,
-      'function isEmailOtpRegistrationHssRequest',
-      'function rejectLegacyEmailOtpRegistrationHssRequest',
-    );
-    expect(helper).toContain("return body.kind === 'email_otp_registration';");
-    expect(helper).not.toContain('registrationAttemptId');
-    expect(helper).not.toContain('new_account_id');
-    expect(helper).not.toContain('rp_id');
+    expect(source).not.toContain('isEmailOtpRegistrationHssRequest');
+    expect(source).not.toContain('rejectLegacyEmailOtpRegistrationHssRequest');
+    expect(source).not.toContain('Router A/B email_otp_registration HSS requests');
   }
 });
 
@@ -532,7 +513,7 @@ test('Refactor 80 threshold and session exchange routes parse commands before se
   expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
   expect(sessionExchangeParser).toContain('export function parseSessionExchangeRouteCommand');
-  expect(sessionExchangeParser).toContain("import { parseSessionKind } from './relay'");
+  expect(sessionExchangeParser).toContain("import { parseSessionKind } from './routerApi'");
   expect(sessionExchangeParser).toContain(
     "import { parseOidcAccountMode } from './emailOtpSessionRouteHelpers'",
   );

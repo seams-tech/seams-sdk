@@ -1,22 +1,22 @@
 import { expect, test } from '@playwright/test';
 import {
-  handleRelayWalletAddAuthMethodFinalize,
-  handleRelayWalletAddAuthMethodIntent,
-  handleRelayWalletRevokeAuthMethod,
-  handleRelayWalletAddAuthMethodStart,
-  handleRelayWalletAddSignerFinalize,
-  handleRelayWalletAddSignerHssRespond,
-  handleRelayWalletAddSignerIntent,
-  handleRelayWalletAddSignerStart,
-  handleRelayWalletRegistrationIntent,
-  handleRelayWalletRegistrationPrepare,
-  handleRelayWalletRegistrationStart,
-  handleRelayWalletRegistrationFinalize,
-  handleRelayWalletRegistrationHssRespond,
-  handleRelayWalletEcdsaKeyFactsInventory,
+  handleRouterApiWalletAddAuthMethodFinalize,
+  handleRouterApiWalletAddAuthMethodIntent,
+  handleRouterApiWalletRevokeAuthMethod,
+  handleRouterApiWalletAddAuthMethodStart,
+  handleRouterApiWalletAddSignerFinalize,
+  handleRouterApiWalletAddSignerHssRespond,
+  handleRouterApiWalletAddSignerIntent,
+  handleRouterApiWalletAddSignerStart,
+  handleRouterApiWalletRegistrationIntent,
+  handleRouterApiWalletRegistrationPrepare,
+  handleRouterApiWalletRegistrationStart,
+  handleRouterApiWalletRegistrationFinalize,
+  handleRouterApiWalletRegistrationHssRespond,
+  handleRouterApiWalletEcdsaKeyFactsInventory,
 } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import {
-  createRelayRouteDefinitions,
+  createRouterApiRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
@@ -41,9 +41,10 @@ import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
   parseNamedNearAccountId,
 } from '../../packages/shared-ts/src/utils/near';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/encoders';
 
-const routeDefinitions = createRelayRouteDefinitions({
+const routeDefinitions = createRouterApiRouteDefinitions({
   enableEd25519RegistrationPrepare: true,
   enableHealthz: true,
   enableSigningSessionSeal: true,
@@ -158,11 +159,21 @@ function inputFor(
     route: route(routeId),
     services: {
       authService,
+      registrationPrepareAuthService:
+        routeId === 'wallet_registration_prepare' ? authService : null,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
       ...(session ? { session } : {}),
     },
     sourceIp: '203.0.113.10',
-  } as unknown as Parameters<typeof handleRelayWalletRegistrationStart>[0];
+  } as unknown as Parameters<typeof handleRouterApiWalletRegistrationStart>[0];
+}
+
+function registrationPrepareInputFor(body: unknown, authService: Record<string, unknown>) {
+  return inputFor(
+    'wallet_registration_prepare',
+    body,
+    authService,
+  ) as Parameters<typeof handleRouterApiWalletRegistrationPrepare>[0];
 }
 
 function ecdsaInventoryInputFor(args: {
@@ -188,7 +199,7 @@ function ecdsaInventoryInputFor(args: {
       authService: args.authService,
       session: args.session,
     },
-  } as unknown as Parameters<typeof handleRelayWalletEcdsaKeyFactsInventory>[0];
+  } as unknown as Parameters<typeof handleRouterApiWalletEcdsaKeyFactsInventory>[0];
 }
 
 function addSignerInputFor(args: {
@@ -227,7 +238,7 @@ function addSignerInputFor(args: {
       bootstrapTokenStore: args.bootstrapTokenStore,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
     },
-  } as unknown as Parameters<typeof handleRelayWalletAddSignerStart>[0];
+  } as unknown as Parameters<typeof handleRouterApiWalletAddSignerStart>[0];
 }
 
 function addAuthMethodInputFor(args: {
@@ -265,7 +276,7 @@ function addAuthMethodInputFor(args: {
       orgProjectEnv: args.orgProjectEnv,
       bootstrapTokenStore: args.bootstrapTokenStore,
     },
-  } as unknown as Parameters<typeof handleRelayWalletAddAuthMethodStart>[0];
+  } as unknown as Parameters<typeof handleRouterApiWalletAddAuthMethodStart>[0];
 }
 
 function fakeWebAuthnAuthentication() {
@@ -376,11 +387,18 @@ function signingSessionWithCapturedClaims(out: { claims: Record<string, unknown>
   };
 }
 
+function webAuthnRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+const RP_ID = webAuthnRpId('wallet.example.test');
+
 function ecdsaAddSignerIntent(): AddSignerIntentV1 {
   return {
     version: 'add_signer_intent_v1',
     walletId: walletIdFromString('wallet_alice'),
-    rpId: 'wallet.example.test',
     signerSelection: {
       mode: 'ecdsa',
       ecdsa: {
@@ -396,7 +414,6 @@ function ed25519AddSignerIntent(): AddSignerIntentV1 {
   return {
     version: 'add_signer_intent_v1',
     walletId: walletIdFromString('wallet_alice'),
-    rpId: 'wallet.example.test',
     signerSelection: {
       mode: 'ed25519',
       ed25519: {
@@ -417,10 +434,9 @@ function addAuthMethodIntent(kind: 'passkey' | 'email_otp' = 'passkey'): AddAuth
   return {
     version: 'add_auth_method_intent_v1',
     walletId: walletIdFromString('wallet_alice'),
-    rpId: 'wallet.example.test',
     authMethod:
       kind === 'passkey'
-        ? { kind: 'passkey' }
+        ? { kind: 'passkey', rpId: RP_ID }
         : {
             kind: 'email_otp',
             email: 'alice@example.test',
@@ -433,10 +449,9 @@ function registrationIntent(kind: 'passkey' | 'email_otp' = 'passkey'): Registra
   return {
     version: 'registration_intent_v1',
     walletId: walletIdFromString('wallet_alice'),
-    rpId: 'wallet.example.test',
     authMethod:
       kind === 'passkey'
-        ? { kind: 'passkey' }
+        ? { kind: 'passkey', rpId: RP_ID }
         : {
             kind: 'email_otp',
             proofKind: 'otp_challenge',
@@ -462,7 +477,7 @@ function registrationIntent(kind: 'passkey' | 'email_otp' = 'passkey'): Registra
 test.describe('wallet registration route boundaries', () => {
   test('registration intent rejects branch-mixed authMethod before service dispatch', async () => {
     let called = false;
-    const response = await handleRelayWalletRegistrationIntent({
+    const response = await handleRouterApiWalletRegistrationIntent({
       body: {
         wallet: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
@@ -505,7 +520,7 @@ test.describe('wallet registration route boundaries', () => {
           }),
         },
       },
-    } as unknown as Parameters<typeof handleRelayWalletRegistrationIntent>[0]);
+    } as unknown as Parameters<typeof handleRouterApiWalletRegistrationIntent>[0]);
 
     expect(called).toBe(false);
     expect(response.status).toBe(400);
@@ -522,11 +537,10 @@ test.describe('wallet registration route boundaries', () => {
       throw new Error('registrationIntent fixture must be Ed25519-only');
     }
     let called = false;
-    const response = await handleRelayWalletRegistrationIntent({
+    const response = await handleRouterApiWalletRegistrationIntent({
       body: {
         wallet: { kind: 'provided', walletId: 'alice.testnet' },
-        rpId: 'wallet.example.test',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {
@@ -568,7 +582,7 @@ test.describe('wallet registration route boundaries', () => {
           }),
         },
       },
-    } as unknown as Parameters<typeof handleRelayWalletRegistrationIntent>[0]);
+    } as unknown as Parameters<typeof handleRouterApiWalletRegistrationIntent>[0]);
 
     expect(called).toBe(false);
     expect(response.status).toBe(400);
@@ -585,11 +599,10 @@ test.describe('wallet registration route boundaries', () => {
       throw new Error('registrationIntent fixture must be Ed25519-only');
     }
     let called = false;
-    const response = await handleRelayWalletRegistrationIntent({
+    const response = await handleRouterApiWalletRegistrationIntent({
       body: {
         wallet: { kind: 'server_generated' },
-        rpId: 'wallet.example.test',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {
@@ -634,7 +647,7 @@ test.describe('wallet registration route boundaries', () => {
           }),
         },
       },
-    } as unknown as Parameters<typeof handleRelayWalletRegistrationIntent>[0]);
+    } as unknown as Parameters<typeof handleRouterApiWalletRegistrationIntent>[0]);
 
     expect(called).toBe(false);
     expect(response.status).toBe(400);
@@ -649,7 +662,7 @@ test.describe('wallet registration route boundaries', () => {
     const intent = registrationIntent();
     const digest = await computeRegistrationIntentDigestB64u(intent);
     let called = false;
-    const response = await handleRelayWalletRegistrationStart(
+    const response = await handleRouterApiWalletRegistrationStart(
       inputFor(
         'wallet_registration_start',
         {
@@ -685,9 +698,8 @@ test.describe('wallet registration route boundaries', () => {
     const intent = registrationIntent('email_otp');
     const digest = await computeRegistrationIntentDigestB64u(intent);
     let request: unknown = null;
-    const response = await handleRelayWalletRegistrationPrepare(
-      inputFor(
-        'wallet_registration_prepare',
+    const response = await handleRouterApiWalletRegistrationPrepare(
+      registrationPrepareInputFor(
         {
           registrationIntentGrant: 'rig_1',
           registrationIntentDigestB64u: digest,
@@ -736,9 +748,8 @@ test.describe('wallet registration route boundaries', () => {
     const intent = registrationIntent();
     const digest = await computeRegistrationIntentDigestB64u(intent);
     let called = false;
-    const response = await handleRelayWalletRegistrationPrepare(
-      inputFor(
-        'wallet_registration_prepare',
+    const response = await handleRouterApiWalletRegistrationPrepare(
+      registrationPrepareInputFor(
         {
           registrationIntentGrant: 'rig_1',
           registrationIntentDigestB64u: digest,
@@ -777,7 +788,7 @@ test.describe('wallet registration route boundaries', () => {
     const intent = registrationIntent('email_otp');
     const digest = await computeRegistrationIntentDigestB64u(intent);
     let request: unknown = null;
-    const response = await handleRelayWalletRegistrationStart(
+    const response = await handleRouterApiWalletRegistrationStart(
       inputFor(
         'wallet_registration_start',
         {
@@ -825,7 +836,7 @@ test.describe('wallet registration route boundaries', () => {
   for (const forbiddenField of ED25519_HSS_RESPOND_FORBIDDEN_FIELDS) {
     test(`respond rejects Ed25519 HSS client-retained field ${forbiddenField}`, async () => {
       let called = false;
-      const response = await handleRelayWalletRegistrationHssRespond(
+      const response = await handleRouterApiWalletRegistrationHssRespond(
         inputFor(
           'wallet_registration_hss_respond',
           {
@@ -859,7 +870,7 @@ test.describe('wallet registration route boundaries', () => {
   for (const forbiddenField of ED25519_HSS_FINALIZE_FORBIDDEN_FIELDS) {
     test(`finalize rejects Ed25519 HSS client-owned field ${forbiddenField}`, async () => {
       let called = false;
-      const response = await handleRelayWalletRegistrationFinalize(
+      const response = await handleRouterApiWalletRegistrationFinalize(
         inputFor(
           'wallet_registration_finalize',
           {
@@ -893,7 +904,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('respond forwards only the normalized server-visible client request', async () => {
     let captured: unknown = null;
-    const response = await handleRelayWalletRegistrationHssRespond(
+    const response = await handleRouterApiWalletRegistrationHssRespond(
       inputFor(
         'wallet_registration_hss_respond',
         {
@@ -934,7 +945,7 @@ test.describe('wallet registration route boundaries', () => {
   for (const forbiddenField of ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS) {
     test(`respond rejects ECDSA registration field ${forbiddenField}`, async () => {
       let called = false;
-      const response = await handleRelayWalletRegistrationHssRespond(
+      const response = await handleRouterApiWalletRegistrationHssRespond(
         inputFor(
           'wallet_registration_hss_respond',
           {
@@ -969,7 +980,7 @@ test.describe('wallet registration route boundaries', () => {
     let captured: unknown = null;
     const signedClaims: { claims: Record<string, unknown> | null } = { claims: null };
     const clientBootstrap = validEcdsaClientBootstrap();
-    const response = await handleRelayWalletRegistrationHssRespond(
+    const response = await handleRouterApiWalletRegistrationHssRespond(
       inputFor(
         'wallet_registration_hss_respond',
         {
@@ -1032,7 +1043,7 @@ test.describe('wallet registration route boundaries', () => {
   });
 
   test('finalize signs returned Ed25519 threshold session JWT', async () => {
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1107,7 +1118,7 @@ test.describe('wallet registration route boundaries', () => {
     const walletId = 'frost-vermillion-k7p9m2';
     const publicKey = repeatedEd25519PublicKey(7);
     const nearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(publicKey);
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1196,7 +1207,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('finalize forwards normalized ECDSA expected key handles', async () => {
     let captured: unknown = null;
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1230,7 +1241,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('finalize forwards normalized Email OTP backup acknowledgement metadata', async () => {
     let captured: unknown = null;
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1279,7 +1290,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('finalize rejects secret material in Email OTP backup acknowledgement', async () => {
     let called = false;
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1316,7 +1327,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('finalize rejects OTP challenge fields at the top level', async () => {
     let called = false;
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1346,7 +1357,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('finalize rejects OTP challenge fields inside Email OTP enrollment', async () => {
     let called = false;
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1383,7 +1394,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('finalize rejects invalid ECDSA expected key handles', async () => {
     let called = false;
-    const response = await handleRelayWalletRegistrationFinalize(
+    const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
         'wallet_registration_finalize',
         {
@@ -1414,7 +1425,7 @@ test.describe('wallet registration route boundaries', () => {
     const intent = ecdsaAddSignerIntent();
     const digest = await computeAddSignerIntentDigestB64u(intent);
     let called = false;
-    const response = await handleRelayWalletAddSignerStart(
+    const response = await handleRouterApiWalletAddSignerStart(
       addSignerInputFor({
         routeId: 'wallet_add_signer_start',
         body: {
@@ -1450,7 +1461,7 @@ test.describe('wallet registration route boundaries', () => {
     const credential = fakeWebAuthnAuthentication();
     let verifyRequest: unknown = null;
     let serviceRequest: unknown = null;
-    const response = await handleRelayWalletAddSignerStart(
+    const response = await handleRouterApiWalletAddSignerStart(
       addSignerInputFor({
         routeId: 'wallet_add_signer_start',
         body: {
@@ -1459,6 +1470,7 @@ test.describe('wallet registration route boundaries', () => {
           addSignerIntentDigestB64u: digest,
           auth: {
             kind: 'webauthn_assertion',
+            rpId: 'wallet.example.test',
             credential,
             expectedChallengeDigestB64u: digest,
           },
@@ -1508,7 +1520,7 @@ test.describe('wallet registration route boundaries', () => {
     const digest = await computeAddSignerIntentDigestB64u(intent);
     const credential = fakeWebAuthnAuthentication();
     let serviceRequest: unknown = null;
-    const response = await handleRelayWalletAddSignerStart(
+    const response = await handleRouterApiWalletAddSignerStart(
       addSignerInputFor({
         routeId: 'wallet_add_signer_start',
         body: {
@@ -1517,6 +1529,7 @@ test.describe('wallet registration route boundaries', () => {
           addSignerIntentDigestB64u: digest,
           auth: {
             kind: 'webauthn_assertion',
+            rpId: 'wallet.example.test',
             credential,
             expectedChallengeDigestB64u: digest,
           },
@@ -1575,7 +1588,7 @@ test.describe('wallet registration route boundaries', () => {
     };
     const digest = await computeAddSignerIntentDigestB64u(incompleteIntent as AddSignerIntentV1);
     let called = false;
-    const response = await handleRelayWalletAddSignerStart(
+    const response = await handleRouterApiWalletAddSignerStart(
       addSignerInputFor({
         routeId: 'wallet_add_signer_start',
         body: {
@@ -1610,7 +1623,7 @@ test.describe('wallet registration route boundaries', () => {
     const intent = ecdsaAddSignerIntent();
     const digest = await computeAddSignerIntentDigestB64u(intent);
     let serviceRequest: unknown = null;
-    const response = await handleRelayWalletAddSignerStart(
+    const response = await handleRouterApiWalletAddSignerStart(
       addSignerInputFor({
         routeId: 'wallet_add_signer_start',
         body: {
@@ -1671,7 +1684,7 @@ test.describe('wallet registration route boundaries', () => {
   test('add-signer HSS respond and finalize normalize ECDSA payloads', async () => {
     let respondRequest: unknown = null;
     let finalizeRequest: unknown = null;
-    const respond = await handleRelayWalletAddSignerHssRespond(
+    const respond = await handleRouterApiWalletAddSignerHssRespond(
       addSignerInputFor({
         routeId: 'wallet_add_signer_hss_respond',
         body: {
@@ -1688,7 +1701,7 @@ test.describe('wallet registration route boundaries', () => {
         },
       }),
     );
-    const finalize = await handleRelayWalletAddSignerFinalize(
+    const finalize = await handleRouterApiWalletAddSignerFinalize(
       addSignerInputFor({
         routeId: 'wallet_add_signer_finalize',
         body: {
@@ -1729,13 +1742,12 @@ test.describe('wallet registration route boundaries', () => {
 
   test('add-auth-method intent uses a dedicated scope and route family', async () => {
     let capturedRequest: unknown = null;
-    const response = await handleRelayWalletAddAuthMethodIntent(
+    const response = await handleRouterApiWalletAddAuthMethodIntent(
       addAuthMethodInputFor({
         routeId: 'wallet_add_auth_method_intent',
         body: {
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
-          authMethod: { kind: 'passkey' },
+          authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         },
         headers: {
           authorization: 'Bearer sk_test',
@@ -1782,8 +1794,7 @@ test.describe('wallet registration route boundaries', () => {
     expect(capturedRequest).toMatchObject({
       request: {
         walletId: 'wallet_alice',
-        rpId: 'wallet.example.test',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
       },
       expectedOrigin: 'https://wallet.example.test',
     });
@@ -1791,7 +1802,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('add-signer intent rejects invalid signerSelection before service dispatch', async () => {
     let called = false;
-    const response = await handleRelayWalletAddSignerIntent(
+    const response = await handleRouterApiWalletAddSignerIntent(
       addSignerInputFor({
         routeId: 'wallet_add_signer_intent',
         body: {
@@ -1833,7 +1844,7 @@ test.describe('wallet registration route boundaries', () => {
             },
           }),
         },
-      }) as unknown as Parameters<typeof handleRelayWalletAddSignerIntent>[0],
+      }) as unknown as Parameters<typeof handleRouterApiWalletAddSignerIntent>[0],
     );
 
     expect(called).toBe(false);
@@ -1849,7 +1860,7 @@ test.describe('wallet registration route boundaries', () => {
     const intent = addAuthMethodIntent();
     const digest = await computeAddAuthMethodIntentDigestB64u(intent);
     let called = false;
-    const response = await handleRelayWalletAddAuthMethodStart(
+    const response = await handleRouterApiWalletAddAuthMethodStart(
       addAuthMethodInputFor({
         routeId: 'wallet_add_auth_method_start',
         body: {
@@ -1886,7 +1897,7 @@ test.describe('wallet registration route boundaries', () => {
     const credential = fakeWebAuthnAuthentication();
     let verifyRequest: unknown = null;
     let serviceRequest: unknown = null;
-    const response = await handleRelayWalletAddAuthMethodStart(
+    const response = await handleRouterApiWalletAddAuthMethodStart(
       addAuthMethodInputFor({
         routeId: 'wallet_add_auth_method_start',
         body: {
@@ -1895,6 +1906,7 @@ test.describe('wallet registration route boundaries', () => {
           addAuthMethodIntentDigestB64u: digest,
           auth: {
             kind: 'webauthn_assertion',
+            rpId: 'wallet.example.test',
             credential,
             expectedChallengeDigestB64u: digest,
           },
@@ -1932,7 +1944,7 @@ test.describe('wallet registration route boundaries', () => {
       walletId: 'wallet_alice',
       addAuthMethodIntentDigestB64u: digest,
       intent: {
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
       },
       authority: {
         kind: 'passkey',
@@ -1948,7 +1960,7 @@ test.describe('wallet registration route boundaries', () => {
     const intent = addAuthMethodIntent('email_otp');
     const digest = await computeAddAuthMethodIntentDigestB64u(intent);
     let serviceRequest: unknown = null;
-    const response = await handleRelayWalletAddAuthMethodStart(
+    const response = await handleRouterApiWalletAddAuthMethodStart(
       addAuthMethodInputFor({
         routeId: 'wallet_add_auth_method_start',
         body: {
@@ -2020,7 +2032,7 @@ test.describe('wallet registration route boundaries', () => {
   test('add-auth-method start rejects mismatched authority branch', async () => {
     const intent = addAuthMethodIntent('email_otp');
     const digest = await computeAddAuthMethodIntentDigestB64u(intent);
-    const response = await handleRelayWalletAddAuthMethodStart(
+    const response = await handleRouterApiWalletAddAuthMethodStart(
       addAuthMethodInputFor({
         routeId: 'wallet_add_auth_method_start',
         body: {
@@ -2068,7 +2080,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('add-auth-method finalize normalizes ceremony id and forwards request', async () => {
     let finalizeRequest: unknown = null;
-    const response = await handleRelayWalletAddAuthMethodFinalize(
+    const response = await handleRouterApiWalletAddAuthMethodFinalize(
       addAuthMethodInputFor({
         routeId: 'wallet_add_auth_method_finalize',
         body: {
@@ -2096,11 +2108,10 @@ test.describe('wallet registration route boundaries', () => {
 
   test('auth-method revoke validates app-session policy target and forwards request', async () => {
     let revokeRequest: unknown = null;
-    const response = await handleRelayWalletRevokeAuthMethod(
+    const response = await handleRouterApiWalletRevokeAuthMethod(
       addAuthMethodInputFor({
         routeId: 'wallet_revoke_auth_method',
         body: {
-          rpId: 'wallet.example.test',
           target: {
             kind: 'email_otp',
             email: 'Alice@Example.test',
@@ -2136,7 +2147,6 @@ test.describe('wallet registration route boundaries', () => {
             return {
               ok: true,
               walletId: 'wallet_alice',
-              rpId: 'wallet.example.test',
               authMethod: { kind: 'email_otp', status: 'revoked' },
             };
           },
@@ -2147,7 +2157,6 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.status).toBe(200);
     expect(revokeRequest).toEqual({
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
       auth: {
         kind: 'app_session',
         policy: {
@@ -2169,7 +2178,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('ECDSA key-facts inventory rejects Ed25519 threshold-session auth', async () => {
     let inventoryCalled = false;
-    const response = await handleRelayWalletEcdsaKeyFactsInventory(
+    const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
       ecdsaInventoryInputFor({
         body: {
           rpId: 'wallet.example.test',
@@ -2226,7 +2235,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('ECDSA key-facts inventory accepts app-session inventory policy', async () => {
     let captured: unknown = null;
-    const response = await handleRelayWalletEcdsaKeyFactsInventory(
+    const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
       ecdsaInventoryInputFor({
         body: {
           rpId: 'wallet.example.test',
@@ -2329,7 +2338,7 @@ test.describe('wallet registration route boundaries', () => {
   test('ECDSA key-facts inventory rejects mismatched WebAuthn challenge digest', async () => {
     let verifyCalled = false;
     let inventoryCalled = false;
-    const response = await handleRelayWalletEcdsaKeyFactsInventory(
+    const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
       ecdsaInventoryInputFor({
         body: {
           rpId: 'wallet.example.test',
@@ -2387,7 +2396,7 @@ test.describe('wallet registration route boundaries', () => {
     let verifyRequest: unknown = null;
     let inventoryRequest: unknown = null;
 
-    const response = await handleRelayWalletEcdsaKeyFactsInventory(
+    const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
       ecdsaInventoryInputFor({
         body: {
           rpId: 'wallet.example.test',

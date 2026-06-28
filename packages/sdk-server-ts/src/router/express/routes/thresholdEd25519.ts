@@ -1,5 +1,5 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import type { ExpressRelayContext } from '../createRelayRouter';
+import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH,
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
@@ -11,7 +11,7 @@ import {
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
-import { resolveThresholdScheme } from '../../relay';
+import { resolveThresholdScheme } from '../../routerApi';
 import {
   resolveThresholdRuntimePolicyScope,
   signRouterAbEd25519WalletSessionJwt,
@@ -42,29 +42,12 @@ function errMessage(e: unknown): string {
   return String(e || 'Internal error');
 }
 
-function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
-  return body.kind === 'email_otp_registration';
-}
-
-function rejectLegacyEmailOtpRegistrationHssRequest(): {
-  ok: false;
-  code: 'invalid_body';
-  message: string;
-} {
-  return {
-    ok: false,
-    code: 'invalid_body',
-    message:
-      'Router A/B email_otp_registration HSS requests are no longer supported; use wallet registration with explicit accountProvisioning.',
-  };
-}
-
 function publicEd25519WalletSessionResult<T extends { thresholdSessionId?: string }>(result: T): T {
   return result;
 }
 
 async function handle<T extends { ok: boolean; code?: string; message?: string }>(
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
   req: Request,
   res: Response,
   route: string,
@@ -101,7 +84,7 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
 }
 
 async function handleRouterAbEd25519NormalSigningRoute(
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
   req: Request,
   res: Response,
   publicPath: string,
@@ -165,7 +148,7 @@ async function handleRouterAbEd25519NormalSigningRoute(
 
 export function registerThresholdEd25519Routes(
   router: ExpressRouter,
-  ctx: ExpressRelayContext,
+  ctx: ExpressRouterApiContext,
 ): void {
   ctx.logger.info('[threshold-ed25519] routes', {
     enabled: Boolean(ctx.opts.threshold),
@@ -330,12 +313,12 @@ export function registerThresholdEd25519Routes(
             message: 'threshold session missing walletId/nearAccountId/nearEd25519SigningKeyId',
           };
         }
-        const rpId = String((body as any).sessionPolicy?.rpId || '').trim();
+        const rpId = String(request.sessionPolicy.authorityScope.rpId || '').trim();
         if (!rpId) {
           return {
             ok: false,
             code: 'internal',
-            message: 'threshold session missing sessionPolicy.rpId',
+            message: 'threshold session missing sessionPolicy.authorityScope.rpId',
           };
         }
         const relayerKeyId = String((body as any).relayerKeyId || '').trim();
@@ -457,9 +440,6 @@ export function registerThresholdEd25519Routes(
             message: 'Threshold Ed25519 HSS is not configured on this server',
           };
         }
-        if (isEmailOtpRegistrationHssRequest(body)) {
-          return rejectLegacyEmailOtpRegistrationHssRequest();
-        }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
@@ -504,9 +484,6 @@ export function registerThresholdEd25519Routes(
             message: 'Threshold Ed25519 HSS is not configured on this server',
           };
         }
-        if (isEmailOtpRegistrationHssRequest(body)) {
-          return rejectLegacyEmailOtpRegistrationHssRequest();
-        }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
@@ -542,9 +519,6 @@ export function registerThresholdEd25519Routes(
             code: 'threshold_disabled',
             message: 'Threshold Ed25519 HSS is not configured on this server',
           };
-        }
-        if (isEmailOtpRegistrationHssRequest(body)) {
-          return rejectLegacyEmailOtpRegistrationHssRequest();
         }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,

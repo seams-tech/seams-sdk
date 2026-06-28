@@ -7,11 +7,11 @@ import {
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
-  createRelayApiKeyAuthAdapter,
-  createRelayRouter,
+  createRouterApiKeyAuthAdapter,
+  createRouterApiRouter,
   type ConsoleApiKeyService,
   type ConsoleWallet,
-  type RelayUsageMeterEvent,
+  type RouterApiUsageMeterEvent,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
@@ -33,8 +33,7 @@ const apiKeyCtx = {
 function makeRegistrationBody(): Record<string, unknown> {
   return {
     wallet: { kind: 'provided', walletId: 'alice.testnet' },
-    rpId: 'example.localhost',
-    authMethod: { kind: 'passkey' },
+    authMethod: { kind: 'passkey', rpId: 'example.localhost' },
     signerSelection: {
       mode: 'ed25519_only',
       ed25519: {
@@ -53,14 +52,13 @@ function makeRegistrationBody(): Record<string, unknown> {
   };
 }
 
-function makeRelayService() {
+function makeRouterApiService() {
   const service = makeFakeAuthService();
   (service as any).createRegistrationIntent = async (input: Record<string, any>) => ({
     ok: true,
     intent: {
       version: 'registration_intent_v1',
       walletId: input.request.wallet.walletId,
-      rpId: input.request.rpId,
       authMethod: input.request.authMethod,
       signerSelection: input.request.signerSelection,
       nonceB64u: 'nonce-test',
@@ -117,12 +115,12 @@ async function createActiveSecret(
   return { apiKeyId: created.apiKey.id, secret: created.secret };
 }
 
-test.describe('relay API key auth (express)', () => {
+test.describe('Router API key auth (express)', () => {
 
   test('rejects missing API key', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -140,8 +138,8 @@ test.describe('relay API key auth (express)', () => {
 
   test('rejects invalid API key', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -167,8 +165,8 @@ test.describe('relay API key auth (express)', () => {
       scopes: ['accounts.create'],
     });
     await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId);
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -193,8 +191,8 @@ test.describe('relay API key auth (express)', () => {
     const { secret } = await createActiveSecret(apiKeys, {
       scopes: [],
     });
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -219,8 +217,8 @@ test.describe('relay API key auth (express)', () => {
     const { secret } = await createActiveSecret(apiKeys, {
       scopes: ['accounts.create'],
     });
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -247,8 +245,8 @@ test.describe('relay API key auth (express)', () => {
       scopes: ['accounts.create'],
       ipAllowlist: ['203.0.113.10/32'],
     });
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -275,8 +273,8 @@ test.describe('relay API key auth (express)', () => {
       scopes: ['accounts.create'],
       expiresAt: new Date(Date.now() - 60_000).toISOString(),
     });
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -298,13 +296,13 @@ test.describe('relay API key auth (express)', () => {
 
   test('accepts valid scoped key and records usage', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const meteredEvents: RelayUsageMeterEvent[] = [];
+    const meteredEvents: RouterApiUsageMeterEvent[] = [];
     const { apiKeyId, secret } = await createActiveSecret(apiKeys, {
       scopes: ['accounts.create'],
       ipAllowlist: ['127.0.0.1/32'],
     });
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
       apiKeyUsageMeter: {
         recordEvent: async (event) => {
           meteredEvents.push(event);
@@ -367,10 +365,10 @@ test.describe('relay API key auth (express)', () => {
       billing,
       teamRbac,
     });
-    const relayRouter = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const routerApiRouter = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
-    consoleRouter.use(relayRouter);
+    consoleRouter.use(routerApiRouter);
 
     const srv = await startExpressRouter(consoleRouter);
     try {
@@ -488,8 +486,8 @@ test.describe('relay API key auth (express)', () => {
       scopes: ['wallets.read'],
       ipAllowlist: ['127.0.0.1/32'],
     });
-    const router = createRelayRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
       wallets,
     });
     const srv = await startExpressRouter(router);
@@ -552,11 +550,11 @@ test.describe('relay API key auth (express)', () => {
   });
 });
 
-test.describe('relay API key auth (cloudflare)', () => {
+test.describe('Router API key auth (cloudflare)', () => {
   test('rejects missing API key', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
@@ -572,8 +570,8 @@ test.describe('relay API key auth (cloudflare)', () => {
 
   test('rejects invalid API key', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
@@ -594,8 +592,8 @@ test.describe('relay API key auth (cloudflare)', () => {
       scopes: ['accounts.create'],
     });
     await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId);
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
@@ -615,8 +613,8 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { secret } = await createActiveSecret(apiKeys, {
       scopes: [],
     });
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
@@ -636,8 +634,8 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { secret } = await createActiveSecret(apiKeys, {
       scopes: ['accounts.create'],
     });
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
@@ -661,8 +659,8 @@ test.describe('relay API key auth (cloudflare)', () => {
       scopes: ['accounts.create'],
       ipAllowlist: ['203.0.113.10/32'],
     });
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
@@ -686,8 +684,8 @@ test.describe('relay API key auth (cloudflare)', () => {
       scopes: ['accounts.create'],
       expiresAt: new Date(Date.now() - 60_000).toISOString(),
     });
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
     });
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
@@ -704,13 +702,13 @@ test.describe('relay API key auth (cloudflare)', () => {
 
   test('accepts valid scoped key and records usage', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const meteredEvents: RelayUsageMeterEvent[] = [];
+    const meteredEvents: RouterApiUsageMeterEvent[] = [];
     const { apiKeyId, secret } = await createActiveSecret(apiKeys, {
       scopes: ['accounts.create'],
       ipAllowlist: ['203.0.113.20/32'],
     });
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
       apiKeyUsageMeter: {
         recordEvent: async (event) => {
           meteredEvents.push(event);
@@ -770,8 +768,8 @@ test.describe('relay API key auth (cloudflare)', () => {
       scopes: ['wallets.read'],
       ipAllowlist: ['203.0.113.20/32'],
     });
-    const handler = createCloudflareRouter(makeRelayService(), {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    const handler = createCloudflareRouter(makeRouterApiService(), {
+      apiKeyAuth: createRouterApiKeyAuthAdapter(apiKeys),
       wallets,
     });
     const { ctx } = makeCfCtx();
