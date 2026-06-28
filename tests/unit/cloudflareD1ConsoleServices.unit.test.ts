@@ -5,7 +5,10 @@ import type {
   CloudflareDurableObjectStubLike,
 } from '../../packages/sdk-server-ts/src/core/types';
 import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
-import { createCloudflareD1ConsoleServiceBundle } from '../../packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices';
+import {
+  createCloudflareD1ConsoleOnlyServiceBundle,
+  createCloudflareD1ConsoleServiceBundle,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import type {
   D1DatabaseLike,
@@ -14,6 +17,16 @@ import type {
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import localD1DevWorker from '../../packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import type { SponsoredEvmCallExecutorConfig } from '../../packages/sdk-server-ts/src/sponsorship/evmExecutorTypes';
+import {
+  applyD1MigrationFiles,
+  cleanupTemporaryD1Database,
+  createTemporaryD1Database,
+  listD1MigrationFiles,
+} from '../helpers/sqliteD1';
+
+type LocalD1WorkflowEnv = Parameters<typeof localD1DevWorker.fetch>[1];
+type JsonRecord = Record<string, unknown>;
 
 class FakeD1PreparedStatement implements D1PreparedStatementLike {
   constructor(private readonly query: string) {}
@@ -43,7 +56,10 @@ class FakeD1PreparedStatement implements D1PreparedStatementLike {
 }
 
 class FakeD1Database implements D1DatabaseLike {
+  readonly queries: string[] = [];
+
   prepare(query: string): D1PreparedStatementLike {
+    this.queries.push(query);
     return new FakeD1PreparedStatement(query);
   }
 
@@ -120,6 +136,35 @@ class MemoryDurableObjectNamespace implements CloudflareDurableObjectNamespaceLi
   }
 }
 
+function createSponsoredEvmCallExecutorConfig(): SponsoredEvmCallExecutorConfig {
+  return {
+    executorsByChain: new Map([
+      [
+        42_431,
+        {
+          chainId: 42_431,
+          rpcUrl: 'https://rpc.example.test',
+          sponsorAddress: '0x2222222222222222222222222222222222222222',
+          sponsorPrivateKeyHex:
+            '0x1111111111111111111111111111111111111111111111111111111111111111',
+          maxPriorityFeePerGasFloor: 2_000_000_000n,
+          maxFeePerGasFloor: 40_000_000_000n,
+        },
+      ],
+    ]),
+  };
+}
+
+function createLocalSponsoredEvmExecutorsJson(): string {
+  return JSON.stringify({
+    '42431': {
+      sponsorPrivateKeyHex:
+        '0x1111111111111111111111111111111111111111111111111111111111111111',
+      rpcUrl: 'https://rpc.example.test',
+    },
+  });
+}
+
 async function runSerializedStorageTransaction<T>(
   previous: Promise<void>,
   storage: TestDurableObjectStorageLike,
@@ -186,20 +231,126 @@ function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
   };
 }
 
+function createLocalD1WorkflowEnv(input: {
+  readonly consoleDatabase: D1DatabaseLike;
+  readonly signerDatabase: D1DatabaseLike;
+}): LocalD1WorkflowEnv {
+  return {
+    CONSOLE_DB: input.consoleDatabase,
+    SIGNER_DB: input.signerDatabase,
+    THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+    SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-workflow-smoke',
+    SEAMS_LOCAL_CONSOLE_USER_ID: 'local-workflow-user',
+    SEAMS_LOCAL_CONSOLE_ORG_ID: 'org-local-workflow',
+    SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'project-local-workflow',
+    SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: 'env-local-workflow',
+    SEAMS_LOCAL_CONSOLE_ROLES:
+      'owner,admin,platform_admin,billing_admin,ops,developer,security_admin',
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
+    ACCOUNT_ID_DERIVATION_SECRET: 'local-workflow-account-id-derivation-secret',
+  };
+}
+
+function createLocalWorkflowRequest(input: {
+  readonly method: 'GET' | 'POST';
+  readonly path: string;
+  readonly body?: JsonRecord;
+  readonly headers?: HeadersInit;
+}): Request {
+  const headers = new Headers(input.headers);
+  let body: string | undefined;
+  if (input.body) {
+    body = JSON.stringify(input.body);
+    if (!headers.has('content-type')) headers.set('content-type', 'application/json');
+  }
+  return new Request(`http://127.0.0.1:8787${input.path}`, {
+    method: input.method,
+    headers,
+    body,
+  });
+}
+
+async function callLocalWorkflowWorker(
+  env: LocalD1WorkflowEnv,
+  input: {
+    readonly method: 'GET' | 'POST';
+    readonly path: string;
+    readonly body?: JsonRecord;
+    readonly headers?: HeadersInit;
+  },
+): Promise<Response> {
+  return await localD1DevWorker.fetch(
+    createLocalWorkflowRequest(input),
+    env,
+    createFakeExecutionContext(),
+  );
+}
+
+async function readJsonRecord(response: Response): Promise<JsonRecord> {
+  const parsed: unknown = await response.json();
+  if (!isJsonRecord(parsed)) {
+    throw new Error(`Expected JSON object response, got ${typeof parsed}`);
+  }
+  return parsed;
+}
+
+function jsonRecordField(record: JsonRecord, key: string): JsonRecord {
+  const value = record[key];
+  if (!isJsonRecord(value)) {
+    throw new Error(`Expected JSON object field ${key}`);
+  }
+  return value;
+}
+
+function jsonArrayField(record: JsonRecord, key: string): readonly unknown[] {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    throw new Error(`Expected JSON array field ${key}`);
+  }
+  return value;
+}
+
+function jsonRecordAt(items: readonly unknown[], index: number): JsonRecord {
+  const value = items[index];
+  if (!isJsonRecord(value)) {
+    throw new Error(`Expected JSON object at array index ${index}`);
+  }
+  return value;
+}
+
+function booleanField(record: JsonRecord, key: string): boolean {
+  const value = record[key];
+  if (typeof value !== 'boolean') {
+    throw new Error(`Expected boolean field ${key}`);
+  }
+  return value;
+}
+
+function numberField(record: JsonRecord, key: string): number {
+  const value = Number(record[key]);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Expected finite numeric field ${key}`);
+  }
+  return value;
+}
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into relay options', async () => {
   const database = new FakeD1Database();
   const sponsorshipPricing = {
     async estimateSponsoredExecutionSpend() {
       return {
-        estimatedSpendMinor: 1,
+        spendMinor: 1,
         pricingVersion: 'test-pricing-v1',
       };
     },
     async finalizeSponsoredExecutionSpend() {
       return {
-        settledSpendMinor: 1,
+        spendMinor: 1,
         pricingVersion: 'test-pricing-v1',
-        usedEstimatedFallback: false,
       };
     },
   };
@@ -216,7 +367,6 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
     adapters: {
       ensureSchema: false,
       sponsorshipPricing,
-      sponsoredEvmCallConfig: null,
     },
   });
 
@@ -231,13 +381,7 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
     pricing: sponsorshipPricing,
     prepaidReservations: bundle.prepaidReservations,
   });
-  expect(bundle.relayRouterOptions.sponsoredEvmCall).toMatchObject({
-    apiKeys: bundle.apiKeys,
-    billing: bundle.billing,
-    ledger: bundle.sponsoredCalls,
-    runtimeSnapshots: bundle.runtimeSnapshots,
-    config: null,
-  });
+  expect(bundle.relayRouterOptions).not.toHaveProperty('sponsoredEvmCall');
   expect(bundle.relayRouterOptions.bootstrapTokenStore).toBe(bundle.bootstrapTokens);
   expect(bundle.relayRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
   expect(bundle.relayRouterOptions.wallets).toBe(bundle.wallets);
@@ -247,6 +391,61 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
   expect(typeof bundle.relayRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
   expect(typeof bundle.relayRouterOptions.bootstrapGrantBroker.authenticatePublishableKey).toBe(
     'function',
+  );
+});
+
+test('Cloudflare D1 console-only bundle omits signer custody bindings', async () => {
+  const database = new FakeD1Database();
+  const bundle = await createCloudflareD1ConsoleOnlyServiceBundle({
+    bindings: {
+      consoleDatabase: database,
+    },
+    route: {
+      namespace: 'seams',
+    },
+    adapters: {
+      ensureSchema: false,
+    },
+  });
+
+  expect(bundle).not.toHaveProperty('tenantStorageRouteResolver');
+  expect(bundle).not.toHaveProperty('relayRouterOptions');
+  expect(bundle).not.toHaveProperty('bootstrapTokens');
+  expect(bundle).not.toHaveProperty('spendCaps');
+  expect(bundle.consoleRouterOptions).not.toHaveProperty('tenantStorageRouteResolver');
+  expect(bundle.consoleRouterOptions).not.toHaveProperty('tenantStorageNamespace');
+  expect(bundle.consoleRouterOptions.keyExports).toBe(bundle.keyExports);
+  expect(bundle.consoleRouterOptions.billing).toBe(bundle.billing);
+  expect(bundle.consoleRouterOptions.sponsoredCalls).toBe(bundle.sponsoredCalls);
+});
+
+test('D1 relay storage options expose sponsored EVM only with executor config', async () => {
+  const database = new FakeD1Database();
+  const sponsoredEvmCallConfig = createSponsoredEvmCallExecutorConfig();
+  const bundle = await createCloudflareD1ConsoleServiceBundle({
+    bindings: {
+      consoleDatabase: database,
+      signerMetadataDatabase: database,
+      thresholdStore: new MemoryDurableObjectNamespace(),
+      kekProvider: createKekProvider(),
+    },
+    route: {
+      namespace: 'seams',
+    },
+    adapters: {
+      ensureSchema: false,
+      sponsoredEvmCallConfig,
+    },
+  });
+
+  expect(bundle.relayRouterOptions.sponsoredEvmCall).toMatchObject({
+    billing: bundle.billing,
+    ledger: bundle.sponsoredCalls,
+    runtimeSnapshots: bundle.runtimeSnapshots,
+    config: sponsoredEvmCallConfig,
+  });
+  expect(bundle.relayRouterOptions.sponsoredEvmCall?.publishableKeyAuth).toBe(
+    bundle.relayRouterOptions.publishableKeyAuth,
   );
 });
 
@@ -298,7 +497,14 @@ test('local D1 Worker exposes relay smoke routes under relay prefix', async () =
   await expect(health.json()).resolves.toMatchObject({
     ok: true,
     thresholdEd25519: { configured: true },
-    cors: { allowedOrigins: ['http://127.0.0.1:8787', 'http://localhost:8787'] },
+    cors: {
+      allowedOrigins: [
+        'http://127.0.0.1:9090',
+        'http://localhost:9090',
+        'http://127.0.0.1:8787',
+        'http://localhost:8787',
+      ],
+    },
   });
 
   const emailRecovery = await localD1DevWorker.fetch(
@@ -347,11 +553,79 @@ test('local D1 Worker exposes relay smoke routes under relay prefix', async () =
     env,
     ctx,
   );
-  expect(sponsored.status).toBe(503);
-  await expect(sponsored.json()).resolves.toMatchObject({
+  expect(sponsored.status).toBe(404);
+});
+
+test('local D1 Worker mounts sponsored EVM relay route when local executor config is present', async () => {
+  const database = new FakeD1Database();
+  const response = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://127.0.0.1:8787',
+      },
+      body: JSON.stringify({
+        environmentId: 'local',
+        walletId: 'local.sponsored.testnet',
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        chainId: 42_431,
+        call: {
+          to: '0x2222222222222222222222222222222222222222',
+          data: '0x12345678',
+          gasLimit: '21000',
+          value: '0',
+        },
+        idempotencyKey: 'local-sponsored-route-mounted',
+      }),
+    }),
+    {
+      CONSOLE_DB: database,
+      SIGNER_DB: database,
+      THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+      SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+      SPONSORED_EVM_EXECUTORS_JSON: createLocalSponsoredEvmExecutorsJson(),
+    },
+    createFakeExecutionContext(),
+  );
+
+  expect(response.status).toBe(401);
+  await expect(response.json()).resolves.toMatchObject({
     ok: false,
-    code: 'sponsored_evm_call_disabled',
+    code: 'publishable_key_missing',
   });
+});
+
+test('local D1 Worker runs a representative signer smoke through relay prefix', async () => {
+  const database = new FakeD1Database();
+  const response = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/relay/auth/passkey/options', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://127.0.0.1:8787',
+      },
+      body: JSON.stringify({
+        user_id: 'alice.testnet',
+        rp_id: 'localhost',
+      }),
+    }),
+    {
+      CONSOLE_DB: database,
+      SIGNER_DB: database,
+      THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+      SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+    },
+    createFakeExecutionContext(),
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+  });
+  expect(
+    database.queries.some((query) => query.includes('INSERT INTO signer_webauthn_challenges')),
+  ).toBe(true);
 });
 
 test('local D1 Worker serves console routes through D1 console services', async () => {
@@ -378,4 +652,252 @@ test('local D1 Worker serves console routes through D1 console services', async 
     ok: true,
     service: 'console',
   });
+});
+
+test('local D1 Worker serves dashboard Google options at the root auth path', async () => {
+  const database = new FakeD1Database();
+  const response = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:9090/auth/google/options', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    {
+      CONSOLE_DB: database,
+      SIGNER_DB: database,
+      THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+      SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+      GOOGLE_OIDC_CLIENT_ID: 'local-google-client.apps.googleusercontent.com',
+    },
+    createFakeExecutionContext(),
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+    configured: true,
+    clientId: 'local-google-client.apps.googleusercontent.com',
+  });
+});
+
+test('local D1 Worker routes dashboard session exchange and state at root paths', async () => {
+  const database = new FakeD1Database();
+  const env = {
+    CONSOLE_DB: database,
+    SIGNER_DB: database,
+    THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+    SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+    GOOGLE_OIDC_CLIENT_ID: 'local-google-client.apps.googleusercontent.com',
+  };
+  const ctx = createFakeExecutionContext();
+
+  const exchange = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:9090/session/exchange', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        session_kind: 'cookie',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          token: 'not-a-jwt',
+        },
+      }),
+    }),
+    env,
+    ctx,
+  );
+  expect(exchange.status).toBe(400);
+  await expect(exchange.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'invalid_body',
+    message: 'id_token must be a JWT (3 segments)',
+  });
+
+  const state = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:9090/session/state'),
+    env,
+    ctx,
+  );
+  expect(state.status).toBe(401);
+  await expect(state.json()).resolves.toMatchObject({
+    authenticated: false,
+    code: 'unauthorized',
+  });
+});
+
+test('local D1 Worker serves dashboard onboarding state through D1 services', async () => {
+  const consoleTemp = createTemporaryD1Database();
+  const signerTemp = createTemporaryD1Database();
+
+  try {
+    await applyD1MigrationFiles(consoleTemp.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(signerTemp.database, listD1MigrationFiles('d1-signer'));
+    const env = createLocalD1WorkflowEnv({
+      consoleDatabase: consoleTemp.database,
+      signerDatabase: signerTemp.database,
+    });
+
+    const response = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/onboarding/state',
+    });
+
+    expect(response.status).toBe(200);
+    await expect(readJsonRecord(response)).resolves.toMatchObject({
+      ok: true,
+      state: {
+        orgId: 'org-local-workflow',
+        hasOrganization: false,
+        hasProject: false,
+        hasEnvironment: false,
+        onboardingComplete: false,
+        currentStep: 'organization',
+      },
+    });
+  } finally {
+    cleanupTemporaryD1Database(consoleTemp.tempDir);
+    cleanupTemporaryD1Database(signerTemp.tempDir);
+  }
+});
+
+test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke on real D1', async () => {
+  test.setTimeout(60_000);
+  const consoleTemp = createTemporaryD1Database();
+  const signerTemp = createTemporaryD1Database();
+
+  try {
+    await applyD1MigrationFiles(consoleTemp.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(signerTemp.database, listD1MigrationFiles('d1-signer'));
+    const env = createLocalD1WorkflowEnv({
+      consoleDatabase: consoleTemp.database,
+      signerDatabase: signerTemp.database,
+    });
+
+    const readyResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/readyz',
+    });
+    expect(readyResponse.status).toBe(200);
+    await expect(readJsonRecord(readyResponse)).resolves.toMatchObject({
+      ok: true,
+      backend: 'cloudflare_d1_do',
+      namespace: 'seams-local-workflow-smoke',
+      schemas: {
+        consoleTables: 40,
+        signerTables: 21,
+      },
+      admission: {
+        durableObject: 'configured',
+        quotaReservation: 'accepted',
+      },
+    });
+
+    const consoleReadyResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/readyz',
+    });
+    expect(consoleReadyResponse.status).toBe(200);
+    await expect(readJsonRecord(consoleReadyResponse)).resolves.toMatchObject({
+      ok: true,
+      service: 'console',
+    });
+
+    const supportCreditResponse = await callLocalWorkflowWorker(env, {
+      method: 'POST',
+      path: '/console/billing/adjustments/support-credit',
+      body: {
+        amountMinor: 5000,
+        reasonCode: 'local_workflow_smoke_credit',
+        note: 'Seed local D1 workflow smoke prepaid balance',
+        idempotencyKey: 'local-workflow-smoke-credit',
+      },
+    });
+    expect(supportCreditResponse.status).toBe(201);
+    const supportCredit = jsonRecordField(await readJsonRecord(supportCreditResponse), 'result');
+    expect(booleanField(supportCredit, 'created')).toBe(true);
+    expect(numberField(jsonRecordField(supportCredit, 'adjustment'), 'amountMinor')).toBe(5000);
+
+    const duplicateCreditResponse = await callLocalWorkflowWorker(env, {
+      method: 'POST',
+      path: '/console/billing/adjustments/support-credit',
+      body: {
+        amountMinor: 5000,
+        reasonCode: 'local_workflow_smoke_credit',
+        note: 'Seed local D1 workflow smoke prepaid balance',
+        idempotencyKey: 'local-workflow-smoke-credit',
+      },
+    });
+    expect(duplicateCreditResponse.status).toBe(200);
+    const duplicateCredit = jsonRecordField(
+      await readJsonRecord(duplicateCreditResponse),
+      'result',
+    );
+    expect(booleanField(duplicateCredit, 'created')).toBe(false);
+
+    const overviewResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/billing/overview',
+    });
+    expect(overviewResponse.status).toBe(200);
+    const overview = jsonRecordField(await readJsonRecord(overviewResponse), 'overview');
+    expect(numberField(overview, 'creditBalanceMinor')).toBe(5000);
+
+    const activityResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/billing/account/activity?limit=5',
+    });
+    expect(activityResponse.status).toBe(200);
+    const activity = jsonRecordField(await readJsonRecord(activityResponse), 'activity');
+    const entries = jsonArrayField(activity, 'entries');
+    expect(entries).toHaveLength(1);
+    expect(numberField(jsonRecordAt(entries, 0), 'amountMinor')).toBe(5000);
+
+    const signerResponse = await callLocalWorkflowWorker(env, {
+      method: 'POST',
+      path: '/relay/auth/passkey/options',
+      headers: {
+        origin: 'http://127.0.0.1:8787',
+      },
+      body: {
+        user_id: 'local.workflow.testnet',
+        rp_id: 'localhost',
+      },
+    });
+    expect(signerResponse.status).toBe(200);
+    await expect(readJsonRecord(signerResponse)).resolves.toMatchObject({
+      ok: true,
+    });
+
+    const sponsoredHistoryResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/billing/sponsored-executions',
+    });
+    expect(sponsoredHistoryResponse.status).toBe(200);
+    const sponsoredHistoryPage = jsonRecordField(
+      await readJsonRecord(sponsoredHistoryResponse),
+      'page',
+    );
+    expect(jsonArrayField(sponsoredHistoryPage, 'items')).toHaveLength(0);
+
+    const reconciliationResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/billing/sponsored-executions/reconciliation',
+    });
+    expect(reconciliationResponse.status).toBe(200);
+    const reconciliationPage = jsonRecordField(
+      await readJsonRecord(reconciliationResponse),
+      'page',
+    );
+    expect(jsonArrayField(reconciliationPage, 'items')).toHaveLength(0);
+    expect(jsonRecordField(reconciliationPage, 'summary')).toMatchObject({
+      matchedCount: 0,
+      missingBillingDebitCount: 0,
+      amountMismatchCount: 0,
+      unexpectedBillingDebitCount: 0,
+    });
+  } finally {
+    cleanupTemporaryD1Database(consoleTemp.tempDir);
+    cleanupTemporaryD1Database(signerTemp.tempDir);
+  }
 });

@@ -1,6 +1,6 @@
 import type { RouterAbNormalSigningAdmissionInput } from '../routerAbPrivateSigningWorker';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
-import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../console';
+import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../consoleAuth';
 import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
 import type { CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { ThresholdStoreDurableObject } from './durableObjects/thresholdStore';
@@ -14,9 +14,12 @@ import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
 import {
   createCloudflareD1RelayAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
-  type CloudflareD1OidcExchangeConfig,
-  type CloudflareD1OidcExchangeIssuerConfig,
 } from './d1RelayAuthService';
+import type {
+  CloudflareD1OidcExchangeConfig,
+  CloudflareD1OidcExchangeIssuerConfig,
+} from './d1OidcBoundary';
+import { createHmacSessionAdapter } from './d1StagingSession';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
@@ -37,7 +40,13 @@ interface LocalD1DevEnv {
   readonly SEAMS_LOCAL_RELAYER_ACCOUNT?: string;
   readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
+  readonly GOOGLE_OIDC_CLIENT_ID?: string;
+  readonly GOOGLE_OIDC_CLIENT_IDS?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
+  readonly RELAY_SESSION_HMAC_SECRET?: string;
+  readonly SESSION_COOKIE_NAME?: string;
+  readonly RELAY_SESSION_ISSUER?: string;
+  readonly RELAY_SESSION_AUDIENCE?: string;
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly SIGNING_SESSION_SEAL_KEY_VERSION?: string;
@@ -77,6 +86,10 @@ const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
 const DEFAULT_LOCAL_CONSOLE_ORG_ID = 'local-smoke-org';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
 const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
+const DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET =
+  'seams-local-d1-relay-session-secret-change-before-shared-dev';
+const DEFAULT_LOCAL_RELAY_SESSION_ISSUER = 'seams-local-d1-relay';
+const DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE = 'seams-local-d1';
 const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
   'owner',
   'admin',
@@ -88,7 +101,12 @@ const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
 ]);
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const LOCAL_RELAY_CORS_ORIGINS = Object.freeze(['http://127.0.0.1:8787', 'http://localhost:8787']);
+const LOCAL_RELAY_CORS_ORIGINS = Object.freeze([
+  'http://127.0.0.1:9090',
+  'http://localhost:9090',
+  'http://127.0.0.1:8787',
+  'http://localhost:8787',
+]);
 const localConsoleHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
 const localRelayHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
 
@@ -214,6 +232,44 @@ function localStringArray(input: unknown): string[] {
     seen.add(value);
   }
   return values;
+}
+
+function localCsvStringArray(input: unknown): string[] {
+  const raw = normalizeLocalString(input);
+  if (!raw) return [];
+  return localStringArray(raw.split(','));
+}
+
+function localGoogleOidcClientId(env: LocalD1DevEnv): string | undefined {
+  return (
+    normalizeLocalString(env.GOOGLE_OIDC_CLIENT_ID) ||
+    localCsvStringArray(env.GOOGLE_OIDC_CLIENT_IDS)[0] ||
+    normalizeLocalString(env.SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID) ||
+    undefined
+  );
+}
+
+function localRelaySessionSecret(env: LocalD1DevEnv): string {
+  return (
+    normalizeLocalString(env.RELAY_SESSION_HMAC_SECRET) ||
+    DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET
+  );
+}
+
+function localRelaySessionCookieName(env: LocalD1DevEnv): string | undefined {
+  return normalizeLocalString(env.SESSION_COOKIE_NAME) || undefined;
+}
+
+function localRelaySessionIssuer(env: LocalD1DevEnv): string {
+  return (
+    normalizeLocalString(env.RELAY_SESSION_ISSUER) || DEFAULT_LOCAL_RELAY_SESSION_ISSUER
+  );
+}
+
+function localRelaySessionAudience(env: LocalD1DevEnv): string {
+  return (
+    normalizeLocalString(env.RELAY_SESSION_AUDIENCE) || DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE
+  );
 }
 
 function localOidcExchangeIssuerConfig(
@@ -389,7 +445,12 @@ function isConsolePath(pathname: string): boolean {
 }
 
 function isRelayPath(pathname: string): boolean {
-  return pathname === '/relay' || pathname.startsWith('/relay/');
+  return (
+    pathname === '/relay' ||
+    pathname.startsWith('/relay/') ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/session/')
+  );
 }
 
 async function assertLocalD1DoReady(env: LocalD1DevEnv): Promise<void> {
@@ -451,15 +512,26 @@ async function createLocalRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler
       sponsoredEvmCallConfig,
     },
   });
+  const sponsoredEvmCall = bundle.relayRouterOptions.sponsoredEvmCall
+    ? {
+        ...bundle.relayRouterOptions.sponsoredEvmCall,
+        resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
+      }
+    : undefined;
+  const sessionCookieName = localRelaySessionCookieName(env);
   return createCloudflareRouter(createLocalD1RelayAuthService(env), {
     ...bundle.relayRouterOptions,
     healthz: true,
     readyz: true,
     corsOrigins: [...LOCAL_RELAY_CORS_ORIGINS],
-    sponsoredEvmCall: {
-      ...bundle.relayRouterOptions.sponsoredEvmCall,
-      resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
-    },
+    session: createHmacSessionAdapter({
+      secret: localRelaySessionSecret(env),
+      cookieName: sessionCookieName,
+      issuer: localRelaySessionIssuer(env),
+      audience: localRelaySessionAudience(env),
+    }),
+    ...(sessionCookieName ? { sessionCookieName } : {}),
+    ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
   });
 }
 
@@ -477,11 +549,11 @@ function createLocalD1RelayAuthService(env: LocalD1DevEnv) {
       DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID,
     relayerAccount: env.SEAMS_LOCAL_RELAYER_ACCOUNT,
     relayerPublicKey: env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY,
-    googleOidcClientId: env.SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID,
+    googleOidcClientId: localGoogleOidcClientId(env),
     oidcExchange: localOidcExchangeConfig(env),
     accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
     emailOtpServerSeal: localEmailOtpServerSealConfig(env),
-    emailOtpDeliveryMode: env.EMAIL_OTP_DELIVERY_MODE || 'memory',
+    emailOtpDeliveryMode: env.EMAIL_OTP_DELIVERY_MODE || 'dev_d1_outbox',
     emailOtpDevOutboxEnabled: env.EMAIL_OTP_DEV_OUTBOX_ENABLED ?? true,
     emailOtpRecoveryKeyAttemptRateLimitMax:
       env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX,
@@ -512,7 +584,11 @@ function localRelayHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
 
 function relayRequest(request: Request, pathname: string): Request {
   const url = new URL(request.url);
-  const stripped = pathname === '/relay' ? '/' : pathname.slice('/relay'.length);
+  const stripped = pathname.startsWith('/relay')
+    ? pathname === '/relay'
+      ? '/'
+      : pathname.slice('/relay'.length)
+    : pathname;
   url.pathname = stripped || '/';
   return new Request(url.toString(), request);
 }
@@ -767,6 +843,9 @@ async function fetch(
         '/console/*',
         '/relay/healthz',
         '/relay/readyz',
+        '/auth/google/options',
+        '/session/exchange',
+        '/session/state',
         '/relay/sponsorships/evm/call',
       ],
     },

@@ -1,6 +1,7 @@
 name = "seams-sdk-d1-local"
 main = "src/router/cloudflare/d1LocalDevWorker.ts"
 compatibility_date = "2026-04-17"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "CONSOLE_DB"
@@ -30,3 +31,10 @@ SEAMS_LOCAL_RELAYER_ACCOUNT = "relay.local"
 SEAMS_LOCAL_RELAYER_PUBLIC_KEY = "ed25519:local-relay-public-key"
 ACCOUNT_ID_DERIVATION_SECRET = "local-dev-account-id-derivation-secret"
 ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "local-d1-threshold-signing-worker"
+GOOGLE_OIDC_CLIENT_ID = "395858803136-cfekocmm8p59bct6kf64rn5jap9a04cn.apps.googleusercontent.com"
+RELAY_SESSION_HMAC_SECRET = "seams-local-d1-relay-session-secret-change-before-shared-dev"
+SESSION_COOKIE_NAME = "seams-jwt"
+RELAY_SESSION_ISSUER = "seams-local-d1-relay"
+RELAY_SESSION_AUDIENCE = "seams-local-d1"
+# Local-only deterministic test key. Never use this key for funded accounts.
+SPONSORED_EVM_EXECUTORS_JSON = '{"42431":{"sponsorPrivateKeyHex":"0x1111111111111111111111111111111111111111111111111111111111111111","rpcUrl":"https://rpc.example.test"}}'

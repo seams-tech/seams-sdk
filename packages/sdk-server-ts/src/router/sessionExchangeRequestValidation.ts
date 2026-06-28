@@ -39,7 +39,12 @@ export type SessionExchangeRouteParseResult =
       sessionKind: 'jwt' | 'cookie';
     };
 
-const SESSION_EXCHANGE_KEYS = ['sessionKind', 'exchange', 'runtimeEnvironmentId'] as const;
+const SESSION_EXCHANGE_KEYS = [
+  'sessionKind',
+  'session_kind',
+  'exchange',
+  'runtimeEnvironmentId',
+] as const;
 const OIDC_EXCHANGE_KEYS = ['type', 'token', 'provider', 'account_mode', 'accountMode'] as const;
 const PASSKEY_EXCHANGE_KEYS = [
   'type',

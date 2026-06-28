@@ -53,6 +53,10 @@ import {
 import type { ConsoleObservabilityIngestionService } from '../../console/observability/ingestionService';
 import type { ConsoleObservabilityService } from '../../console/observability/service';
 import type { ConsoleObservabilityMetadataRedactionPolicy } from '../../console/observability/types';
+import {
+  createInMemoryConsoleOnboardingService,
+  type ConsoleOnboardingService,
+} from '../../console/onboarding';
 import { createD1ConsolePolicyService } from '../../console/policies/d1';
 import type { ConsolePolicyService } from '../../console/policies/service';
 import { createD1ConsoleSponsoredCallService } from '../../console/sponsoredCalls/d1';
@@ -72,6 +76,7 @@ import type {
   RelayRouterOptions,
   RelayUsageMeterAdapter,
 } from '../relay';
+import type { ConsoleRouterOptions } from '../console';
 import {
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,
@@ -112,6 +117,10 @@ export interface CloudflareD1ConsoleStorageBindings {
   readonly signerMetadataDatabase: D1DatabaseLike;
   readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
   readonly kekProvider: SigningRootKekProvider;
+}
+
+export interface CloudflareD1ConsoleOnlyStorageBindings {
+  readonly consoleDatabase: D1DatabaseLike;
 }
 
 export interface CloudflareD1ConsoleStorageBindingNames {
@@ -157,6 +166,15 @@ export interface CloudflareD1ConsoleServiceBundleOptions {
   readonly adapters?: CloudflareD1ConsoleAdapterOptions;
 }
 
+export interface CloudflareD1ConsoleOnlyServiceBundleOptions {
+  readonly bindings: CloudflareD1ConsoleOnlyStorageBindings;
+  readonly route: Pick<CloudflareD1ConsoleRouteOptions, 'namespace'>;
+  readonly adapters?: Omit<
+    CloudflareD1ConsoleAdapterOptions,
+    'bootstrapGrantTokenTtlMs' | 'sponsorshipPricing' | 'sponsoredEvmCallConfig'
+  >;
+}
+
 export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
@@ -171,6 +189,7 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly webhooks?: ConsoleWebhookService | null;
   readonly observability: ConsoleObservabilityService;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+  readonly onboarding: ConsoleOnboardingService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -186,7 +205,7 @@ export interface CloudflareD1RelayRouterStorageOptions {
   readonly apiKeyUsageMeter: RelayUsageMeterAdapter;
   readonly bootstrapGrantBroker: RelayBootstrapGrantBroker;
   readonly bootstrapTokenStore: ConsoleBootstrapTokenService;
-  readonly sponsoredEvmCall: NonNullable<RelayRouterOptions['sponsoredEvmCall']>;
+  readonly sponsoredEvmCall?: NonNullable<RelayRouterOptions['sponsoredEvmCall']>;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly wallets: ConsoleWalletService;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
@@ -206,6 +225,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly webhooks: ConsoleWebhookService | null;
   readonly observability: ConsoleObservabilityService;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+  readonly onboarding: ConsoleOnboardingService;
   readonly bootstrapTokens: ConsoleBootstrapTokenService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
@@ -216,6 +236,17 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly consoleRouterOptions: CloudflareD1ConsoleRouterStorageOptions;
   readonly relayRouterOptions: CloudflareD1RelayRouterStorageOptions;
 }
+
+export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
+  CloudflareD1ConsoleServiceBundle,
+  | 'tenantStorageRouteResolver'
+  | 'bootstrapTokens'
+  | 'spendCaps'
+  | 'relayRouterOptions'
+  | 'consoleRouterOptions'
+> & {
+  readonly consoleRouterOptions: ConsoleRouterOptions;
+};
 
 export interface CloudflareD1SigningRootSecretAdapterOptions {
   readonly route: CloudflareTenantStorageRoute;
@@ -236,20 +267,9 @@ export interface CloudflareD1SigningRootSecretAdapters {
   readonly signingRootShareResolverAdapters: CreateHostedSigningRootShareResolverInput;
 }
 
-interface NormalizedCloudflareD1ConsoleServiceBundleOptions {
+interface NormalizedCloudflareD1ConsoleCommonOptions {
   readonly consoleDatabase: D1DatabaseLike;
-  readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
-  readonly kekProvider: SigningRootKekProvider;
   readonly namespace: string;
-  readonly routeVersion: number;
-  readonly topology: CloudflareTenantTopology;
-  readonly jurisdiction: TenantDataJurisdiction;
-  readonly consoleBindingName: D1BindingName;
-  readonly consoleDatabaseName: D1DatabaseName;
-  readonly signerMetadataBindingName: D1BindingName;
-  readonly signerMetadataDatabaseName: D1DatabaseName;
-  readonly thresholdStoreBindingName: DurableObjectBindingName;
   readonly ensureSchema: boolean;
   readonly now?: () => Date;
   readonly logger?: Logger | null;
@@ -265,9 +285,44 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions {
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
+}
+
+interface NormalizedCloudflareD1ConsoleServiceBundleOptions
+  extends NormalizedCloudflareD1ConsoleCommonOptions {
+  readonly signerMetadataDatabase: D1DatabaseLike;
+  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
+  readonly kekProvider: SigningRootKekProvider;
+  readonly routeVersion: number;
+  readonly topology: CloudflareTenantTopology;
+  readonly jurisdiction: TenantDataJurisdiction;
+  readonly consoleBindingName: D1BindingName;
+  readonly consoleDatabaseName: D1DatabaseName;
+  readonly signerMetadataBindingName: D1BindingName;
+  readonly signerMetadataDatabaseName: D1DatabaseName;
+  readonly thresholdStoreBindingName: DurableObjectBindingName;
   readonly bootstrapGrantTokenTtlMs: number;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
+}
+
+interface CloudflareD1ConsoleCommonServices {
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly teamRbac: ConsoleTeamRbacService;
+  readonly account: ConsoleAccountService;
+  readonly policies: ConsolePolicyService;
+  readonly wallets: ConsoleWalletService;
+  readonly apiKeys: ConsoleApiKeyService;
+  readonly approvals: ConsoleApprovalService;
+  readonly keyExports: ConsoleKeyExportService;
+  readonly webhooks: ConsoleWebhookService | null;
+  readonly observability: ConsoleObservabilityService;
+  readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+  readonly onboarding: ConsoleOnboardingService;
+  readonly audit: ConsoleAuditService;
+  readonly billing: ConsoleBillingService;
+  readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
+  readonly sponsoredCalls: ConsoleSponsoredCallService;
+  readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
 }
 
 function normalizeRequiredString(input: string | undefined, fallback: string, field: string): string {
@@ -442,6 +497,31 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
   };
 }
 
+function normalizeCloudflareD1ConsoleOnlyServiceBundleOptions(
+  options: CloudflareD1ConsoleOnlyServiceBundleOptions,
+): NormalizedCloudflareD1ConsoleCommonOptions {
+  return {
+    consoleDatabase: options.bindings.consoleDatabase,
+    namespace: normalizeNamespace(options.route.namespace),
+    ensureSchema: options.adapters?.ensureSchema !== false,
+    now: options.adapters?.now,
+    logger: options.adapters?.logger,
+    billingProviders: options.adapters?.billingProviders,
+    defaultPrepaidReservationTtlMs: options.adapters?.defaultPrepaidReservationTtlMs,
+    webhookSecretCipher: options.adapters?.webhookSecretCipher,
+    webhookDispatcher: options.adapters?.webhookDispatcher,
+    webhookEndpointDegradedThreshold: options.adapters?.webhookEndpointDegradedThreshold,
+    observabilityRedactionPolicy: options.adapters?.observabilityRedactionPolicy,
+    observabilityMaxBatchSize: options.adapters?.observabilityMaxBatchSize,
+    observabilityMaxEventsPerMinute: options.adapters?.observabilityMaxEventsPerMinute,
+    observabilityQueryMaxWindowMs: options.adapters?.observabilityQueryMaxWindowMs,
+    runtimeSnapshotRetentionTtlMs: options.adapters?.runtimeSnapshotRetentionTtlMs,
+    runtimeSnapshotRetentionPruneIntervalMs:
+      options.adapters?.runtimeSnapshotRetentionPruneIntervalMs,
+    runtimeSnapshotRetentionBatchSize: options.adapters?.runtimeSnapshotRetentionBatchSize,
+  };
+}
+
 function createCloudflareD1TenantRouteResolver(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): TenantStorageRouteResolver {
@@ -462,7 +542,7 @@ function createCloudflareD1TenantRouteResolver(
 }
 
 async function createCloudflareD1PrepaidReservations(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleBillingPrepaidReservationService> {
   return await createD1ConsoleBillingPrepaidReservationService({
     database: options.consoleDatabase,
@@ -474,7 +554,7 @@ async function createCloudflareD1PrepaidReservations(
 }
 
 async function createCloudflareD1Billing(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleBillingService> {
   return await createD1ConsoleBillingService({
     database: options.consoleDatabase,
@@ -486,7 +566,7 @@ async function createCloudflareD1Billing(
 }
 
 async function createCloudflareD1OrgProjectEnv(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleOrgProjectEnvService> {
   return await createD1ConsoleOrgProjectEnvService({
     database: options.consoleDatabase,
@@ -497,7 +577,7 @@ async function createCloudflareD1OrgProjectEnv(
 }
 
 async function createCloudflareD1TeamRbac(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleTeamRbacService> {
   return await createD1ConsoleTeamRbacService({
     database: options.consoleDatabase,
@@ -508,9 +588,10 @@ async function createCloudflareD1TeamRbac(
 }
 
 async function createCloudflareD1Account(input: {
-  readonly options: NormalizedCloudflareD1ConsoleServiceBundleOptions;
+  readonly options: NormalizedCloudflareD1ConsoleCommonOptions;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly teamRbac: ConsoleTeamRbacService;
+  readonly onboarding: ConsoleOnboardingService;
 }): Promise<ConsoleAccountService> {
   return await createD1ConsoleAccountService({
     database: input.options.consoleDatabase,
@@ -519,11 +600,12 @@ async function createCloudflareD1Account(input: {
     now: input.options.now,
     orgProjectEnv: input.orgProjectEnv,
     teamRbac: input.teamRbac,
+    onboarding: input.onboarding,
   });
 }
 
 async function createCloudflareD1Policies(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsolePolicyService> {
   return await createD1ConsolePolicyService({
     database: options.consoleDatabase,
@@ -534,7 +616,7 @@ async function createCloudflareD1Policies(
 }
 
 async function createCloudflareD1Wallets(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleWalletService> {
   return await createD1ConsoleWalletService({
     database: options.consoleDatabase,
@@ -545,7 +627,7 @@ async function createCloudflareD1Wallets(
 }
 
 async function createCloudflareD1ApiKeys(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleApiKeyService> {
   return await createD1ConsoleApiKeyService({
     database: options.consoleDatabase,
@@ -556,7 +638,7 @@ async function createCloudflareD1ApiKeys(
 }
 
 async function createCloudflareD1Approvals(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleApprovalService> {
   return await createD1ConsoleApprovalService({
     database: options.consoleDatabase,
@@ -567,7 +649,7 @@ async function createCloudflareD1Approvals(
 }
 
 async function createCloudflareD1KeyExports(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleKeyExportService> {
   return await createD1ConsoleKeyExportService({
     database: options.consoleDatabase,
@@ -578,7 +660,7 @@ async function createCloudflareD1KeyExports(
 }
 
 async function createCloudflareD1Observability(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleObservabilityService> {
   return await createD1ConsoleObservabilityService({
     database: options.consoleDatabase,
@@ -590,7 +672,7 @@ async function createCloudflareD1Observability(
 }
 
 async function createCloudflareD1ObservabilityIngestion(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleObservabilityIngestionService> {
   return await createD1ConsoleObservabilityIngestionService({
     database: options.consoleDatabase,
@@ -604,7 +686,7 @@ async function createCloudflareD1ObservabilityIngestion(
 }
 
 async function createCloudflareD1Webhooks(input: {
-  readonly options: NormalizedCloudflareD1ConsoleServiceBundleOptions;
+  readonly options: NormalizedCloudflareD1ConsoleCommonOptions;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
 }): Promise<ConsoleWebhookService | null> {
   const options = input.options;
@@ -623,8 +705,24 @@ async function createCloudflareD1Webhooks(input: {
   });
 }
 
+function createCloudflareD1Onboarding(input: {
+  readonly options: NormalizedCloudflareD1ConsoleCommonOptions;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly apiKeys: ConsoleApiKeyService;
+  readonly billing: ConsoleBillingService;
+  readonly teamRbac: ConsoleTeamRbacService;
+}): ConsoleOnboardingService {
+  return createInMemoryConsoleOnboardingService({
+    orgProjectEnv: input.orgProjectEnv,
+    apiKeys: input.apiKeys,
+    billing: input.billing,
+    teamRbac: input.teamRbac,
+    logger: input.options.logger,
+  });
+}
+
 async function createCloudflareD1Audit(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleAuditService> {
   return await createD1ConsoleAuditService({
     database: options.consoleDatabase,
@@ -635,7 +733,7 @@ async function createCloudflareD1Audit(
 }
 
 async function createCloudflareD1BootstrapTokens(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleBootstrapTokenService> {
   return await createD1ConsoleBootstrapTokenService({
     database: options.consoleDatabase,
@@ -646,7 +744,7 @@ async function createCloudflareD1BootstrapTokens(
 }
 
 async function createCloudflareD1SponsoredCalls(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleSponsoredCallService> {
   return await createD1ConsoleSponsoredCallService({
     database: options.consoleDatabase,
@@ -657,7 +755,7 @@ async function createCloudflareD1SponsoredCalls(
 }
 
 async function createCloudflareD1SpendCaps(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleSponsorshipSpendCapService> {
   return await createD1ConsoleSponsorshipSpendCapService({
     database: options.consoleDatabase,
@@ -668,7 +766,7 @@ async function createCloudflareD1SpendCaps(
 }
 
 async function createCloudflareD1RuntimeSnapshots(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleRuntimeSnapshotService> {
   return await createD1ConsoleRuntimeSnapshotService({
     database: options.consoleDatabase,
@@ -680,6 +778,61 @@ async function createCloudflareD1RuntimeSnapshots(
     retentionPruneIntervalMs: options.runtimeSnapshotRetentionPruneIntervalMs,
     retentionBatchSize: options.runtimeSnapshotRetentionBatchSize,
   });
+}
+
+async function createCloudflareD1ConsoleCommonServices(
+  normalized: NormalizedCloudflareD1ConsoleCommonOptions,
+): Promise<CloudflareD1ConsoleCommonServices> {
+  const orgProjectEnv = await createCloudflareD1OrgProjectEnv(normalized);
+  const teamRbac = await createCloudflareD1TeamRbac(normalized);
+  const policies = await createCloudflareD1Policies(normalized);
+  const wallets = await createCloudflareD1Wallets(normalized);
+  const apiKeys = await createCloudflareD1ApiKeys(normalized);
+  const approvals = await createCloudflareD1Approvals(normalized);
+  const keyExports = await createCloudflareD1KeyExports(normalized);
+  const observability = await createCloudflareD1Observability(normalized);
+  const observabilityIngestion = await createCloudflareD1ObservabilityIngestion(normalized);
+  const webhooks = await createCloudflareD1Webhooks({
+    options: normalized,
+    observabilityIngestion,
+  });
+  const audit = await createCloudflareD1Audit(normalized);
+  const billing = await createCloudflareD1Billing(normalized);
+  const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
+  const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
+  const runtimeSnapshots = await createCloudflareD1RuntimeSnapshots(normalized);
+  const onboarding = createCloudflareD1Onboarding({
+    options: normalized,
+    orgProjectEnv,
+    apiKeys,
+    billing,
+    teamRbac,
+  });
+  const account = await createCloudflareD1Account({
+    options: normalized,
+    orgProjectEnv,
+    teamRbac,
+    onboarding,
+  });
+  return {
+    orgProjectEnv,
+    teamRbac,
+    account,
+    policies,
+    wallets,
+    apiKeys,
+    approvals,
+    keyExports,
+    webhooks,
+    observability,
+    observabilityIngestion,
+    onboarding,
+    audit,
+    billing,
+    prepaidReservations,
+    sponsoredCalls,
+    runtimeSnapshots,
+  };
 }
 
 export function createCloudflareD1SigningRootSecretAdapters(
@@ -733,6 +886,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly webhooks: ConsoleWebhookService | null;
   readonly observability: ConsoleObservabilityService;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
+  readonly onboarding: ConsoleOnboardingService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -753,6 +907,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
     webhooks: input.webhooks,
     observability: input.observability,
     observabilityIngestion: input.observabilityIngestion,
+    onboarding: input.onboarding,
     audit: input.audit,
     billing: input.billing,
     prepaidReservations: input.prepaidReservations,
@@ -779,6 +934,8 @@ function createCloudflareD1RelayRouterStorageOptions(input: {
     namespace: options.thresholdStore,
     storageNamespace: options.namespace,
   });
+  const sponsoredEvmCallConfig = options.sponsoredEvmCallConfig || null;
+  const publishableKeyAuth = createRelayPublishableKeyAuthAdapter(input.apiKeys);
   return {
     sponsorship: {
       spendCaps: input.spendCaps,
@@ -787,7 +944,7 @@ function createCloudflareD1RelayRouterStorageOptions(input: {
     },
     observabilityIngestion: input.observabilityIngestion,
     apiKeyAuth: createRelayApiKeyAuthAdapter(input.apiKeys),
-    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(input.apiKeys),
+    publishableKeyAuth,
     apiKeyUsageMeter: createRelayBillingUsageMeterAdapter(input.billing, {
       orgProjectEnv: input.orgProjectEnv,
       wallets: input.wallets,
@@ -807,13 +964,17 @@ function createCloudflareD1RelayRouterStorageOptions(input: {
       },
     }),
     bootstrapTokenStore: input.bootstrapTokens,
-    sponsoredEvmCall: {
-      apiKeys: input.apiKeys,
-      billing: input.billing,
-      ledger: input.sponsoredCalls,
-      runtimeSnapshots: input.runtimeSnapshots,
-      config: options.sponsoredEvmCallConfig || null,
-    },
+    ...(sponsoredEvmCallConfig
+      ? {
+          sponsoredEvmCall: {
+            publishableKeyAuth,
+            billing: input.billing,
+            ledger: input.sponsoredCalls,
+            runtimeSnapshots: input.runtimeSnapshots,
+            config: sponsoredEvmCallConfig,
+          },
+        }
+      : {}),
     orgProjectEnv: input.orgProjectEnv,
     wallets: input.wallets,
     routerAbNormalSigningAdmission:
@@ -826,87 +987,49 @@ export async function createCloudflareD1ConsoleServiceBundle(
 ): Promise<CloudflareD1ConsoleServiceBundle> {
   const normalized = normalizeCloudflareD1ConsoleServiceBundleOptions(options);
   const tenantStorageRouteResolver = createCloudflareD1TenantRouteResolver(normalized);
-  const orgProjectEnv = await createCloudflareD1OrgProjectEnv(normalized);
-  const teamRbac = await createCloudflareD1TeamRbac(normalized);
-  const account = await createCloudflareD1Account({
-    options: normalized,
-    orgProjectEnv,
-    teamRbac,
-  });
-  const policies = await createCloudflareD1Policies(normalized);
-  const wallets = await createCloudflareD1Wallets(normalized);
-  const apiKeys = await createCloudflareD1ApiKeys(normalized);
-  const approvals = await createCloudflareD1Approvals(normalized);
-  const keyExports = await createCloudflareD1KeyExports(normalized);
-  const observability = await createCloudflareD1Observability(normalized);
-  const observabilityIngestion = await createCloudflareD1ObservabilityIngestion(normalized);
-  const webhooks = await createCloudflareD1Webhooks({
-    options: normalized,
-    observabilityIngestion,
-  });
-  const audit = await createCloudflareD1Audit(normalized);
+  const services = await createCloudflareD1ConsoleCommonServices(normalized);
   const bootstrapTokens = await createCloudflareD1BootstrapTokens(normalized);
-  const billing = await createCloudflareD1Billing(normalized);
-  const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
   const spendCaps = await createCloudflareD1SpendCaps(normalized);
-  const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
-  const runtimeSnapshots = await createCloudflareD1RuntimeSnapshots(normalized);
   const consoleRouterOptions = createCloudflareD1ConsoleRouterStorageOptions({
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
-    orgProjectEnv,
-    teamRbac,
-    account,
-    policies,
-    wallets,
-    apiKeys,
-    approvals,
-    keyExports,
-    webhooks,
-    observability,
-    observabilityIngestion,
-    audit,
-    billing,
-    prepaidReservations,
-    sponsoredCalls,
-    runtimeSnapshots,
+    ...services,
   });
   const relayRouterOptions = createCloudflareD1RelayRouterStorageOptions({
     options: normalized,
-    orgProjectEnv,
-    wallets,
-    apiKeys,
+    orgProjectEnv: services.orgProjectEnv,
+    wallets: services.wallets,
+    apiKeys: services.apiKeys,
     bootstrapTokens,
-    billing,
-    prepaidReservations,
+    billing: services.billing,
+    prepaidReservations: services.prepaidReservations,
     spendCaps,
-    sponsoredCalls,
-    runtimeSnapshots,
-    observabilityIngestion,
+    sponsoredCalls: services.sponsoredCalls,
+    runtimeSnapshots: services.runtimeSnapshots,
+    observabilityIngestion: services.observabilityIngestion,
   });
   return {
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
-    orgProjectEnv,
-    teamRbac,
-    account,
-    policies,
-    wallets,
-    apiKeys,
-    approvals,
-    keyExports,
-    webhooks,
-    observability,
-    observabilityIngestion,
+    ...services,
     bootstrapTokens,
-    audit,
-    billing,
-    prepaidReservations,
     spendCaps,
-    sponsoredCalls,
-    runtimeSnapshots,
     consoleRouterOptions,
     relayRouterOptions,
+  };
+}
+
+export async function createCloudflareD1ConsoleOnlyServiceBundle(
+  options: CloudflareD1ConsoleOnlyServiceBundleOptions,
+): Promise<CloudflareD1ConsoleOnlyServiceBundle> {
+  const normalized = normalizeCloudflareD1ConsoleOnlyServiceBundleOptions(options);
+  const services = await createCloudflareD1ConsoleCommonServices(normalized);
+  return {
+    tenantStorageNamespace: normalized.namespace,
+    ...services,
+    consoleRouterOptions: {
+      ...services,
+    },
   };
 }
 
