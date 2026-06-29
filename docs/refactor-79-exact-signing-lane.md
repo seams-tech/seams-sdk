@@ -2001,7 +2001,7 @@ Tasks:
       after exact-lane clear is wired.
 - [x] Keep wallet/grant discovery as the way to find candidate lanes, then make
       every mutation use the exact lane key.
-- [ ] Preserve ECDSA cleanup semantics, but review the ECDSA cleanup helper for
+- [x] Preserve ECDSA cleanup semantics, but review the ECDSA cleanup helper for
       the same broad-mutation pattern and add a guard if needed.
 
 Acceptance:
@@ -2055,12 +2055,12 @@ Tasks:
       `clearStoredThresholdEd25519SessionRecordForAccount(` and any future
       `clearStoredThresholdEd25519SessionRecordForWallet(` outside the
       persistence module and named repair tests.
-- [ ] Extend source guards to reject unsafe casts such as `as WalletId`,
+- [x] Extend source guards to reject unsafe casts such as `as WalletId`,
       `as AccountId`, `as NearEd25519SigningKeyId`, `as SigningGrantId`, and
       `as ThresholdEd25519SessionId` in authority-bearing Ed25519 persistence
       mutation paths. Allow casts only inside named boundary parser/builder
       modules that validate first.
-- [ ] Add a source guard note that broad account/wallet Ed25519 reads are
+- [x] Add a source guard note that broad account/wallet Ed25519 reads are
       allowed only for discovery/display/repair, never mutation.
 
 Validation:
