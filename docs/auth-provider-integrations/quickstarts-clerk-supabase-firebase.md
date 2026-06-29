@@ -7,8 +7,8 @@ Date updated: March 1, 2026
 Reuse one backend pattern across Clerk, Supabase Auth, and Firebase Auth:
 
 1. Verify provider token in your backend.
-2. Exchange verified token via relay `POST /session/exchange`.
-3. Keep wallet state transitions in relay `wallet/*`.
+2. Exchange verified token via Router API `POST /session/exchange`.
+3. Keep wallet state transitions in Router API `wallet/*`.
 4. Optionally use passkey one-step mint (`wallet/unlock/challenge -> session/exchange(passkey_assertion)`).
 
 ## Shared Backend Pattern
@@ -27,7 +27,7 @@ async function verifyProviderToken(inputToken: string): Promise<VerifiedClaims> 
   throw new Error('replace with provider token verification');
 }
 
-export async function createRelaySession(req: Request, res: Response): Promise<void> {
+export async function createRouterApiSession(req: Request, res: Response): Promise<void> {
   const bearer = String(req.headers.authorization || '');
   const inputToken = bearer.startsWith('Bearer ') ? bearer.slice('Bearer '.length).trim() : '';
   if (!inputToken) {
@@ -37,7 +37,7 @@ export async function createRelaySession(req: Request, res: Response): Promise<v
 
   await verifyProviderToken(inputToken);
 
-  const relayRes = await fetch(`${process.env.RELAY_BASE_URL}/session/exchange`, {
+  const routerApiRes = await fetch(`${process.env.ROUTER_API_BASE_URL}/session/exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -46,14 +46,14 @@ export async function createRelaySession(req: Request, res: Response): Promise<v
     }),
   });
 
-  const bodyText = await relayRes.text();
+  const bodyText = await routerApiRes.text();
   const body = bodyText ? JSON.parse(bodyText) : {};
-  if (!relayRes.ok) {
-    res.status(relayRes.status).json(body);
+  if (!routerApiRes.ok) {
+    res.status(routerApiRes.status).json(body);
     return;
   }
 
-  const setCookie = relayRes.headers.get('set-cookie');
+  const setCookie = routerApiRes.headers.get('set-cookie');
   if (setCookie) res.setHeader('Set-Cookie', setCookie);
   res.status(200).json(body);
 }
@@ -66,7 +66,7 @@ export async function createRelaySession(req: Request, res: Response): Promise<v
 - Use Clerk org context mapping in your app backend authorization.
 
 2. Supabase:
-- Verify Supabase JWT (`sub`, issuer, audience, expiry) server-side before relay exchange.
+- Verify Supabase JWT (`sub`, issuer, audience, expiry) server-side before Router API exchange.
 - Use Supabase role/tenant claims in backend policy checks.
 
 3. Firebase:
@@ -76,7 +76,7 @@ export async function createRelaySession(req: Request, res: Response): Promise<v
 ## Ops Checklist
 
 1. Backend fails closed on invalid signature/issuer/audience/expiry.
-2. Relay receives only verified tokens.
-3. Logout/risk workflows call relay `POST /session/revoke` and `POST /wallet/lock`.
+2. Router API receives only verified tokens.
+3. Logout/risk workflows call Router API `POST /session/revoke` and `POST /wallet/lock`.
 4. Webhook consumers dedupe by `X-Console-Webhook-Event-Id`.
 5. `POST /auth/passkey/verify` is verification-only and is not used for app-session minting.

@@ -195,7 +195,7 @@ type RegistrationWalletIdentityRequest =
 The route parser must require `sponsored_named_wallet.walletId` as the durable
 wallet identity and require `requestedAccountId` as the NEAR account to sponsor.
 Those IDs may differ. For `generated_implicit_wallet`, the server allocates
-`GeneratedImplicitWalletId` and rejects caller-provided wallet IDs.
+`ServerAllocatedWalletId` and rejects caller-provided wallet IDs.
 
 Use branch-specific pre-finalize HSS scopes:
 
@@ -203,7 +203,7 @@ Use branch-specific pre-finalize HSS scopes:
 type ThresholdEd25519RegistrationAccountScope =
   | {
       kind: 'generated_implicit_registration_scope';
-      walletId: GeneratedImplicitWalletId;
+      walletId: ServerAllocatedWalletId;
       nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       rpId: string;
       registrationIntentDigestB64u: string;
@@ -240,7 +240,7 @@ type ResolvedRegistrationNearAccount =
   | {
       kind: 'resolved_implicit_account';
       publicKey: string;
-      walletId: GeneratedImplicitWalletId;
+      walletId: ServerAllocatedWalletId;
       nearAccountId: ImplicitNearAccountId;
       accountCreation?: never;
     }
@@ -263,14 +263,14 @@ caller:
 
 ```ts
 type NearEd25519SigningKeyId = string & { readonly __brand: 'NearEd25519SigningKeyId' };
-type GeneratedImplicitWalletId = WalletId & {
-  readonly __brand: 'GeneratedImplicitWalletId';
+type ServerAllocatedWalletId = WalletId & {
+  readonly __brand: 'ServerAllocatedWalletId';
 };
 
 type RegistrationEd25519KeyScope =
   | {
       kind: 'generated_implicit_key_scope';
-      walletId: GeneratedImplicitWalletId;
+      walletId: ServerAllocatedWalletId;
       nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       nearAccountId?: never;
     }
@@ -282,13 +282,13 @@ type RegistrationEd25519KeyScope =
     };
 ```
 
-The generated implicit wallet ID should use the existing hosted Email OTP
+The server-allocated wallet ID should use the existing hosted Email OTP
 word-list style with a higher-entropy suffix, for example
 `frost-vermillion-k7p9m2`. Generate it with CSPRNG bytes, parse it as `WalletId`,
 and reserve it with a collision check before intent creation. Reroll allocates a
-fresh generated wallet ID and key scope before HSS starts.
+fresh server-allocated wallet ID and key scope before HSS starts.
 
-Generated wallet ID reservation rules:
+Server-allocated wallet ID reservation rules:
 
 - reserve generated names in the registration intent store, or in a small
   dedicated reservation store keyed by namespace/RP/wallet ID;
@@ -298,13 +298,13 @@ Generated wallet ID reservation rules:
 - release or expire unused reservations without touching completed wallets.
 
 The implicit `nearEd25519SigningKeyId` is a canonical digest over the server
-generated wallet ID and pre-finalize scope fields. It cannot depend on the
+server-allocated wallet ID and pre-finalize scope fields. It cannot depend on the
 implicit NEAR account ID or finalized public key.
 
 ```ts
 type GeneratedImplicitNearEd25519SigningKeyDigestInput = {
   kind: 'generated_implicit_near_ed25519_signing_key_v1';
-  walletId: GeneratedImplicitWalletId;
+  walletId: ServerAllocatedWalletId;
   rpId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -327,7 +327,7 @@ type RegisteredThresholdEd25519AccountBinding =
   | {
       kind: 'implicit_account_binding';
       accountProvisioning: { kind: 'implicit_account' };
-      walletId: GeneratedImplicitWalletId;
+      walletId: ServerAllocatedWalletId;
       nearAccountId: ImplicitNearAccountId;
       nearEd25519SigningKeyId: NearEd25519SigningKeyId;
     }
@@ -396,7 +396,7 @@ type WalletRegistrationFinalizeSuccess = {
 ```text
 user starts registration
   -> client creates registration intent with implicit_account provisioning
-  -> server allocates generated wallet/key name, e.g. frost-vermillion-k7p9m2
+  -> server allocates wallet/key name, e.g. frost-vermillion-k7p9m2
   -> client and server prepare HSS under generated_implicit_registration_scope
   -> user completes Passkey or Email OTP authority proof
   -> HSS respond/finalize returns Ed25519 public key
@@ -404,7 +404,7 @@ user starts registration
   -> server skips createAccount()
   -> server stores wallet/profile under walletId and signer binding under nearAccountId
   -> client persists wallet state with walletId, nearAccountId, and nearEd25519SigningKeyId
-  -> registration returns generated wallet ID and derived NEAR account ID
+  -> registration returns server-allocated wallet ID and derived NEAR account ID
 ```
 
 No NEAR transaction is dispatched in this flow.
@@ -435,7 +435,7 @@ Client-side changes:
 1. `registerPasskey()` and `registerWallet()` accept an account provisioning
    mode. Helpers that do not expose a name picker default to `implicit_account`
    and no longer require `nearAccountId`.
-2. `buildNearWalletRegistrationSignerSelection()` builds branch-specific
+2. `buildNearWalletRegistrationSignerSetSelection()` builds branch-specific
    Ed25519 registration specs. It must stop emitting `createNearAccount`.
 3. `walletRegistrationPrecomputeScopeFromArgs()` uses generated `walletId` for
    implicit pre-finalize routing; sponsored named registration can use the
@@ -454,8 +454,8 @@ Server-side changes:
 
 1. `relayWalletRegistration.ts` parses `accountProvisioning` at the route
    boundary and returns narrow branch-specific types.
-2. `AuthService.createRegistrationIntent()` allocates generated implicit wallet
-   IDs and key scopes for server-generated implicit registration, reserves the
+2. `AuthService.createRegistrationIntent()` allocates server-allocated wallet
+   IDs and key scopes for server-allocated registration, reserves the
    wallet ID, and includes it in the intent digest.
 3. `resolveEd25519RegistrationPrepareScope()` builds
    `RegistrationEd25519KeyScope` and returns `nearEd25519SigningKeyId`.
@@ -475,32 +475,32 @@ Server-side changes:
 ### Phase 1: Account ID Types And Derivation
 
 - [x] Add `ImplicitNearAccountId` and `NamedNearAccountId` branded types.
-- [x] Add `GeneratedImplicitWalletId` and `NearEd25519SigningKeyId` branded types.
+- [x] Add `ServerAllocatedWalletId` and `NearEd25519SigningKeyId` branded types.
 - [x] Replace dotted-only `toAccountId()` validation with a parser that accepts
       either named NEAR accounts or 64-character lowercase implicit IDs.
 - [x] Add a stricter `parseNamedNearAccountId()` for sponsored account
       provisioning.
 - [x] Add `deriveImplicitNearAccountIdFromEd25519PublicKey(publicKey)` in shared
       code.
-- [x] Add a server-side generated implicit wallet/key-scope allocator using the
+- [x] Add a server-side wallet/key-scope allocator using the
       hosted Email OTP readable-name pattern with a higher-entropy suffix such as
       `frost-vermillion-k7p9m2`.
-- [x] Reserve generated wallet IDs with a collision check before intent creation.
-- [x] Add reservation TTL and reroll semantics for generated wallet IDs.
-- [x] Validate generated wallet IDs separately from NEAR account IDs.
+- [x] Reserve server-allocated wallet IDs with a collision check before intent creation.
+- [x] Add reservation TTL and reroll semantics for server-allocated wallet IDs.
+- [x] Validate server-allocated wallet IDs separately from NEAR account IDs.
 - [x] Add unit tests for:
   - valid `ed25519:<base58>` public key to implicit account ID;
   - uppercase hex rejection at boundary parsers;
   - invalid public-key length rejection;
   - dotted named account parsing for sponsored account provisioning.
-  - generated wallet ID parsing and collision retry.
+  - server-allocated wallet ID parsing and collision retry.
 
 Acceptance:
 
 - implicit account IDs pass every core account ID parser;
 - sponsored account provisioning accepts only named account IDs;
 - public-key-to-account derivation is shared by client and server;
-- implicit generated wallet IDs are never parsed as NEAR account IDs;
+- implicit server-allocated wallet IDs are never parsed as NEAR account IDs;
 - no core code accepts raw account strings after boundary parsing.
 
 ### Phase 2: Registration Intent Shape
@@ -521,7 +521,7 @@ Acceptance:
       fixtures.
 - [x] Update registration intent digest fixtures so the provisioning branch is
       part of the signed intent.
-- [x] Include generated implicit wallet ID and key-scope data in the signed
+- [x] Include server-allocated wallet ID and key-scope data in the signed
       intent digest.
 - [x] Update route parsers in `relayWalletRegistration.ts` and `AuthService.ts`
       to parse both provisioning branches.
@@ -535,7 +535,7 @@ Acceptance:
 - invalid object literals with both implicit and sponsored fields fail type
   fixtures;
 - both provisioning branches have canonical digest tests;
-- generated implicit wallet/key-scope IDs are stable across prepare/respond/
+- server-allocated wallet/key-scope IDs are stable across prepare/respond/
   finalize for one intent;
 - invalid wallet/provisioning branch combinations fail route parser tests and
   type fixtures;
@@ -622,12 +622,12 @@ Acceptance:
       mode.
 - [x] Make `implicit_account` the default mode for API helpers that do not expose
       named account selection.
-- [x] Return generated implicit `walletId` from registration intent creation, and
+- [x] Return server-allocated `walletId` from registration intent creation, and
       expose reroll where the UI supports name choice.
 - [x] Keep named-account input and account-name availability preflight only for
       `sponsored_named_account`.
 - [x] Update wallet iframe routing so implicit pre-finalize work is keyed by
-      generated wallet ID, then attached to the resolved account binding after
+      server-allocated wallet ID, then attached to the resolved account binding after
       finalize.
 - [x] Keep sponsored named wallet iframe routing keyed by the requested named
       account ID where the current code already needs it.
@@ -644,7 +644,7 @@ Acceptance:
 Acceptance:
 
 - implicit registration UI can run with no NEAR account-name input;
-- implicit registration UI can display and reroll a generated wallet name;
+- implicit registration UI can display and reroll a server-allocated wallet name;
 - sponsored named registration UI still accepts a named account ID;
 - local persistence can restore and unlock both implicit and sponsored wallets;
 - wallet iframe boot and `requireRouter()` work for implicit registration before
@@ -853,7 +853,7 @@ registration persistence, wallet session scope, and signing readiness.
 - Many code paths currently use `walletId`, `nearAccountId`, and wallet-session
   `userId` interchangeably. The implicit branch requires those paths to carry a
   resolved account binding instead.
-- Generated wallet IDs need enough suffix entropy for the expected namespace
+- Server-allocated wallet IDs need enough suffix entropy for the expected namespace
   size. Treat `frost-vermillion-k7p9m2` as the target shape, with server-side
   collision retry.
 - Direct NEAR transaction behavior for unfunded implicit accounts needs a focused
@@ -869,7 +869,7 @@ registration persistence, wallet session scope, and signing readiness.
 
 - Registration exposes two explicit account provisioning options:
   `implicit_account` and `sponsored_named_account`.
-- Implicit registration allocates a readable generated wallet ID/key scope.
+- Implicit registration allocates a readable server-allocated wallet ID/key scope.
 - Implicit registration submits no NEAR transaction.
 - Implicit registration returns the lowercase hex account ID derived from the
   finalized Ed25519 public key.

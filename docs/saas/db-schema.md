@@ -34,20 +34,29 @@ This plan covers:
 
 ### Recommended default
 
-Use one shared Postgres cluster/instance with separate logical databases per major domain:
+Use Cloudflare D1 plus Durable Objects for local development and first staging:
 
-- `seams_signer` logical DB for threshold signing + relay runtime paths.
-- `seams_console` logical DB for `/console` control-plane features (org/project/environment, settings, billing, webhooks, API keys).
-- Within each logical DB, enforce tenant-aware tables and strict RLS where multi-tenant data exists:
-  - every tenant row includes `org_id`,
-  - project-scoped rows include `project_id`,
-  - session context sets tenant vars per request,
-  - RLS remains default-deny and only allows current tenant scope.
-- If local tooling temporarily uses a single logical DB, preserve equivalent isolation by strict schema + role separation until DB split is completed.
+- `CONSOLE_DB` D1 for `/console` control-plane features:
+  org/project/environment, account settings, team RBAC, policies, billing,
+  webhooks, API keys, runtime snapshots, and compact observability.
+- `SIGNER_DB` D1 for signer metadata:
+  wallet metadata, auth methods, WebAuthn bindings, Email OTP state, recovery
+  state, identity links, public-key indexes, and sealed signing-root shares.
+- Durable Objects for short-lived or replay-sensitive coordination:
+  registration ceremonies, signing sessions, budget/replay guards, and threshold
+  store coordination.
+- Tenant isolation is explicit in every D1 adapter:
+  - console rows include `namespace` and `org_id`,
+  - project/environment-scoped rows include `project_id` and/or
+    `environment_id`,
+  - signer rows include the narrowest required custody identity,
+  - every query and mutation binds tenant scope in SQL predicates,
+  - route-policy middleware validates caller scope before store calls.
 
 ### Enterprise isolation tier
 
-Support dedicated database (or dedicated schema) per organization for high-compliance enterprise customers.
+Support dedicated backend routing per organization for high-compliance or scale
+customers.
 
 Trigger and SLO defaults:
 
@@ -56,22 +65,26 @@ Trigger and SLO defaults:
 
 ### Decision on schema-per-project
 
-Do not use schema-per-project by default.
+Do not use database-per-project or schema-per-project by default.
 
 Reason:
 
 - High operational overhead (migrations, monitoring, backups).
 - Harder cross-project reporting.
-- More complexity without proportional security benefit if RLS + key design are correct.
+- More complexity without proportional security benefit when D1 tenant predicates,
+  scoped keys, route-policy checks, and contract tests are correct.
 
 ### Local development connection anchor
 
-- Current local cluster connection:
-  - `postgresql://seams:seams@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
-- Planned logical DB targets on the same cluster:
-  - `seams_signer`
-  - `seams_console`
-- Plan keeps separate DB users and migration runners per logical DB to reduce blast radius and keep least privilege boundaries explicit.
+- Current local backend is Wrangler/Miniflare D1 through
+  `packages/sdk-server-ts/wrangler.d1-local.toml`.
+- Local logical bindings:
+  - `CONSOLE_DB`
+  - `SIGNER_DB`
+  - Durable Object namespaces for threshold/signing coordination.
+- The full-family Postgres escape hatch remains documented in
+  `docs/refactor-82-cloudflare-D1-migration.md`; it is not part of default local
+  development.
 
 ## High-Level Domain Model
 
@@ -111,7 +124,8 @@ Notes:
   - project-scoped roles: `developer`, `support`, `ops`
 - Support account states: invited, active, suspended, removed.
 - Billing permissions include explicit internal adjustment actions and keep customer-facing billing mutations limited to prepaid checkout.
-- Current console implementation materializes these as `console_user_profiles`, `console_user_backup_emails`, and `created_by_user_id` on `console_organizations`.
+- Current D1 implementation materializes these as `user_profiles`,
+  `user_backup_emails`, and `created_by_user_id` on `organizations`.
 
 ### 2) Projects and Environments
 
@@ -256,7 +270,7 @@ Notes:
 
 ## Security and Compliance Requirements
 
-- RLS on all tenant tables.
+- D1 tenant-isolation coverage on all tenant tables and service slices.
 - Encryption at rest and TLS in transit.
 - Secrets never stored plaintext.
 - Immutable log strategy for policy, key export, billing, and admin actions.
@@ -268,17 +282,24 @@ Notes:
 
 ## Suggested Physical Layout
 
-Logical databases + schemas:
+D1 databases and Durable Object namespaces:
 
-- `seams_signer`:
-  - `runtime`: signer/relay execution state.
-  - `audit`: signer-domain immutable logs.
-- `seams_console`:
-  - `control`: org, projects, environments, memberships, settings, policy configs.
-  - `billing`: metering, invoices, ledger projections, prepaid purchase records, and Stripe webhook records.
-  - `integrations`: api keys, webhook endpoints/deliveries/retries.
-  - `audit`: console-domain immutable logs and compliance records.
-- If only one logical DB is available temporarily, keep these schema boundaries unchanged and map separate DB users to schema-scoped privileges.
+- `CONSOLE_DB`:
+  - control: organizations, projects, environments, team members, account settings,
+    policy configs, approvals, API keys, and bootstrap tokens.
+  - billing: accounts, ledger entries/postings, prepaid reservations, credit
+    purchases, invoices, invoice line items, Stripe webhook records, sponsored
+    calls, and spend caps.
+  - integrations: webhook endpoints, deliveries, attempts, dead letters, key
+    exports, runtime snapshots, runtime snapshot outbox, and compact
+    observability state.
+- `SIGNER_DB`:
+  - signer metadata, wallet auth methods, WebAuthn state, Email OTP state,
+    recovery state, identity indexes, public-key indexes, and sealed signing-root
+    share ciphertext.
+- Durable Objects:
+  - registration ceremony coordination, signing sessions, replay guards, budget
+    counters, and threshold store coordination.
 
 Optional at scale:
 
@@ -289,9 +310,10 @@ Optional at scale:
 
 ### Phase 0: Foundation
 
-- Create core tenancy tables: `organizations`, `projects`, `environments`, `organization_memberships`.
+- Create core tenancy tables: `organizations`, `projects`, `environments`,
+  `team_members`.
 - Add account-settings identity tables: `user_profiles`, `user_backup_emails`, and `organizations.created_by_user_id`.
-- Implement RLS and tenant context middleware.
+- Implement D1 tenant predicates and route-policy middleware.
 - Add `audit_log` and `event_outbox`.
 
 ### Phase 1: MVP Control Plane
@@ -327,6 +349,6 @@ Optional at scale:
 
 1. ERD v1 (control + runtime + audit).
 2. Migration set `0001` through `000N` for Phase 0 and Phase 1.
-3. RLS policy test suite.
+3. D1 tenant-isolation test suite.
 4. Metering and invoicing job specs.
 5. Operational runbook for tenant isolation and incident response.

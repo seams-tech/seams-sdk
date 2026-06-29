@@ -48,7 +48,7 @@ Persist only events that an operator would investigate later:
 
 ### Do not persist as durable events
 
-These should not enter `console_observability_events`:
+These should not enter `observability_events`:
 
 - successful `GET`, `HEAD`, and `OPTIONS` requests
 - successful dashboard bootstrap reads
@@ -70,7 +70,7 @@ These remain important, but they belong in rollups rather than the event log:
 
 ### 1. Durable event stream
 
-`console_observability_events` becomes an incident log, not a request log.
+`observability_events` becomes an incident log, not a request log.
 
 Required properties:
 
@@ -83,7 +83,7 @@ Required properties:
 
 Add a dedicated request metrics table, for example:
 
-- `console_observability_request_rollups_minute`
+- `observability_request_rollups_minute`
 
 Suggested dimensions:
 
@@ -126,9 +126,9 @@ The histogram buckets matter because the current dashboard wants percentile view
 
 Deliverables:
 
-- updated event taxonomy in `server/src/console/observability/types.ts`
-- updated adapter surface in `server/src/console/observability/adapters.ts`
-- updated docs in `docs/observability-events-3.md`
+- updated event taxonomy in `packages/sdk-server-ts/src/console/observability/types.ts`
+- updated adapter surface in `packages/sdk-server-ts/src/console/observability/adapters.ts`
+- updated docs in `docs/saas/observability-events-3.md`
 
 ### Phase 2. Add request rollup storage
 
@@ -139,15 +139,16 @@ Deliverables:
 
 Deliverables:
 
-- schema and indexes in `server/src/console/observability/postgres.ts`
+- schema and indexes in `packages/sdk-server-ts/migrations/d1-console/0016_console_observability.sql`
+  and `packages/sdk-server-ts/src/console/observability/d1.ts`
 - retention and cleanup coverage for rollup rows
 - ingestion tests for aggregation correctness and bounded cardinality
 
 ### Phase 3. Replace router event writes with metric observation
 
 - remove durable router timing event writes from:
-  - `server/src/router/express/createConsoleRouter.ts`
-  - `server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+  - `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
+  - `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
 - replace them with request metric observation into the rollup store
 - keep incident-specific event builders for billing, approvals, webhooks, and future failure classes
 
@@ -182,7 +183,7 @@ If we later need broader coverage, we should add explicit allowlist entries, not
 
 Deliverables:
 
-- rewritten query paths in `server/src/console/observability/postgres.ts`
+- rewritten query paths in `packages/sdk-server-ts/src/console/observability/d1.ts`
 - query tests proving the dashboard still gets meaningful numbers without router event rows
 
 ### Phase 6. Simplify the dashboard read pattern
@@ -196,7 +197,7 @@ The dashboard should stop amplifying noise and load by draining every event page
 
 Deliverables:
 
-- update `examples/seams-site/src/pages/dashboard/routes/observability/page.tsx`
+- update `apps/seams-site/src/pages/dashboard/routes/observability/page.tsx`
 - keep `consoleObservabilityApi.ts` simple and paginated
 
 ### Phase 7. Delete legacy noisy data and code
@@ -207,7 +208,7 @@ Because we are in development, we should clean this up as if the old approach ne
 - delete tests that assert durable `router.request.completed` writes
 - replace them with rollup aggregation tests
 - delete existing `router.request.completed` rows from local and dev datasets:
-  - `DELETE FROM console_observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';`
+  - `DELETE FROM observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';`
 - do not add compatibility shims or dormant code paths
 
 ## Progress snapshot (2026-03-11)
@@ -222,14 +223,17 @@ Because we are in development, we should clean this up as if the old approach ne
 
 ## File-level execution map
 
-- `server/src/router/express/createConsoleRouter.ts`
-- `server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
-- `server/src/console/observability/adapters.ts`
-- `server/src/console/observability/types.ts`
-- `server/src/console/observability/postgres.ts`
-- `server/src/console/observability/requests.ts`
-- `examples/seams-site/src/pages/dashboard/routes/observability/page.tsx`
-- `examples/seams-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
+- `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
+- `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+- `packages/sdk-server-ts/src/router/consoleObservabilityHooks.ts`
+- `packages/sdk-server-ts/src/console/observability/adapters.ts`
+- `packages/sdk-server-ts/src/console/observability/types.ts`
+- `packages/sdk-server-ts/src/console/observability/policy.ts`
+- `packages/sdk-server-ts/src/console/observability/requestRollups.ts`
+- `packages/sdk-server-ts/src/console/observability/d1.ts`
+- `packages/sdk-server-ts/src/console/observability/requests.ts`
+- `apps/seams-site/src/pages/dashboard/routes/observability/page.tsx`
+- `apps/seams-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
 - `tests/relayer/console-router.test.ts`
 - `tests/relayer/console-observability.ingestion.test.ts`
 - `docs/observability-events-3.md`
@@ -252,29 +256,22 @@ Because we are in development, we should clean this up as if the old approach ne
 - once rollups are live and validated, remove router event writes and clean old noisy rows
 - enforce the strict durable-event source constraint (`WEBHOOK`, `BILLING`, `APPROVAL`, `SYSTEM`) for pre-existing schemas during migration
 
-## Local rollout completion
+## Local D1 Rollout Checkpoint
 
-1. [x] Local schema ensure executed on 2026-03-11 via `examples/relay-server/scripts/postgres-migrate-console.mjs`.
-2. [x] Local cleanup verification executed on 2026-03-11:
-   - `SELECT COUNT(*) FROM console_observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';`
-   - result: `0`.
-   - `pnpm -C examples/relay-server run postgres:verify:observability-cleanup`
-   - result: `legacyRowCount=0` and strict source constraint validated.
-3. [x] Validation rerun completed on 2026-03-11:
-   - `pnpm -s type-check:relay-server` passed.
-   - relayer observability suites passed (`console-observability.ingestion`, `console-router`) after test isolation fixes.
-   - dashboard observability API wiring e2e subset passed.
-4. [x] Local cleanup verifier rerun on 2026-03-12:
-   - `pnpm -C examples/relay-server run postgres:verify:observability-cleanup`
-   - result: `legacyRowCount=0`, strict source constraint enforced (`WEBHOOK`, `BILLING`, `APPROVAL`, `SYSTEM`).
-5. [x] Route-family allowlist capture landed on 2026-03-11 (skip-list removed from capture path).
-6. [x] Added reusable verification script on 2026-03-11:
-   - `examples/relay-server/scripts/postgres-verify-observability-cleanup.mjs`
-7. [x] Local observability data reset completed on 2026-03-12 for ongoing development:
-   - truncated `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, and `console_observability_request_rollups_minute`
-   - post-reset verification passed with `legacyRowCount=0`
+1. [x] The active schema is the D1 migration
+   `packages/sdk-server-ts/migrations/d1-console/0016_console_observability.sql`.
+2. [x] The active storage path is
+   `packages/sdk-server-ts/src/console/observability/d1.ts`, with policy in
+   `policy.ts`, request rollup helpers in `requestRollups.ts`, and redaction in
+   `redaction.ts`.
+3. [x] The local and staging Cloudflare runtimes use D1 console services; deleted
+   Postgres migration scripts are not part of local observability development.
+4. [x] Current validation is the relayer observability/router coverage plus the
+   Refactor 82 runtime guard, which prevents stale Postgres paths from returning
+   to this active doc set.
 
-Local development rollout is complete. Shared environment verification is intentionally out of scope for this document's current execution state.
+Shared staging verification belongs to the Refactor 82 Phase 6 runbook and
+staging evidence manifests.
 
 ## Maintainability follow-up
 
@@ -287,49 +284,50 @@ The incident-log and rollup split is the right steady-state design, but the impl
 - [x] Move route-family to service mapping into the registry.
 - [x] Move durable event taxonomy and source ownership declarations into the registry.
 - [x] Refactor observability storage code to consume the registry instead of embedded policy constants.
-- [x] Extract the first focused storage module, `requestRollups.ts`, and move request-metric normalization/policy helpers out of `postgres.ts`.
-- [x] Extract `retention.ts` and centralize tenant retention pruning/scheduling outside the main ingestion code paths.
-- [x] Extract `schema.ts` for partition setup, legacy cleanup, and source-constraint enforcement.
-- [x] Extract `incidentIngest.ts` for durable event append, dedupe, backpressure, and request-rollup writes.
-- [x] Split `server/src/console/observability/postgres.ts` into focused modules (`schema.ts`, `incidentIngest.ts`, `requestRollups.ts`, `queries.ts`, `retention.ts`).
-- [x] Keep `server/src/console/observability/index.ts` as the stable export surface after the split.
-- [x] Preserve existing behavior and test coverage while splitting storage code.
+- [x] Keep request-metric normalization, histogram bucket definitions, and percentile
+      estimation in `requestRollups.ts`.
+- [x] Keep the D1 persistence adapter in `d1.ts`.
+- [x] Keep metadata redaction in `redaction.ts`.
+- [x] Replaced the deleted Postgres observability adapter with
+      `packages/sdk-server-ts/src/console/observability/d1.ts`, backed by
+      `policy.ts`, `requestRollups.ts`, and `redaction.ts`.
+- [x] Keep `packages/sdk-server-ts/src/console/observability/index.ts` as the stable export surface.
+- [x] Preserve existing behavior and test coverage while replacing the old Postgres storage path.
 - [x] Extract shared observability hook helpers used by both Express and Cloudflare routers.
 - [x] Unify request metric recording across Express and Cloudflare through the shared helper path.
 - [x] Unify billing failure event emission across Express and Cloudflare through the shared helper path.
 - [x] Unify approval failure event emission across Express and Cloudflare through the shared helper path.
 - [x] Unify request/trace ID extraction and observability warning logs across both router adapters.
 - [x] Consolidate observability docs into the newer rollout/architecture docs and remove legacy planning docs that no longer reflect the implemented system.
-- [x] Re-run observability ingestion tests after the first storage split.
-- [x] Re-run observability ingestion tests after the retention extraction.
-- [x] Re-run observability ingestion tests after the schema extraction.
-- [x] Re-run observability ingestion tests after the incident-ingest extraction.
-- [x] Re-run observability ingestion tests after the query extraction.
+- [x] Re-run observability ingestion tests after the D1 storage replacement.
 - [x] Re-run router parity and dashboard wiring tests after the router-hook unification work.
 
 Maintainability follow-up is complete for the current local-development scope.
 
-### 1. Split `server/src/console/observability/postgres.ts`
+### 1. Keep D1 Observability Storage Focused
 
 Current issue:
 
-- `postgres.ts` currently mixes schema setup, legacy cleanup, retention, event ingestion, request rollups, and read queries in one file.
-- that makes it harder to review changes safely because storage, policy, and query behavior are coupled together
+- `d1.ts` owns D1 schema bootstrap, event ingestion, request-rollup writes, and
+  read queries.
+- policy and request-rollup normalization live in separate modules so product
+  rules can be reviewed without tracing every SQL query.
 
 Target shape:
 
-- `schema.ts` for schema ensure, partition precreate, and source-constraint enforcement
-- `incidentIngest.ts` for durable event append, dedupe, redaction, and validation
-- `requestRollups.ts` for request metric normalization, allowlist capture, and rollup upserts
-- `queries.ts` for `summary`, `events`, `timeseries`, and `services` reads
-- `retention.ts` for TTL cleanup and pruning behavior
-- keep `index.ts` as the stable export surface
+- `d1.ts` remains the D1 persistence adapter.
+- `requestRollups.ts` owns request metric normalization, histogram buckets, and
+  percentile estimation.
+- `policy.ts` owns durable event source ownership and event taxonomy.
+- `redaction.ts` owns metadata redaction.
+- `index.ts` remains the stable export surface.
 
 Acceptance criteria:
 
-- no single observability storage file owns all schema, ingest, rollup, retention, and read logic
+- product policy does not live inside ad hoc query branches
 - feature behavior and tests remain unchanged after the split
-- future changes to rollup policy or read queries do not require touching schema code by default
+- future changes to rollup policy or event taxonomy do not require touching D1
+  query code by default
 
 ### 2. Unify Express/Cloudflare observability hooks
 
@@ -355,7 +353,8 @@ Acceptance criteria:
 
 Completion note:
 
-- shared router observability plumbing now lives in `server/src/router/consoleObservabilityHooks.ts`
+- shared router observability plumbing now lives in
+  `packages/sdk-server-ts/src/router/consoleObservabilityHooks.ts`
 - verified with relayer router parity subset and dashboard observability API wiring subset on 2026-03-12
 
 ### 3. Create a declarative observability policy registry
@@ -378,7 +377,8 @@ Acceptance criteria:
 
 - observability capture policy is declared in one module
 - storage and router code read policy from the registry instead of embedding their own route/service rules
-- reviewers can inspect observability policy changes without tracing through Postgres query code
+- reviewers can inspect observability policy changes without tracing through D1
+  query code
 
 ### 4. Consolidate observability docs
 
@@ -406,7 +406,8 @@ Completion note:
 ## Suggested execution order
 
 1. Extract the declarative policy registry first so subsequent refactors share one source of truth.
-2. Split `postgres.ts` around that policy boundary.
+2. Keep D1 storage behind the `ConsoleObservabilityService` and
+   `ConsoleObservabilityIngestionService` ports.
 3. Unify Express/Cloudflare observability hooks last, once the storage and policy surfaces are smaller and clearer.
 
 ## Success metric

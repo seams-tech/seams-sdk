@@ -7,7 +7,7 @@ Date updated: March 1, 2026
 BYO auth means:
 
 1. Your app keeps its own auth provider (Auth0, Okta, Clerk, Supabase, Firebase, custom OIDC).
-2. Relay mints app sessions via `POST /session/exchange`.
+2. Router API mints app sessions via `POST /session/exchange`.
 3. Wallet lock state is separate and handled with `wallet/*` routes.
 4. `POST /auth/passkey/verify` is verification-only. It does not mint app sessions.
 
@@ -27,7 +27,7 @@ Treat auth and wallet as two independent concerns:
    - Produces a verified assertion (usually OIDC JWT).
 
 2. App session transport:
-   - Minted by relay through `/session/exchange`.
+   - Minted by Router API through `/session/exchange`.
    - Transport can be `jwt` or `cookie`.
    - Cookie name is strict and defaults to `seams-jwt`.
 
@@ -39,7 +39,7 @@ Treat auth and wallet as two independent concerns:
 
 `sessionKind` (`jwt` vs `cookie`) controls transport only. It does not change wallet semantics.
 
-Wallet lock state is derived from whether relay can validate a current app session:
+Wallet lock state is derived from whether Router API can validate a current app session:
 
 1. claim kind must be `app_session_v1`
 2. `appSessionVersion` must match identity-store current version
@@ -53,7 +53,7 @@ If validation fails, wallet is considered locked.
    - required for protected wallet/session routes
 
 2. `sessionKind="cookie"`:
-   - relay sets HttpOnly cookie (default name `seams-jwt`)
+   - Router API sets HttpOnly cookie (default name `seams-jwt`)
    - client sends `credentials: 'include'` and browser carries cookie
 
 ### Operation Matrix
@@ -129,20 +129,20 @@ Success response:
 1. `sessionKind="jwt"`: `{ ok: true, session: { kind, userId, expiresAt? }, jwt }`
 2. `sessionKind="cookie"`: `Set-Cookie` header, JSON body omits `jwt`
 
-## Relay Setup (Express)
+## Router API Setup (Express)
 
 This is the minimum production shape:
 
 1. Configure `AuthService` with `oidcExchange` issuer/JWKS/audience allowlist.
 2. Configure `SessionService` for JWT signing + cookie behavior.
-3. Mount `createRelayRouter` with `session` and `sessionCookieName`.
+3. Mount `createRouterApiRouter` with `session` and `sessionCookieName`.
 
 ```ts
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { AuthService, SessionService } from '@seams/sdk-server';
-import { createRelayRouter } from '@seams/sdk-server/router/express';
+import { createRouterApiRouter } from '@seams/sdk-server/router/express';
 
 const sessionCookieName = process.env.SESSION_COOKIE_NAME?.trim() || 'seams-jwt';
 
@@ -171,7 +171,7 @@ const session = new SessionService({
         typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
       return jwt.sign(payload as any, process.env.JWT_SECRET!, {
         algorithm: 'HS256',
-        issuer: process.env.JWT_ISSUER || 'relay',
+        issuer: process.env.JWT_ISSUER || 'router-api',
         audience: process.env.JWT_AUDIENCE || 'app',
         ...(hasExp ? {} : { expiresIn: Number(process.env.JWT_EXPIRES_SEC || 86400) }),
       });
@@ -199,7 +199,7 @@ app.use(
 
 app.use(
   '/',
-  createRelayRouter(authService, {
+  createRouterApiRouter(authService, {
     healthz: true,
     readyz: true,
     session,
@@ -216,7 +216,7 @@ For advanced deployments, use backend-mediated exchange:
 
 1. Frontend obtains provider token from your auth system.
 2. Frontend sends token to your backend (same trust domain as your app auth).
-3. Backend calls relay `/session/exchange`.
+3. Backend calls Router API `/session/exchange`.
 4. Backend forwards `Set-Cookie` (or JWT) to frontend.
 
 ```ts
@@ -226,7 +226,7 @@ async function verifyProviderToken(inputToken: string): Promise<void> {
   // Your verifier (provider SDK/JWKS checks): iss, aud, exp, nbf, iat, signature.
 }
 
-export async function exchangeRelaySession(req: Request, res: Response): Promise<void> {
+export async function exchangeRouterApiSession(req: Request, res: Response): Promise<void> {
   const inputToken = String(req.body?.idToken || '').trim();
   if (!inputToken) {
     res.status(400).json({ ok: false, code: 'invalid_body', message: 'idToken required' });
@@ -235,7 +235,7 @@ export async function exchangeRelaySession(req: Request, res: Response): Promise
 
   await verifyProviderToken(inputToken);
 
-  const relayRes = await fetch(`${process.env.RELAY_BASE_URL}/session/exchange`, {
+  const routerApiRes = await fetch(`${process.env.ROUTER_API_BASE_URL}/session/exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -247,15 +247,15 @@ export async function exchangeRelaySession(req: Request, res: Response): Promise
     }),
   });
 
-  const text = await relayRes.text();
+  const text = await routerApiRes.text();
   const json = text ? JSON.parse(text) : {};
-  const setCookie = relayRes.headers.get('set-cookie');
+  const setCookie = routerApiRes.headers.get('set-cookie');
   if (setCookie) res.setHeader('Set-Cookie', setCookie);
-  res.status(relayRes.status).json(json);
+  res.status(routerApiRes.status).json(json);
 }
 ```
 
-## SDK Client Example (OIDC -> Relay Session)
+## SDK Client Example (OIDC -> Router API Session)
 
 Use SDK unlock with session exchange payload:
 
@@ -263,7 +263,7 @@ Use SDK unlock with session exchange payload:
 await seams.auth.unlock(nearAccountId, {
   session: {
     kind: 'cookie', // or 'jwt'
-    relayUrl: 'https://relay.example.com',
+    relayUrl: 'https://router-api.example.com',
     exchange: {
       type: 'oidc_jwt',
       token: idTokenFromYourAuthProvider,
@@ -286,7 +286,7 @@ SDK can do passkey assertion exchange in a single unlock call:
 await seams.auth.unlock(nearAccountId, {
   session: {
     kind: 'cookie',
-    relayUrl: 'https://relay.example.com',
+    relayUrl: 'https://router-api.example.com',
     exchange: {
       type: 'passkey_assertion',
       expectedOrigin: window.location.origin, // optional
@@ -326,7 +326,7 @@ await fetch('/wallet/lock', { method: 'POST', credentials: 'include' });
 
 ## Webhooks (Optional, Recommended)
 
-Relay can emit lifecycle events:
+Router API can emit lifecycle events:
 
 1. `session.warm.created`
 2. `session.warm.refreshed`
@@ -344,7 +344,7 @@ For consumers:
 
 ## Security Checklist
 
-1. Keep provider token verification in backend unless you intentionally trust direct relay exchange.
+1. Keep provider token verification in backend unless you intentionally trust direct Router API exchange.
 2. Configure strict OIDC issuer/audience allowlists in `oidcExchange`.
 3. Use HTTPS everywhere and explicit CORS allowlist with credentials.
 4. Keep `SESSION_COOKIE_NAME` consistent across:

@@ -1,6 +1,6 @@
 # Wallet Cost Comparisons
 
-Date updated: June 25, 2026
+Date updated: June 27, 2026
 
 Status: internal pricing and positioning notes. Public copy should use broader
 claims until Seams has measured production signing costs.
@@ -22,6 +22,8 @@ The internal planning estimate:
 | --- | ---: |
 | Seams optimized Cloudflare deployment | $10-$50 per 1M wallet operations |
 | Seams conservative early deployment | $50-$200 per 1M wallet operations |
+| Postgres baseline being retired | $50/month fixed DB floor |
+| Cloudflare D1 replacement | $0 incremental DB cost at early scale inside included limits |
 | Privy enterprise signature floor | $1,000 per 1M signatures |
 | OpenFort public overage range | $4,000-$10,000 per 1M operations |
 | Dynamic public pricing | Workload-dependent; page includes MAU and operation-based sections |
@@ -33,10 +35,22 @@ the paid plan, then charges $0.30 per additional 1M requests and $0.02 per
 additional 1M CPU ms. Durable Objects add 1M included requests, then $0.15 per
 1M requests, plus duration pricing at $12.50 per 1M GB-s.
 
+Cloudflare D1 is the planned replacement for the current Postgres baseline.
+D1 uses scale-to-zero billing based on rows read, rows written, and storage.
+On Workers Paid, the first 25B rows read, 50M rows written, and 5 GB stored are
+included each month. Above that, D1 charges $0.001 per 1M rows read, $1.00 per
+1M rows written, and $0.75 per GB-month stored.
+
+Moving from the current $50/month Postgres database to D1 removes a fixed
+$600/year database floor per environment before traffic. At early startup
+volume, D1 should add $0 incremental database cost beyond the existing
+Cloudflare deployment.
+
 Sources:
 
 - [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
 - [Cloudflare Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)
+- [Cloudflare D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)
 
 Privy lists enterprise signature-based pricing as low as $0.001 per signature,
 which is $1,000 per 1M signatures.
@@ -86,6 +100,7 @@ The exact number depends on:
 
 - threshold signing CPU time;
 - request fanout between Router, Deriver A, Deriver B, and SigningWorker;
+- D1 query shape, indexes, rows read, and rows written;
 - Durable Object active duration;
 - state writes and storage layout;
 - logging volume;
@@ -107,6 +122,12 @@ The safe external claim is "order-of-magnitude lower wallet infrastructure
 cost." The stronger internal bet is that Seams can undercut signature-priced
 wallet providers by 5x-10x while preserving high gross margin.
 
+D1 adds a second cost advantage at startup scale: Seams can remove the fixed
+Postgres database bill and keep database cost usage-based. For small teams, the
+difference between a $50/month database and included D1 usage matters because it
+keeps the first deployed wallet environment close to the Cloudflare Workers
+baseline.
+
 ## Pricing Strategy
 
 Wallets should be the wedge.
@@ -116,6 +137,8 @@ deployment keeps direct infrastructure cost low:
 
 - self-hosted wallet runtime: free or low fixed cost, with customers paying
   Cloudflare directly;
+- D1-backed default persistence: eliminate the $50/month Postgres floor for
+  early deployments;
 - hosted Seams wallet operations: target $0.0001-$0.00025/op, or $100-$250 per
   1M wallet operations;
 - startup plan: include enough operations that early teams feel no hosting
@@ -155,6 +178,7 @@ Replace the planning estimate with measured data:
 1. Benchmark CPU ms for registration, presign, and signing paths.
 2. Count Worker invocations, service-binding calls, Durable Object calls, and
    storage writes per operation.
-3. Model costs at 100K, 1M, 10M, and 100M monthly wallet operations.
-4. Include logging, retries, failed signing attempts, and regional routing.
-5. Recompute hosted pricing floors after the measured COGS model lands.
+3. Capture D1 `rows_read` and `rows_written` for the same paths.
+4. Model costs at 100K, 1M, 10M, and 100M monthly wallet operations.
+5. Include logging, retries, failed signing attempts, and regional routing.
+6. Recompute hosted pricing floors after the measured COGS model lands.

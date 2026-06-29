@@ -4,20 +4,20 @@ Date updated: March 1, 2026
 
 ## Goal
 
-Use Okta OIDC for enterprise authentication and exchange verified tokens into relay app sessions.
+Use Okta OIDC for enterprise authentication and exchange verified tokens into Router API app sessions.
 
 ## Prerequisites
 
 1. Okta OIDC app is configured with the correct audience and redirect flow.
 2. Backend verifies Okta tokens (issuer, audience, signature, time claims).
-3. Relay verifier allowlist includes your Okta issuer/audience.
+3. Router API verifier allowlist includes your Okta issuer/audience.
 
 ## Integration Flow
 
 1. User signs in with Okta.
 2. Backend verifies Okta token and extracts stable `sub`.
-3. Backend calls relay `POST /session/exchange` with `exchange.type=oidc_jwt`.
-4. Relay returns app session (`jwt` or `Set-Cookie`).
+3. Backend calls Router API `POST /session/exchange` with `exchange.type=oidc_jwt`.
+4. Router API returns app session (`jwt` or `Set-Cookie`).
 
 Optional one-step passkey path:
 
@@ -46,7 +46,7 @@ async function verifyOktaToken(inputToken: string): Promise<OktaClaims> {
   throw new Error('replace with Okta token verification');
 }
 
-export async function createRelaySessionFromOkta(req: Request, res: Response): Promise<void> {
+export async function createRouterApiSessionFromOkta(req: Request, res: Response): Promise<void> {
   const bearer = String(req.headers.authorization || '');
   const inputToken = bearer.startsWith('Bearer ') ? bearer.slice('Bearer '.length).trim() : '';
   if (!inputToken) {
@@ -56,26 +56,26 @@ export async function createRelaySessionFromOkta(req: Request, res: Response): P
 
   const claims = await verifyOktaToken(inputToken);
 
-  const relayRes = await fetch(`${process.env.RELAY_BASE_URL}/session/exchange`, {
+  const routerApiRes = await fetch(`${process.env.ROUTER_API_BASE_URL}/session/exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       sessionKind: 'cookie',
       exchange: { type: 'oidc_jwt', token: inputToken },
       // Optional custom metadata may be included in your own backend assertion format
-      // before exchange; relay currently keys primary identity on verified subject mapping.
+      // before exchange; Router API currently keys primary identity on verified subject mapping.
       context: { sub: claims.sub },
     }),
   });
 
-  const bodyText = await relayRes.text();
+  const bodyText = await routerApiRes.text();
   const body = bodyText ? JSON.parse(bodyText) : {};
-  if (!relayRes.ok) {
-    res.status(relayRes.status).json(body);
+  if (!routerApiRes.ok) {
+    res.status(routerApiRes.status).json(body);
     return;
   }
 
-  const setCookie = relayRes.headers.get('set-cookie');
+  const setCookie = routerApiRes.headers.get('set-cookie');
   if (setCookie) res.setHeader('Set-Cookie', setCookie);
   res.status(200).json(body);
 }
@@ -85,9 +85,9 @@ export async function createRelaySessionFromOkta(req: Request, res: Response): P
 
 1. Keep `sub` as canonical user key.
 2. Map enterprise context (for example `groups`, tenant identifiers) in your backend authorization layer.
-3. Optionally surface org/tenant claim keys for relay webhook scoping (`orgId`, `org_id`, `tenantId`, `tenant_id`).
+3. Optionally surface org/tenant claim keys for Router API webhook scoping (`orgId`, `org_id`, `tenantId`, `tenant_id`).
 
 ## Lifecycle Notes
 
-1. On SSO sign-out or security events, call relay `POST /session/revoke` and `POST /wallet/lock`.
-2. Use relay webhooks for lifecycle monitoring and risk workflows.
+1. On SSO sign-out or security events, call Router API `POST /session/revoke` and `POST /wallet/lock`.
+2. Use Router API webhooks for lifecycle monitoring and risk workflows.

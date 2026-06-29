@@ -1,6 +1,6 @@
 # Account Settings Implementation Plan
 
-Date updated: March 10, 2026
+Date updated: June 29, 2026
 
 ## Objective
 
@@ -30,7 +30,7 @@ Target outcomes:
 - Dashboard sidebar includes `Account settings` in the `Administration` group.
 - Legacy `Account Settings -> /dashboard/team-members + self-edit modal` behavior has been removed.
 - `/dashboard/account-settings` is the one dashboard route exempt from the onboarding redirect; all other non-onboarding routes still redirect until the active org completes onboarding.
-- Backend now has a dedicated `server/src/console/account` module:
+- Backend now has a dedicated `packages/sdk-server-ts/src/console/account` module:
   - `GET/PATCH /console/account/profile`
   - `GET/POST /console/account/organizations`
   - `PATCH /console/account/organizations/:orgId`
@@ -38,7 +38,7 @@ Target outcomes:
   - `POST /console/account/organizations/:orgId/transfer-owner`
   - `POST /console/account/organizations/:orgId/switch-context`
 - Account profile persistence now exists for display name, primary email, and backup emails.
-- `console_organizations` now includes `created_by_user_id`, and the account Postgres slice maintains `console_user_profiles` plus `console_user_backup_emails`.
+- `organizations` now includes `created_by_user_id`, and the D1 account adapter maintains `user_profiles` plus `user_backup_emails`.
 - Organization creation from account settings reuses the existing onboarding organization bootstrap path rather than forking org/owner initialization logic.
 - Console auth/session carries `orgId` plus scoped `projectId` and `environmentId` claims when available, and account-driven org switching refreshes all three together.
 
@@ -110,18 +110,19 @@ Notes:
 
 Additions:
 
-- `console_user_profiles`
+- `user_profiles`
   - `user_id` (pk), `display_name`, `primary_email`, timestamps
-- `console_user_backup_emails`
+- `user_backup_emails`
   - `user_id`, `email`, `status`, timestamps, unique `(user_id, lower(email))`
-- Add `created_by_user_id` to `console_organizations`
+- Add `created_by_user_id` to `organizations`
   - required for authoritative “organizations created by user” list
 
 Recommended access index:
 
-- `console_org_user_index` (or equivalent join view/table)
-  - maps `user_id <-> org_id` for fast account-scoped org directory queries.
-  - can be derived from active memberships, but keep explicit index if query/load requires it.
+- Use the current `organizations.created_by_user_id` index and `team_members`
+  membership indexes for account-scoped organization directory queries.
+- Add an explicit `org_user_index` table only if measured query/load requires a
+  denormalized directory.
 
 ## Breaking Change and Cleanup Policy
 
@@ -144,7 +145,7 @@ Shipped:
 
 Remaining next steps:
 
-- Run the new Postgres tenant-scope account-organization coverage in an environment with `POSTGRES_URL` and RLS enabled (non-bypass role) and keep it green in CI.
+- Keep the D1 tenant-scope account-organization coverage green in CI.
 - Keep broad relayer + dashboard suites green while account-settings and onboarding changes continue landing.
 
 ## Phased TODO List
@@ -165,7 +166,7 @@ Exit criteria:
 
 ### Phase 2: Account Profile Backend + UI
 
-- [x] Create `server/src/console/account` module (`types.ts`, `requests.ts`, `service.ts`, `postgres.ts`, `errors.ts`, `index.ts`).
+- [x] Create `packages/sdk-server-ts/src/console/account` module (`types.ts`, `requests.ts`, `service.ts`, `d1.ts`, `errors.ts`, `index.ts`).
 - [x] Implement profile endpoints (`GET/PATCH /console/account/profile`) in Express + Cloudflare console routers.
 - [x] Add profile form UI and optimistic/safe-save states on account settings page.
 - [x] Add validation and permission rules for editable fields.
@@ -188,13 +189,13 @@ Exit criteria:
 
 ### Phase 4: Organization Directory + Creation
 
-- [x] Add `created_by_user_id` migration for `console_organizations`.
+- [x] Add `created_by_user_id` migration for `organizations`.
 - [x] Reuse the existing onboarding organization bootstrap path as the canonical org-creation path for account settings.
 - [x] Implement `GET/POST /console/account/organizations` for “organizations created by me” on top of that shared org-creation path.
 - [x] Implement account page organizations list and create organization form.
 - [x] Preserve current owner bootstrap and audit behavior when account settings creates an organization.
 - [x] Finish browser verification for org-creation wiring once the dashboard harness is green.
-- [x] Add Postgres-backed tenant-safe query coverage.
+- [x] Add D1-backed tenant-safe query coverage.
 
 Exit criteria:
 

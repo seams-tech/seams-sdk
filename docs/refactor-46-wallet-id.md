@@ -415,10 +415,10 @@ Run the cheapest useful checks after each phase:
    - `pnpm -C sdk -s run build:prepare`
    - `pnpm -C tests -s exec playwright test ./unit/indexedDBConsolidation.guard.unit.test.ts --reporter=line`
    - focused repository tests
-3. Postgres rename:
-   - Postgres schema/unit tests
-   - `tests/scripts/run-postgres-migration.mjs` when migration scripts change
-   - focused relayer Postgres tests for wallet registration/auth methods/signers
+3. Persistence rename:
+   - D1 migration smoke tests
+   - `pnpm -C packages/sdk-server-ts run d1:local:prepare` when migrations change
+   - focused relayer tests for wallet registration/auth methods/signers
 4. Registration/route rename:
    - registration wallet-subject/wallet persistence tests
    - route boundary tests

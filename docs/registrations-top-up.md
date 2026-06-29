@@ -91,7 +91,7 @@ Fail closed if paid overage is enabled but pricing is missing or malformed.
 
 ### Broker Flow
 
-Extend `createRelayBootstrapGrantBroker(...)` with billing dependencies:
+Extend `createRouterApiBootstrapGrantBroker(...)` with billing dependencies:
 
 ```ts
 billing?: ConsoleBillingService | null;
@@ -157,7 +157,7 @@ Add a cleanup path:
 
 ### Phase 2: Add Paid Overage To Bootstrap Grants
 
-- [ ] Extend `RelayBootstrapGrantBrokerOptions` with billing, prepaid reservation, and registration pricing dependencies.
+- [ ] Extend `RouterApiBootstrapGrantBrokerOptions` with billing, prepaid reservation, and registration pricing dependencies.
 - [ ] Read `paymentPolicy` after quota exhaustion.
 - [ ] Keep `paymentPolicy.mode === "disabled"` returning `429 publishable_key_quota_exhausted`.
 - [ ] For `quota_then_x402`, reserve prepaid balance before creating the token.

@@ -8,7 +8,7 @@ Status: Planned
 
 ### Current State
 
-`signing_root_secret_shares` lives in the relay Postgres schema and stores sealed signing-root secret shares:
+`signer_signing_root_secret_shares` lives in the signer D1 database and stores sealed signing-root secret shares:
 
 - `signing_root_id`
 - `signing_root_version`
@@ -17,15 +17,15 @@ Status: Planned
 - `storage_id`
 - `kek_id`
 
-The row payload is expected to be ciphertext. The KEK/decrypt path must stay outside the general relay Postgres database.
+The row payload is ciphertext. The KEK/decrypt path stays outside D1 and outside the general relay database credentials.
 
 ### Target State
 
 Move signing-root share custody behind a dedicated secret-storage boundary:
 
-- Preferred: KMS/HSM-backed secret store with audit logging.
-- Acceptable interim: separate Postgres database or schema with a restricted DB role.
-- Platform-specific: Cloudflare Durable Object or another deployment adapter when the KEK path is isolated.
+- Preferred: D1 ciphertext rows with KMS/HSM-backed KEK resolution and audit logging.
+- Acceptable interim: Cloudflare secrets or another deployment adapter when the KEK path is isolated.
+- Postgres escape hatch: full signer-family Postgres backend with a restricted secret-read role.
 
 The general relay database should keep only public metadata or opaque references when needed. Runtime access should go through `SigningRootSecretStore` and `SigningRootShareResolver`.
 
@@ -33,7 +33,7 @@ The general relay database should keep only public metadata or opaque references
 
 - [ ] Define a production `SigningRootSecretStore` adapter backed by KMS/HSM or an equivalent secret store.
 - [ ] Decide whether Postgres keeps a metadata/reference table for signing roots.
-- [ ] Move `sealed_share_b64u` storage out of the general relay Postgres schema.
+- [x] Move `sealed_share_b64u` storage out of the general relay Postgres schema.
 - [ ] Restrict the normal relay DB role from reading or writing sealed signing-root shares directly.
 - [ ] Add audit events for signing-root share reads, writes, deletes, and decrypt failures.
 - [ ] Add an operator runbook for signing-root import, rotation, backup, restore, and retirement.
@@ -56,12 +56,9 @@ Status: Planned
 
 Threshold session tables use `expires_at_ms` for read filtering, but expired rows can accumulate without a broad maintenance sweep.
 
-Relevant tables:
+Relevant state:
 
-- `threshold_ed25519_sessions`
-- `threshold_ed25519_auth_consumptions`
-- `threshold_ecdsa_signing_sessions`
-- `threshold_ecdsa_presign_sessions`
+- Durable Object threshold ECDSA presign sessions
 
 ### Tasks
 

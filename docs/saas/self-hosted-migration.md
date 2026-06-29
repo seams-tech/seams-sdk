@@ -173,7 +173,7 @@ Preferred shape:
 
 Operationally, the self-host cutover should preserve:
 
-- relay API compatibility,
+- Router API compatibility,
 - session minting behavior,
 - threshold master-secret configuration,
 - audit and observability paths expected by the customer deployment.

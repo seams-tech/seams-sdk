@@ -578,7 +578,7 @@ depends on capability records.
 - Update shared `WalletAuthMethodRecord` so the passkey branch requires `rpId`
   and the Email OTP branch rejects `rpId` with `never`.
 - Update `RegistrationCeremonyStore` parsers so stored registration authority,
-  generated wallet reservations, add-signer ceremonies, and finalize replay
+  server-allocated wallet reservations, add-signer ceremonies, and finalize replay
   records normalize into capability bindings.
 - Update `EmailOtpStores` records and parsers so challenge, grant, enrollment,
   auth-state, unlock-challenge, and Google registration-attempt records carry
@@ -634,7 +634,7 @@ depends on capability records.
 - Update NEAR export and access-key UI to require a NEAR binding.
 - Update linked-device UI so wallet-scoped and NEAR-scoped actions use separate
   bindings.
-- Update recent-unlock prefill and display helpers so generated implicit wallet
+- Update recent-unlock prefill and display helpers so server-allocated wallet
   IDs and 64-character NEAR account IDs do not rely on `nearAccountId` for a
   username.
 - Add React type fixtures that reject account-menu wallet actions when only

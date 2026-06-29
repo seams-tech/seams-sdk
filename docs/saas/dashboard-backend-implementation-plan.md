@@ -24,17 +24,18 @@ This plan assumes:
   - `docs/saas/import-threshold-keys.md`
   - `docs/saas/multichain-account-recovery.md`
 
-## Database Topology Decision (Resolved)
+## Database Topology Decision (Refactor 82)
 
-- Use the same Postgres cluster/instance for local and early-stage deployments.
-- Split runtime signer data and console/billing data into separate logical databases (or at minimum separate schemas with separate app roles).
-- Maintain separate DB users/permissions/migration streams per domain:
-  - signer domain: threshold signing + relay runtime tables.
-  - console domain: org/project/environment, dashboard settings, billing, webhooks, API keys.
-- Local cluster anchor:
-  - `postgresql://seams:seams@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
-  - target logical DBs: `seams_signer` and `seams_console` on the same `127.0.0.1` cluster.
-- Integration between signer and console domains stays API/event-based; no direct cross-database joins.
+- Use Cloudflare D1 plus Durable Objects for local development and first staging.
+- Keep console/dashboard data in `CONSOLE_DB`; keep signer metadata in `SIGNER_DB`;
+  keep short-lived signing/session coordination in Durable Objects.
+- Run local development through Wrangler/Miniflare D1. Docker Postgres is no
+  longer part of the default dashboard backend path.
+- Keep integration between signer and console domains API/event-based; no direct
+  cross-domain joins.
+- Keep Postgres as a future full-family backend contract only. A production
+  Postgres escape hatch must migrate console, signer, and coordination semantics
+  together rather than reviving partial console-only adapters.
 
 ## Current State (as of February 27, 2026)
 
@@ -91,7 +92,7 @@ Completed:
   - `GET/POST/DELETE /console/api-keys`
   - `POST /console/api-keys/:id/rotate`
   - create/rotate reveal-once secret semantics are implemented.
-- API key Postgres persistence is implemented with Postgres-backed org-isolation route tests for Express and Cloudflare adapters.
+- API key D1 persistence is implemented with tenant-isolation route tests for Express and Cloudflare adapters.
 - Org/project/environment metadata backend slice is implemented:
   - `GET /console/org`
   - `GET /console/projects` (`status=ACTIVE|ARCHIVED` filter supported)
@@ -104,10 +105,10 @@ Completed:
   - `POST /console/environments/:id/archive`
   - relationship model enforced: one org has many projects; each project has many environments.
   - `GET /console/projects` now includes per-project `environmentCount` aggregate.
-  - Postgres constraints now enforce org-consistent project->environment linkage.
+  - D1 schema and adapter checks now enforce org-consistent project->environment linkage.
   - mutation RBAC enforced (`admin` or `owner` for project/environment mutations).
   - focused parser/service tests cover status-filter normalization/validation and in-memory filter semantics.
-  - Postgres-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
+  - D1-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
 - Team/RBAC backend slice is implemented (in-memory service + router contracts):
   - `GET /console/members`
   - `POST /console/members/invite`
@@ -116,8 +117,8 @@ Completed:
   - role-scope validation is enforced for org-scoped (`owner`, `admin`, `security_admin`, `billing_admin`) and project-scoped (`developer`, `support`, `ops`) assignments.
   - mutation RBAC is enforced (`admin` or `owner` for invite/role-update/remove).
   - relayer route coverage is implemented for Express and Cloudflare adapters (success paths, validation errors, and mutation-forbidden checks).
-  - Postgres-backed Team/RBAC persistence is implemented (`console_team_members` with tenant RLS) and covered by Express + Cloudflare org-isolation route tests.
-- Approval queue backend slice is implemented (in-memory + Postgres service + router contracts):
+  - D1-backed Team/RBAC persistence is implemented (`team_members`) and covered by Express + Cloudflare org-isolation route tests.
+- Approval queue backend slice is implemented (in-memory + D1 service + router contracts):
   - `GET /console/approvals`
   - `GET /console/approvals/:id`
   - `POST /console/approvals`
@@ -125,19 +126,19 @@ Completed:
   - `POST /console/approvals/:id/reject`
   - mutation RBAC is enforced (`owner`, `admin`, or `security_admin` for create/approve/reject).
   - operation defaults are implemented (`POLICY_PUBLISH`, `KEY_EXPORT`) with per-operation approval/MFA defaults.
-  - Postgres-backed approval persistence is implemented (`console_approvals` with tenant RLS).
-  - relayer route coverage is implemented for Express and Cloudflare adapters (`*_not_configured`, mutation-forbidden checks, MFA-required checks, and state-transition behavior), including Postgres org-isolation route tests.
+  - D1-backed approval persistence is implemented (`approvals`).
+  - relayer route coverage is implemented for Express and Cloudflare adapters (`*_not_configured`, mutation-forbidden checks, MFA-required checks, and state-transition behavior), including D1 org-isolation route tests.
   - approval queue create/approve/reject mutations emit lifecycle webhook events (`policy.approval.created`, `policy.approval.approved`, `policy.approval.rejected`) when a webhook service is configured.
   - approval enforcement is integrated for sensitive operation routes when approvals service is configured:
     - `POST /console/policies/:id/publish` requires approved `POLICY_PUBLISH` queue entry (`approvalId`).
     - `POST /console/key-exports/:id/approve` requires approved `KEY_EXPORT` queue entry (`approvalId`).
-- Audit/evidence backend slice is implemented (in-memory + Postgres services + router contracts):
+- Audit/evidence backend slice is implemented (in-memory + D1 services + router contracts):
   - `GET /console/audit/events`
   - `GET /console/audit/evidence`
   - query filters are wired for project/environment scope, category/outcome/domain, actor, time windows, and limit bounds.
-  - Postgres-backed audit persistence is implemented (`console_audit_events`, `console_audit_evidence`) with tenant RLS and service-level org-isolation tests.
-  - relayer route coverage now includes Express + Cloudflare Postgres org-isolation checks for `/console/audit/events` and `/console/audit/evidence`.
-  - relay-server demo now seeds deterministic audit and evidence rows for local console testing.
+  - D1-backed audit persistence is implemented (`audit_events`, `audit_evidence`) with service-level org-isolation tests.
+  - relayer route coverage now includes Express + Cloudflare D1 org-isolation checks for `/console/audit/events` and `/console/audit/evidence`.
+  - `apps/web-server` local D1 console wiring now seeds deterministic audit and evidence rows for local console testing.
   - audit event emission is now wired for key governance mutations:
     - approval request create/approve/reject,
     - policy publish,
@@ -150,7 +151,7 @@ Completed:
   - `DELETE /console/members/:id`
   - role-spec driven invite/update/remove actions are wired with owner/admin mutation gating.
   - browser-level API wiring coverage validates invite -> role update -> remove and status-filter refresh behavior.
-- Account settings backend slice is implemented (in-memory + Postgres service + router contracts):
+- Account settings backend slice is implemented (in-memory + D1 service + router contracts):
   - `GET /console/account/profile`
   - `PATCH /console/account/profile`
   - `GET /console/account/organizations`
@@ -161,14 +162,14 @@ Completed:
   - `POST /console/account/organizations/:orgId/switch-context`
   - account org creation reuses the onboarding org bootstrap path instead of duplicating owner/bootstrap logic.
   - empty-org deletion is implemented with owner-only, non-current-org, no-other-members, and no-wallets guardrails.
-  - Postgres-backed account persistence is implemented with `console_user_profiles`, `console_user_backup_emails`, and `console_organizations.created_by_user_id`.
+  - D1-backed account persistence is implemented with `user_profiles`, `user_backup_emails`, and `organizations.created_by_user_id`.
   - focused relayer route coverage is implemented for Express and Cloudflare adapters, including owner transfer and context-switch session re-signing.
 - Wallet backend slice is implemented:
   - `GET /console/wallets`
   - `GET /console/wallets/search`
   - `GET /console/wallets/:id`
-  - wallet rows are now constrained to valid org/project/environment lineage via Postgres FK enforcement.
-  - Postgres-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
+  - wallet rows are now constrained to valid org/project/environment lineage via D1 schema and adapter enforcement.
+  - D1-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
 - Policy backend lifecycle slice is implemented:
   - `GET /console/policies`
   - `POST /console/policies`
@@ -180,10 +181,10 @@ Completed:
   - `DELETE /console/policies/assignments/:id`
   - mutation RBAC is enforced for policy create/update/publish (`owner`, `admin`, `security_admin`).
   - route coverage now includes policy lifecycle and org-isolation tests for Express and Cloudflare adapters.
-  - Postgres policy persistence is implemented (`console_policies`, `console_policy_versions`), including default-policy bootstrap and publish-version snapshots.
-  - policy assignment persistence is implemented (`console_policy_assignments`) with precedence resolver (`WALLET` > `ENVIRONMENT` > `PROJECT` > `ORG`).
+  - D1 policy persistence is implemented (`policies`, `policy_versions`), including default-policy bootstrap and publish-version snapshots.
+  - policy assignment persistence is implemented (`policy_assignments`) with precedence resolver (`WALLET` > `ENVIRONMENT` > `PROJECT` > `ORG`).
   - policy coverage now resolves canonical assignments from policy service (with wallet `policyId` fallback when policy service is absent).
-  - Postgres-backed org-isolation route tests are implemented for Express and Cloudflare policy endpoints.
+  - D1-backed org-isolation route tests are implemented for Express and Cloudflare policy endpoints.
 - Dashboard wallet list/search routes are now wired behind a frontend feature flag:
   - `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED` (default `true`).
 - Dashboard wallet list/search pages now consume live console APIs:
@@ -298,29 +299,41 @@ Completed:
   - `/dashboard/approvals`: approval request create + MFA-gated approve + reject + filter flows against mocked `/console/approvals` endpoints.
   - `/dashboard/audit`: audit timeline and evidence filter flows against mocked `/console/audit/*` endpoints.
   - e2e wiring assertions validate `approvalId` forwarding on key-export approve requests.
-- Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
-- CI now executes Postgres-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
-- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, policy-backed gas sponsorship, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
+- Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with D1-backed integration tests.
+- CI now executes D1-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
+- Dedicated D1 tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, policy-backed gas sponsorship, settings, key exports, runtime snapshots) and wired into the CI-gated console D1 suite.
 - Cross-org mutation denial coverage is implemented for org/project/environment services and routes.
-- Direct Postgres FK denial coverage is implemented for invalid cross-org wallet lineage inserts.
+- Direct D1 tenant-lineage denial coverage is implemented for invalid cross-org wallet lineage inserts.
 
 Recently completed hardening:
 
-- DB-level tenant context primitives are now introduced (`app.console_namespace`, `app.console_org_id`) with transaction-scoped Postgres client wiring across runtime snapshots, org/project/environment, wallets, API keys, policies, webhooks, config modules, and billing operations.
-- RLS policy enforcement is now active for `console_runtime_snapshots`, `console_organizations`, `console_projects`, `console_environments`, `console_wallet_index`, `console_api_keys`, `console_environment_settings`, `console_key_exports`, `console_policies`, `console_policy_versions`, `console_policy_assignments`, `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters`, `console_billing_accounts`, `console_billing_credit_purchases`, `console_billing_ledger_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, and `console_stripe_webhook_events`, with dedicated DB-level policy tests for each completed slice.
-- Monthly billing finalization now runs with explicit org targets (`orgIds`) to remain compatible with FORCE-RLS billing tables.
+- D1 tenant scope is enforced through explicit `namespace` and `org_id` keys on every
+  console adapter query, D1 schema constraints for lineage-sensitive rows, and
+  service-level tenant-isolation tests across runtime snapshots,
+  org/project/environment, wallets, API keys, policies, webhooks, config modules,
+  and billing operations.
+- D1 tenant-lineage enforcement is active for `runtime_snapshots`, `organizations`,
+  `projects`, `environments`, `wallet_index`, `api_keys`, `key_exports`,
+  `policies`, `policy_versions`, `policy_assignments`, `webhook_endpoints`,
+  `webhook_deliveries`, `webhook_attempts`, `webhook_dead_letters`,
+  `billing_accounts`, `billing_credit_purchases`, `billing_ledger_entries`,
+  `billing_ledger_postings`, `invoices`, `invoice_line_items`,
+  `stripe_webhook_events`, and the sponsorship/billing reservation tables, with
+  dedicated D1 policy and tenant-isolation tests for each completed slice.
+- Monthly billing finalization now runs with explicit org targets (`orgIds`) so
+  D1 billing mutations stay tenant-scoped at the service and adapter boundary.
 - Stripe webhook reconciliation now resolves prepaid purchase settlement without the removed payment-intent/provider-ref tables.
-- Runtime snapshot publish now writes tenant-scoped outbox events (`console_runtime_snapshot_outbox`) and a cron-dispatch runner exists with org-targeted advisory-lock execution (default runner requires an explicit dispatch callback).
-- Webhook delivery retries now have a dedicated Postgres retry-dispatch runner (`runPostgresConsoleWebhookRetryDispatch`) with configurable attempt caps/backoff windows and Cloudflare cron advisory-lock wiring.
+- Runtime snapshot publish now writes tenant-scoped outbox events (`runtime_snapshot_outbox`) and a D1 claim-lease cron-dispatch runner exists with org-targeted execution (default runner requires an explicit dispatch callback).
+- Webhook delivery retries now run through the D1 retry-dispatch path for Refactor 82 staging. The old console-only Postgres retry runner was removed with the partial console Postgres adapters; a future Postgres backend must reintroduce webhook retry dispatch as part of the full-family adapter.
 - Cloudflare relay worker cron enablement is now resolved from a unified feature-flag snapshot, so billing/outbox/webhook cron jobs can run without requiring legacy `ENABLE_ROTATION`.
 - Worker cron-flag semantics are covered by focused unit tests (`cloudflare-worker-cron-flags.test.ts`) to prevent regressions in cron activation behavior.
 - Cloudflare cron jobs now support per-job cron-expression allowlists (`cronExpressions`) so billing finalization, runtime snapshot outbox dispatch, and webhook retry dispatch can run on independent schedules from the same worker.
 - Worker cron config assembly is now extracted into a dedicated helper (`cronConfig.ts`) and covered by focused mapping tests (`cloudflare-worker-cron-config.test.ts`) for env parsing, fallback semantics, and runtime snapshot outbox dispatch wiring.
 - Worker scheduled orchestration is now extracted into `scheduledHandler.ts` and covered by integration tests (`cloudflare-worker-scheduled.test.ts`) validating env flag resolution, cron option handoff, and scheduled event forwarding.
 - Worker deployment config now includes explicit staging/production console cron scaffolding (`BILLING_*`, `RUNTIME_SNAPSHOT_OUTBOX_*`, `WEBHOOK_RETRY_*`) with jobs disabled by default and per-job cron expressions declared for controlled enablement.
-- Worker scheduled path now performs pre-flight cron config validation and emits structured warnings for missing required job config (`postgresUrl` / `orgIds`) with test coverage on warning emission.
-- Worker cron env surface now has explicit defaults for all related vars in staging/production (`ENABLE_ROTATION`, `*_POSTGRES_URL`, `*_ORG_IDS`, `*_CRONS`, limits/backoff, and period override), with safe disabled/no-op defaults.
-- Stripe webhook projection coverage now includes prepaid checkout settlement (`checkout.session.completed`) with idempotent event processing across in-memory and Postgres billing services and router suites.
+- Worker scheduled path now performs pre-flight cron config validation and emits structured warnings for missing required D1 job config (`orgIds` / per-job cron settings) with test coverage on warning emission.
+- Worker cron env surface now uses D1/DO job bindings and per-job org/schedule settings in staging/production (`*_ORG_IDS`, `*_CRONS`, limits/backoff, and period override), with safe disabled/no-op defaults.
+- Stripe webhook projection coverage now includes prepaid checkout settlement (`checkout.session.completed`) with idempotent event processing across in-memory and D1 billing services and router suites.
 - Browser-level e2e wiring coverage now includes:
   - `/pricing` -> checkout-session API handoff and redirect behavior.
   - `/dashboard/billing/account` top-up and internal adjustment controls.
@@ -335,7 +348,7 @@ Recently completed hardening:
 ## Delivery Principles
 
 1. Contract-first: lock API and event schemas before deep UI wiring.
-2. Tenant safety first: enforce org/project scoping and RLS early.
+2. Tenant safety first: enforce org/project scoping in every D1 adapter and route service early.
 3. Vertical slices: deliver end-to-end feature slices, not isolated layers.
 4. Auditability by default: every mutating admin action writes immutable logs.
 5. Progressive hardening: MVP first, then approvals/anomaly/governance depth.
@@ -391,7 +404,7 @@ Key outputs:
 Scope:
 
 - Migration sets for control/runtime/audit schemas.
-- RLS policies + tenant-context middleware.
+- D1 tenant-scope predicates, service-level isolation tests, and route-policy middleware.
 - Operational infra: queues, scheduled jobs, observability.
 
 Key outputs:
@@ -455,8 +468,8 @@ Key outputs:
 
 - APIs:
   - `GET /console/export/governance` (implemented)
-  - `GET/POST /console/key-exports` (scaffolded; in-memory + postgres service + router wiring)
-  - `POST /console/key-exports/:id/approve` (scaffolded; in-memory + postgres service + router wiring)
+  - `GET/POST /console/key-exports` (implemented; in-memory + D1 service + router wiring)
+  - `POST /console/key-exports/:id/approve` (implemented; in-memory + D1 service + router wiring)
 - Data:
   - export request and approval tables
   - immutable export audit log
@@ -569,12 +582,12 @@ Data:
   - organizations/projects/environments/memberships
   - audit_log
   - event_outbox
-- Add baseline RLS policies and policy tests.
+- Add baseline D1 tenant-scope predicates and service-level isolation tests.
 
 Exit criteria:
 
 - Authenticated org-scoped request can list org/project metadata.
-- CI has migration + RLS test gates.
+- CI has migration and D1 tenant-isolation test gates.
 
 ### Milestone 1: Wallets List + Search (2 weeks)
 
@@ -640,14 +653,14 @@ Backend:
 Status (backend):
 
 - [x] API key routes (`/console/api-keys`) are implemented.
-- [x] API key Postgres persistence and cross-org isolation tests are implemented.
+- [x] API key D1 persistence and cross-org isolation tests are implemented.
 - [x] Webhook CRUD + delivery/replay flows are implemented.
 - [x] Webhook attempts/dead-letter list endpoints with cursor pagination are implemented.
 - [x] Billing overview/invoice/usage/prepaid route set is implemented.
 - [x] Stripe checkout + webhook settlement flow is implemented.
 - [x] Ledger-first projection rebuild is implemented.
 - [x] Admin-only manual adjustment controls are implemented.
-- [x] Postgres-backed cross-org isolation route tests are implemented for webhook and billing surfaces.
+- [x] D1-backed cross-org isolation route tests are implemented for webhook and billing surfaces.
 
 - Implement:
   - `GET/POST/DELETE /console/api-keys`
@@ -811,7 +824,7 @@ Use `Monthly Active Wallets (MAW)` as canonical wallet usage metric:
 
 Security:
 
-- RLS enforcement tests for every tenant table.
+- D1 tenant-isolation tests for every tenant table/service slice.
 - Short-lived session tokens and scoped service tokens.
 - Secret management via KMS/HSM references only.
 
@@ -866,20 +879,20 @@ Compliance:
 - [x] Create backend service scaffold and migration pipeline.
 - [x] Implement org/project/environment read APIs first.
 - [x] Implement org/project/environment mutation APIs with RBAC + cross-org denial tests.
-- [x] Implement Postgres-backed API key persistence + org-isolation route tests.
+- [x] Implement D1-backed API key persistence + org-isolation route tests.
 - [x] Implement `/console/wallets` list/detail/search APIs.
 - [x] Wire dashboard route behind a feature flag for wallet list/search/detail pages.
-- [x] Land RLS test harness and cross-tenant denial tests in CI (include console Postgres suites).
+- [x] Land D1 tenant-scope denial tests in CI.
 - [x] Define billing provider adapter boundaries (Stripe checkout + webhook settlement) before endpoint implementation.
 - [x] Implement dedicated console insight contracts for policy/gas/export (`/console/policy/coverage`, `/console/gas/readiness`, `/console/export/governance`).
 - [x] Wire policy/gas/export dashboard pages to dedicated insight contracts.
-- [x] Extend console router tests to cover insight contracts (express/cloudflare + Postgres org isolation).
+- [x] Extend console router tests to cover insight contracts (express/cloudflare + D1 org isolation).
 
 ## Post-Refactor Next Steps (Open Checklist)
 
 - [x] Add dashboard runtime snapshot UI wiring (`latest`, history list, and `publish-current` action) with role-gated controls.
 - [x] Add relay/runtime consumer integration for versioned environment snapshots (read latest by org/project/environment and validate checksum/version semantics).
-- [x] Implement DB-level tenant context variables + table-by-table RLS policies for console tables, with policy tests.
+- [x] Implement service-level tenant context propagation plus table-by-table D1 tenant predicates for console tables, with isolation tests.
 - [x] Introduce outbox-backed runtime snapshot publish events so runtime consumers can subscribe to config changes deterministically.
 - [x] Add API contract tests for runtime snapshot endpoints (`/console/runtime-snapshots*`) including publish-current payload-resolver semantics and `not_configured` module markers.
 - [x] Add pricing page -> Stripe Checkout session wiring (CTA calls backend checkout-session endpoint and redirects to hosted checkout).
@@ -894,22 +907,9 @@ Compliance:
 - [x] Add Ops Cockpit row-level dead-letter replay quick action wired to `POST /console/webhooks/:id/replay`, with e2e API-wiring coverage.
 - [x] Add Ops Cockpit row-level pending-approval approve/reject quick actions wired to `/console/approvals/:id/approve|reject`, with e2e API-wiring coverage.
 - [x] Add Ops Cockpit row-level queued-audit-export requeue quick action using existing `/console/audit/exports` list/create contracts, with e2e API-wiring coverage.
-- [x] Split Postgres config into signer and console logical DB targets with separate migration runners and least-privilege DB users.
-  - Progress: relay-server example now requires explicit `CONSOLE_POSTGRES_URL` for console-domain Postgres backends so console billing/webhooks/observability can stay separate from threshold runtime stores.
-  - Progress: relay-server now includes explicit domain migration commands:
-    - `postgres:migrate:signer` (`POSTGRES_MIGRATION_URL` -> `POSTGRES_URL`)
-    - `postgres:migrate:console` (`CONSOLE_POSTGRES_MIGRATION_URL` -> `CONSOLE_POSTGRES_URL`)
-    - `postgres:migrate:all`
-  - Progress: relay-server now includes local split-domain DB/bootstrap automation (`postgres:bootstrap:split`) for signer/console runtime+migrator roles, databases, and grants.
-  - Progress: relay-server supports strict migration mode with `CONSOLE_ENSURE_SCHEMA=0` to disable startup schema auto-creation for the console backend family.
-  - Progress: relay-server now includes explicit least-privilege verification (`postgres:verify:split`) and validated local flow (`postgres:up` -> `postgres:bootstrap:split` -> `postgres:migrate:all` -> `postgres:verify:split`).
-  - Progress: relay-server now exposes a one-shot bootstrap+migrate+verify command (`postgres:setup:split`) for repeatable local bring-up.
-  - Progress: relay-server now exposes a one-shot monolith-to-split data migration command (`postgres:migrate:split-from-monolith`) with explicit source/target envs.
-  - Progress: local migration from monolith `seams` into `seams_signer` + `seams_console` has been executed and verified for table-count parity across signer tables and most console tables.
-  - Progress: migration runner now logs/skips legacy-incompatible rows missing required target fields (notably historical `console_payment_state_transitions` rows with `NULL org_id`) and tracks these for explicit follow-up policy.
-  - Progress: CI now includes a dedicated `relay-server-postgres-split-smoke` job that executes split bootstrap+migrate+verify and always tears down compose resources.
-  - Progress: verifier failure-path coverage now includes invalid-identifier fast-fail assertions (`tests/unit/postgresVerifySplitDomains.script.unit.test.ts`).
-  - Progress: threshold-core CI now runs `test:unit:relay-server-scripts`, gating verifier-script unit checks on every run.
+- [x] Retire the default split-Postgres dashboard backend path in favor of D1/DO local and staging persistence.
+  - Refactor 82 update: active `apps/web-server` Postgres automation has been removed. Staging-required signer/runtime and console persistence now uses D1/DO local development, and the full-family Postgres escape hatch is documented in `docs/refactor-82-cloudflare-D1-migration.md`.
+  - Historical split-domain bootstrap, verifier, monolith-to-split migration, and console migration scripts were deleted with the signer/runtime and console Postgres staging paths.
 
 ## Open Decisions
 

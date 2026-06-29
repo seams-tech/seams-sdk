@@ -32,9 +32,9 @@ Current status:
 - [x] shared sponsorship routes now reserve prepaid balance before execution and gate sponsorship on available org balance
 - [x] sponsored execution records now include explicit billing linkage fields such as `billingLedgerEntryId`, `prepaidReservationId`, `charged`, `chargedReason`, and `settledAt`
 - [x] sponsored execution records now include first-class settlement/pricing fields: `estimatedSpendMinor`, `settledSpendMinor`, `pricingVersion`, `pricingSource`
-- [x] sponsored settlement now requires one atomic Postgres path; the non-atomic fallback path has been removed
-- [x] relayer sponsored-route tests are aligned to the atomic Postgres settlement contract (they run with Postgres-backed billing/prepaid/sponsored-call services when `POSTGRES_URL` is set)
-- [x] 90-day sponsored execution history APIs and supporting Postgres indexes are landed
+- [x] sponsored settlement now requires one atomic D1/SQLite path; the non-atomic fallback path has been removed
+- [x] relayer sponsored-route tests are aligned to the atomic D1 settlement contract through local SQLite-backed billing, prepaid-reservation, and sponsored-call services
+- [x] 90-day sponsored execution history APIs and supporting D1 indexes are landed
 - [x] the console billing surface now exposes sponsored execution history at `/console/billing/sponsored-executions`
 - [x] reconciliation API surface now compares sponsored execution history against linked `SPONSORED_EXECUTION_DEBIT` billing entries
 - [x] billing overview now exposes reserved sponsorship plus 30/90-day sponsored spend summary fields
@@ -51,8 +51,8 @@ Still not implemented:
 
 This work sits on top of two already-existing systems:
 
-- the generalized sponsorship engine in [docs/generalized-gas-sponsorship.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/generalized-gas-sponsorship.md)
-- the org-scoped prepaid billing model in [docs/prepaid-billing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/prepaid-billing.md)
+- the generalized sponsorship engine in [generalized-gas-sponsorship.md](generalized-gas-sponsorship.md)
+- the org-scoped prepaid billing model in [prepaid-billing.md](prepaid-billing.md)
 
 The original gap was that sponsored execution already had:
 
@@ -73,64 +73,46 @@ That gap is now closed for the shared EVM and NEAR sponsorship routes. The remai
 
 Implemented today:
 
-- sponsored execution history is stored in [server/src/console/sponsoredCalls/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/types.ts) and [server/src/console/sponsoredCalls/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/postgres.ts)
-- sponsorship policy spend caps reserve and settle billable `spendMinor` in [server/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/spendCaps.ts)
-- prepaid org balance and blocked/low-balance readiness already exist in [server/src/console/billing/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billing/service.ts) and [server/src/console/billing/readiness.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billing/readiness.ts)
-- sponsored execution now records dedicated `SPONSORED_EXECUTION_DEBIT` billing entries through:
-  - [server/src/router/sponsorshipExecution.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/sponsorshipExecution.ts)
-  - [server/src/console/billing/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billing/postgres.ts)
-- billing statements and account activity now expose sponsored execution debits separately from MAW usage in:
-  - [server/src/console/billing/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billing/service.ts)
-  - [server/src/console/billing/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billing/postgres.ts)
-- sponsored execution records already carry explicit billing linkage fields in:
-  - [server/src/console/sponsoredCalls/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/types.ts)
-  - [server/src/router/relaySponsoredEvmCall.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySponsoredEvmCall.ts)
-  - [server/src/router/relaySignedDelegate.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySignedDelegate.ts)
-- atomic settlement path now requires prepaid reservation settlement, billing debit, and sponsored call record creation to happen in one DB transaction backed by shared Postgres billing/prepaid/sponsored-call services
-- prepaid balance admission now accepts negative posted balance from underestimation, naturally blocking all future sponsorship until the org refills
-- prepaid sponsorship reservations now exist in:
-  - [server/src/console/billingPrepaidReservations/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billingPrepaidReservations/service.ts)
-  - [server/src/console/billingPrepaidReservations/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billingPrepaidReservations/postgres.ts)
-- last-90-days sponsored execution history is now queryable through:
-  - [server/src/console/sponsoredCalls/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/service.ts)
-  - [server/src/console/sponsoredCalls/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/postgres.ts)
-  - [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
-  - [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
-- the dashboard billing API client now has a sponsored execution history fetcher in:
-  - [examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts)
-- sponsored execution reconciliation is now queryable through:
-  - [server/src/console/sponsoredCalls/reconciliation.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/reconciliation.ts)
-  - [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
-  - [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
-  - [examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts)
-- billing overview now includes reserved sponsorship and sponsored-spend summary through:
-  - [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
-  - [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
-  - [server/src/console/sponsoredCalls/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/service.ts)
-  - [server/src/console/sponsoredCalls/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/postgres.ts)
-  - [server/src/console/billingPrepaidReservations/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billingPrepaidReservations/service.ts)
-  - [server/src/console/billingPrepaidReservations/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billingPrepaidReservations/postgres.ts)
-- the billing account UI now surfaces reserved sponsorship and recent sponsored-spend summary in:
-  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx)
-- sponsorship balance state transitions now emit billing-category webhook events from:
-  - [server/src/router/sponsorshipBillingEvents.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/sponsorshipBillingEvents.ts)
-  - [server/src/router/sponsorshipExecution.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/sponsorshipExecution.ts)
-  - [server/src/router/relaySignedDelegate.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySignedDelegate.ts)
-  - [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
-  - [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
-- sponsorship balance transitions now also surface in console observability logs through:
-  - [server/src/console/observability/adapters.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/observability/adapters.ts)
-  - [server/src/console/observability/policy.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/observability/policy.ts)
-  - [server/src/router/sponsorshipBillingEvents.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/sponsorshipBillingEvents.ts)
-- sponsorship reserve failures now emit `billing.sponsorship.blocked` observability events from:
-  - [server/src/router/sponsorshipBillingEvents.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/sponsorshipBillingEvents.ts)
-  - [server/src/router/relaySponsoredEvmCall.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySponsoredEvmCall.ts)
-  - [server/src/router/relaySignedDelegate.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySignedDelegate.ts)
-  - [server/src/console/observability/adapters.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/observability/adapters.ts)
-- billing invoice list/detail views now keep monthly documents aggregated while linking operators back to:
-  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx)
-  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoiceDetailView.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoiceDetailView.tsx)
-  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx)
+- sponsored execution history is stored through
+  `packages/sdk-server-ts/src/console/sponsoredCalls/types.ts`,
+  `packages/sdk-server-ts/src/console/sponsoredCalls/service.ts`, and the D1
+  adapter in `packages/sdk-server-ts/src/console/sponsoredCalls/d1.ts`
+- prepaid org balances, blocked/low-balance readiness, and sponsored execution
+  debits are owned by `packages/sdk-server-ts/src/console/billing/service.ts`,
+  `packages/sdk-server-ts/src/console/billing/readiness.ts`, and the D1 adapter
+  in `packages/sdk-server-ts/src/console/billing/d1.ts`
+- prepaid sponsorship reservations are owned by
+  `packages/sdk-server-ts/src/console/billingPrepaidReservations/service.ts` and
+  the D1 adapter in
+  `packages/sdk-server-ts/src/console/billingPrepaidReservations/d1.ts`
+- atomic settlement now requires prepaid reservation settlement, billing ledger
+  debit, and sponsored call linkage to complete through the shared D1/SQLite
+  mutation path in `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`
+- sponsored execution records carry explicit billing linkage fields such as
+  `billingLedgerEntryId`, `prepaidReservationId`, `charged`, `chargedReason`,
+  `settledSpendMinor`, `pricingVersion`, and `pricingSource`
+- prepaid balance admission accepts negative posted balance from underestimation,
+  naturally blocking future sponsorship until the org refills
+- last-90-days sponsored execution history and reconciliation are queryable
+  through the Express and Cloudflare console routers:
+  `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts` and
+  `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+- the dashboard billing API client and UI surface sponsored execution history,
+  reconciliation, reserved sponsorship, and sponsored-spend summary through
+  `apps/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts` and
+  `apps/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx`
+- sponsorship balance state transitions emit billing-category webhook and
+  observability events from
+  `packages/sdk-server-ts/src/router/sponsorshipBillingEvents.ts` and
+  `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`
+- sponsorship reserve failures emit `billing.sponsorship.blocked`
+  observability events through the shared sponsorship execution path and
+  `packages/sdk-server-ts/src/console/observability/adapters.ts`
+- billing invoice list/detail views keep monthly documents aggregated while
+  linking operators back to sponsored execution reconciliation through
+  `apps/seams-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx`,
+  `apps/seams-site/src/pages/dashboard/routes/billing/BillingInvoiceDetailView.tsx`,
+  and `apps/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx`
 
 Missing today:
 
@@ -271,7 +253,7 @@ Recommended approach:
 
 In early development, the simplest acceptable approach is:
 
-- keep `console_sponsored_call_records` indefinitely
+- keep `sponsored_call_records` indefinitely
 - optimize query surfaces around a default last-90-days window
 
 That is cleaner than building archival machinery too early.
@@ -446,7 +428,7 @@ If the org is refunded later for an operator issue, use compensating entries, no
 
 ## Sponsored execution record changes
 
-Keep using `console_sponsored_call_records`, but strengthen it as the canonical sponsorship audit trail.
+Keep using `sponsored_call_records`, but strengthen it as the canonical sponsorship audit trail.
 
 Already landed as explicit fields:
 
@@ -571,7 +553,7 @@ Add balance-aware state to `/dashboard/gas-sponsorship`:
 
 ### Customer-facing history
 
-Provide a last-90-days sponsored usage view, backed by `console_sponsored_call_records`.
+Provide a last-90-days sponsored usage view, backed by `sponsored_call_records`.
 
 Backend API support is now landed at `/console/billing/sponsored-executions`, and reconciliation support is landed at `/console/billing/sponsored-executions/reconciliation`; the dedicated dashboard UI still needs to be wired.
 
@@ -627,13 +609,14 @@ These should be derived read models, not source of truth.
 - [x] enforce org-balance gating for both EVM and NEAR
 - [x] settle prepaid reservations from finalized spend
 - [x] append billing ledger debits from settled sponsored spend
-- [x] remove the non-atomic settlement fallback and require a shared Postgres runtime for settlement
+- [x] remove the non-atomic settlement fallback and require the shared D1/SQLite
+      atomic settlement path
 - [x] release policy-cap reservations correctly on prepaid-balance failures
 - [x] allow slight negative balance on underestimation, then block future sponsorship
 
 ### Phase 4: History and reconciliation
 
-- [x] strengthen `console_sponsored_call_records` with explicit settled spend and pricing fields
+- [x] strengthen `sponsored_call_records` with explicit settled spend and pricing fields
 - [x] add 90-day history APIs and indexes
 - [x] add reconciliation views comparing sponsored execution history to billing debits
 

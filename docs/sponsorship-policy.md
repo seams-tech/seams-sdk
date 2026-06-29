@@ -1,6 +1,6 @@
 # Sponsorship Policy Engine Plan
 
-Last updated: 2026-03-09
+Last updated: 2026-06-29
 
 ## Goal
 
@@ -47,13 +47,13 @@ Out of scope for this plan:
 
 What already exists:
 
-- EVM sponsorship config exists in [server/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/types.ts)
-- runtime snapshots already publish resolved EVM `sponsoredCallPolicies` in [server/src/router/runtimeSnapshotPayload.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/runtimeSnapshotPayload.ts)
-- the shared server package now owns the EVM sponsorship route and execution path in [server/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/evmRelay.ts) and [server/src/router/express/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/routes/sponsoredEvmCall.ts)
-- shared onboarding seeding now lives in [server/src/console/gasSponsorship/seeding.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/seeding.ts)
-- shared EVM sponsorship parsing and matching primitives exist in [server/src/sponsorship/evm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/evm.ts)
-- exact sponsored spend is stored through a chain-aware ledger model in [server/src/console/sponsoredCalls/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/types.ts)
-- NEAR delegate validation and relaying primitives already exist in [server/src/delegateAction/index.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/delegateAction/index.ts)
+- EVM sponsorship config exists in [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](../packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
+- runtime snapshots already publish resolved EVM `sponsoredCallPolicies` in [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
+- the shared server package now owns the EVM sponsorship route and execution path in [packages/sdk-server-ts/src/sponsorship/evmRelay.ts](../packages/sdk-server-ts/src/sponsorship/evmRelay.ts) and [packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts](../packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts)
+- shared onboarding seeding now lives in [packages/sdk-server-ts/src/console/gasSponsorship/seeding.ts](../packages/sdk-server-ts/src/console/gasSponsorship/seeding.ts)
+- shared EVM sponsorship parsing and matching primitives exist in [packages/sdk-server-ts/src/sponsorship/evm.ts](../packages/sdk-server-ts/src/sponsorship/evm.ts)
+- exact sponsored spend is stored through a chain-aware ledger model in [packages/sdk-server-ts/src/console/sponsoredCalls/types.ts](../packages/sdk-server-ts/src/console/sponsoredCalls/types.ts)
+- NEAR delegate validation and relaying primitives already exist in [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
 
 What is still missing:
 
@@ -350,9 +350,9 @@ Todo:
 - [ ] Add `POST /sponsorships/near/delegate`
 - [ ] Validate API key and environment binding through the shared engine
 - [ ] Resolve the applicable `near_delegate` policy from the runtime snapshot
-- [ ] Reuse `validateDelegateExpiryAndNonce` from [server/src/delegateAction/index.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/delegateAction/index.ts)
-- [ ] Reuse `enforceDelegatePolicy` from [server/src/delegateAction/index.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/delegateAction/index.ts)
-- [ ] Reuse `executeSignedDelegateWithRelayer` from [server/src/delegateAction/index.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/delegateAction/index.ts)
+- [ ] Reuse `validateDelegateExpiryAndNonce` from [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
+- [ ] Reuse `enforceDelegatePolicy` from [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
+- [ ] Reuse `executeSignedDelegateWithRelayer` from [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
 - [ ] Add replay protection keyed to delegate signer identity and nonce
 - [ ] Reject transfer-like value movement unless the policy explicitly allows it
 - [ ] Record finalized NEAR relayer spend in the generic ledger

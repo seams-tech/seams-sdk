@@ -4,20 +4,20 @@ Date updated: March 1, 2026
 
 ## Goal
 
-Use Google OIDC sign-in for app identity and exchange verified Google tokens into relay app sessions.
+Use Google OIDC sign-in for app identity and exchange verified Google tokens into Router API app sessions.
 
 ## Prerequisites
 
 1. Google OIDC sign-in is configured in your frontend/backend.
 2. Backend verifies Google ID token (`iss`, `aud`, signature, expiry).
-3. Relay verifier allowlist includes expected Google issuer/audience.
+3. Router API verifier allowlist includes expected Google issuer/audience.
 
 ## Integration Flow
 
 1. Client gets Google ID token after user sign-in.
 2. Backend verifies token and extracts stable `sub`.
-3. Backend exchanges token with relay `POST /session/exchange`.
-4. Relay returns app session as JWT or HttpOnly cookie.
+3. Backend exchanges token with Router API `POST /session/exchange`.
+4. Router API returns app session as JWT or HttpOnly cookie.
 
 Optional one-step passkey path:
 
@@ -47,7 +47,7 @@ async function verifyGoogleIdToken(inputToken: string): Promise<GoogleClaims> {
   throw new Error('replace with Google token verification');
 }
 
-export async function createRelaySessionFromGoogle(req: Request, res: Response): Promise<void> {
+export async function createRouterApiSessionFromGoogle(req: Request, res: Response): Promise<void> {
   const bearer = String(req.headers.authorization || '');
   const inputToken = bearer.startsWith('Bearer ') ? bearer.slice('Bearer '.length).trim() : '';
   if (!inputToken) {
@@ -57,7 +57,7 @@ export async function createRelaySessionFromGoogle(req: Request, res: Response):
 
   await verifyGoogleIdToken(inputToken);
 
-  const relayRes = await fetch(`${process.env.RELAY_BASE_URL}/session/exchange`, {
+  const routerApiRes = await fetch(`${process.env.ROUTER_API_BASE_URL}/session/exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -66,14 +66,14 @@ export async function createRelaySessionFromGoogle(req: Request, res: Response):
     }),
   });
 
-  const bodyText = await relayRes.text();
+  const bodyText = await routerApiRes.text();
   const body = bodyText ? JSON.parse(bodyText) : {};
-  if (!relayRes.ok) {
-    res.status(relayRes.status).json(body);
+  if (!routerApiRes.ok) {
+    res.status(routerApiRes.status).json(body);
     return;
   }
 
-  const setCookie = relayRes.headers.get('set-cookie');
+  const setCookie = routerApiRes.headers.get('set-cookie');
   if (setCookie) res.setHeader('Set-Cookie', setCookie);
   res.status(200).json(body);
 }
@@ -81,6 +81,6 @@ export async function createRelaySessionFromGoogle(req: Request, res: Response):
 
 ## Operational Notes
 
-1. Treat Google sign-out and account-risk events as triggers to call relay `POST /session/revoke`.
+1. Treat Google sign-out and account-risk events as triggers to call Router API `POST /session/revoke`.
 2. Keep wallet state operations separate (`POST /wallet/lock` for lock actions).
 3. Dedupe lifecycle webhooks using `X-Console-Webhook-Event-Id`.

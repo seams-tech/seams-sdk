@@ -221,8 +221,8 @@ Introduce a small shared dashboard utility instead of route-local ad hoc code.
 
 Suggested files:
 
-- `examples/seams-site/src/pages/dashboard/drafts/sessionDraftStore.ts`
-- `examples/seams-site/src/pages/dashboard/drafts/useSessionDraft.ts`
+- `apps/seams-site/src/pages/dashboard/drafts/sessionDraftStore.ts`
+- `apps/seams-site/src/pages/dashboard/drafts/useSessionDraft.ts`
 
 Suggested responsibilities:
 
@@ -408,7 +408,7 @@ This work is complete when:
 - [x] Route-targeted e2e tests passed:
   - `gas sponsorship page wires create and validates scope requirements`
   - `policy-engine page schedules live policy changes through approvals`
-- [x] Dashboard site production build passed (`pnpm -C examples/seams-site build`).
+- [x] Dashboard site production build passed (`pnpm -C apps/seams-site build`).
 
 ## Next steps
 

@@ -6,9 +6,9 @@ Track the remaining operational work after the prepaid migration.
 
 This document is not the canonical billing architecture spec.
 
-The canonical source of truth for the billing model is [prepaid-billing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/prepaid-billing.md).
+The canonical source of truth for the billing model is [prepaid-billing.md](prepaid-billing.md).
 
-This follow-up plan also assumes [billing-cleanup.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/billing-cleanup.md) is authoritative for removing stored payment methods and Stripe billing-management flows. Remaining work in this file must not preserve or reintroduce those deleted paths.
+This follow-up plan also assumes [billing-cleanup.md](billing-cleanup.md) is authoritative for removing stored payment methods and Stripe billing-management flows. Remaining work in this file must not preserve or reintroduce those deleted paths.
 
 Use this file only for:
 
@@ -37,14 +37,14 @@ Already done:
 - subscription lifecycle and direct settlement rails have been removed
 - billing activity is already document-and-ledger oriented
 - test coverage has been rewritten to prepaid-only behavior
-- Postgres billing now has canonical ledger accounts, entries, and postings
+- Billing now has canonical ledger accounts, entries, and postings
 - Active purchase settlement and usage debit writes now create balanced journal postings
-- Postgres org balance sync now derives from ledger postings
-- Postgres receipt and usage-statement projections now rebuild from purchase and journal state
-- Postgres invoice reads now refresh projections before serving account and invoice data
+- Org balance sync now derives from ledger postings
+- Receipt and usage-statement projections now rebuild from purchase and journal state
+- Invoice reads now refresh projections before serving account and invoice data
 - The in-memory billing service now derives invoices, line items, and activity from purchase and ledger state instead of mutable invoice/document maps
 - `/dashboard/invoices` no longer issues account-shell billing fetches that it does not need
-- The Postgres billing overview and MAW read paths now use a consistent lock order to prevent the observed invoice-page deadlock
+- The billing overview and MAW read paths now use a consistent read order to prevent invoice-page read contention
 - Regression coverage now exists for the invoice-route shell fetch path and the concurrent overview/MAW billing-service path
 - The dashboard billing Playwright harness now mounts `/dashboard/billing/account` and `/dashboard/invoices` again after fixing the SDK worker bundle export mismatch that was crashing the app before render
 - Backend operator adjustment methods and routes now exist for manual support credits and manual admin debits
@@ -62,20 +62,18 @@ Already done:
 Still open:
 
 - finish the remaining journal migration for any future financial write paths
-- prove deterministic projection rebuilding against a real Postgres instance
+- prove deterministic projection rebuilding against the current D1 billing adapter
 - keep the prepaid Stripe surface checkout-only and prevent legacy Stripe-management flows from reappearing
-- validate the final model against a real Postgres instance with `POSTGRES_URL` set
-- validate the deadlock fix against a live Postgres instance
+- validate the final model against local SQLite-D1 and staging D1 data
+- keep the old deadlock regression covered as a route/service invariant
 - confirm there are no unintended runtime entry points that bypass the shared readiness helper outside the explicit `allowLiveEnvironmentBillingBypass` option
-- the current environment still does not expose `POSTGRES_URL`, so live-Postgres validation remains blocked here
 
 ## Remaining Steps
 
-1. Real Postgres validation
-   - run the rewritten Postgres suites
-   - validate concurrent overview / MAW reads, operator adjustments, and readiness-state enforcement on live Postgres
-   - confirm projection rebuild and schema bootstrap behavior
-   - unblock by running with `POSTGRES_URL` set
+1. D1 adapter validation
+   - run the D1 billing and prepaid-reservation suites
+   - validate concurrent overview / MAW reads, operator adjustments, and readiness-state enforcement through the current adapter contract
+   - confirm projection rebuild and D1 migration behavior
 2. Operator adjustment UI and visibility
    - keep document-link behavior explicit in customer-facing vs internal surfaces
    - no separate adjustment-linked immutable snapshots; linked adjustments stay internal timeline events only
@@ -98,11 +96,11 @@ Still open:
 - [x] Decide whether adjustment-linked document snapshots are required.
 - [x] Keep PDF visibility rules explicit for internal vs customer-facing views.
 
-### Phase C: Live Postgres validation
+### Phase C: D1 adapter validation
 
-- [ ] Run billing Postgres suites with `POSTGRES_URL` set and record outcomes.
-- [ ] Validate schema bootstrap + projection rebuild on an existing dev database.
-- [ ] Re-run concurrent `getOverview()` / `getMonthlyActiveWallets()` validation on live Postgres.
+- [ ] Run billing D1 adapter suites and record outcomes.
+- [ ] Validate D1 migration + projection rebuild on an existing local/staging database.
+- [ ] Re-run concurrent `getOverview()` / `getMonthlyActiveWallets()` validation through the adapter contract.
 
 ### Phase D: Enforcement path
 
@@ -111,7 +109,7 @@ Still open:
 - [x] Wire `HEALTHY`, `LOW_BALANCE`, and `BLOCKED` to real production execution.
 - [x] Add explicit local/dev bypass only if intentionally configured.
 - [x] Expose low-balance / blocked state messaging consistently in the UI.
-- [ ] Validate the shared readiness helper against live Postgres and any remaining runtime entry points.
+- [ ] Validate the shared readiness helper against D1-backed runtime entry points.
 
 ## Operator Adjustment Policy
 
@@ -165,9 +163,9 @@ Cases that should stay outside generic operator tooling:
 
 ### Phase 1: Canonical ledger write path
 
-- [x] Add `console_billing_ledger_accounts`.
-- [x] Add `console_billing_ledger_entries`.
-- [x] Add `console_billing_ledger_postings`.
+- [x] Add `billing_accounts`.
+- [x] Add `billing_ledger_entries`.
+- [x] Add `billing_ledger_postings`.
 - [x] Add balanced journal writer invariants.
 - [x] Route purchase settlement through journal entries and postings.
 - [x] Route usage debits through journal entries and postings.
@@ -180,8 +178,8 @@ Cases that should stay outside generic operator tooling:
 - [x] Build receipt projections from purchase settlement entries.
 - [x] Build usage statement projections from usage entries.
 - [x] Build account and document activity projections from journal-linked events.
-- [x] Make the Postgres-backed `/dashboard/billing/account` reads projection-only.
-- [x] Make the Postgres-backed `/dashboard/invoices` and invoice detail reads projection-only.
+- [x] Make the persistent `/dashboard/billing/account` reads projection-only.
+- [x] Make the persistent `/dashboard/invoices` and invoice detail reads projection-only.
 - [x] Remove duplicated mutable invoice/document state from the in-memory billing helper path.
 - [ ] Ensure projection rebuilding is deterministic from journal state.
 
@@ -212,11 +210,11 @@ Cases that should stay outside generic operator tooling:
 - [x] Delete unused UI controls and copy.
 - [x] Update tests and docs to the single supported path.
 
-### Phase 6: Postgres validation and cleanup
+### Phase 6: D1 validation and cleanup
 
-- [ ] Run billing Postgres suites against a real Postgres instance.
-- [ ] Validate schema bootstrap on an existing dev database.
-- [ ] Validate concurrent `getOverview()` and `getMonthlyActiveWallets()` reads against live Postgres.
+- [ ] Run billing D1 suites against local SQLite-D1 and staging D1.
+- [ ] Validate D1 migrations on an existing local/staging database.
+- [ ] Validate concurrent `getOverview()` and `getMonthlyActiveWallets()` reads through the adapter contract.
 - [x] Keep regression coverage for the invoice-route deadlock path.
 - [ ] Confirm deleted settlement tables stay gone.
 - [ ] Confirm runtime reads use journal/projection tables only.
@@ -245,9 +243,9 @@ Goal:
 
 Replace the remaining prepaid write implementation with canonical journal writes backed by:
 
-- `console_billing_ledger_accounts`
-- `console_billing_ledger_entries`
-- `console_billing_ledger_postings`
+- `billing_accounts`
+- `billing_ledger_entries`
+- `billing_ledger_postings`
 
 Tasks:
 
@@ -345,17 +343,17 @@ Exit criteria:
 
 - only the checkout-session prepaid top-up path remains
 
-### Workstream 6: Postgres validation and cleanup
+### Workstream 6: D1 validation and cleanup
 
 Goal:
 
-Validate the final ledger-first model and remove leftover naming or migration clutter.
+Validate the final ledger-first model on the current D1 adapter and remove leftover naming or migration clutter.
 
 Tasks:
 
-- run billing Postgres suites against a real Postgres instance
-- validate schema bootstrap on an existing dev database
-- validate concurrent overview/MAW reads against live Postgres
+- run billing D1 suites against local SQLite-D1 and staging D1
+- validate D1 migrations on an existing local/staging database
+- validate concurrent overview/MAW reads through the adapter contract
 - keep deadlock regression coverage for the invoice route and billing service
 - confirm deleted settlement tables stay gone
 - confirm runtime reads use journal/projection tables only
@@ -363,7 +361,7 @@ Tasks:
 
 Exit criteria:
 
-- Postgres billing suites pass against a real database
+- D1 billing suites pass against local SQLite-D1 and staging D1
 - no old settlement or subscription storage remains in the active path
 
 ### Workstream 7: Legacy removal and hard cleanup
@@ -394,7 +392,7 @@ Exit criteria:
 3. Operator adjustments and auditability
 4. Balance enforcement
 5. Stripe prepaid-path cleanup
-6. Postgres validation and cleanup
+6. D1 validation and cleanup
 7. Legacy removal and hard cleanup
 
 ## Definition Of Done
@@ -406,5 +404,5 @@ This follow-up phase is done when:
 - production balance enforcement works end-to-end
 - operator credits and debits are append-only and fully auditable
 - only the checkout-session prepaid top-up path remains
-- Postgres-backed billing suites pass against a real database
+- D1 billing suites pass against local SQLite-D1 and staging D1
 - no legacy billing code path, data structure, or schema object remains in the active product

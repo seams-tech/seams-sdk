@@ -429,8 +429,8 @@ releaseReservedUseCount(input: {
 - [x] Add in-memory store-level tests for reserve, commit, release, duplicate
       commit, exhausted budget, expired reservation, and identity mismatch.
 - [x] Add cross-backend reservation behavior tests for Cloudflare Durable Object
-      stores locally, with Redis, Upstash, and Postgres variants enabled when
-      their environment URLs/tokens are configured.
+      stores locally, with Redis and Upstash variants enabled when their
+      environment URLs/tokens are configured.
 
 Validation added:
 
@@ -446,9 +446,9 @@ Validation added:
   Wallet Session with three committed signature-use spends rejects the fourth
   reserve with `wallet_budget_exhausted`.
 - Cross-backend behavioral contract coverage now runs against in-memory and
-  Cloudflare Durable Object stores locally. Redis, Upstash, and Postgres variants
-  run when `REDIS_URL`, `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`,
-  or `POSTGRES_URL` are configured.
+  Cloudflare Durable Object stores locally. Redis and Upstash variants run when
+  `REDIS_URL` or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are
+  configured.
 
 Acceptance:
 

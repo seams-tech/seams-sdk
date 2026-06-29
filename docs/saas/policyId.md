@@ -1,6 +1,6 @@
 # Policy ID Rules
 
-Date updated: March 12, 2026
+Date updated: June 29, 2026
 
 ## Canonical Meaning
 
@@ -8,7 +8,7 @@ Date updated: March 12, 2026
 
 Rules:
 
-- `policyId` always points to `console_policies.id`
+- `policyId` always points to `policies.id`
 - new policy records receive generated `policy_...` ids
 - `policyName` is the mutable human-readable name of that policy
 - `policyKind` is explicit where policy projections are exposed
@@ -39,7 +39,7 @@ If a subsystem still has its own standalone config identity, it must use subsyst
 - `configId`
 - `configName`
 
-Do not introduce new generic `policyId` fields unless they point to `console_policies.id`.
+Do not introduce new generic `policyId` fields unless they point to `policies.id`.
 
 ## Runtime and History Naming
 
@@ -64,7 +64,7 @@ Removed from production code:
 - gas-owned `policyId` fields that were not real policy ids
 - `sponsorshipConfigId`
 - `sponsorshipConfigNameAtEvent`
-- production dependency on `console_gas_sponsorship_configs`
+- production dependency on a standalone gas sponsorship config table
 
 Old gas sponsorship data is now represented as `GAS_SPONSORSHIP` policy records only.
 
@@ -72,6 +72,6 @@ Old gas sponsorship data is now represented as `GAS_SPONSORSHIP` policy records 
 
 When reviewing code:
 
-- if a field is named `policyId`, it must reference `console_policies.id`
+- if a field is named `policyId`, it must reference `policies.id`
 - if the resource is not a real policy record, rename the field
 - if gas sponsorship needs to point at another policy by scope, use `scopePolicyId`

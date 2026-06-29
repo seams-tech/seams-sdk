@@ -25,6 +25,10 @@ the implementation: agent containers do not receive merchant credentials; typed
 tools, egress handlers, and database gateways perform privileged work in trusted
 Worker code.
 
+Related architecture plans:
+
+- [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
+
 ## Key Decisions
 
 1. Make the fork Cloudflare-native rather than a Kubernetes deployment.
@@ -47,6 +51,10 @@ Worker code.
     `tenant_id`.
 15. Keep Slack chat, commerce actions, raw DB access, and admin operations as
     separate capability surfaces.
+16. Model humans, agents, and services as first-class principals that can share
+    the same team, role, grant, and audit schema.
+17. Use member access modes to distinguish direct access from proxy-only
+    delegated credential use.
 
 ## Dependency Simplification
 
@@ -167,7 +175,7 @@ Isolation boundaries:
 | Session coordination | `SessionDO` ID includes tenant and thread/session identity |
 | Workflows | Shared Workflow class; instance IDs and persisted metadata include tenant identity |
 | Containers | One workspace per agent run or warm session; no shared filesystem across tenants |
-| Secrets | Secret Broker resolves only tenant-granted `SecretRef` values |
+| Secrets | Secret Broker resolves only tenant-granted `VaultFieldRef` values |
 | HTTP/HTTPS egress | Container outbound handler checks `container_id -> tenant/session/principal` |
 | Raw DB access | DB Gateway validates tenant, principal, alias, lease, mode, and budget |
 | D1 | Every table uses `tenant_id`; repository inputs require parsed tenant context |
@@ -230,15 +238,38 @@ Core invariants:
   repositories, required tenant IDs, and targeted cross-tenant denial tests.
 - Compatibility parsing belongs at request and persistence boundaries.
 
-Suggested principal shape:
+Suggested principal and membership shape:
 
 ```ts
 type Principal =
-  | { kind: "slack_user"; tenantId: TenantId; teamId: SlackTeamId; userId: SlackUserId }
-  | { kind: "slack_channel"; tenantId: TenantId; teamId: SlackTeamId; channelId: SlackChannelId }
-  | { kind: "api_client"; tenantId: TenantId; clientId: ApiClientId }
+  | { kind: "human"; tenantId: TenantId; principalId: PrincipalId }
+  | { kind: "agent"; tenantId: TenantId; principalId: PrincipalId; agentId: AgentId }
+  | { kind: "service"; tenantId: TenantId; principalId: PrincipalId; serviceId: ServiceId }
   | { kind: "system"; tenantId: TenantId; actor: SystemActor };
+
+type PrincipalExternalIdentity =
+  | { kind: "slack_user"; tenantId: TenantId; principalId: PrincipalId; teamId: SlackTeamId; userId: SlackUserId }
+  | { kind: "api_client"; tenantId: TenantId; principalId: PrincipalId; clientId: ApiClientId };
+
+type MemberAccessMode =
+  | { kind: "direct_member"; canRevealSecrets: boolean; canManageGrants: boolean; canDelegateAccess: boolean }
+  | { kind: "delegate_member"; proxyOnly: true }
+  | { kind: "metadata_only" }
+  | { kind: "approval_only" };
+
+type TeamMembership = {
+  tenantId: TenantId;
+  teamId: TeamId;
+  principalId: PrincipalId;
+  roleId: RoleId;
+  accessMode: MemberAccessMode;
+};
 ```
+
+Agents default to `delegate_member`, which permits credential use only through
+trusted proxy boundaries such as Egress Gateway, DB Gateway, or Model Gateway.
+Teams can explicitly promote an agent to `direct_member`; that should be visible
+in admin UI and audit.
 
 Slack install model:
 
@@ -340,19 +371,15 @@ rewrites, database leases, and audit records.
 ### Secret Broker
 
 Make the first-party vault the primary runtime abstraction. Add 1Password as an
-adapter.
+adapter. The detailed vault object model lives in
+[Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md).
 
 ```ts
-type SecretBackend =
-  | { kind: "own_vault"; tenantId: TenantId; secretId: SecretId }
-  | { kind: "onepassword_connect"; tenantId: TenantId; vault: OnePasswordVault; item: OnePasswordItem; field: OnePasswordField }
-  | { kind: "onepassword_sync"; tenantId: TenantId; syncedSecretId: SecretId };
-
-type SecretRef = {
-  kind: "secret_ref";
+type VaultFieldRef = {
+  kind: "vault_field_ref";
   tenantId: TenantId;
-  backend: SecretBackend;
-  scope: SecretScope;
+  itemId: VaultItemId;
+  fieldId: VaultFieldId;
 };
 ```
 
@@ -406,7 +433,7 @@ Centaur mapping:
 | iron-control principal | Tenant principal and grants |
 | proxy ID | Container/session ID |
 | proxy sync | Egress policy revision |
-| secret source | `SecretRef` |
+| secret source | `VaultFieldRef` |
 | `replace.proxy_value` | Placeholder replacement rule |
 | `inject.header/query` | Request rewrite rule |
 | `rules.host` | Host allowlist rule |
@@ -553,6 +580,8 @@ slack_installs(tenant_id, team_id, bot_token_secret_ref, scopes, installed_by)
 principals(tenant_id, principal_id, kind, foreign_id, display_name)
 roles(tenant_id, role_id, name)
 principal_roles(tenant_id, principal_id, role_id)
+teams(tenant_id, team_id, name, status, created_by)
+team_memberships(tenant_id, team_id, principal_id, role_id, access_mode_kind, access_mode_json, status)
 secrets(tenant_id, secret_id, backend_kind, ref, encrypted_blob_ref, labels, status)
 grants(tenant_id, grant_id, grantee_kind, grantee_id, resource_kind, resource_id, policy_json)
 sessions(tenant_id, session_id, thread_key, source, lifecycle, active_execution_id, created_at)
@@ -589,6 +618,132 @@ Avoid logging secret values, raw authorization headers, full OAuth tokens, raw
 database passwords, and customer PII unless the event type explicitly requires
 it.
 
+## Local Development Model
+
+Local development should use Wrangler and Miniflare as the default runtime.
+Cloudflare D1 supports local development through Wrangler, with local data
+separate from production data. Miniflare creates local versions of bound
+resources such as D1, R2, KV, Queues, and Durable Objects when the dev session
+starts.
+
+Local stack:
+
+```text
+wrangler dev
+  -> local Workers runtime
+  -> local D1 bindings
+  -> local Durable Objects
+  -> local R2 buckets
+  -> local Queues
+  -> local/emulated Workflows
+  -> local Cloudflare Containers or Docker fallback
+```
+
+Suggested repo layout:
+
+```text
+apps/platform-worker/
+  src/
+  migrations/
+  seeds/
+  wrangler.jsonc
+
+packages/domain/
+packages/d1-repositories/
+packages/tool-gateway/
+packages/secret-broker/
+packages/db-gateway/
+```
+
+Suggested local `wrangler.jsonc` bindings:
+
+```jsonc
+{
+  "name": "centaur-cloudflare",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-27",
+  "d1_databases": [
+    {
+      "binding": "CONTROL_DB",
+      "database_name": "centaur-control-dev",
+      "database_id": "replace-with-dev-d1-id",
+      "preview_database_id": "centaur-control-local"
+    },
+    {
+      "binding": "TENANT_DB_ALPHA",
+      "database_name": "centaur-tenant-alpha-dev",
+      "database_id": "replace-with-alpha-dev-d1-id",
+      "preview_database_id": "centaur-tenant-alpha-local"
+    },
+    {
+      "binding": "TENANT_DB_BRAVO",
+      "database_name": "centaur-tenant-bravo-dev",
+      "database_id": "replace-with-bravo-dev-d1-id",
+      "preview_database_id": "centaur-tenant-bravo-local"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "TENANT_DO", "class_name": "TenantDO" },
+      { "name": "SESSION_DO", "class_name": "SessionDO" }
+    ]
+  }
+}
+```
+
+Local commands:
+
+```bash
+pnpm wrangler d1 create centaur-control-dev
+pnpm wrangler d1 migrations create centaur-control-dev init
+pnpm wrangler d1 migrations apply centaur-control-dev --local
+pnpm wrangler d1 execute centaur-control-dev --local --file ./seeds/dev.sql
+pnpm wrangler dev --persist-to .wrangler/local-state
+```
+
+Use `--local` for local D1 data and `--remote` only for explicit staging or
+production operations. Local state should live under `.wrangler/state` or a
+project-specific path such as `.wrangler/local-state`; keep those paths in
+`.gitignore`.
+
+Tenant database modes:
+
+| Mode | Local approach |
+| --- | --- |
+| Pooled default | One `CONTROL_DB`, seeded with multiple tenants |
+| Dedicated tenant simulation | Fixed local bindings such as `TENANT_DB_ALPHA` and `TENANT_DB_BRAVO` |
+| Unit tests | Thin repository tests may use plain SQLite fixtures |
+| Integration tests | Miniflare or `wrangler dev` must exercise real D1 bindings |
+
+Tenant DB resolution should stay behind a boundary:
+
+```ts
+type TenantDatabaseRef =
+  | { kind: "pooled"; tenantId: TenantId; binding: "CONTROL_DB" }
+  | { kind: "dedicated"; tenantId: TenantId; binding: TenantD1Binding };
+```
+
+Local seed data should create at least two merchants, Slack installs, principals,
+teams, direct and delegate memberships, roles, tool grants, secrets, sessions,
+resource bindings, quotas, and DB aliases.
+Cross-tenant denial tests should use those fixtures.
+
+Local resource notes:
+
+- D1 migrations and seed SQL run with Wrangler `--local`.
+- R2 fixture files can be uploaded with Wrangler `r2 object put --local`.
+- Durable Object state is initialized through development endpoints or tests
+  that call the object, since Durable Objects do not have a seed CLI.
+- Queues and Workflows run locally through Wrangler-backed development sessions.
+- Container development should use local Dockerfile builds where possible, with
+  registry image references only when needed.
+- Remote bindings are useful for staging investigations, with explicit config
+  and review because remote writes affect real resources.
+
+The raw DB shim should also run locally. Use a fake Postgres server for unit
+tests and a Docker Postgres instance for integration tests that exercise pgwire,
+lease validation, gateway policy, and timeout behavior.
+
 ## Implementation Phases
 
 | Phase | Focus | Deliverable |
@@ -596,15 +751,16 @@ it.
 | 0 | Fork boundary and compatibility audit | Identify reusable Centaur pieces and replacement targets |
 | 1 | Dependency simplification | Remove Kubernetes/Rails/Postgres-control-plane assumptions from the design boundary |
 | 2 | Domain types and boundaries | Tenant, principal, session, secret, grant, egress, DB lease, quota, and resource-binding types |
-| 3 | Slack ingress and sessions | Slack verification, tenant mapping, Tenant and Session Durable Objects |
-| 4 | Container runner | Codex/Claude harness container, prompts, artifacts, cancellation |
-| 5 | Secret Broker and vault | Own-vault metadata, encrypted payloads, 1Password adapters |
-| 6 | HTTP/HTTPS egress | Container outbound handler, host allowlists, credential transforms |
-| 7 | Tool Gateway | Typed merchant tools, grants, approvals, idempotency |
-| 8 | Slack commerce operations | Block Kit actions, modals, imports, App Home, Work Objects |
-| 9 | Raw database access | SQL tool, Postgres shim, DB Gateway, leases, private connectivity spike |
-| 10 | Admin console | Tenants, installs, grants, secrets, DB access, audit |
-| 11 | Production hardening | Isolation tiers, quotas, abuse controls, cost accounting, DR, canary tenants |
+| 3 | Local development foundation | Wrangler config, local D1 migrations, seeds, fixture tenants, Miniflare tests |
+| 4 | Slack ingress and sessions | Slack verification, tenant mapping, Tenant and Session Durable Objects |
+| 5 | Container runner | Codex/Claude harness container, prompts, artifacts, cancellation |
+| 6 | Secret Broker and vault | Own-vault metadata, encrypted payloads, 1Password adapters |
+| 7 | HTTP/HTTPS egress | Container outbound handler, host allowlists, credential transforms |
+| 8 | Tool Gateway | Typed merchant tools, grants, approvals, idempotency |
+| 9 | Slack commerce operations | Block Kit actions, modals, imports, App Home, Work Objects |
+| 10 | Raw database access | SQL tool, Postgres shim, DB Gateway, leases, private connectivity spike |
+| 11 | Admin console | Tenants, installs, grants, secrets, DB access, audit |
+| 12 | Production hardening | Isolation tiers, quotas, abuse controls, cost accounting, DR, canary tenants |
 
 ## Validation Plan
 
@@ -625,6 +781,8 @@ Type and boundary checks:
 Integration checks:
 
 - Fake OpenAI, Anthropic, and GitHub endpoints for egress transforms.
+- Local D1 migration and seed flow.
+- Dedicated tenant simulation with multiple D1 bindings.
 - Cross-tenant D1 repository denial.
 - Cross-tenant R2 key denial.
 - Cross-tenant search filter denial.
@@ -634,6 +792,7 @@ Integration checks:
 - Idempotent refund and cancel actions.
 - DB lease expiry.
 - Container shim to fake Postgres server.
+- Docker Postgres integration path for raw DB gateway behavior.
 - Queue replay and idempotency.
 
 Security checks:
@@ -682,10 +841,15 @@ Cloudflare:
 - Hyperdrive: https://developers.cloudflare.com/hyperdrive/
 - Hyperdrive private databases: https://developers.cloudflare.com/hyperdrive/configuration/connect-to-private-database/
 - D1: https://developers.cloudflare.com/d1/
+- D1 local development: https://developers.cloudflare.com/d1/best-practices/local-development/
+- Workers local data: https://developers.cloudflare.com/workers/local-development/local-data/
 - R2: https://developers.cloudflare.com/r2/
 - Queues: https://developers.cloudflare.com/queues/
+- Queues local development: https://developers.cloudflare.com/queues/configuration/local-development/
 - Workflows: https://developers.cloudflare.com/workflows/
+- Workflows local development: https://developers.cloudflare.com/workflows/build/local-development/
 - Workflows limits: https://developers.cloudflare.com/workflows/reference/limits/
+- Containers local development: https://developers.cloudflare.com/containers/local-dev/
 - Secrets Store: https://developers.cloudflare.com/secrets-store/
 
 Upstream project:

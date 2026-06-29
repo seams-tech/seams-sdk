@@ -18,7 +18,7 @@ variables and checked-in Cloudflare config.
 
 | Workflow                                 | Trigger                                                     | Purpose                                                                                                                                              |
 | ---------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`               | `push`, `pull_request`, `merge_group`                       | Builds, lints, type-checks, runs formal verification, Postgres smoke tests, and threshold signing suites.                                            |
+| `.github/workflows/ci.yml`               | `push`, `pull_request`, `merge_group`                       | Builds, lints, type-checks, runs formal verification, D1/DO smoke tests, and threshold signing suites.                                               |
 | `.github/workflows/router-ab.yml`        | Router A/B path changes, or manual dispatch                 | Runs Router A/B core/dev/Cloudflare tests, strict Worker checks, local four-worker smoke, and Wrangler startup dry-run evidence.                     |
 | `.github/workflows/publish-sdk-r2.yml`   | Successful `ci` workflow on deploy refs, or manual dispatch | Builds `packages/sdk-web/dist`, writes `manifest.sha256` and `manifest.json`, signs the manifest with cosign, and publishes SDK runtime bundles to Cloudflare R2. |
 | `.github/workflows/deploy-pages.yml`     | Push to `dev`/`main`, or manual dispatch                    | Builds the SDK and `apps/seams-site`, copies SDK runtime assets under `/sdk`, and deploys the app and wallet Pages projects.                     |
@@ -38,8 +38,8 @@ old `testnet` environment into `staging`.
 4. Store `SIGNER_A_ROOT_SHARE_WIRE_SECRET` and
    `SIGNER_B_ROOT_SHARE_WIRE_SECRET` from
    `pnpm router:deploy:root-share-keygen` in the matching GitHub Environment.
-5. Provision Postgres signer and console databases, users, grants, and
-   migrations from [infra.md](infra.md#postgres).
+5. Provision D1 signer and console databases, Durable Object namespaces, R2
+   backups, and migrations from [infra.md](infra.md#cloudflare-data).
 6. Run `ci` on the target commit.
 7. Run `router-ab` on the target commit when Router A/B files changed.
 8. Publish SDK runtime assets with `publish-sdk-r2` or let it run after `ci`.
@@ -83,7 +83,7 @@ For production manual runs, use `--ref main` and `production`.
 For a fresh environment, deploy in this order:
 
 1. Infra and secrets.
-2. Postgres migrations.
+2. D1 migrations and Durable Object class migrations.
 3. SDK R2 publish.
 4. Pages deploy.
 5. Router A/B version upload for startup evidence.
@@ -95,10 +95,8 @@ come from the same commit SHA.
 
 ## Follow-On Docs
 
-- [infra.md](infra.md): GitHub Environment values, Cloudflare setup, Postgres,
-  Worker secrets, and migration commands.
-- [threshold-postgres-reset.md](threshold-postgres-reset.md): local/dev reset
-  for refactor-36 threshold/session/signing Postgres tables.
+- [infra.md](infra.md): GitHub Environment values, Cloudflare setup, D1/DO/R2
+  data services, Worker secrets, and migration commands.
 - [sdk.md](sdk.md): SDK runtime bundle publishing, Pages `/sdk` assets, R2
   prefixes, npm release steps, and rollback.
 - [release.md](release.md): versioned release process.

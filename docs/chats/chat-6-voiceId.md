@@ -337,7 +337,7 @@ Core code:
 - `voiceId/server/src/VoiceIdService.ts`
 - `voiceId/server/src/routes.ts`
 - `voiceId/server/src/cloudflare.ts`
-- `voiceId/server/src/sdkRelayExtension.ts`
+- `voiceId/server/src/sdkRouterApiExtension.ts`
 - `voiceId/server/src/transcript/CloudflareWorkersAiTranscriptProvider.ts`
 - `voiceId/verifier/voiceid_verifier/app.py`
 - `voiceId/verifier/voiceid_verifier/audio_quality.py`

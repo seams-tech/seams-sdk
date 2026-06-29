@@ -65,21 +65,21 @@ Target answer:
 - Yes, but only as an optional paid grant-acquisition lane on top of `publishable_key` mode.
 - x402 is not a third long-lived credential type.
 - The paid flow should mint a single-use, short-TTL `bootstrap_token` after payment succeeds.
-- Relay continues to accept only:
+- Router API continues to accept only:
   - `secret_key`, or
   - `bootstrap_token`.
-- Relay must never accept `publishable_key` directly as a privileged credential.
+- Router API must never accept `publishable_key` directly as a privileged credential.
 
 ## Canonical Credential Terminology
 
 - `secret_key`
   - server-only credential
-  - used by developer backend services to call privileged relay/bootstrap routes
+  - used by developer backend services to call privileged Router API/bootstrap routes
   - must never be stored in frontend config or shipped in browser bundles
 - `publishable_key`
   - browser-safe credential
   - identifies project/environment to a Seams-managed bootstrap broker
-  - cannot directly authorize privileged relay calls on its own
+  - cannot directly authorize privileged Router API calls on its own
 - This doc uses explicit key types instead of the generic phrase "API key".
 - There is no supported long-lived browser-held secret for registration.
 
@@ -104,12 +104,12 @@ Request path:
 1. Browser collects registration material.
 2. Browser sends registration payload to the developer backend.
 3. Developer backend adds `Authorization: Bearer <secret_key>`.
-4. Developer backend calls relay `POST /registration/bootstrap`.
+4. Developer backend calls Router API `POST /registration/bootstrap`.
 
 Properties:
 
 - Requires developer-hosted backend.
-- Supports self-hosted relay.
+- Supports self-hosted Router API deployments.
 - Supports custom signup policy, tenant gating, invite flows, and private abuse controls.
 - `secret_key` may carry scopes, expiry, and IP allowlist.
 
@@ -117,18 +117,18 @@ Properties:
 
 Request path:
 
-1. Browser collects registration material and computes a request hash for the exact relay payload.
+1. Browser collects registration material and computes a request hash for the exact Router API payload.
 2. Browser calls managed broker with `Authorization: Bearer <publishable_key>`.
 3. Broker validates origin, project/environment status, quotas, and risk policy.
 4. Broker returns a single-use short-lived `bootstrap_token`.
-5. Browser calls relay `POST /registration/bootstrap` with `Authorization: Bearer <bootstrap_token>`.
+5. Browser calls Router API `POST /registration/bootstrap` with `Authorization: Bearer <bootstrap_token>`.
 
 Properties:
 
 - No developer backend required.
 - Requires Seams-managed broker infrastructure.
-- `publishable_key` never authorizes direct relay access.
-- Origin restrictions and quotas are enforced before relay bootstrap is reachable.
+- `publishable_key` never authorizes direct Router API access.
+- Origin restrictions and quotas are enforced before Router API bootstrap is reachable.
 
 ### Optional Lane: x402-Paid Grant Acquisition
 
@@ -144,7 +144,7 @@ Properties:
 
 - Not a third credential kind.
 - Best for anonymous usage, overage handling, or agentic pay-per-call access.
-- Payment buys a one-time grant, not direct privileged relay access.
+- Payment buys a one-time grant, not direct privileged Router API access.
 
 ## Credential And Token Model
 
@@ -153,7 +153,7 @@ Properties:
 - Holder: developer backend only.
 - Current prefix in code: `sk_`.
 - Credential format: opaque random token body; org and key ids are not embedded.
-- Direct relay authorization: yes.
+- Direct Router API authorization: yes.
 - Metadata:
   - `kind = secret_key`
   - `environment_id`
@@ -171,7 +171,7 @@ Properties:
 - Holder: browser-safe frontend config.
 - Target prefix: `pk_`.
 - Credential format: opaque random token body; org and key ids are not embedded.
-- Direct relay authorization: no.
+- Direct Router API authorization: no.
 - Metadata:
   - `kind = publishable_key`
   - `environment_id`
@@ -189,7 +189,7 @@ Properties:
 
 - Holder: browser, short-lived.
 - Target prefix: `tbt_v1_`.
-- Direct relay authorization: yes, but only for a single bound request.
+- Direct Router API authorization: yes, but only for a single bound request.
 - Not managed from the API keys UI directly.
 - Target persisted fields:
   - `id`
@@ -217,7 +217,7 @@ Properties:
 - `https://localhost` and `https://localhost:3600` are distinct origins.
 - `localhost` and `example.localhost` are distinct origins.
 - Allowed origin matching must not use wildcard suffix rules in v1.
-- Request-hash binding must be computed from a canonical JSON serialization of the exact relay request body.
+- Request-hash binding must be computed from a canonical JSON serialization of the exact Router API request body.
 - Environment binding must be explicit on the credential record; do not infer from org-only scope.
 
 ## Scope
@@ -226,7 +226,7 @@ In scope now:
 
 - Explicit onboarding flow (account/session -> organization -> billing -> project + default environment).
 - First credential creation immediately post-onboarding from API keys page (auto-handoff).
-- Credential lifecycle and enforcement on gas-costing relay routes.
+- Credential lifecycle and enforcement on gas-costing Router API routes.
 - Dashboard UX for onboarding and credential management.
 - Auditability and usage telemetry for credentials.
 
@@ -256,7 +256,7 @@ Gaps to close:
 - Replace generic `apiKey` terminology in SDK/runtime/browser docs with `secret_key` or `publishable_key`.
 - Delete browser-side `configs.network.relayer.apiKey`.
 - Support only `Authorization: Bearer`.
-- Add managed broker + bootstrap token path; today relay auth is only `secret_key`-based.
+- Add managed broker + bootstrap token path; today Router API auth is only `secret_key`-based.
 
 ## Target Architecture
 
@@ -284,9 +284,9 @@ Gaps to close:
   - `publishable_key` -> `bootstrap_token`
   - optional x402-paid broker issuance of `bootstrap_token`
 
-- `secret_key` is the first-class credential for direct privileged relay access.
+- `secret_key` is the first-class credential for direct privileged Router API access.
 - `publishable_key` is the browser-safe identifier used to obtain a short-lived managed bootstrap token.
-- Add relay middleware to:
+- Add Router API middleware to:
   - authenticate key,
   - authorize by scope,
   - validate environment binding,
@@ -297,7 +297,7 @@ Gaps to close:
 ### D) Separation Of Concerns
 
 - Console module remains control-plane (onboarding, key management, billing controls).
-- Relay module remains runtime execution-plane (registration/signing/session routes).
+- Router API module remains runtime execution-plane (registration/signing/session routes).
 - Integration point is credential validation + usage recording.
 
 ## Proposed API Contract Changes
@@ -487,7 +487,7 @@ Retry after payment:
 - `PAYMENT-SIGNATURE` header added
 - broker settles payment and returns the same success shape with `mode: "paid"`
 
-### Relay Runtime Enforcement
+### Router API Runtime Enforcement
 
 Protect gas-costing endpoints first:
 
@@ -568,42 +568,44 @@ Rules:
   - `SEAMS_SECRET_KEY`
 - Browser examples use:
   - `VITE_SEAMS_PUBLISHABLE_KEY`
-- Relay runtime can still be called directly from a trusted backend with `secret_key`.
+- Router API runtime can still be called directly from a trusted backend with `secret_key`.
 
 ## Data Model / Persistence Plan
 
 ### Keep
 
-- Existing `console_api_keys` table and core columns.
+- Current D1 `api_keys` table and core columns:
+  - tenant scope: `namespace`, `org_id`, `environment_id`
+  - credential identity: `id`, `kind`, `name`, `key_prefix`
+  - secret metadata: `secret_hash`, `secret_version`, `secret_preview`
+  - branch policies: `scopes_json`, `ip_allowlist_json`,
+    `allowed_origins_json`, `risk_policy_json`, `payment_policy_json`
+  - usage and lifecycle: `endpoint_usage_counts_json`, `anomaly_flags_json`,
+    `status`, `last_used_at_ms`, `expires_at_ms`, `revoked_reason`,
+    `created_at_ms`, `updated_at_ms`
 
 ### Extend
 
-- Add/standardize columns:
-  - `kind`
+- Add audit attribution fields only when the dashboard needs actor-specific
+  credential history:
   - `created_by_user_id`
   - `revoked_by_user_id`
-  - `revoked_reason`
-  - `expires_at_ms` (nullable)
-  - `secret_hash_algo` (explicit hash metadata)
-  - `key_prefix` (indexable non-secret prefix for fast lookup)
-  - `allowed_origins_json` (for `publishable_key`)
-  - `broker_policy_json` (for `publishable_key`)
-  - `scope_policy_json` or equivalent normalized scope storage (for `secret_key`)
-
-- Add append-only table for auth attempts if needed:
-  - `console_api_key_auth_events`
-  - fields: `api_key_id`, `org_id`, `environment_id`, `route`, `outcome`, `reason_code`, `ip`, `created_at_ms`.
-
-- Add onboarding operation table:
-  - `console_onboarding_runs`
-  - supports idempotency and resumable onboarding.
+  - explicit hash algorithm metadata if key hash rotation needs mixed
+    algorithms in the same table.
+- Use the existing audit/observability pipeline for API-key authentication
+  attempts during first D1 staging. Add a dedicated auth-event table later only
+  if product queries require credential-auth event retention in D1.
+- Keep onboarding operation persistence deferred until the onboarding API
+  contract is locked. Local seed scripts remain the only implicit setup path.
 
 ### Data Rules
 
 - Secret is never persisted in plaintext.
 - Key secret generated from cryptographically secure RNG only.
 - Hashing uses strong one-way hash with server-side pepper.
-- All key lookups and writes are tenant-scoped with RLS.
+- All key lookups and writes require explicit `namespace` and `org_id`
+  predicates. D1 tenant isolation is enforced in adapters and covered by
+  service-level tenant-scoping tests.
 
 ## RBAC Plan
 
@@ -629,8 +631,8 @@ Audit requirements:
 
 Browser-managed registration target flow:
 
-1. Browser creates the WebAuthn credential and the final relay request body.
-2. Browser canonicalizes the intended relay JSON body and computes `requestHashSha256`.
+1. Browser creates the WebAuthn credential and the final Router API request body.
+2. Browser canonicalizes the intended Router API JSON body and computes `requestHashSha256`.
 3. Browser calls `POST /v1/registration/bootstrap-grants` with:
    - `Authorization: Bearer <publishable_key>`
    - `Origin`
@@ -648,16 +650,16 @@ Browser-managed registration target flow:
    - `200` with `bootstrap_token`, or
    - `402` with x402 payment requirements, or
    - terminal 4xx denial
-6. Browser calls relay `POST /registration/bootstrap` with:
+6. Browser calls Router API `POST /registration/bootstrap` with:
    - `Authorization: Bearer <bootstrap_token>`
    - the exact body used to compute `requestHashSha256`
-7. Relay redeems the token exactly once and executes registration.
+7. Router API redeems the token exactly once and executes registration.
 
 ### Canonical Request Hash
 
 Requirements:
 
-- Use a deterministic JSON serialization for the exact relay body.
+- Use a deterministic JSON serialization for the exact Router API body.
 - Hash input includes:
   - `new_account_id`
   - `signer_slot`
@@ -679,7 +681,7 @@ Requirements:
 - Token is single-use and must be atomically transitioned from `issued` to `redeemed`.
 - Token is consumed before the expensive registration write path starts.
 - Replay of the same token must fail even if the first request later returns a 4xx or 5xx.
-- If a paid token is consumed and the relay fails with an internal retryable error, broker may mint one replacement token:
+- If a paid token is consumed and Router API fails with an internal retryable error, broker may mint one replacement token:
   - same `requestHashSha256`
   - same `origin`
   - same `environmentId`
@@ -688,29 +690,35 @@ Requirements:
 
 ### Broker Persistence
 
-Add storage for managed grants:
+Current D1 storage for managed grants:
 
-- `console_bootstrap_tokens`
+- `bootstrap_tokens`
+  - `namespace`
   - `id`
-  - `token_hash`
-  - `token_prefix`
-  - `publishable_key_id`
   - `org_id`
   - `project_id`
   - `environment_id`
+  - `publishable_key_id`
+  - `new_account_id`
+  - `rp_id`
+  - `token_hash`
+  - `token_prefix`
+  - `allowed_paths_json`
   - `origin`
   - `method`
   - `path`
   - `request_hash_sha256`
+  - `max_uses`
+  - `used_count`
   - `status`
   - `risk_decision`
   - `payment_reference`
   - `replacement_for_token_id`
-  - `issued_at`
-  - `expires_at`
-  - `redeemed_at`
-  - `created_at`
-  - `updated_at`
+  - `issued_at_ms`
+  - `expires_at_ms`
+  - `redeemed_at_ms`
+  - `created_at_ms`
+  - `updated_at_ms`
 
 ### Broker Telemetry
 
@@ -748,7 +756,7 @@ Broker should return `402 Payment Required` only after all non-payment checks pa
 
 Do not request payment for:
 
-- malformed relay request body
+- malformed Router API request body
 - blocked origin
 - disabled project/environment
 - revoked credential
@@ -780,7 +788,7 @@ Target `paymentPolicy` fields on `publishable_key`:
 
 ## Phase 0: Contract Lock + Cleanup
 
-- [x] Lock scope taxonomy for relay-protected actions:
+- [x] Lock scope taxonomy for Router API-protected actions:
   - `accounts.create`
   - `wallets.read`
 - [ ] Lock onboarding API contracts and response payloads.
@@ -808,7 +816,7 @@ Exit criteria:
 - [x] Add ownership bootstrap (first user becomes org `owner`).
 - [x] Add audit emission for each created resource.
 - [x] Add Express + Cloudflare route parity tests.
-- [x] Add Postgres persistence tests with tenant isolation checks.
+- [x] Add D1 persistence tests with tenant isolation checks.
 
 Exit criteria:
 
@@ -833,9 +841,9 @@ Exit criteria:
 - `secret_key` lifecycle is secure and deterministic.
 - Persistence model is ready to store `publishable_key` without ambiguous nullable columns.
 
-## Phase 3: Relay `secret_key` Enforcement (Gas-Costing Paths)
+## Phase 3: Router API `secret_key` Enforcement (Gas-Costing Paths)
 
-- [x] Implement relay `secret_key` auth middleware module.
+- [x] Implement Router API `secret_key` auth middleware module.
 - [x] Protect `POST /registration/bootstrap` with required scope `accounts.create`.
 - [x] Bind `secret_key` environment scope to request context.
 - [x] Enforce IP allowlist checks.
@@ -849,7 +857,7 @@ Exit criteria:
   - scope denied,
   - allowlist denied,
   - success path.
-- [x] Rename relay auth error codes from generic `api_key_*` to `secret_key_*`.
+- [x] Rename Router API auth error codes from generic `api_key_*` to `secret_key_*`.
 - [x] Use `Authorization: Bearer` only.
 
 Exit criteria:
@@ -874,7 +882,7 @@ Exit criteria:
   - create `secret_key`
   - create `publishable_key`
 - [x] Use each `publishable_key` as the canonical allowed-origin editor and source of truth for browser access.
-- [x] Stop showing browser-side direct relay snippets that imply frontend secret storage.
+- [x] Stop showing browser-side direct Router API snippets that imply frontend secret storage.
 
 Exit criteria:
 
@@ -884,7 +892,7 @@ Exit criteria:
 
 ## Phase 5: Secret-Key Registration Mode (Server-Based)
 
-- [x] Keep relay `secret_key` auth on `POST /registration/bootstrap`.
+- [x] Keep Router API `secret_key` auth on `POST /registration/bootstrap`.
 - [x] Rename typed SDK registration errors for this path:
   - `secret_key_missing`
   - `secret_key_invalid`
@@ -898,20 +906,20 @@ Exit criteria:
   - `registrationBootstrapUrl`
 - [x] Delete `relayer.apiKey` from SDK config and docs.
 - [x] Add SDK runtime guard that throws when browser config includes `secretKey` or `apiKey`.
-- [ ] Add e2e test: browser -> developer backend proxy -> relay bootstrap -> successful registration.
-- [ ] Add e2e test: backend proxy forwards relay auth failures with typed `secret_key_*` codes.
+- [ ] Add e2e test: browser -> developer backend proxy -> Router API bootstrap -> successful registration.
+- [ ] Add e2e test: backend proxy forwards Router API auth failures with typed `secret_key_*` codes.
 
 Exit criteria:
 
 - `secret_key` mode works end-to-end without storing secrets in the frontend.
 - Browser-facing SDK docs no longer teach direct secret usage.
 
-Server-only relay request example:
+Server-only Router API request example:
 
 Direct curl:
 
 ```bash
-curl -X POST "https://relay.example.com/registration/bootstrap" \
+curl -X POST "https://router-api.example.com/registration/bootstrap" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk_..." \
   -d '{
@@ -955,9 +963,9 @@ Exit criteria:
   - `quotaBucket`
   - `riskPolicy`
   - `paymentPolicy`
-- [x] Keep scopes and direct relay authorization limited to `secret_key`; do not overload `publishable_key`.
+- [x] Keep scopes and direct Router API authorization limited to `secret_key`; do not overload `publishable_key`.
 - [x] Add create/list/rotate/revoke audit events that include key kind.
-- [x] Add relayer coverage for `publishable_key` create/list flows and direct relay rejection.
+- [x] Add relayer coverage for `publishable_key` create/list flows and direct Router API rejection.
 - [x] Add dashboard create/list UI for `publishable_key`.
 - [x] Add dashboard copy and snippets that present the two integration modes clearly.
 
@@ -975,22 +983,22 @@ Exit criteria:
 - [x] Validate allowed origin against the key/project/environment.
 - [x] Validate project/environment status before issuing bootstrap grants.
 - [x] Enforce quotas and rate limits at the managed broker.
-- [ ] Add optional abuse hooks (captcha/challenge/risk scoring) without changing relay contract.
-- [x] Define canonical request-hash helper shared across browser SDK, broker, and relay tests.
+- [ ] Add optional abuse hooks (captcha/challenge/risk scoring) without changing Router API contract.
+- [x] Define canonical request-hash helper shared across browser SDK, broker, and Router API tests.
 - [x] Issue single-use, short-TTL, origin-bound `bootstrap_token`.
 - [x] Persist issued-token rows with exact request hash and lifecycle state.
-- [x] Add structured broker issue/deny logs at the relay router boundary.
+- [x] Add structured broker issue/deny logs at the Router API boundary.
 - [ ] Add durable broker audit + telemetry events for issue/deny decisions.
 
 Exit criteria:
 
 - Browser can start registration with `publishable_key` only.
-- Managed broker enforces origin and quota checks before relay bootstrap is reachable.
+- Managed broker enforces origin and quota checks before Router API bootstrap is reachable.
 - The issued grant is request-bound and replay-resistant.
 
-## Phase 9: Relay `bootstrap_token` Redemption
+## Phase 9: Router API `bootstrap_token` Redemption
 
-- [x] Add relay auth strategy for managed `bootstrap_token` on `POST /registration/bootstrap`.
+- [x] Add Router API auth strategy for managed `bootstrap_token` on `POST /registration/bootstrap`.
 - [x] Detect credential type by bearer prefix and route to the correct validator.
 - [x] Bind `bootstrap_token` to:
   - project/environment
@@ -1008,10 +1016,10 @@ Exit criteria:
 
 Exit criteria:
 
-- Relay accepts either:
+- Router API accepts either:
   - `secret_key` from a trusted backend, or
   - managed bootstrap token minted from a `publishable_key`.
-- Relay never accepts `publishable_key` directly as a privileged credential.
+- Router API never accepts `publishable_key` directly as a privileged credential.
 - Replay of a consumed token fails deterministically.
 
 ## Phase 10: Browser SDK Managed Mode And Public Surface Cleanup
@@ -1024,7 +1032,7 @@ Exit criteria:
 - [x] Implement browser-side grant acquisition:
   - compute canonical request hash
   - request `bootstrap_token`
-  - redeem token against relay
+  - redeem token against Router API
 - [x] Update dashboard snippets to show:
   - backend/server integration using `secret_key`
   - frontend-only managed integration using `publishable_key`
@@ -1044,7 +1052,7 @@ Exit criteria:
 - [ ] Return x402 challenge data only after non-payment validation passes.
 - [ ] Accept payment settlement proof and mint normal `bootstrap_token` on success.
 - [ ] Persist settlement reference on token and audit events.
-- [ ] Add optional replacement-token path for retryable internal relay failures after a paid redemption.
+- [ ] Add optional replacement-token path for retryable internal Router API failures after a paid redemption.
 - [ ] Add tests for:
   - quota exceeded -> 402
   - invalid payment proof
@@ -1054,7 +1062,7 @@ Exit criteria:
 Exit criteria:
 
 - x402 is an optional paid lane layered on the managed broker.
-- Payment never becomes a direct relay auth mechanism.
+- Payment never becomes a direct Router API auth mechanism.
 
 ## Phase 12: Security Hardening And Rollout
 
@@ -1067,7 +1075,7 @@ Exit criteria:
   - `publishable_key` managed mode
   - browser rejection when `secret_key` is misconfigured client-side
   - x402 paid grant mode
-- [ ] Add docs/playbooks for self-hosted relay users:
+- [ ] Add docs/playbooks for self-hosted Router API users:
   - `secret_key` mode supported
   - managed `publishable_key` mode unsupported unless they also host a compatible broker
 - [ ] Delete generic `apiKey` names from runtime types, docs, examples, and UI copy.
@@ -1095,8 +1103,8 @@ Exit criteria:
   - broker quota / rate-limit decisions.
 - Router tests:
   - Express + Cloudflare parity for onboarding and key routes,
-  - relay auth parity for `secret_key` and `bootstrap_token`.
-- Postgres tests:
+  - Router API auth parity for `secret_key` and `bootstrap_token`.
+- D1/SQLite persistence tests:
   - tenant isolation,
   - schema evolution,
   - index-backed key lookup behavior,
@@ -1120,10 +1128,10 @@ Exit criteria:
 - There are only two long-lived credential kinds in product and code:
   - `secret_key`
   - `publishable_key`
-- Relay registration endpoint requires either:
+- Router API registration endpoint requires either:
   - valid `secret_key` with correct scope, or
   - valid managed bootstrap token minted from `publishable_key`.
-- `publishable_key` never authorizes relay runtime directly.
+- `publishable_key` never authorizes Router API runtime directly.
 - x402, when enabled, only buys a one-time `bootstrap_token`.
 - Credential usage telemetry is populated from real auth middleware and managed broker paths.
 - Dashboard provides copy-paste integration examples for both supported modes.

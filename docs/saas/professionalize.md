@@ -18,33 +18,37 @@ Professionalize the public docs homepage and top-level marketing paths so a new 
 - [x] Top-level IA is implemented in custom homepage navbar:
   - `Products`, `Solutions`, `Documentation`, `Pricing`, `Company`
   - CTA actions: `GitHub`, `Contact Sales`, `Get Started`
-  - File: `examples/seams-site/src/components/Navbar/NavbarStatic.tsx`
+  - File: `apps/seams-site/src/components/Navbar/NavbarStatic.tsx`
 - [x] Mobile menu includes the same IA and CTA structure.
-- [x] Top-level pages exist:
-  - `examples/seams-site/src/products/index.md`
-  - `examples/seams-site/src/solutions/index.md`
-  - `examples/seams-site/src/pricing/index.md`
-  - `examples/seams-site/src/company/index.md`
+- [x] Current top-level React pages exist:
+  - `apps/seams-site/src/pages/pricing/page.tsx`
+  - `apps/seams-site/src/pages/company/page.tsx`
+  - `apps/seams-site/src/pages/contact/page.tsx`
+- [x] Product and solution content is represented by homepage sections,
+      navbar dropdowns, footer links, and docs targets:
+  - `apps/seams-site/src/pages/home/sections/ProductCards.tsx`
+  - `apps/seams-site/src/components/Navbar/NavbarStatic.tsx`
+  - `apps/seams-site/src/components/Footer.tsx`
 - [x] Dedicated sales contact route exists:
-  - `examples/seams-site/src/contact/index.md`
+  - `apps/seams-site/src/pages/contact/page.tsx`
 - [x] Hero copy now uses consistent `Seams` naming and outcome-first messaging.
-  - File: `examples/seams-site/src/components/HomeHero.tsx`
+  - File: `apps/seams-site/src/pages/home/sections/HomeHero.tsx`
 - [x] Homepage includes trust/products/solutions/security/final CTA sections.
-  - File: `examples/seams-site/src/pages/HomePage.tsx`
-- [x] Default VitePress nav includes top-level routes for non-home pages.
-  - File: `examples/seams-site/src/.vitepress/config.ts`
+  - File: `apps/seams-site/src/pages/home/page.tsx`
+- [x] The React app router owns top-level site routes for non-home pages.
+  - File: `apps/seams-site/src/app/App.tsx`
 - [x] Sales/contact CTAs no longer point to personal-profile links.
   - Files:
-    - `examples/seams-site/src/components/Navbar/NavbarStatic.tsx`
-    - `examples/seams-site/src/components/Footer.tsx`
-    - `examples/seams-site/src/pricing/index.md`
+    - `apps/seams-site/src/components/Navbar/NavbarStatic.tsx`
+    - `apps/seams-site/src/components/Footer.tsx`
+    - `apps/seams-site/src/pages/pricing/page.tsx`
 
 ### Gaps Still Open
 
 - [ ] Proof and credibility assets are still thin.
   - No customer logos/metrics/case snapshots on homepage.
 - [ ] Social proof content is generic and should be replaced with real customer/evidence assets.
-- [ ] Contact route currently uses GitHub issue intake and may need a CRM/form workflow for production GTM.
+- [ ] Contact route currently uses a static form shell and may need a CRM/form workflow for production GTM.
 
 ## Execution Backlog
 

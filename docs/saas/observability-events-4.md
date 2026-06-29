@@ -2,7 +2,7 @@
 
 This document is the implementation backlog for event taxonomy and dashboard surfacing.
 
-It complements `docs/observability-events-3.md`, which covers the observability storage and noise-reduction architecture. This file focuses on which events should appear in `/dashboard/audit` and `/dashboard/observability`, and what code and UI changes are still needed.
+It complements `docs/saas/observability-events-3.md`, which covers the observability storage and noise-reduction architecture. This file focuses on which events should appear in `/dashboard/audit` and `/dashboard/observability`, and what code and UI changes are still needed.
 
 ## Desired product split
 
@@ -63,10 +63,10 @@ It complements `docs/observability-events-3.md`, which covers the observability 
 
 ## TODO: Backend implementation
 
-- [x] Add the missing audit emitters in `server/src/router/express/createConsoleRouter.ts`.
-- [x] Keep Cloudflare parity by adding the same emitters in `server/src/router/cloudflare/createCloudflareConsoleRouter.ts`.
+- [x] Add the missing audit emitters in `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`.
+- [x] Keep Cloudflare parity by adding the same emitters in `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`.
 - [ ] Extend audit response typing and row rendering to support the new action families.
-- [x] Extend observability builders and policy definitions in `server/src/console/observability`.
+- [x] Extend observability builders and policy definitions in `packages/sdk-server-ts/src/console/observability`.
 - [x] Ensure Stripe settlement writes audit rows even when the actor is system-driven.
 - [x] Ensure duplicate Stripe webhook delivery or reconcile retries do not create duplicate success audit rows unless the stored outcome changes.
 - [x] Ensure org-scoped billing events do not disappear behind project/environment filters.
@@ -89,14 +89,14 @@ It complements `docs/observability-events-3.md`, which covers the observability 
 
 ## Likely touch points
 
-- `server/src/router/express/createConsoleRouter.ts`
-- `server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
-- `server/src/console/observability/policy.ts`
-- `server/src/console/observability/types.ts`
-- `server/src/console/audit/types.ts`
-- `examples/seams-site/src/pages/dashboard/routes/audit/page.tsx`
-- `examples/seams-site/src/pages/dashboard/routes/audit/consoleAuditApi.ts`
-- `examples/seams-site/src/pages/dashboard/routes/observability/page.tsx`
-- `examples/seams-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
+- `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
+- `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+- `packages/sdk-server-ts/src/console/observability/policy.ts`
+- `packages/sdk-server-ts/src/console/observability/types.ts`
+- `packages/sdk-server-ts/src/console/audit/types.ts`
+- `apps/seams-site/src/pages/dashboard/routes/audit/page.tsx`
+- `apps/seams-site/src/pages/dashboard/routes/audit/consoleAuditApi.ts`
+- `apps/seams-site/src/pages/dashboard/routes/observability/page.tsx`
+- `apps/seams-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
 - `tests/relayer/console-router.test.ts`
 - `tests/relayer/console-observability.ingestion.test.ts`

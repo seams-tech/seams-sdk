@@ -26,9 +26,9 @@ Use this file for:
 - schema direction
 - phased migration order
 
-Use [billing-2.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/billing-2.md) only for the remaining operational follow-up work after the core prepaid migration.
+Use [billing-2.md](billing-2.md) only for the remaining operational follow-up work after the core prepaid migration.
 
-This document also assumes the cleanup decisions in [billing-cleanup.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/billing-cleanup.md):
+This document also assumes the cleanup decisions in [billing-cleanup.md](billing-cleanup.md):
 
 - stored payment methods are removed
 - Stripe setup-intent and customer-portal billing-management flows are removed from the prepaid surface
@@ -45,15 +45,15 @@ Implemented now:
 - Subscription lifecycle routes, UI, DTOs, and settlement rails have been removed
 - Direct invoice-settlement tables and routes have been removed from the active backend surface
 - Billing activity is document-and-ledger based, not payment-intent based
-- Postgres billing test coverage has been rewritten to prepaid-only semantics
-- The Postgres billing path now has canonical `ledger_accounts`, `ledger_entries`, and `ledger_postings`
+- Billing test coverage has been rewritten to prepaid-only semantics
+- The billing path now has canonical ledger accounts, ledger entries, and ledger postings
 - Active credit-purchase settlement and usage debit writes now create balanced journal postings
-- Org balance sync in the Postgres billing path is now derived from ledger postings
-- The Postgres billing path now rebuilds receipt and usage-statement projections from purchase and journal state
-- Invoice/account reads in the Postgres billing path now refresh document projections before serving
+- Org balance sync is now derived from ledger postings
+- The billing path now rebuilds receipt and usage-statement projections from purchase and journal state
+- Invoice and account reads now refresh document projections before serving
 - The in-memory billing service now derives invoices, line items, and activity from purchase and ledger state instead of mutable invoice/document maps
 - The invoice console no longer fans out account-shell billing reads on `/dashboard/invoices`
-- The Postgres billing path now uses a consistent overview/MAW lock order to avoid the observed `deadlock detected` failure on invoice entry
+- The billing path now uses a consistent overview/MAW read order to avoid invoice-entry contention
 - Regression coverage now exists for the invoice-route shell fetch path and the concurrent overview/MAW billing-service path
 - The dashboard billing Playwright harness mounts the canonical billing routes again after fixing the SDK worker bundle export mismatch that was crashing the app before render
 - Backend operator adjustment methods and routes now exist for manual support credits and manual admin debits
@@ -70,20 +70,18 @@ Implemented now:
 Still to finish:
 
 - Finish routing any remaining future financial writes through the canonical journal
-- Prove projection rebuilding end-to-end against a real Postgres instance
+- Prove projection rebuilding end-to-end against the current D1 billing adapter
 - Keep the prepaid Stripe surface checkout-only and prevent legacy Stripe-management flows from reappearing
-- Validate the final ledger-first model against a real Postgres instance with `POSTGRES_URL` set
-- Validate the overview/MAW deadlock regression against a live Postgres instance
+- Validate the final ledger-first model against local SQLite-D1 and staging D1 data
+- Keep the overview/MAW deadlock regression covered as a route/service invariant
 - Confirm there are no unintended runtime entry points that bypass the shared readiness helper outside the explicit `allowLiveEnvironmentBillingBypass` option
-- The current environment still does not expose `POSTGRES_URL`, so live-Postgres validation remains blocked here
 
 ## Remaining Steps
 
-1. Validate the ledger-first billing path against real Postgres.
-   - full billing Postgres suite
+1. Validate the ledger-first billing path against D1.
+   - full billing D1 suite
    - concurrent overview / MAW regression
-   - schema bootstrap, projection rebuild, operator-adjustment behavior, and readiness-state enforcement
-   - unblock by running with `POSTGRES_URL` set
+   - D1 migration, projection rebuild, operator-adjustment behavior, and readiness-state enforcement
 2. Surface operator adjustments in the console.
    - keep document-link behavior explicit in customer-facing vs internal surfaces
    - no separate adjustment-linked immutable snapshots; linked adjustments stay internal timeline events only
@@ -314,65 +312,95 @@ Principle:
 
 ### Canonical write tables
 
-- `console_billing_ledger_accounts`
-- `console_billing_ledger_entries`
-- `console_billing_ledger_postings`
+- `billing_accounts`
+- `billing_ledger_entries`
+- `billing_ledger_postings`
 
 ### Projection tables
 
-- `console_billing_account_balances`
-- `console_billing_documents`
-- `console_billing_document_line_items`
-- `console_billing_activity_projection`
+- `billing_accounts`
+- `invoices`
+- `invoice_line_items`
+- ledger/invoice-derived activity views
 
 ### Minimum fields
 
-`console_billing_ledger_accounts`
+`billing_accounts`
 
 - `namespace`
-- `id`
-- `scope_type`
-- `scope_org_id`
-- `account_code`
-- `currency`
-- `status`
+- `org_id`
+- `credit_balance_minor`
+- `low_balance_threshold_minor`
 - `created_at_ms`
+- `updated_at_ms`
 
-`console_billing_ledger_entries`
+`billing_ledger_entries`
 
 - `namespace`
+- `org_id`
 - `id`
 - `entry_type`
+- `amount_minor`
+- `currency`
+- `description`
+- `month_utc`
+- `related_invoice_id`
+- `related_purchase_id`
+- `source_event_id`
 - `actor_type`
 - `actor_user_id`
 - `reason_code`
 - `note`
-- `source_event_id`
 - `idempotency_key`
 - `created_at_ms`
 
-`console_billing_ledger_postings`
+`billing_ledger_postings`
 
 - `namespace`
-- `id`
-- `entry_id`
-- `account_id`
 - `org_id`
+- `id`
+- `ledger_entry_id`
+- `account_code`
 - `direction`
 - `amount_minor`
-- `currency`
-- `related_document_id`
-- `related_purchase_id`
 - `created_at_ms`
 
-`console_billing_account_balances`
+`billing_accounts`
 
 - `namespace`
 - `org_id`
-- `projected_balance_minor`
+- `credit_balance_minor`
 - `low_balance_threshold_minor`
-- `enforcement_state`
+- `created_at_ms`
 - `updated_at_ms`
+
+`invoices`
+
+- `namespace`
+- `org_id`
+- `id`
+- `document_type`
+- `status`
+- `currency`
+- `amount_due_minor`
+- `amount_paid_minor`
+- `period_month_utc`
+- `created_at_ms`
+- `due_at_ms`
+
+`invoice_line_items`
+
+- `namespace`
+- `org_id`
+- `id`
+- `invoice_id`
+- `period_month_utc`
+- `item_type`
+- `description`
+- `quantity`
+- `unit_amount_minor`
+- `amount_minor`
+- `created_at_ms`
 
 ## Migration Policy
 
@@ -443,9 +471,9 @@ Backend logic:
 
 DB schema:
 
-- [x] Add `console_billing_ledger_accounts`.
-- [x] Add `console_billing_ledger_entries`.
-- [x] Add `console_billing_ledger_postings`.
+- [x] Add `billing_accounts`.
+- [x] Add `billing_ledger_entries`.
+- [x] Add `billing_ledger_postings`.
 - [x] Add uniqueness constraints for idempotency keys.
 - [x] Add balanced-entry and positive-posting invariants where practical.
 
@@ -479,8 +507,8 @@ Migrations:
 
 Console UI:
 
-- [x] Keep the Postgres-backed `/dashboard/billing/account` reads projection-only.
-- [x] Keep the Postgres-backed `/dashboard/invoices` and detail pages projection-only.
+- [x] Keep the persistent `/dashboard/billing/account` reads projection-only.
+- [x] Keep the persistent `/dashboard/invoices` and detail pages projection-only.
 - [x] Surface ledger-linked activity cleanly.
 
 ### Phase 4: Enforce balance policy in the real execution path
@@ -565,16 +593,16 @@ Cleanup tasks:
 - [x] Delete unused backend routes, services, and provider hooks.
 - [x] Delete unused UI controls and copy.
 - [x] Update tests and docs.
-- [ ] Run full validation against a real Postgres instance.
+- [ ] Run full validation against local SQLite-D1 and staging D1.
 
 ### Validation Note
 
 The `deadlock detected` issue previously seen on `/dashboard/invoices` came from two separate problems:
 
 - the invoices route was still issuing account-shell fetches it did not need
-- `getOverview()` and `getMonthlyActiveWallets()` acquired Postgres locks in different orders
+- `getOverview()` and `getMonthlyActiveWallets()` acquired storage locks in different orders
 
-Both code paths are now fixed. The remaining work is to validate that fix against a real Postgres instance with `POSTGRES_URL` set and keep regression coverage in place.
+Both code paths are now fixed. The remaining work is to keep D1-backed regression coverage in place.
 
 ## Next Implementation Steps
 
@@ -595,4 +623,4 @@ This migration is done when:
 - production balance enforcement works end-to-end
 - internal staff can append audited corrective credits and debits without direct DB edits
 - account and invoice pages contain no subscription-era concepts
-- Postgres-backed billing suites pass against a real database
+- D1 billing suites pass against local SQLite-D1 and staging D1

@@ -2907,7 +2907,7 @@ Validation checklist:
       rejection coverage in `relayer/threshold-ed25519.scheme-dispatch.test.ts`.
 - [x] Executable harness/docs no longer advertise the old public threshold
       lifecycle route names.
-      Updated `tests/scripts/test-relay-server.mjs`,
+      Updated `tests/scripts/test-router-api-server.mjs`,
       `apps/web-server/README.md`,
       `docs/signing-session-architecture/sealed-refresh.md`,
       `docs/threshold-ecdsa/ecdsa-hss-v2-integration.md`, and

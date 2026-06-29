@@ -1,6 +1,6 @@
 # Gas and Signing Policies
 
-Date updated: March 12, 2026
+Date updated: June 29, 2026
 
 ## Overview
 
@@ -18,9 +18,9 @@ The main distinction is in `rules`:
 
 Code references:
 
-- [server/src/console/policies/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/types.ts)
-- [server/src/console/policies/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/service.ts)
-- [server/src/console/policies/rules.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/rules.ts)
+- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
+- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
+- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
 
 ## Main Structs And Services
 
@@ -49,8 +49,8 @@ Code references:
 
 Code references:
 
-- [server/src/console/policies/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/types.ts)
-- [server/src/console/policies/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/service.ts)
+- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
+- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
 
 ### Transaction policy rules
 
@@ -70,8 +70,8 @@ Code references:
 
 Code references:
 
-- [server/src/console/policies/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/types.ts)
-- [server/src/console/policies/rules.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/rules.ts)
+- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
+- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
 
 ### Gas sponsorship policy rules
 
@@ -98,10 +98,10 @@ Important naming rule:
 
 Code references:
 
-- [server/src/console/policies/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/types.ts)
-- [server/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/types.ts)
-- [server/src/console/gasSponsorship/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/service.ts)
-- [server/src/console/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/onboarding.ts)
+- [packages/sdk-server-ts/src/console/policies/types.ts](../../packages/sdk-server-ts/src/console/policies/types.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/types.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/types.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/service.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/service.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
 
 ### Runtime snapshot model
 
@@ -119,8 +119,8 @@ Code references:
 
 Code references:
 
-- [server/src/console/runtimeSnapshots/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/runtimeSnapshots/types.ts)
-- [server/src/router/runtimeSnapshotPayload.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/runtimeSnapshotPayload.ts)
+- [packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts](../../packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts)
+- [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
 
 ## Entry Points
 
@@ -143,8 +143,8 @@ Cloudflare router exposes the same policy surface.
 
 Code references:
 
-- [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
-- [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
+- [packages/sdk-server-ts/src/router/express/createConsoleRouter.ts](../../packages/sdk-server-ts/src/router/express/createConsoleRouter.ts)
+- [packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts)
 
 ### Approval flow
 
@@ -162,8 +162,8 @@ For policy publish, the approval operation type is `POLICY_PUBLISH`. Approval pa
 
 Code references:
 
-- [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
-- [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
+- [packages/sdk-server-ts/src/router/express/createConsoleRouter.ts](../../packages/sdk-server-ts/src/router/express/createConsoleRouter.ts)
+- [packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts)
 
 ### Runtime publication
 
@@ -175,9 +175,9 @@ This reads current live policy state, resolves the effective payload for an envi
 
 Code references:
 
-- [server/src/router/runtimeSnapshotPayload.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/runtimeSnapshotPayload.ts)
-- [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
-- [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
+- [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
+- [packages/sdk-server-ts/src/router/express/createConsoleRouter.ts](../../packages/sdk-server-ts/src/router/express/createConsoleRouter.ts)
+- [packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts)
 
 ### Sponsored call execution
 
@@ -189,7 +189,7 @@ This is the runtime execution path for gas sponsorship.
 
 Code reference:
 
-- [server/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/evmRelay.ts)
+- [packages/sdk-server-ts/src/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/sponsorship/evmRelay.ts)
 
 ## Flows
 
@@ -204,8 +204,8 @@ Code reference:
 
 Relevant code:
 
-- [server/src/console/policies/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/service.ts)
-- [server/src/console/policies/rules.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/rules.ts)
+- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
+- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
 
 ### 2. Signing policy simulation flow
 
@@ -217,8 +217,8 @@ This flow exists only for transaction policies.
 
 Relevant code:
 
-- [server/src/console/policies/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/service.ts)
-- [server/src/console/policies/rules.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/rules.ts)
+- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
+- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
 
 ### 3. Gas policy authoring and publish flow
 
@@ -230,9 +230,9 @@ Relevant code:
 
 Relevant code:
 
-- [server/src/console/policies/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/service.ts)
-- [server/src/console/policies/rules.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/rules.ts)
-- [server/src/console/gasSponsorship/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/service.ts)
+- [packages/sdk-server-ts/src/console/policies/service.ts](../../packages/sdk-server-ts/src/console/policies/service.ts)
+- [packages/sdk-server-ts/src/console/policies/rules.ts](../../packages/sdk-server-ts/src/console/policies/rules.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/service.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/service.ts)
 
 ### 4. Runtime snapshot publish flow
 
@@ -246,9 +246,9 @@ Relevant code:
 
 Relevant code:
 
-- [server/src/router/runtimeSnapshotPayload.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/runtimeSnapshotPayload.ts)
-- [server/src/console/gasSponsorship/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/service.ts)
-- [server/src/console/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/onboarding.ts)
+- [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/service.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/service.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
 
 ### 5. Sponsored EVM call execution flow
 
@@ -261,8 +261,8 @@ Relevant code:
 
 Relevant code:
 
-- [server/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/evmRelay.ts)
-- [server/src/console/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/onboarding.ts)
+- [packages/sdk-server-ts/src/sponsorship/evmRelay.ts](../../packages/sdk-server-ts/src/sponsorship/evmRelay.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
 
 ### 6. Tempo onboarding gas policy flow
 
@@ -275,7 +275,7 @@ This is the main built-in gas policy bootstrap path.
 
 Relevant code:
 
-- [server/src/console/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/onboarding.ts)
+- [packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts](../../packages/sdk-server-ts/src/console/gasSponsorship/onboarding.ts)
 
 ## Mental Model
 

@@ -98,7 +98,7 @@ Onboarding endpoints:
 ## Security And Data Requirements
 
 - Persist onboarding progress server-side (derived from canonical data; no client-only state).
-- Tenant isolation and RLS remain enforced.
+- Tenant isolation is enforced by route-policy checks plus D1 adapter predicates.
 - Audit events required for:
   - organization profile set,
   - billing top-up checkout initiation,
@@ -204,7 +204,7 @@ Exit criteria:
 
 ### Phase 8: Remove Implicit Org Auto-Create (Write Paths)
 
-- [x] Postgres service:
+- [x] D1-backed org/project/environment service:
   - [x] Remove `ensureOrganizationExists` usage from `createProject`.
   - [x] Require existing org row and return `organization_not_found` when absent.
 - [x] In-memory service:

@@ -1,6 +1,6 @@
 # Policy Engine Implementation Plan
 
-Last updated: 2026-03-10
+Last updated: 2026-06-29
 Status: in progress
 
 ## Goal
@@ -36,32 +36,32 @@ The full experience should include:
 
 ## Sponsorship alignment
 
-This plan now assumes the same product boundary as [sponsorship-policy.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/sponsorship-policy.md):
+This plan now assumes the same product boundary as [sponsorship-policy.md](../sponsorship-policy.md):
 
 - sponsorship authorization is a first-class policy-engine feature
 - sponsorship execution, finalized spend recording, and billing attribution remain runtime concerns
 - runtime routes consume resolved sponsorship policy artifacts from runtime snapshots, not raw dashboard config
 - there should not be a second long-term gas-sponsorship policy surface parallel to the policy engine
 
-This document is the product and console-surface plan. The detailed runtime, route, and ledger migration work for sponsorship remains tracked in [sponsorship-policy.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/sponsorship-policy.md).
+This document is the product and console-surface plan. The detailed runtime, route, and ledger migration work for sponsorship remains tracked in [sponsorship-policy.md](../sponsorship-policy.md).
 
 ## Current state
 
 Implemented today:
 
 - backend CRUD, publish, simulate, and assignment APIs for policies
-- Postgres storage for policies, versions, and assignments
+- D1 storage for policies, versions, and assignments
 - default org policy bootstrap
 - a shared typed policy-rules module now normalizes the currently enforced rule family set
 - request-time rule validation now rejects unknown rule keys instead of silently storing them
-- in-memory and Postgres policy services now share one evaluator and reason-generation path
+- in-memory and D1 policy services now share one evaluator and reason-generation path
 - simulation results now include typed deny reason codes plus normalized action and chain identifiers
 - policy publish approval enforcement when an approvals service is mounted
 - policy coverage API contract
 - attached drafts now auto-attach to the current context or selected wallet without a separate dashboard assign step
 - wallet policy resolution and runtime snapshot payloads now treat published policy state as the live boundary instead of mutable draft rules
-- example relay wiring for policies, wallets, and approvals in the local stack
-- demo seed data for wallets, policies, assignments, and publish approvals in the example relay
+- `apps/web-server` Router API wiring for policies, wallets, and approvals in the local stack
+- demo seed data for wallets, policies, assignments, and publish approvals in the local Router API stack
 - dashboard policy workspace with current-context policy tables, auto-attached draft creation, inline create/edit/simulate flows, and scheduled live policy changes through approvals
 - a separate gas sponsorship config module exists for current EVM sponsorship flows
 - runtime snapshots already publish resolved EVM `sponsoredCallPolicies`
@@ -219,29 +219,29 @@ UX rules:
 
 ### Phase 0: Audit, cleanup, and contract freeze
 
-- [ ] Inventory every policy-engine touchpoint across dashboard, router, services, tests, docs, and example relay wiring.
+- [ ] Inventory every policy-engine touchpoint across dashboard, router, services, tests, docs, and local Router API wiring.
 - [ ] Define the first typed policy schema and its versioning plan.
 - [ ] Decide which current flat rule keys migrate directly and which are removed.
 - [x] Remove stale docs that claim the dashboard already consumes coverage or lifecycle views when it does not.
 - [ ] Remove stale test expectations that refer to UI sections or flows no longer present.
 - [x] Delete the CSV editor and stop adding new rule fields to the legacy policy page.
 - [x] Lock sponsorship as a first-class policy-engine feature and remove ambiguity about separate long-term policy surfaces.
-- [x] Align this plan with [sponsorship-policy.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/sponsorship-policy.md) on where policy ends and runtime execution begins.
+- [x] Align this plan with [sponsorship-policy.md](../sponsorship-policy.md) on where policy ends and runtime execution begins.
 
 ### Phase 1: Backend parity in the example stack
 
-- [x] Wire `ConsoleWalletService` into the example relay so `/console/policy/coverage` works locally.
-- [x] Wire `ConsoleApprovalService` into the example relay so publish can require approval locally.
+- [x] Wire `ConsoleWalletService` into the local Router API stack so `/console/policy/coverage` works locally.
+- [x] Wire `ConsoleApprovalService` into the local Router API stack so publish can require approval locally.
 - [x] Seed demo wallets, policies, assignments, and approval requests for end-to-end local testing.
 - [x] `GET /console/policies`
 - [x] `GET /console/policies/assignments`
 - [x] `GET /console/policy/coverage`
 - [x] `GET /console/approvals`
-- [x] Keep the example relay using the same Postgres namespace split already used by other console modules.
+- [x] Keep the example stack using the same D1 console service wiring already used by other console modules.
 
 ### Phase 2: Typed policy model and shared evaluator
 
-- [x] Introduce a typed policy-rules module shared by in-memory and Postgres services.
+- [x] Introduce a typed policy-rules module shared by in-memory and D1 services.
 - [ ] Introduce explicit policy kinds for signing and sponsorship authorization.
 - [x] Move rule validation into shared codecs instead of ad hoc `Record<string, unknown>` access.
 - [x] Move policy evaluation into one shared evaluator used by both service implementations.
@@ -287,7 +287,7 @@ UX rules:
 - [ ] Migrate current EVM sponsorship authorization into the policy engine as a normal policy kind.
 - [ ] Replace the separate gas-sponsorship policy editing surface with policy-engine-owned sponsorship editing.
 - [ ] Keep sponsorship execution, spend recording, and billing attribution outside the policy engine.
-- [ ] Ensure the detailed runtime and ledger migration remains aligned with [sponsorship-policy.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/sponsorship-policy.md).
+- [ ] Ensure the detailed runtime and ledger migration remains aligned with [sponsorship-policy.md](../sponsorship-policy.md).
 - [ ] Treat Tempo onboarding sponsorship as seeded policy data, not a special policy product path.
 
 ### Phase 7: Runtime enforcement and observability
@@ -312,26 +312,22 @@ UX rules:
 
 These are current cleanup targets. They should be removed during the refactor, not preserved behind compatibility flags.
 
-- `examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx`
+- `apps/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx`
   - currently keeps sponsorship authorization in a separate dashboard surface
   - long term, policy-owned sponsorship editing should move into the policy engine workspace
-- `examples/seams-site/src/pages/dashboard/routes/policy-engine/consolePoliciesApi.ts`
+- `apps/seams-site/src/pages/dashboard/routes/policy-engine/consolePoliciesApi.ts`
   - client contract is still generic and mirrors free-form `rules`
   - should move to typed request and response shapes once the schema is defined
-- `server/src/console/policies/service.ts`
+- `packages/sdk-server-ts/src/console/policies/service.ts`
   - still contains default-policy bootstrap logic that should eventually move into shared policy bootstrap helpers
-- `server/src/console/policies/postgres.ts`
-  - still repeats default bootstrap concerns already present in the in-memory service
-  - both services should keep converging on shared bootstrap and persistence helpers
-- `server/src/console/gasSponsorship/service.ts`
+- `packages/sdk-server-ts/src/console/policies/d1.ts`
+  - keep D1 persistence thin and route all default bootstrap decisions through shared policy service helpers
+- `packages/sdk-server-ts/src/console/gasSponsorship/service.ts`
   - current sponsorship authorization lives behind a separate config boundary
   - treat this as transitional until sponsorship authorization is absorbed into the policy engine
-- `server/src/console/gasSponsorship/postgres.ts`
-  - current Postgres shape is still part of the separate sponsorship-config path
-  - avoid preserving it as a permanent parallel policy product boundary
 - EVM-only resolved sponsorship snapshot fields
   - current runtime snapshot sponsorship output is still EVM-shaped
-  - it should converge on the generalized sponsorship policy artifacts described in [sponsorship-policy.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/sponsorship-policy.md)
+  - it should converge on the generalized sponsorship policy artifacts described in [sponsorship-policy.md](../sponsorship-policy.md)
 - `docs/saas/dashboard-backend-implementation-plan.md`
   - contains claims about policy-engine dashboard behavior that no longer match the shipped page
   - should be trimmed once this focused plan becomes the source of truth
@@ -345,7 +341,7 @@ These are current cleanup targets. They should be removed during the refactor, n
 - Do not expose a rule field in UI unless the backend evaluator enforces it.
 - Do not add more free-form rule keys without updating the typed schema.
 - Do not keep a separate long-term gas-sponsorship policy editor once sponsorship authorization is policy-engine-owned.
-- Do not keep duplicate evaluator code paths for memory versus Postgres services.
+- Do not keep duplicate evaluator code paths for memory versus D1 services.
 - Do not keep stale tests and docs that describe UI that no longer exists.
 - Do not move execution, spend recording, or billing attribution into the policy engine.
 - Prefer breaking cleanup over compatibility shims when the old path only adds policy-engine confusion.
@@ -354,7 +350,7 @@ These are current cleanup targets. They should be removed during the refactor, n
 
 The policy engine is complete when all of the following are true:
 
-- the example relay supports policies, wallets, and approvals end to end
+- the local Router API stack supports policies, wallets, and approvals end to end
 - the dashboard shows policy coverage, effective inheritance, lifecycle state, and approval-aware publish
 - sponsorship authorization is configured and resolved through the policy engine
 - policy rules are typed and versioned

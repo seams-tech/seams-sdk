@@ -1132,7 +1132,7 @@ Tests and guards:
   `signingRootId`, or `signingRootVersion` changes;
 - Ed25519-HSS context binding changes when `applicationBindingDigest` or
   `participantIds` changes;
-- generated implicit-account fixtures prove `walletId !== nearAccountId` and
+- server-allocated implicit-account fixtures prove `walletId !== nearAccountId` and
   HSS derivation never receives `nearAccountId`;
 - passkey and Email OTP Ed25519 registration/add-signer/recovery produce
   matching client/server HSS context bindings with only the slim fields;
@@ -1885,6 +1885,194 @@ pnpm -C tests exec playwright test --reporter=line unit/refactor79ExactSigningLa
 pnpm -C tests exec playwright test --reporter=line unit/ecdsaMaterialState.unit.test.ts unit/evmFamilyBudgetSpending.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/nearSigning.sessionSelection.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/confirmationConfig.normalization.unit.test.ts
+git diff --check
+```
+
+## Phase 13: Make Ed25519 Persistence Mutations Exact-Lane Only
+
+The exact-lane refactor fixed authority selection, export, restore, budget, and
+signing paths, but one cleanup boundary still exposes broad Ed25519 mutation
+helpers such as `clearStoredThresholdEd25519SessionRecordForAccount(...)`.
+Those helpers are account-keyed, so callers must remember to pass
+`nearAccountId` instead of `walletId`. That is the same class of bug this
+refactor is meant to eliminate.
+
+The tactical fix of clearing by lane `nearAccountId` is correct for the current
+store shape, but it is not the final architecture. Mutation must use exact lane
+identity directly.
+
+Principles:
+
+- Exact lane identity is required for authority-bearing persistence mutation.
+- Exact lane keys must use branded identity types. Raw strings may enter only
+  through named boundary parsers or canonical builders.
+- Broad account/wallet persistence helpers are display, discovery, and repair
+  helpers only.
+- Broad discovery may enumerate candidates before exact identity is known, but
+  mutation, signing, export, restore, budget consume, and material use must
+  first resolve exactly one `ExactSigningLaneIdentity` or canonical
+  `ThresholdEd25519SessionRecordKey`.
+- Clearing a signing grant removes only the exact lane records targeted by that
+  grant.
+- `walletId !== nearAccountId` must be the default fixture shape for this work.
+- Broad mutation helper names must not appear in signing, export, restore,
+  budget, unlock, or cleanup authority paths.
+
+### 13.1 Add Exact-Lane Ed25519 Clear API
+
+Current API:
+
+```ts
+clearStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+```
+
+Target APIs:
+
+```ts
+type ThresholdEd25519SessionRecordKey = {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  authMethod: ThresholdEd25519SessionAuthMethod;
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEd25519SessionId;
+  signerSlot: SignerSlot;
+};
+
+clearStoredThresholdEd25519SessionRecordForLaneKey(
+  laneKey: ThresholdEd25519SessionRecordKey,
+);
+
+clearStoredThresholdEd25519SessionRecordForExactIdentity(
+  identity: ExactEd25519SigningLaneIdentity,
+);
+```
+
+Tasks:
+
+- [x] Add `clearStoredThresholdEd25519SessionRecordForLaneKey(...)` beside
+      `getStoredThresholdEd25519SessionRecordForLane(...)`.
+- [x] Add `clearStoredThresholdEd25519SessionRecordForExactIdentity(...)` only
+      if a caller already has `ExactEd25519SigningLaneIdentity`; it must convert
+      through the canonical lane-key builder and then call the lane-key helper.
+- [x] Ensure `ThresholdEd25519SessionRecordKey` uses branded `WalletId`,
+      `AccountId`, `NearEd25519SigningKeyId`, `SigningGrantId`,
+      `ThresholdEd25519SessionId`, and `SignerSlot` fields. Add `SignerSlot` as
+      a branded positive integer if it does not already exist.
+- [x] Reuse the existing canonical `ThresholdEd25519SessionRecordKey`,
+      serializer, and matcher. Do not create a second lane-key format.
+- [x] Keep raw-field parsing at builders/boundaries only. The clear helper must
+      not accept a loose object bag of raw strings assembled at the call site.
+- [x] Add or reuse a canonical builder such as
+      `buildThresholdEd25519SessionRecordKey(...)` that validates raw boundary
+      values once and returns the branded key. Authority paths should receive
+      the branded key or an exact identity, not raw fields.
+- [x] Delete lane, session-id, account, and wallet indexes only when the stored
+      record matches the exact lane key.
+- [x] Return a typed result such as `{ ok: true; cleared: boolean }` or
+      `{ ok: false; code: 'invalid_lane' | 'mismatched_record' | 'duplicate_records'; message: string }`
+      instead of silently swallowing invalid lane identity.
+- [x] Add static/type fixtures proving `signerSlot`, `signingGrantId`,
+      `thresholdSessionId`, `nearEd25519SigningKeyId`, `nearAccountId`, and
+      `walletId` are all required.
+
+Acceptance:
+
+- A record cannot be cleared without the full Ed25519 exact lane key.
+- The exact lane key cannot be constructed from raw strings outside named
+  builders or boundary parsers.
+- Clearing one lane does not remove another Ed25519 lane for the same wallet or
+  same NEAR account.
+- The helper does not accept raw account-only, wallet-only, or manually assembled
+  string-bag inputs.
+
+### 13.2 Move `clearSigningGrant()` To Exact Lane Mutation
+
+`clearSigningGrant()` currently discovers lanes by wallet/grant and then clears
+Ed25519 persistence through an account-scoped helper. That should be replaced
+with exact lane mutation.
+
+Tasks:
+
+- [x] In `clearSigningGrant()`, derive Ed25519 clear inputs from the discovered
+      lane identity or canonical lane record key. Do not rebuild identity from
+      `walletId`, `nearAccountId`, or ad hoc projections.
+- [x] Remove the temporary `ed25519NearAccountIdFromDiscoveredLane(...)` helper
+      after exact-lane clear is wired.
+- [x] Keep wallet/grant discovery as the way to find candidate lanes, then make
+      every mutation use the exact lane key.
+- [ ] Preserve ECDSA cleanup semantics, but review the ECDSA cleanup helper for
+      the same broad-mutation pattern and add a guard if needed.
+
+Acceptance:
+
+- `clearSigningGrant()` cannot clear Ed25519 material by wallet id or NEAR
+  account id alone.
+- The split identity fixture `walletId !== nearAccountId` remains green.
+- A two-lane fixture proves clearing one signing grant preserves the other lane.
+
+### 13.3 Delete Or Restrict Broad Ed25519 Mutation Helpers
+
+Broad helpers can remain only for discovery/read-only UI and repair workflows.
+They must not be callable from authority-bearing paths.
+
+Tasks:
+
+- [x] Delete `clearStoredThresholdEd25519SessionRecordForAccount(...)` if no
+      non-authority repair flow needs it.
+- [x] Deletion was possible, so no account-scoped repair delete helper was
+      added.
+- [x] Keep `list...ForAccount(...)` and `list...ForWallet(...)` only for
+      display, discovery, repair, or migration code.
+- [x] Update login/unlock, warm-capability, registration postcondition, signing,
+      export, restore, budget, and cleanup call sites to use exact-lane reads or
+      explicit display/discovery helpers.
+
+Acceptance:
+
+- No authority-bearing file imports an account-scoped Ed25519 clear helper.
+- Broad account/wallet helper names document their non-authority role.
+- Refactor 79 guards reject broad Ed25519 mutation helper imports outside the
+  persistence module and named repair tests.
+
+### 13.4 Tests And Guards
+
+Tasks:
+
+- [x] Add a unit test with one wallet, one implicit NEAR account, and two
+      Ed25519 lanes. Clearing grant A must preserve grant B.
+- [x] Add a unit test with `walletId !== nearAccountId` proving that using the
+      wallet id in the NEAR-account position creates a different lane key and
+      does not clear the original record. Do not rely on syntax rejection,
+      because generated wallet ids can be valid NEAR named-account strings.
+- [x] Add a unit test proving a mismatched `nearEd25519SigningKeyId`,
+      `signerSlot`, `thresholdSessionId`, or `signingGrantId` does not clear a
+      record.
+- [x] Add static/type fixtures proving raw strings and cross-branded IDs cannot
+      be passed to `clearStoredThresholdEd25519SessionRecordForLaneKey(...)`.
+- [x] Extend `refactor79ExactSigningLane.guard.unit.test.ts` or the wallet
+      scoped lookup guard to reject:
+      `clearStoredThresholdEd25519SessionRecordForAccount(` and any future
+      `clearStoredThresholdEd25519SessionRecordForWallet(` outside the
+      persistence module and named repair tests.
+- [ ] Extend source guards to reject unsafe casts such as `as WalletId`,
+      `as AccountId`, `as NearEd25519SigningKeyId`, `as SigningGrantId`, and
+      `as ThresholdEd25519SessionId` in authority-bearing Ed25519 persistence
+      mutation paths. Allow casts only inside named boundary parser/builder
+      modules that validate first.
+- [ ] Add a source guard note that broad account/wallet Ed25519 reads are
+      allowed only for discovery/display/repair, never mutation.
+
+Validation:
+
+```bash
+pnpm -C packages/sdk-web -s type-check
+pnpm -C packages/sdk-server-ts -s type-check
+pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line \
+  unit/signingSessionReadiness.clearGrant.unit.test.ts \
+  unit/refactor79ExactSigningLane.guard.unit.test.ts \
+  unit/seamsWeb.unlockCancellationEvents.unit.test.ts \
+  unit/seamsWeb.loginThresholdWarm.unit.test.ts
 git diff --check
 ```
 

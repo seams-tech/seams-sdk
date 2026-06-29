@@ -13,7 +13,7 @@ In scope:
 - billing service contract and implementations
 - router endpoints (Express + Cloudflare)
 - request/response types and parsers
-- Postgres schema and policy setup
+- D1 schema and migration setup
 - onboarding/readiness logic that depends on payment methods
 - tests (unit/integration/e2e) that still assert payment-method behavior
 
@@ -71,7 +71,7 @@ Default recommendation: remove setup-intent and customer-portal endpoints entire
 - [x] Remove in-memory `paymentMethods` store and related logic.
 - [x] Remove setup-intent/customer-portal methods from service if out of scope.
 - [x] Update provider adapter interface to match retained Stripe operations.
-- [x] Verify `tsc` passes for `server/src/console/billing`.
+- [x] Verify TypeScript passes for `packages/sdk-server-ts/src/console/billing`.
 
 ### Phase 2: Router and Parser Cleanup
 
@@ -92,7 +92,7 @@ Default recommendation: remove setup-intent and customer-portal endpoints entire
 - [x] Update any onboarding copy/messages that mention payment methods.
 - [x] Add/adjust tests for new readiness behavior.
 
-### Phase 4: Postgres Schema and Query Cleanup
+### Phase 4: D1 Schema and Query Cleanup
 
 - [x] Remove `console_payment_methods` create-table block.
 - [x] Remove `console_payment_methods` index creation.
@@ -144,8 +144,8 @@ Exit criteria:
   - `parseStripeSetupIntentRequest` (if removed)
   - `parseStripeCustomerPortalSessionRequest` (if removed)
 - Remove endpoint handlers from:
-  - `server/src/router/express/createConsoleRouter.ts`
-  - `server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+  - `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
+  - `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
 - Remove now-unused role guard text/functions related to card actions.
 
 Exit criteria:
@@ -155,8 +155,8 @@ Exit criteria:
 ### Phase 3: Onboarding and Readiness Logic
 
 - Replace readiness logic in:
-  - `server/src/console/billing/readiness.ts`
-  - `server/src/console/onboarding/service.ts`
+  - `packages/sdk-server-ts/src/console/billing/readiness.ts`
+  - `packages/sdk-server-ts/src/console/onboarding/service.ts`
 - Remove any dependency on `listPaymentMethods`.
 - Keep behavior explicit and deterministic for prepaid model.
 
@@ -164,7 +164,7 @@ Exit criteria:
 
 - Onboarding and live-environment gating have no payment-method dependency.
 
-### Phase 4: Postgres Schema and Data Cleanup
+### Phase 4: D1 Schema and Data Cleanup
 
 - Remove create-path for `console_payment_methods` and its indexes.
 - Remove RLS policy registration for `console_payment_methods`.
@@ -179,9 +179,9 @@ Exit criteria:
 ### Phase 5: Exports, Adaptors, and API Surface Hygiene
 
 - Remove stale exports from:
-  - `server/src/console/billing/index.ts`
-  - `server/src/router/express-adaptor.ts`
-  - `server/src/router/cloudflare-adaptor.ts`
+  - `packages/sdk-server-ts/src/console/billing/index.ts`
+  - `packages/sdk-server-ts/src/router/express-adaptor.ts`
+  - `packages/sdk-server-ts/src/router/cloudflare-adaptor.ts`
 - Remove frontend API functions still referencing removed endpoints.
 
 Exit criteria:
@@ -193,7 +193,7 @@ Exit criteria:
 - Delete or rewrite tests that assert payment-method behavior.
 - Update API wiring tests/mocks to stop stubbing removed endpoints.
 - Update tenant-isolation tests that use `console_payment_methods`.
-- Ensure Postgres tests no longer clean up `console_payment_methods`.
+- Ensure current billing/router tests no longer clean up `console_payment_methods`.
 - Run full billing and router test suites.
 
 Exit criteria:
@@ -203,9 +203,9 @@ Exit criteria:
 
 ## Verification Checklist
 
-- `rg -n "payment-method|payment_methods|setup-intent|customer-portal|listPaymentMethods|addCardPaymentMethod|removeCardPaymentMethod|setDefaultCardPaymentMethod" server/src tests examples -S` returns only intentional docs/history references.
+- `rg -n "payment-method|payment_methods|setup-intent|customer-portal|listPaymentMethods|addCardPaymentMethod|removeCardPaymentMethod|setDefaultCardPaymentMethod" packages/sdk-server-ts/src tests apps/seams-site -S` returns only intentional docs/history references.
 - Typecheck and tests pass for:
-  - server billing modules
+  - SDK server billing modules
   - router suites
   - dashboard billing API wiring tests
 - Manual smoke:
@@ -218,12 +218,12 @@ Exit criteria:
 - Completed: backend/service/router/schema cleanup and prepaid readiness refactor.
 - Completed: frontend billing account view and API client no longer reference payment methods, setup intents, or customer portal.
 - Completed: dashboard billing prepaid e2e wiring is back to green on the canonical `/dashboard/billing/account` and `/dashboard/invoices` routes.
-- Completed: final cleanup grep across `server/src`, `tests`, and `examples` now returns only the intentional `DROP TABLE IF EXISTS console_payment_methods` migration line.
+- Completed: final cleanup grep across `packages/sdk-server-ts/src`, `tests`, and `apps/seams-site` now returns only intentional migration/history references.
 - Completed: legacy billing plan doc `docs/billing-console.md` was removed so the repo no longer carries a contradictory subscription/payment-method plan.
 - Verification:
-  - `pnpm -C examples/seams-site exec tsc --noEmit` passed.
-  - `pnpm -C examples/relay-server exec tsc --noEmit` passed.
-  - `pnpm -C tests exec playwright test -c playwright.relayer.config.ts ./relayer/console-billing.service.test.ts ./relayer/console-billing.postgres.test.ts ./relayer/console-tenant-isolation.postgres.test.ts ./relayer/relay-api-keys.test.ts ./relayer/console-router.test.ts --reporter=line` passed (`175 passed, 54 skipped`).
+  - `pnpm -C apps/seams-site exec tsc --noEmit` passed.
+  - `pnpm --dir packages/sdk-server-ts type-check` passed.
+  - Refactor 82 update: live-Postgres relayer suites were deleted. Current billing/router validation lives in `./relayer/console-billing.service.test.ts`, `./relayer/console-d1-adapters.test.ts`, `./relayer/router-api-keys.test.ts`, and `./relayer/console-router.test.ts`.
   - `pnpm -C tests exec playwright test ./e2e/dashboard.billing.console.apiWiring.test.ts --reporter=line` passed (`4 passed`).
   - `pnpm -C tests exec playwright test ./e2e/dashboard.consoleConfigPages.apiWiring.test.ts --reporter=line` is still outside billing scope and may fail due unrelated dashboard UI expectation drift.
 

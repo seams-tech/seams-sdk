@@ -930,7 +930,7 @@ client/src/SeamsWeb/operations/
   registration/
     registration.ts
     createAccountRelayServer.ts
-    registrationSignerSelection.ts
+    registrationSignerSet.ts
 
   authMethods/
     passkey/

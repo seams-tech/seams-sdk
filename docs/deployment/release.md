@@ -16,13 +16,13 @@ pnpm test:signers:gates
 pnpm -C packages/sdk-web test:relayer
 ```
 
-For changes touching threshold signing or Postgres-backed relay behavior, also
-run:
+For changes touching threshold signing or D1/DO-backed relay behavior, also run:
 
 ```bash
 pnpm test:threshold-core
 pnpm test:threshold-ed25519:active-path
-pnpm -C apps/web-server run postgres:setup:split
+pnpm -C packages/sdk-server-ts run d1:local:prepare
+pnpm -C packages/sdk-server-ts run d1:local:restore:drill
 ```
 
 ## Version And Tag

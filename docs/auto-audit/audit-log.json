@@ -1,12 +1,14 @@
 {
-  "updated_at": "2026-06-22T00:04:22Z",
+  "updated_at": "2026-06-29T00:03:49Z",
   "audited_files": [
     "crates/router-ab-core/src/protocol/ecdsa_hss.rs",
-    "packages/shared-ts/src/utils/routerAbEcdsaHss.ts"
+    "packages/shared-ts/src/utils/routerAbEcdsaHss.ts",
+    "packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts"
   ],
   "audited_flows": [
     "Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary",
-    "Wallet SDK Router A/B ECDSA-HSS wire parser, JWT rehydration, request digest binding, and active-session identity"
+    "Wallet SDK Router A/B ECDSA-HSS wire parser, JWT rehydration, request digest binding, and active-session identity",
+    "Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding"
   ],
   "entries": [
     {
@@ -59,6 +61,31 @@
         "Wallet SDK Router A/B ECDSA-HSS finalize RPC and digest/response binding",
         "Wallet SDK Router A/B ECDSA-HSS persisted session rehydration and runtime material validation",
         "Cloudflare Router A/B ECDSA-HSS finalize budget validation and active-signing-worker lookup"
+      ]
+    },
+    {
+      "timestamp": "2026-06-29T00:03:49Z",
+      "target_file": "packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts",
+      "flow": "Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding",
+      "report_path": "docs/auto-audit/2026-06-29T00-03-49Z-sdk-web-router-ab-normal-signing.md",
+      "finding_counts": {
+        "security": 2,
+        "refactor": 2,
+        "total": 4
+      },
+      "highest_severity": "high",
+      "highest_severity_findings": [
+        "Ed25519 prepare responses are not request-bound before the SDK uses server_verifying_share_b64u, server_commitments, and budget metadata"
+      ],
+      "recommended_next_files": [
+        "packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts",
+        "crates/router-ab-cloudflare/src/signing_worker/mod.rs",
+        "crates/router-ab-cloudflare/src/lib.rs"
+      ],
+      "recommended_next_flows": [
+        "Wallet SDK Router A/B Ed25519 wallet-session rehydration and runtime material validation keys",
+        "Cloudflare SigningWorker Ed25519 finalize materialization and server_verifying_share checks",
+        "Cloudflare Router Ed25519 prepare/finalize budget operation binding and finalize metadata validation"
       ]
     }
   ]
