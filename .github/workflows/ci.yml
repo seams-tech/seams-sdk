@@ -173,59 +173,9 @@ jobs:
       - name: Run signer parity with iOS Swift replay
         run: pnpm -C tests test:signer-parity:swift
 
-  relay-server-postgres-split-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-        with:
-          version: 10.28.2
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies (workspace)
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare SDK dist for web-server scripts
-        run: pnpm -C packages/sdk-web run build:prepare
-
-      - name: Run split-domain Postgres bootstrap+migrate+verify smoke
-        env:
-          POSTGRES_URL: postgres://seams_signer:seams_signer@127.0.0.1:5432/seams_signer
-          POSTGRES_MIGRATION_URL: postgres://seams_signer_migrator:seams_signer_migrator@127.0.0.1:5432/seams_signer
-          CONSOLE_POSTGRES_URL: postgres://seams_console:seams_console@127.0.0.1:5432/seams_console
-          CONSOLE_POSTGRES_MIGRATION_URL: postgres://seams_console_migrator:seams_console_migrator@127.0.0.1:5432/seams_console
-        run: pnpm -C apps/web-server run postgres:setup:split
-
-      - name: Teardown relay-server Postgres compose stack
-        if: always()
-        run: pnpm -C apps/web-server run postgres:down
-
   threshold-signing-core:
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: seams
-          POSTGRES_PASSWORD: seams
-          POSTGRES_DB: seams
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U seams -d seams"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 12
       redis:
         image: redis:7-alpine
         ports:
@@ -236,7 +186,6 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      POSTGRES_URL: postgres://seams:seams@127.0.0.1:5432/seams
       REDIS_URL: redis://127.0.0.1:6379
     steps:
       - name: Checkout
@@ -288,9 +237,6 @@ jobs:
 
       - name: Run threshold Ed25519 load smoke
         run: pnpm benchmark:threshold-load:ci
-
-      - name: Run console Postgres isolation suites
-        run: pnpm -C tests test:relayer:console-postgres
 
       - name: Run relay-server script unit checks
         run: pnpm -C tests test:unit:relay-server-scripts

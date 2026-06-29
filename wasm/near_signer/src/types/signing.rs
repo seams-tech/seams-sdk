@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThresholdSignerConfig {
-    /// Base URL of the relayer server (e.g. https://relay.example.com)
+    /// Base URL of the Router API server (e.g. https://router-api.example.com)
     pub relayer_url: String,
     /// Identifies which relayer-held key share to use.
     pub relayer_key_id: String,

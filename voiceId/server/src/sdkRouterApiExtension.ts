@@ -1,10 +1,9 @@
 import { Readable } from 'node:stream';
-import type { Request as ExpressRequest, Response as ExpressResponse } from 'express-serve-static-core';
-import type { RelayRouterModule } from '../../../packages/sdk-server-ts/src/router/modules';
+import type { RouterApiModule } from '../../../packages/sdk-server-ts/src/router/modules';
 import type {
-  RelayCloudflareRouteExtensionInput,
-  RelayExpressRouteExtensionInput,
-  RelayRouteExtension,
+  RouterApiCloudflareRouteExtensionInput,
+  RouterApiExpressRouteExtensionInput,
+  RouterApiRouteExtension,
 } from '../../../packages/sdk-server-ts/src/router/routeExtensions';
 import type { RouteDefinition } from '../../../packages/sdk-server-ts/src/router/routeDefinitions';
 import type {
@@ -12,46 +11,67 @@ import type {
   VoiceIdServerCapability,
 } from './capability.ts';
 
-export type VoiceIdRelayRouteDefinition = RouteDefinition & {
+type VoiceIdExpressHeaderValue = string | string[] | undefined;
+
+type VoiceIdExpressRequest = {
+  readonly method?: string;
+  readonly headers?: Record<string, VoiceIdExpressHeaderValue>;
+  readonly protocol?: string;
+  readonly originalUrl?: string;
+  readonly url?: string;
+  readonly body?: unknown;
+};
+
+type VoiceIdExpressResponse = {
+  status(status: number): unknown;
+  setHeader(name: string, value: string): unknown;
+  end(): unknown;
+  send(body: Buffer): unknown;
+};
+
+export type VoiceIdRouterApiRouteDefinition = RouteDefinition & {
   surface: 'relay';
   method: VoiceIdCapabilityRoute['method'];
 };
 
-export type VoiceIdRelayRouteExtension = Extract<
-  RelayRouteExtension,
+export type VoiceIdRouterApiRouteExtension = Extract<
+  RouterApiRouteExtension,
   { kind: 'universal_route_extension' }
 > & {
   id: 'voice_id';
 };
 
-export type VoiceIdRelayRouterModule = RelayRouterModule & { id: 'voice_id' };
+export type VoiceIdRouterApiModule = RouterApiModule & { id: 'voice_id' };
 
-export function createVoiceIdRelayRouterModule(
+export function createVoiceIdRouterApiModule(
   capability: VoiceIdServerCapability,
-): VoiceIdRelayRouterModule {
+): VoiceIdRouterApiModule {
   return Object.freeze({
-    kind: 'relay_router_module',
+    kind: 'router_api_module',
     id: 'voice_id',
-    routeExtensions: Object.freeze([createVoiceIdRelayRouteExtension(capability)]),
+    routeExtensions: Object.freeze([createVoiceIdRouterApiRouteExtension(capability)]),
   });
 }
 
-export function createVoiceIdRelayRouteExtension(
+export function createVoiceIdRouterApiRouteExtension(
   capability: VoiceIdServerCapability,
-): VoiceIdRelayRouteExtension {
+): VoiceIdRouterApiRouteExtension {
   const routes = Object.freeze(
-    capability.routes.map((route) => voiceIdCapabilityRouteToRelayRouteDefinition(route)),
+    capability.routes.map((route) => voiceIdCapabilityRouteToRouterApiRouteDefinition(route)),
   );
 
   return {
     kind: 'universal_route_extension',
     id: 'voice_id',
     routes,
-    handleCloudflareRoute: async ({ request }: RelayCloudflareRouteExtensionInput) =>
+    handleCloudflareRoute: async ({ request }: RouterApiCloudflareRouteExtensionInput) =>
       await capability.fetch(request),
-    registerExpressRoutes({ router }: RelayExpressRouteExtensionInput) {
+    registerExpressRoutes({ router }: RouterApiExpressRouteExtensionInput) {
       for (const route of capability.routes) {
-        const handler = async (req: ExpressRequest, res: ExpressResponse): Promise<void> => {
+        const handler = async (
+          req: VoiceIdExpressRequest,
+          res: VoiceIdExpressResponse,
+        ): Promise<void> => {
           await pipeWebResponseToExpress(
             await capability.fetch(expressRequestToWebRequest(req)),
             res,
@@ -71,11 +91,11 @@ export function createVoiceIdRelayRouteExtension(
   };
 }
 
-export function voiceIdCapabilityRouteToRelayRouteDefinition(
+export function voiceIdCapabilityRouteToRouterApiRouteDefinition(
   route: VoiceIdCapabilityRoute,
-): VoiceIdRelayRouteDefinition {
+): VoiceIdRouterApiRouteDefinition {
   const isHealthRoute = route.id === 'voice_id_health';
-  const auth: VoiceIdRelayRouteDefinition['auth'] = isHealthRoute
+  const auth: VoiceIdRouterApiRouteDefinition['auth'] = isHealthRoute
     ? {
         plane: 'public',
         rationale: 'VoiceID health metadata is public diagnostics.',
@@ -92,16 +112,16 @@ export function voiceIdCapabilityRouteToRelayRouteDefinition(
     method: route.method,
     path: route.path,
     auth,
-    metering: voiceIdRelayRouteMetering(),
+    metering: voiceIdRouterApiRouteMetering(),
     summary: route.summary,
   });
 }
 
-function voiceIdRelayRouteMetering(): VoiceIdRelayRouteDefinition['metering'] {
+function voiceIdRouterApiRouteMetering(): VoiceIdRouterApiRouteDefinition['metering'] {
   return { kind: 'none' };
 }
 
-function expressRequestToWebRequest(req: ExpressRequest): Request {
+function expressRequestToWebRequest(req: VoiceIdExpressRequest): Request {
   const method = String(req.method || 'GET').toUpperCase();
   const headers = headersFromExpressRequest(req);
   const url = expressRequestUrl(req);
@@ -131,7 +151,7 @@ function expressRequestToWebRequest(req: ExpressRequest): Request {
   return new Request(url, streamInit);
 }
 
-function readableBodyFromExpressRequest(req: ExpressRequest): BodyInit {
+function readableBodyFromExpressRequest(req: VoiceIdExpressRequest): BodyInit {
   return Readable.toWeb(req as unknown as Readable) as unknown as BodyInit;
 }
 
@@ -150,7 +170,7 @@ function bodyInitFromParsedExpressBody(body: unknown): BodyInit {
   return JSON.stringify(body);
 }
 
-function headersFromExpressRequest(req: ExpressRequest): Headers {
+function headersFromExpressRequest(req: VoiceIdExpressRequest): Headers {
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers ?? {})) {
     if (value === undefined) continue;
@@ -165,24 +185,24 @@ function headersFromExpressRequest(req: ExpressRequest): Headers {
   return headers;
 }
 
-function expressRequestUrl(req: ExpressRequest): string {
+function expressRequestUrl(req: VoiceIdExpressRequest): string {
   const proto = firstHeaderValue(req, 'x-forwarded-proto') || req.protocol || 'http';
   const host = firstHeaderValue(req, 'x-forwarded-host') || firstHeaderValue(req, 'host') || 'localhost';
   const path = req.originalUrl || req.url || '/';
   return `${proto}://${host}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-function firstHeaderValue(req: ExpressRequest, name: string): string | null {
-  const value = (req.headers ?? {})[name.toLowerCase()];
+function firstHeaderValue(req: VoiceIdExpressRequest, name: string): string | null {
+  const value = req.headers?.[name.toLowerCase()];
   if (Array.isArray(value)) {
     return value[0] ?? null;
   }
-  return value ?? null;
+  return typeof value === 'string' ? value : null;
 }
 
 async function pipeWebResponseToExpress(
   response: Response,
-  res: ExpressResponse,
+  res: VoiceIdExpressResponse,
 ): Promise<void> {
   res.status(response.status);
   response.headers.forEach((value, name) => {

@@ -13,7 +13,7 @@ type DemoJwtClaims = {
 };
 
 const demoSecret = 'demo-secret';
-const demoIssuer = 'relay-worker-demo';
+const demoIssuer = 'router-api-worker-demo';
 const demoAudience = 'seams-app-demo';
 const demoExpiresInSec = 24 * 60 * 60;
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';

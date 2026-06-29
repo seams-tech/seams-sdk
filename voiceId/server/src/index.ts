@@ -33,7 +33,7 @@ import type { VoiceIdVerifier } from './verifier/VoiceIdVerifier.ts';
 export * from './VoiceIdService.ts';
 export * from './capability.ts';
 export * from './routes.ts';
-export * from './sdkRelayExtension.ts';
+export * from './sdkRouterApiExtension.ts';
 export * from './store/VoiceIdStores.ts';
 export * from './store/CloudflareVoiceIdD1Stores.ts';
 export * from './store/CloudflareVoiceIdStorageRows.ts';

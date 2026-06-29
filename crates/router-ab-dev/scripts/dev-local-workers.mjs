@@ -405,10 +405,13 @@ async function ensureRouterServer() {
   const pane = getRouterPane();
   if (options.noRouterServer) {
     appendLine(pane, 'router server auto-start disabled');
-    return;
-  }
-  if (await routerServerIsReady()) {
-    appendLine(pane, `router server ready at ${routerServerBaseUrl}`);
+    if (!(await routerServerIsReady())) {
+      const status = await describeUrlStatus(`${routerServerBaseUrl}/healthz`);
+      throw new Error(
+        `${routerServerBaseUrl} is not a healthy external Router server (${status}). Start it with pnpm router:server or omit --no-router-server.`,
+      );
+    }
+    appendLine(pane, `external router server ready at ${routerServerBaseUrl}`);
     await ensureRouterServerHttpsProxy();
     return;
   }
@@ -416,7 +419,8 @@ async function ensureRouterServer() {
     const healthStatus = await describeUrlStatus(`${routerServerBaseUrl}/healthz`);
     const wellKnownStatus = await describeUrlStatus(routerServerInternalWellKnownUrl);
     throw new Error(
-      `${routerServerBaseUrl} is already listening but is not the Router server (${healthStatus}, well-known ${wellKnownStatus}). Stop that process or start the Router server with pnpm router:server.`,
+      `${routerServerBaseUrl} is already listening (${healthStatus}, well-known ${wellKnownStatus}). ` +
+        'Stop that process so pnpm router can supervise the Router server, or run pnpm router -- --no-router-server to use an external Router server explicitly.',
     );
   }
 
@@ -511,9 +515,7 @@ async function ensureRouterServerHttpsProxy() {
     const status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
     appendLine(pane, `router HTTPS proxy stopped: ${status}`);
     scheduleRender();
-    if (!shutdownStarted) {
-      shutdown(exitCodeForChildExit(code, signal));
-    }
+    handleRouterHttpsProxyExit(child, code, signal);
   });
   child.once('error', (error) => {
     appendLine(pane, `router HTTPS proxy spawn error: ${error.message}`);
@@ -526,6 +528,27 @@ async function ensureRouterServerHttpsProxy() {
   await waitForUrlStatus(routerServerPublicWellKnownUrl, 90_000);
   await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 2_000, 15_000);
   appendLine(pane, `router HTTPS proxy ready at ${routerServerPublicUrl}`);
+}
+
+async function handleRouterHttpsProxyExit(child, code, signal) {
+  if (shutdownStarted) {
+    return;
+  }
+  try {
+    await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 750, 10_000);
+    if (routerHttpsProxy.child === child) {
+      routerHttpsProxy.child = null;
+      routerHttpsProxy.exitPromise = null;
+      routerHttpsProxy.killAsGroup = false;
+    }
+    appendLine(
+      getRouterPane(),
+      `router HTTPS proxy still healthy at ${routerServerPublicUrl}; continuing with external proxy`,
+    );
+    scheduleRender();
+    return;
+  } catch {}
+  shutdown(exitCodeForChildExit(code, signal));
 }
 
 function pollReady(pane, attempts = 0) {
@@ -1173,7 +1196,7 @@ Options:
   --ephemeral-ports Use free localhost ports instead of the default 9090-9093 ports.
   --no-init         Require env files to already exist.
   --no-router-server
-                    Do not start the Router server.
+                    Use an already-running external Router server on 127.0.0.1:9090.
 
 Press Ctrl-C to stop all workers, stop started Router/proxy processes, and restore the terminal.`;
 }

@@ -14,8 +14,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const appSrc = fileURLToPath(new URL('./src', import.meta.url));
   const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
+  const appNodeModules = fileURLToPath(new URL('./node_modules', import.meta.url));
   const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
-  const workspaceNodeModules = fileURLToPath(new URL('../../node_modules', import.meta.url));
   // Bitwarden and other password managers inject extension iframes/scripts that are blocked
   // by COEP=require-corp on the host page. Default to COEP off for the docs site; switch
   // back on explicitly when you need cross-origin isolation testing.
@@ -64,19 +64,19 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: [
         { find: '@', replacement: appSrc },
-        { find: /^react$/, replacement: `${workspaceNodeModules}/react/index.js` },
+        { find: /^react$/, replacement: `${appNodeModules}/react/index.js` },
         {
           find: /^react\/jsx-runtime$/,
-          replacement: `${workspaceNodeModules}/react/jsx-runtime.js`,
+          replacement: `${appNodeModules}/react/jsx-runtime.js`,
         },
         {
           find: /^react\/jsx-dev-runtime$/,
-          replacement: `${workspaceNodeModules}/react/jsx-dev-runtime.js`,
+          replacement: `${appNodeModules}/react/jsx-dev-runtime.js`,
         },
-        { find: /^react-dom$/, replacement: `${workspaceNodeModules}/react-dom/index.js` },
+        { find: /^react-dom$/, replacement: `${appNodeModules}/react-dom/index.js` },
         {
           find: /^react-dom\/client$/,
-          replacement: `${workspaceNodeModules}/react-dom/client.js`,
+          replacement: `${appNodeModules}/react-dom/client.js`,
         },
       ],
       dedupe: ['react', 'react-dom'],

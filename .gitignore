@@ -13,6 +13,7 @@ apps/docs/public
 apps/docs/dist
 apps/docs/docs/dist
 apps/docs/src/.vitepress/cache
+apps/seams-site/.caddy.log
 apps/web-client/.caddy.log
 apps/web-server/dist
 apps/web-server/grace-keys.json
@@ -22,6 +23,9 @@ clients/ios/.build
 examples/relay-cloudflare-worker/.wrangler
 packages/sdk-server-ts/.wrangler/
 packages/sdk-server-ts/.dev.vars
+packages/sdk-server-ts/wrangler.d1-staging-console.toml
+packages/sdk-server-ts/wrangler.d1-staging-router-api.toml
+sqlite/
 
 # Playwright artifacts
 playwright-report

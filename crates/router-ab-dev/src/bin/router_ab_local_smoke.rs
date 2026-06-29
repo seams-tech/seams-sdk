@@ -47,10 +47,8 @@ use signer_core::threshold_ecdsa::{
 };
 use std::{
     env, fs,
-    io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,23 +221,24 @@ fn run_smoke(
     }
     let signing_worker_activation_elapsed_ms = elapsed_ms(activation_start);
 
+    let smoke_run_id = local_smoke_run_id()?;
     let normal_fixture = local_normal_signing_smoke_fixture()?;
     let normal_prepare_requests = vec![
         build_local_normal_signing_near_transaction_prepare_request_v2(
             &normal_fixture,
-            "sign-smoke-near-transaction-1",
+            &format!("sign-smoke-near-transaction-{smoke_run_id}"),
             &local_unsigned_transaction_borsh_v2(),
         )?,
         build_local_normal_signing_nep413_prepare_request_v2(
             &normal_fixture,
-            "sign-smoke-nep413-1",
+            &format!("sign-smoke-nep413-{smoke_run_id}"),
             "Sign in to the local Router A/B smoke",
             "wallet.local.test.near",
             Some("https://local.example/callback".to_owned()),
         )?,
         build_local_normal_signing_delegate_action_prepare_request_v2(
             &normal_fixture,
-            "sign-smoke-delegate-action-1",
+            &format!("sign-smoke-delegate-action-{smoke_run_id}"),
             &local_delegate_action_borsh_v2(),
         )?,
     ];
@@ -252,7 +251,11 @@ fn run_smoke(
         LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
         LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES,
     )?;
-    seed_local_ed25519_router_key_store_for_existing_topology(mode, &local_ed25519_seed)?;
+    seed_local_ed25519_router_key_store_for_existing_topology(
+        &urls.router,
+        mode,
+        &local_ed25519_seed,
+    )?;
     let local_ed25519_relayer_key_id = local_ed25519_seed.relayer_key_id.clone();
     let mut normal_response = None;
     for normal_prepare_request in normal_prepare_requests {
@@ -268,7 +271,7 @@ fn run_smoke(
     let normal_signing_elapsed_ms = elapsed_ms(normal_start);
 
     let ecdsa_start = Instant::now();
-    let ecdsa_result = run_ecdsa_hss_live_http_smoke(root, &urls)?;
+    let ecdsa_result = run_ecdsa_hss_live_http_smoke(root, &urls, &smoke_run_id)?;
     let ecdsa_hss_live_http_elapsed_ms = elapsed_ms(ecdsa_start);
 
     Ok(SmokeSummary {
@@ -392,10 +395,11 @@ fn required_json_string(
 fn run_ecdsa_hss_live_http_smoke(
     root: &Path,
     urls: &LocalWorkerUrls,
+    smoke_run_id: &str,
 ) -> Result<EcdsaHssSmokeResult, Box<dyn std::error::Error>> {
     let signing_worker_identity = signing_worker_identity_from_root(root)?;
     let fixture = local_ecdsa_hss_fixture(signing_worker_identity)?;
-    seed_local_ecdsa_wallet_session(&fixture)?;
+    seed_local_ecdsa_wallet_session(&urls.router, &fixture)?;
     let authorization = local_smoke_ecdsa_hss_wallet_session_authorization_v1(&fixture)?;
     let pool_put = LocalSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
         scope: fixture.scope.clone(),
@@ -432,7 +436,7 @@ fn run_ecdsa_hss_live_http_smoke(
 
     let prepare_request = RouterAbEcdsaHssEvmDigestSigningRequestV1::new(
         fixture.scope.clone(),
-        LOCAL_SMOKE_ECDSA_HSS_PREPARE_REQUEST_ID,
+        &format!("local-ecdsa-hss-smoke-sign-{smoke_run_id}"),
         fixture.server_presignature_id.clone(),
         fixture.expires_at_ms,
         b64u(&fixture.signing_digest32),
@@ -779,44 +783,40 @@ fn b64u(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+fn local_smoke_run_id() -> Result<String, Box<dyn std::error::Error>> {
+    let millis = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+    Ok(format!("{}-{millis}", std::process::id()))
+}
+
 fn seed_local_ed25519_router_key_store_for_existing_topology(
+    router_url: &str,
     mode: &str,
     seed: &LocalRouterEd25519KeyStoreSeedV1,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if mode != "existing" {
         return Ok(());
     }
-    let script_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/seed-ed25519-key-store.mjs");
-    let mut child = Command::new("node")
-        .arg(&script_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|error| {
-            format!(
-                "failed to start local Ed25519 key-store seed script {}: {error}",
-                script_path.display()
-            )
-        })?;
-    {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or("local Ed25519 key-store seed script stdin was not available")?;
-        stdin.write_all(&serde_json::to_vec(seed)?)?;
-    }
-    let status = child.wait()?;
-    if !status.success() {
-        return Err(
-            format!("local Ed25519 key-store seed script exited with status {status}").into(),
-        );
+    let internal_auth = local_router_ab_internal_service_auth_secret_v1();
+    let (status, body) = post_json_to_path_with_headers(
+        router_url,
+        LOCAL_ROUTER_AB_ED25519_SEED_PATH,
+        seed,
+        &[(
+            LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+            internal_auth.as_str(),
+        )],
+    )?;
+    if status != 200 {
+        return Err(format!(
+            "local Ed25519 Router seed expected HTTP 200, received {status}: {body}"
+        )
+        .into());
     }
     Ok(())
 }
 
 fn seed_local_ecdsa_wallet_session(
+    router_url: &str,
     fixture: &LocalEcdsaHssFixture,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let seed = json!({
@@ -829,52 +829,43 @@ fn seed_local_ecdsa_wallet_session(
         "derivationVersion": 1,
         "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,
         "thresholdSessionId": LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID,
-        "prepareRequestId": LOCAL_SMOKE_ECDSA_HSS_PREPARE_REQUEST_ID,
         "signingGrantId": LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID,
         "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
         "participantIds": [1, 2],
         "remainingUses": LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES
     });
-    let script_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/seed-ecdsa-wallet-session.mjs");
-    let mut child = Command::new("node")
-        .arg(&script_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|error| {
-            format!(
-                "failed to start local ECDSA wallet-session seed script {}: {error}",
-                script_path.display()
-            )
-        })?;
-    {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or("local ECDSA wallet-session seed script stdin was not available")?;
-        stdin.write_all(&serde_json::to_vec(&seed)?)?;
-    }
-    let status = child.wait()?;
-    if !status.success() {
-        return Err(
-            format!("local ECDSA wallet-session seed script exited with status {status}").into(),
-        );
+    let internal_auth = local_router_ab_internal_service_auth_secret_v1();
+    let (status, body) = post_json_to_path_with_headers(
+        router_url,
+        LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH,
+        &seed,
+        &[(
+            LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+            internal_auth.as_str(),
+        )],
+    )?;
+    if status != 200 {
+        return Err(format!(
+            "local ECDSA-HSS Router seed expected HTTP 200, received {status}: {body}"
+        )
+        .into());
     }
     Ok(())
 }
 
-const LOCAL_SMOKE_JWT_SECRET: &[u8] = b"demo-secret";
-const LOCAL_SMOKE_JWT_ISSUER: &str = "relay-worker-demo";
-const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-app-demo";
+const LOCAL_SMOKE_JWT_SECRET: &[u8] =
+    b"seams-local-d1-relay-session-secret-change-before-shared-dev";
+const LOCAL_ROUTER_AB_ED25519_SEED_PATH: &str = "/router-ab/dev/ed25519/normal-signing/seed";
+const LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH: &str =
+    "/router-ab/dev/ecdsa-hss/normal-signing/seed";
+const LOCAL_SMOKE_JWT_ISSUER: &str = "seams-local-d1-relay";
+const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-local-d1";
 const LOCAL_SMOKE_JWT_IAT: u64 = 1_700_000_000;
 const LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS: u64 = 4_102_444_800_000;
 const LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES: u32 = 32;
 const LOCAL_SMOKE_ED25519_SIGNING_GRANT_ID: &str = "local-ed25519-signing-grant";
 const LOCAL_SMOKE_ECDSA_HSS_SIGNING_GRANT_ID: &str = "local-ecdsa-hss-signing-grant";
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_SESSION_ID: &str = "local-ecdsa-hss-session";
-const LOCAL_SMOKE_ECDSA_HSS_PREPARE_REQUEST_ID: &str = "local-ecdsa-hss-smoke-sign-1";
 const LOCAL_SMOKE_ECDSA_HSS_WALLET_ID: &str = "wallet-ecdsa-hss-local";
 const LOCAL_SMOKE_ECDSA_HSS_WALLET_KEY_ID: &str = "wallet-ecdsa-hss-key-local";
 const LOCAL_SMOKE_ECDSA_HSS_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-local";

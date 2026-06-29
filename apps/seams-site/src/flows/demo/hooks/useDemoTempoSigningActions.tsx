@@ -303,10 +303,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           }
         } catch {}
       }
-      const unavailable =
-        errorCode === 'sponsored_evm_call_disabled' ||
-        errorCode === 'runtime_snapshot_not_found' ||
-        errorCode === 'publishable_key_auth_unavailable';
+      const unavailable = errorCode === 'runtime_snapshot_not_found';
       toast.error(
         unavailable
           ? `Tempo sponsorship unavailable: ${resolvedMessage}`

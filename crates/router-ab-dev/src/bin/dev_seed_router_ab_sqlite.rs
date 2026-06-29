@@ -9,7 +9,6 @@ use serde::Serialize;
 #[derive(Serialize)]
 struct DevSqliteSeedSummary {
     database: String,
-    dialect: &'static str,
     executed_statement_count: u32,
     signing_root_count: u32,
     sealed_share_count: u32,
@@ -73,7 +72,6 @@ fn dev_summary(
 ) -> DevSqliteSeedSummary {
     DevSqliteSeedSummary {
         database,
-        dialect: "sqlite",
         executed_statement_count,
         signing_root_count: summary.signing_root_count,
         sealed_share_count: summary.sealed_share_count,

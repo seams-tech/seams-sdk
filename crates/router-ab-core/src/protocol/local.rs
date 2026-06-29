@@ -492,34 +492,6 @@ impl LocalPersistenceSeedV1 {
     }
 }
 
-/// SQL dialect for local persistence seed plans.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LocalPersistenceSqlDialectV1 {
-    /// PostgreSQL parameter placeholders.
-    Postgres,
-    /// SQLite parameter placeholders.
-    Sqlite,
-}
-
-impl LocalPersistenceSqlDialectV1 {
-    /// Returns the stable dialect label.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Postgres => "postgres",
-            Self::Sqlite => "sqlite",
-        }
-    }
-
-    fn placeholder(self, index: usize) -> String {
-        debug_assert!(index > 0);
-        match self {
-            Self::Postgres => format!("${index}"),
-            Self::Sqlite => format!("?{index}"),
-        }
-    }
-}
-
 /// Bound value for a local persistence SQL statement.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
@@ -581,22 +553,14 @@ impl LocalPersistenceSqlStatementV1 {
 /// Parameterized SQL statements for local persistence seeding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalPersistenceSqlSeedPlanV1 {
-    /// SQL dialect used by the statements.
-    pub dialect: LocalPersistenceSqlDialectV1,
     /// Ordered SQL statements to execute.
     pub statements: Vec<LocalPersistenceSqlStatementV1>,
 }
 
 impl LocalPersistenceSqlSeedPlanV1 {
     /// Creates a validated SQL seed plan.
-    pub fn new(
-        dialect: LocalPersistenceSqlDialectV1,
-        statements: Vec<LocalPersistenceSqlStatementV1>,
-    ) -> RouterAbProtocolResult<Self> {
-        let plan = Self {
-            dialect,
-            statements,
-        };
+    pub fn new(statements: Vec<LocalPersistenceSqlStatementV1>) -> RouterAbProtocolResult<Self> {
+        let plan = Self { statements };
         plan.validate()?;
         Ok(plan)
     }
@@ -619,18 +583,13 @@ impl LocalPersistenceSqlSeedPlanV1 {
 /// Receipt for local SQL seed-plan execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalPersistenceSqlExecutionReceiptV1 {
-    /// SQL dialect used for execution.
-    pub dialect: LocalPersistenceSqlDialectV1,
     /// Number of statements executed.
     pub executed_statement_count: u32,
 }
 
 impl LocalPersistenceSqlExecutionReceiptV1 {
     /// Creates a validated SQL seed execution receipt.
-    pub fn new(
-        dialect: LocalPersistenceSqlDialectV1,
-        executed_statement_count: u32,
-    ) -> RouterAbProtocolResult<Self> {
+    pub fn new(executed_statement_count: u32) -> RouterAbProtocolResult<Self> {
         if executed_statement_count == 0 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -638,7 +597,6 @@ impl LocalPersistenceSqlExecutionReceiptV1 {
             ));
         }
         Ok(Self {
-            dialect,
             executed_statement_count,
         })
     }
@@ -649,26 +607,21 @@ pub trait LocalPersistenceSqlSeedExecutorV1 {
     /// Executes one validated seed statement with its bound values.
     fn execute_local_persistence_sql_statement_v1(
         &mut self,
-        dialect: LocalPersistenceSqlDialectV1,
         statement_index: u32,
         statement: &LocalPersistenceSqlStatementV1,
     ) -> RouterAbProtocolResult<()>;
 }
 
-/// Builds parameterized SQL for local signing-root metadata and sealed-share seeds.
+/// Builds SQLite SQL for local signing-root metadata and sealed-share seeds.
 pub fn local_persistence_seed_sql_plan_v1(
     seed: &LocalPersistenceSeedV1,
-    dialect: LocalPersistenceSqlDialectV1,
 ) -> RouterAbProtocolResult<LocalPersistenceSqlSeedPlanV1> {
     seed.validate()?;
-    LocalPersistenceSqlSeedPlanV1::new(
-        dialect,
-        vec![
-            local_signing_root_metadata_sql_statement(&seed.root_metadata, dialect)?,
-            local_sealed_root_share_sql_statement(&seed.deriver_a_share, dialect)?,
-            local_sealed_root_share_sql_statement(&seed.deriver_b_share, dialect)?,
-        ],
-    )
+    LocalPersistenceSqlSeedPlanV1::new(vec![
+        local_signing_root_metadata_sql_statement(&seed.root_metadata)?,
+        local_sealed_root_share_sql_statement(&seed.deriver_a_share)?,
+        local_sealed_root_share_sql_statement(&seed.deriver_b_share)?,
+    ])
 }
 
 /// Executes a validated local persistence SQL seed plan through an adapter.
@@ -679,13 +632,9 @@ pub fn execute_local_persistence_sql_seed_plan_v1(
     plan.validate()?;
     for (index, statement) in plan.statements.iter().enumerate() {
         statement.validate()?;
-        executor.execute_local_persistence_sql_statement_v1(
-            plan.dialect,
-            index as u32,
-            statement,
-        )?;
+        executor.execute_local_persistence_sql_statement_v1(index as u32, statement)?;
     }
-    LocalPersistenceSqlExecutionReceiptV1::new(plan.dialect, plan.statements.len() as u32)
+    LocalPersistenceSqlExecutionReceiptV1::new(plan.statements.len() as u32)
 }
 
 /// Local Router handler over checked transport envelopes.
@@ -2034,10 +1983,9 @@ fn require_seed_share(
 
 fn local_signing_root_metadata_sql_statement(
     metadata: &LocalSigningRootMetadataV1,
-    dialect: LocalPersistenceSqlDialectV1,
 ) -> RouterAbProtocolResult<LocalPersistenceSqlStatementV1> {
     metadata.validate()?;
-    let placeholders = sql_placeholders(dialect, 4);
+    let placeholders = sqlite_placeholders(4);
     LocalPersistenceSqlStatementV1::new(
         format!(
             "INSERT INTO local_signing_roots \
@@ -2059,10 +2007,9 @@ fn local_signing_root_metadata_sql_statement(
 
 fn local_sealed_root_share_sql_statement(
     share: &LocalSealedRootShareRecordV1,
-    dialect: LocalPersistenceSqlDialectV1,
 ) -> RouterAbProtocolResult<LocalPersistenceSqlStatementV1> {
     share.validate()?;
-    let placeholders = sql_placeholders(dialect, 8);
+    let placeholders = sqlite_placeholders(8);
     LocalPersistenceSqlStatementV1::new(
         format!(
             "INSERT INTO local_sealed_root_shares \
@@ -2097,10 +2044,8 @@ fn local_sealed_root_share_sql_statement(
     )
 }
 
-fn sql_placeholders(dialect: LocalPersistenceSqlDialectV1, count: usize) -> Vec<String> {
-    (1..=count)
-        .map(|index| dialect.placeholder(index))
-        .collect()
+fn sqlite_placeholders(count: usize) -> Vec<String> {
+    (1..=count).map(|index| format!("?{index}")).collect()
 }
 
 fn reject_forbidden_keys(

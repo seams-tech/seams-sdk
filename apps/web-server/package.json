@@ -1,6 +1,7 @@
 {
-  "name": "relay-server",
+  "name": "web-server",
   "type": "module",
+  "private": true,
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -8,16 +9,7 @@
     "start": "node dist/index.js",
     "dev": "node ./scripts/dev.mjs",
     "dev:threshold:3relays": "node ./scripts/dev-threshold-3relays.mjs",
-    "signing-session-seal:keygen": "node ./scripts/generate-signing-session-seal-keys.mjs",
-    "postgres:up": "node ./scripts/postgres-up.mjs",
-    "postgres:down": "node ./scripts/postgres-down.mjs",
-    "postgres:bootstrap:split": "node ./scripts/postgres-bootstrap-split-domains.mjs",
-    "postgres:migrate:signer": "node ./scripts/postgres-migrate-signer.mjs",
-    "postgres:migrate:console": "node ./scripts/postgres-migrate-console.mjs",
-    "postgres:migrate:split-from-monolith": "node ./scripts/postgres-migrate-monolith-to-split.mjs",
-    "postgres:verify:split": "node ./scripts/postgres-verify-split-domains.mjs",
-    "postgres:migrate:all": "pnpm run postgres:migrate:signer && pnpm run postgres:migrate:console",
-    "postgres:setup:split": "pnpm run postgres:up && pnpm run postgres:bootstrap:split && pnpm run postgres:migrate:all && pnpm run postgres:verify:split"
+    "signing-session-seal:keygen": "node ./scripts/generate-signing-session-seal-keys.mjs"
   },
   "keywords": [],
   "author": "",

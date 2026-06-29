@@ -5,7 +5,7 @@ import {
   autoConfirmWalletIframeUntil,
   type WalletIframeAutoConfirmDiagnostics,
 } from '../../../tests/setup/flows';
-import { installRelayServerProxyShim } from '../../../tests/setup/cross-origin-headers';
+import { installRouterApiProxyShim } from '../../../tests/setup/cross-origin-headers';
 import {
   installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
@@ -748,9 +748,9 @@ test.describe('registration flow benchmark scenario', () => {
 
     try {
       if (walletIframeMode === 'wallet_iframe') {
-        await installRelayServerProxyShim(page, {
-          relayOrigin: relayerUrl,
-          relayUpstream: managedRegistrationHarness.baseUrl,
+        await installRouterApiProxyShim(page, {
+          routerApiOrigin: relayerUrl,
+          routerApiUpstream: managedRegistrationHarness.baseUrl,
           logStyle: 'silent',
         });
       }

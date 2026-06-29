@@ -84,14 +84,14 @@ Ownership boundaries:
   at `voiceId/deploy/cloudflare/verifier-container/`, with
   `pnpm -C voiceId container:guard` covering the Dockerfile, `.dockerignore`,
   Python package metadata, and runbook shape.
-- SDK relay integration: wallet/auth relay routers expose
-  `RelayRouterOptions.routeExtensions` and generic `RelayRouterModule`
+- SDK relay integration: wallet/auth router API entrypoints expose
+  `RouterApiOptions.routeExtensions` and generic `RouterApiModule`
   registration, with Cloudflare-only, Express-only, and universal runtime
-  branches. `createVoiceIdRelayRouteExtension()` converts a VoiceID server
-  capability into a universal relay extension, and
-  `createVoiceIdRelayRouterModule()` wraps that extension in the SDK module
-  shape. Concrete VoiceID stores, verifiers, transcript providers, and liveness
-  policy remain owned by `voiceId/`.
+  branches. `createVoiceIdRouterApiRouteExtension()` converts a VoiceID server
+  capability into a universal router API route extension, and
+  `createVoiceIdRouterApiModule()` wraps that extension in the SDK module shape.
+  Concrete VoiceID stores, verifiers, transcript providers, and liveness policy
+  remain owned by `voiceId/`.
 - Optional SDK portability: API Gateway/ALB plus ECS/EKS/EC2 can host the same
   API and Python verifier sidecar on ordinary servers. High-assurance
   SigningWorker custody or template-key custody can also move into AWS Nitro

@@ -74,7 +74,7 @@ pub use self::local::{
     LocalDeriverAServiceV1, LocalDeriverBEndpointV1, LocalDeriverBServiceV1,
     LocalDeterministicSignerEnvelopeDecryptorV1, LocalEnvSnapshotV1, LocalHttpCeremonyResultV1,
     LocalHttpMethodV1, LocalHttpPathV1, LocalHttpRequestV1, LocalInProcessCeremonyResultV1,
-    LocalPersistenceSeedV1, LocalPersistenceSqlDialectV1, LocalPersistenceSqlExecutionReceiptV1,
+    LocalPersistenceSeedV1, LocalPersistenceSqlExecutionReceiptV1,
     LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlSeedPlanV1,
     LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1, LocalReplayCacheV1,
     LocalRouterDispatchV1, LocalRouterEndpointV1, LocalRouterRecipientProofBundleResponseV1,

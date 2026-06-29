@@ -13,7 +13,7 @@ This app runs a dedicated wallet/service origin for local development. It serves
 
 - In one terminal, build or watch the SDK so `dist/` exists:
   - Watch: `pnpm -C packages/sdk-web dev`
-  - One-off build: `pnpm -C packages/sdk-web build`
+  - One-off build: `pnpm build:sdk`
 - In another terminal, start this dev server:
 
 ```

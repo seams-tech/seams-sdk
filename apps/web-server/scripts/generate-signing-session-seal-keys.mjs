@@ -162,7 +162,7 @@ function printEnvBlocks(material) {
 
   console.log(`# Generated Shamir 3-pass key material (${primeBits}-bit prime)\n`);
 
-  console.log('# Relay server / worker env');
+  console.log('# Router API / worker env');
   console.log('SIGNING_SESSION_SEAL_ENABLED=1');
   console.log(`SIGNING_SESSION_SEAL_KEY_VERSION=${keyVersion}`);
   console.log(`SIGNING_SESSION_SHAMIR_P_B64U=${shamirPrimeB64u}`);

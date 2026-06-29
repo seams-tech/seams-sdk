@@ -8,12 +8,11 @@ use router_ab_core::{
     LifecycleScopeV1, LocalClientRouterRequestV1, LocalDeriverAEndpointV1, LocalDeriverAServiceV1,
     LocalDeriverBEndpointV1, LocalDeriverBServiceV1, LocalDeterministicSignerEnvelopeDecryptorV1,
     LocalEnvSnapshotV1, LocalHttpMethodV1, LocalHttpPathV1, LocalHttpRequestV1,
-    LocalPersistenceSeedV1, LocalPersistenceSqlDialectV1, LocalPersistenceSqlSeedExecutorV1,
-    LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1, LocalReplayCacheV1,
-    LocalRouterEndpointV1, LocalRouterServiceV1, LocalSealedRootShareRecordV1,
-    LocalServiceEndpointV1, LocalServiceRoleV1, LocalServiceStackV1, LocalServiceStartupV1,
-    LocalSignerEnvelopeDecryptorV1, LocalSignerHandlerContextV1, LocalSignerHandlerOutputV1,
-    LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
+    LocalPersistenceSeedV1, LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlStatementV1,
+    LocalPersistenceSqlValueV1, LocalReplayCacheV1, LocalRouterEndpointV1, LocalRouterServiceV1,
+    LocalSealedRootShareRecordV1, LocalServiceEndpointV1, LocalServiceRoleV1, LocalServiceStackV1,
+    LocalServiceStartupV1, LocalSignerEnvelopeDecryptorV1, LocalSignerHandlerContextV1,
+    LocalSignerHandlerOutputV1, LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
     LocalSigningWorkerRecipientProofBundleActivationV1, LocalTransportEnvelopeV1,
     LocalTransportRouteV1, NormalSigningScopeV1, PublicRouterRequestV1,
     RecipientProofBundleCiphertextV1, RoleEncryptedEnvelopeV1, RouterAbProtocolError,
@@ -408,22 +407,16 @@ fn local_persistence_seed() -> LocalPersistenceSeedV1 {
 
 #[derive(Default)]
 struct RecordingSqlExecutor {
-    calls: Vec<(
-        LocalPersistenceSqlDialectV1,
-        u32,
-        LocalPersistenceSqlStatementV1,
-    )>,
+    calls: Vec<(u32, LocalPersistenceSqlStatementV1)>,
 }
 
 impl LocalPersistenceSqlSeedExecutorV1 for RecordingSqlExecutor {
     fn execute_local_persistence_sql_statement_v1(
         &mut self,
-        dialect: LocalPersistenceSqlDialectV1,
         statement_index: u32,
         statement: &LocalPersistenceSqlStatementV1,
     ) -> RouterAbProtocolResult<()> {
-        self.calls
-            .push((dialect, statement_index, statement.clone()));
+        self.calls.push((statement_index, statement.clone()));
         Ok(())
     }
 }
@@ -436,7 +429,6 @@ struct FailingSqlExecutor {
 impl LocalPersistenceSqlSeedExecutorV1 for FailingSqlExecutor {
     fn execute_local_persistence_sql_statement_v1(
         &mut self,
-        _dialect: LocalPersistenceSqlDialectV1,
         statement_index: u32,
         _statement: &LocalPersistenceSqlStatementV1,
     ) -> RouterAbProtocolResult<()> {
@@ -722,19 +714,19 @@ fn local_persistence_seed_rejects_empty_sealed_share() {
 }
 
 #[test]
-fn local_persistence_seed_sql_plan_generates_postgres_statements() {
-    let plan = local_persistence_seed_sql_plan_v1(
-        &local_persistence_seed(),
-        LocalPersistenceSqlDialectV1::Postgres,
-    )
-    .expect("postgres seed plan");
+fn local_persistence_seed_sql_plan_generates_sqlite_statements() {
+    let plan =
+        local_persistence_seed_sql_plan_v1(&local_persistence_seed()).expect("sqlite seed plan");
 
-    assert_eq!(plan.dialect, LocalPersistenceSqlDialectV1::Postgres);
     assert_eq!(plan.statements.len(), 3);
+    assert!(plan
+        .statements
+        .iter()
+        .all(|statement| !statement.sql.contains('$')));
 
     let root_statement = &plan.statements[0];
     assert!(root_statement.sql.contains("local_signing_roots"));
-    assert!(root_statement.sql.contains("VALUES ($1, $2, $3, $4)"));
+    assert!(root_statement.sql.contains("VALUES (?1, ?2, ?3, ?4)"));
     assert!(root_statement
         .sql
         .contains("ON CONFLICT (signer_set_id, root_share_epoch)"));
@@ -750,7 +742,7 @@ fn local_persistence_seed_sql_plan_generates_postgres_statements() {
 
     let signer_a_statement = &plan.statements[1];
     assert!(signer_a_statement.sql.contains("local_sealed_root_shares"));
-    assert!(signer_a_statement.sql.contains("$8"));
+    assert!(signer_a_statement.sql.contains("?8"));
     assert_eq!(signer_a_statement.values.len(), 8);
     assert_eq!(
         signer_a_statement.values[1],
@@ -785,29 +777,11 @@ fn local_persistence_seed_sql_plan_generates_postgres_statements() {
 }
 
 #[test]
-fn local_persistence_seed_sql_plan_generates_sqlite_placeholders() {
-    let plan = local_persistence_seed_sql_plan_v1(
-        &local_persistence_seed(),
-        LocalPersistenceSqlDialectV1::Sqlite,
-    )
-    .expect("sqlite seed plan");
-
-    assert_eq!(plan.dialect, LocalPersistenceSqlDialectV1::Sqlite);
-    assert_eq!(plan.statements.len(), 3);
-    assert!(plan.statements[0].sql.contains("VALUES (?1, ?2, ?3, ?4)"));
-    assert!(plan.statements[1].sql.contains("?8"));
-    assert!(plan
-        .statements
-        .iter()
-        .all(|statement| !statement.sql.contains('$')));
-}
-
-#[test]
 fn local_persistence_seed_sql_plan_rejects_invalid_seed() {
     let mut seed = local_persistence_seed();
     seed.deriver_b_share.root_share_epoch = RootShareEpoch::new("epoch-2").expect("epoch 2");
 
-    let err = local_persistence_seed_sql_plan_v1(&seed, LocalPersistenceSqlDialectV1::Postgres)
+    let err = local_persistence_seed_sql_plan_v1(&seed)
         .expect_err("invalid seed must fail before SQL generation");
 
     assert_eq!(
@@ -818,38 +792,30 @@ fn local_persistence_seed_sql_plan_rejects_invalid_seed() {
 
 #[test]
 fn local_persistence_sql_execution_harness_runs_statements_in_order() {
-    let plan = local_persistence_seed_sql_plan_v1(
-        &local_persistence_seed(),
-        LocalPersistenceSqlDialectV1::Sqlite,
-    )
-    .expect("sqlite seed plan");
+    let plan =
+        local_persistence_seed_sql_plan_v1(&local_persistence_seed()).expect("sqlite seed plan");
     let mut executor = RecordingSqlExecutor::default();
 
     let receipt = execute_local_persistence_sql_seed_plan_v1(&plan, &mut executor)
         .expect("execute seed plan");
 
-    assert_eq!(receipt.dialect, LocalPersistenceSqlDialectV1::Sqlite);
     assert_eq!(receipt.executed_statement_count, 3);
     assert_eq!(executor.calls.len(), 3);
-    assert_eq!(executor.calls[0].0, LocalPersistenceSqlDialectV1::Sqlite);
-    assert_eq!(executor.calls[0].1, 0);
-    assert!(executor.calls[0].2.sql.contains("local_signing_roots"));
-    assert_eq!(executor.calls[1].1, 1);
-    assert!(executor.calls[1].2.sql.contains("local_sealed_root_shares"));
-    assert_eq!(executor.calls[2].1, 2);
+    assert_eq!(executor.calls[0].0, 0);
+    assert!(executor.calls[0].1.sql.contains("local_signing_roots"));
+    assert_eq!(executor.calls[1].0, 1);
+    assert!(executor.calls[1].1.sql.contains("local_sealed_root_shares"));
+    assert_eq!(executor.calls[2].0, 2);
     assert_eq!(
-        executor.calls[2].2.values[1],
+        executor.calls[2].1.values[1],
         LocalPersistenceSqlValueV1::Text("signer_b".to_owned())
     );
 }
 
 #[test]
 fn local_persistence_sql_execution_harness_stops_on_executor_error() {
-    let plan = local_persistence_seed_sql_plan_v1(
-        &local_persistence_seed(),
-        LocalPersistenceSqlDialectV1::Postgres,
-    )
-    .expect("postgres seed plan");
+    let plan =
+        local_persistence_seed_sql_plan_v1(&local_persistence_seed()).expect("sqlite seed plan");
     let mut executor = FailingSqlExecutor::default();
 
     let err = execute_local_persistence_sql_seed_plan_v1(&plan, &mut executor)

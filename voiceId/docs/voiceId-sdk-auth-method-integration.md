@@ -181,7 +181,7 @@ Use the same seams wallet surfaces that passkey and email OTP already use.
 | Public auth API | `packages/sdk-web/src/SeamsWeb/publicApi/auth.ts` and `types.ts` | Add `beginVoiceIdWalletAuth(...)` beside `beginGoogleEmailOtpWalletAuth(...)`. |
 | SDK implementation | `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts` | Wire the public method through the same domain-method dependency shape. |
 | React hook | `packages/sdk-web/src/react/hooks/useGoogleEmailOtpWalletAuth.ts` | Add `useVoiceIdWalletAuth(...)` with the same `busy`, `error`, and `start(...)` shape. |
-| Route mounting | `packages/sdk-server-ts/src/router` route modules and `RelayRouterModule` | Mount VoiceID through `createVoiceIdRelayRouterModule()`. |
+| Route mounting | `packages/sdk-server-ts/src/router` route modules and `RouterApiModule` | Mount VoiceID through `createVoiceIdRouterApiModule()`. |
 | Account projection | `packages/sdk-web/src/core/accountData/near/accountProjection.ts` | Recognize `voice_id` for stored account options and display routing. |
 | SDK events | `packages/sdk-web/src/core/types/sdkSentEvents.ts` | Add VoiceID phases for enrollment, verification, authorization, and signing gate results. |
 | Normal signing | `NearSignerCapability` in `packages/sdk-web/src/SeamsWeb/publicApi/types.ts` | Wrap existing signer methods with a VoiceID policy gate. |
@@ -345,8 +345,8 @@ Every switch that consumes auth method state should be exhaustive.
 
 ## Phase 4: Mount VoiceID Through Existing Server Adapters
 
-- [ ] Register VoiceID routes through `RelayRouterModule`.
-- [ ] Use `createVoiceIdRelayRouterModule()` as the VoiceID-owned module
+- [ ] Register VoiceID routes through `RouterApiModule`.
+- [ ] Use `createVoiceIdRouterApiModule()` as the VoiceID-owned module
       factory.
 - [ ] Keep concrete VoiceID stores, verifier mode, and transcript provider
       construction inside VoiceID-owned server setup code.

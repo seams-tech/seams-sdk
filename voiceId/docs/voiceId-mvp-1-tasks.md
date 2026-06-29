@@ -59,8 +59,8 @@ It also exposes a typed owner-presence policy result surface with required
 The SDK server routers now expose a generic `routeExtensions` hook so
 Cloudflare and Express relay entrypoints can mount VoiceID-owned routes without
 adding concrete VoiceID imports to wallet/auth core.
-The SDK server routers now also expose generic `RelayRouterModule` registration,
-and VoiceID provides a `createVoiceIdRelayRouterModule()` factory that registers
+The SDK server routers now also expose generic `RouterApiModule` registration,
+and VoiceID provides a `createVoiceIdRouterApiModule()` factory that registers
 the VoiceID route extension without importing concrete VoiceID code into SDK
 router core.
 VoiceID now has an SDK-facing auth-policy adapter that converts accepted,
@@ -68,7 +68,7 @@ intent-bound owner-presence into typed evidence for wallet sessions, wallet MPC
 signing, and robot commands while preserving rejected, uncertain, expired, and
 intent-mismatch branches as non-signing policy decisions.
 The immediate integration target is the normal SDK: mount VoiceID through
-`RelayRouterModule`, exercise the API and owner-presence policy result, and keep
+`RouterApiModule`, exercise the API and owner-presence policy result, and keep
 Router A/B out of the first SDK test path. The later Router A/B admission
 adapter contract is documented in
 `voiceId/docs/voiceId-router-policy-issuer.md` for the signing phase after
@@ -906,7 +906,7 @@ Goal: integrate routes after standalone VoiceID passes tests.
   - [x] intent mismatch rejects otherwise accepted owner-presence evidence
 - [x] Add route tests against the integrated server adapter.
 - [x] Mount the VoiceID capability in the actual SDK server/router entrypoints:
-  - [x] `RelayRouterOptions.routeExtensions` accepts Cloudflare-only,
+  - [x] `RouterApiOptions.routeExtensions` accepts Cloudflare-only,
     Express-only, or universal route extensions
   - [x] Cloudflare relay router includes Cloudflare/universal extension routes
     in its route surface and dispatch chain
@@ -915,8 +915,8 @@ Goal: integrate routes after standalone VoiceID passes tests.
   - [x] SDK router route surfaces reject duplicate extension route ids and
     method/path collisions
 - [x] Add server-side VoiceID SDK relay-extension adapter:
-  - [x] `createVoiceIdRelayRouteExtension()` converts a
-    `VoiceIdServerCapability` into a universal relay route extension
+  - [x] `createVoiceIdRouterApiRouteExtension()` converts a
+    `VoiceIdServerCapability` into a universal router API route extension
   - [x] Cloudflare dispatch calls the capability `Request -> Response` handler
     directly
   - [x] Express registration bridges Express requests/responses at the adapter
@@ -1166,7 +1166,7 @@ should not enter the normal VoiceID signing path.
   `voiceId/docs/voiceId-router-policy-issuer.md`.
 - [x] Test the normal SDK path before implementing the Router A/B signer
   adapter:
-  - [x] mount VoiceID through `RelayRouterModule`
+  - [x] mount VoiceID through `RouterApiModule`
   - [x] enroll and verify through the normal SDK-hosted routes
   - [x] call owner-presence authorization for a concrete `intentDigest`
   - [ ] feed the accepted policy result into wallet auth policy code

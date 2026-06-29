@@ -3,14 +3,14 @@ import test from 'node:test';
 import type { Router as ExpressRouter } from 'express';
 import {
   createDefaultVoiceIdService,
-  createVoiceIdRelayRouteExtension,
-  createVoiceIdRelayRouterModule,
+  createVoiceIdRouterApiRouteExtension,
+  createVoiceIdRouterApiModule,
   createVoiceIdServerCapability,
   voiceIdCapabilityRoutes,
 } from '../../server/src/index.ts';
 
-test('VoiceID relay extension maps capability routes to SDK route definitions', () => {
-  const extension = createVoiceIdRelayRouteExtension(
+test('VoiceID Router API extension maps capability routes to SDK route definitions', () => {
+  const extension = createVoiceIdRouterApiRouteExtension(
     createVoiceIdServerCapability({
       kind: 'service',
       service: createDefaultVoiceIdService({ verifierMode: 'fake' }),
@@ -44,15 +44,15 @@ test('VoiceID relay extension maps capability routes to SDK route definitions', 
   );
 });
 
-test('VoiceID relay module wraps the VoiceID route extension', () => {
-  const module = createVoiceIdRelayRouterModule(
+test('VoiceID Router API module wraps the VoiceID route extension', () => {
+  const module = createVoiceIdRouterApiModule(
     createVoiceIdServerCapability({
       kind: 'service',
       service: createDefaultVoiceIdService({ verifierMode: 'fake' }),
     }),
   );
 
-  assert.equal(module.kind, 'relay_router_module');
+  assert.equal(module.kind, 'router_api_module');
   assert.equal(module.id, 'voice_id');
   assert.equal(module.routeExtensions.length, 1);
   assert.equal(module.routeExtensions[0].id, 'voice_id');
@@ -62,8 +62,8 @@ test('VoiceID relay module wraps the VoiceID route extension', () => {
   );
 });
 
-test('VoiceID relay extension dispatches Cloudflare requests through capability fetch', async () => {
-  const extension = createVoiceIdRelayRouteExtension(
+test('VoiceID Router API extension dispatches Cloudflare requests through capability fetch', async () => {
+  const extension = createVoiceIdRouterApiRouteExtension(
     createVoiceIdServerCapability({
       kind: 'service',
       service: createDefaultVoiceIdService({ verifierMode: 'fake' }),
@@ -85,9 +85,9 @@ test('VoiceID relay extension dispatches Cloudflare requests through capability 
   assert.equal(body.service, 'voice-id-api');
 });
 
-test('VoiceID relay extension registers Express routes from capability metadata', () => {
+test('VoiceID Router API extension registers Express routes from capability metadata', () => {
   const router = new RecordingExpressRouter();
-  const extension = createVoiceIdRelayRouteExtension(
+  const extension = createVoiceIdRouterApiRouteExtension(
     createVoiceIdServerCapability({
       kind: 'service',
       service: createDefaultVoiceIdService({ verifierMode: 'fake' }),

@@ -183,17 +183,17 @@ typed route metadata plus `Request -> Response` handlers so SDK server routers
 can mount VoiceID without importing concrete VoiceID stores, verifiers, or
 transcript providers.
 
-The SDK relay routers expose a generic `RelayRouterOptions.routeExtensions`
-hook. Cloudflare-only, Express-only, and universal extensions each carry their
-own route metadata and runtime-native mount handlers. The SDK also exposes
-generic `RelayRouterModule` registration for optional capabilities. VoiceID uses
-that module surface to register `/voice-id/*` routes without adding VoiceID
-imports to the wallet/auth router core.
+The SDK router API exposes a generic `RouterApiOptions.routeExtensions` hook.
+Cloudflare-only, Express-only, and universal extensions each carry their own
+route metadata and runtime-native mount handlers. The SDK also exposes generic
+`RouterApiModule` registration for optional capabilities. VoiceID uses that
+module surface to register `/voice-id/*` routes without adding VoiceID imports
+to the wallet/auth router core.
 
-`voiceId/server/src/sdkRelayExtension.ts` provides the server-side adapter:
-`createVoiceIdRelayRouteExtension(createVoiceIdServerCapability(...))` returns a
-universal relay extension, and
-`createVoiceIdRelayRouterModule(createVoiceIdServerCapability(...))` wraps that
+`voiceId/server/src/sdkRouterApiExtension.ts` provides the server-side adapter:
+`createVoiceIdRouterApiRouteExtension(createVoiceIdServerCapability(...))`
+returns a universal router API route extension, and
+`createVoiceIdRouterApiModule(createVoiceIdServerCapability(...))` wraps that
 extension in the SDK module shape. Cloudflare calls the capability fetch handler
 directly, and Express request/response conversion stays isolated at the adapter
 boundary.

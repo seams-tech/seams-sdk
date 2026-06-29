@@ -1,12 +1,9 @@
-use router_ab_core::{
-    execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
-    LocalPersistenceSqlDialectV1, RouterAbProtocolErrorCode, SigningRootShareStore,
-};
 use router_ab_core::{Role, RootShareEpoch};
+use router_ab_core::{RouterAbProtocolErrorCode, SigningRootShareStore};
 use router_ab_dev::{
     ensure_local_sqlite_schema_v1, example_local_persistence_seed_v1,
     read_local_sqlite_seed_summary_v1, require_example_local_sqlite_signer_startup_v1,
-    seed_example_local_sqlite_v1, LocalSqliteSeedExecutorV1, LocalSqliteSigningRootShareStoreV1,
+    seed_example_local_sqlite_v1, LocalSqliteSigningRootShareStoreV1,
 };
 use rusqlite::Connection;
 
@@ -17,7 +14,6 @@ fn sqlite_seed_inserts_signing_root_and_role_shares() -> Result<(), Box<dyn std:
     let receipt = seed_example_local_sqlite_v1(&connection)?;
     let summary = read_local_sqlite_seed_summary_v1(&connection)?;
 
-    assert_eq!(receipt.dialect, LocalPersistenceSqlDialectV1::Sqlite);
     assert_eq!(receipt.executed_statement_count, 3);
     assert_eq!(summary.signing_root_count, 1);
     assert_eq!(summary.sealed_share_count, 2);
@@ -50,23 +46,6 @@ fn sqlite_seed_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(summary.signing_root_count, 1);
     assert_eq!(summary.sealed_share_count, 2);
-    Ok(())
-}
-
-#[test]
-fn sqlite_executor_rejects_postgres_dialect_plan() -> Result<(), Box<dyn std::error::Error>> {
-    let connection = Connection::open_in_memory()?;
-    let seed = example_local_persistence_seed_v1()?;
-    let plan = local_persistence_seed_sql_plan_v1(&seed, LocalPersistenceSqlDialectV1::Postgres)?;
-    let mut executor = LocalSqliteSeedExecutorV1::new(&connection);
-
-    let err = execute_local_persistence_sql_seed_plan_v1(&plan, &mut executor)
-        .expect_err("sqlite executor must reject postgres plan");
-
-    assert_eq!(
-        err.code(),
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
-    );
     Ok(())
 }
 

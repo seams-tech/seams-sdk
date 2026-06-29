@@ -31,11 +31,10 @@ use router_ab_core::{
     CorrectnessLevel, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1,
     LocalDeriverAEndpointV1, LocalDeriverBEndpointV1, LocalEnvSnapshotV1,
     LocalHttpCeremonyResultV1, LocalHttpMethodV1, LocalHttpPathV1, LocalHttpRequestV1,
-    LocalInProcessCeremonyResultV1, LocalPersistenceSeedV1, LocalPersistenceSqlDialectV1,
-    LocalPersistenceSqlExecutionReceiptV1, LocalPersistenceSqlSeedExecutorV1,
-    LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1, LocalRouterEndpointV1,
-    LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1, LocalServiceStartupV1,
-    LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
+    LocalInProcessCeremonyResultV1, LocalPersistenceSeedV1, LocalPersistenceSqlExecutionReceiptV1,
+    LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1,
+    LocalRouterEndpointV1, LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1,
+    LocalServiceStartupV1, LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
     LocalSigningWorkerRecipientProofBundleActivationV1, LocalTransportEnvelopeV1,
     LocalTransportRouteV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
     NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
@@ -1307,7 +1306,7 @@ pub struct LocalRouterAbHssDevHttpCeremonyResultV1 {
     pub hss_parity: LocalEd25519HssSplitServerParityReportV1,
 }
 
-/// Local Postgres seed for the SDK server Ed25519 key-store record.
+/// Local SDK server Ed25519 key-store seed record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalRouterEd25519KeyStoreSeedV1 {
@@ -3808,16 +3807,9 @@ impl<'conn> LocalSqliteSeedExecutorV1<'conn> {
 impl LocalPersistenceSqlSeedExecutorV1 for LocalSqliteSeedExecutorV1<'_> {
     fn execute_local_persistence_sql_statement_v1(
         &mut self,
-        dialect: LocalPersistenceSqlDialectV1,
         _statement_index: u32,
         statement: &LocalPersistenceSqlStatementV1,
     ) -> RouterAbProtocolResult<()> {
-        if dialect != LocalPersistenceSqlDialectV1::Sqlite {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "local SQLite seed executor requires sqlite dialect statements",
-            ));
-        }
         statement.validate()?;
         let values = statement
             .values
@@ -4271,7 +4263,7 @@ pub fn seed_local_sqlite_v1(
     seed: &LocalPersistenceSeedV1,
 ) -> RouterAbProtocolResult<LocalPersistenceSqlExecutionReceiptV1> {
     ensure_local_sqlite_schema_v1(connection)?;
-    let plan = local_persistence_seed_sql_plan_v1(seed, LocalPersistenceSqlDialectV1::Sqlite)?;
+    let plan = local_persistence_seed_sql_plan_v1(seed)?;
     let mut executor = LocalSqliteSeedExecutorV1::new(connection);
     execute_local_persistence_sql_seed_plan_v1(&plan, &mut executor)
 }

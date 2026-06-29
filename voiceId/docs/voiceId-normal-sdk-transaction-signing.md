@@ -227,7 +227,7 @@ transaction candidate
 ## Phase 5: Add SDK-Only End-To-End Coverage
 
 - [ ] Add a normal SDK test harness that mounts VoiceID through
-      `RelayRouterModule`.
+      `RouterApiModule`.
 - [ ] Run a fake-verifier flow:
       enroll, verify, authorize owner presence, evaluate wallet policy, and call
       a test signing continuation.

@@ -1,11 +1,9 @@
 import express, { Express, type RequestHandler } from 'express';
-import { Pool } from 'pg';
 import {
   AuthService,
   createEd25519WalletSessionStore,
   createWalletSigningBudgetSessionStore,
   createInMemoryConsoleSponsorshipSpendCapService,
-  createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   createEcdsaWalletSessionStore,
   createHostedSigningRootShareResolver,
@@ -32,6 +30,8 @@ import {
   type SigningRootSecretShareId,
   type SigningRootShareSource,
   type SigningRootShareResolver,
+  type SigningSessionSealRoutesOptions,
+  type ThresholdStoreConfigInput,
 } from '@seams/sdk-server';
 import {
   createConsoleRouter,
@@ -51,35 +51,18 @@ import {
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
-  createPostgresConsoleAccountService,
-  createPostgresConsoleApprovalService,
-  createPostgresConsoleApiKeyService,
-  createPostgresConsoleAuditService,
-  createPostgresConsoleBillingService,
-  createPostgresConsoleBillingPrepaidReservationService,
-  createPostgresConsoleBootstrapTokenService,
-  createPostgresConsoleObservabilityIngestionService,
-  createPostgresConsoleObservabilityService,
-  createPostgresConsoleOrgProjectEnvService,
-  createPostgresConsolePolicyService,
-  createPostgresConsoleRuntimeSnapshotService,
-  createPostgresConsoleTeamRbacService,
-  createPostgresConsoleWalletService,
-  createPostgresConsoleWebhookService,
-  createPostgresConsoleSponsoredCallService,
-  createRelayApiKeyAuthAdapter,
-  createRelayBillingUsageMeterAdapter,
-  createRelayBootstrapGrantBroker,
-  createRelayPublishableKeyAuthAdapter,
+  createRouterApiKeyAuthAdapter,
+  createRouterApiBillingUsageMeterAdapter,
+  createRouterApiBootstrapGrantBroker,
+  createRouterApiPublishableKeyAuthAdapter,
   createAppSessionConsoleAuthAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
-  createPostgresRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   normalizeConsoleOrgScopedRoleList,
   mergeConsoleOrgScopedRoleLists,
-  createRelayRouter,
+  createRouterApiRouter,
   type RouterAbPublicKeysetV2,
   type ConsoleAccountService,
   type ConsoleApiKeyService,
@@ -106,16 +89,16 @@ import dotenv from 'dotenv';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJwtSession } from './jwtSession.js';
-import { resolveRelayServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
+import { resolveWebServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
 import {
   createStripeBillingProviderAdapter,
   normalizeOptionalStripePublishableKey,
   normalizeStripeSecretKey,
 } from './stripeBillingProvider.js';
 
-const relayServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const relayDotenvPath = resolve(relayServerDir, '.env');
-dotenv.config({ path: relayDotenvPath });
+const webServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const webServerDotenvPath = resolve(webServerDir, '.env');
+dotenv.config({ path: webServerDotenvPath });
 
 let server: ReturnType<Express['listen']> | null = null;
 
@@ -347,23 +330,8 @@ function resolveRouterAbNormalSigningAdmissionFromEnv(input: {
   env: NodeJS.ProcessEnv;
   expectedOrigin: string;
   expectedWalletOrigin: string;
-  thresholdPostgresUrl: string;
 }): RouterAbNormalSigningAdmissionAdapter | null {
   if (!optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID')) return null;
-
-  const postgresUrl =
-    optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_URL') ||
-    input.thresholdPostgresUrl;
-  if (postgresUrl) {
-    return createRouterAbNormalSigningAdmissionAdapter(
-      createPostgresRouterAbNormalSigningAdmissionStore({
-        postgresUrl,
-        namespace:
-          optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_NAMESPACE') ||
-          'router-ab-normal-signing',
-      }),
-    );
-  }
 
   if (
     isLocalDevelopmentOrigin(input.expectedOrigin) ||
@@ -378,7 +346,7 @@ function resolveRouterAbNormalSigningAdmissionFromEnv(input: {
   }
 
   throw new Error(
-    '[router-ab] ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_URL or POSTGRES_URL is required when normal signing is enabled',
+    '[router-ab] Node normal-signing admission is local-only. Use the Cloudflare D1/DO router for durable normal-signing admission.',
   );
 }
 
@@ -399,28 +367,128 @@ function parseSigningSessionSealLimiterKind(
   return 'in-memory';
 }
 
+function hasSigningSessionSealRouteConfig(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(
+    optionalEnv(
+      env,
+      'SIGNING_SESSION_SEAL_KEY_VERSION',
+      'SIGNING_SESSION_SHAMIR_P_B64U',
+      'SIGNING_SESSION_SEAL_E_S_B64U',
+      'SIGNING_SESSION_SEAL_D_S_B64U',
+    ),
+  );
+}
+
+function createNodeSigningSessionSealRoutesOptions(input: {
+  env: NodeJS.ProcessEnv;
+  thresholdStore: ThresholdStoreConfigInput;
+  redisUrl: string;
+}): SigningSessionSealRoutesOptions | null {
+  if (!hasSigningSessionSealRouteConfig(input.env)) return null;
+
+  const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
+    requireEnvVar(input.env, 'SIGNING_SESSION_SHAMIR_P_B64U'),
+  );
+  const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
+    signingSessionSealShamirPrimeB64u,
+  );
+  const serverEncryptExponentB64u = requireEnvVar(input.env, 'SIGNING_SESSION_SEAL_E_S_B64U');
+  const serverDecryptExponentB64u = requireEnvVar(input.env, 'SIGNING_SESSION_SEAL_D_S_B64U');
+  const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
+    input.env.SIGNING_SESSION_SEAL_KEY_VERSION || 'signing-session-seal-kek-2026-02-28-r1',
+  );
+  const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
+
+  const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
+    config: input.thresholdStore,
+    logger: console,
+    isNode: true,
+  });
+  const walletSessionStore = createEd25519WalletSessionStore({
+    config: input.thresholdStore,
+    logger: console,
+    isNode: true,
+  });
+  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
+    config: input.thresholdStore,
+    logger: console,
+    isNode: true,
+  });
+
+  const limiterKind = parseSigningSessionSealLimiterKind(
+    input.env.SIGNING_SESSION_SEAL_RATE_LIMIT_KIND,
+  );
+  const rateLimit = resolveSigningSessionSealRateLimitFromEnv({
+    limiterKind,
+    upstashUrl: input.env.UPSTASH_REDIS_REST_URL,
+    upstashToken: input.env.UPSTASH_REDIS_REST_TOKEN,
+    redisUrl: input.redisUrl,
+    keyPrefix: String(
+      input.env.SIGNING_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX ||
+        'threshold:signing-session-seal:rate:',
+    ).trim(),
+    limit: parseOptionalPositiveInteger(input.env.SIGNING_SESSION_SEAL_RATE_LIMIT) || 30,
+    windowMs:
+      parseOptionalPositiveInteger(input.env.SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
+  });
+  const idempotencyKind = String(input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND || '')
+    .trim()
+    .toLowerCase();
+  const idempotency = idempotencyKind
+    ? resolveSigningSessionSealIdempotencyFromEnv({
+        idempotencyKind,
+        upstashUrl:
+          input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL ||
+          input.env.UPSTASH_REDIS_REST_URL ||
+          undefined,
+        upstashToken:
+          input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN ||
+          input.env.UPSTASH_REDIS_REST_TOKEN ||
+          undefined,
+        redisUrl:
+          input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL ||
+          input.redisUrl ||
+          undefined,
+        keyPrefix:
+          String(
+            input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX ||
+              'threshold:signing-session-seal:idempotency:',
+          ).trim() || undefined,
+        ttlMs: parseOptionalPositiveInteger(input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
+      })
+    : undefined;
+
+  return createSigningSessionSealRoutesOptions({
+    sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
+      ed25519Stores: [walletSessionStore],
+      ecdsaStores: [ecdsaWalletSessionStore],
+      walletBudgetStores: [walletBudgetSessionStore],
+    }),
+    cipher: createSigningSessionSealShamir3PassCipherAdapter({
+      currentKeyVersion: keyVersion,
+      keys: [
+        {
+          keyVersion,
+          shamirPrimeB64u,
+          serverEncryptExponentB64u,
+          serverDecryptExponentB64u,
+        },
+      ],
+    }),
+    capabilities: {
+      mode: 'sealed_refresh_v1',
+      keyVersion,
+      shamirPrimeB64u,
+    },
+    rateLimit,
+    ...(idempotency ? { idempotency } : {}),
+    logger: console,
+  });
+}
+
 function hasConsoleErrorCode(error: unknown, code: string): boolean {
   if (!error || typeof error !== 'object') return false;
   return String((error as { code?: unknown }).code || '').trim() === code;
-}
-
-function readServiceRuntimeBySymbolDescription(
-  service: unknown,
-  symbolDescription: string,
-): { pool: unknown; namespace: string } | null {
-  if (!service || typeof service !== 'object') return null;
-  for (const symbolKey of Object.getOwnPropertySymbols(service)) {
-    if (symbolKey.description !== symbolDescription) continue;
-    const runtime = (service as Record<symbol, unknown>)[symbolKey];
-    if (!runtime || typeof runtime !== 'object') return null;
-    const namespace = String((runtime as { namespace?: unknown }).namespace || '').trim();
-    if (!namespace) return null;
-    return {
-      pool: (runtime as { pool?: unknown }).pool,
-      namespace,
-    };
-  }
-  return null;
 }
 
 const LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES: ReadonlyArray<{
@@ -747,66 +815,51 @@ function buildDemoConsoleWalletSeeds(input: {
   ];
 }
 
-async function seedDemoConsoleWalletsInPostgres(input: {
-  postgresUrl: string;
-  namespace: string;
-  wallets: ConsoleWallet[];
+async function seedDemoConsoleWallets(input: {
+  wallets: ConsoleWalletService;
+  seeds: ConsoleWallet[];
   logger: Pick<Console, 'log'>;
 }): Promise<void> {
-  const pool = new Pool({ connectionString: input.postgresUrl });
-  try {
-    for (const wallet of input.wallets) {
-      await pool.query(
-        `
-          INSERT INTO console_wallet_index (
-            namespace,
-            id,
-            org_id,
-            project_id,
-            environment_id,
-            user_id,
-            external_ref_id,
-            address,
-            chain,
-            wallet_type,
-            status,
-            policy_id,
-            balance_minor,
-            last_activity_at_ms,
-            created_at_ms,
-            updated_at_ms
-          )
-          VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-          )
-          ON CONFLICT (namespace, id) DO NOTHING
-        `,
-        [
-          input.namespace,
-          wallet.id,
-          wallet.orgId,
-          wallet.projectId,
-          wallet.environmentId,
-          wallet.userId,
-          wallet.externalRefId,
-          wallet.address,
-          wallet.chain,
-          wallet.walletType,
-          wallet.status,
-          wallet.policyId,
-          wallet.balanceMinor,
-          wallet.lastActivityAt ? Date.parse(wallet.lastActivityAt) : null,
-          Date.parse(wallet.createdAt),
-          Date.parse(wallet.updatedAt),
-        ],
-      );
-    }
-  } finally {
-    await pool.end();
+  if (!input.wallets.upsertWallet) {
+    throw new Error('Console demo wallet seeding requires wallet upsert support');
   }
 
+  let created = 0;
+  let skipped = 0;
+  const upsertWallet = input.wallets.upsertWallet.bind(input.wallets);
+  for (const wallet of input.seeds) {
+    const ctx = {
+      orgId: wallet.orgId,
+      actorUserId: 'console-seed-owner',
+      roles: ['owner', 'admin'],
+      projectId: wallet.projectId,
+      environmentId: wallet.environmentId,
+    };
+    const existing = await input.wallets.getWallet(ctx, wallet.id);
+    if (existing) {
+      skipped += 1;
+      continue;
+    }
+    await upsertWallet(ctx, {
+      id: wallet.id,
+      projectId: wallet.projectId,
+      environmentId: wallet.environmentId,
+      userId: wallet.userId,
+      externalRefId: wallet.externalRefId,
+      address: wallet.address,
+      chain: wallet.chain,
+      walletType: wallet.walletType,
+      status: wallet.status,
+      policyId: wallet.policyId,
+      balanceMinor: wallet.balanceMinor,
+      lastActivityAt: wallet.lastActivityAt,
+      createdAt: wallet.createdAt,
+      updatedAt: wallet.updatedAt,
+    });
+    created += 1;
+  }
   input.logger.log(
-    `[console-demo-seed] wallets=${input.wallets.length} namespace=${input.namespace} storage=postgres`,
+    `[console-demo-seed] wallets=${created} skipped=${skipped} storage=wallet-service`,
   );
 }
 
@@ -1045,31 +1098,8 @@ async function main() {
   const jwtSession = createJwtSession(sessionCookieName);
   const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
   const {
-    thresholdPostgresUrl,
-    consolePostgresUrl,
-    consoleBackend,
-    consoleEnsureSchema,
-    consoleNamespace,
-    consoleObservabilityQueryMaxWindowMs,
-    consoleObservabilityIngestMaxBatchSize,
-    consoleObservabilityIngestMaxEventsPerMinute,
-    consoleObservabilityRetentionTtlMs,
-    consoleObservabilityRetentionPruneIntervalMs,
-    consoleObservabilityRetentionBatchSize,
-    consoleRuntimeSnapshotRetentionTtlMs,
-    consoleRuntimeSnapshotRetentionPruneIntervalMs,
-    consoleRuntimeSnapshotRetentionBatchSize,
     consoleBillingStripeWebhookSecret,
-  } = resolveRelayServerConsoleConfig(env as Record<string, unknown>);
-  const usePostgresForThreshold = Boolean(thresholdPostgresUrl);
-  const thresholdRedisUrl = usePostgresForThreshold ? '' : redisUrl;
-
-  if (usePostgresForThreshold && redisUrl) {
-    console.warn(
-      '[threshold] POSTGRES_URL and REDIS_URL are both set; using Postgres for threshold stores and ignoring REDIS_URL.',
-    );
-  }
-
+  } = resolveWebServerConsoleConfig(env as Record<string, unknown>);
   const host =
     typeof env.HOST === 'string' && env.HOST.trim().length > 0 ? env.HOST.trim() : undefined;
   const config = {
@@ -1079,14 +1109,18 @@ async function main() {
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
   const startupHost = config.host || '0.0.0.0';
-  console.log(`[relay-server] startup target http://${startupHost}:${config.port}`);
+  console.log(`[web-server] startup target http://${startupHost}:${config.port}`);
   if (String(env.ACCOUNT_ID_DERIVATION_SECRET || '').trim()) {
-    console.log('[relay-server] Hosted account-id derivation: configured');
+    console.log('[web-server] Hosted account-id derivation: configured');
   } else {
-    console.warn('[relay-server] ACCOUNT_ID_DERIVATION_SECRET is not set');
+    console.warn('[web-server] ACCOUNT_ID_DERIVATION_SECRET is not set');
   }
-  const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
-  const requiresAtomicSponsoredSettlement = Boolean(sponsoredEvmCallConfig);
+  const configuredSponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
+  if (configuredSponsoredEvmCallConfig) {
+    throw new Error(
+      'Node web-server sponsored EVM execution was removed for Refactor 82. Use the Cloudflare D1/DO Worker for prepaid sponsored gas settlement.',
+    );
+  }
   const sponsorshipRealPricing = resolveCoinGeckoSponsoredExecutionPricingFromEnv(env);
   const sponsorshipStaticPricing = resolveStaticSponsoredExecutionPricingFromEnv(env);
   const sponsorshipPricing = sponsorshipRealPricing || sponsorshipStaticPricing;
@@ -1136,7 +1170,6 @@ async function main() {
     env,
     expectedOrigin: config.expectedOrigin,
     expectedWalletOrigin: config.expectedWalletOrigin,
-    thresholdPostgresUrl,
   });
   if (routerAbNormalSigningAdmission) {
     console.log('[router-ab] normal-signing admission: enabled');
@@ -1163,11 +1196,9 @@ async function main() {
     THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
     THRESHOLD_COORDINATOR_INSTANCE_ID: env.THRESHOLD_COORDINATOR_INSTANCE_ID,
     THRESHOLD_COORDINATOR_PEERS: env.THRESHOLD_COORDINATOR_PEERS,
-    // Optional persistence for sessions/shares
-    POSTGRES_URL: thresholdPostgresUrl || undefined,
     UPSTASH_REDIS_REST_URL: env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: env.UPSTASH_REDIS_REST_TOKEN,
-    REDIS_URL: thresholdRedisUrl || undefined,
+    REDIS_URL: redisUrl || undefined,
     // Optional key prefixes (useful when sharing a single database)
     THRESHOLD_ED25519_KEYSTORE_PREFIX: env.THRESHOLD_ED25519_KEYSTORE_PREFIX,
     THRESHOLD_ED25519_SESSION_PREFIX: env.THRESHOLD_ED25519_SESSION_PREFIX,
@@ -1224,126 +1255,16 @@ async function main() {
       : undefined,
   });
 
-  console.log('[relay-server] initializing storage');
-  await authService.initStorage();
-
-  console.log('[relay-server] warming registration runtime');
+  console.log('[web-server] warming registration runtime');
   await authService.warmRegistrationRuntime();
 
-  console.log('[relay-server] initializing threshold services');
+  console.log('[web-server] initializing threshold services');
   const threshold = authService.getThresholdSigningService();
-
-  const signingSessionSealEnabled = parseBooleanFlag(env.SIGNING_SESSION_SEAL_ENABLED);
-  const signingSessionSeal = (() => {
-    if (!signingSessionSealEnabled) return null;
-
-    const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
-      requireEnvVar(env, 'SIGNING_SESSION_SHAMIR_P_B64U'),
-    );
-    const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
-      signingSessionSealShamirPrimeB64u,
-    );
-    const serverEncryptExponentB64u = requireEnvVar(env, 'SIGNING_SESSION_SEAL_E_S_B64U');
-    const serverDecryptExponentB64u = requireEnvVar(env, 'SIGNING_SESSION_SEAL_D_S_B64U');
-    const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
-      env.SIGNING_SESSION_SEAL_KEY_VERSION || 'signing-session-seal-kek-2026-02-28-r1',
-    );
-    const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
-    if (!keyVersion) {
-      throw new Error(
-        'SIGNING_SESSION_SEAL_KEY_VERSION must be a non-empty string when SIGNING_SESSION_SEAL_ENABLED=1',
-      );
-    }
-
-    const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
-      config: thresholdStore,
-      logger: console,
-      isNode: true,
-    });
-    const walletSessionStore = createEd25519WalletSessionStore({
-      config: thresholdStore,
-      logger: console,
-      isNode: true,
-    });
-    const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
-      config: thresholdStore,
-      logger: console,
-      isNode: true,
-    });
-
-    const limiterKind = parseSigningSessionSealLimiterKind(
-      env.SIGNING_SESSION_SEAL_RATE_LIMIT_KIND,
-    );
-    const rateLimit = resolveSigningSessionSealRateLimitFromEnv({
-      limiterKind,
-      upstashUrl: env.UPSTASH_REDIS_REST_URL,
-      upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
-      redisUrl: thresholdRedisUrl || redisUrl,
-      keyPrefix: String(
-        env.SIGNING_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX || 'threshold:signing-session-seal:rate:',
-      ).trim(),
-      limit: parseOptionalPositiveInteger(env.SIGNING_SESSION_SEAL_RATE_LIMIT) || 30,
-      windowMs:
-        parseOptionalPositiveInteger(env.SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
-    });
-    const idempotencyKind = String(env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND || '')
-      .trim()
-      .toLowerCase();
-    const idempotency = idempotencyKind
-      ? resolveSigningSessionSealIdempotencyFromEnv({
-          idempotencyKind,
-          upstashUrl:
-            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL ||
-            env.UPSTASH_REDIS_REST_URL ||
-            undefined,
-          upstashToken:
-            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN ||
-            env.UPSTASH_REDIS_REST_TOKEN ||
-            undefined,
-          redisUrl:
-            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL ||
-            thresholdRedisUrl ||
-            redisUrl ||
-            undefined,
-          postgresUrl:
-            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || thresholdPostgresUrl || undefined,
-          postgresNamespace: env.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
-          keyPrefix:
-            String(
-              env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX ||
-                'threshold:signing-session-seal:idempotency:',
-            ).trim() || undefined,
-          ttlMs: parseOptionalPositiveInteger(env.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
-        })
-      : undefined;
-
-    return createSigningSessionSealRoutesOptions({
-      sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
-        ed25519Stores: [walletSessionStore],
-        ecdsaStores: [ecdsaWalletSessionStore],
-        walletBudgetStores: [walletBudgetSessionStore],
-      }),
-      cipher: createSigningSessionSealShamir3PassCipherAdapter({
-        currentKeyVersion: keyVersion,
-        keys: [
-          {
-            keyVersion,
-            shamirPrimeB64u,
-            serverEncryptExponentB64u,
-            serverDecryptExponentB64u,
-          },
-        ],
-      }),
-      capabilities: {
-        mode: 'sealed_refresh_v1',
-        keyVersion,
-        shamirPrimeB64u,
-      },
-      rateLimit,
-      ...(idempotency ? { idempotency } : {}),
-      logger: console,
-    });
-  })();
+  const signingSessionSeal = createNodeSigningSessionSealRoutesOptions({
+    env,
+    thresholdStore,
+    redisUrl,
+  });
 
   const app: Express = express();
   const consoleDemoSeedEnabled = parseBooleanFlagWithDefault(env.CONSOLE_DEMO_SEED_ENABLED, true);
@@ -1365,7 +1286,10 @@ async function main() {
   const stripeCheckoutPriceId = String(env.STRIPE_CHECKOUT_PRICE_ID || '').trim() || '';
   const stripeApiBaseUrl = String(env.STRIPE_API_BASE_URL || '').trim() || '';
   const stripeApiTimeoutMs = parseOptionalPositiveInteger(env.STRIPE_API_TIMEOUT_MS);
-  const relayApiKeyAuthEnabled = parseBooleanFlagWithDefault(env.RELAY_API_KEY_AUTH_ENABLED, true);
+  const routerApiKeyAuthEnabled = parseBooleanFlagWithDefault(
+    env.ROUTER_API_KEY_AUTH_ENABLED,
+    true,
+  );
   const stripeProviderOverrides: Partial<BillingProviderAdapters> | undefined = stripeApiSecretKey
     ? {
         stripe: createStripeBillingProviderAdapter({
@@ -1376,169 +1300,41 @@ async function main() {
         }),
       }
     : undefined;
-  if (requiresAtomicSponsoredSettlement && !consolePostgresUrl) {
-    throw new Error(
-      'Sponsored EVM call requires CONSOLE_POSTGRES_URL because Node sponsored settlement uses the Postgres console family',
-    );
-  }
-  let consoleBilling: ConsoleBillingService;
-  let consoleWebhooks: ConsoleWebhookService;
-  let consoleObservability: ConsoleObservabilityService;
-  let consoleObservabilityIngestion: ConsoleObservabilityIngestionService | null;
-  let consoleAudit: ConsoleAuditService;
-  let consoleOrgProjectEnvBase: ConsoleOrgProjectEnvService;
-  let consoleOrgProjectEnv: ConsoleOrgProjectEnvService;
-  let consoleApiKeys: ConsoleApiKeyService;
-  let consoleBootstrapTokens: ConsoleBootstrapTokenService;
-  let consoleApprovals: ConsoleApprovalService;
-  let consolePolicies: ConsolePolicyService;
-  let consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService;
-  let consoleTeamRbac: ConsoleTeamRbacService;
-  let consoleWallets: ConsoleWalletService;
-  let consoleSponsoredCalls: ConsoleSponsoredCallService;
-  let consoleSponsorshipSpendCaps: ConsoleSponsorshipSpendCapService;
-  let consoleBillingPrepaidReservations: ConsoleBillingPrepaidReservationService;
-  let consoleAccount: ConsoleAccountService;
-  const consoleCoreNamespace = consoleNamespace;
-  let consoleDemoOrgId = '';
-  let demoWalletSeeds: ConsoleWallet[] = [];
-  if (consoleBackend === 'postgres') {
-    if (!consolePostgresUrl) {
-      throw new Error('Postgres console backend requires CONSOLE_POSTGRES_URL');
-    }
-    consoleBilling = await createPostgresConsoleBillingService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-      ...(stripeProviderOverrides ? { providers: stripeProviderOverrides } : {}),
-    });
-  } else {
-    consoleBilling = createInMemoryConsoleBillingService({
-      ...(stripeProviderOverrides ? { providers: stripeProviderOverrides } : {}),
-    });
-  }
-
-  if (consoleBackend === 'postgres') {
-    consoleAudit = await createPostgresConsoleAuditService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleOrgProjectEnvBase = await createPostgresConsoleOrgProjectEnvService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleApiKeys = await createPostgresConsoleApiKeyService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleBootstrapTokens = await createPostgresConsoleBootstrapTokenService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consolePolicies = await createPostgresConsolePolicyService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleApprovals = await createPostgresConsoleApprovalService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleRuntimeSnapshots = await createPostgresConsoleRuntimeSnapshotService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-      retentionTtlMs: consoleRuntimeSnapshotRetentionTtlMs,
-      retentionPruneIntervalMs: consoleRuntimeSnapshotRetentionPruneIntervalMs,
-      retentionBatchSize: consoleRuntimeSnapshotRetentionBatchSize,
-    });
-    consoleTeamRbac = await createPostgresConsoleTeamRbacService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleDemoOrgId = await resolveConsoleDemoOrgId({
-      configuredOrgId: configuredConsoleDemoOrgId,
-      orgProjectEnv: consoleOrgProjectEnvBase,
-      logger: console,
-    });
-    demoWalletSeeds = consoleDemoOrgId
-      ? buildDemoConsoleWalletSeeds({
-          orgId: consoleDemoOrgId,
-          projectId: consoleDemoProjectId,
-          environmentId: consoleDemoEnvironmentId,
-        })
-      : [];
-    consoleWallets = await createPostgresConsoleWalletService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleSponsoredCalls = await createPostgresConsoleSponsoredCallService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-    consoleBillingPrepaidReservations = await createPostgresConsoleBillingPrepaidReservationService(
-      {
-        postgresUrl: consolePostgresUrl,
-        namespace: consoleCoreNamespace,
-        logger: console as any,
-        ensureSchema: consoleEnsureSchema,
-      },
-    );
-    consoleSponsorshipSpendCaps = await createPostgresConsoleSponsorshipSpendCapService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-    });
-  } else {
-    consoleAudit = createInMemoryConsoleAuditService({
-      seedDemoData: consoleDemoSeedEnabled,
-    });
-    consoleOrgProjectEnvBase = createInMemoryConsoleOrgProjectEnvService();
-    consoleApiKeys = createInMemoryConsoleApiKeyService();
-    consoleBootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    consolePolicies = createInMemoryConsolePolicyService();
-    consoleApprovals = createInMemoryConsoleApprovalService();
-    consoleRuntimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
-    consoleTeamRbac = createInMemoryConsoleTeamRbacService();
-    consoleDemoOrgId = await resolveConsoleDemoOrgId({
-      configuredOrgId: configuredConsoleDemoOrgId,
-      orgProjectEnv: consoleOrgProjectEnvBase,
-      logger: console,
-    });
-    demoWalletSeeds = consoleDemoOrgId
-      ? buildDemoConsoleWalletSeeds({
-          orgId: consoleDemoOrgId,
-          projectId: consoleDemoProjectId,
-          environmentId: consoleDemoEnvironmentId,
-        })
-      : [];
-    consoleWallets = createInMemoryConsoleWalletService({
-      seedWallets: demoWalletSeeds,
-    });
-    consoleSponsoredCalls = createInMemoryConsoleSponsoredCallService();
-    consoleBillingPrepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
-    consoleSponsorshipSpendCaps = createInMemoryConsoleSponsorshipSpendCapService();
-  }
+  const consoleBilling: ConsoleBillingService = createInMemoryConsoleBillingService({
+    ...(stripeProviderOverrides ? { providers: stripeProviderOverrides } : {}),
+  });
+  const consoleAudit: ConsoleAuditService = createInMemoryConsoleAuditService({
+    seedDemoData: consoleDemoSeedEnabled,
+  });
+  const consoleOrgProjectEnvBase: ConsoleOrgProjectEnvService =
+    createInMemoryConsoleOrgProjectEnvService();
+  const consoleApiKeys: ConsoleApiKeyService = createInMemoryConsoleApiKeyService();
+  const consoleBootstrapTokens: ConsoleBootstrapTokenService =
+    createInMemoryConsoleBootstrapTokenService();
+  const consolePolicies: ConsolePolicyService = createInMemoryConsolePolicyService();
+  const consoleApprovals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
+  const consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService =
+    createInMemoryConsoleRuntimeSnapshotService();
+  const consoleTeamRbac: ConsoleTeamRbacService = createInMemoryConsoleTeamRbacService();
+  const consoleWallets: ConsoleWalletService = createInMemoryConsoleWalletService();
+  const consoleSponsoredCalls: ConsoleSponsoredCallService =
+    createInMemoryConsoleSponsoredCallService();
+  const consoleBillingPrepaidReservations: ConsoleBillingPrepaidReservationService =
+    createInMemoryConsoleBillingPrepaidReservationService();
+  const consoleSponsorshipSpendCaps: ConsoleSponsorshipSpendCapService =
+    createInMemoryConsoleSponsorshipSpendCapService();
+  const consoleDemoOrgId = await resolveConsoleDemoOrgId({
+    configuredOrgId: configuredConsoleDemoOrgId,
+    orgProjectEnv: consoleOrgProjectEnvBase,
+    logger: console,
+  });
+  const demoWalletSeeds = consoleDemoOrgId
+    ? buildDemoConsoleWalletSeeds({
+        orgId: consoleDemoOrgId,
+        projectId: consoleDemoProjectId,
+        environmentId: consoleDemoEnvironmentId,
+      })
+    : [];
 
   const normalizedOnboardingContractAddress = (() => {
     const value = tempoOnboardingFaucetContractRaw;
@@ -1546,70 +1342,33 @@ async function main() {
       ? (value as `0x${string}`)
       : DEFAULT_TEMPO_ONBOARDING_CONTRACT;
   })();
-  consoleOrgProjectEnv = createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship({
+  const consoleOrgProjectEnv = createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship({
     base: consoleOrgProjectEnvBase,
     policies: consolePolicies,
     runtimeSnapshots: consoleRuntimeSnapshots,
     faucetContractAddress: normalizedOnboardingContractAddress,
   });
 
-  if (consoleBackend === 'postgres') {
-    if (!consolePostgresUrl) {
-      throw new Error('Postgres console backend requires CONSOLE_POSTGRES_URL');
-    }
-    consoleObservability = await createPostgresConsoleObservabilityService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-      queryMaxWindowMs: consoleObservabilityQueryMaxWindowMs,
-    });
-    consoleObservabilityIngestion = await createPostgresConsoleObservabilityIngestionService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-      maxBatchSize: consoleObservabilityIngestMaxBatchSize,
-      maxEventsPerMinute: consoleObservabilityIngestMaxEventsPerMinute,
-      retentionTtlMs: consoleObservabilityRetentionTtlMs,
-      retentionPruneIntervalMs: consoleObservabilityRetentionPruneIntervalMs,
-      retentionBatchSize: consoleObservabilityRetentionBatchSize,
-    });
-  } else {
-    consoleObservability = createInMemoryConsoleObservabilityService();
-    consoleObservabilityIngestion = null;
-  }
-  if (consoleBackend === 'postgres') {
-    if (!consolePostgresUrl) {
-      throw new Error('Postgres console backend requires CONSOLE_POSTGRES_URL');
-    }
-    consoleWebhooks = await createPostgresConsoleWebhookService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleNamespace,
-      logger: console as any,
-      ensureSchema: consoleEnsureSchema,
-      observabilityIngestion: consoleObservabilityIngestion,
-      observabilityLogger: console as any,
-    } as any);
-  } else {
-    consoleWebhooks = createInMemoryConsoleWebhookService({
-      observabilityIngestion: consoleObservabilityIngestion,
-      observabilityLogger: console as any,
-    } as any);
-  }
-  const relayApiKeyAuth = relayApiKeyAuthEnabled
-    ? createRelayApiKeyAuthAdapter(consoleApiKeys)
+  const consoleObservability: ConsoleObservabilityService =
+    createInMemoryConsoleObservabilityService();
+  const consoleObservabilityIngestion: ConsoleObservabilityIngestionService | null = null;
+  const consoleWebhooks: ConsoleWebhookService = createInMemoryConsoleWebhookService({
+    observabilityIngestion: consoleObservabilityIngestion,
+    observabilityLogger: console as any,
+  } as any);
+  const routerApiKeyAuth = routerApiKeyAuthEnabled
+    ? createRouterApiKeyAuthAdapter(consoleApiKeys)
     : null;
-  const relayPublishableKeyAuth = relayApiKeyAuthEnabled
-    ? createRelayPublishableKeyAuthAdapter(consoleApiKeys)
+  const routerApiPublishableKeyAuth = routerApiKeyAuthEnabled
+    ? createRouterApiPublishableKeyAuthAdapter(consoleApiKeys)
     : null;
-  const relayApiKeyUsageMeter = relayApiKeyAuthEnabled
-    ? createRelayBillingUsageMeterAdapter(consoleBilling, {
+  const routerApiKeyUsageMeter = routerApiKeyAuthEnabled
+    ? createRouterApiBillingUsageMeterAdapter(consoleBilling, {
         orgProjectEnv: consoleOrgProjectEnv,
         wallets: consoleWallets,
       })
     : null;
-  const relayBootstrapGrantBroker = createRelayBootstrapGrantBroker({
+  const routerApiBootstrapGrantBroker = createRouterApiBootstrapGrantBroker({
     apiKeys: consoleApiKeys,
     tokenStore: consoleBootstrapTokens,
     orgProjectEnv: consoleOrgProjectEnv,
@@ -1628,24 +1387,12 @@ async function main() {
     apiKeys: consoleApiKeys,
     teamRbac: consoleTeamRbac,
   });
-  if (consolePostgresUrl) {
-    consoleAccount = await createPostgresConsoleAccountService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      orgProjectEnv: consoleOrgProjectEnv,
-      teamRbac: consoleTeamRbac,
-      onboarding: consoleOnboarding,
-      wallets: consoleWallets,
-      logger: console,
-    });
-  } else {
-    consoleAccount = createInMemoryConsoleAccountService({
-      orgProjectEnv: consoleOrgProjectEnv,
-      teamRbac: consoleTeamRbac,
-      onboarding: consoleOnboarding,
-      wallets: consoleWallets,
-    });
-  }
+  const consoleAccount: ConsoleAccountService = createInMemoryConsoleAccountService({
+    orgProjectEnv: consoleOrgProjectEnv,
+    teamRbac: consoleTeamRbac,
+    onboarding: consoleOnboarding,
+    wallets: consoleWallets,
+  });
   const consoleAuth = createAppSessionConsoleAuthAdapter({
     session: jwtSession,
     authService,
@@ -1674,14 +1421,11 @@ async function main() {
         environmentId: consoleDemoEnvironmentId,
         logger: console,
       });
-      if (consolePostgresUrl) {
-        await seedDemoConsoleWalletsInPostgres({
-          postgresUrl: consolePostgresUrl,
-          namespace: consoleCoreNamespace,
-          wallets: demoWalletSeeds,
-          logger: console,
-        });
-      }
+      await seedDemoConsoleWallets({
+        wallets: consoleWallets,
+        seeds: demoWalletSeeds,
+        logger: console,
+      });
       await seedDemoConsolePoliciesAndApprovals({
         policies: consolePolicies,
         approvals: consoleApprovals,
@@ -1700,58 +1444,6 @@ async function main() {
     faucetContractAddress: normalizedOnboardingContractAddress,
   });
 
-  if (requiresAtomicSponsoredSettlement) {
-    const billingRuntime = readServiceRuntimeBySymbolDescription(
-      consoleBilling,
-      'consoleBillingPostgresRuntime',
-    );
-    const prepaidRuntime = readServiceRuntimeBySymbolDescription(
-      consoleBillingPrepaidReservations,
-      'consoleBillingPrepaidReservationPostgresRuntime',
-    );
-    const sponsoredRuntime = readServiceRuntimeBySymbolDescription(
-      consoleSponsoredCalls,
-      'consoleSponsoredCallPostgresRuntime',
-    );
-    const hasAllRuntimes = Boolean(billingRuntime && prepaidRuntime && sponsoredRuntime);
-    const samePool = Boolean(
-      billingRuntime &&
-      prepaidRuntime &&
-      sponsoredRuntime &&
-      billingRuntime.pool === prepaidRuntime.pool &&
-      billingRuntime.pool === sponsoredRuntime.pool,
-    );
-    const sameNamespace = Boolean(
-      billingRuntime &&
-      prepaidRuntime &&
-      sponsoredRuntime &&
-      billingRuntime.namespace === prepaidRuntime.namespace &&
-      billingRuntime.namespace === sponsoredRuntime.namespace,
-    );
-    if (!hasAllRuntimes || !samePool || !sameNamespace) {
-      const diagnostics = {
-        requiresAtomicSponsoredSettlement,
-        consoleBackend,
-        hasConsolePostgresUrl: Boolean(consolePostgresUrl),
-        hasBillingRuntime: Boolean(billingRuntime),
-        hasPrepaidRuntime: Boolean(prepaidRuntime),
-        hasSponsoredRuntime: Boolean(sponsoredRuntime),
-        samePool,
-        sameNamespace,
-        billingNamespace: billingRuntime?.namespace || null,
-        prepaidNamespace: prepaidRuntime?.namespace || null,
-        sponsoredNamespace: sponsoredRuntime?.namespace || null,
-      };
-      console.error('[relay-server] atomic sponsorship storage wiring invalid', diagnostics);
-      throw new Error(
-        'Atomic sponsored settlement startup check failed. Require Postgres billing, prepaidReservations, and sponsoredCalls with one shared pool and namespace.',
-      );
-    }
-    console.log(
-      `[relay-server] atomic sponsorship storage wiring: ok (namespace=${billingRuntime!.namespace})`,
-    );
-  }
-
   app.use((_req, res, next) => {
     res.setHeader('referrer-policy', 'no-referrer');
     res.setHeader('permissions-policy', 'geolocation=(), microphone=(), camera=()');
@@ -1761,7 +1453,7 @@ async function main() {
   app.use(express.json({ limit: '1mb' }));
 
   // Mount router built from AuthService
-  const relayRouter = createRelayRouter(authService, {
+  const routerApiRouter = createRouterApiRouter(authService, {
     healthz: true,
     readyz: true,
     corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
@@ -1778,6 +1470,7 @@ async function main() {
       : {}),
     signedDelegate: {
       route: '/signed-delegate',
+      authService,
       billing: consoleBilling,
       ledger: consoleSponsoredCalls,
       runtimeSnapshots: consoleRuntimeSnapshots,
@@ -1790,18 +1483,11 @@ async function main() {
     session: jwtSession,
     sessionCookieName,
     threshold,
-    ...(relayApiKeyAuth ? { apiKeyAuth: relayApiKeyAuth } : {}),
-    ...(relayPublishableKeyAuth ? { publishableKeyAuth: relayPublishableKeyAuth } : {}),
-    ...(relayApiKeyUsageMeter ? { apiKeyUsageMeter: relayApiKeyUsageMeter } : {}),
-    bootstrapGrantBroker: relayBootstrapGrantBroker,
+    ...(routerApiKeyAuth ? { apiKeyAuth: routerApiKeyAuth } : {}),
+    ...(routerApiPublishableKeyAuth ? { publishableKeyAuth: routerApiPublishableKeyAuth } : {}),
+    ...(routerApiKeyUsageMeter ? { apiKeyUsageMeter: routerApiKeyUsageMeter } : {}),
+    bootstrapGrantBroker: routerApiBootstrapGrantBroker,
     bootstrapTokenStore: consoleBootstrapTokens,
-    sponsoredEvmCall: {
-      apiKeys: consoleApiKeys,
-      billing: consoleBilling,
-      ledger: consoleSponsoredCalls,
-      runtimeSnapshots: consoleRuntimeSnapshots,
-      config: sponsoredEvmCallConfig,
-    },
     orgProjectEnv: consoleOrgProjectEnv,
     routerAbPublicKeyset,
     routerAbNormalSigningAdmission,
@@ -1809,7 +1495,7 @@ async function main() {
     logger: console,
   }) as unknown as RequestHandler;
   // The SDK export and app compile against distinct Express type roots after the package split.
-  app.use('/', relayRouter);
+  app.use('/', routerApiRouter);
 
   // Mount console/admin router on /console/*
   const consoleRouter = createConsoleRouter({
@@ -1842,21 +1528,12 @@ async function main() {
     if (boundAddress && typeof boundAddress === 'object') {
       const host = boundAddress.address || config.host || 'localhost';
       const printableHost = host.includes(':') ? `[${host}]` : host;
-      console.log(`[relay-server] listening on http://${printableHost}:${boundAddress.port}`);
+      console.log(`[web-server] listening on http://${printableHost}:${boundAddress.port}`);
     } else {
       const listenHost = config.host || 'localhost';
-      console.log(`[relay-server] listening on http://${listenHost}:${config.port}`);
+      console.log(`[web-server] listening on http://${listenHost}:${config.port}`);
     }
     console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
-    const sponsoredExecutors = sponsoredEvmCallConfig
-      ? [...sponsoredEvmCallConfig.executorsByChain.values()]
-      : [];
-    console.log(`Sponsored EVM route: ${sponsoredExecutors.length > 0 ? 'enabled' : 'disabled'}`);
-    for (const executor of sponsoredExecutors) {
-      console.log(
-        `Sponsored EVM executor: chainId=${executor.chainId} sponsor=${executor.sponsorAddress} onboardingContract=${normalizedOnboardingContractAddress}`,
-      );
-    }
     console.log(
       `Sponsored spend pricing: ${
         sponsorshipRealPricing
@@ -1873,29 +1550,15 @@ async function main() {
       console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);
     }
     console.log(
-      `Signing-session seal routes: ${signingSessionSealEnabled ? 'enabled' : 'disabled'}`,
+      `Signing-session seal routes: ${signingSessionSeal ? 'configured' : 'not configured'}`,
     );
     console.log(
-      `Relay API key auth (/registration/bootstrap): ${relayApiKeyAuth ? 'enabled' : 'disabled'}`,
+      `Router API key auth (/registration/bootstrap): ${routerApiKeyAuth ? 'enabled' : 'disabled'}`,
     );
     console.log(
-      `Relay usage meter (billing linkage): ${relayApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
+      `Router API usage meter (billing linkage): ${routerApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
     );
-    console.log(`Console backend: ${consoleBackend}`);
-    if (consoleBackend === 'postgres') {
-      console.log(`Console namespace: ${consoleCoreNamespace}`);
-      console.log(`Console ensure schema: ${consoleEnsureSchema ? 'enabled' : 'disabled'}`);
-      console.log('Console Postgres URL source: CONSOLE_POSTGRES_URL');
-      console.log(
-        `Console runtime snapshot retention TTL (ms): ${consoleRuntimeSnapshotRetentionTtlMs}`,
-      );
-      console.log(
-        `Console runtime snapshot retention prune interval (ms): ${consoleRuntimeSnapshotRetentionPruneIntervalMs}`,
-      );
-      console.log(
-        `Console runtime snapshot retention batch size: ${consoleRuntimeSnapshotRetentionBatchSize}`,
-      );
-    }
+    console.log('Console backend: memory');
     console.log('Console routes mounted at /console/*');
     console.log(
       `Console session auth: app_session_v1 cookie/JWT (bootstrap roles: ${consoleSsoBootstrapRoles.join(', ') || 'none'})`,
@@ -1916,26 +1579,6 @@ async function main() {
         consoleBillingStripeWebhookSecret ? 'configured' : 'not configured'
       }`,
     );
-    if (consoleBackend === 'postgres') {
-      console.log(
-        `Console observability query max window (ms): ${consoleObservabilityQueryMaxWindowMs}`,
-      );
-      console.log(
-        `Console observability ingest max batch size: ${consoleObservabilityIngestMaxBatchSize}`,
-      );
-      console.log(
-        `Console observability ingest max events/min: ${consoleObservabilityIngestMaxEventsPerMinute}`,
-      );
-      console.log(
-        `Console observability retention TTL (ms): ${consoleObservabilityRetentionTtlMs}`,
-      );
-      console.log(
-        `Console observability retention prune interval (ms): ${consoleObservabilityRetentionPruneIntervalMs}`,
-      );
-      console.log(
-        `Console observability retention batch size: ${consoleObservabilityRetentionBatchSize}`,
-      );
-    }
     authService
       .getRelayerAccount()
       .then((relayer) =>
@@ -1945,20 +1588,20 @@ async function main() {
   };
 
   const requestedListenHost = config.host || '0.0.0.0';
-  console.log('[relay-server] startup complete, binding http listener');
-  console.log(`[relay-server] attempting listen on http://${requestedListenHost}:${config.port}`);
+  console.log('[web-server] startup complete, binding http listener');
+  console.log(`[web-server] attempting listen on http://${requestedListenHost}:${config.port}`);
   server = config.host
     ? app.listen(config.port, config.host, onListening)
     : app.listen(config.port, onListening);
   server.on('error', (error: Error) => {
     console.error(
-      `[relay-server] failed to listen on http://${requestedListenHost}:${config.port}`,
+      `[web-server] failed to listen on http://${requestedListenHost}:${config.port}`,
       error,
     );
   });
 }
 
 main().catch((err) => {
-  console.error('[relay-server] fatal startup error:', err);
+  console.error('[web-server] fatal startup error:', err);
   process.exit(1);
 });
