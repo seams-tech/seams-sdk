@@ -16,18 +16,23 @@ import {
   deriveSigningRootId,
   normalizeRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
+  type Ed25519SessionPolicy,
   registrationPreparationIdFromString,
-  ThresholdEd25519BootstrapSession,
-  WalletRegistrationPrepareResponse,
-  WalletRegistrationFinalizeResponse,
-  WalletRegistrationHssRespondResponse,
-  WalletRegistrationStartResponse,
+  type ThresholdEd25519BootstrapSession,
+  type ThresholdRuntimePolicyScope,
+  type WalletRegistrationPrepareResponse,
+  type WalletRegistrationFinalizeResponse,
+  type WalletRegistrationHssRespondResponse,
+  type WalletRegistrationStartResponse,
 } from '../../core/types';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../core/ThresholdService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
+import { parseThresholdEd25519AuthorityScope } from '../../core/ThresholdService/validation';
 import type { WalletStore } from '../../core/d1WalletStore';
 import type { CloudflareRouterApiAuthService } from '../authServicePort';
 import {
@@ -104,6 +109,134 @@ function normalizeD1ThresholdRuntimePolicyScope(raw: unknown) {
   } catch {
     return undefined;
   }
+}
+
+type D1Ed25519SessionPolicyBuildResult =
+  | { ok: true; value: Ed25519SessionPolicy }
+  | { ok: false; code: 'invalid_body'; message: string };
+
+function parseD1ThresholdEd25519SessionPolicyRouterAbNormalSigning(
+  requestedSessionPolicy: Record<string, unknown>,
+): D1Ed25519SessionPolicyBuildResult | {
+  ok: true;
+  value: Ed25519SessionPolicy['routerAbNormalSigning'];
+} {
+  if (!Object.prototype.hasOwnProperty.call(requestedSessionPolicy, 'routerAbNormalSigning')) {
+    return { ok: true, value: undefined };
+  }
+  try {
+    const parsed = parseRouterAbEd25519NormalSigningState(
+      requestedSessionPolicy.routerAbNormalSigning,
+    );
+    if (parsed) return { ok: true, value: parsed };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message:
+        'threshold_ed25519.session_policy.routerAbNormalSigning must be a Router A/B normal-signing state',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message:
+        error && typeof error === 'object' && 'message' in error
+          ? String((error as { message?: unknown }).message)
+          : 'threshold_ed25519.session_policy.routerAbNormalSigning is invalid',
+    };
+  }
+}
+
+function parseD1ThresholdEd25519SessionPolicyParticipantIds(
+  requestedSessionPolicy: Record<string, unknown>,
+): D1Ed25519SessionPolicyBuildResult | { ok: true; value: number[] | undefined } {
+  if (!Object.prototype.hasOwnProperty.call(requestedSessionPolicy, 'participantIds')) {
+    return { ok: true, value: undefined };
+  }
+  const participantIds = normalizeThresholdEd25519ParticipantIds(
+    requestedSessionPolicy.participantIds,
+  );
+  if (participantIds) return { ok: true, value: participantIds };
+  return {
+    ok: false,
+    code: 'invalid_body',
+    message: 'threshold_ed25519.session_policy.participantIds must contain participant ids',
+  };
+}
+
+function buildD1ThresholdEd25519RegistrationSessionPolicy(input: {
+  readonly requestedSessionPolicy: Record<string, unknown>;
+  readonly walletId: string;
+  readonly nearAccountId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly relayerKeyId: string;
+  readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
+}): D1Ed25519SessionPolicyBuildResult {
+  const requestedSessionPolicy = input.requestedSessionPolicy;
+  const version = toOptionalTrimmedString(requestedSessionPolicy.version);
+  if (version !== 'threshold_session_v1') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'threshold_ed25519.session_policy.version must be threshold_session_v1',
+    };
+  }
+  const authorityScope = parseThresholdEd25519AuthorityScope(
+    requestedSessionPolicy.authorityScope,
+  );
+  if (!authorityScope) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'threshold_ed25519.session_policy.authorityScope is required',
+    };
+  }
+  const thresholdSessionId = toOptionalTrimmedString(
+    requestedSessionPolicy.thresholdSessionId,
+  );
+  if (!thresholdSessionId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'threshold_ed25519.session_policy.thresholdSessionId is required',
+    };
+  }
+  const ttlMs = Number(requestedSessionPolicy.ttlMs);
+  const remainingUses = Number(requestedSessionPolicy.remainingUses);
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || !Number.isFinite(remainingUses) || remainingUses <= 0) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'threshold_ed25519.session_policy ttlMs/remainingUses must be positive',
+    };
+  }
+  const routerAbNormalSigning =
+    parseD1ThresholdEd25519SessionPolicyRouterAbNormalSigning(requestedSessionPolicy);
+  if (!routerAbNormalSigning.ok) return routerAbNormalSigning;
+  const participantIds =
+    parseD1ThresholdEd25519SessionPolicyParticipantIds(requestedSessionPolicy);
+  if (!participantIds.ok) return participantIds;
+  const signingGrantId = toOptionalTrimmedString(requestedSessionPolicy.signingGrantId);
+  return {
+    ok: true,
+    value: {
+      version: 'threshold_session_v1',
+      walletId: input.walletId,
+      nearAccountId: input.nearAccountId,
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      authorityScope,
+      relayerKeyId: input.relayerKeyId,
+      thresholdSessionId,
+      ...(signingGrantId ? { signingGrantId } : {}),
+      ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
+      ...(routerAbNormalSigning.value
+        ? { routerAbNormalSigning: routerAbNormalSigning.value }
+        : {}),
+      ...(participantIds.value ? { participantIds: participantIds.value } : {}),
+      ttlMs,
+      remainingUses,
+    },
+  };
 }
 
 type RegistrationIntentSignerBranches = {
@@ -1043,21 +1176,22 @@ export class CloudflareD1WalletRegistrationService {
           if (policyBindingError) {
             return { ok: false, code: 'invalid_body', message: policyBindingError };
           }
+          const sessionPolicy = buildD1ThresholdEd25519RegistrationSessionPolicy({
+            requestedSessionPolicy: requestedPolicy,
+            walletId: String(ceremony.intent.walletId),
+            nearAccountId: finalized.nearAccountId,
+            nearEd25519SigningKeyId,
+            relayerKeyId: keygen.relayerKeyId,
+            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          });
+          if (!sessionPolicy.ok) return sessionPolicy;
           const session = await threshold.mintEd25519SessionFromRegistration({
             walletId: String(ceremony.intent.walletId),
             nearAccountId: finalized.nearAccountId,
             nearEd25519SigningKeyId,
             rpId: ed25519AuthorityScopeKey,
             relayerKeyId: keygen.relayerKeyId,
-            sessionPolicy: {
-              ...requestedPolicy,
-              walletId: String(ceremony.intent.walletId),
-              nearAccountId: finalized.nearAccountId,
-              nearEd25519SigningKeyId,
-              rpId: ed25519AuthorityScopeKey,
-              relayerKeyId: keygen.relayerKeyId,
-              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-            } as any,
+            sessionPolicy: sessionPolicy.value,
           });
           if (
             !session.ok ||
