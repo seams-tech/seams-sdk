@@ -83,7 +83,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     ]);
   });
 
-  test('accepts generated wallet ids for passkey export authorization', async () => {
+  test('accepts server-allocated wallet ids for passkey export authorization', async () => {
     let capturedSummaryAccountId = '';
     let capturedIntentDigest = '';
 
@@ -116,7 +116,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(capturedIntentDigest).toContain('frost-vermillion-k7p9m2');
   });
 
-  test('accepts generated wallet ids for Email OTP export authorization', async () => {
+  test('accepts server-allocated wallet ids for Email OTP export authorization', async () => {
     let capturedSummaryAccountId = '';
     let capturedPayloadAccountId = '';
     let capturedChallengeKind = '';

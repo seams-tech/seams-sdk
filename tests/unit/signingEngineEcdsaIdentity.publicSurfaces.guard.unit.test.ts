@@ -192,7 +192,7 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
     const offenders: string[] = [];
     const requiredRoleLocalBootstrapFields = [
       'walletId',
-      'rpId',
+      'walletKeyId',
       'ecdsaThresholdKeyId',
       'signingRootId',
       'signingRootVersion',
@@ -214,7 +214,7 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       {
         source: clientSource,
         file: 'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-        typeName: 'ThresholdEcdsaHssRoleLocalBootstrapBody',
+        typeName: 'ThresholdEcdsaHssRoleLocalBootstrapBodyBase',
       },
       {
         source: serverSource,
@@ -225,6 +225,7 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       const block = findTypeDeclaration(source, typeName);
       offenders.push(
         ...expectRequiredFields(block, requiredRoleLocalBootstrapFields, `${file} ${typeName}`),
+        ...expectNoField(block, 'rpId', `${file} ${typeName}`),
         ...expectNoField(block, 'chainTarget', `${file} ${typeName}`),
         ...expectNoField(block, 'keyHandle', `${file} ${typeName}`),
         ...expectNoNearAccountId(block, `${file} ${typeName}`, {
@@ -244,15 +245,25 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
           'version',
           'keyHandle',
           'walletId',
-          'rpId',
+          'walletKeyId',
           'ecdsaThresholdKeyId',
+          'signingRootId',
+          'signingRootVersion',
+          'keyScope',
           'relayerKeyId',
+          'contextBinding32B64u',
           'clientPublicKey33B64u',
           'relayerPublicKey33B64u',
           'groupPublicKey33B64u',
           'relayerShare32B64u',
           'relayerCaitSithInput',
+          'publicTranscriptDigest32B64u',
         ],
+        'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      ),
+      ...expectNoField(
+        serverRoleLocalRecordBlock,
+        'rpId',
         'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
       ),
       ...expectNoField(
@@ -273,7 +284,12 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
     offenders.push(
       ...expectRequiredFields(
         clientEcdsaPolicyBlock,
-        ['walletId', 'rpId', 'chainTarget', 'sessionId'],
+        ['walletId', 'walletKeyId', 'chainTarget', 'sessionId', 'signingGrantId'],
+        'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+      ),
+      ...expectNoField(
+        clientEcdsaPolicyBlock,
+        'rpId',
         'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
       ),
       ...expectNoField(
@@ -294,7 +310,32 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
     offenders.push(
       ...expectRequiredFields(
         signingRootContextBlock,
-        ['walletId', 'rpId', 'signingRootId', 'keyPurpose', 'keyVersion'],
+        ['applicationBindingDigest'],
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      ),
+      ...expectNoField(
+        signingRootContextBlock,
+        'walletId',
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      ),
+      ...expectNoField(
+        signingRootContextBlock,
+        'rpId',
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      ),
+      ...expectNoField(
+        signingRootContextBlock,
+        'signingRootId',
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      ),
+      ...expectNoField(
+        signingRootContextBlock,
+        'keyPurpose',
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      ),
+      ...expectNoField(
+        signingRootContextBlock,
+        'keyVersion',
         'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
       ),
       ...expectNoNearAccountId(
@@ -310,7 +351,27 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
     offenders.push(
       ...expectRequiredFields(
         ecdsaClientContextBlock,
-        ['walletId', 'rpId', 'chainTarget', 'keyPurpose', 'keyVersion'],
+        ['walletId', 'ecdsaThresholdKeyId', 'signingRootId', 'signingRootVersion'],
+        'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      ),
+      ...expectNoField(
+        ecdsaClientContextBlock,
+        'rpId',
+        'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      ),
+      ...expectNoField(
+        ecdsaClientContextBlock,
+        'chainTarget',
+        'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      ),
+      ...expectNoField(
+        ecdsaClientContextBlock,
+        'keyPurpose',
+        'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      ),
+      ...expectNoField(
+        ecdsaClientContextBlock,
+        'keyVersion',
         'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
       ),
       ...expectNoNearAccountId(

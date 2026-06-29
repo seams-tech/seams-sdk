@@ -829,6 +829,12 @@ test('Refactor 79 Ed25519 session lane keys use full exact identity', () => {
     expect(keyTypeSource).toContain(field);
     expect(serializerSource).toContain(field);
   }
+  expect(keyTypeSource).toContain('walletId: WalletId;');
+  expect(keyTypeSource).toContain('nearAccountId: StrictAccountId;');
+  expect(keyTypeSource).toContain('nearEd25519SigningKeyId: NearEd25519SigningKeyId;');
+  expect(keyTypeSource).toContain('signingGrantId: SigningGrantId;');
+  expect(keyTypeSource).toContain('thresholdSessionId: ThresholdEd25519SessionId;');
+  expect(keyTypeSource).toContain('signerSlot: SignerSlot;');
   expect(serializerSource).toContain('encodeLaneToken(walletId)');
   expect(serializerSource).toContain('encodeLaneToken(nearAccountId)');
   expect(serializerSource).toContain('encodeLaneToken(nearEd25519SigningKeyId)');
@@ -842,6 +848,76 @@ test('Refactor 79 Ed25519 session lane keys use full exact identity', () => {
   expect(matcherSource).toContain('lane.nearEd25519SigningKeyId');
   expect(matcherSource).toContain('record.signerSlot');
   expect(matcherSource).toContain('lane.signerSlot');
+});
+
+test('Refactor 79 Ed25519 grant clearing uses exact lane keys only', () => {
+  const recordsSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
+  );
+  const readinessSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts',
+  );
+  const clearSigningGrantSource = sourceRangeBetween(
+    readinessSource,
+    'export async function clearSigningGrant(args: {',
+    'export async function syncSealedRefreshPolicyForLanes(args: {',
+  );
+
+  expect(recordsSource).toContain('clearStoredThresholdEd25519SessionRecordForLaneKey');
+  expect(recordsSource).toContain('thresholdEd25519SessionRecordKeyFromExactIdentity');
+  expect(recordsSource).not.toContain('clearStoredThresholdEd25519SessionRecordForAccount');
+  expect(readinessSource).not.toContain('ed25519NearAccountIdFromDiscoveredLane');
+  expect(clearSigningGrantSource).toContain('ed25519LaneKeyFromDiscoveredLane');
+  expect(clearSigningGrantSource).toContain('clearStoredThresholdEd25519SessionRecordForLaneKey');
+  expect(clearSigningGrantSource).toContain('serializeThresholdEd25519SessionLaneKey');
+  expect(clearSigningGrantSource).toContain('ecdsaExactIdentityFromDiscoveredLane');
+  expect(clearSigningGrantSource).toContain('clearThresholdEcdsaSessionRecordForExactIdentity');
+  expect(clearSigningGrantSource).not.toContain('nearAccountIdsToClear');
+  expect(clearSigningGrantSource).not.toContain('clearStoredThresholdEd25519SessionRecordForAccount');
+  expect(clearSigningGrantSource).not.toContain('clearThresholdEcdsaSessionRecordForWalletTarget');
+});
+
+test('Refactor 79 Ed25519 availability paths enumerate exact lane records', () => {
+  const files = [
+    'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
+    'packages/sdk-web/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts',
+  ];
+
+  for (const file of files) {
+    const source = readRepoSource(file);
+    expect(source).toContain('listStoredThresholdEd25519SessionLaneRecordsForWallet');
+    expect(source).not.toContain('listStoredThresholdEd25519SessionRecordsForWallet');
+  }
+});
+
+test('Refactor 79 exact Ed25519 mutation paths reject unsafe identity casts', () => {
+  const ranges = [
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
+      start: 'export type ThresholdEd25519SessionRecordKey = {',
+      end: 'export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts',
+      start: 'function ed25519LaneKeyFromDiscoveredLane(',
+      end: 'export async function syncSealedRefreshPolicyForLanes(args: {',
+    },
+  ];
+  const bannedCastPatterns = [
+    /\bas\s+WalletId\b/,
+    /\bas\s+AccountId\b/,
+    /\bas\s+StrictAccountId\b/,
+    /\bas\s+NearEd25519SigningKeyId\b/,
+    /\bas\s+SigningGrantId\b/,
+    /\bas\s+ThresholdEd25519SessionId\b/,
+  ];
+
+  for (const range of ranges) {
+    const source = sourceRangeBetween(readRepoSource(range.file), range.start, range.end);
+    for (const pattern of bannedCastPatterns) {
+      expect(source).not.toMatch(pattern);
+    }
+  }
 });
 
 test('Refactor 79 selected wallet profile writes are wallet-id only', () => {

@@ -2,6 +2,46 @@ import { expect, test } from '@playwright/test';
 import { unlock } from '@/SeamsWeb/operations/auth/login';
 import { SeamsWeb } from '@/SeamsWeb';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';
+import { toAccountId } from '@/core/types/accountIds';
+import {
+  clearStoredThresholdEd25519SessionRecordForLaneKey,
+  getStoredThresholdEd25519SessionRecordForAccount,
+  thresholdEd25519SessionRecordKeyFromRecord,
+  upsertStoredThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
+
+const UNLOCK_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
+const UNLOCK_WALLET_ID = 'frost-unlock-k7p9m2';
+const UNLOCK_NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-unlock-k7p9m2';
+
+function seedUnlockPasskeyWalletBinding(): void {
+  upsertStoredThresholdEd25519SessionRecord({
+    walletId: UNLOCK_WALLET_ID,
+    nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
+    nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
+    rpId: 'localhost',
+    passkeyCredentialIdB64u: 'cred-1',
+    relayerUrl: 'https://relay.example',
+    relayerKeyId: 'rk-1',
+    participantIds: [1, 2],
+    signerSlot: 1,
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: 'tsess-unlock-binding',
+    signingGrantId: 'grant-unlock-binding',
+    walletSessionJwt: 'jwt-unlock-binding',
+    expiresAtMs: Date.now() + 60_000,
+    remainingUses: 1,
+    signingRootId: 'proj_local:dev',
+    signingRootVersion: 'default',
+    source: 'login',
+  });
+}
+
+function clearUnlockPasskeyWalletBinding(): void {
+  const record = getStoredThresholdEd25519SessionRecordForAccount(UNLOCK_NEAR_ACCOUNT_ID);
+  const laneKey = record ? thresholdEd25519SessionRecordKeyFromRecord(record) : null;
+  if (laneKey) clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
+}
 
 test.describe('SeamsWeb unlock cancellation events', () => {
   test('passkey unlock emits unlock.cancelled for WebAuthn cancellation errors', async () => {
@@ -11,113 +51,128 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const cancellation = new Error('The operation either timed out or was not allowed');
     cancellation.name = 'NotAllowedError';
 
-    const result = await unlock(
-      {
-        signingEngine: {
-          assertSealedRefreshStartupParity: async () => undefined,
-          getLastUser: async () => ({
-            nearAccountId: 'alice.testnet',
-            signerSlot: 1,
-            operationalPublicKey: 'ed25519:alice',
-            authMethod: 'passkey',
-          }),
-          nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
-          getAuthenticationCredentialsSerialized: async () => {
-            throw cancellation;
+    seedUnlockPasskeyWalletBinding();
+    try {
+      const result = await unlock(
+        {
+          signingEngine: {
+            assertSealedRefreshStartupParity: async () => undefined,
+            getLastUser: async () => ({
+              nearAccountId: 'alice.testnet',
+              signerSlot: 1,
+              operationalPublicKey: 'ed25519:alice',
+              authMethod: 'passkey',
+            }),
+            nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
+            getAuthenticationCredentialsSerialized: async () => {
+              throw cancellation;
+            },
           },
-        },
-      } as any,
-      'alice.testnet' as any,
-      {
-        onEvent: (event: any) => events.push(event),
-        onError: (error: Error) => onErrors.push(error.message),
-        afterCall: async (ok: boolean) => afterCalls.push(ok),
-      } as any,
-    );
+        } as any,
+        UNLOCK_NEAR_ACCOUNT_ID,
+        {
+          onEvent: (event: any) => events.push(event),
+          onError: (error: Error) => onErrors.push(error.message),
+          afterCall: async (ok: boolean) => afterCalls.push(ok),
+        } as any,
+      );
 
-    expect(result).toEqual({
-      success: false,
-      error: "Login was cancelled. Please try again when you're ready to authenticate.",
-    });
-    expect(events.map((event) => event.phase)).toEqual([
-      UnlockEventPhase.STEP_01_STARTED,
-      UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED,
-      UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED,
-      UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED,
-      UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
-      UnlockEventPhase.CANCELLED,
-    ]);
-    expect(events.map((event) => event.status)).toEqual([
-      'started',
-      'running',
-      'succeeded',
-      'skipped',
-      'waiting_for_user',
-      'cancelled',
-    ]);
-    expect(events[5]).toMatchObject({
-      flow: 'unlock',
-      phase: 'unlock.cancelled',
-      step: 0,
-      message: 'Wallet unlock cancelled',
-      interaction: { kind: 'passkey_assert', overlay: 'hide' },
-      error: {
-        message: "Login was cancelled. Please try again when you're ready to authenticate.",
-      },
-    });
-    expect(afterCalls).toEqual([false]);
-    expect(onErrors).toEqual(['The operation either timed out or was not allowed']);
+      expect(result).toEqual({
+        success: false,
+        error: "Login was cancelled. Please try again when you're ready to authenticate.",
+      });
+      expect(events.map((event) => event.phase)).toEqual([
+        UnlockEventPhase.STEP_01_STARTED,
+        UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED,
+        UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED,
+        UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED,
+        UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
+        UnlockEventPhase.CANCELLED,
+      ]);
+      expect(events.map((event) => event.status)).toEqual([
+        'started',
+        'running',
+        'succeeded',
+        'skipped',
+        'waiting_for_user',
+        'cancelled',
+      ]);
+      expect(events[5]).toMatchObject({
+        flow: 'unlock',
+        phase: 'unlock.cancelled',
+        step: 0,
+        message: 'Wallet unlock cancelled',
+        interaction: { kind: 'passkey_assert', overlay: 'hide' },
+        error: {
+          message: "Login was cancelled. Please try again when you're ready to authenticate.",
+        },
+      });
+      expect(getStoredThresholdEd25519SessionRecordForAccount(UNLOCK_NEAR_ACCOUNT_ID)).toMatchObject({
+        walletId: UNLOCK_WALLET_ID,
+        nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
+        nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
+      });
+      expect(afterCalls).toEqual([false]);
+      expect(onErrors).toEqual(['The operation either timed out or was not allowed']);
+    } finally {
+      clearUnlockPasskeyWalletBinding();
+    }
   });
 
   test('passkey prompt is not blocked by slow sealed-refresh parity check', async () => {
     const events: any[] = [];
     let promptStarted = false;
-    const result = await unlock(
-      {
-        signingEngine: {
-          assertSealedRefreshStartupParity: async () => {
-            await new Promise(() => undefined);
+    seedUnlockPasskeyWalletBinding();
+    try {
+      const result = await unlock(
+        {
+          signingEngine: {
+            assertSealedRefreshStartupParity: async () => {
+              await new Promise(() => undefined);
+            },
+            getLastUser: async () => ({
+              nearAccountId: 'alice.testnet',
+              signerSlot: 1,
+              operationalPublicKey: 'ed25519:alice',
+              authMethod: 'passkey',
+            }),
+            nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
+            getAuthenticationCredentialsSerialized: async () => {
+              promptStarted = true;
+              return {
+                id: 'cred-1',
+                rawId: 'cred-1',
+                type: 'public-key',
+                response: {
+                  clientDataJSON: 'client-data-json',
+                  authenticatorData: 'authenticator-data',
+                  signature: 'signature',
+                },
+                clientExtensionResults: {},
+              };
+            },
+            setLastUser: async () => undefined,
+            updateLastLogin: async () => undefined,
+            getNonceCoordinator: () => ({
+              recoverDurableLeases: async () => undefined,
+            }),
           },
-          getLastUser: async () => ({
-            nearAccountId: 'alice.testnet',
-            signerSlot: 1,
-            operationalPublicKey: 'ed25519:alice',
-            authMethod: 'passkey',
-          }),
-          nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
-          getAuthenticationCredentialsSerialized: async () => {
-            promptStarted = true;
-            return {
-              id: 'cred-1',
-              rawId: 'cred-1',
-              type: 'public-key',
-              response: {
-                clientDataJSON: 'client-data-json',
-                authenticatorData: 'authenticator-data',
-                signature: 'signature',
-              },
-              clientExtensionResults: {},
-            };
-          },
-          setLastUser: async () => undefined,
-          updateLastLogin: async () => undefined,
-          getNonceCoordinator: () => ({
-            recoverDurableLeases: async () => undefined,
-          }),
-        },
-      } as any,
-      'alice.testnet' as any,
-      {
-        onEvent: (event: any) => events.push(event),
-      } as any,
-    );
+        } as any,
+        UNLOCK_NEAR_ACCOUNT_ID,
+        {
+          onEvent: (event: any) => events.push(event),
+        } as any,
+      );
 
-    expect(promptStarted).toBe(true);
-    expect(result.success).toBe(true);
-    expect(events.map((event) => event.phase)).toContain(
-      UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
-    );
-    expect(events.map((event) => event.phase)).toContain(UnlockEventPhase.STEP_07_COMPLETED);
+      expect(promptStarted).toBe(true);
+      expect(result.success).toBe(true);
+      expect(events.map((event) => event.phase)).toContain(
+        UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
+      );
+      expect(events.map((event) => event.phase)).toContain(UnlockEventPhase.STEP_07_COMPLETED);
+    } finally {
+      clearUnlockPasskeyWalletBinding();
+    }
   });
 
   test('Email OTP unlock failure helper emits unlock.cancelled for cancellation errors', () => {

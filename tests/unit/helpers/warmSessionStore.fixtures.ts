@@ -910,11 +910,6 @@ type WarmSessionTestServicesDeps = {
       | 'clearVolatileWarmSessionMaterial'
     >
   >;
-  clearThresholdEcdsaSessionRecordForWalletTarget?: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => void;
   consumeSingleUseEmailOtpEcdsaLane?: (
     command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
   ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;

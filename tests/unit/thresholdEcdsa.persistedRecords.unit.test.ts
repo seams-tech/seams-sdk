@@ -4,8 +4,12 @@ import {
   parseCurrentRouterAbEcdsaHssPoolFillSessionRow,
   parseCurrentRouterAbEcdsaHssServerPresignatureRecord,
   parseCurrentThresholdEd25519KeyRecord,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/postgresRecords';
-import { createThresholdEcdsaKeyStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/persistedRecords';
+import {
+  createThresholdEcdsaKeyStore,
+  createThresholdEd25519KeyStore,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore';
+import { createThresholdEcdsaSigningStores } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
 import { parseEcdsaHssRoleLocalKeyRecord } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type {
@@ -14,6 +18,8 @@ import type {
   EcdsaHssRoleLocalKeyRecord,
 } from '../../packages/sdk-server-ts/src/core/types';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
+
+const ed25519AuthorityScope = { kind: 'passkey_rp' as const, rpId: 'example.localhost' };
 
 type TestDurableObjectStorageLike = {
   get(key: string): Promise<unknown>;
@@ -104,8 +110,31 @@ function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceL
   };
 }
 
-test.describe('threshold ecdsa postgres records', () => {
+test.describe('threshold ecdsa persisted records', () => {
   test('parses current Ed25519 records and role-local ECDSA HSS records', async () => {
+    expect(
+      parseCurrentThresholdEd25519KeyRecord({
+        walletId: 'frost-vermillion-k7p9m2',
+        nearAccountId: 'alice.testnet',
+        nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
+        authorityScope: ed25519AuthorityScope,
+        publicKey: 'ed25519:public',
+        relayerSigningShareB64u: 'signing-share',
+        relayerVerifyingShareB64u: 'verifying-share',
+        keyVersion: 'key-v1',
+        recoveryExportCapable: true,
+      }),
+    ).toEqual({
+      walletId: 'frost-vermillion-k7p9m2',
+      nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
+      authorityScope: ed25519AuthorityScope,
+      publicKey: 'ed25519:public',
+      relayerSigningShareB64u: 'signing-share',
+      relayerVerifyingShareB64u: 'verifying-share',
+      keyVersion: 'key-v1',
+      recoveryExportCapable: true,
+    });
     expect(
       parseCurrentThresholdEd25519KeyRecord({
         walletId: 'frost-vermillion-k7p9m2',
@@ -118,17 +147,7 @@ test.describe('threshold ecdsa postgres records', () => {
         keyVersion: 'key-v1',
         recoveryExportCapable: true,
       }),
-    ).toEqual({
-      walletId: 'frost-vermillion-k7p9m2',
-      nearAccountId: 'alice.testnet',
-      nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
-      rpId: 'example.localhost',
-      publicKey: 'ed25519:public',
-      relayerSigningShareB64u: 'signing-share',
-      relayerVerifyingShareB64u: 'verifying-share',
-      keyVersion: 'key-v1',
-      recoveryExportCapable: true,
-    });
+    ).toBeNull();
 
     const roleLocalRecord = await makeRoleLocalKeyRecord({
       relayerCaitSithInput: {

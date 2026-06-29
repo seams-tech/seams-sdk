@@ -72,6 +72,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
       }
 
       if (data.type === 'PM_REGISTER_WALLET') {
+        const signerSelection = data.payload && data.payload.signerSelection;
         [
           eventBase(requestId, 'registration', 'registration.started', 1, 'started', 'Starting registration'),
           eventBase(requestId, 'registration', 'registration.auth.passkey.create.started', 4, 'waiting_for_user', 'Create your passkey', {
@@ -96,6 +97,10 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
           walletId: accountId,
           nearAccountId: accountId,
           loggedInNearAccountId: accountId,
+          signerSelectionKind: signerSelection && (signerSelection.kind || signerSelection.mode),
+          signerKinds: Array.isArray(signerSelection && signerSelection.signers)
+            ? signerSelection.signers.map((signer) => signer.kind)
+            : [],
         });
         return;
       }
@@ -195,6 +200,8 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
 
         return {
           registrationSuccess: (registration as any).success,
+          registrationSignerSetKind: (registration as any).signerSelectionKind,
+          registrationSignerKinds: (registration as any).signerKinds,
           unlockSuccess: (unlock as any).success,
           registrationEventPhases: registrationEvents.map((event) => event.phase),
           registrationEventSteps: registrationEvents.map((event) => event.step),
@@ -215,6 +222,8 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
 
     expect(result).toEqual({
       registrationSuccess: true,
+      registrationSignerSetKind: 'signer_set',
+      registrationSignerKinds: ['near_ed25519', 'evm_family_ecdsa'],
       unlockSuccess: true,
       registrationEventPhases: [
         'registration.started',

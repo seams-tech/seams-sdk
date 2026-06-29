@@ -170,6 +170,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: 'seededNonceA0123456789',
       collisionCounter: 0,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       state: 'started',
       createdAtMs: Date.now(),
       updatedAtMs: Date.now(),

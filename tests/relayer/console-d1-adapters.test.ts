@@ -1,7 +1,3 @@
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
 import { createD1ConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys/d1';
@@ -11,7 +7,14 @@ import {
   createD1ConsoleBillingService,
   runD1ConsoleBillingMonthlyFinalization,
 } from '../../packages/sdk-server-ts/src/console/billing/d1';
-import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
+import {
+  CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME,
+  createD1ConsoleBillingPrepaidReservationService,
+  getConsoleBillingPrepaidReservationD1Runtime,
+  type ConsoleBillingPrepaidReservationD1Runtime,
+} from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/service';
+import type { ConsoleBillingPrepaidReservation } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/types';
 import { createD1ConsoleBootstrapTokenService } from '../../packages/sdk-server-ts/src/console/bootstrapTokens/d1';
 import { createD1ConsoleKeyExportService } from '../../packages/sdk-server-ts/src/console/keyExports/d1';
 import {
@@ -78,12 +81,9 @@ import { D1RecoverySessionStore } from '../../packages/sdk-server-ts/src/core/Re
 import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore.d1';
-import type {
-  D1DatabaseLike,
-  D1PreparedStatementLike,
-  D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
@@ -104,83 +104,368 @@ import type {
   SponsorshipSpendPricingQuote,
   SponsorshipSpendPricingService,
 } from '../../packages/sdk-server-ts/src/sponsorship/spendCaps';
+import {
+  applyD1MigrationFiles,
+  cleanupTemporaryD1Database,
+  createTemporaryD1Database,
+  d1MigrationFileBasenames,
+  type D1MigrationDirectoryName,
+  listD1MigrationFiles,
+  readTableColumnNames,
+  readUserTableCount,
+} from '../helpers/sqliteD1';
 
 type SqliteJsonRow = Record<string, unknown>;
 type ErrorWithCode = { readonly code?: unknown };
+type D1MigrationTarget = {
+  readonly directoryName: D1MigrationDirectoryName;
+  readonly expectedMigrationCount: number;
+  readonly expectedTableCount: number;
+};
 type SponsoredRecordBuildInput = Parameters<RecordSponsoredExecutionInput['buildRecord']>[0];
 type SponsoredRecordBuildOutput = ReturnType<RecordSponsoredExecutionInput['buildRecord']>;
+type RawD1SponsoredCallInsertInput = {
+  readonly id: string;
+  readonly detailsJson: string;
+  readonly idempotencyKey: string;
+  readonly estimatedSpendMinor: number | null;
+  readonly settledSpendMinor: number | null;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1PrepaidReservationInsertInput = {
+  readonly id: string;
+  readonly environmentId: string;
+  readonly sourceEventId: string;
+  readonly requestedMinor: number;
+  readonly postedBalanceMinor: number;
+  readonly settledMinor: number;
+  readonly releasedMinor: number;
+  readonly status: string;
+  readonly txOrExecutionRef: string | null;
+  readonly pricingVersion: string | null;
+  readonly expiresAtMs: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1BillingLedgerEntryInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly id: string;
+  readonly entryType: string;
+  readonly amountMinor: number;
+  readonly description: string;
+  readonly monthUtc: string | null;
+  readonly relatedInvoiceId: string | null;
+  readonly relatedPurchaseId: string | null;
+  readonly sourceEventId: string | null;
+  readonly actorType: string;
+  readonly actorUserId: string | null;
+  readonly reasonCode: string | null;
+  readonly note: string | null;
+  readonly idempotencyKey: string | null;
+  readonly createdAtMs: number;
+};
+type RawD1BillingLedgerPostingInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly id: string;
+  readonly ledgerEntryId: string;
+  readonly accountCode: string;
+  readonly direction: string;
+  readonly amountMinor: number;
+  readonly createdAtMs: number;
+};
+type RawD1BillingMonthlyActiveWalletInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly monthUtc: string;
+  readonly walletId: string;
+  readonly sourceEventId: string | null;
+  readonly createdAtMs: number;
+};
+type RawD1RuntimeSnapshotInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly environmentId: string;
+  readonly snapshotId: string;
+  readonly version: number;
+  readonly effectiveAtMs: number;
+  readonly checksum: string;
+  readonly payloadJson: string;
+  readonly createdAtMs: number;
+  readonly createdBy: string;
+};
+type RawD1RuntimeSnapshotOutboxInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly environmentId: string;
+  readonly eventId: string;
+  readonly eventType: string;
+  readonly snapshotId: string;
+  readonly snapshotVersion: number;
+  readonly payloadJson: string;
+  readonly status: string;
+  readonly attemptCount: number;
+  readonly availableAtMs: number;
+  readonly claimedBy: string | null;
+  readonly claimExpiresAtMs: number | null;
+  readonly lastError: string | null;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+  readonly dispatchedAtMs: number | null;
+};
+type RawD1WebhookEndpointInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly id: string;
+  readonly url: string;
+  readonly status: 'ACTIVE' | 'DISABLED' | string;
+  readonly signingSecretCiphertextB64u: string;
+  readonly signingSecretKeyId: string;
+  readonly signingSecretEnvelopeVersion: string;
+  readonly secretVersion: number;
+  readonly secretPreview: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1WebhookEndpointCategoryInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly endpointId: string;
+  readonly category: string;
+};
+type RawD1WalletAuthMethodInsertInput = {
+  readonly walletId: string;
+  readonly rpId: string;
+  readonly kind: 'passkey' | 'email_otp';
+  readonly walletAuthMethodId: string;
+  readonly authIdentifierKey: string;
+  readonly credentialIdB64u: string | null;
+  readonly credentialPublicKeyB64u: string | null;
+  readonly emailHashHex: string | null;
+  readonly registrationAuthorityId: string | null;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1WalletSignerInsertInput = {
+  readonly walletId: string;
+  readonly signerFamily: 'ed25519' | 'ecdsa';
+  readonly signerId: string;
+  readonly chainTargetKey: string | null;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1WalletInsertInput = {
+  readonly walletId: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1SigningRootSecretShareInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+  readonly shareId: number;
+  readonly sealedShareB64u: string;
+  readonly storageId: string | null;
+  readonly kekId: string;
+  readonly envelopeVersion: string;
+  readonly aadDigestB64u: string;
+  readonly ciphertextDigestB64u: string;
+  readonly rotationState: string;
+  readonly rotatedFromKekId: string | null;
+  readonly rotatedAtMs: number | null;
+  readonly retiredAtMs: number | null;
+  readonly lastAuditEventId: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1IdentityLinkInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly subject: string;
+  readonly userId: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1AppSessionVersionInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly userId: string;
+  readonly sessionVersion: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1RecoverySessionInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly sessionId: string;
+  readonly nearAccountId: string;
+  readonly recordJson: string;
+  readonly expiresAtMs: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1RecoveryExecutionInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly sessionId: string;
+  readonly chainIdKey: string;
+  readonly accountAddress: string;
+  readonly action: string;
+  readonly status: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1EmailRecoveryPreparationInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly requestId: string;
+  readonly accountId: string;
+  readonly walletId: string;
+  readonly rpId: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+type RawD1EmailOtpChallengeInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly challengeId: string;
+  readonly challengeSubjectId: string;
+  readonly walletId: string;
+  readonly recordOrgId: string;
+  readonly otpChannel: string;
+  readonly sessionHash: string;
+  readonly appSessionVersion: string;
+  readonly action: string;
+  readonly operation: string;
+  readonly otpCode: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+type RawD1EmailOtpGrantInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly grantToken: string;
+  readonly userId: string;
+  readonly walletId: string;
+  readonly recordOrgId: string;
+  readonly challengeId: string;
+  readonly action: string;
+  readonly recordJson: string;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+};
+type RawD1EmailOtpEnrollmentInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletId: string;
+  readonly providerUserId: string;
+  readonly recordOrgId: string;
+  readonly verifiedEmail: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1EmailOtpRecoveryEscrowInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletId: string;
+  readonly recoveryKeyId: string;
+  readonly recoveryKeyStatus: string;
+  readonly recordJson: string;
+  readonly issuedAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1EmailOtpAuthStateInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly walletId: string;
+  readonly providerUserId: string;
+  readonly recordOrgId: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+type RawD1EmailOtpUnlockChallengeInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly challengeId: string;
+  readonly walletId: string;
+  readonly userId: string;
+  readonly recordOrgId: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+type RawD1EmailOtpRegistrationAttemptInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly attemptId: string;
+  readonly providerSubject: string;
+  readonly email: string;
+  readonly walletId: string;
+  readonly state: string;
+  readonly appSessionVersion: string;
+  readonly runtimeOrgId: string;
+  readonly runtimePolicyKey: string;
+  readonly offerWalletIdsJson: string;
+  readonly recordJson: string;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+  readonly expiresAtMs: number;
+};
+type RawD1EmailOtpRateLimitInsertInput = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly rateKey: string;
+  readonly consumedCount: number;
+  readonly resetAtMs: number;
+  readonly updatedAtMs: number;
+};
 
-class SqliteCliD1Database implements D1DatabaseLike {
-  constructor(readonly databasePath: string) {}
-
-  prepare(query: string): D1PreparedStatementLike {
-    return new SqliteCliD1PreparedStatement(this.databasePath, query, []);
-  }
-
-  async batch<T = unknown>(
-    statements: readonly D1PreparedStatementLike[],
-  ): Promise<readonly T[]> {
-    const sqlStatements = statements.map(sqlFromD1PreparedStatement);
-    runSqlite(this.databasePath, `BEGIN IMMEDIATE; ${sqlStatements.join(' ')} COMMIT;`);
-    return sqlStatements.map(buildSuccessfulD1BatchResult) as readonly T[];
-  }
-
-  async exec(query: string): Promise<unknown> {
-    runSqlite(this.databasePath, query);
-    return null;
-  }
-}
-
-class SqliteCliD1PreparedStatement implements D1PreparedStatementLike {
-  constructor(
-    private readonly databasePath: string,
-    private readonly query: string,
-    private readonly values: readonly unknown[],
-  ) {}
-
-  bind(...values: readonly unknown[]): D1PreparedStatementLike {
-    return new SqliteCliD1PreparedStatement(this.databasePath, this.query, values);
-  }
-
-  async first<T = unknown>(columnName?: string): Promise<T | null> {
-    const result = await this.all<SqliteJsonRow>();
-    const row = result.results?.[0] || null;
-    if (!row) return null;
-    if (!columnName) return row as T;
-    const value = row[columnName];
-    return value === undefined ? null : (value as T);
-  }
-
-  async all<T = unknown>(): Promise<D1ResultLike<T>> {
-    const results = runSqliteJson(this.databasePath, this.toSql());
-    return {
-      success: true,
-      results: results as readonly T[],
-      meta: {
-        rows_read: results.length,
-        rows_written: 0,
-      },
-    };
-  }
-
-  async run<T = unknown>(): Promise<D1ResultLike<T>> {
-    const sql = `${this.toSql()} SELECT changes() AS changes, last_insert_rowid() AS last_row_id;`;
-    const results = runSqliteJson(this.databasePath, sql);
-    const metaRow = results.at(-1) || {};
-    return {
-      success: true,
-      results: [] as readonly T[],
-      meta: {
-        changes: toInteger(metaRow.changes),
-        last_row_id: toInteger(metaRow.last_row_id),
-        rows_written: toInteger(metaRow.changes),
-      },
-    };
-  }
-
-  toSql(): string {
-    return interpolateSql(this.query, this.values);
-  }
+function unwrapFixture<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid fixture value');
+  return result.value;
 }
 
 class RuntimeSnapshotOutboxRaceHarness {
@@ -278,7 +563,7 @@ class D1WebhookRetryRaceHarness implements WebhookDispatchAdapter {
       secretCipher: this.input.secretCipher,
       ensureSchema: false,
       now: this.input.now,
-      dispatcher: this.competitorDispatch.bind(this),
+      dispatcher: { dispatch: this.competitorDispatch.bind(this) },
       initialBackoffMs: 0,
       maxBackoffMs: 0,
       workerId: 'webhook-retry-worker-b',
@@ -371,8 +656,2180 @@ class AtomicD1SponsoredRecordBuilder {
   }
 }
 
+class StaleReadPrepaidReservationService implements ConsoleBillingPrepaidReservationService {
+  readonly [CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME]: ConsoleBillingPrepaidReservationD1Runtime;
+
+  constructor(
+    private readonly delegate: ConsoleBillingPrepaidReservationService,
+    private readonly staleReservation: ConsoleBillingPrepaidReservation,
+  ) {
+    const runtime = getConsoleBillingPrepaidReservationD1Runtime(delegate);
+    if (!runtime) {
+      throw new Error('Stale prepaid reservation wrapper requires a D1-backed delegate');
+    }
+    this[CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME] = runtime;
+  }
+
+  async getReservationBySourceEventId(
+    ctx: Parameters<ConsoleBillingPrepaidReservationService['getReservationBySourceEventId']>[0],
+    sourceEventId: string,
+  ): ReturnType<ConsoleBillingPrepaidReservationService['getReservationBySourceEventId']> {
+    if (sourceEventId === this.staleReservation.sourceEventId) {
+      return { ...this.staleReservation };
+    }
+    return await this.delegate.getReservationBySourceEventId(ctx, sourceEventId);
+  }
+
+  async getSummary(
+    ctx: Parameters<ConsoleBillingPrepaidReservationService['getSummary']>[0],
+  ): ReturnType<ConsoleBillingPrepaidReservationService['getSummary']> {
+    return await this.delegate.getSummary(ctx);
+  }
+
+  async reserve(
+    ctx: Parameters<ConsoleBillingPrepaidReservationService['reserve']>[0],
+    request: Parameters<ConsoleBillingPrepaidReservationService['reserve']>[1],
+  ): ReturnType<ConsoleBillingPrepaidReservationService['reserve']> {
+    return await this.delegate.reserve(ctx, request);
+  }
+
+  async settle(
+    ctx: Parameters<ConsoleBillingPrepaidReservationService['settle']>[0],
+    request: Parameters<ConsoleBillingPrepaidReservationService['settle']>[1],
+  ): ReturnType<ConsoleBillingPrepaidReservationService['settle']> {
+    return await this.delegate.settle(ctx, request);
+  }
+
+  async release(
+    ctx: Parameters<ConsoleBillingPrepaidReservationService['release']>[0],
+    request: Parameters<ConsoleBillingPrepaidReservationService['release']>[1],
+  ): ReturnType<ConsoleBillingPrepaidReservationService['release']> {
+    return await this.delegate.release(ctx, request);
+  }
+
+  async expireStaleReservations(
+    request?: Parameters<ConsoleBillingPrepaidReservationService['expireStaleReservations']>[0],
+  ): ReturnType<ConsoleBillingPrepaidReservationService['expireStaleReservations']> {
+    return await this.delegate.expireStaleReservations(request);
+  }
+}
+
 function fixedD1AtomicBillingNow(): Date {
   return new Date('2026-06-27T00:00:00.000Z');
+}
+
+function buildRawD1SponsoredCallInsertInput(input: {
+  readonly id: string;
+  readonly detailsJson?: string;
+  readonly idempotencyKey?: string;
+  readonly estimatedSpendMinor?: number | null;
+  readonly settledSpendMinor?: number | null;
+  readonly createdAtMs?: number;
+  readonly updatedAtMs?: number;
+}): RawD1SponsoredCallInsertInput {
+  return {
+    id: input.id,
+    detailsJson: input.detailsJson ?? '{}',
+    idempotencyKey: input.idempotencyKey ?? `raw-${input.id}`,
+    estimatedSpendMinor: input.estimatedSpendMinor ?? null,
+    settledSpendMinor: input.settledSpendMinor ?? null,
+    createdAtMs: input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z'),
+    updatedAtMs: input.updatedAtMs ?? Date.parse('2026-06-27T00:00:01.000Z'),
+  };
+}
+
+function buildRawD1PrepaidReservationInsertInput(input: {
+  readonly id: string;
+  readonly environmentId?: string;
+  readonly sourceEventId?: string;
+  readonly requestedMinor?: number;
+  readonly postedBalanceMinor?: number;
+  readonly settledMinor?: number;
+  readonly releasedMinor?: number;
+  readonly status?: string;
+  readonly txOrExecutionRef?: string | null;
+  readonly pricingVersion?: string | null;
+  readonly expiresAtMs?: number;
+  readonly createdAtMs?: number;
+  readonly updatedAtMs?: number;
+}): RawD1PrepaidReservationInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const requestedMinor = input.requestedMinor ?? 100;
+  const settledMinor = input.settledMinor ?? 75;
+  return {
+    id: input.id,
+    environmentId: input.environmentId ?? 'env-production',
+    sourceEventId: input.sourceEventId ?? `raw-${input.id}`,
+    requestedMinor,
+    postedBalanceMinor: input.postedBalanceMinor ?? 1000,
+    settledMinor,
+    releasedMinor: input.releasedMinor ?? Math.max(requestedMinor - settledMinor, 0),
+    status: input.status ?? 'SETTLED',
+    txOrExecutionRef:
+      input.txOrExecutionRef === undefined ? '0xrawsettled' : input.txOrExecutionRef,
+    pricingVersion: input.pricingVersion === undefined ? 'static:raw' : input.pricingVersion,
+    expiresAtMs: input.expiresAtMs ?? createdAtMs + 60_000,
+    createdAtMs,
+    updatedAtMs: input.updatedAtMs ?? createdAtMs + 1000,
+  };
+}
+
+function buildRawD1BillingLedgerEntryInsertInput(
+  input: Partial<RawD1BillingLedgerEntryInsertInput>,
+): RawD1BillingLedgerEntryInsertInput {
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-billing-ledger-schema',
+    id: input.id ?? 'ble_raw_schema',
+    entryType: input.entryType ?? 'MANUAL_ADJUSTMENT',
+    amountMinor: input.amountMinor ?? 100,
+    description: input.description ?? 'Raw manual adjustment',
+    monthUtc: input.monthUtc === undefined ? '2026-06' : input.monthUtc,
+    relatedInvoiceId: input.relatedInvoiceId === undefined ? null : input.relatedInvoiceId,
+    relatedPurchaseId: input.relatedPurchaseId === undefined ? null : input.relatedPurchaseId,
+    sourceEventId: input.sourceEventId === undefined ? 'raw-ledger-source' : input.sourceEventId,
+    actorType: input.actorType ?? 'SYSTEM',
+    actorUserId: input.actorUserId === undefined ? null : input.actorUserId,
+    reasonCode: input.reasonCode === undefined ? 'raw_adjustment' : input.reasonCode,
+    note: input.note === undefined ? 'Raw ledger adjustment' : input.note,
+    idempotencyKey:
+      input.idempotencyKey === undefined ? 'raw-ledger-idempotency' : input.idempotencyKey,
+    createdAtMs: input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z'),
+  };
+}
+
+function buildRawD1BillingLedgerPostingInsertInput(
+  input: Partial<RawD1BillingLedgerPostingInsertInput>,
+): RawD1BillingLedgerPostingInsertInput {
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-billing-ledger-schema',
+    id: input.id ?? 'ble_raw_schema:manual_posting',
+    ledgerEntryId: input.ledgerEntryId ?? 'ble_raw_schema',
+    accountCode: input.accountCode ?? 'org_prepaid_liability',
+    direction: input.direction ?? 'DEBIT',
+    amountMinor: input.amountMinor ?? 100,
+    createdAtMs: input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z'),
+  };
+}
+
+function buildRawD1BillingMonthlyActiveWalletInsertInput(
+  input: Partial<RawD1BillingMonthlyActiveWalletInsertInput>,
+): RawD1BillingMonthlyActiveWalletInsertInput {
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-billing-ledger-schema',
+    monthUtc: input.monthUtc ?? '2026-06',
+    walletId: input.walletId ?? 'wallet-raw-billing-ledger',
+    sourceEventId:
+      input.sourceEventId === undefined ? 'raw-monthly-wallet-source' : input.sourceEventId,
+    createdAtMs: input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z'),
+  };
+}
+
+function buildRawD1RuntimeSnapshotInsertInput(
+  input: Partial<RawD1RuntimeSnapshotInsertInput>,
+): RawD1RuntimeSnapshotInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const snapshotId = input.snapshotId ?? 'runtime_snapshot_raw_schema';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-runtime-schema',
+    projectId: input.projectId ?? 'project-d1-runtime-schema',
+    environmentId: input.environmentId ?? 'env-production',
+    snapshotId,
+    version: input.version ?? 1,
+    effectiveAtMs: input.effectiveAtMs ?? createdAtMs,
+    checksum: input.checksum ?? 'fnv1a32:1234abcd',
+    payloadJson:
+      input.payloadJson ??
+      JSON.stringify({
+        policy: {},
+        gasSponsorship: {},
+      }),
+    createdAtMs,
+    createdBy: input.createdBy ?? 'user-runtime-schema',
+  };
+}
+
+function buildRawD1RuntimeSnapshotOutboxInsertInput(
+  input: Partial<RawD1RuntimeSnapshotOutboxInsertInput>,
+): RawD1RuntimeSnapshotOutboxInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const eventId = input.eventId ?? 'runtime_snapshot_event_raw_schema';
+  const snapshotId = input.snapshotId ?? 'runtime_snapshot_raw_schema';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-runtime-schema',
+    projectId: input.projectId ?? 'project-d1-runtime-schema',
+    environmentId: input.environmentId ?? 'env-production',
+    eventId,
+    eventType: input.eventType ?? 'RUNTIME_SNAPSHOT_PUBLISHED_V1',
+    snapshotId,
+    snapshotVersion: input.snapshotVersion ?? 1,
+    payloadJson:
+      input.payloadJson ??
+      JSON.stringify({
+        eventType: 'runtime_snapshot.published.v1',
+        snapshot: {
+          snapshotId,
+        },
+      }),
+    status: input.status ?? 'PENDING',
+    attemptCount: input.attemptCount ?? 0,
+    availableAtMs: input.availableAtMs ?? createdAtMs,
+    claimedBy: input.claimedBy === undefined ? null : input.claimedBy,
+    claimExpiresAtMs: input.claimExpiresAtMs === undefined ? null : input.claimExpiresAtMs,
+    lastError: input.lastError === undefined ? null : input.lastError,
+    createdAtMs,
+    updatedAtMs,
+    dispatchedAtMs: input.dispatchedAtMs === undefined ? null : input.dispatchedAtMs,
+  };
+}
+
+function buildRawD1WebhookEndpointInsertInput(
+  input: Partial<RawD1WebhookEndpointInsertInput>,
+): RawD1WebhookEndpointInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-webhook-schema',
+    id: input.id ?? 'wh_raw_webhook_schema',
+    url: input.url ?? 'https://webhook.example.test/receive',
+    status: input.status ?? 'ACTIVE',
+    signingSecretCiphertextB64u: input.signingSecretCiphertextB64u ?? 'c2VhbGVkX3NlY3JldA',
+    signingSecretKeyId: input.signingSecretKeyId ?? 'webhook-kek-raw',
+    signingSecretEnvelopeVersion:
+      input.signingSecretEnvelopeVersion ?? 'console-webhook-secret:aes-gcm:v1',
+    secretVersion: input.secretVersion ?? 1,
+    secretPreview: input.secretPreview ?? 'whsec_raw...',
+    createdAtMs,
+    updatedAtMs: input.updatedAtMs ?? createdAtMs + 1000,
+  };
+}
+
+function buildRawD1WebhookEndpointCategoryInsertInput(
+  input: Partial<RawD1WebhookEndpointCategoryInsertInput>,
+): RawD1WebhookEndpointCategoryInsertInput {
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-webhook-schema',
+    endpointId: input.endpointId ?? 'wh_raw_webhook_schema',
+    category: input.category ?? 'wallet',
+  };
+}
+
+function buildRawD1PasskeyAuthMethodInsertInput(input: {
+  readonly rpId?: string;
+  readonly walletId?: string;
+  readonly credentialIdB64u?: string | null;
+  readonly credentialPublicKeyB64u?: string | null;
+  readonly emailHashHex?: string | null;
+  readonly registrationAuthorityId?: string | null;
+  readonly walletAuthMethodId?: string;
+  readonly authIdentifierKey?: string;
+}): RawD1WalletAuthMethodInsertInput {
+  const rpId = input.rpId ?? 'app.example.test';
+  const walletId = input.walletId ?? 'wallet-raw-passkey';
+  const credentialIdB64u =
+    input.credentialIdB64u === undefined ? 'credential-raw-passkey' : input.credentialIdB64u;
+  return {
+    walletId,
+    rpId,
+    kind: 'passkey',
+    walletAuthMethodId:
+      input.walletAuthMethodId ?? `passkey:${rpId}:${credentialIdB64u || ''}`,
+    authIdentifierKey: input.authIdentifierKey ?? credentialIdB64u ?? '',
+    credentialIdB64u,
+    credentialPublicKeyB64u:
+      input.credentialPublicKeyB64u === undefined
+        ? 'credential-public-key-raw-passkey'
+        : input.credentialPublicKeyB64u,
+    emailHashHex: input.emailHashHex ?? null,
+    registrationAuthorityId: input.registrationAuthorityId ?? null,
+    recordJson: '{}',
+    createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+    updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+  };
+}
+
+function buildRawD1EmailOtpAuthMethodInsertInput(input: {
+  readonly rpId?: string;
+  readonly walletId?: string;
+  readonly credentialIdB64u?: string | null;
+  readonly credentialPublicKeyB64u?: string | null;
+  readonly emailHashHex?: string | null;
+  readonly registrationAuthorityId?: string | null;
+  readonly walletAuthMethodId?: string;
+  readonly authIdentifierKey?: string;
+}): RawD1WalletAuthMethodInsertInput {
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const emailHashHex =
+    input.emailHashHex === undefined ? 'a'.repeat(64) : input.emailHashHex;
+  return {
+    walletId,
+    rpId: input.rpId ?? '',
+    kind: 'email_otp',
+    walletAuthMethodId:
+      input.walletAuthMethodId ?? `email_otp:${walletId}:${emailHashHex || ''}`,
+    authIdentifierKey: input.authIdentifierKey ?? emailHashHex ?? '',
+    credentialIdB64u: input.credentialIdB64u ?? null,
+    credentialPublicKeyB64u: input.credentialPublicKeyB64u ?? null,
+    emailHashHex,
+    registrationAuthorityId:
+      input.registrationAuthorityId === undefined
+        ? 'registration-authority-raw-email'
+        : input.registrationAuthorityId,
+    recordJson: '{}',
+    createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+    updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+  };
+}
+
+function buildRawD1Ed25519WalletSignerInsertInput(input: {
+  readonly walletId?: string;
+  readonly signerId?: string;
+  readonly chainTargetKey?: string | null;
+  readonly recordJson?: string;
+}): RawD1WalletSignerInsertInput {
+  const walletId = input.walletId ?? 'wallet-raw-ed25519-signer';
+  const signerId = input.signerId ?? 'ed25519:wallet-raw-ed25519.testnet:1';
+  return {
+    walletId,
+    signerFamily: 'ed25519',
+    signerId,
+    chainTargetKey: input.chainTargetKey ?? null,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'wallet_signer_ed25519_v1',
+        walletId,
+        signerId,
+      }),
+    createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+    updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+  };
+}
+
+function buildRawD1WalletInsertInput(input: {
+  readonly walletId?: string;
+  readonly recordJson?: string;
+  readonly createdAtMs?: number;
+  readonly updatedAtMs?: number;
+}): RawD1WalletInsertInput {
+  const walletId = input.walletId ?? 'wallet-raw-identity';
+  return {
+    walletId,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'wallet_v1',
+        walletId,
+      }),
+    createdAtMs: input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z'),
+    updatedAtMs: input.updatedAtMs ?? Date.parse('2026-06-27T00:00:01.000Z'),
+  };
+}
+
+function buildRawD1EcdsaWalletSignerInsertInput(input: {
+  readonly walletId?: string;
+  readonly signerId?: string;
+  readonly chainTargetKey?: string | null;
+  readonly recordJson?: string;
+}): RawD1WalletSignerInsertInput {
+  const walletId = input.walletId ?? 'wallet-raw-ecdsa-signer';
+  const chainTargetKey =
+    input.chainTargetKey === undefined ? 'evm:eip155:8453' : input.chainTargetKey;
+  const signerId = input.signerId ?? `ecdsa:${chainTargetKey || ''}`;
+  return {
+    walletId,
+    signerFamily: 'ecdsa',
+    signerId,
+    chainTargetKey,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'wallet_signer_ecdsa_v1',
+        walletId,
+        signerId,
+        chainTargetKey,
+      }),
+    createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+    updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+  };
+}
+
+function buildRawD1SigningRootSecretShareInsertInput(
+  input: Partial<RawD1SigningRootSecretShareInsertInput>,
+): RawD1SigningRootSecretShareInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-signer-schema',
+    projectId: input.projectId ?? 'project-d1-signer-schema',
+    envId: input.envId ?? 'env-production',
+    signingRootId: input.signingRootId ?? 'signing-root-raw-secret',
+    signingRootVersion: input.signingRootVersion ?? '',
+    shareId: input.shareId ?? 1,
+    sealedShareB64u: input.sealedShareB64u ?? 'AQIDBA',
+    storageId: input.storageId === undefined ? null : input.storageId,
+    kekId: input.kekId ?? 'kek-raw-secret-share',
+    envelopeVersion: input.envelopeVersion ?? 'd1-secret-share-v1',
+    aadDigestB64u: input.aadDigestB64u ?? 'A'.repeat(43),
+    ciphertextDigestB64u: input.ciphertextDigestB64u ?? 'B'.repeat(43),
+    rotationState: input.rotationState ?? 'active',
+    rotatedFromKekId: input.rotatedFromKekId === undefined ? null : input.rotatedFromKekId,
+    rotatedAtMs: input.rotatedAtMs === undefined ? null : input.rotatedAtMs,
+    retiredAtMs: input.retiredAtMs === undefined ? null : input.retiredAtMs,
+    lastAuditEventId: input.lastAuditEventId ?? 'audit-raw-secret-share',
+    createdAtMs,
+    updatedAtMs: input.updatedAtMs ?? createdAtMs + 1000,
+  };
+}
+
+function buildRawD1IdentityLinkInsertInput(
+  input: Partial<RawD1IdentityLinkInsertInput>,
+): RawD1IdentityLinkInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const subject = input.subject ?? 'google:raw-identity-subject';
+  const userId = input.userId ?? 'wallet-raw-identity-session';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-identity-schema',
+    projectId: input.projectId ?? 'project-d1-identity-schema',
+    envId: input.envId ?? 'env-production',
+    subject,
+    userId,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'identity_subject_v1',
+        subject,
+        userId,
+        createdAtMs,
+        updatedAtMs,
+      }),
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function buildRawD1AppSessionVersionInsertInput(
+  input: Partial<RawD1AppSessionVersionInsertInput>,
+): RawD1AppSessionVersionInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const userId = input.userId ?? 'wallet-raw-app-session';
+  const sessionVersion = input.sessionVersion ?? 'app-session-version-raw';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-identity-schema',
+    projectId: input.projectId ?? 'project-d1-identity-schema',
+    envId: input.envId ?? 'env-production',
+    userId,
+    sessionVersion,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'app_session_version_v1',
+        userId,
+        appSessionVersion: sessionVersion,
+        createdAtMs,
+        updatedAtMs,
+      }),
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function buildRawD1RecoverySessionInsertInput(
+  input: Partial<RawD1RecoverySessionInsertInput>,
+): RawD1RecoverySessionInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const expiresAtMs = input.expiresAtMs ?? createdAtMs + 600_000;
+  const sessionId = input.sessionId ?? 'recovery-session-raw-schema';
+  const nearAccountId = input.nearAccountId ?? 'wallet-raw-recovery.testnet';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-recovery-schema',
+    projectId: input.projectId ?? 'project-d1-recovery-schema',
+    envId: input.envId ?? 'env-production',
+    sessionId,
+    nearAccountId,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'recovery_session_v1',
+        sessionId,
+        userId: 'wallet-raw-recovery',
+        nearAccountId,
+        signerSlot: 1,
+        status: 'prepared',
+        createdAtMs,
+        updatedAtMs,
+        expiresAtMs,
+        newNearPublicKey: 'ed25519:raw-recovery-public-key',
+        newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+        recoveryDeadlineEpochSeconds: Math.floor(expiresAtMs / 1000),
+        recoveryEmailPayloadHash: 'raw-recovery-email-payload-hash',
+      }),
+    expiresAtMs,
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function buildRawD1RecoveryExecutionInsertInput(
+  input: Partial<RawD1RecoveryExecutionInsertInput>,
+): RawD1RecoveryExecutionInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const sessionId = input.sessionId ?? 'recovery-session-raw-schema';
+  const chainIdKey = input.chainIdKey ?? 'evm:eip155:8453';
+  const accountAddress = input.accountAddress ?? `0x${'22'.repeat(20)}`;
+  const action = input.action ?? 'recover_owner';
+  const status = input.status ?? 'pending';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-recovery-schema',
+    projectId: input.projectId ?? 'project-d1-recovery-schema',
+    envId: input.envId ?? 'env-production',
+    sessionId,
+    chainIdKey,
+    accountAddress,
+    action,
+    status,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'recovery_execution_v1',
+        sessionId,
+        userId: 'wallet-raw-recovery',
+        nearAccountId: 'wallet-raw-recovery.testnet',
+        chainIdKey,
+        accountAddress,
+        action,
+        status,
+        createdAtMs,
+        updatedAtMs,
+      }),
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function buildRawD1EmailRecoveryPreparationInsertInput(
+  input: Partial<RawD1EmailRecoveryPreparationInsertInput>,
+): RawD1EmailRecoveryPreparationInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const expiresAtMs = input.expiresAtMs ?? createdAtMs + 600_000;
+  const requestId = input.requestId ?? 'email-recovery-preparation-raw-schema';
+  const accountId = input.accountId ?? 'wallet-raw-email-recovery.testnet';
+  const walletId = input.walletId ?? 'wallet-raw-email-recovery';
+  const rpId = input.rpId ?? 'app.example.test';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-recovery-schema',
+    projectId: input.projectId ?? 'project-d1-recovery-schema',
+    envId: input.envId ?? 'env-production',
+    requestId,
+    accountId,
+    walletId,
+    rpId,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'email_recovery_preparation_v1',
+        requestId,
+        accountId,
+        walletBinding: {
+          walletId,
+          nearAccountId: accountId,
+          nearEd25519SigningKeyId: 'ed25519:raw-email-recovery',
+          rpId,
+          signerSlot: 1,
+        },
+        rpId,
+        signerSlot: 1,
+        credentialIdB64u: 'raw-email-recovery-credential',
+        credentialPublicKeyB64u: 'raw-email-recovery-credential-public-key',
+        counter: 0,
+        createdAtMs,
+        expiresAtMs,
+        thresholdEd25519: {
+          relayerKeyId: 'relayer-raw-email-recovery',
+          publicKey: 'ed25519:raw-email-recovery',
+          keyVersion: '1',
+          recoveryExportCapable: true,
+        },
+        ecdsa: {
+          kind: 'evm_family_ecdsa_keygen',
+          chainTargets: ['evm:eip155:8453'],
+          prepare: {
+            formatVersion: 'ecdsa-hss-role-local',
+            walletId,
+            walletKeyId: 'wallet-key-raw-email-recovery',
+            ecdsaThresholdKeyId: 'ecdsa-key-raw-email-recovery',
+            signingRootId: 'signing-root-raw-email-recovery',
+            signingRootVersion: '1',
+            keyScope: 'evm-family',
+            relayerKeyId: 'relayer-raw-email-recovery',
+            requestId,
+            thresholdSessionId: 'threshold-session-raw-email-recovery',
+            signingGrantId: 'signing-grant-raw-email-recovery',
+            ttlMs: 600_000,
+            remainingUses: 1,
+            participantIds: [1, 2, 3],
+          },
+        },
+      }),
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function buildRawD1EmailOtpChallengeInsertInput(
+  input: Partial<RawD1EmailOtpChallengeInsertInput>,
+): RawD1EmailOtpChallengeInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const expiresAtMs = input.expiresAtMs ?? createdAtMs + 600_000;
+  const challengeId = input.challengeId ?? 'email-otp-challenge-raw-schema';
+  const challengeSubjectId = input.challengeSubjectId ?? 'google-subject-raw-email-otp';
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
+  const otpChannel = input.otpChannel ?? 'email_otp';
+  const sessionHash = input.sessionHash ?? 'session-hash-raw-email-otp';
+  const appSessionVersion = input.appSessionVersion ?? 'app-session-raw-email-otp';
+  const action = input.action ?? 'wallet_email_otp_login';
+  const operation = input.operation ?? 'wallet_unlock';
+  const otpCode = input.otpCode ?? '123456';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    challengeId,
+    challengeSubjectId,
+    walletId,
+    recordOrgId,
+    otpChannel,
+    sessionHash,
+    appSessionVersion,
+    action,
+    operation,
+    otpCode,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'email_otp_challenge_v1',
+        challengeId,
+        challengeSubjectId,
+        walletId,
+        orgId: recordOrgId,
+        otpChannel,
+        email: 'raw@example.test',
+        otpCode,
+        sessionHash,
+        appSessionVersion,
+        action,
+        operation,
+        createdAtMs,
+        expiresAtMs,
+        attemptCount: 0,
+        maxAttempts: 3,
+      }),
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function buildRawD1EmailOtpGrantInsertInput(
+  input: Partial<RawD1EmailOtpGrantInsertInput>,
+): RawD1EmailOtpGrantInsertInput {
+  const issuedAtMs = input.issuedAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const expiresAtMs = input.expiresAtMs ?? issuedAtMs + 600_000;
+  const grantToken = input.grantToken ?? 'email-otp-grant-raw-schema';
+  const userId = input.userId ?? 'google-subject-raw-email-otp';
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
+  const challengeId = input.challengeId ?? 'email-otp-challenge-raw-schema';
+  const action = input.action ?? 'wallet_email_otp_unseal';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    grantToken,
+    userId,
+    walletId,
+    recordOrgId,
+    challengeId,
+    action,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'email_otp_grant_v1',
+        grantToken,
+        userId,
+        walletId,
+        orgId: recordOrgId,
+        challengeId,
+        otpChannel: 'email_otp',
+        sessionHash: 'session-hash-raw-email-otp',
+        appSessionVersion: 'app-session-raw-email-otp',
+        action,
+        issuedAtMs,
+        expiresAtMs,
+      }),
+    issuedAtMs,
+    expiresAtMs,
+  };
+}
+
+function buildRawD1EmailOtpEnrollmentInsertInput(
+  input: Partial<RawD1EmailOtpEnrollmentInsertInput>,
+): RawD1EmailOtpEnrollmentInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const providerUserId = input.providerUserId ?? 'google-subject-raw-email-otp';
+  const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
+  const verifiedEmail = input.verifiedEmail ?? 'raw@example.test';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    walletId,
+    providerUserId,
+    recordOrgId,
+    verifiedEmail,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'email_otp_wallet_enrollment_v1',
+        walletId,
+        providerUserId,
+        orgId: recordOrgId,
+        verifiedEmail,
+        enrollmentId: 'enrollment-raw-email-otp',
+        enrollmentVersion: '1',
+        enrollmentSealKeyVersion: 'seal-v1',
+        signingRootId: 'signing-root-raw-email-otp',
+        signingRootVersion: '1',
+        recoveryWrappedEnrollmentEscrowCount: 10,
+        clientUnlockPublicKeyB64u: 'A'.repeat(43),
+        unlockKeyVersion: 'unlock-v1',
+        thresholdEcdsaClientVerifyingShareB64u: 'B'.repeat(43),
+        createdAtMs,
+        updatedAtMs,
+      }),
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function buildRawD1EmailOtpRecoveryEscrowInsertInput(
+  input: Partial<RawD1EmailOtpRecoveryEscrowInsertInput>,
+): RawD1EmailOtpRecoveryEscrowInsertInput {
+  const issuedAtMs = input.issuedAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? issuedAtMs + 1000;
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const recoveryKeyId = input.recoveryKeyId ?? 'recovery-key-raw-email-otp';
+  const recoveryKeyStatus = input.recoveryKeyStatus ?? 'active';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    walletId,
+    recoveryKeyId,
+    recoveryKeyStatus,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+        alg: 'chacha20poly1305-hkdf-sha256-v1',
+        secretKind: 'email_otp_device_enrollment_escrow',
+        escrowKind: 'recovery_wrapped_enrollment_escrow',
+        walletId,
+        userId: 'google-subject-raw-email-otp',
+        authSubjectId: 'google-subject-raw-email-otp',
+        authMethod: 'google_sso_email_otp',
+        enrollmentId: 'enrollment-raw-email-otp',
+        enrollmentVersion: '1',
+        enrollmentSealKeyVersion: 'seal-v1',
+        signingRootId: 'signing-root-raw-email-otp',
+        signingRootVersion: '1',
+        recoveryKeyId,
+        recoveryKeyStatus,
+        nonceB64u: 'nonce-raw-email-otp',
+        wrappedDeviceEnrollmentEscrowB64u: 'wrapped-raw-email-otp',
+        aadHashB64u: 'hash-raw-email-otp',
+        issuedAtMs,
+        updatedAtMs,
+      }),
+    issuedAtMs,
+    updatedAtMs,
+  };
+}
+
+function buildRawD1EmailOtpAuthStateInsertInput(
+  input: Partial<RawD1EmailOtpAuthStateInsertInput>,
+): RawD1EmailOtpAuthStateInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const providerUserId = input.providerUserId ?? 'google-subject-raw-email-otp';
+  const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    walletId,
+    providerUserId,
+    recordOrgId,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'email_otp_auth_state_v1',
+        walletId,
+        providerUserId,
+        orgId: recordOrgId,
+        createdAtMs,
+        updatedAtMs,
+        otpFailureCount: 0,
+      }),
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function buildRawD1EmailOtpUnlockChallengeInsertInput(
+  input: Partial<RawD1EmailOtpUnlockChallengeInsertInput>,
+): RawD1EmailOtpUnlockChallengeInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const expiresAtMs = input.expiresAtMs ?? createdAtMs + 600_000;
+  const challengeId = input.challengeId ?? 'email-otp-unlock-challenge-raw-schema';
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const userId = input.userId ?? 'google-subject-raw-email-otp';
+  const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    challengeId,
+    walletId,
+    userId,
+    recordOrgId,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'email_otp_unlock_challenge_v1',
+        challengeId,
+        walletId,
+        userId,
+        orgId: recordOrgId,
+        challengeB64u: 'unlock-challenge-raw-email-otp',
+        createdAtMs,
+        expiresAtMs,
+      }),
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function buildRawD1EmailOtpRegistrationAttemptInsertInput(
+  input: Partial<RawD1EmailOtpRegistrationAttemptInsertInput>,
+): RawD1EmailOtpRegistrationAttemptInsertInput {
+  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
+  const expiresAtMs = input.expiresAtMs ?? createdAtMs + 600_000;
+  const attemptId = input.attemptId ?? 'email-otp-registration-attempt-raw-schema';
+  const providerSubject = input.providerSubject ?? 'google-subject-raw-email-otp';
+  const email = input.email ?? 'raw@example.test';
+  const walletId = input.walletId ?? 'wallet-raw-email-otp';
+  const state = input.state ?? 'started';
+  const appSessionVersion = input.appSessionVersion ?? 'app-session-raw-email-otp';
+  const runtimeOrgId = input.runtimeOrgId ?? 'org-d1-email-otp-schema';
+  const runtimePolicyKey =
+    input.runtimePolicyKey ?? 'org-d1-email-otp-schema\nproject-d1-email-otp-schema\nenv-production\n1';
+  const offerWalletIdsJson = input.offerWalletIdsJson ?? JSON.stringify([walletId]);
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    attemptId,
+    providerSubject,
+    email,
+    walletId,
+    state,
+    appSessionVersion,
+    runtimeOrgId,
+    runtimePolicyKey,
+    offerWalletIdsJson,
+    recordJson:
+      input.recordJson ??
+      JSON.stringify({
+        version: 'google_email_otp_registration_attempt_v1',
+        attemptId,
+        providerSubject,
+        email,
+        walletId,
+        offerId: 'offer-raw-email-otp',
+        offerCandidates: [{ candidateId: 'candidate-raw-email-otp', walletId, collisionCounter: 0 }],
+        selectedCandidateId: 'candidate-raw-email-otp',
+        appSessionVersion,
+        authProvider: 'google',
+        accountIdSlugVersion: 'hmac_readable_v1',
+        walletIdDerivationNonce: 'nonce-raw-email-otp',
+        collisionCounter: 0,
+        state,
+        createdAtMs,
+        updatedAtMs,
+        expiresAtMs,
+        runtimePolicyScope: {
+          orgId: runtimeOrgId,
+          projectId: 'project-d1-email-otp-schema',
+          envId: 'env-production',
+          signingRootVersion: '1',
+        },
+      }),
+    createdAtMs,
+    updatedAtMs,
+    expiresAtMs,
+  };
+}
+
+function buildRawD1EmailOtpRateLimitInsertInput(
+  input: Partial<RawD1EmailOtpRateLimitInsertInput>,
+): RawD1EmailOtpRateLimitInsertInput {
+  const updatedAtMs = input.updatedAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
+  return {
+    namespace: input.namespace ?? 'd1-contracts',
+    orgId: input.orgId ?? 'org-d1-email-otp-schema',
+    projectId: input.projectId ?? 'project-d1-email-otp-schema',
+    envId: input.envId ?? 'env-production',
+    rateKey: input.rateKey ?? 'scope=challenge:action=raw:limit=3:windowMs=60000:ip:127.0.0.1',
+    consumedCount: input.consumedCount ?? 1,
+    resetAtMs: input.resetAtMs ?? updatedAtMs + 60_000,
+    updatedAtMs,
+  };
+}
+
+async function insertRawD1SponsoredCallRecord(
+  database: D1DatabaseLike,
+  input: RawD1SponsoredCallInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO sponsored_call_records (
+        namespace,
+        org_id,
+        id,
+        environment_id,
+        api_key_id,
+        api_key_kind,
+        route,
+        receipt_status,
+        details_json,
+        estimated_spend_minor,
+        settled_spend_minor,
+        idempotency_key,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      'd1-contracts',
+      'org-d1-sponsored-schema',
+      input.id,
+      'env-production',
+      'api-key-raw-sponsored',
+      'secret_key',
+      'sponsored_evm_call_v1',
+      'success',
+      input.detailsJson,
+      input.estimatedSpendMinor,
+      input.settledSpendMinor,
+      input.idempotencyKey,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1PrepaidReservationRecord(
+  database: D1DatabaseLike,
+  input: RawD1PrepaidReservationInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO billing_prepaid_reservations (
+        namespace,
+        org_id,
+        id,
+        environment_id,
+        source_event_id,
+        requested_minor,
+        posted_balance_minor,
+        settled_minor,
+        released_minor,
+        status,
+        tx_or_execution_ref,
+        pricing_version,
+        expires_at_ms,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      'd1-contracts',
+      'org-d1-prepaid-schema',
+      input.id,
+      input.environmentId,
+      input.sourceEventId,
+      input.requestedMinor,
+      input.postedBalanceMinor,
+      input.settledMinor,
+      input.releasedMinor,
+      input.status,
+      input.txOrExecutionRef,
+      input.pricingVersion,
+      input.expiresAtMs,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1BillingLedgerEntryRecord(
+  database: D1DatabaseLike,
+  input: RawD1BillingLedgerEntryInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO billing_ledger_entries (
+        namespace,
+        org_id,
+        id,
+        entry_type,
+        amount_minor,
+        description,
+        month_utc,
+        related_invoice_id,
+        related_purchase_id,
+        source_event_id,
+        actor_type,
+        actor_user_id,
+        reason_code,
+        note,
+        idempotency_key,
+        created_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.id,
+      input.entryType,
+      input.amountMinor,
+      input.description,
+      input.monthUtc,
+      input.relatedInvoiceId,
+      input.relatedPurchaseId,
+      input.sourceEventId,
+      input.actorType,
+      input.actorUserId,
+      input.reasonCode,
+      input.note,
+      input.idempotencyKey,
+      input.createdAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1BillingLedgerPostingRecord(
+  database: D1DatabaseLike,
+  input: RawD1BillingLedgerPostingInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO billing_ledger_postings (
+        namespace,
+        org_id,
+        id,
+        ledger_entry_id,
+        account_code,
+        direction,
+        amount_minor,
+        created_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.id,
+      input.ledgerEntryId,
+      input.accountCode,
+      input.direction,
+      input.amountMinor,
+      input.createdAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1BillingMonthlyActiveWalletRecord(
+  database: D1DatabaseLike,
+  input: RawD1BillingMonthlyActiveWalletInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO billing_monthly_active_wallets (
+        namespace,
+        org_id,
+        month_utc,
+        wallet_id,
+        source_event_id,
+        created_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.monthUtc,
+      input.walletId,
+      input.sourceEventId,
+      input.createdAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1RuntimeSnapshotRecord(
+  database: D1DatabaseLike,
+  input: RawD1RuntimeSnapshotInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO runtime_snapshots (
+        namespace,
+        org_id,
+        project_id,
+        environment_id,
+        snapshot_id,
+        version,
+        effective_at_ms,
+        checksum,
+        payload_json,
+        created_at_ms,
+        created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.environmentId,
+      input.snapshotId,
+      input.version,
+      input.effectiveAtMs,
+      input.checksum,
+      input.payloadJson,
+      input.createdAtMs,
+      input.createdBy,
+    )
+    .run();
+}
+
+async function insertRawD1RuntimeSnapshotOutboxRecord(
+  database: D1DatabaseLike,
+  input: RawD1RuntimeSnapshotOutboxInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO runtime_snapshot_outbox (
+        namespace,
+        org_id,
+        project_id,
+        environment_id,
+        event_id,
+        event_type,
+        snapshot_id,
+        snapshot_version,
+        payload_json,
+        status,
+        attempt_count,
+        available_at_ms,
+        claimed_by,
+        claim_expires_at_ms,
+        last_error,
+        created_at_ms,
+        updated_at_ms,
+        dispatched_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.environmentId,
+      input.eventId,
+      input.eventType,
+      input.snapshotId,
+      input.snapshotVersion,
+      input.payloadJson,
+      input.status,
+      input.attemptCount,
+      input.availableAtMs,
+      input.claimedBy,
+      input.claimExpiresAtMs,
+      input.lastError,
+      input.createdAtMs,
+      input.updatedAtMs,
+      input.dispatchedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1WebhookEndpointRecord(
+  database: D1DatabaseLike,
+  input: RawD1WebhookEndpointInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO webhook_endpoints (
+        namespace,
+        org_id,
+        id,
+        url,
+        status,
+        signing_secret_ciphertext_b64u,
+        signing_secret_key_id,
+        signing_secret_envelope_version,
+        secret_version,
+        secret_preview,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.id,
+      input.url,
+      input.status,
+      input.signingSecretCiphertextB64u,
+      input.signingSecretKeyId,
+      input.signingSecretEnvelopeVersion,
+      input.secretVersion,
+      input.secretPreview,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1WebhookEndpointCategoryRecord(
+  database: D1DatabaseLike,
+  input: RawD1WebhookEndpointCategoryInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO webhook_endpoint_categories (
+        namespace,
+        org_id,
+        endpoint_id,
+        category
+      ) VALUES (?, ?, ?, ?)`,
+    )
+    .bind(input.namespace, input.orgId, input.endpointId, input.category)
+    .run();
+}
+
+async function insertRawD1WalletRecord(
+  database: D1DatabaseLike,
+  input: RawD1WalletInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO wallets (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      'd1-contracts',
+      'org-d1-signer-schema',
+      'project-d1-signer-schema',
+      'env-production',
+      input.walletId,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1WalletSignerRecord(
+  database: D1DatabaseLike,
+  input: RawD1WalletSignerInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO wallet_signers (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        signer_family,
+        signer_id,
+        chain_target_key,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      'd1-contracts',
+      'org-d1-signer-schema',
+      'project-d1-signer-schema',
+      'env-production',
+      input.walletId,
+      input.signerFamily,
+      input.signerId,
+      input.chainTargetKey,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1WalletAuthMethodRecord(
+  database: D1DatabaseLike,
+  input: RawD1WalletAuthMethodInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO wallet_auth_methods (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        rp_id,
+        kind,
+        status,
+        wallet_auth_method_id,
+        auth_identifier_key,
+        credential_id_b64u,
+        credential_public_key_b64u,
+        email_hash_hex,
+        registration_authority_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      'd1-contracts',
+      'org-d1-signer-schema',
+      'project-d1-signer-schema',
+      'env-production',
+      input.walletId,
+      input.rpId,
+      input.kind,
+      'active',
+      input.walletAuthMethodId,
+      input.authIdentifierKey,
+      input.credentialIdB64u,
+      input.credentialPublicKeyB64u,
+      input.emailHashHex,
+      input.registrationAuthorityId,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1SigningRootSecretShareRecord(
+  database: D1DatabaseLike,
+  input: RawD1SigningRootSecretShareInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO signing_root_secret_shares (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        signing_root_id,
+        signing_root_version,
+        share_id,
+        sealed_share_b64u,
+        storage_id,
+        kek_id,
+        envelope_version,
+        aad_digest_b64u,
+        ciphertext_digest_b64u,
+        rotation_state,
+        rotated_from_kek_id,
+        rotated_at_ms,
+        retired_at_ms,
+        last_audit_event_id,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.signingRootId,
+      input.signingRootVersion,
+      input.shareId,
+      input.sealedShareB64u,
+      input.storageId,
+      input.kekId,
+      input.envelopeVersion,
+      input.aadDigestB64u,
+      input.ciphertextDigestB64u,
+      input.rotationState,
+      input.rotatedFromKekId,
+      input.rotatedAtMs,
+      input.retiredAtMs,
+      input.lastAuditEventId,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1IdentityLinkRecord(
+  database: D1DatabaseLike,
+  input: RawD1IdentityLinkInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO identity_links (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        subject,
+        user_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.subject,
+      input.userId,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1AppSessionVersionRecord(
+  database: D1DatabaseLike,
+  input: RawD1AppSessionVersionInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO app_session_versions (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        session_version,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.userId,
+      input.sessionVersion,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1RecoverySessionRecord(
+  database: D1DatabaseLike,
+  input: RawD1RecoverySessionInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO recovery_sessions (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        session_id,
+        near_account_id,
+        record_json,
+        expires_at_ms,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.sessionId,
+      input.nearAccountId,
+      input.recordJson,
+      input.expiresAtMs,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1RecoveryExecutionRecord(
+  database: D1DatabaseLike,
+  input: RawD1RecoveryExecutionInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO recovery_executions (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        session_id,
+        chain_id_key,
+        account_address,
+        action,
+        status,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.sessionId,
+      input.chainIdKey,
+      input.accountAddress,
+      input.action,
+      input.status,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailRecoveryPreparationRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailRecoveryPreparationInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_recovery_preparations (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        request_id,
+        account_id,
+        wallet_id,
+        rp_id,
+        record_json,
+        created_at_ms,
+        expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.requestId,
+      input.accountId,
+      input.walletId,
+      input.rpId,
+      input.recordJson,
+      input.createdAtMs,
+      input.expiresAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpChallengeRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpChallengeInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_challenges (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        challenge_id,
+        challenge_subject_id,
+        wallet_id,
+        record_org_id,
+        otp_channel,
+        session_hash,
+        app_session_version,
+        action,
+        operation,
+        otp_code,
+        record_json,
+        created_at_ms,
+        expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.challengeId,
+      input.challengeSubjectId,
+      input.walletId,
+      input.recordOrgId,
+      input.otpChannel,
+      input.sessionHash,
+      input.appSessionVersion,
+      input.action,
+      input.operation,
+      input.otpCode,
+      input.recordJson,
+      input.createdAtMs,
+      input.expiresAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpGrantRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpGrantInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_grants (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        grant_token,
+        user_id,
+        wallet_id,
+        record_org_id,
+        challenge_id,
+        action,
+        record_json,
+        issued_at_ms,
+        expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.grantToken,
+      input.userId,
+      input.walletId,
+      input.recordOrgId,
+      input.challengeId,
+      input.action,
+      input.recordJson,
+      input.issuedAtMs,
+      input.expiresAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpEnrollmentRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpEnrollmentInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_wallet_enrollments (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        provider_user_id,
+        record_org_id,
+        verified_email,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.walletId,
+      input.providerUserId,
+      input.recordOrgId,
+      input.verifiedEmail,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpRecoveryEscrowRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpRecoveryEscrowInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        recovery_key_id,
+        recovery_key_status,
+        record_json,
+        issued_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.walletId,
+      input.recoveryKeyId,
+      input.recoveryKeyStatus,
+      input.recordJson,
+      input.issuedAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpAuthStateRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpAuthStateInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_auth_states (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        provider_user_id,
+        record_org_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.walletId,
+      input.providerUserId,
+      input.recordOrgId,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpUnlockChallengeRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpUnlockChallengeInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_unlock_challenges (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        challenge_id,
+        wallet_id,
+        user_id,
+        record_org_id,
+        record_json,
+        created_at_ms,
+        expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.challengeId,
+      input.walletId,
+      input.userId,
+      input.recordOrgId,
+      input.recordJson,
+      input.createdAtMs,
+      input.expiresAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpRegistrationAttemptRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpRegistrationAttemptInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_registration_attempts (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        attempt_id,
+        provider_subject,
+        email,
+        wallet_id,
+        state,
+        app_session_version,
+        runtime_org_id,
+        runtime_policy_key,
+        offer_wallet_ids_json,
+        record_json,
+        created_at_ms,
+        updated_at_ms,
+        expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.attemptId,
+      input.providerSubject,
+      input.email,
+      input.walletId,
+      input.state,
+      input.appSessionVersion,
+      input.runtimeOrgId,
+      input.runtimePolicyKey,
+      input.offerWalletIdsJson,
+      input.recordJson,
+      input.createdAtMs,
+      input.updatedAtMs,
+      input.expiresAtMs,
+    )
+    .run();
+}
+
+async function insertRawD1EmailOtpRateLimitRecord(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpRateLimitInsertInput,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO email_otp_rate_limits (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        rate_key,
+        consumed_count,
+        reset_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.orgId,
+      input.projectId,
+      input.envId,
+      input.rateKey,
+      input.consumedCount,
+      input.resetAtMs,
+      input.updatedAtMs,
+    )
+    .run();
+}
+
+async function expectRawD1EmailOtpChallengeInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpChallengeInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpChallengeRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailOtpGrantInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpGrantInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpGrantRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailOtpEnrollmentInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpEnrollmentInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpEnrollmentRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailOtpRecoveryEscrowInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpRecoveryEscrowInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpRecoveryEscrowRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailOtpAuthStateInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpAuthStateInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpAuthStateRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailOtpUnlockChallengeInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpUnlockChallengeInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpUnlockChallengeRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailOtpRegistrationAttemptInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpRegistrationAttemptInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpRegistrationAttemptRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailOtpRateLimitInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailOtpRateLimitInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailOtpRateLimitRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1SponsoredCallInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1SponsoredCallInsertInput,
+): Promise<void> {
+  await expect(insertRawD1SponsoredCallRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1PrepaidReservationInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1PrepaidReservationInsertInput,
+): Promise<void> {
+  await expect(insertRawD1PrepaidReservationRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1BillingLedgerEntryInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1BillingLedgerEntryInsertInput,
+): Promise<void> {
+  await expect(insertRawD1BillingLedgerEntryRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1BillingLedgerPostingInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1BillingLedgerPostingInsertInput,
+): Promise<void> {
+  await expect(insertRawD1BillingLedgerPostingRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1BillingMonthlyActiveWalletInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1BillingMonthlyActiveWalletInsertInput,
+): Promise<void> {
+  await expect(insertRawD1BillingMonthlyActiveWalletRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1RuntimeSnapshotInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1RuntimeSnapshotInsertInput,
+): Promise<void> {
+  await expect(insertRawD1RuntimeSnapshotRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1RuntimeSnapshotOutboxInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1RuntimeSnapshotOutboxInsertInput,
+): Promise<void> {
+  await expect(insertRawD1RuntimeSnapshotOutboxRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1WebhookEndpointInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1WebhookEndpointInsertInput,
+): Promise<void> {
+  await expect(insertRawD1WebhookEndpointRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1WebhookEndpointCategoryInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1WebhookEndpointCategoryInsertInput,
+): Promise<void> {
+  await expect(insertRawD1WebhookEndpointCategoryRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1WalletInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1WalletInsertInput,
+): Promise<void> {
+  await expect(insertRawD1WalletRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1WalletSignerInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1WalletSignerInsertInput,
+): Promise<void> {
+  await expect(insertRawD1WalletSignerRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1WalletAuthMethodInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1WalletAuthMethodInsertInput,
+): Promise<void> {
+  await expect(insertRawD1WalletAuthMethodRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1SigningRootSecretShareInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1SigningRootSecretShareInsertInput,
+): Promise<void> {
+  await expect(insertRawD1SigningRootSecretShareRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1IdentityLinkInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1IdentityLinkInsertInput,
+): Promise<void> {
+  await expect(insertRawD1IdentityLinkRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1AppSessionVersionInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1AppSessionVersionInsertInput,
+): Promise<void> {
+  await expect(insertRawD1AppSessionVersionRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1RecoverySessionInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1RecoverySessionInsertInput,
+): Promise<void> {
+  await expect(insertRawD1RecoverySessionRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1RecoveryExecutionInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1RecoveryExecutionInsertInput,
+): Promise<void> {
+  await expect(insertRawD1RecoveryExecutionRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
+}
+
+async function expectRawD1EmailRecoveryPreparationInsertRejected(
+  database: D1DatabaseLike,
+  input: RawD1EmailRecoveryPreparationInsertInput,
+): Promise<void> {
+  await expect(insertRawD1EmailRecoveryPreparationRecord(database, input)).rejects.toThrow(
+    /CHECK constraint failed/,
+  );
 }
 
 function createD1AtomicAssessment(): RecordSponsoredExecutionInput['assessment'] {
@@ -388,136 +2845,6 @@ function createD1AtomicAssessment(): RecordSponsoredExecutionInput['assessment']
     recordErrorCode: null,
     recordErrorMessage: null,
   };
-}
-
-function sqlFromD1PreparedStatement(statement: D1PreparedStatementLike): string {
-  if (!(statement instanceof SqliteCliD1PreparedStatement)) {
-    throw new Error('SQLite D1 test batch only accepts SQLite-backed statements');
-  }
-  return statement.toSql();
-}
-
-function buildSuccessfulD1BatchResult(): D1ResultLike {
-  return {
-    success: true,
-    results: [],
-    meta: {
-      changes: 0,
-      rows_written: 0,
-    },
-  };
-}
-
-function createTemporaryD1Database(): { readonly database: D1DatabaseLike; readonly tempDir: string } {
-  const tempDir = mkdtempSync(path.join(tmpdir(), 'seams-d1-adapter-test-'));
-  return {
-    database: new SqliteCliD1Database(path.join(tempDir, 'test.sqlite')),
-    tempDir,
-  };
-}
-
-function cleanupTemporaryD1Database(tempDir: string): void {
-  rmSync(tempDir, { recursive: true, force: true });
-}
-
-function runSqlite(databasePath: string, sql: string): void {
-  const result = spawnSync('sqlite3', [databasePath, sql], {
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status === 0) return;
-  throw new Error(formatSqliteError(result.stderr, sql));
-}
-
-function runSqliteJson(databasePath: string, sql: string): readonly SqliteJsonRow[] {
-  const result = spawnSync('sqlite3', ['-json', databasePath, sql], {
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status !== 0) {
-    throw new Error(formatSqliteError(result.stderr, sql));
-  }
-  const stdout = result.stdout.trim();
-  if (!stdout) return [];
-  const parsed: unknown = JSON.parse(stdout);
-  if (!Array.isArray(parsed)) {
-    throw new Error(`sqlite3 JSON output was not an array: ${stdout}`);
-  }
-  return parsed.filter(isSqliteJsonRow);
-}
-
-function formatSqliteError(stderr: string, sql: string): string {
-  return `sqlite3 failed: ${stderr.trim() || 'unknown error'}\nSQL: ${sql}`;
-}
-
-function isSqliteJsonRow(input: unknown): input is SqliteJsonRow {
-  return Boolean(input && typeof input === 'object' && !Array.isArray(input));
-}
-
-function interpolateSql(query: string, values: readonly unknown[]): string {
-  const segments = splitSqlByPlaceholders(query);
-  if (segments.length - 1 !== values.length) {
-    throw new Error(
-      `SQL placeholder count ${segments.length - 1} did not match bound value count ${values.length}`,
-    );
-  }
-  let sql = segments[0] || '';
-  for (let i = 0; i < values.length; i += 1) {
-    sql += `${sqlLiteral(values[i])}${segments[i + 1] || ''}`;
-  }
-  return ensureSqlStatementTerminator(sql);
-}
-
-function splitSqlByPlaceholders(query: string): readonly string[] {
-  const segments: string[] = [];
-  let current = '';
-  let inSingleQuote = false;
-  for (let i = 0; i < query.length; i += 1) {
-    const char = query[i] || '';
-    const next = query[i + 1] || '';
-    if (char === "'" && inSingleQuote && next === "'") {
-      current += "''";
-      i += 1;
-      continue;
-    }
-    if (char === "'") {
-      inSingleQuote = !inSingleQuote;
-      current += char;
-      continue;
-    }
-    if (char === '?' && !inSingleQuote) {
-      segments.push(current);
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-  segments.push(current);
-  return segments;
-}
-
-function ensureSqlStatementTerminator(sql: string): string {
-  const trimmed = sql.trim();
-  return trimmed.endsWith(';') ? trimmed : `${trimmed};`;
-}
-
-function sqlLiteral(value: unknown): string {
-  if (value === null || value === undefined) return 'NULL';
-  if (typeof value === 'boolean') return value ? '1' : '0';
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  if (typeof value === 'bigint') return value.toString();
-  if (value instanceof Uint8Array) return `X'${Buffer.from(value).toString('hex')}'`;
-  if (value instanceof Date) return quoteSqlString(value.toISOString());
-  return quoteSqlString(String(value));
-}
-
-function quoteSqlString(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-function toInteger(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
 }
 
 function errorCode(error: unknown): string {
@@ -776,6 +3103,1296 @@ function buildD1EmailOtpRegistrationAttemptRecord(input: {
 function isErrorWithCode(input: unknown): input is ErrorWithCode {
   return Boolean(input && typeof input === 'object' && 'code' in input);
 }
+
+const D1_MIGRATION_TARGETS: readonly D1MigrationTarget[] = Object.freeze([
+  {
+    directoryName: 'd1-console',
+    expectedMigrationCount: 18,
+    expectedTableCount: 40,
+  },
+  {
+    directoryName: 'd1-signer',
+    expectedMigrationCount: 10,
+    expectedTableCount: 21,
+  },
+]);
+
+test.describe('D1 migration smoke', () => {
+  for (const target of D1_MIGRATION_TARGETS) {
+    test(`${target.directoryName} migrations apply in order`, async () => {
+      const temp = createTemporaryD1Database();
+      try {
+        const migrationFiles = listD1MigrationFiles(target.directoryName);
+        expect(d1MigrationFileBasenames(migrationFiles)).toHaveLength(
+          target.expectedMigrationCount,
+        );
+
+        await applyD1MigrationFiles(temp.database, migrationFiles);
+
+        await expect(readUserTableCount(temp.database)).resolves.toBe(
+          target.expectedTableCount,
+        );
+        if (target.directoryName === 'd1-signer') {
+          const walletColumns = await readTableColumnNames(temp.database, 'wallets');
+          const authMethodColumns = await readTableColumnNames(
+            temp.database,
+            'wallet_auth_methods',
+          );
+          expect(walletColumns).toContain('wallet_id');
+          expect(walletColumns).not.toContain('rp_id');
+          expect(authMethodColumns).toContain('rp_id');
+        }
+      } finally {
+        cleanupTemporaryD1Database(temp.tempDir);
+      }
+    });
+  }
+
+  test('d1-signer wallet migration rejects raw identity mismatches', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-signer'));
+
+      await expectRawD1WalletInsertRejected(
+        temp.database,
+        buildRawD1WalletInsertInput({
+          recordJson: JSON.stringify({
+            version: 'wrong_wallet_version',
+            walletId: 'wallet-raw-identity',
+          }),
+        }),
+      );
+      await expectRawD1WalletInsertRejected(
+        temp.database,
+        buildRawD1WalletInsertInput({
+          recordJson: JSON.stringify({
+            version: 'wallet_v1',
+            walletId: 'different-wallet-id',
+          }),
+        }),
+      );
+      await expectRawD1WalletInsertRejected(
+        temp.database,
+        buildRawD1WalletInsertInput({
+          recordJson: JSON.stringify({
+            version: 'wallet_v1',
+          }),
+        }),
+      );
+
+      await insertRawD1WalletRecord(
+        temp.database,
+        buildRawD1WalletInsertInput({}),
+      );
+      const row = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM wallets')
+        .first<{ record_count?: unknown }>();
+      expect(Number(row?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-signer wallet signer migration rejects invalid branch rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-signer'));
+
+      await expectRawD1WalletSignerInsertRejected(
+        temp.database,
+        buildRawD1Ed25519WalletSignerInsertInput({
+          chainTargetKey: 'evm:eip155:8453',
+        }),
+      );
+      await expectRawD1WalletSignerInsertRejected(
+        temp.database,
+        buildRawD1Ed25519WalletSignerInsertInput({
+          signerId: 'wrong-ed25519-signer-id',
+        }),
+      );
+      await expectRawD1WalletSignerInsertRejected(
+        temp.database,
+        buildRawD1Ed25519WalletSignerInsertInput({
+          recordJson: JSON.stringify({
+            version: 'wallet_signer_ed25519_v1',
+            walletId: 'different-wallet-id',
+            signerId: 'ed25519:wallet-raw-ed25519.testnet:1',
+          }),
+        }),
+      );
+      await expectRawD1WalletSignerInsertRejected(
+        temp.database,
+        buildRawD1EcdsaWalletSignerInsertInput({
+          chainTargetKey: null,
+        }),
+      );
+      await expectRawD1WalletSignerInsertRejected(
+        temp.database,
+        buildRawD1EcdsaWalletSignerInsertInput({
+          signerId: 'ecdsa:wrong-chain-target',
+        }),
+      );
+      await expectRawD1WalletSignerInsertRejected(
+        temp.database,
+        buildRawD1EcdsaWalletSignerInsertInput({
+          recordJson: JSON.stringify({
+            version: 'wallet_signer_ecdsa_v1',
+            walletId: 'wallet-raw-ecdsa-signer',
+            signerId: 'ecdsa:evm:eip155:8453',
+            chainTargetKey: 'evm:eip155:11155111',
+          }),
+        }),
+      );
+
+      await insertRawD1WalletSignerRecord(
+        temp.database,
+        buildRawD1Ed25519WalletSignerInsertInput({}),
+      );
+      await insertRawD1WalletSignerRecord(
+        temp.database,
+        buildRawD1EcdsaWalletSignerInsertInput({}),
+      );
+      const row = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM wallet_signers')
+        .first<{ record_count?: unknown }>();
+      expect(Number(row?.record_count || 0)).toBe(2);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-signer wallet auth-method migration rejects invalid branch rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-signer'));
+
+      await expectRawD1WalletAuthMethodInsertRejected(
+        temp.database,
+        buildRawD1PasskeyAuthMethodInsertInput({
+          credentialIdB64u: null,
+        }),
+      );
+      await expectRawD1WalletAuthMethodInsertRejected(
+        temp.database,
+        buildRawD1PasskeyAuthMethodInsertInput({
+          walletAuthMethodId: 'passkey:wrong-id',
+        }),
+      );
+      await expectRawD1WalletAuthMethodInsertRejected(
+        temp.database,
+        buildRawD1PasskeyAuthMethodInsertInput({
+          emailHashHex: 'b'.repeat(64),
+        }),
+      );
+      await expectRawD1WalletAuthMethodInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpAuthMethodInsertInput({
+          rpId: 'app.example.test',
+        }),
+      );
+      await expectRawD1WalletAuthMethodInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpAuthMethodInsertInput({
+          registrationAuthorityId: null,
+        }),
+      );
+      await expectRawD1WalletAuthMethodInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpAuthMethodInsertInput({
+          authIdentifierKey: 'wrong-email-auth-identifier',
+        }),
+      );
+
+      await insertRawD1WalletAuthMethodRecord(
+        temp.database,
+        buildRawD1PasskeyAuthMethodInsertInput({}),
+      );
+      await insertRawD1WalletAuthMethodRecord(
+        temp.database,
+        buildRawD1EmailOtpAuthMethodInsertInput({}),
+      );
+      const row = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM wallet_auth_methods')
+        .first<{ record_count?: unknown }>();
+      expect(Number(row?.record_count || 0)).toBe(2);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-signer sealed-share migration rejects corrupt raw custody rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-signer'));
+
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          namespace: '',
+        }),
+      );
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          signingRootId: '',
+        }),
+      );
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          sealedShareB64u: 'AQIDBA=',
+        }),
+      );
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          aadDigestB64u: 'short',
+        }),
+      );
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          storageId: '',
+        }),
+      );
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          createdAtMs: 0,
+        }),
+      );
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          updatedAtMs: Date.parse('2026-06-26T23:59:59.000Z'),
+        }),
+      );
+      await expectRawD1SigningRootSecretShareInsertRejected(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({
+          rotatedAtMs: Date.parse('2026-06-26T23:59:59.000Z'),
+        }),
+      );
+
+      await insertRawD1SigningRootSecretShareRecord(
+        temp.database,
+        buildRawD1SigningRootSecretShareInsertInput({}),
+      );
+      const row = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM signing_root_secret_shares')
+        .first<{ record_count?: unknown }>();
+      expect(Number(row?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-signer identity and recovery migrations reject corrupt raw rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-signer'));
+
+      await expectRawD1IdentityLinkInsertRejected(
+        temp.database,
+        buildRawD1IdentityLinkInsertInput({
+          namespace: '',
+        }),
+      );
+      await expectRawD1IdentityLinkInsertRejected(
+        temp.database,
+        buildRawD1IdentityLinkInsertInput({
+          subject: '',
+        }),
+      );
+      await expectRawD1IdentityLinkInsertRejected(
+        temp.database,
+        buildRawD1IdentityLinkInsertInput({
+          recordJson: JSON.stringify({
+            version: 'wrong_identity_version',
+            subject: 'google:raw-identity-subject',
+            userId: 'wallet-raw-identity-session',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          }),
+        }),
+      );
+      await expectRawD1IdentityLinkInsertRejected(
+        temp.database,
+        buildRawD1IdentityLinkInsertInput({
+          recordJson: JSON.stringify({
+            version: 'identity_subject_v1',
+            subject: 'google:different-subject',
+            userId: 'wallet-raw-identity-session',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          }),
+        }),
+      );
+      await expectRawD1IdentityLinkInsertRejected(
+        temp.database,
+        buildRawD1IdentityLinkInsertInput({
+          createdAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          updatedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+        }),
+      );
+      await insertRawD1IdentityLinkRecord(
+        temp.database,
+        buildRawD1IdentityLinkInsertInput({}),
+      );
+
+      await expectRawD1AppSessionVersionInsertRejected(
+        temp.database,
+        buildRawD1AppSessionVersionInsertInput({
+          userId: '',
+        }),
+      );
+      await expectRawD1AppSessionVersionInsertRejected(
+        temp.database,
+        buildRawD1AppSessionVersionInsertInput({
+          sessionVersion: '',
+        }),
+      );
+      await expectRawD1AppSessionVersionInsertRejected(
+        temp.database,
+        buildRawD1AppSessionVersionInsertInput({
+          recordJson: JSON.stringify({
+            version: 'wrong_app_session_version',
+            userId: 'wallet-raw-app-session',
+            appSessionVersion: 'app-session-version-raw',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          }),
+        }),
+      );
+      await expectRawD1AppSessionVersionInsertRejected(
+        temp.database,
+        buildRawD1AppSessionVersionInsertInput({
+          recordJson: JSON.stringify({
+            version: 'app_session_version_v1',
+            userId: 'wallet-raw-app-session',
+            appSessionVersion: 'different-session-version',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1AppSessionVersionRecord(
+        temp.database,
+        buildRawD1AppSessionVersionInsertInput({}),
+      );
+
+      await expectRawD1RecoverySessionInsertRejected(
+        temp.database,
+        buildRawD1RecoverySessionInsertInput({
+          sessionId: '',
+        }),
+      );
+      await expectRawD1RecoverySessionInsertRejected(
+        temp.database,
+        buildRawD1RecoverySessionInsertInput({
+          nearAccountId: 'wallet-raw-recovery.testnet',
+          recordJson: JSON.stringify({
+            version: 'recovery_session_v1',
+            sessionId: 'recovery-session-raw-schema',
+            nearAccountId: 'different-recovery.testnet',
+            status: 'prepared',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
+          }),
+        }),
+      );
+      await expectRawD1RecoverySessionInsertRejected(
+        temp.database,
+        buildRawD1RecoverySessionInsertInput({
+          recordJson: JSON.stringify({
+            version: 'recovery_session_v1',
+            sessionId: 'recovery-session-raw-schema',
+            nearAccountId: 'wallet-raw-recovery.testnet',
+            status: 'unsupported',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
+          }),
+        }),
+      );
+      await expectRawD1RecoverySessionInsertRejected(
+        temp.database,
+        buildRawD1RecoverySessionInsertInput({
+          expiresAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+        }),
+      );
+      await insertRawD1RecoverySessionRecord(
+        temp.database,
+        buildRawD1RecoverySessionInsertInput({}),
+      );
+
+      await expectRawD1RecoveryExecutionInsertRejected(
+        temp.database,
+        buildRawD1RecoveryExecutionInsertInput({
+          chainIdKey: '',
+        }),
+      );
+      await expectRawD1RecoveryExecutionInsertRejected(
+        temp.database,
+        buildRawD1RecoveryExecutionInsertInput({
+          status: 'unsupported',
+        }),
+      );
+      await expectRawD1RecoveryExecutionInsertRejected(
+        temp.database,
+        buildRawD1RecoveryExecutionInsertInput({
+          recordJson: JSON.stringify({
+            version: 'recovery_execution_v1',
+            sessionId: 'different-recovery-session',
+            chainIdKey: 'evm:eip155:8453',
+            accountAddress: `0x${'22'.repeat(20)}`,
+            action: 'recover_owner',
+            status: 'pending',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1RecoveryExecutionRecord(
+        temp.database,
+        buildRawD1RecoveryExecutionInsertInput({}),
+      );
+
+      await expectRawD1EmailRecoveryPreparationInsertRejected(
+        temp.database,
+        buildRawD1EmailRecoveryPreparationInsertInput({
+          requestId: '',
+        }),
+      );
+      await expectRawD1EmailRecoveryPreparationInsertRejected(
+        temp.database,
+        buildRawD1EmailRecoveryPreparationInsertInput({
+          walletId: '',
+        }),
+      );
+      await expectRawD1EmailRecoveryPreparationInsertRejected(
+        temp.database,
+        buildRawD1EmailRecoveryPreparationInsertInput({
+          recordJson: JSON.stringify({
+            version: 'email_recovery_preparation_v1',
+            requestId: 'email-recovery-preparation-raw-schema',
+            accountId: 'wallet-raw-email-recovery.testnet',
+            walletBinding: {
+              walletId: 'different-wallet-id',
+            },
+            rpId: 'app.example.test',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
+          }),
+        }),
+      );
+      await expectRawD1EmailRecoveryPreparationInsertRejected(
+        temp.database,
+        buildRawD1EmailRecoveryPreparationInsertInput({
+          expiresAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+        }),
+      );
+      await insertRawD1EmailRecoveryPreparationRecord(
+        temp.database,
+        buildRawD1EmailRecoveryPreparationInsertInput({}),
+      );
+
+      const identityRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM identity_links')
+        .first<{ record_count?: unknown }>();
+      const sessionVersionRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM app_session_versions')
+        .first<{ record_count?: unknown }>();
+      const recoverySessionRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM recovery_sessions')
+        .first<{ record_count?: unknown }>();
+      const recoveryExecutionRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM recovery_executions')
+        .first<{ record_count?: unknown }>();
+      const emailRecoveryRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_recovery_preparations')
+        .first<{ record_count?: unknown }>();
+      expect(Number(identityRow?.record_count || 0)).toBe(1);
+      expect(Number(sessionVersionRow?.record_count || 0)).toBe(1);
+      expect(Number(recoverySessionRow?.record_count || 0)).toBe(1);
+      expect(Number(recoveryExecutionRow?.record_count || 0)).toBe(1);
+      expect(Number(emailRecoveryRow?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-signer Email OTP migrations reject corrupt raw rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-signer'));
+
+      await expectRawD1EmailOtpChallengeInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpChallengeInsertInput({
+          namespace: '',
+        }),
+      );
+      await expectRawD1EmailOtpChallengeInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpChallengeInsertInput({
+          action: 'unsupported',
+        }),
+      );
+      await expectRawD1EmailOtpChallengeInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpChallengeInsertInput({
+          recordJson: JSON.stringify({
+            version: 'email_otp_challenge_v1',
+            challengeId: 'different-challenge-id',
+            challengeSubjectId: 'google-subject-raw-email-otp',
+            walletId: 'wallet-raw-email-otp',
+            orgId: 'org-d1-email-otp-schema',
+            otpChannel: 'email_otp',
+            otpCode: '123456',
+            sessionHash: 'session-hash-raw-email-otp',
+            appSessionVersion: 'app-session-raw-email-otp',
+            action: 'wallet_email_otp_login',
+            operation: 'wallet_unlock',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1EmailOtpChallengeRecord(
+        temp.database,
+        buildRawD1EmailOtpChallengeInsertInput({}),
+      );
+
+      await expectRawD1EmailOtpGrantInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpGrantInsertInput({
+          action: 'wallet_email_otp_registration',
+        }),
+      );
+      await expectRawD1EmailOtpGrantInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpGrantInsertInput({
+          recordJson: JSON.stringify({
+            version: 'email_otp_grant_v1',
+            grantToken: 'different-email-otp-grant',
+            userId: 'google-subject-raw-email-otp',
+            walletId: 'wallet-raw-email-otp',
+            orgId: 'org-d1-email-otp-schema',
+            challengeId: 'email-otp-challenge-raw-schema',
+            otpChannel: 'email_otp',
+            action: 'wallet_email_otp_unseal',
+            issuedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1EmailOtpGrantRecord(
+        temp.database,
+        buildRawD1EmailOtpGrantInsertInput({}),
+      );
+
+      await expectRawD1EmailOtpEnrollmentInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpEnrollmentInsertInput({
+          verifiedEmail: '',
+        }),
+      );
+      await expectRawD1EmailOtpEnrollmentInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpEnrollmentInsertInput({
+          recordJson: JSON.stringify({
+            version: 'email_otp_wallet_enrollment_v1',
+            walletId: 'different-wallet-id',
+            providerUserId: 'google-subject-raw-email-otp',
+            orgId: 'org-d1-email-otp-schema',
+            verifiedEmail: 'raw@example.test',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1EmailOtpEnrollmentRecord(
+        temp.database,
+        buildRawD1EmailOtpEnrollmentInsertInput({}),
+      );
+
+      await expectRawD1EmailOtpRecoveryEscrowInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpRecoveryEscrowInsertInput({
+          recoveryKeyStatus: 'consumed',
+        }),
+      );
+      await expectRawD1EmailOtpRecoveryEscrowInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpRecoveryEscrowInsertInput({
+          recordJson: JSON.stringify({
+            version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+            alg: 'chacha20poly1305-hkdf-sha256-v1',
+            secretKind: 'email_otp_device_enrollment_escrow',
+            escrowKind: 'recovery_wrapped_enrollment_escrow',
+            walletId: 'wallet-raw-email-otp',
+            userId: 'google-subject-raw-email-otp',
+            authSubjectId: 'google-subject-raw-email-otp',
+            authMethod: 'google_sso_email_otp',
+            recoveryKeyId: 'recovery-key-raw-email-otp',
+            recoveryKeyStatus: 'active',
+            consumedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+            issuedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1EmailOtpRecoveryEscrowRecord(
+        temp.database,
+        buildRawD1EmailOtpRecoveryEscrowInsertInput({}),
+      );
+
+      await expectRawD1EmailOtpAuthStateInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpAuthStateInsertInput({
+          providerUserId: '',
+        }),
+      );
+      await expectRawD1EmailOtpAuthStateInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpAuthStateInsertInput({
+          updatedAtMs: Date.parse('2026-06-26T23:59:59.000Z'),
+        }),
+      );
+      await insertRawD1EmailOtpAuthStateRecord(
+        temp.database,
+        buildRawD1EmailOtpAuthStateInsertInput({}),
+      );
+
+      await expectRawD1EmailOtpUnlockChallengeInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpUnlockChallengeInsertInput({
+          challengeId: '',
+        }),
+      );
+      await expectRawD1EmailOtpUnlockChallengeInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpUnlockChallengeInsertInput({
+          recordJson: JSON.stringify({
+            version: 'email_otp_unlock_challenge_v1',
+            challengeId: 'email-otp-unlock-challenge-raw-schema',
+            walletId: 'wallet-raw-email-otp',
+            userId: 'different-user-id',
+            orgId: 'org-d1-email-otp-schema',
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1EmailOtpUnlockChallengeRecord(
+        temp.database,
+        buildRawD1EmailOtpUnlockChallengeInsertInput({}),
+      );
+
+      await expectRawD1EmailOtpRegistrationAttemptInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpRegistrationAttemptInsertInput({
+          state: 'unsupported',
+        }),
+      );
+      await expectRawD1EmailOtpRegistrationAttemptInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpRegistrationAttemptInsertInput({
+          offerWalletIdsJson: JSON.stringify({ walletId: 'wallet-raw-email-otp' }),
+        }),
+      );
+      await expectRawD1EmailOtpRegistrationAttemptInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpRegistrationAttemptInsertInput({
+          recordJson: JSON.stringify({
+            version: 'google_email_otp_registration_attempt_v1',
+            attemptId: 'email-otp-registration-attempt-raw-schema',
+            providerSubject: 'google-subject-raw-email-otp',
+            email: 'raw@example.test',
+            walletId: 'different-wallet-id',
+            state: 'started',
+            appSessionVersion: 'app-session-raw-email-otp',
+            runtimePolicyScope: {
+              orgId: 'org-d1-email-otp-schema',
+            },
+            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
+          }),
+        }),
+      );
+      await insertRawD1EmailOtpRegistrationAttemptRecord(
+        temp.database,
+        buildRawD1EmailOtpRegistrationAttemptInsertInput({}),
+      );
+
+      await expectRawD1EmailOtpRateLimitInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpRateLimitInsertInput({
+          rateKey: '',
+        }),
+      );
+      await expectRawD1EmailOtpRateLimitInsertRejected(
+        temp.database,
+        buildRawD1EmailOtpRateLimitInsertInput({
+          resetAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+        }),
+      );
+      await insertRawD1EmailOtpRateLimitRecord(
+        temp.database,
+        buildRawD1EmailOtpRateLimitInsertInput({}),
+      );
+
+      const challengeRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_otp_challenges')
+        .first<{ record_count?: unknown }>();
+      const grantRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_otp_grants')
+        .first<{ record_count?: unknown }>();
+      const enrollmentRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_otp_wallet_enrollments')
+        .first<{ record_count?: unknown }>();
+      const escrowRow = await temp.database
+        .prepare(
+          'SELECT COUNT(*) AS record_count FROM email_otp_recovery_wrapped_enrollment_escrows',
+        )
+        .first<{ record_count?: unknown }>();
+      const authStateRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_otp_auth_states')
+        .first<{ record_count?: unknown }>();
+      const unlockChallengeRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_otp_unlock_challenges')
+        .first<{ record_count?: unknown }>();
+      const registrationAttemptRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_otp_registration_attempts')
+        .first<{ record_count?: unknown }>();
+      const rateLimitRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM email_otp_rate_limits')
+        .first<{ record_count?: unknown }>();
+      expect(Number(challengeRow?.record_count || 0)).toBe(1);
+      expect(Number(grantRow?.record_count || 0)).toBe(1);
+      expect(Number(enrollmentRow?.record_count || 0)).toBe(1);
+      expect(Number(escrowRow?.record_count || 0)).toBe(1);
+      expect(Number(authStateRow?.record_count || 0)).toBe(1);
+      expect(Number(unlockChallengeRow?.record_count || 0)).toBe(1);
+      expect(Number(registrationAttemptRow?.record_count || 0)).toBe(1);
+      expect(Number(rateLimitRow?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-console webhook migration rejects corrupt raw endpoint rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-console'));
+
+      await expectRawD1WebhookEndpointInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({
+          namespace: '',
+        }),
+      );
+      await expectRawD1WebhookEndpointInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({
+          id: '',
+        }),
+      );
+      await expectRawD1WebhookEndpointInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({
+          url: 'ftp://webhook.example.test/receive',
+        }),
+      );
+      await expectRawD1WebhookEndpointInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({
+          signingSecretCiphertextB64u: 'sealed-secret=',
+        }),
+      );
+      await expectRawD1WebhookEndpointInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({
+          secretPreview: '',
+        }),
+      );
+      await expectRawD1WebhookEndpointInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({
+          createdAtMs: 0,
+        }),
+      );
+      await expectRawD1WebhookEndpointInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({
+          updatedAtMs: Date.parse('2026-06-26T23:59:59.000Z'),
+        }),
+      );
+
+      await insertRawD1WebhookEndpointRecord(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({}),
+      );
+      await expectRawD1WebhookEndpointCategoryInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointCategoryInsertInput({
+          category: 'unsupported',
+        }),
+      );
+      await insertRawD1WebhookEndpointCategoryRecord(
+        temp.database,
+        buildRawD1WebhookEndpointCategoryInsertInput({}),
+      );
+      const row = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM webhook_endpoints')
+        .first<{ record_count?: unknown }>();
+      expect(Number(row?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-console webhook constraint migration preserves existing endpoint categories', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const migrationFiles = listD1MigrationFiles('d1-console');
+      const migrationNames = d1MigrationFileBasenames(migrationFiles);
+      const constraintMigrationIndex = migrationNames.indexOf(
+        '0018_console_constraint_hardening.sql',
+      );
+      expect(constraintMigrationIndex).toBeGreaterThan(0);
+
+      await applyD1MigrationFiles(temp.database, migrationFiles.slice(0, constraintMigrationIndex));
+      await insertRawD1WebhookEndpointRecord(
+        temp.database,
+        buildRawD1WebhookEndpointInsertInput({}),
+      );
+      await insertRawD1WebhookEndpointCategoryRecord(
+        temp.database,
+        buildRawD1WebhookEndpointCategoryInsertInput({}),
+      );
+
+      await applyD1MigrationFiles(
+        temp.database,
+        migrationFiles.slice(constraintMigrationIndex, constraintMigrationIndex + 1),
+      );
+
+      const row = await temp.database
+        .prepare(
+          `SELECT COUNT(*) AS category_count
+             FROM webhook_endpoint_categories
+            WHERE namespace = ?
+              AND org_id = ?
+              AND endpoint_id = ?
+              AND category = ?`,
+        )
+        .bind('d1-contracts', 'org-d1-webhook-schema', 'wh_raw_webhook_schema', 'wallet')
+        .first<{ category_count?: unknown }>();
+      expect(Number(row?.category_count || 0)).toBe(1);
+      await expectRawD1WebhookEndpointCategoryInsertRejected(
+        temp.database,
+        buildRawD1WebhookEndpointCategoryInsertInput({
+          category: 'unsupported',
+        }),
+      );
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-console sponsored-call migration rejects corrupt raw records', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-console'));
+
+      await expectRawD1SponsoredCallInsertRejected(
+        temp.database,
+        buildRawD1SponsoredCallInsertInput({
+          id: 'raw-sponsored-empty-idempotency',
+          idempotencyKey: '',
+        }),
+      );
+      await expectRawD1SponsoredCallInsertRejected(
+        temp.database,
+        buildRawD1SponsoredCallInsertInput({
+          id: 'raw-sponsored-invalid-details',
+          detailsJson: '{invalid-json',
+        }),
+      );
+      await expectRawD1SponsoredCallInsertRejected(
+        temp.database,
+        buildRawD1SponsoredCallInsertInput({
+          id: 'raw-sponsored-negative-estimate',
+          estimatedSpendMinor: -1,
+        }),
+      );
+      await expectRawD1SponsoredCallInsertRejected(
+        temp.database,
+        buildRawD1SponsoredCallInsertInput({
+          id: 'raw-sponsored-zero-created',
+          createdAtMs: 0,
+        }),
+      );
+      await expectRawD1SponsoredCallInsertRejected(
+        temp.database,
+        buildRawD1SponsoredCallInsertInput({
+          id: 'raw-sponsored-regressed-updated',
+          createdAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          updatedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+        }),
+      );
+
+      await insertRawD1SponsoredCallRecord(
+        temp.database,
+        buildRawD1SponsoredCallInsertInput({
+          id: 'raw-sponsored-valid',
+          estimatedSpendMinor: 100,
+          settledSpendMinor: 75,
+        }),
+      );
+      const row = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM sponsored_call_records')
+        .first<{ record_count?: unknown }>();
+      expect(Number(row?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-console prepaid-reservation migration rejects corrupt raw records', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-console'));
+
+      await expectRawD1PrepaidReservationInsertRejected(
+        temp.database,
+        buildRawD1PrepaidReservationInsertInput({
+          id: 'raw-prepaid-empty-source',
+          sourceEventId: '',
+        }),
+      );
+      await expectRawD1PrepaidReservationInsertRejected(
+        temp.database,
+        buildRawD1PrepaidReservationInsertInput({
+          id: 'raw-prepaid-zero-request',
+          requestedMinor: 0,
+          settledMinor: 0,
+          releasedMinor: 0,
+        }),
+      );
+      await expectRawD1PrepaidReservationInsertRejected(
+        temp.database,
+        buildRawD1PrepaidReservationInsertInput({
+          id: 'raw-prepaid-bad-release-math',
+          requestedMinor: 100,
+          settledMinor: 40,
+          releasedMinor: 10,
+        }),
+      );
+      await expectRawD1PrepaidReservationInsertRejected(
+        temp.database,
+        buildRawD1PrepaidReservationInsertInput({
+          id: 'raw-prepaid-reserved-settlement-data',
+          status: 'RESERVED',
+          settledMinor: 0,
+          releasedMinor: 0,
+          txOrExecutionRef: '0xshould-not-exist',
+          pricingVersion: null,
+        }),
+      );
+      await expectRawD1PrepaidReservationInsertRejected(
+        temp.database,
+        buildRawD1PrepaidReservationInsertInput({
+          id: 'raw-prepaid-regressed-updated',
+          createdAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
+          updatedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
+        }),
+      );
+
+      await insertRawD1PrepaidReservationRecord(
+        temp.database,
+        buildRawD1PrepaidReservationInsertInput({
+          id: 'raw-prepaid-valid',
+        }),
+      );
+      const row = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM billing_prepaid_reservations')
+        .first<{ record_count?: unknown }>();
+      expect(Number(row?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-console billing ledger migration rejects corrupt raw records', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-console'));
+
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          namespace: '',
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          id: '',
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          description: '',
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          monthUtc: '2026-13',
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          sourceEventId: '',
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          idempotencyKey: '',
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          entryType: 'CREDIT_PURCHASE',
+          amountMinor: -100,
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          entryType: 'SPONSORED_EXECUTION_DEBIT',
+          amountMinor: 100,
+        }),
+      );
+      await expectRawD1BillingLedgerEntryInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({
+          entryType: 'MANUAL_ADJUSTMENT',
+          amountMinor: 0,
+        }),
+      );
+
+      await insertRawD1BillingLedgerEntryRecord(
+        temp.database,
+        buildRawD1BillingLedgerEntryInsertInput({}),
+      );
+
+      await expectRawD1BillingLedgerPostingInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerPostingInsertInput({
+          id: '',
+        }),
+      );
+      await expectRawD1BillingLedgerPostingInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerPostingInsertInput({
+          accountCode: '',
+        }),
+      );
+      await expectRawD1BillingLedgerPostingInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerPostingInsertInput({
+          amountMinor: 0,
+        }),
+      );
+      await expectRawD1BillingLedgerPostingInsertRejected(
+        temp.database,
+        buildRawD1BillingLedgerPostingInsertInput({
+          createdAtMs: 0,
+        }),
+      );
+      await insertRawD1BillingLedgerPostingRecord(
+        temp.database,
+        buildRawD1BillingLedgerPostingInsertInput({}),
+      );
+
+      await expectRawD1BillingMonthlyActiveWalletInsertRejected(
+        temp.database,
+        buildRawD1BillingMonthlyActiveWalletInsertInput({
+          monthUtc: '2026-00',
+        }),
+      );
+      await expectRawD1BillingMonthlyActiveWalletInsertRejected(
+        temp.database,
+        buildRawD1BillingMonthlyActiveWalletInsertInput({
+          walletId: '',
+        }),
+      );
+      await expectRawD1BillingMonthlyActiveWalletInsertRejected(
+        temp.database,
+        buildRawD1BillingMonthlyActiveWalletInsertInput({
+          sourceEventId: '',
+        }),
+      );
+      await expectRawD1BillingMonthlyActiveWalletInsertRejected(
+        temp.database,
+        buildRawD1BillingMonthlyActiveWalletInsertInput({
+          createdAtMs: 0,
+        }),
+      );
+      await insertRawD1BillingMonthlyActiveWalletRecord(
+        temp.database,
+        buildRawD1BillingMonthlyActiveWalletInsertInput({}),
+      );
+
+      const ledgerRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM billing_ledger_entries')
+        .first<{ record_count?: unknown }>();
+      const postingRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM billing_ledger_postings')
+        .first<{ record_count?: unknown }>();
+      const walletRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM billing_monthly_active_wallets')
+        .first<{ record_count?: unknown }>();
+      expect(Number(ledgerRow?.record_count || 0)).toBe(1);
+      expect(Number(postingRow?.record_count || 0)).toBe(1);
+      expect(Number(walletRow?.record_count || 0)).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('d1-console runtime snapshot migration rejects corrupt raw outbox rows', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-console'));
+
+      await expectRawD1RuntimeSnapshotInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotInsertInput({
+          namespace: '',
+        }),
+      );
+      await expectRawD1RuntimeSnapshotInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotInsertInput({
+          environmentId: '',
+        }),
+      );
+      await expectRawD1RuntimeSnapshotInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotInsertInput({
+          payloadJson: '{invalid-json',
+        }),
+      );
+      await expectRawD1RuntimeSnapshotInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotInsertInput({
+          effectiveAtMs: 0,
+        }),
+      );
+      await expectRawD1RuntimeSnapshotInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotInsertInput({
+          createdBy: '',
+        }),
+      );
+
+      await insertRawD1RuntimeSnapshotRecord(
+        temp.database,
+        buildRawD1RuntimeSnapshotInsertInput({}),
+      );
+
+      await expectRawD1RuntimeSnapshotOutboxInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          eventId: '',
+        }),
+      );
+      await expectRawD1RuntimeSnapshotOutboxInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          payloadJson: '{invalid-json',
+        }),
+      );
+      await expectRawD1RuntimeSnapshotOutboxInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          claimedBy: 'worker-a',
+        }),
+      );
+      await expectRawD1RuntimeSnapshotOutboxInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          claimedBy: 'worker-a',
+          claimExpiresAtMs: Date.parse('2026-06-27T00:00:00.500Z'),
+        }),
+      );
+      await expectRawD1RuntimeSnapshotOutboxInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          status: 'DISPATCHED',
+          attemptCount: 1,
+          dispatchedAtMs: null,
+        }),
+      );
+      await expectRawD1RuntimeSnapshotOutboxInsertRejected(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          status: 'DEAD_LETTER',
+          attemptCount: 1,
+          lastError: null,
+        }),
+      );
+
+      await insertRawD1RuntimeSnapshotOutboxRecord(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          eventId: 'runtime_snapshot_event_raw_pending',
+          snapshotId: 'runtime_snapshot_raw_pending',
+        }),
+      );
+      await insertRawD1RuntimeSnapshotOutboxRecord(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          eventId: 'runtime_snapshot_event_raw_dispatched',
+          snapshotId: 'runtime_snapshot_raw_dispatched',
+          status: 'DISPATCHED',
+          attemptCount: 1,
+          dispatchedAtMs: Date.parse('2026-06-27T00:00:02.000Z'),
+        }),
+      );
+      await insertRawD1RuntimeSnapshotOutboxRecord(
+        temp.database,
+        buildRawD1RuntimeSnapshotOutboxInsertInput({
+          eventId: 'runtime_snapshot_event_raw_dead_letter',
+          snapshotId: 'runtime_snapshot_raw_dead_letter',
+          status: 'DEAD_LETTER',
+          attemptCount: 1,
+          lastError: 'delivery failed',
+        }),
+      );
+      const snapshotRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM runtime_snapshots')
+        .first<{ record_count?: unknown }>();
+      const outboxRow = await temp.database
+        .prepare('SELECT COUNT(*) AS record_count FROM runtime_snapshot_outbox')
+        .first<{ record_count?: unknown }>();
+      expect(Number(snapshotRow?.record_count || 0)).toBe(1);
+      expect(Number(outboxRow?.record_count || 0)).toBe(3);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+});
 
 test.describe('D1 adapter contracts', () => {
   test('org project environment adapter scopes tenants and default environments', async () => {
@@ -2002,7 +5619,7 @@ test.describe('D1 adapter contracts', () => {
       const secretRow = await temp.database
         .prepare(
           `SELECT signing_secret_ciphertext_b64u, signing_secret_key_id
-             FROM console_webhook_endpoints
+             FROM webhook_endpoints
             WHERE namespace = ?
               AND org_id = ?
               AND id = ?`,
@@ -3254,7 +6871,7 @@ test.describe('D1 adapter contracts', () => {
 
       await temp.database
         .prepare(
-          `INSERT INTO console_billing_monthly_active_wallets
+          `INSERT INTO billing_monthly_active_wallets
             (namespace, org_id, month_utc, wallet_id, source_event_id, created_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?)`,
@@ -3542,12 +7159,128 @@ test.describe('D1 adapter contracts', () => {
       } catch (error: unknown) {
         duplicateReservationError = error;
       }
-      expect(String(duplicateReservationError)).toContain('UNIQUE constraint failed');
+      expect(errorCode(duplicateReservationError)).toBe('invalid_state');
       await expect(billing.getOverview(ctx)).resolves.toMatchObject({
         creditBalanceMinor: 575,
       });
       const recordsPage = await sponsoredCalls.listRecords(ctx, { limit: 10, lookbackDays: 1 });
       expect(recordsPage.items).toHaveLength(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('sponsored gas settlement rejects stale D1 reservation transitions without side effects', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const namespace = 'd1-contracts';
+      const billing = await createD1ConsoleBillingService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+      });
+      const prepaidReservations = await createD1ConsoleBillingPrepaidReservationService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+        defaultReservationTtlMs: 60_000,
+      });
+      const sponsoredCalls = await createD1ConsoleSponsoredCallService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+      });
+      const ctx = {
+        orgId: 'org-d1-atomic-sponsored-stale',
+        actorUserId: 'user-d1-atomic-sponsored-stale',
+        roles: ['platform_admin'],
+      };
+      const reservationSourceEventId = 'prepaid-reservation-d1-atomic-stale';
+
+      await billing.grantManualSupportCredit(ctx, {
+        amountMinor: 1000,
+        reasonCode: 'test_credit',
+        note: 'Seed prepaid balance for stale D1 sponsored settlement',
+        idempotencyKey: 'manual-credit-d1-atomic-stale',
+      });
+      const overviewBeforeReservation = await billing.getOverview(ctx);
+      const reserved = await prepaidReservations.reserve(ctx, {
+        sourceEventId: reservationSourceEventId,
+        environmentId: 'env-production',
+        policyId: 'policy-sponsored-gas',
+        postedBalanceMinor: overviewBeforeReservation.creditBalanceMinor,
+        estimatedSpendMinor: 700,
+      });
+      await prepaidReservations.release(ctx, {
+        sourceEventId: reservationSourceEventId,
+      });
+
+      const stalePrepaidReservations = new StaleReadPrepaidReservationService(
+        prepaidReservations,
+        reserved.reservation,
+      );
+      const pricing = new StaticSponsoredSpendPricingService(700, 425);
+      const builder = new AtomicD1SponsoredRecordBuilder('sponsored-call-d1-atomic-stale');
+      const assessment = createD1AtomicAssessment();
+      let staleTransitionError: unknown = null;
+      try {
+        await recordSponsoredExecution({
+          billing,
+          billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
+          context: ctx,
+          ledger: sponsoredCalls,
+          buildRecord: builder.build.bind(builder),
+          assessment,
+          walletId: 'wallet-d1-atomic-stale',
+          prepaidSettlementInput: {
+            reservation: {
+              sourceEventId: reservationSourceEventId,
+              estimatedSpendMinor: 700,
+              estimatedPricingVersion: 'static:estimate',
+            },
+            prepaidReservations: stalePrepaidReservations,
+            pricing,
+            ctx,
+            chainFamily: 'evm',
+            intentKind: 'evm_call',
+            executorKind: 'evm_eoa',
+            environmentId: 'env-production',
+            policyId: 'policy-sponsored-gas',
+            accountRef: '0x1111111111111111111111111111111111111111',
+            targetRef: '0x2222222222222222222222222222222222222222',
+            chainId: 84532,
+            txOrExecutionRef: assessment.txOrExecutionRef,
+            receiptStatus: assessment.receiptStatus,
+            feeUnit: assessment.feeUnit,
+            feeAmount: assessment.feeAmount,
+            requestDetails: {
+              kind: 'd1-atomic-sponsored-settlement-stale',
+            },
+          },
+        });
+      } catch (error: unknown) {
+        staleTransitionError = error;
+      }
+
+      expect(errorCode(staleTransitionError)).toBe('invalid_state');
+      await expect(billing.getOverview(ctx)).resolves.toMatchObject({
+        creditBalanceMinor: 1000,
+      });
+      const sponsoredDebitActivity = await billing.listAccountActivity(ctx, {
+        eventType: 'SPONSORED_EXECUTION_DEBIT',
+        limit: 10,
+      });
+      expect(sponsoredDebitActivity.entries).toHaveLength(0);
+      const recordsPage = await sponsoredCalls.listRecords(ctx, { limit: 10, lookbackDays: 1 });
+      expect(recordsPage.items).toHaveLength(0);
+      const releasedReservation = await prepaidReservations.getReservationBySourceEventId(
+        ctx,
+        reservationSourceEventId,
+      );
+      expect(releasedReservation?.status).toBe('RELEASED');
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
@@ -3640,14 +7373,12 @@ test.describe('D1 adapter contracts', () => {
       await walletStore.putSubject({
         version: 'wallet_v1',
         walletId,
-        rpId: 'app.seams.test',
         createdAtMs: 1000,
         updatedAtMs: 2000,
       });
       await walletStore.putSigner({
         version: 'wallet_signer_ed25519_v1',
         walletId,
-        rpId: 'app.seams.test',
         signerId: 'ed25519:wallet-d1-metadata:1',
         nearAccountId: 'wallet-d1-metadata.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-key-1',
@@ -3664,7 +7395,7 @@ test.describe('D1 adapter contracts', () => {
         kind: 'passkey',
         status: 'active',
         walletId,
-        rpId: 'app.seams.test',
+        rpId: unwrapFixture(parseWebAuthnRpId('app.seams.test')),
         credentialIdB64u: 'credential-d1-wallet',
         credentialPublicKeyB64u: 'public-key-d1-wallet',
         counter: 3,
@@ -3685,7 +7416,6 @@ test.describe('D1 adapter contracts', () => {
       await expect(walletStore.getWallet({ walletId })).resolves.toMatchObject({
         version: 'wallet_v1',
         walletId,
-        rpId: 'app.seams.test',
       });
       await expect(otherWalletStore.getWallet({ walletId })).resolves.toBeNull();
       await expect(
@@ -3724,7 +7454,7 @@ test.describe('D1 adapter contracts', () => {
       const signerRow = await temp.database
         .prepare(
           `SELECT COUNT(*) AS signer_count
-             FROM signer_wallet_signers
+             FROM wallet_signers
             WHERE namespace = ?
               AND org_id = ?
               AND project_id = ?
@@ -4482,8 +8212,11 @@ test.describe('D1 adapter contracts', () => {
         publicKey: 'ed25519:threshold-public-key',
         kind: 'threshold',
         signerSlot: 2,
-        credentialIdB64u: 'credential-d1-near-key',
-        rpId: 'app.seams.test',
+        authBinding: {
+          kind: 'passkey',
+          credentialIdB64u: 'credential-d1-near-key',
+          rpId: unwrapFixture(parseWebAuthnRpId('app.seams.test')),
+        },
         createdAtMs: Date.parse('2026-06-27T08:00:00.000Z'),
         updatedAtMs: Date.parse('2026-06-27T08:00:00.000Z'),
         addedTxHash: 'near-tx-add-threshold',

@@ -383,13 +383,15 @@ test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
       'export type GeneratedImplicitNearEd25519SigningKeyDigestInput =',
       'export async function computeGeneratedImplicitNearEd25519SigningKeyId',
     );
-    expect(generatedKeyDigestInput).toContain('rpId: WebAuthnRpId;');
+    expect(generatedKeyDigestInput).toContain('authorityScope: RegistrationEd25519AuthorityScope;');
     const registrationKeyDigestInput = sourceBetween(
       registrationIntent,
       'export async function computeRegistrationNearEd25519SigningKeyId(input:',
       'export function implicitNearAccountProvisioning',
     );
-    expect(registrationKeyDigestInput).toContain('rpId: WebAuthnRpId;');
+    expect(registrationKeyDigestInput).toContain(
+      'authorityScope: RegistrationEd25519AuthorityScope;',
+    );
 
     const registrationScopeType = sourceBetween(
       serverTypes,
@@ -424,10 +426,10 @@ test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
     );
     expect(liteVerificationHelper).toContain('rpId: WebAuthnRpId;');
     expect(liteVerificationHelper).not.toContain('rpId: string;');
-    expect(serverAuthService).toContain("requireWebAuthnRpId(input.intent.rpId, 'registration authority rpId')");
-    expect(serverAuthService).toContain(
-      "requireWebAuthnRpId(input.intent.rpId, 'add-auth-method authority rpId')",
-    );
+    expect(serverAuthService).toContain('registrationIntentPasskeyRpId(input:');
+    expect(serverAuthService).toContain('addAuthMethodIntentPasskeyRpId(input:');
+    expect(serverAuthService).toContain('return input.intent.authMethod.rpId;');
+    expect(serverAuthService).not.toContain('input.intent.rpId');
     expect(serverAuthService).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
     expect(serverAuthService).not.toContain('wallet_key_id: registrationAccountScope.walletKeyId');
     expect(thresholdSigning).toContain('parseWebAuthnRpIdField');
@@ -481,7 +483,7 @@ test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
       'tests/relayer/signing-session-seal-router.test.ts',
       'tests/unit/warmSessionStore.lifecycle.unit.test.ts',
       'tests/unit/sealedRefresh.parity.unit.test.ts',
-      'tests/unit/signingSessionSeal.postgresRecords.unit.test.ts',
+      'tests/unit/signingSessionSeal.idempotencyRecords.unit.test.ts',
       'tests/unit/sealedSessionStore.unit.test.ts',
       'tests/unit/warmSessionReadModel.unit.test.ts',
       'tests/unit/warmSessionRuntime.unit.test.ts',

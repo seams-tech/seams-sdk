@@ -94,4 +94,5 @@ test.describe('wallet auth-method binding normalization', () => {
       }),
     ).toBeNull();
   });
+
 });

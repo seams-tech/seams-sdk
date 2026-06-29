@@ -4,8 +4,10 @@ import {
   computeRegistrationNearEd25519SigningKeyId,
   computeRegistrationIntentDigestB64u,
   implicitNearAccountProvisioning,
-  parseGeneratedImplicitWalletId,
-  requireGeneratedImplicitWalletId,
+  normalizeNearAccountOwnershipProofV1,
+  parseServerAllocatedWalletId,
+  registrationEd25519AuthorityScope,
+  requireServerAllocatedWalletId,
   serializeAddSignerIntentV1,
   serializeRegistrationIntentV1,
   sponsoredNamedNearAccountProvisioning,
@@ -59,23 +61,29 @@ const implicitEd25519Spec: ThresholdEd25519RegistrationSpec = {
 const baseIntent: RegistrationIntentV1 = {
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   runtimePolicyScope,
-  authMethod: { kind: 'passkey' },
+  authMethod: { kind: 'passkey', rpId: webAuthnRpId('wallet.example.test') },
   signerSelection: {
-    mode: 'ed25519_only',
-    ed25519: ed25519Spec,
+    kind: 'signer_set',
+    signers: [
+      {
+        kind: 'near_ed25519',
+        accountProvisioning: ed25519Spec.accountProvisioning,
+        signerSlot: ed25519Spec.signerSlot,
+        participantIds: ed25519Spec.participantIds,
+        derivationVersion: ed25519Spec.derivationVersion,
+      },
+    ],
   },
   nonceB64u: 'nonce',
 };
-const baseWebAuthnRpId = webAuthnRpId(baseIntent.rpId);
+const baseAuthorityScope = registrationEd25519AuthorityScope(baseIntent.authMethod);
 
-const generatedImplicitWalletId = requireGeneratedImplicitWalletId('frost-vermillion-k7p9m2');
+const serverAllocatedWalletId = requireServerAllocatedWalletId('frost-vermillion-k7p9m2');
 
 const baseAddSignerIntent: AddSignerIntentV1 = {
   version: 'add_signer_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   runtimePolicyScope,
   signerSelection: {
     mode: 'ed25519',
@@ -93,19 +101,54 @@ const baseAddSignerIntent: AddSignerIntentV1 = {
 };
 
 test.describe('registration intent digest canonicalization', () => {
+  test('rejects stale rpId on NEAR account ownership proof messages', () => {
+    expect(
+      normalizeNearAccountOwnershipProofV1({
+        version: 'near_account_ownership_proof_v1',
+        signatureB64u: 'signature',
+        message: {
+          version: 'near_account_ownership_proof_message_v1',
+          walletId: 'wallet_alice',
+          rpId: 'wallet.example.test',
+          nearAccountId: 'alice.testnet',
+          publicKey: 'ed25519:public-key',
+          nonceB64u: 'nonce',
+          issuedAtMs: 1,
+          expiresAtMs: 2,
+        },
+      }),
+    ).toBeNull();
+    expect(
+      normalizeNearAccountOwnershipProofV1({
+        version: 'near_account_ownership_proof_v1',
+        signatureB64u: 'signature',
+        message: {
+          version: 'near_account_ownership_proof_message_v1',
+          walletId: '',
+          nearAccountId: 'alice.testnet',
+          publicKey: 'ed25519:public-key',
+          nonceB64u: 'nonce',
+          issuedAtMs: 1,
+          expiresAtMs: 2,
+        },
+      }),
+    ).toBeNull();
+  });
+
   test('serializes object keys canonically and matches the client helper', async () => {
     const reordered = {
       nonceB64u: baseIntent.nonceB64u,
       signerSelection: {
-        ed25519: {
-          keyVersion: ed25519Spec.keyVersion,
-          participantIds: ed25519Spec.participantIds,
-          accountProvisioning: ed25519Spec.accountProvisioning,
-          derivationVersion: ed25519Spec.derivationVersion,
-          signerSlot: ed25519Spec.signerSlot,
-          keyPurpose: ed25519Spec.keyPurpose,
-        },
-        mode: 'ed25519_only',
+        signers: [
+          {
+            kind: 'near_ed25519',
+            signerSlot: ed25519Spec.signerSlot,
+            participantIds: ed25519Spec.participantIds,
+            derivationVersion: ed25519Spec.derivationVersion,
+            accountProvisioning: ed25519Spec.accountProvisioning,
+          },
+        ],
+        kind: 'signer_set',
       },
       runtimePolicyScope: {
         signingRootVersion: runtimePolicyScope.signingRootVersion,
@@ -113,7 +156,6 @@ test.describe('registration intent digest canonicalization', () => {
         projectId: runtimePolicyScope.projectId,
         orgId: runtimePolicyScope.orgId,
       },
-      rpId: baseIntent.rpId,
       authMethod: baseIntent.authMethod,
       walletId: baseIntent.walletId,
       version: baseIntent.version,
@@ -130,16 +172,21 @@ test.describe('registration intent digest canonicalization', () => {
     );
   });
 
-  test('binds participant order, signer mode, and runtime policy scope', async () => {
+  test('binds participant order, signer set branches, and runtime policy scope', async () => {
     const baseDigest = await computeRegistrationIntentDigestB64u(baseIntent);
     const reorderedParticipants: RegistrationIntentV1 = {
       ...baseIntent,
       signerSelection: {
-        mode: 'ed25519_only',
-        ed25519: {
-          ...ed25519Spec,
-          participantIds: [2, 1],
-        },
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'near_ed25519',
+            accountProvisioning: ed25519Spec.accountProvisioning,
+            signerSlot: ed25519Spec.signerSlot,
+            participantIds: [2, 1],
+            derivationVersion: ed25519Spec.derivationVersion,
+          },
+        ],
       },
     };
     const differentRuntimeScope: RegistrationIntentV1 = {
@@ -152,18 +199,29 @@ test.describe('registration intent digest canonicalization', () => {
     const implicitProvisioning: RegistrationIntentV1 = {
       ...baseIntent,
       signerSelection: {
-        mode: 'ed25519_only',
-        ed25519: implicitEd25519Spec,
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'near_ed25519',
+            accountProvisioning: implicitEd25519Spec.accountProvisioning,
+            signerSlot: implicitEd25519Spec.signerSlot,
+            participantIds: implicitEd25519Spec.participantIds,
+            derivationVersion: implicitEd25519Spec.derivationVersion,
+          },
+        ],
       },
     };
     const ecdsaOnly: RegistrationIntentV1 = {
       ...baseIntent,
       signerSelection: {
-        mode: 'ecdsa_only',
-        ecdsa: {
-          chainTargets: [{ chain: 'tempo', chainId: 978 }],
-          participantIds: [1, 2],
-        },
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'evm_family_ecdsa',
+            chainTargets: [{ chain: 'tempo', chainId: 978 }],
+            participantIds: [1, 2],
+          },
+        ],
       },
     };
 
@@ -181,47 +239,55 @@ test.describe('registration intent digest canonicalization', () => {
 
   test('derives implicit NEAR Ed25519 signing key from pre-finalize registration scope', async () => {
     const keyScope = await computeRegistrationNearEd25519SigningKeyId({
-      walletId: generatedImplicitWalletId,
-      rpId: baseWebAuthnRpId,
+      walletId: serverAllocatedWalletId,
+      authorityScope: baseAuthorityScope,
       signingRootId: 'project_1:env_1',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
     });
     const sameKeyScope = await computeRegistrationNearEd25519SigningKeyId({
-      walletId: generatedImplicitWalletId,
-      rpId: baseWebAuthnRpId,
+      walletId: serverAllocatedWalletId,
+      authorityScope: baseAuthorityScope,
       signingRootId: 'project_1:env_1',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
     });
     const differentKeyScope = await computeRegistrationNearEd25519SigningKeyId({
-      walletId: generatedImplicitWalletId,
-      rpId: baseWebAuthnRpId,
+      walletId: serverAllocatedWalletId,
+      authorityScope: baseAuthorityScope,
       signingRootId: 'project_1:env_2',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
     });
 
     expect(String(keyScope)).toMatch(/^ed25519ks_[A-Za-z0-9_-]+$/);
-    expect(String(keyScope)).not.toBe(String(generatedImplicitWalletId));
+    expect(String(keyScope)).not.toBe(String(serverAllocatedWalletId));
     expect(sameKeyScope).toBe(keyScope);
     expect(differentKeyScope).not.toBe(keyScope);
   });
 
-  test('accepts only generated implicit wallet-id shape for implicit key scope', () => {
-    expect(parseGeneratedImplicitWalletId('frost-vermillion-k7p9m2')).toEqual({
+  test('accepts only server-allocated wallet-id shape for implicit key scope', () => {
+    expect(parseServerAllocatedWalletId('frost-vermillion-k7p9m2')).toEqual({
       ok: true,
-      value: generatedImplicitWalletId,
+      value: serverAllocatedWalletId,
     });
-    expect(parseGeneratedImplicitWalletId('alice.testnet')).toMatchObject({
+    expect(parseServerAllocatedWalletId('frost-giant-h8q2n4')).toEqual({
+      ok: true,
+      value: 'frost-giant-h8q2n4',
+    });
+    expect(parseServerAllocatedWalletId('seams-wallet-87652c')).toMatchObject({
       ok: false,
       error: { code: 'invalid' },
     });
-    expect(parseGeneratedImplicitWalletId('wallet_alice')).toMatchObject({
+    expect(parseServerAllocatedWalletId('alice.testnet')).toMatchObject({
       ok: false,
       error: { code: 'invalid' },
     });
-    expect(parseGeneratedImplicitWalletId('a'.repeat(64))).toMatchObject({
+    expect(parseServerAllocatedWalletId('wallet_alice')).toMatchObject({
+      ok: false,
+      error: { code: 'invalid' },
+    });
+    expect(parseServerAllocatedWalletId('a'.repeat(64))).toMatchObject({
       ok: false,
       error: { code: 'invalid' },
     });
@@ -231,7 +297,7 @@ test.describe('registration intent digest canonicalization', () => {
     await expect(
       computeRegistrationNearEd25519SigningKeyId({
         walletId: baseIntent.walletId,
-        rpId: baseWebAuthnRpId,
+        authorityScope: baseAuthorityScope,
         signingRootId: 'project_1:env_1',
         signingRootVersion,
         ed25519: ed25519Spec,
@@ -262,7 +328,6 @@ test.describe('add-signer intent digest canonicalization', () => {
         projectId: runtimePolicyScope.projectId,
         orgId: runtimePolicyScope.orgId,
       },
-      rpId: baseAddSignerIntent.rpId,
       walletId: baseAddSignerIntent.walletId,
       version: baseAddSignerIntent.version,
     } satisfies AddSignerIntentV1;

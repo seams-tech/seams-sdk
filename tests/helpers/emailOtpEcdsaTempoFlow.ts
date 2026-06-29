@@ -346,7 +346,6 @@ export async function setupEmailOtpEcdsaTempoHarness(
         await walletStore.putSubject({
           version: 'wallet_v1',
           walletId: parsedWalletId.value,
-          rpId: 'example.localhost',
           createdAtMs: nowMs,
           updatedAtMs: nowMs,
         });

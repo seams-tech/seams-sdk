@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
   SIGNING_ROOT_MIGRATION_BUNDLE_VERSION_V1,
@@ -15,6 +16,16 @@ import {
   type SigningRootRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
 
+function webAuthnRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function passkeyAuthorityScope(rpId = 'wallet.example.test') {
+  return { kind: 'passkey_rp', rpId: webAuthnRpId(rpId) } as const;
+}
+
 function sealedShareBytes(shareId: 1 | 2 | 3): Uint8Array {
   return new Uint8Array([shareId, 0xaa, 0xbb, 0xcc]);
 }
@@ -26,7 +37,7 @@ function recordFixture(): SigningRootRecord {
     envId: 'dev',
     signingRootId: 'project-alpha:dev',
     walletOrigin: 'https://wallet.example.test',
-    rpId: 'wallet.example.test',
+    authorityScope: passkeyAuthorityScope(),
     signingRootVersion: 'root-v1',
     rootShareEpoch: 1,
     shareThreshold: 2,
@@ -65,6 +76,12 @@ test('parseSigningRootRecord rejects malformed signing-root records', () => {
     ok: false,
     code: 'invalid_signing_root_record',
   });
+  expect(parseSigningRootRecord({ ...recordFixture(), rpId: 'wallet.example.test' })).toMatchObject(
+    {
+      ok: false,
+      code: 'invalid_signing_root_record',
+    },
+  );
   expect(
     parseSigningRootRecord({
       ...recordFixture(),
@@ -87,7 +104,7 @@ test('signing-root migration bundle converts to runtime record and back', () => 
     envId: 'dev',
     signingRootId: 'project-alpha:dev',
     walletOrigin: 'https://wallet.example.test',
-    rpId: 'wallet.example.test',
+    authorityScope: passkeyAuthorityScope(),
     signingRootVersion: 'root-v1',
     rootShareEpoch: 1,
     shareThreshold: 2,
@@ -104,7 +121,7 @@ test('signing-root migration bundle converts to runtime record and back', () => 
     walletInventory: [
       {
         userId: 'alice.near',
-        rpId: 'wallet.example.test',
+        authorityScope: passkeyAuthorityScope(),
         walletKeyVersion: 'v1',
         signingRootVersion: 'root-v1',
         ethereumAddress: `0x${'11'.repeat(20)}`,
@@ -136,7 +153,7 @@ test('signing-root migration bundle rejects malformed export metadata', () => {
     walletInventory: [
       {
         userId: 'alice.near',
-        rpId: 'wallet.example.test',
+        authorityScope: passkeyAuthorityScope(),
         walletKeyVersion: 'v1',
         signingRootVersion: 'root-v1',
       },
@@ -144,6 +161,12 @@ test('signing-root migration bundle rejects malformed export metadata', () => {
   });
 
   expect(signingRootRecordFromMigrationBundle({ ...bundle, exportedAtMs: -1 })).toMatchObject({
+    ok: false,
+    code: 'invalid_migration_bundle',
+  });
+  expect(
+    signingRootRecordFromMigrationBundle({ ...bundle, rpId: 'wallet.example.test' }),
+  ).toMatchObject({
     ok: false,
     code: 'invalid_migration_bundle',
   });
@@ -186,7 +209,7 @@ test('signing-root migration bundle checksum is stable and covers exported bundl
     walletInventory: [
       {
         userId: 'alice.near',
-        rpId: 'wallet.example.test',
+        authorityScope: passkeyAuthorityScope(),
         walletKeyVersion: 'v1',
         signingRootVersion: 'root-v1',
       },
@@ -202,7 +225,7 @@ test('signing-root migration bundle checksum is stable and covers exported bundl
     shareThreshold: bundle.shareThreshold,
     rootShareEpoch: bundle.rootShareEpoch,
     signingRootVersion: bundle.signingRootVersion,
-    rpId: bundle.rpId,
+    authorityScope: bundle.authorityScope,
     walletOrigin: bundle.walletOrigin,
     envId: bundle.envId,
     projectId: bundle.projectId,
@@ -235,7 +258,7 @@ test('signing-root migration export artifact packages bundle and checksum for ho
     walletInventory: [
       {
         userId: 'alice.near',
-        rpId: 'wallet.example.test',
+        authorityScope: passkeyAuthorityScope(),
         walletKeyVersion: 'v1',
         signingRootVersion: 'root-v1',
       },
@@ -255,7 +278,7 @@ test('signing-root wallet inventory export helper validates trims and sorts entr
   const inventory = createSigningRootMigrationWalletInventory([
     {
       userId: ' bob.near ',
-      rpId: ' wallet.example.test ',
+      authorityScope: passkeyAuthorityScope(),
       walletKeyVersion: ' v2 ',
       signingRootVersion: ' root-v1 ',
       status: 'retired',
@@ -263,7 +286,7 @@ test('signing-root wallet inventory export helper validates trims and sorts entr
     },
     {
       userId: 'alice.near',
-      rpId: 'wallet.example.test',
+      authorityScope: passkeyAuthorityScope(),
       walletKeyVersion: 'v1',
       signingRootVersion: 'root-v1',
       ecdsaThresholdKeyId: ' key-alpha ',
@@ -276,7 +299,7 @@ test('signing-root wallet inventory export helper validates trims and sorts entr
   expect(inventory.value).toEqual([
     {
       userId: 'alice.near',
-      rpId: 'wallet.example.test',
+      authorityScope: passkeyAuthorityScope(),
       walletKeyVersion: 'v1',
       signingRootVersion: 'root-v1',
       ecdsaThresholdKeyId: 'key-alpha',
@@ -285,7 +308,7 @@ test('signing-root wallet inventory export helper validates trims and sorts entr
     },
     {
       userId: 'bob.near',
-      rpId: 'wallet.example.test',
+      authorityScope: passkeyAuthorityScope(),
       walletKeyVersion: 'v2',
       signingRootVersion: 'root-v1',
       ethereumAddress: `0x${'22'.repeat(20)}`,
@@ -297,7 +320,7 @@ test('signing-root wallet inventory export helper validates trims and sorts entr
     createSigningRootMigrationWalletInventory([
       {
         userId: '',
-        rpId: 'wallet.example.test',
+        authorityScope: passkeyAuthorityScope(),
         walletKeyVersion: 'v1',
         signingRootVersion: 'root-v1',
       },

@@ -10,6 +10,13 @@ import type {
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import { walletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
 import { createSigningSessionSealPolicyFromWalletSessionStores } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+
+function webAuthnRpId(value: string) {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error('invalid rpId fixture');
+  return parsed.value;
+}
 
 function makeStatus(input: {
   userId: string;
@@ -29,7 +36,7 @@ function makeStatus(input: {
       walletId: input.userId,
       nearAccountId: input.userId,
       nearEd25519SigningKeyId: input.userId,
-      rpId: input.rpId,
+      authorityScope: { kind: 'passkey_rp', rpId: webAuthnRpId(input.rpId) },
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,

@@ -6,11 +6,19 @@ import {
   registerWalletServiceRoute,
   waitFor,
 } from './harness';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
+
+function unwrapFixture<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid fixture value');
+  return result.value;
+}
+
+const REGISTRATION_RP_ID = unwrapFixture(parseWebAuthnRpId('example.localhost'));
 
 test.describe('WalletIframeRouter cancellation progress', () => {
   test.beforeEach(async ({ page }) => {
@@ -24,7 +32,13 @@ test.describe('WalletIframeRouter cancellation progress', () => {
 
   test('forwards v2 cancelled terminal events for core request flows', async ({ page }) => {
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, captureOverlaySource, waitForSource }) => {
+      async ({
+        routerPath,
+        walletOrigin,
+        registrationRpId,
+        captureOverlaySource,
+        waitForSource,
+      }) => {
         const mod = await import(routerPath);
         const { WalletIframeRouter } =
           mod as typeof import('@/SeamsWeb/walletIframe/client/router');
@@ -46,19 +60,20 @@ test.describe('WalletIframeRouter cancellation progress', () => {
           unlock: [],
           signing: [],
         };
-        const registrationSignerSelection = {
-          mode: 'ed25519_only' as const,
-          ed25519: {
-            accountProvisioning: {
-              kind: 'implicit_account' as const,
-              accountIdSource: 'ed25519_public_key' as const,
+        const registrationSignerSet = {
+          kind: 'signer_set' as const,
+          signers: [
+            {
+              kind: 'near_ed25519' as const,
+              accountProvisioning: {
+                kind: 'implicit_account' as const,
+                accountIdSource: 'ed25519_public_key' as const,
+              },
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
             },
-            signerSlot: 1,
-            participantIds: [1, 2],
-            keyPurpose: 'near-ed25519-signing',
-            keyVersion: 'threshold-ed25519-hss-v1',
-            derivationVersion: 1,
-          },
+          ],
         };
 
         const runAndCancel = async (
@@ -89,10 +104,9 @@ test.describe('WalletIframeRouter cancellation progress', () => {
 
         const registration = await runAndCancel('registration', () =>
           router.registerWallet({
-            wallet: { kind: 'server_generated' },
-            rpId: 'example.localhost',
-            authMethod: { kind: 'passkey' },
-            signerSelection: registrationSignerSelection,
+            wallet: { kind: 'server_allocated' },
+            authMethod: { kind: 'passkey', rpId: registrationRpId },
+            signerSelection: registrationSignerSet,
             options: { onEvent: (event: any) => events.registration.push(event) },
           }),
         );
@@ -123,6 +137,7 @@ test.describe('WalletIframeRouter cancellation progress', () => {
       {
         routerPath: SDK_ESM_PATHS.walletIframeRouter,
         walletOrigin: WALLET_ORIGIN,
+        registrationRpId: REGISTRATION_RP_ID,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         waitForSource: WAIT_FOR_SOURCE,
       },

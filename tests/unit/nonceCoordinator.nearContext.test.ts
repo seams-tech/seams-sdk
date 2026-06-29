@@ -93,7 +93,7 @@ function createContext(nextNonce: string) {
 }
 
 test.describe('NonceCoordinator NEAR context ownership', () => {
-  test('classifies unfunded implicit account readiness with generated wallet identity', () => {
+  test('classifies unfunded implicit account readiness with server-allocated wallet identity', () => {
     const walletId = 'frost-vermillion-k7p9m2';
     const nearAccountId = 'a'.repeat(64);
     const readiness = classifyNearExecutionReadiness({
@@ -111,7 +111,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     });
   });
 
-  test('classifies funded implicit readiness with nonce and generated wallet identity', () => {
+  test('classifies funded implicit readiness with nonce and server-allocated wallet identity', () => {
     const walletId = 'frost-vermillion-k7p9m2';
     const nearAccountId = 'b'.repeat(64);
     const readiness = classifyNearExecutionReadiness({
@@ -174,7 +174,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     });
   });
 
-  test('surfaces first direct implicit action as unfunded readiness with generated wallet identity', async () => {
+  test('surfaces first direct implicit action as unfunded readiness with server-allocated wallet identity', async () => {
     const walletId = 'frost-vermillion-k7p9m2';
     const nearAccountId = 'c'.repeat(64);
     const publicKey = `ed25519:${nearAccountId}`;

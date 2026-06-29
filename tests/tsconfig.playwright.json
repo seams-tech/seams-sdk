@@ -2,6 +2,17 @@
   "extends": "../packages/sdk-web/tsconfig.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "types": ["@playwright/test", "node", "react", "react-dom", "qrcode"],
+    "typeRoots": [
+      "./node_modules/@types",
+      "../packages/sdk-web/node_modules/@types",
+      "../packages/node_modules/@types",
+      "../node_modules/@types",
+      "./node_modules",
+      "../packages/sdk-web/node_modules",
+      "../packages/node_modules",
+      "../node_modules"
+    ],
     "paths": {
       "@/core/runtime": ["../packages/sdk-web/src/core/runtime/index.ts"],
       "@/core/runtime/*": ["../packages/sdk-web/src/core/runtime/*"],
@@ -22,7 +33,7 @@
         "../packages/sdk-server-ts/src/router/express-adaptor.ts"
       ],
       "@seams/sdk-server/router/ror": ["../packages/sdk-server-ts/src/router/ror-adaptor.ts"],
-      "@seams/sdk-server/storage/postgres": ["../packages/sdk-server-ts/src/storage/postgres.ts"],
+      "sonner": ["../apps/seams-site/node_modules/sonner/dist/index.d.ts"],
       "@seams/sdk-server/wasm/signer": ["../packages/sdk-server-ts/src/wasm/signer.ts"]
     }
   }

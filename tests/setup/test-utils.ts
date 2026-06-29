@@ -63,7 +63,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
           return null;
         }
       },
-      // IMPORTANT: For the atomic relay-server flow, the relay account is the
+      // IMPORTANT: For the Router API atomic flow, the relay account is the
       // signer/predecessor for account creation. On NEAR, only the parent account can create
       // its own subaccounts, so new accounts MUST be subaccounts of the configured parent.
       generateTestAccountId: () => {
@@ -114,13 +114,13 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
             return originalFetch(url, options);
           };
         },
-        relayServer: () => {
+        routerApi: () => {
           window.fetch = async (url: any, options: any) => {
             if (typeof url === 'string' && url.includes('/registration/bootstrap')) {
               return new Response(
                 JSON.stringify({
                   success: false,
-                  error: 'Relay server failure injected for testing',
+                  error: 'Router API failure injected for testing',
                 }),
                 { status: 500, headers: { 'Content-Type': 'application/json' } },
               );
@@ -186,7 +186,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
         getRollbackEvents: (events: any[]) => events.filter((e) => e.type === 'rollback'),
       },
       registrationFlowUtils: {
-        setupRelayServerMock: (successResponse = true) => {
+        setupRouterApiMock: (successResponse = true) => {
           window.fetch = async (url: any, options: any) => {
             if (typeof url === 'string' && url.includes('/registration/bootstrap')) {
               if (successResponse) {
@@ -194,7 +194,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
                   JSON.stringify({
                     success: true,
                     transactionHash: 'mock_atomic_transaction_hash_' + Date.now(),
-                    message: 'Account created and registered successfully via relay-server',
+                    message: 'Account created and registered successfully via Router API',
                   }),
                   { status: 200, headers: { 'Content-Type': 'application/json' } },
                 );
@@ -242,8 +242,8 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
 
     console.log('Test utilities setup complete');
 
-    // Best-effort: discover the runtime relayer account from the relay health endpoint.
-    // This allows tests that use the real relay-server harness (with a provisioned
+    // Best-effort: discover the runtime relayer account from the Router API health endpoint.
+    // This allows tests that use the real Router API harness (with a provisioned
     // relayer account) to generate valid subaccounts under that relayer.
     try {
       const cfg = (window as any).configs || setupConfig;

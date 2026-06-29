@@ -152,7 +152,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     await expect(first).resolves.toBe('first-ok');
   });
 
-  test('formats generated wallet ids in queue errors without NEAR account validation', async () => {
+  test('formats server-allocated wallet ids in queue errors without NEAR account validation', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
     const walletId = toWalletId('frost-vermillion-k7p9m2');
     const blocker = deferred<void>();

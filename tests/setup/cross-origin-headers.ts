@@ -7,29 +7,29 @@ import {
   TEST_BROWSER_IMPORT_MAP_MARKER,
 } from './importMap';
 
-export async function installRelayServerProxyShim(
+export async function installRouterApiProxyShim(
   page: Page,
   options: {
-    relayOrigin?: string;
-    relayUpstream?: string;
+    routerApiOrigin?: string;
+    routerApiUpstream?: string;
     logStyle?: 'intercept' | 'setup' | 'silent';
   } = {},
 ): Promise<void> {
-  const relayOrigin = options.relayOrigin ?? 'https://relay-server.localhost';
-  const relayUpstream =
-    options.relayUpstream ??
+  const routerApiOrigin = options.routerApiOrigin ?? 'https://router-api.localhost';
+  const routerApiUpstream =
+    options.routerApiUpstream ??
     `http://localhost:${Number.isFinite(Number(process.env.RELAY_PORT || '3001')) ? Number(process.env.RELAY_PORT || '3001') : 3001}`;
   const logStyle = options.logStyle ?? 'silent';
 
-  const relayHost = (() => {
+  const routerApiHost = (() => {
     try {
-      return new URL(relayOrigin).host;
+      return new URL(routerApiOrigin).host;
     } catch {
-      return 'relay-server.localhost';
+      return 'router-api.localhost';
     }
   })();
 
-  const pattern: string = `**://${relayHost}/**`;
+  const pattern: string = `**://${routerApiHost}/**`;
   const ctx = page.context();
 
   await ctx.unroute(pattern as any).catch(() => undefined);
@@ -40,11 +40,11 @@ export async function installRelayServerProxyShim(
 
     try {
       const u = new URL(url);
-      const upstreamUrl = new URL(`${u.pathname}${u.search}${u.hash}`, relayUpstream).toString();
+      const upstreamUrl = new URL(`${u.pathname}${u.search}${u.hash}`, routerApiUpstream).toString();
 
       if (logStyle === 'intercept') {
-        printLog('intercept', `relay proxy ${method} ${url} → ${upstreamUrl}`, {
-          scope: 'relay-proxy',
+        printLog('intercept', `Router API proxy ${method} ${url} → ${upstreamUrl}`, {
+          scope: 'router-api-proxy',
         });
       }
 
@@ -65,8 +65,8 @@ export async function installRelayServerProxyShim(
       const isTeardownNoise =
         /Target page|context|browser has been closed|Response has been disposed/i.test(msg);
       if (!isTeardownNoise && logStyle === 'intercept') {
-        printLog('intercept', `relay proxy fell back (${msg})`, {
-          scope: 'relay-proxy',
+        printLog('intercept', `Router API proxy fell back (${msg})`, {
+          scope: 'router-api-proxy',
           indent: 1,
         });
       }
@@ -75,12 +75,20 @@ export async function installRelayServerProxyShim(
   });
 
   if (logStyle === 'intercept') {
-    printLog('intercept', `relay proxy shim installed for ${relayOrigin} → ${relayUpstream}`, {
-      scope: 'relay-proxy',
-      step: 'ready',
-    });
+    printLog(
+      'intercept',
+      `Router API proxy shim installed for ${routerApiOrigin} → ${routerApiUpstream}`,
+      {
+        scope: 'router-api-proxy',
+        step: 'ready',
+      },
+    );
   } else if (logStyle === 'setup') {
-    printStepLine(1, `relay proxy shim installed for ${relayOrigin} → ${relayUpstream}`, 3);
+    printStepLine(
+      1,
+      `Router API proxy shim installed for ${routerApiOrigin} → ${routerApiUpstream}`,
+      3,
+    );
   }
 }
 

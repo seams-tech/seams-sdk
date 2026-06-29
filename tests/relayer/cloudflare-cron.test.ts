@@ -7,10 +7,8 @@ const fakeWebhookSecretCipher = {} as any;
 test.describe('cloudflare cron billing finalization', () => {
   test('skips billing finalization when D1 database is missing', async () => {
     let runnerCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       billingMonthlyFinalization: {
-        enabled: true,
         orgIds: ['org-a'],
         runner: async () => {
           runnerCalled = true;
@@ -33,10 +31,8 @@ test.describe('cloudflare cron billing finalization', () => {
   test('runs billing finalization with D1 runner input', async () => {
     let runnerInput: any = null;
     const now = () => new Date('2026-02-03T04:05:06.000Z');
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       billingMonthlyFinalization: {
-        enabled: true,
         database: fakeD1Database,
         namespace: 'billing-ns',
         periodMonthUtc: '2026-01',
@@ -71,10 +67,8 @@ test.describe('cloudflare cron billing finalization', () => {
 test.describe('cloudflare cron runtime snapshot outbox', () => {
   test('skips runtime snapshot outbox when D1 database is missing', async () => {
     let runnerCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       runtimeSnapshotOutbox: {
-        enabled: true,
         orgIds: ['org-a'],
         dispatch: async () => {},
         runner: async () => {
@@ -96,10 +90,8 @@ test.describe('cloudflare cron runtime snapshot outbox', () => {
 
   test('runs runtime snapshot outbox when a runner override omits dispatch callback', async () => {
     let runnerCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       runtimeSnapshotOutbox: {
-        enabled: true,
         database: fakeD1Database,
         namespace: 'runtime-ns',
         orgIds: ['org-a'],
@@ -124,10 +116,8 @@ test.describe('cloudflare cron runtime snapshot outbox', () => {
     let runnerInput: any = null;
     const now = () => new Date('2026-02-03T04:05:06.000Z');
     const dispatch = async () => {};
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       runtimeSnapshotOutbox: {
-        enabled: true,
         database: fakeD1Database,
         namespace: 'runtime-ns',
         orgIds: ['org-a', 'org-b'],
@@ -171,10 +161,8 @@ test.describe('cloudflare cron runtime snapshot outbox', () => {
 test.describe('cloudflare cron webhook retry dispatch', () => {
   test('skips webhook retry dispatch when D1 database or cipher is missing', async () => {
     let runnerCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       webhookRetryDispatch: {
-        enabled: true,
         orgIds: ['org-a'],
         runner: async () => {
           runnerCalled = true;
@@ -205,10 +193,8 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
         deduplicated: 0,
       }),
     };
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       webhookRetryDispatch: {
-        enabled: true,
         database: fakeD1Database,
         secretCipher: fakeWebhookSecretCipher,
         namespace: 'webhook-ns',
@@ -260,10 +246,8 @@ test.describe('cloudflare cron per-job expression filters', () => {
     let billingCalled = false;
     let runtimeCalled = false;
     let webhookCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       billingMonthlyFinalization: {
-        enabled: true,
         database: fakeD1Database,
         namespace: 'billing-ns',
         orgIds: ['org-a'],
@@ -281,7 +265,6 @@ test.describe('cloudflare cron per-job expression filters', () => {
         },
       },
       runtimeSnapshotOutbox: {
-        enabled: true,
         database: fakeD1Database,
         namespace: 'runtime-ns',
         orgIds: ['org-a'],
@@ -299,7 +282,6 @@ test.describe('cloudflare cron per-job expression filters', () => {
         },
       },
       webhookRetryDispatch: {
-        enabled: true,
         database: fakeD1Database,
         secretCipher: fakeWebhookSecretCipher,
         namespace: 'webhook-ns',
@@ -329,10 +311,8 @@ test.describe('cloudflare cron per-job expression filters', () => {
 
   test('skips cron-allowlisted jobs when event cron is absent', async () => {
     let runnerCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
+    const cron = createCloudflareCron({
       billingMonthlyFinalization: {
-        enabled: true,
         database: fakeD1Database,
         namespace: 'billing-ns',
         orgIds: ['org-a'],

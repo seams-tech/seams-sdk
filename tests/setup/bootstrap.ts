@@ -2,7 +2,7 @@ import { Page, type Route } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { printStepLine } from './logging';
-import { installRelayServerProxyShim, installWalletSdkCorsShim } from './cross-origin-headers';
+import { installRouterApiProxyShim, installWalletSdkCorsShim } from './cross-origin-headers';
 import type { PasskeyTestConfig } from './types';
 import { DEFAULT_TEST_CONFIG } from './config';
 import { SDK_ESM_PATHS } from './sdkEsmPaths';
@@ -441,7 +441,7 @@ export async function executeSequentialSetup(
   const useRelayServer =
     process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';
   if (mirrorWalletOrigin && useRelayServer) {
-    await installRelayServerProxyShim(page, { logStyle: 'setup' });
+    await installRouterApiProxyShim(page, { logStyle: 'setup' });
   }
 
   // Step 2: ENVIRONMENT SETUP

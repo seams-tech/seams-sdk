@@ -16,7 +16,7 @@ const KEK_ID = 'kek-v1';
 const KEK_BYTES = new Uint8Array(32).fill(0x42);
 
 function signingRootSecretShareWire(shareId: SigningRootSecretShareId, fill: number): SigningRootSecretShareWireV1 {
-  return new Uint8Array([shareId, ...new Array(32).fill(fill)]) as SigningRootSecretShareWireV1;
+  return new Uint8Array([0, shareId, ...new Array(32).fill(fill)]) as SigningRootSecretShareWireV1;
 }
 
 function createKekResolver(calls: SigningRootSecretShareKekResolutionInput[]) {
@@ -55,7 +55,7 @@ test('signing-root AES-GCM sealing round-trips share wires and binds KEK metadat
     resolveKek,
   });
   expect(sealedShare.length).toBeGreaterThan(33);
-  expect(Array.from(plaintext.slice(0, 2))).toEqual([1, 0x11]);
+  expect(Array.from(plaintext.slice(0, 3))).toEqual([0, 1, 0x11]);
 
   const opened = await openSigningRootSecretShareWireV1({
     record: sealedRecord({ shareId: 1, signingRootVersion: SIGNING_ROOT_VERSION, kekId: KEK_ID, sealedShare }),

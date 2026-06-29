@@ -202,18 +202,18 @@ export async function setupBasicPasskeyTest(
   await setupWebAuthnMocks(page);
   await setupTestUtilities(page, config);
 
-  // Note: We do not install relay-server mocks by default.
-  // Tests should call setupRelayServerMock(true) in their page.evaluate context
+  // Note: We do not install Router API mocks by default.
+  // Tests should call setupRouterApiMock(true) in their page.evaluate context
   // before attempting registration to avoid "Invalid signed transaction payload" errors.
 
   // environment ready
 }
 
 /**
- * Setup test environment with relay-server (atomic) registration flow
+ * Setup test environment with Router API atomic registration flow
  * This configures the test to use the atomic registration/bootstrap endpoint
  */
-export async function setupRelayServerTest(
+export async function setupRouterApiServerTest(
   page: Page,
   options: {
     frontendUrl?: string;
@@ -226,7 +226,7 @@ export async function setupRelayServerTest(
   await setupBasicPasskeyTest(page, {
     ...options,
     useRelayer: true,
-    relayServerUrl: options.relayServerUrl || 'https://relay-server.localhost',
+    relayServerUrl: options.relayServerUrl || 'https://router-api.localhost',
   });
 }
 
@@ -290,7 +290,7 @@ export interface TestUtils {
     nearKeypairGeneration: () => void;
     contractVerification: () => void;
     faucetService: () => void;
-    relayServer: () => void;
+    routerApi: () => void;
     contractRegistration: () => void;
     databaseStorage: () => void;
     restore: () => void;
@@ -307,7 +307,7 @@ export interface TestUtils {
   loginStatus?: () => Promise<any>;
   // Registration flow utilities
   registrationFlowUtils: {
-    setupRelayServerMock: (successResponse?: boolean) => void;
+    setupRouterApiMock: (successResponse?: boolean) => void;
     setupTestnetFaucetMock: (successResponse?: boolean) => void;
     restoreFetch: () => void;
   };

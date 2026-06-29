@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Provision a funded relayer account for the example relay server.
+ * Provision a funded relayer account for the Router API test server.
  *
  * - Generates a fresh Ed25519 keypair (NEAR format)
  * - Calls the NEAR testnet faucet to create and fund a new account
@@ -20,10 +20,11 @@ import * as ed from '@noble/ed25519';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(path.join(__dirname, '../..'));
-const RELAY_DIR = path.join(ROOT, 'apps', 'web-server');
-const DOTENV_PATH = path.join(RELAY_DIR, '.env');
+const WEB_SERVER_DIR = path.join(ROOT, 'apps', 'web-server');
+const DOTENV_PATH = path.join(WEB_SERVER_DIR, '.env');
+const REPORT_DIR = path.join(ROOT, 'tests', 'playwright-report');
 // Allow overriding artifact paths via env to keep workspace clean (e.g., playwright-report)
-const DEFAULT_CACHE_FILE = path.join(RELAY_DIR, '.provision-cache.json');
+const DEFAULT_CACHE_FILE = path.join(REPORT_DIR, 'router-api-provision-cache.json');
 const CACHE_PATH = process.env.RELAY_PROVISION_CACHE_PATH || DEFAULT_CACHE_FILE;
 
 const REQUIRED_ENV_KEYS = ['RELAYER_ACCOUNT_ID', 'RELAYER_PRIVATE_KEY'];
@@ -154,7 +155,7 @@ async function faucetCreateAccount(accountId, publicKey) {
 }
 
 async function main() {
-  console.log('[provision] Checking relay-server .env');
+  console.log('[provision] Checking Router API .env');
   const env = await readDotEnv(DOTENV_PATH);
   const writeDotEnv =
     process.env.PROVISION_WRITE_DOTENV === '1' || process.env.PROVISION_WRITE_DOTENV === 'true';
@@ -195,7 +196,7 @@ async function main() {
           };
           await fs.writeFile(DOTENV_PATH, toEnvText(next), 'utf8');
           console.log(
-            '[provision] Updated relay-server .env from cache (PROVISION_WRITE_DOTENV=1)',
+            '[provision] Updated Router API .env from cache (PROVISION_WRITE_DOTENV=1)',
           );
         }
         return;
@@ -215,7 +216,7 @@ async function main() {
   await faucetCreateAccount(accountId, nearPublicKey);
   console.log('[provision] Faucet created and funded account');
 
-  // 3) Optionally write .env for manual/example usage
+  // 3) Optionally write .env for manual Router API usage
   if (writeDotEnv) {
     const next = {
       ...env,
@@ -228,7 +229,7 @@ async function main() {
       EXPECTED_WALLET_ORIGIN: env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost',
     };
     await fs.writeFile(DOTENV_PATH, toEnvText(next), 'utf8');
-    console.log('[provision] Wrote relay-server .env with relayer keys (PROVISION_WRITE_DOTENV=1)');
+    console.log('[provision] Wrote Router API .env with relayer keys (PROVISION_WRITE_DOTENV=1)');
     console.log(`[provision] RELAYER_ACCOUNT_ID=${accountId}`);
   }
 

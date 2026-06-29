@@ -4,17 +4,11 @@ import {
   createInMemoryConsoleBillingPrepaidReservationService,
   createConsoleRouter,
   createInMemoryConsoleSponsoredCallService,
-  createPostgresConsoleBillingService,
-  createPostgresConsoleSponsoredCallService,
-  ensureConsoleBillingPostgresSchema,
-  ensureConsoleSponsoredCallPostgresSchema,
   type ConsoleAuthAdapter,
   type ConsoleBillingService,
   type ConsoleSponsoredCallService,
 } from '@server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
-import { withConsoleTenantContextTx } from '../../packages/sdk-server-ts/src/console/shared/postgresTenantContext';
-import { getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 import { callCf, fetchJson, startExpressRouter } from './helpers';
 
 const baseNow = new Date('2026-03-19T00:00:00.000Z');
@@ -23,10 +17,6 @@ const ctx = {
   actorUserId: 'user-sponsored-history',
   roles: ['admin'],
 };
-
-function randomNamespace(prefix: string): string {
-  return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
-}
 
 function makeConsoleAuthAdapter(input: {
   userId: string;
@@ -441,111 +431,4 @@ test.describe('console sponsored call history', () => {
       expect(overview?.trailing90DaySponsoredExecutionCount).toBe(2);
     });
   }
-
-  test.describe('Postgres', () => {
-    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-    const enabled = Boolean(postgresUrl);
-    const namespace = randomNamespace('test:console-sponsored-history:postgres');
-
-    test.afterAll(async () => {
-      if (!enabled) return;
-      const pool = await getPostgresPool(postgresUrl);
-      await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (q) => {
-        await q.query('DELETE FROM console_sponsored_call_records WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_billing_account_snapshots WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_billing_monthly_active_wallet_rollups WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
-      });
-    });
-
-    test('postgres service lists sponsored records with filters and cursor pagination', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      await ensureConsoleSponsoredCallPostgresSchema({
-        postgresUrl,
-        logger: console as any,
-      });
-
-      let currentNowMs = baseNow.getTime() - 3 * 24 * 60 * 60 * 1000;
-      const service = await createPostgresConsoleSponsoredCallService({
-        postgresUrl,
-        namespace,
-        ensureSchema: false,
-        logger: console as any,
-        now: () => new Date(currentNowMs),
-      });
-
-      await seedSponsoredCallRecord(service, {
-        id: 'pg-a',
-        environmentId: 'env-pg',
-        policyId: 'policy-a',
-      });
-      currentNowMs = baseNow.getTime() - 2 * 24 * 60 * 60 * 1000;
-      await seedSponsoredCallRecord(service, {
-        id: 'pg-b',
-        environmentId: 'env-pg',
-        policyId: 'policy-a',
-        receiptStatus: 'reverted',
-      });
-      currentNowMs = baseNow.getTime() - 1 * 24 * 60 * 60 * 1000;
-      await seedSponsoredCallRecord(service, {
-        id: 'pg-c',
-        environmentId: 'env-other',
-        policyId: 'policy-b',
-        charged: false,
-      });
-
-      const firstPage = await service.listRecords(ctx, {
-        environmentId: 'env-pg',
-        policyId: 'policy-a',
-        limit: 1,
-      });
-      expect(firstPage.items).toHaveLength(1);
-      expect(firstPage.items[0]?.id).toBe('pg-b');
-      expect(firstPage.nextCursor).toBeTruthy();
-
-      const secondPage = await service.listRecords(ctx, {
-        environmentId: 'env-pg',
-        policyId: 'policy-a',
-        limit: 1,
-        cursor: firstPage.nextCursor || undefined,
-      });
-      expect(secondPage.items).toHaveLength(1);
-      expect(secondPage.items[0]?.id).toBe('pg-a');
-
-      const chargedFalse = await service.listRecords(ctx, {
-        charged: false,
-      });
-      expect(chargedFalse.items.map((item) => item.id)).toEqual(['pg-c']);
-    });
-
-    test('postgres billing service resolves sponsored execution debits by id for reconciliation', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      await ensureConsoleBillingPostgresSchema({
-        postgresUrl,
-        logger: console as any,
-      });
-
-      const billing = await createPostgresConsoleBillingService({
-        postgresUrl,
-        namespace,
-        ensureSchema: false,
-        logger: console as any,
-        now: () => new Date(baseNow),
-      });
-
-      const debitId = await seedSponsoredExecutionDebit(billing, {
-        id: 'pg-reconciliation',
-        amountMinor: 91,
-      });
-      const rows = await billing.getSponsoredExecutionDebitsByIds(ctx, [debitId, 'ble_missing']);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.id).toBe(debitId);
-      expect(rows[0]?.type).toBe('SPONSORED_EXECUTION_DEBIT');
-      expect(rows[0]?.amountMinor).toBe(-91);
-    });
-  });
 });

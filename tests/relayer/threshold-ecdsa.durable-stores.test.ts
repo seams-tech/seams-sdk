@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { ensurePostgresSchema, getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 import { createEcdsaWalletSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import {
   createThresholdEcdsaSigningStores,
@@ -182,46 +181,45 @@ test.describe('threshold-ecdsa durable presign stores', () => {
           Date.now() - EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS - 1,
         ),
       ).resolves.toMatchObject({
-          ok: false,
-          code: 'export_authorization_expired',
-        });
+        ok: false,
+        code: 'export_authorization_expired',
+      });
     });
 
-    test('Postgres store reserves export nonce once under concurrency', async () => {
-      const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-      test.skip(!postgresUrl, 'POSTGRES_URL not set');
-      await ensurePostgresSchema({ postgresUrl, logger: console as any });
-
-      const walletSessionPrefix = randPrefix('threshold-ecdsa:wallet-session:pg');
+    test('Cloudflare Durable Object store reserves export nonce once under concurrency', async () => {
+      const walletSessionPrefix = randPrefix('threshold-ecdsa:wallet-session:cloudflare-do');
       const store = createEcdsaWalletSessionStore({
         config: {
-          kind: 'postgres',
-          POSTGRES_URL: postgresUrl,
+          kind: 'cloudflare-do',
+          namespace: createMemoryDurableObjectNamespace(),
+          name: randPrefix('threshold-ecdsa:wallet-session-do-object'),
           THRESHOLD_ECDSA_WALLET_SESSION_PREFIX: walletSessionPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
+        },
+        logger: testLogger,
+        isNode: false,
       });
 
-      try {
-        const expiresAtMs = Date.now() + 60_000;
-        const results = await Promise.all([
-          store.reserveReplayGuard('scope-pg', 'nonce-pg', expiresAtMs),
-          store.reserveReplayGuard('scope-pg', 'nonce-pg', expiresAtMs),
-        ]);
+      const expiresAtMs = Date.now() + 60_000;
+      const results = await Promise.all([
+        store.reserveReplayGuard('scope-do', 'nonce-do', expiresAtMs),
+        store.reserveReplayGuard('scope-do', 'nonce-do', expiresAtMs),
+      ]);
 
-        expect(results.filter((result) => result.ok).length).toBe(1);
-        const duplicate = results.find((result) => !result.ok);
-        expect(duplicate).toMatchObject({
-          ok: false,
-          code: 'export_nonce_replay',
-        });
-      } finally {
-        const pool = await getPostgresPool(postgresUrl);
-        await pool.query('DELETE FROM threshold_wallet_session_consumptions WHERE namespace = $1', [
-          walletSessionPrefix,
-        ]);
-      }
+      expect(results.filter((result) => result.ok).length).toBe(1);
+      const duplicate = results.find((result) => !result.ok);
+      expect(duplicate).toMatchObject({
+        ok: false,
+        code: 'export_nonce_replay',
+      });
+      await expect(
+        store.reserveReplayGuard('scope-do-other', 'nonce-do', expiresAtMs),
+      ).resolves.toEqual({ ok: true });
+      await expect(
+        store.reserveReplayGuard('scope-do', 'nonce-expired', Date.now() - 1),
+      ).resolves.toMatchObject({
+        ok: false,
+        code: 'export_authorization_expired',
+      });
     });
   });
 
@@ -383,195 +381,6 @@ test.describe('threshold-ecdsa durable presign stores', () => {
       const got = await poolFillSessionStore.getSession('psess-do-1');
       expect(got?.version).toBe(2);
       expect(got?.stage).toBe('triples_done');
-    });
-  });
-
-  test.describe('Postgres', () => {
-    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-    const enabled = Boolean(postgresUrl);
-    const presignPrefix = randPrefix('threshold-ecdsa:presign:pg');
-
-    test.beforeAll(async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      await ensurePostgresSchema({ postgresUrl, logger: console as any });
-    });
-
-    test.afterAll(async () => {
-      if (!enabled) return;
-      const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM threshold_ecdsa_presignatures WHERE namespace = $1', [
-        presignPrefix,
-      ]);
-      await pool.query('DELETE FROM threshold_ecdsa_presign_sessions WHERE namespace = $1', [
-        presignPrefix,
-      ]);
-    });
-
-    test('presignaturePool reserve/consume are single-use under concurrency', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'postgres',
-          POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const relayerKeyId = 'rk-2';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-a',
-          createdAtMs: Date.now() - 2,
-        }) as any,
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-b',
-          createdAtMs: Date.now() - 1,
-        }) as any,
-      );
-
-      const [a, b] = await Promise.all([
-        presignaturePool.reserve(relayerKeyId),
-        presignaturePool.reserve(relayerKeyId),
-      ]);
-      expect(a && b).toBeTruthy();
-      expect(a!.presignatureId).not.toBe(b!.presignatureId);
-
-      const a1 = await presignaturePool.consume(relayerKeyId, a!.presignatureId);
-      const a2 = await presignaturePool.consume(relayerKeyId, a!.presignatureId);
-      expect(a1?.presignatureId).toBe(a!.presignatureId);
-      expect(a2).toBeNull();
-
-      const b1 = await presignaturePool.consume(relayerKeyId, b!.presignatureId);
-      const b2 = await presignaturePool.consume(relayerKeyId, b!.presignatureId);
-      expect(b1?.presignatureId).toBe(b!.presignatureId);
-      expect(b2).toBeNull();
-    });
-
-    test('presignaturePool reserveById selects requested item and preserves others', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'postgres',
-          POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const relayerKeyId = 'rk-2-by-id';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-by-a',
-          createdAtMs: Date.now() - 2,
-        }) as any,
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-by-b',
-          createdAtMs: Date.now() - 1,
-        }) as any,
-      );
-
-      const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-by-b');
-      expect(reservedById?.presignatureId).toBe('ps-by-b');
-      const consumedById = await presignaturePool.consume(relayerKeyId, 'ps-by-b');
-      expect(consumedById?.presignatureId).toBe('ps-by-b');
-
-      const remaining = await presignaturePool.reserve(relayerKeyId);
-      expect(remaining?.presignatureId).toBe('ps-by-a');
-      const consumedRemaining = await presignaturePool.consume(relayerKeyId, 'ps-by-a');
-      expect(consumedRemaining?.presignatureId).toBe('ps-by-a');
-    });
-
-    test('presignaturePool discard prevents consume', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'postgres',
-          POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const relayerKeyId = 'rk-3';
-      await presignaturePool.put(
-        makePresignRecord({ relayerKeyId, presignatureId: 'ps-x' }) as any,
-      );
-      const reserved = await presignaturePool.reserve(relayerKeyId);
-      expect(reserved?.presignatureId).toBe('ps-x');
-
-      await presignaturePool.discard(relayerKeyId, 'ps-x');
-      const consumed = await presignaturePool.consume(relayerKeyId, 'ps-x');
-      expect(consumed).toBeNull();
-    });
-
-    test('poolFillSessionStore CAS transitions are atomic', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      const { poolFillSessionStore } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'postgres',
-          POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const created = await poolFillSessionStore.createSession(
-        'psess-1',
-        makePresignSessionRecord({ version: 1, stage: 'triples' }) as any,
-        10_000,
-      );
-      expect(created.ok).toBe(true);
-
-      const stale = await poolFillSessionStore.advanceSessionCas({
-        id: 'psess-1',
-        expectedVersion: 99,
-        nextRecord: makePresignSessionRecord({ version: 100, stage: 'triples' }) as any,
-        ttlMs: 10_000,
-      });
-      expect(stale.ok).toBe(false);
-      if (!stale.ok) expect(stale.code).toBe('version_mismatch');
-
-      const [a, b] = await Promise.all([
-        poolFillSessionStore.advanceSessionCas({
-          id: 'psess-1',
-          expectedVersion: 1,
-          nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
-          ttlMs: 10_000,
-        }),
-        poolFillSessionStore.advanceSessionCas({
-          id: 'psess-1',
-          expectedVersion: 1,
-          nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
-          ttlMs: 10_000,
-        }),
-      ]);
-
-      const oks = [a, b].filter((r) => r.ok);
-      const errs = [a, b].filter((r) => !r.ok);
-      expect(oks.length).toBe(1);
-      expect(errs.length).toBe(1);
-      if (!errs[0].ok) expect(errs[0].code).toBe('version_mismatch');
-
-      const got = await poolFillSessionStore.getSession('psess-1');
-      expect(got?.version).toBe(2);
-      expect(got?.stage).toBe('triples_done');
-
-      await poolFillSessionStore.deleteSession('psess-1');
-      const afterDelete = await poolFillSessionStore.getSession('psess-1');
-      expect(afterDelete).toBeNull();
     });
   });
 

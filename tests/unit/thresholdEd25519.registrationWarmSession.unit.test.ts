@@ -13,8 +13,7 @@ const IMPORT_PATHS = {
   login: '/sdk/esm/SeamsWeb/operations/auth/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
   keyMaterialBrands: '/sdk/esm/core/signingEngine/session/keyMaterialBrands.js',
-  thresholdSessionStore:
-    '/sdk/esm/core/signingEngine/session/persistence/records.js',
+  thresholdSessionStore: '/sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 async function evaluateMismatchedWarmSessionIdentity(args: {
@@ -56,7 +55,7 @@ async function evaluateMismatchedWarmSessionIdentity(args: {
         walletId: 'wallet_alice',
         nearAccountId: 'registration-alice.testnet',
         nearEd25519SigningKeyId: 'registration-alice.testnet',
-        rpId: 'example.localhost',
+        authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
         relayerKeyId: 'rk-1',
         thresholdSessionId: 'registration-session-1',
         signingGrantId: 'signing-grant-1',
@@ -120,7 +119,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const clientDb = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const keyMaterialPort = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
-        const originalGetMostRecentNearAccountProjection = clientDb.getMostRecentNearAccountProjection;
+        const originalGetMostRecentNearAccountProjection =
+          clientDb.getMostRecentNearAccountProjection;
         const originalResolveNearAccountProfileContinuity =
           clientDb.resolveNearAccountProfileContinuity;
         const originalStoreKeyMaterial = keyMaterialPort.storeKeyMaterial;
@@ -202,9 +202,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               walletId,
               nearAccountId,
               nearEd25519SigningKeyId,
-              rpId: 'example.localhost',
+              authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
               relayerKeyId: 'rk-1',
-              sessionId: 'registration-session-1',
+              thresholdSessionId: 'registration-session-1',
               signingGrantId: 'signing-grant-1',
               participantIds: [1, 2],
               ttlMs: 60_000,
@@ -267,7 +267,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         } finally {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
           clientDb.getMostRecentNearAccountProjection = originalGetMostRecentNearAccountProjection;
-          clientDb.resolveNearAccountProfileContinuity = originalResolveNearAccountProfileContinuity;
+          clientDb.resolveNearAccountProfileContinuity =
+            originalResolveNearAccountProfileContinuity;
           keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
           keyMaterialPort.getKeyMaterial = originalGetKeyMaterial;
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -422,7 +423,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             participantIdsHint: [1, 2],
           });
 
-          const hydrateTransport = hydrateInputs[0]?.transport as Record<string, unknown> | undefined;
+          const hydrateTransport = hydrateInputs[0]?.transport as
+            | Record<string, unknown>
+            | undefined;
           const storedRecord =
             sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
               thresholdSessionId,
@@ -474,7 +477,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const clientDb = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const keyMaterialPort = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
-        const originalGetMostRecentNearAccountProjection = clientDb.getMostRecentNearAccountProjection;
+        const originalGetMostRecentNearAccountProjection =
+          clientDb.getMostRecentNearAccountProjection;
         const originalResolveNearAccountProfileContinuity =
           clientDb.resolveNearAccountProfileContinuity;
         const originalStoreKeyMaterial = keyMaterialPort.storeKeyMaterial;
@@ -556,9 +560,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               walletId,
               nearAccountId,
               nearEd25519SigningKeyId,
-              rpId: 'example.localhost',
+              authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
               relayerKeyId: 'rk-1',
-              sessionId: 'registration-session-parity',
+              thresholdSessionId: 'registration-session-parity',
               signingGrantId: 'signing-grant-parity',
               participantIds: [1, 2],
               ttlMs: 60_000,
@@ -616,7 +620,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         } finally {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
           clientDb.getMostRecentNearAccountProjection = originalGetMostRecentNearAccountProjection;
-          clientDb.resolveNearAccountProfileContinuity = originalResolveNearAccountProfileContinuity;
+          clientDb.resolveNearAccountProfileContinuity =
+            originalResolveNearAccountProfileContinuity;
           keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
           keyMaterialPort.getKeyMaterial = originalGetKeyMaterial;
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -673,7 +678,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const clientDb = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const keyMaterialPort = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
-        const originalGetMostRecentNearAccountProjection = clientDb.getMostRecentNearAccountProjection;
+        const originalGetMostRecentNearAccountProjection =
+          clientDb.getMostRecentNearAccountProjection;
         const originalResolveNearAccountProfileContinuity =
           clientDb.resolveNearAccountProfileContinuity;
         const originalStoreKeyMaterial = keyMaterialPort.storeKeyMaterial;
@@ -777,9 +783,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               walletId,
               nearAccountId,
               nearEd25519SigningKeyId,
-              rpId: 'example.localhost',
+              authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
               relayerKeyId: 'rk-email-otp',
-              sessionId: 'registration-session-email-otp',
+              thresholdSessionId: 'registration-session-email-otp',
               signingGrantId: 'signing-grant-email-otp',
               participantIds: [1, 2],
               ttlMs: 60_000,
@@ -837,7 +843,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         } finally {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
           clientDb.getMostRecentNearAccountProjection = originalGetMostRecentNearAccountProjection;
-          clientDb.resolveNearAccountProfileContinuity = originalResolveNearAccountProfileContinuity;
+          clientDb.resolveNearAccountProfileContinuity =
+            originalResolveNearAccountProfileContinuity;
           keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
           keyMaterialPort.getKeyMaterial = originalGetKeyMaterial;
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();

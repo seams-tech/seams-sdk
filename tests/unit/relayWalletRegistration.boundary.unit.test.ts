@@ -445,6 +445,16 @@ function addAuthMethodIntent(kind: 'passkey' | 'email_otp' = 'passkey'): AddAuth
   };
 }
 
+function nearEd25519RegistrationSigner() {
+  return {
+    kind: 'near_ed25519' as const,
+    accountProvisioning: namedProvisioning('alice.testnet'),
+    signerSlot: 1,
+    participantIds: [1, 2],
+    derivationVersion: 1,
+  };
+}
+
 function registrationIntent(kind: 'passkey' | 'email_otp' = 'passkey'): RegistrationIntentV1 {
   return {
     version: 'registration_intent_v1',
@@ -460,15 +470,16 @@ function registrationIntent(kind: 'passkey' | 'email_otp' = 'passkey'): Registra
             appSessionJwt: 'app-session.jwt',
           },
     signerSelection: {
-      mode: 'ed25519_only',
-      ed25519: {
-        accountProvisioning: namedProvisioning('alice.testnet'),
-        signerSlot: 1,
-        participantIds: [1, 2],
-        keyPurpose: 'near_tx',
-        keyVersion: 'threshold-ed25519-hss-v1',
-        derivationVersion: 1,
-      },
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: namedProvisioning('alice.testnet'),
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+      ],
     },
     nonceB64u: 'registration-nonce',
   };
@@ -479,7 +490,7 @@ test.describe('wallet registration route boundaries', () => {
     let called = false;
     const response = await handleRouterApiWalletRegistrationIntent({
       body: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         rpId: 'wallet.example.test',
         authMethod: {
           kind: 'passkey',
@@ -531,22 +542,16 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('registration intent rejects legacy Ed25519 account fields before service dispatch', async () => {
-    const signerSelection = registrationIntent().signerSelection;
-    if (signerSelection.mode !== 'ed25519_only') {
-      throw new Error('registrationIntent fixture must be Ed25519-only');
-    }
+  test('registration intent rejects stale Ed25519 account fields before service dispatch', async () => {
+    const signer = nearEd25519RegistrationSigner();
     let called = false;
     const response = await handleRouterApiWalletRegistrationIntent({
       body: {
         wallet: { kind: 'provided', walletId: 'alice.testnet' },
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: {
-          mode: 'ed25519_only',
-          ed25519: {
-            ...signerSelection.ed25519,
-            createNearAccount: true,
-          },
+          kind: 'signer_set',
+          signers: [{ ...signer, createNearAccount: true }],
         },
       },
       headers: {
@@ -589,29 +594,28 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'registration Ed25519 spec cannot include legacy account fields',
+      message: 'near_ed25519 signer spec is invalid',
     });
   });
 
   test('registration intent rejects branch-mixed account provisioning before service dispatch', async () => {
-    const signerSelection = registrationIntent().signerSelection;
-    if (signerSelection.mode !== 'ed25519_only') {
-      throw new Error('registrationIntent fixture must be Ed25519-only');
-    }
+    const signer = nearEd25519RegistrationSigner();
     let called = false;
     const response = await handleRouterApiWalletRegistrationIntent({
       body: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: {
-          mode: 'ed25519_only',
-          ed25519: {
-            ...signerSelection.ed25519,
-            accountProvisioning: {
-              kind: 'implicit_account',
-              requestedAccountId: 'alice.testnet',
+          kind: 'signer_set',
+          signers: [
+            {
+              ...signer,
+              accountProvisioning: {
+                kind: 'implicit_account',
+                requestedAccountId: 'alice.testnet',
+              },
             },
-          },
+          ],
         },
       },
       headers: {
@@ -654,7 +658,7 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'implicit account provisioning cannot include sponsored account fields',
+      message: 'near_ed25519 signer spec is invalid',
     });
   });
 
@@ -738,7 +742,7 @@ test.describe('wallet registration route boundaries', () => {
       },
       intent: {
         authMethod: { kind: 'email_otp', email: 'alice@example.test' },
-        signerSelection: { mode: 'ed25519_only' },
+        signerSelection: { kind: 'signer_set' },
       },
       work: { kind: 'ed25519_hss' },
     });
@@ -1114,7 +1118,7 @@ test.describe('wallet registration route boundaries', () => {
     );
   });
 
-  test('finalize returns distinct generated wallet ID and derived implicit NEAR account ID', async () => {
+  test('finalize returns distinct server-allocated wallet ID and derived implicit NEAR account ID', async () => {
     const walletId = 'frost-vermillion-k7p9m2';
     const publicKey = repeatedEd25519PublicKey(7);
     const nearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(publicKey);

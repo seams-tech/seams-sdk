@@ -38,7 +38,7 @@ const KEK_ID = 'kek-v1';
 const KEK_BYTES = new Uint8Array(32).fill(0x42);
 
 function signingRootSecretShareWire(shareId: SigningRootSecretShareId, fill: number): ThresholdPrfFixtureShare {
-  const wire = new Uint8Array([shareId, ...new Array(32).fill(fill)]);
+  const wire = new Uint8Array([0, shareId, ...new Array(32).fill(fill)]);
   return {
     id: shareId,
     wire_hex: Buffer.from(wire).toString('hex'),
@@ -141,7 +141,7 @@ test('Cloudflare Durable Object signing-root protocol stores record status and m
     envId: ENV_ID,
     signingRootId: SIGNING_ROOT_ID,
     walletOrigin: 'https://wallet.example.test',
-    rpId: 'wallet.example.test',
+    authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
     signingRootVersion: SIGNING_ROOT_VERSION,
     rootShareEpoch: 1,
     shareThreshold: 2,

@@ -1,11 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { createThresholdEd25519SessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
+import {
+  parseEd25519WalletSessionRecord,
+  parseRouterAbEd25519PresignRecord,
+  parseThresholdEd25519MpcSessionRecord,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type {
   ThresholdEd25519MpcSessionRecord,
   RouterAbEd25519PresignExpectedScope,
   RouterAbEd25519PresignRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
 import type { NormalizedLogger } from '../../packages/sdk-server-ts/src/core/logger';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 
 const noopLogger: NormalizedLogger = {
   debug: () => {},
@@ -20,6 +26,12 @@ const runtimePolicyScope = {
   envId: 'test',
   signingRootVersion: 'root-v1',
 };
+
+function authorityScope() {
+  const rpId = parseWebAuthnRpId('example.localhost');
+  if (!rpId.ok) throw new Error('invalid rpId fixture');
+  return { kind: 'passkey_rp' as const, rpId: rpId.value };
+}
 
 function createStore() {
   return createThresholdEd25519SessionStore({
@@ -40,7 +52,7 @@ function createPresignRecord(): RouterAbEd25519PresignRecord {
     nearNetworkId: 'testnet',
     signerPublicKey: 'ed25519-public-key',
     rpcPolicyId: 'ed25519-presign-finalize',
-    rpId: 'example.localhost',
+    authorityScope: authorityScope(),
     runtimePolicyScope,
     protocolVersion: 'ed25519_frost_2p_presign_v1',
     participantIds: [1, 2],
@@ -63,7 +75,7 @@ function createMpcSessionRecord(): ThresholdEd25519MpcSessionRecord {
     intentDigestB64u: 'intent-digest',
     signingDigestB64u: 'signing-digest',
     userId: 'wallet-user',
-    rpId: 'example.localhost',
+    authorityScope: authorityScope(),
     clientVerifyingShareB64u: 'client-verifying-share',
     participantIds: [1, 2],
     signingRootId: 'project-presign:test',
@@ -90,7 +102,7 @@ function expectedScopeForRecord(
     nearNetworkId: record.nearNetworkId,
     signerPublicKey: record.signerPublicKey,
     rpcPolicyId: record.rpcPolicyId,
-    rpId: record.rpId,
+    authorityScope: record.authorityScope,
     runtimePolicyScope: record.runtimePolicyScope,
     participantIds: record.participantIds,
     groupPublicKey: record.groupPublicKey,
@@ -98,6 +110,27 @@ function expectedScopeForRecord(
 }
 
 test.describe('threshold Ed25519 presign session store', () => {
+  test('rejects stale root rpId on persisted Ed25519 session records', () => {
+    const authority = authorityScope();
+    expect(parseRouterAbEd25519PresignRecord({ ...createPresignRecord(), rpId: 'legacy-rp' }))
+      .toBeNull();
+    expect(parseThresholdEd25519MpcSessionRecord({ ...createMpcSessionRecord(), rpId: 'legacy-rp' }))
+      .toBeNull();
+    expect(
+      parseEd25519WalletSessionRecord({
+        expiresAtMs: Date.now() + 60_000,
+        relayerKeyId: 'relayer-key',
+        userId: 'wallet-user',
+        walletId: 'wallet-user',
+        nearAccountId: 'alice.testnet',
+        nearEd25519SigningKeyId: 'ed25519:wallet-user:1',
+        authorityScope: authority,
+        rpId: 'legacy-rp',
+        participantIds: [1, 2],
+      }),
+    ).toBeNull();
+  });
+
   test('versioned MPC session claim preserves stale versions and consumes once', async () => {
     const store = createStore();
     const record = createMpcSessionRecord();

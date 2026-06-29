@@ -13,7 +13,38 @@ const cloudflareRuntimeRoots = [
 
 const routerAbLocalDevScriptRoot = 'crates/router-ab-dev/scripts';
 const ciWorkflowPath = '.github/workflows/ci.yml';
+const gitignorePath = '.gitignore';
+const refactor82PlanPath = 'docs/refactor-82-cloudflare-D1-migration.md';
+const sdkServerReadmePath = 'packages/sdk-server-ts/README.md';
 const sdkServerTsconfigPath = 'packages/sdk-server-ts/tsconfig.json';
+const webServerPackagePath = 'apps/web-server/package.json';
+const accountSettingsDocPath = 'docs/saas/account-settings.md';
+const apiKeysDocPath = 'docs/saas/api-keys.md';
+const billingCleanupDocPath = 'docs/saas/billing-cleanup.md';
+const consoleOnboardingDocPath = 'docs/saas/console-onboarding.md';
+const currentBillingDocPaths = ['docs/saas/billing-2.md', 'docs/saas/prepaid-billing.md'] as const;
+const dbSchemaDocPath = 'docs/saas/db-schema.md';
+const dashboardBackendImplementationDocPath =
+  'docs/saas/dashboard-backend-implementation-plan.md';
+const policyIdDocPath = 'docs/saas/policyId.md';
+const generalizedGasSponsorshipDocPath = 'docs/saas/generalized-gas-sponsorship.md';
+const gasSponsorshipPrepaidDocPath = 'docs/saas/gas-sponsorship-prepaid-balances.md';
+const gasAndSigningPoliciesDocPath = 'docs/saas/gas-and-signing-policies.md';
+const policyEngineDocPath = 'docs/saas/policy-engine.md';
+const policyDraftsDocPath = 'docs/saas/policy-drafts.md';
+const professionalizeDocPath = 'docs/saas/professionalize.md';
+const sponsorshipPolicyDocPath = 'docs/sponsorship-policy.md';
+const observabilityDocPaths = [
+  'docs/saas/observability-events-3.md',
+  'docs/saas/observability-events-4.md',
+] as const;
+const authServicePath = 'packages/sdk-server-ts/src/core/AuthService.ts';
+const walletRegistrationRoutesPath =
+  'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts';
+const d1RegistrationIntentServicePath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts';
+const d1RegistrationCeremonyRecordsPath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts';
 
 const forbiddenCloudflarePostgresEnvTokens = [
   'POSTGRES_URL',
@@ -83,6 +114,17 @@ const forbiddenCiPostgresPatterns = [
   },
 ] as const;
 
+const deletedWebServerPostgresToolingPaths = [
+  'apps/web-server/docker-compose.postgres.yml',
+  'apps/web-server/scripts/postgres-bootstrap-split-domains.mjs',
+  'apps/web-server/scripts/postgres-down.mjs',
+  'apps/web-server/scripts/postgres-migrate-console.mjs',
+  'apps/web-server/scripts/postgres-migrate-monolith-to-split.mjs',
+  'apps/web-server/scripts/postgres-migrate-signer.mjs',
+  'apps/web-server/scripts/postgres-up.mjs',
+  'apps/web-server/scripts/postgres-verify-split-domains.mjs',
+] as const;
+
 const forbiddenSdkServerTsconfigPostgresPatterns = [
   {
     pattern: /"pg"/,
@@ -94,20 +136,809 @@ const forbiddenSdkServerTsconfigPostgresPatterns = [
   },
 ] as const;
 
+const staleBillingCleanupValidationPatterns = [
+  {
+    pattern: /\bserver\/src\b/,
+    message: 'references the old server/src tree instead of packages/sdk-server-ts/src',
+  },
+  {
+    pattern: /\bexamples\/seams-site\b/,
+    message: 'references the old examples/seams-site tree instead of apps/seams-site',
+  },
+  {
+    pattern: /\bconsole-billing\.postgres\.test\.ts\b/,
+    message: 'references the deleted live-Postgres console billing relayer suite',
+  },
+  {
+    pattern: /\bconsole-tenant-isolation\.postgres\.test\.ts\b/,
+    message: 'references the deleted live-Postgres tenant isolation relayer suite',
+  },
+  {
+    pattern: /\bconsole-config-modules\.postgres\.test\.ts\b/,
+    message: 'references the deleted live-Postgres console config relayer suite',
+  },
+  {
+    pattern: /\brelay-api-keys\.test\.ts\b/,
+    message: 'references the old Router API key test filename',
+  },
+  {
+    pattern: /\bPostgres tests no longer clean up\b/,
+    message: 'describes current billing cleanup validation as Postgres tests',
+  },
+] as const;
+
+const staleAccountSettingsDocPatterns = [
+  {
+    pattern: /\bserver\/src\/console\/account\b/,
+    message: 'references the old server account module path',
+  },
+  {
+    pattern: /\bpostgres\.ts\b/,
+    message: 'references the deleted account Postgres adapter',
+  },
+  {
+    pattern: /\baccount Postgres slice\b/,
+    message: 'describes the current account adapter as Postgres-backed',
+  },
+  {
+    pattern: /\bconsole_(?:organizations|user_profiles|user_backup_emails)\b/,
+    message: 'uses old console-prefixed account D1 table names',
+  },
+  {
+    pattern: /\bconsole_org_user_index\b/,
+    message: 'uses an old console-prefixed account organization index name',
+  },
+] as const;
+
+const staleD1SchemaDocPatterns = [
+  {
+    pattern: /\bconsole_(?:organizations|user_profiles|user_backup_emails)\b/,
+    message: 'uses old console-prefixed account D1 table names',
+  },
+  {
+    pattern:
+      /\bconsole_(?:team_members|approvals|audit_events|audit_evidence|runtime_snapshot_outbox)\b/,
+    message: 'uses old console-prefixed D1 table names for current dashboard storage',
+  },
+  {
+    pattern: /\bapp\.console_(?:namespace|org_id)\b/,
+    message: 'describes removed Postgres tenant context primitives',
+  },
+  {
+    pattern: /\bUse the same Postgres cluster\/instance\b/,
+    message: 'keeps the pre-Refactor 82 Postgres topology as the current default',
+  },
+  {
+    pattern: /\btransaction-scoped Postgres\b/,
+    message: 'describes tenant scoping as Postgres-client wiring',
+  },
+  {
+    pattern: /\bRLS\b/,
+    message: 'describes current D1 tenant isolation as Postgres RLS',
+  },
+  {
+    pattern: /\bRLS policy enforcement\b/,
+    message: 'describes current tenant isolation as Postgres RLS',
+  },
+  {
+    pattern: /\bDB-level tenant context variables\b/,
+    message: 'describes current D1 tenant isolation as DB-level Postgres context',
+  },
+  {
+    pattern: /\bFORCE-RLS\b/,
+    message: 'describes current billing finalization as Force-RLS compatibility',
+  },
+  {
+    pattern: /\bPostgres org isolation\b/,
+    message: 'describes current dashboard route isolation as Postgres-backed',
+  },
+  {
+    pattern: /\bPostgres billing services\b/,
+    message: 'describes current billing coverage as Postgres-backed',
+  },
+  {
+    pattern: /\bpostgresUrl\b/,
+    message: 'describes current D1 cron job config as Postgres URL based',
+  },
+  {
+    pattern: /\bin-memory \+ postgres service \+ router wiring\b/,
+    message: 'describes current dashboard route services as Postgres-backed',
+  },
+  {
+    pattern: /\brelay-server demo\b/,
+    message: 'describes current local dashboard seed wiring with the old relay-server name',
+  },
+  {
+    pattern: /\bactive relay-server Postgres automation\b/,
+    message: 'describes removed web-server Postgres automation with the old relay-server name',
+  },
+  {
+    pattern: /\badvisory-lock execution\b/,
+    message: 'describes current D1 outbox dispatch as Postgres advisory locking',
+  },
+  {
+    pattern: /\bDB-level policy tests\b/,
+    message: 'describes current tenant-isolation coverage as DB-level Postgres policy tests',
+  },
+] as const;
+
+const staleD1ApiKeyDocPatterns = [
+  {
+    pattern: /\bconsole_api_keys\b/,
+    message: 'uses the old console-prefixed api_keys table name',
+  },
+  {
+    pattern: /\bconsole_api_key_auth_events\b/,
+    message: 'describes an unimplemented console-prefixed API-key auth-event table',
+  },
+  {
+    pattern: /\bconsole_bootstrap_tokens\b/,
+    message: 'uses the old console-prefixed bootstrap_tokens table name',
+  },
+  {
+    pattern: /\bconsole_onboarding_runs\b/,
+    message: 'describes an unimplemented console-prefixed onboarding table',
+  },
+  {
+    pattern: /\btenant-scoped with RLS\b/,
+    message: 'describes D1 API-key tenant isolation as Postgres RLS',
+  },
+  {
+    pattern: /\bPostgres persistence tests\b/,
+    message: 'describes current API-key persistence coverage as Postgres-backed',
+  },
+  {
+    pattern: /\bPostgres tests:\b/,
+    message: 'describes current API-key persistence tests as Postgres tests',
+  },
+] as const;
+
+const staleConsoleOnboardingDocPatterns = [
+  {
+    pattern: /\bRLS\b/,
+    message: 'describes current onboarding tenant isolation as Postgres RLS',
+  },
+  {
+    pattern: /\bPostgres service\b/,
+    message: 'describes current onboarding service coverage as Postgres-backed',
+  },
+] as const;
+
+const staleD1PolicyTableDocPatterns = [
+  {
+    pattern: /\bconsole_policies\b/,
+    message: 'uses the old console-prefixed policies table name',
+  },
+  {
+    pattern: /\bconsole_policy_versions\b/,
+    message: 'uses the old console-prefixed policy_versions table name',
+  },
+  {
+    pattern: /\bconsole_policy_assignments\b/,
+    message: 'uses the old console-prefixed policy_assignments table name',
+  },
+  {
+    pattern: /\bconsole_gas_sponsorship_configs\b/,
+    message: 'references the removed standalone gas sponsorship config table',
+  },
+] as const;
+
+const staleCurrentBillingDocPatterns = [
+  {
+    pattern: /\/Users\/pta\/Dev\/rust\/simple-threshold-signer/,
+    message: 'references the old simple-threshold-signer absolute workspace path',
+  },
+  {
+    pattern: /\bPostgres billing\b/,
+    message: 'describes the current billing path as Postgres billing',
+  },
+  {
+    pattern: /\bPostgres validation and cleanup\b/,
+    message: 'describes current billing validation as Postgres-specific',
+  },
+  {
+    pattern: /\bPostgres org balance sync\b/,
+    message: 'describes current org balance sync as Postgres-specific',
+  },
+  {
+    pattern: /\bPostgres receipt\b/,
+    message: 'describes current receipt projections as Postgres-specific',
+  },
+  {
+    pattern: /\bPostgres invoice\b/,
+    message: 'describes current invoice reads as Postgres-specific',
+  },
+  {
+    pattern: /\bin the Postgres billing path\b/,
+    message: 'describes current billing behavior as Postgres-specific',
+  },
+  {
+    pattern: /\bThe Postgres billing path\b/,
+    message: 'describes current billing behavior as Postgres-specific',
+  },
+  {
+    pattern: /\bconsole_billing_ledger_accounts\b/,
+    message: 'uses the old console-prefixed billing_accounts table name',
+  },
+  {
+    pattern: /\bconsole_billing_ledger_entries\b/,
+    message: 'uses the old console-prefixed billing_ledger_entries table name',
+  },
+  {
+    pattern: /\bconsole_billing_ledger_postings\b/,
+    message: 'uses the old console-prefixed billing_ledger_postings table name',
+  },
+  {
+    pattern: /\bconsole_billing_account_balances\b/,
+    message: 'uses the old console-prefixed billing_accounts projection name',
+  },
+  {
+    pattern: /\bconsole_billing_documents\b/,
+    message: 'uses the old console-prefixed invoices table name',
+  },
+  {
+    pattern: /\bconsole_billing_document_line_items\b/,
+    message: 'uses the old console-prefixed invoice_line_items table name',
+  },
+  {
+    pattern: /\bconsole_billing_activity_projection\b/,
+    message: 'uses the old standalone billing activity projection table name',
+  },
+] as const;
+
+const staleGasSponsorshipPrepaidDocPatterns = [
+  {
+    pattern: /\/Users\/pta\/Dev\/rust\/simple-threshold-signer/,
+    message: 'references the old simple-threshold-signer absolute workspace path',
+  },
+  {
+    pattern: /\bserver\/src\/console\/(?:billing|billingPrepaidReservations|sponsoredCalls)\/postgres\.ts\b/,
+    message: 'references removed server Postgres sponsorship or billing adapters',
+  },
+  {
+    pattern: /\bshared Postgres billing\/prepaid\/sponsored-call services\b/,
+    message: 'describes sponsored settlement as backed by shared Postgres services',
+  },
+  {
+    pattern: /\bshared Postgres runtime for settlement\b/,
+    message: 'describes sponsored settlement as requiring a shared Postgres runtime',
+  },
+  {
+    pattern: /\bsupporting Postgres indexes\b/,
+    message: 'describes current sponsorship history indexes as Postgres indexes',
+  },
+  {
+    pattern: /\batomic Postgres settlement contract\b/,
+    message: 'describes current sponsorship tests as aligned to Postgres settlement',
+  },
+  {
+    pattern: /\bconsole_sponsored_call_records\b/,
+    message: 'uses the old console-prefixed sponsored_call_records table name',
+  },
+] as const;
+
+const staleGeneralizedGasSponsorshipDocPatterns = [
+  {
+    pattern: /\/Users\/pta\/Dev\/rust\/simple-threshold-signer/,
+    message: 'references the old simple-threshold-signer absolute workspace path',
+  },
+  {
+    pattern: /(^|[\s([`])server\/src\b/,
+    message: 'references the old server/src tree instead of packages/sdk-server-ts/src',
+  },
+  {
+    pattern: /\bexamples\/seams-site\b/,
+    message: 'references the old examples/seams-site tree instead of apps/seams-site',
+  },
+  {
+    pattern: /\bexamples\/relay-server\b/,
+    message: 'references the old examples/relay-server tree instead of apps/web-server',
+  },
+  {
+    pattern: /\brelaySponsoredEvmCall\.ts\b/,
+    message: 'references the deleted sponsored EVM relay route filename',
+  },
+  {
+    pattern: /\brelaySignedDelegate\.ts\b/,
+    message: 'references the deleted signed delegate relay route filename',
+  },
+  {
+    pattern: /\b(?:web|relay)-packages\/sdk-server-ts\b/,
+    message: 'contains a bad chained path replacement from the old relay-server path',
+  },
+  {
+    pattern: /\bpostgres\.ts\b/,
+    message: 'references deleted Postgres sponsorship adapter files',
+  },
+] as const;
+
+const staleGasAndSigningPoliciesDocPatterns = [
+  {
+    pattern: /\/Users\/pta\/Dev\/rust\/simple-threshold-signer/,
+    message: 'references the old simple-threshold-signer absolute workspace path',
+  },
+  {
+    pattern: /\]\(.*\bserver\/src\//,
+    message: 'links to the old server/src tree instead of packages/sdk-server-ts/src',
+  },
+  {
+    pattern: /\]\(.*\bexamples\/seams-site\//,
+    message: 'links to the old examples/seams-site tree instead of apps/seams-site',
+  },
+] as const;
+
+const stalePolicyEngineDocPatterns = [
+  {
+    pattern: /\/Users\/pta\/Dev\/rust\/simple-threshold-signer/,
+    message: 'references the old simple-threshold-signer absolute workspace path',
+  },
+  {
+    pattern: /\]\(.*\bserver\/src\//,
+    message: 'links to the old server/src tree instead of packages/sdk-server-ts/src',
+  },
+  {
+    pattern: /\]\(.*\bexamples\/seams-site\//,
+    message: 'links to the old examples/seams-site tree instead of apps/seams-site',
+  },
+  {
+    pattern: /\bPostgres storage for policies\b/,
+    message: 'describes current policy storage as Postgres-backed',
+  },
+  {
+    pattern: /\bPostgres policy services\b/,
+    message: 'describes current policy service parity as Postgres-backed',
+  },
+  {
+    pattern: /\bPostgres namespace split\b/,
+    message: 'describes current example policy stack as Postgres-backed',
+  },
+  {
+    pattern: /\bin-memory and Postgres services\b/,
+    message: 'describes current policy service sharing as Postgres-backed',
+  },
+  {
+    pattern: /\bmemory versus Postgres services\b/,
+    message: 'describes current policy evaluator duplication as Postgres-backed',
+  },
+  {
+    pattern: /\bexample relay\b/,
+    message: 'describes current local Router API wiring with the old example-relay name',
+  },
+  {
+    pattern: /\bserver\/src\/console\/(?:policies|gasSponsorship)\/postgres\.ts\b/,
+    message: 'references deleted policy or gas-sponsorship Postgres adapters',
+  },
+] as const;
+
+const staleSponsorshipPolicyDocPatterns = [
+  {
+    pattern: /\/Users\/pta\/Dev\/rust\/simple-threshold-signer/,
+    message: 'references the old simple-threshold-signer absolute workspace path',
+  },
+  {
+    pattern: /\]\(.*\bserver\/src\//,
+    message: 'links to the old server/src tree instead of packages/sdk-server-ts/src',
+  },
+  {
+    pattern: /\]\(.*\bexamples\/seams-site\//,
+    message: 'links to the old examples/seams-site tree instead of apps/seams-site',
+  },
+] as const;
+
+const staleObservabilityDocPatterns = [
+  {
+    pattern: /\bserver\/src\b/,
+    message: 'references the old server/src tree instead of packages/sdk-server-ts/src',
+  },
+  {
+    pattern: /\bexamples\/seams-site\b/,
+    message: 'references the old examples/seams-site tree instead of apps/seams-site',
+  },
+  {
+    pattern: /\bpostgres\.ts\b/,
+    message: 'references deleted Postgres observability adapter files',
+  },
+  {
+    pattern: /\bconsole_observability_(?:events|event_dedup|ingest_windows|request_rollups_minute)\b/,
+    message: 'uses old console-prefixed observability table names instead of D1 names',
+  },
+] as const;
+
+const staleSaasFrontendDocPatterns = [
+  {
+    pattern: /\bexamples\/seams-site\b/,
+    message: 'references the old examples/seams-site tree instead of apps/seams-site',
+  },
+  {
+    pattern: /\bsrc\/\.vitepress\/config\.ts\b/,
+    message: 'references the removed VitePress site config instead of the React app router',
+  },
+] as const;
+
 const sharedD1HelperPath = 'packages/sdk-server-ts/src/storage/d1Sql.ts';
 const sharedSqliteD1TestHelperPath = 'tests/helpers/sqliteD1.ts';
 const cloudflareD1ConsoleServicesPath =
   'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices.ts';
 const cloudflareD1ConsoleStagingWorkerPath =
   'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
-const cloudflareD1RelayStagingWorkerPath =
+const cloudflareD1LocalDevWorkerPath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
+const cloudflareD1RouterApiStagingWorkerPath =
   'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
-const oldCloudflareD1RouterApiStagingWorkerPath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
-const activeRouterApiDocPaths = [
+const cloudflareD1WalletRegistrationServicePath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts';
+const oldCloudflareD1EcdsaCeremonyServicePath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1EcdsaCeremonyService.ts';
+const cloudflareD1EvmFamilyEcdsaRegistrationBranchPath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts';
+const cloudflareD1NearEd25519RegistrationBranchPath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts';
+const cloudflareD1WalletAddSignerServicePath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1WalletAddSignerService.ts';
+const cloudflareD1RouterApiAuthServicePath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts';
+const oldCloudflareD1RelayStagingWorkerPath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1RelayStagingWorker.ts';
+const oldRelayApiKeysTestPath = 'tests/relayer/relay-api-keys.test.ts';
+const oldRouterApiHarnessScriptPaths = [
+  'tests/scripts/provision-relay-server.mjs',
+  'tests/scripts/test-relay-server.mjs',
+] as const;
+const oldWebServerTestPaths = [
+  'tests/unit/relayServer.consoleConfig.unit.test.ts',
+  'tests/unit/relayServer.stripeBillingProvider.unit.test.ts',
+] as const;
+const oldEmailEncryptionOutlayerCompatTestPath = 'tests/unit/emailEncryptionOutlayerCompat.test.ts';
+const oldExpressTypeShimPath = 'packages/sdk-server-ts/src/router/express-shim.d.ts';
+const deletedDuplicateTestSetupMockPaths = [
+  'tests/setup/route-mocks.ts',
+  'tests/setup/intercepts.ts',
+] as const;
+const routerApiProxyShimTextPaths = [
+  'tests/setup/cross-origin-headers.ts',
+  'tests/setup/bootstrap.ts',
+  'tests/e2e/signTransactions.concurrentSessions.walletIframe.test.ts',
+  'tests/e2e/executeAction.twice.walletIframe.test.ts',
+  'tests/e2e/nearMultichain.seamNormalization.walletIframe.test.ts',
+  'tests/helpers/thresholdEcdsaSealedRefreshHarness.ts',
+  'benchmarks/registration-flow/src/scenario-harness.ts',
+] as const;
+const activeRouterApiTextPaths = [
+  'apps/web-server/.env.example',
+  'apps/web-server/README.md',
+  'apps/web-server/package.json',
+  'apps/web-server/src/jwtSession.ts',
+  'apps/web-server/scripts/ensure-bun.mjs',
+  'docs/chats/chat-6-voiceId.md',
+  'docs/deployment/infra.md',
+  'docs/registrations-top-up.md',
+  'docs/refactor-83-modular-auth-capabilities-SPEC.md',
+  'docs/auth-provider-integrations/auth0.md',
+  'docs/auth-provider-integrations/better-auth.md',
+  'docs/auth-provider-integrations/google-oidc.md',
+  'docs/auth-provider-integrations/okta.md',
+  'docs/auth-provider-integrations/quickstarts-clerk-supabase-firebase.md',
   'packages/sdk-server-ts/src/README.md',
   'packages/sdk-server-ts/README.md',
+  'packages/sdk-web/README.md',
+  'tests/README.md',
+  'packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts',
+  'packages/sdk-server-ts/src/core/defaultConfigsServer.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/d1ThresholdSigningRuntime.ts',
   'docs/saas/bring-you-own-auth.md',
+  'tests/unit/cloudflareD1ConsoleServices.unit.test.ts',
+  'tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts',
+  'voiceId/README.md',
+  'voiceId/server/src/sdkRouterApiExtension.ts',
+  'voiceId/docs/voiceId-mvp-1-tasks.md',
+  'voiceId/docs/voiceId-mvp-2.md',
+  'voiceId/docs/voiceId-normal-sdk-transaction-signing.md',
+  'voiceId/docs/voiceId-sdk-auth-method-integration.md',
+  'packages/sdk-server-ts/wrangler.d1-staging-console.toml.example',
+  'packages/sdk-server-ts/wrangler.d1-staging-router-api.toml.example',
+  'wasm/near_signer/src/types/signing.rs',
+  apiKeysDocPath,
+  'tests/package.json',
+] as const;
+
+const staleRouterApiRenameTokens = [
+  'RelayRouterOptions',
+  'RelayApiKey',
+  'RelayPublishableKey',
+  'RelayBootstrapGrant',
+  'RelayRouteSurface',
+  'RelayRouteExtension',
+  'RelayRouterModule',
+  'CloudflareRelayContext',
+  'ExpressRelayContext',
+  'CloudflareRelayAuthService',
+  'createRelayRouter',
+  'createRelayApiKeyAuthAdapter',
+  'createRelayBootstrapGrantBroker',
+  'd1RelayStagingWorker',
+  'sdkRelayExtension',
+  'Cloudflare D1 relay auth service',
+  'Cloudflare D1 relay registration intents',
+  'Cloudflare D1 relay thresholdStore',
+  'D1 relay bootstrapGrantTokenTtlMs',
+  'D1 relay storage options',
+  'relay API-key',
+  'relay API key',
+  'Relay API-key',
+  'Relay API key',
+  'relay-server.example.com',
+  'relay-server.localhost',
+  'relay_worker_deployment_status',
+  'relay_worker',
+  'relay deployments status',
+  'relay-worker',
+  'relay.example.com',
+  'JWT_ISSUER=relay-server',
+  'JWT_ISSUER=relay',
+  "issuer: process.env.JWT_ISSUER || 'relay'",
+  'dev-relay-jwt-secret',
+  'Local relay process',
+  'compatible adapter',
+  "SDK's legacy prefix defaults",
+  'not legacy `code_source`',
+  "compatible with the SDK's threshold store protocol",
+  'Outlayer compat tests',
+  'emailEncryptionOutlayerCompat',
+  'Email encryption compatibility with Outlayer worker seed',
+  'email encryption Outlayer compat test unavailable',
+  'gmail_reset_full.eml encryption compat test unavailable',
+  'allowed by the relay',
+  'served by the relay',
+  'relay validates token audience',
+  'on the relay',
+  'multi-process relay fleet',
+  'The relay prints',
+  'The relay uses this secret',
+  'The relay executes',
+  'relay uses deterministic',
+  'The relay verifies',
+  'relayConfigPath',
+  '--relay-config',
+  'relayOrigin',
+  '--relay-origin',
+  'relayWorker',
+  'relay_readyz',
+  'relay_healthz',
+  'relaySmokeCheckIds',
+  'relayOriginFromSmoke',
+  'defaultD1StagingRelayConfigPath',
+  'd1StagingRelayManifestArgDefaults',
+  'normalizeConsoleRelayD1StagingConfig',
+  'normalizeRelayD1StagingConfig',
+  'normalizeConsoleRelayD1StagingOptions',
+  'validD1RelayStagingConfig',
+  'D1_STAGING_RELAY_ORIGIN',
+  'wrangler.d1-staging-relay.toml',
+  'wrangler.d1-staging-relay.toml.example',
+  'wrangler.other-relay',
+  'relayer server',
+  'relay-worker-demo',
+  'createRelaySession',
+  'RELAY_BASE_URL',
+  'RELAY_API_KEY_AUTH_ENABLED',
+  'relay app sessions',
+  '[relay][bootstrap-grants]',
+  '[relay][webhooks]',
+  '[relay][signed-delegate]',
+  'relay][signed-delegate',
+  'relay usage-meter',
+  'relay-issued sessions',
+  'relayer app session',
+  'relayer expects',
+  'relayer for a challenge',
+  'relayer validates',
+  'relay registration',
+  'prepared on the relay',
+  'prepared relay state',
+  'relay metadata',
+  'relay verification',
+  'relay publishable key auth',
+  'relay ceremony step',
+  'relay app session mint',
+  'sent to the relay',
+  'override relay URL',
+  'must use relay surface',
+  'VoiceIdRelayRouteDefinition',
+  'voiceIdCapabilityRouteToRelayRouteDefinition',
+  'voiceIdRelayRouteMetering',
+  'RelayServerConsoleConfig',
+  'resolveRelayServerConsoleConfig',
+  'relayServerDir',
+  'relayDotenvPath',
+  '"name": "relay-server"',
+  'imported from relay-server types',
+  '[relay-server]',
+  'relay-server console config',
+  'relay-server stripe billing provider config',
+  'relayServer.consoleConfig',
+  'relayServer.stripeBillingProvider',
+  'installRelayServerProxyShim',
+  'relay proxy shim installed',
+  'relay-proxy',
+  'setupRelayServerTest',
+  'setupRelayServerMock',
+  'relay-server mocks',
+  'relay-server (atomic)',
+  'atomic relay-server flow',
+  'Relay server / worker env',
+  'Relay server failure injected',
+  'relay-server (mock)',
+  'real relay-server harness',
+] as const;
+
+const staleRouterApiProxyShimTokens = [
+  'installRelayServerProxyShim',
+  'relayUrl?:',
+  'relayBase',
+  'relay mock',
+  'Router server mock',
+  "scope: 'relay'",
+  'relayOrigin:',
+  'relayUpstream:',
+  'relay proxy shim installed',
+  'relay-proxy',
+] as const;
+
+const staleRouterApiHarnessTokens = [
+  'provision-relay-server',
+  'test-relay-server',
+  'test:unit:relay-server-scripts',
+  'examples/relay-server',
+  'example relay server',
+  'relay-server .env',
+  'Start both relay-server',
+  'Relay server not healthy',
+  '[test-relay]',
+] as const;
+
+const d1LocalBackupRestoreDrillScript =
+  'packages/sdk-server-ts/scripts/d1-local-backup-restore-drill.mjs';
+const d1StagingManifestWriterScripts = [
+  d1LocalBackupRestoreDrillScript,
+  'packages/sdk-server-ts/scripts/d1-staging-fixture-import.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-kek-check.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-migrate.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-r2-restore-drill.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-reconciliation.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-signer-custody.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-smoke.mjs',
+  'packages/sdk-server-ts/scripts/d1-staging-time-travel-bookmark.mjs',
+] as const;
+const d1StagingSharedHelperPath = 'packages/sdk-server-ts/scripts/d1-staging-config.mjs';
+const d1StagingCliHelperScripts = listJavaScriptFiles('packages/sdk-server-ts/scripts').filter(
+  (relativePath) =>
+    relativePath === d1LocalBackupRestoreDrillScript ||
+    (path.basename(relativePath).startsWith('d1-staging-') &&
+      relativePath !== d1StagingSharedHelperPath),
+);
+
+const publicRegistrationRequestConstructionFiles = [
+  ...listTypeScriptLikeFiles('apps/seams-site/src'),
+  'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/evm/index.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/near/index.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/registration/registrationSignerSet.ts',
+  'packages/sdk-web/src/SeamsWeb/publicInputs.typecheck.ts',
+  'packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
+] as const;
+
+const publicRegistrationTypeSurfaceFiles = [
+  'packages/sdk-web/src/index.ts',
+  'packages/sdk-web/src/react/index.ts',
+  'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
+  'packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts',
+] as const;
+
+const removedRegistrationSignerSelectionFileBasename = `registrationSigner${'Selection'}`;
+const registrationSignerFilenameScanRoots = [
+  'packages/sdk-web/src/SeamsWeb/operations/registration',
+  'tests/unit',
+] as const;
+
+const forbiddenPublicRegistrationLegacySelectionTokens = [
+  {
+    token: 'ed25519_and_ecdsa',
+    message: 'constructs legacy combined registration signer selection',
+  },
+  {
+    token: 'ed25519_only',
+    message: 'constructs legacy Ed25519-only registration signer selection',
+  },
+  {
+    token: 'ecdsa_only',
+    message: 'constructs legacy ECDSA-only registration signer selection',
+  },
+  {
+    token: 'combined_registration',
+    message: 'constructs legacy combined-registration ceremony state',
+  },
+  {
+    token: 'buildNearWalletRegistrationSignerSelection',
+    message: 'uses the removed legacy registration signer-selection builder',
+  },
+  {
+    token: 'registrationSignerSelectionForInternalState',
+    message: 'converts signer-set registration requests back to legacy internal mode state',
+  },
+] as const;
+
+const forbiddenCloudflareRuntimeLegacyRegistrationTokens = [
+  {
+    token: 'ed25519_and_ecdsa',
+    message: 'uses legacy combined registration mode instead of signer-set branches',
+  },
+  {
+    token: 'ed25519_only',
+    message: 'uses legacy Ed25519-only registration mode instead of signer-set branches',
+  },
+  {
+    token: 'ecdsa_only',
+    message: 'uses legacy ECDSA-only registration mode instead of signer-set branches',
+  },
+  {
+    token: 'combined_registration',
+    message: 'uses removed combined-registration ceremony state',
+  },
+  {
+    token: 'd1RegistrationIntentPasskeyRpId',
+    message: 'revives passkey-only RP ID authority for generic Ed25519 registration',
+  },
+  {
+    token: 'D1 registration intent rpId requires a passkey auth method',
+    message: 'revives passkey-only RP ID validation for generic Ed25519 registration',
+  },
+  {
+    token: 'for (const expectedKeyHandle of expectedKeyHandles)',
+    message: 'revives all-equal ECDSA key-handle checking instead of allowlist matching',
+  },
+  {
+    token: 'expectedKeyHandles.some((keyHandle) => keyHandle !==',
+    message: 'revives all-equal ECDSA key-handle checking instead of allowlist matching',
+  },
+] as const;
+
+const forbiddenAuthServiceLegacyRegistrationModeTokens = [
+  {
+    token: 'ed25519_and_ecdsa',
+    message: 'branches on legacy combined wallet-registration mode',
+  },
+  {
+    token: 'ed25519_only',
+    message: 'branches on legacy Ed25519-only wallet-registration mode',
+  },
+  {
+    token: 'ecdsa_only',
+    message: 'branches on legacy ECDSA-only wallet-registration mode',
+  },
+  {
+    token: 'registrationIntentRpId(',
+    message: 'revives passkey-only RP ID helper for generic Ed25519 registration',
+  },
+  {
+    token: 'rpId: this.registrationIntentRpId',
+    message: 'passes passkey-only RP ID into generic Ed25519 registration',
+  },
+  {
+    token: 'expectedKeyHandles.some((keyHandle) => keyHandle !==',
+    message: 'revives all-equal ECDSA key-handle checking instead of allowlist matching',
+  },
+] as const;
+
+const forbiddenProductionCombinedRegistrationTokens = [
+  {
+    token: 'combined_registration',
+    message: 'revives the removed combined-registration ceremony state',
+  },
 ] as const;
 
 const forbiddenLocalD1HelperPatterns = [
@@ -157,6 +988,140 @@ const forbiddenSqliteD1HarnessDuplicationPatterns = [
   {
     pattern: /packages\/sdk-server-ts\/migrations\/d1-/,
     message: 'hard-codes D1 migration paths instead of using tests/helpers/sqliteD1',
+  },
+] as const;
+const forbiddenD1StagingCliHelperPatterns = [
+  {
+    pattern: /\bfunction\s+requireNextArg\b/,
+    message: 'defines local argument parsing instead of d1-staging-config',
+  },
+  {
+    pattern: /\bspawnSync\s*\(/,
+    message: 'defines local command execution instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfor\s*\(\s*let\s+index\s*=\s*0;\s*index\s*<\s*args\.length\b/,
+    message: 'defines a local D1 script CLI parse loop instead of parseFlagArgs',
+  },
+  {
+    pattern: /\bfunction\s+(?:resolvePackagePath|resolveRepoPath)\b/,
+    message: 'defines local path resolution instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+(?:requirePackagePath|resolveRequiredPackagePath|requirePath|normalizePath)\b/,
+    message: 'defines local required path resolution instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+relativeToPackage\b/,
+    message: 'defines local package-relative formatting instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+resolveManifestPath\b/,
+    message: 'defines local manifest-output resolution instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+normalizeMode\b/,
+    message: 'defines local staging mode parsing instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+readinessFailureMessage\b/,
+    message: 'defines local readiness error formatting instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+isDirectInvocation\b/,
+    message: 'defines local direct-invocation detection instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfileURLToPath\b/,
+    message: 'imports fileURLToPath only for local direct-invocation detection',
+  },
+  {
+    pattern: /\bfunction\s+normalizeIso\b/,
+    message: 'defines local ISO timestamp parsing instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+normalizeGeneratedAtIso\b/,
+    message: 'defines local generated-at parsing instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+(?:stampFromIso|compactIsoStamp)\b/,
+    message: 'defines local ISO stamp formatting instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+wranglerCommand\b/,
+    message: 'defines local Wrangler command formatting instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+(?:r2Command|wranglerR2Command)\b/,
+    message: 'defines local Wrangler R2 command formatting instead of d1-staging-config',
+  },
+  {
+    pattern: /pnpm --dir packages\/sdk-server-ts exec wrangler/,
+    message: 'formats Wrangler package commands outside d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+(?:collectReadinessChecks|collectReadinessErrors|runReadinessCheck)\b/,
+    message: 'defines local staging readiness collection instead of d1-staging-readiness-check',
+  },
+  {
+    pattern: /\bfunction\s+print[A-Za-z]+Result\b/,
+    message: 'defines local staging result printing instead of d1-staging-config',
+  },
+  {
+    pattern:
+      /\bfunction\s+(?:executeSmokeEndpoint|executeJsonEndpoint|fetchWithTimeout|abortFetch|readJsonBody|assertJsonEndpointResponse|assertSmokeResponse|assertJsonField|isJsonRecord)\b/,
+    message: 'defines local staging JSON endpoint plumbing instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+(?:normalizeOrigin|normalizeHttpsOrigin|normalizeTimeoutMs)\b/,
+    message: 'defines local staging origin or timeout validation instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+normalizeR2Bucket\b/,
+    message: 'defines local R2 bucket validation instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+sha256(?:String|File)\b/,
+    message: 'defines local SHA-256 helpers instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+sqlString(?:List)?\b/,
+    message: 'defines local SQL quoting helpers instead of d1-staging-config',
+  },
+  {
+    pattern: /\bfunction\s+isRecord\b/,
+    message: 'defines local JSON record detection instead of d1-staging-config',
+  },
+  {
+    pattern:
+      /\bconst\s+default(?:Console|RouterApi)ConfigPath\s*=\s*path\.join\(\s*packageRoot,\s*['"]wrangler\.d1-staging-(?:console|router-api)\.toml['"]\s*\)/,
+    message: 'defines local staging Wrangler config defaults instead of d1-staging-config',
+  },
+  {
+    pattern: /\bresolvePackagePath\(\s*input\.(?:console|routerApi)ConfigPath\b/,
+    message: 'normalizes console/Router API config paths outside d1-staging-config',
+  },
+  {
+    pattern: /console\.error\(error instanceof Error \? error\.message : String\(error\)\)/,
+    message: 'formats CLI exceptions outside d1-staging-config',
+  },
+  {
+    pattern:
+      /parseFlagArgs\(\s*args,\s*\{\s*consoleConfigPath:\s*'',\s*environmentName:\s*'staging',\s*generatedAtIso:\s*'',\s*manifestPath:\s*'',\s*mode:\s*'dry-run',\s*routerApiConfigPath:\s*''/s,
+    message: 'duplicates console/router-api manifest CLI defaults outside d1-staging-config',
+  },
+  {
+    pattern:
+      /parseFlagArgs\(\s*args,\s*\{\s*environmentName:\s*'staging',\s*generatedAtIso:\s*'',\s*manifestPath:\s*'',\s*mode:\s*'dry-run',\s*routerApiConfigPath:\s*''/s,
+    message: 'duplicates router-api manifest CLI defaults outside d1-staging-config',
+  },
+  {
+    pattern: /\bresolveManifestOutputPath\s*\(/,
+    message: 'assembles stamped staging manifest output paths outside d1-staging-config',
+  },
+  {
+    pattern: /\bmanifestStamp\(\s*options\.generatedAtIso\s*\)/,
+    message: 'formats generated-at manifest filenames outside d1-staging-config',
   },
 ] as const;
 
@@ -254,6 +1219,22 @@ function listTypeScriptFiles(relativeDir: string): string[] {
   return files.sort();
 }
 
+function listTypeScriptLikeFiles(relativeDir: string): string[] {
+  const absoluteDir = toAbsolutePath(relativeDir);
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
+    const relativePath = `${relativeDir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      files.push(...listTypeScriptLikeFiles(relativePath));
+      continue;
+    }
+    if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
+      files.push(relativePath);
+    }
+  }
+  return files.sort();
+}
+
 function listJavaScriptFiles(relativeDir: string): string[] {
   const absoluteDir = toAbsolutePath(relativeDir);
   const files: string[] = [];
@@ -328,6 +1309,11 @@ type RuntimeDependency = {
   line: number;
   specifier: string;
   resolved: string | null;
+};
+
+type SourcePattern = {
+  pattern: RegExp;
+  message: string;
 };
 
 function runtimeDependencies(relativePath: string): RuntimeDependency[] {
@@ -471,6 +1457,24 @@ function legacyRouteCapabilityFlagViolations(): string[] {
   return violations.sort();
 }
 
+function d1WorkerEd25519PrepareMountViolations(): string[] {
+  const violations: string[] = [];
+  const d1WorkerPaths = [
+    cloudflareD1LocalDevWorkerPath,
+    cloudflareD1RouterApiStagingWorkerPath,
+  ] as const;
+  for (const relativePath of d1WorkerPaths) {
+    const source = readSource(relativePath);
+    if (!source.includes('ed25519RegistrationPrepare:')) {
+      violations.push(`${relativePath}: does not mount Ed25519 registration prepare`);
+    }
+    if (/ed25519RegistrationPrepare\s*:\s*\{\s*enabled\b/.test(source)) {
+      violations.push(`${relativePath}: mounts Ed25519 registration prepare with an enabled flag`);
+    }
+  }
+  return violations.sort();
+}
+
 function routerAbLocalPostgresToolingViolations(): string[] {
   const violations: string[] = [];
   for (const relativePath of listJavaScriptFiles(routerAbLocalDevScriptRoot)) {
@@ -491,6 +1495,25 @@ function ciWorkflowPostgresSmokeViolations(): string[] {
   return violations.sort();
 }
 
+function webServerPostgresToolingViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of deletedWebServerPostgresToolingPaths) {
+    if (fs.existsSync(toAbsolutePath(relativePath))) {
+      violations.push(`${relativePath}: deleted web-server Postgres tooling path exists`);
+    }
+  }
+
+  const packageJson = JSON.parse(readSource(webServerPackagePath)) as {
+    readonly scripts?: Record<string, string>;
+  };
+  for (const [name, command] of Object.entries(packageJson.scripts || {})) {
+    if (/postgres|POSTGRES|docker-compose\.postgres/.test(`${name} ${command}`)) {
+      violations.push(`${webServerPackagePath}: script ${name} revives Postgres tooling`);
+    }
+  }
+  return violations.sort();
+}
+
 function sdkServerTsconfigPostgresScaffoldingViolations(): string[] {
   const violations: string[] = [];
   const source = readSource(sdkServerTsconfigPath);
@@ -500,29 +1523,134 @@ function sdkServerTsconfigPostgresScaffoldingViolations(): string[] {
   return violations.sort();
 }
 
+function sourcePatternViolations(relativePath: string, patterns: readonly SourcePattern[]): string[] {
+  const violations: string[] = [];
+  const source = readSource(relativePath);
+  for (const { pattern, message } of patterns) {
+    if (pattern.test(source)) violations.push(`${relativePath}: ${message}`);
+  }
+  return violations.sort();
+}
+
+function sourcePatternViolationsForFiles(
+  relativePaths: readonly string[],
+  patterns: readonly SourcePattern[],
+): string[] {
+  const violations: string[] = [];
+  for (const relativePath of relativePaths) {
+    violations.push(...sourcePatternViolations(relativePath, patterns));
+  }
+  return violations.sort();
+}
+
 function staleRefactor82NameViolations(): string[] {
   const violations: string[] = [];
-  if (fs.existsSync(toAbsolutePath(oldCloudflareD1RouterApiStagingWorkerPath))) {
-    violations.push(`${oldCloudflareD1RouterApiStagingWorkerPath}: old relay staging Worker filename exists`);
+  if (fs.existsSync(toAbsolutePath(oldCloudflareD1RelayStagingWorkerPath))) {
+    violations.push(
+      `${oldCloudflareD1RelayStagingWorkerPath}: old relay staging Worker filename exists`,
+    );
+  }
+  if (fs.existsSync(toAbsolutePath(oldRelayApiKeysTestPath))) {
+    violations.push(`${oldRelayApiKeysTestPath}: old Relay API key test filename exists`);
+  }
+  for (const relativePath of oldRouterApiHarnessScriptPaths) {
+    if (fs.existsSync(toAbsolutePath(relativePath))) {
+      violations.push(`${relativePath}: old Router API harness script filename exists`);
+    }
+  }
+  for (const relativePath of oldWebServerTestPaths) {
+    if (fs.existsSync(toAbsolutePath(relativePath))) {
+      violations.push(`${relativePath}: old web-server test filename exists`);
+    }
+  }
+  if (fs.existsSync(toAbsolutePath(oldEmailEncryptionOutlayerCompatTestPath))) {
+    violations.push(
+      `${oldEmailEncryptionOutlayerCompatTestPath}: old Outlayer email encryption test filename exists`,
+    );
+  }
+  if (fs.existsSync(toAbsolutePath(oldExpressTypeShimPath))) {
+    violations.push(`${oldExpressTypeShimPath}: old ambient Express type shim exists`);
+  }
+  for (const relativePath of deletedDuplicateTestSetupMockPaths) {
+    if (fs.existsSync(toAbsolutePath(relativePath))) {
+      violations.push(`${relativePath}: duplicate dead test setup mock file exists`);
+    }
   }
   for (const relativePath of [
+    ...listTypeScriptFiles('apps/web-server/src'),
     ...listTypeScriptFiles('packages/sdk-server-ts/src'),
     ...listTypeScriptFiles('packages/sdk-web/src'),
     ...listTypeScriptFiles('tests'),
-    ...activeRouterApiDocPaths,
+    ...listJavaScriptFiles('apps/web-server/scripts'),
+    ...listJavaScriptFiles('packages/sdk-server-ts/scripts'),
+    ...activeRouterApiTextPaths,
   ]) {
     if (relativePath === 'tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts') {
       continue;
     }
     const source = readSource(relativePath);
-    if (source.includes('d1RouterApiStagingWorker')) {
-      violations.push(`${relativePath}: references old relay staging Worker filename`);
-    }
     if (source.includes('routerApier')) {
       violations.push(`${relativePath}: references old routerApier typo path`);
     }
-    if (source.includes('createRelayRouter')) {
-      violations.push(`${relativePath}: references old createRelayRouter export name`);
+    for (const token of staleRouterApiRenameTokens) {
+      if (source.includes(token)) {
+        violations.push(`${relativePath}: references old ${token} name`);
+      }
+    }
+  }
+  for (const relativePath of [...listJavaScriptFiles('tests/scripts'), 'tests/package.json']) {
+    const source = readSource(relativePath);
+    for (const token of staleRouterApiHarnessTokens) {
+      if (source.includes(token)) {
+        violations.push(`${relativePath}: references old ${token} harness name`);
+      }
+    }
+  }
+  for (const relativePath of routerApiProxyShimTextPaths) {
+    const source = readSource(relativePath);
+    for (const token of staleRouterApiProxyShimTokens) {
+      if (source.includes(token)) {
+        violations.push(`${relativePath}: references old ${token} Router API proxy name`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function staleRefactor82ScaffoldingViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src')) {
+    const source = readSource(relativePath);
+    if (source.includes('scaffolding')) {
+      violations.push(`${relativePath}: describes current production code as scaffolding`);
+    }
+  }
+  return violations.sort();
+}
+
+function duplicatedD1StagingManifestWriterViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of d1StagingManifestWriterScripts) {
+    const source = readSource(relativePath);
+    if (source.includes('writeFileSync(manifestPath')) {
+      violations.push(`${relativePath}: writes staging JSON manifest directly`);
+    }
+    if (source.includes('mkdirSync(path.dirname(manifestPath)')) {
+      violations.push(`${relativePath}: creates staging manifest directories directly`);
+    }
+    if (/JSON\.stringify\(manifest,\s*null,\s*2\)/.test(source)) {
+      violations.push(`${relativePath}: duplicates staging manifest JSON formatting`);
+    }
+  }
+  return violations.sort();
+}
+
+function duplicatedD1StagingCliHelperViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of d1StagingCliHelperScripts) {
+    const source = readSource(relativePath);
+    for (const { pattern, message } of forbiddenD1StagingCliHelperPatterns) {
+      if (pattern.test(source)) violations.push(`${relativePath}: ${message}`);
     }
   }
   return violations.sort();
@@ -637,8 +1765,8 @@ function consoleStagingWorkerSignerCustodyViolations(): string[] {
   return violations.sort();
 }
 
-function relayStagingWorkerSignerCustodyViolations(): string[] {
-  const source = readSource(cloudflareD1RelayStagingWorkerPath);
+function routerApiStagingWorkerSignerCustodyViolations(): string[] {
+  const source = readSource(cloudflareD1RouterApiStagingWorkerPath);
   const required = [
     'SIGNER_DB',
     'THRESHOLD_STORE',
@@ -648,7 +1776,232 @@ function relayStagingWorkerSignerCustodyViolations(): string[] {
   const violations: string[] = [];
   for (const token of required) {
     if (!source.includes(token)) {
-      violations.push(`${cloudflareD1RelayStagingWorkerPath}: missing ${token}`);
+      violations.push(`${cloudflareD1RouterApiStagingWorkerPath}: missing ${token}`);
+    }
+  }
+  return violations.sort();
+}
+
+function d1WorkerRequestScopedHandlerCacheViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of [
+    'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
+    cloudflareD1RouterApiStagingWorkerPath,
+    cloudflareD1ConsoleStagingWorkerPath,
+  ]) {
+    const source = readSource(relativePath);
+    if (/WeakMap<[^>]*FetchHandler/.test(source) || /new WeakMap<[^>]*FetchHandler/.test(source)) {
+      violations.push(
+        `${relativePath}: caches FetchHandler instances that can retain request-scoped Worker I/O bindings`,
+      );
+    }
+  }
+  return violations.sort();
+}
+
+function cloudflareRuntimeLegacyRegistrationModeViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of cloudflareRuntimeRoots) {
+    const source = readSource(relativePath);
+    for (const { token, message } of forbiddenCloudflareRuntimeLegacyRegistrationTokens) {
+      if (source.includes(token)) {
+        violations.push(`${relativePath}: ${message}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function authServiceLegacyRegistrationModeViolations(): string[] {
+  const violations: string[] = [];
+  const source = readSource(authServicePath);
+  for (const { token, message } of forbiddenAuthServiceLegacyRegistrationModeTokens) {
+    if (source.includes(token)) violations.push(`${authServicePath}: ${message}`);
+  }
+  return violations.sort();
+}
+
+function durableRegistrationIntentLegacySelectionConversionViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of [
+    authServicePath,
+    walletRegistrationRoutesPath,
+    d1RegistrationIntentServicePath,
+    d1RegistrationCeremonyRecordsPath,
+  ]) {
+    const source = readSource(relativePath);
+    if (source.includes('legacyRegistrationSignerSelectionFromPlan')) {
+      violations.push(
+        `${relativePath}: converts normalized signer plans back to legacy durable intent state`,
+      );
+    }
+  }
+  return violations.sort();
+}
+
+function productionCombinedRegistrationStateViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of [
+    ...listTypeScriptLikeFiles('apps/seams-site/src'),
+    ...listTypeScriptFiles('packages/shared-ts/src'),
+    ...listTypeScriptFiles('packages/sdk-server-ts/src'),
+    ...listTypeScriptFiles('packages/sdk-web/src'),
+  ]) {
+    if (!isRuntimeSourceFile(relativePath)) continue;
+    const source = readSource(relativePath);
+    for (const { token, message } of forbiddenProductionCombinedRegistrationTokens) {
+      if (source.includes(token)) violations.push(`${relativePath}: ${message}`);
+    }
+  }
+  return violations.sort();
+}
+
+function d1EvmFamilyEcdsaRegistrationBranchSplitViolations(): string[] {
+  const violations: string[] = [];
+  const branchAbsolutePath = toAbsolutePath(cloudflareD1EvmFamilyEcdsaRegistrationBranchPath);
+  if (!fs.existsSync(branchAbsolutePath)) {
+    return [
+      `${cloudflareD1EvmFamilyEcdsaRegistrationBranchPath}: missing EVM-family ECDSA branch module`,
+    ];
+  }
+  const branchSource = readSource(cloudflareD1EvmFamilyEcdsaRegistrationBranchPath);
+  if (!branchSource.includes('buildD1EvmFamilyEcdsaRegistrationPrepare')) {
+    violations.push(
+      `${cloudflareD1EvmFamilyEcdsaRegistrationBranchPath}: missing ECDSA registration prepare builder`,
+    );
+  }
+  const serviceSource = readSource(cloudflareD1WalletRegistrationServicePath);
+  if (!serviceSource.includes("from './d1EvmFamilyEcdsaRegistrationBranch'")) {
+    violations.push(
+      `${cloudflareD1WalletRegistrationServicePath}: does not import the ECDSA branch module`,
+    );
+  }
+  if (/\basync\s+function\s+buildD1(?:EvmFamily)?EcdsaRegistrationPrepare\b/.test(serviceSource)) {
+    violations.push(
+      `${cloudflareD1WalletRegistrationServicePath}: defines ECDSA registration prepare inline`,
+    );
+  }
+  return violations.sort();
+}
+
+function d1NearEd25519RegistrationBranchSplitViolations(): string[] {
+  const violations: string[] = [];
+  const branchAbsolutePath = toAbsolutePath(cloudflareD1NearEd25519RegistrationBranchPath);
+  if (!fs.existsSync(branchAbsolutePath)) {
+    return [
+      `${cloudflareD1NearEd25519RegistrationBranchPath}: missing NEAR Ed25519 branch module`,
+    ];
+  }
+  const branchSource = readSource(cloudflareD1NearEd25519RegistrationBranchPath);
+  for (const exportedHelper of [
+    'prepareD1NearEd25519RegistrationHss',
+    'respondD1NearEd25519RegistrationHss',
+    'd1ThresholdEd25519RegistrationAccountScope',
+  ]) {
+    if (!branchSource.includes(exportedHelper)) {
+      violations.push(
+        `${cloudflareD1NearEd25519RegistrationBranchPath}: missing ${exportedHelper}`,
+      );
+    }
+  }
+  const serviceSource = readSource(cloudflareD1WalletRegistrationServicePath);
+  if (!serviceSource.includes("from './d1NearEd25519RegistrationBranch'")) {
+    violations.push(
+      `${cloudflareD1WalletRegistrationServicePath}: does not import the NEAR Ed25519 branch module`,
+    );
+  }
+  for (const inlineHelper of [
+    'prepareEd25519RegistrationHss',
+    'respondEd25519RegistrationHss',
+    'thresholdEd25519RegistrationAccountScope',
+    'thresholdEd25519HssContextFromRegistrationAccountScope',
+  ]) {
+    if (serviceSource.includes(inlineHelper)) {
+      violations.push(
+        `${cloudflareD1WalletRegistrationServicePath}: defines ${inlineHelper} inline`,
+      );
+    }
+  }
+  return violations.sort();
+}
+
+function d1WalletAddSignerServiceSplitViolations(): string[] {
+  const violations: string[] = [];
+  if (fs.existsSync(toAbsolutePath(oldCloudflareD1EcdsaCeremonyServicePath))) {
+    violations.push(`${oldCloudflareD1EcdsaCeremonyServicePath}: deleted module path exists`);
+  }
+  const addSignerAbsolutePath = toAbsolutePath(cloudflareD1WalletAddSignerServicePath);
+  if (!fs.existsSync(addSignerAbsolutePath)) {
+    return [`${cloudflareD1WalletAddSignerServicePath}: missing D1 wallet add-signer service`];
+  }
+  const addSignerSource = readSource(cloudflareD1WalletAddSignerServicePath);
+  for (const methodName of [
+    'startWalletAddSigner',
+    'respondWalletAddSignerHss',
+    'finalizeWalletAddSigner',
+  ]) {
+    if (!addSignerSource.includes(methodName)) {
+      violations.push(`${cloudflareD1WalletAddSignerServicePath}: missing ${methodName}`);
+    }
+  }
+  const routerSource = readSource(cloudflareD1RouterApiAuthServicePath);
+  if (!routerSource.includes("from './d1WalletAddSignerService'")) {
+    violations.push(
+      `${cloudflareD1RouterApiAuthServicePath}: does not import the D1 wallet add-signer service`,
+    );
+  }
+  const ceremonySource = readSource(cloudflareD1WalletRegistrationServicePath);
+  for (const methodName of [
+    'startWalletAddSigner',
+    'respondWalletAddSignerHss',
+    'finalizeWalletAddSigner',
+  ]) {
+    if (ceremonySource.includes(methodName)) {
+      violations.push(
+        `${cloudflareD1WalletRegistrationServicePath}: still owns ${methodName}`,
+      );
+    }
+  }
+  return violations.sort();
+}
+
+function publicRegistrationLegacyModeConstructionViolations(): string[] {
+  const violations: string[] = [];
+  const scanned = new Set<string>();
+  for (const relativePath of publicRegistrationRequestConstructionFiles) {
+    if (scanned.has(relativePath)) continue;
+    scanned.add(relativePath);
+    const source = readSource(relativePath);
+    for (const { token, message } of forbiddenPublicRegistrationLegacySelectionTokens) {
+      if (source.includes(token)) {
+        violations.push(`${relativePath}: ${message}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function publicRegistrationLegacyModeTypeSurfaceViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of publicRegistrationTypeSurfaceFiles) {
+    const source = readSource(relativePath);
+    if (source.includes('RegistrationSignerSelection')) {
+      violations.push(
+        `${relativePath}: exposes legacy registration mode types on the public signer-set surface`,
+      );
+    }
+  }
+  return violations.sort();
+}
+
+function removedRegistrationSignerSelectionFilenameViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativeDir of registrationSignerFilenameScanRoots) {
+    for (const relativePath of listTypeScriptLikeFiles(relativeDir)) {
+      if (!path.basename(relativePath).includes(removedRegistrationSignerSelectionFileBasename)) {
+        continue;
+      }
+      violations.push(`${relativePath}: uses removed registration signer-selection filename`);
     }
   }
   return violations.sort();
@@ -669,6 +2022,11 @@ test('Router API route capabilities are selected by structural services, not ena
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
+test('D1 local and staging Workers mount Ed25519 registration prepare structurally', () => {
+  const violations = d1WorkerEd25519PrepareMountViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
 test('router-ab local dev scripts do not revive partial Postgres seed tooling', () => {
   const violations = routerAbLocalPostgresToolingViolations();
   expect(violations, violations.join('\n')).toEqual([]);
@@ -679,13 +2037,184 @@ test('CI does not revive removed Postgres staging smoke jobs', () => {
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
+test('concrete D1 staging Wrangler configs stay untracked', () => {
+  const source = readSource(gitignorePath);
+  expect(source).toContain('packages/sdk-server-ts/wrangler.d1-staging-console.toml');
+  expect(source).toContain('packages/sdk-server-ts/wrangler.d1-staging-router-api.toml');
+});
+
+test('D1 staging README documents missing-KEK signer custody evidence', () => {
+  const source = readSource(sdkServerReadmePath);
+  expect(source).toContain('--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT');
+  expect(source).toContain(
+    '--missing-kek-fixture ./staging/fixtures/ecdsa-export-share-missing-kek.json',
+  );
+  expect(source).toContain(
+    '--missing-kek-wallet-session-jwt-env SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT',
+  );
+  expect(source).toContain('--missing-kek-expected-status 503');
+  expect(source).toContain('--missing-kek-expected-code missing_signing_root_kek');
+  expect(source).toContain('ecdsa_export_share_missing_kek_fail_closed');
+  expect(source).toContain('--output .wrangler/d1-staging-evidence/verification.json');
+});
+
+test('D1 staging README shows dry-run before remote mutating commands', () => {
+  const source = readSource(sdkServerReadmePath);
+  expect(source).toContain(`pnpm run d1:staging:bookmark -- \\
+  --mode dry-run \\
+  --purpose before_fixture_import`);
+  expect(source).toContain(`pnpm run d1:staging:bookmark -- \\
+  --mode dry-run \\
+  --purpose before_route_switch`);
+  expect(source).toContain(`pnpm run d1:staging:import-fixtures -- \\
+  --mode dry-run`);
+  expect(source).toContain(`pnpm run d1:staging:import-fixtures -- \\
+  --mode remote`);
+  expect(source).toContain(`pnpm run d1:staging:smoke -- \\
+  --mode dry-run`);
+  expect(source).toContain(`pnpm run d1:staging:smoke -- \\
+  --mode remote`);
+});
+
+test('Refactor 82 fixture-import plan describes migration-derived table allowlists', () => {
+  const source = readSource(refactor82PlanPath);
+  expect(source).toContain('derived from the checked-in D1 migrations');
+  expect(source).toContain('migrations/d1-console');
+  expect(source).toContain('migrations/d1-signer');
+  expect(source).not.toContain('Console fixtures may touch only `console_` tables');
+  expect(source).not.toContain('signer fixtures may touch only `signer_` tables');
+});
+
+test('web-server package does not revive deleted Postgres helper tooling', () => {
+  const violations = webServerPostgresToolingViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
 test('sdk-server TypeScript config does not revive pg compiler scaffolding', () => {
   const violations = sdkServerTsconfigPostgresScaffoldingViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
+test('account settings docs describe the current D1 account adapter', () => {
+  const violations = sourcePatternViolations(accountSettingsDocPath, staleAccountSettingsDocPatterns);
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('schema and dashboard backend docs describe D1 tenant-scoped tables', () => {
+  const violations = sourcePatternViolationsForFiles(
+    [dbSchemaDocPath, dashboardBackendImplementationDocPath],
+    staleD1SchemaDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('API-key docs describe current D1 credential and bootstrap-token tables', () => {
+  const violations = sourcePatternViolations(apiKeysDocPath, staleD1ApiKeyDocPatterns);
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('console onboarding docs describe current D1-era tenant isolation', () => {
+  const violations = sourcePatternViolations(
+    consoleOnboardingDocPath,
+    staleConsoleOnboardingDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('policy docs describe D1 policy table names', () => {
+  const violations = sourcePatternViolationsForFiles(
+    [policyIdDocPath, dashboardBackendImplementationDocPath],
+    staleD1PolicyTableDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('billing cleanup docs do not point at deleted Refactor 82 relayer suites', () => {
+  const violations = sourcePatternViolations(
+    billingCleanupDocPath,
+    staleBillingCleanupValidationPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('current billing docs describe D1-era billing instead of active Postgres billing', () => {
+  const violations = sourcePatternViolationsForFiles(
+    currentBillingDocPaths,
+    staleCurrentBillingDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('gas sponsorship prepaid docs describe the current D1 settlement path', () => {
+  const violations = sourcePatternViolations(
+    gasSponsorshipPrepaidDocPath,
+    staleGasSponsorshipPrepaidDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('generalized gas sponsorship docs link to current sponsorship modules', () => {
+  const violations = sourcePatternViolations(
+    generalizedGasSponsorshipDocPath,
+    staleGeneralizedGasSponsorshipDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('gas and signing policy docs link to the current package layout', () => {
+  const violations = sourcePatternViolations(
+    gasAndSigningPoliciesDocPath,
+    staleGasAndSigningPoliciesDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('policy engine docs describe D1-era policy storage and current package paths', () => {
+  const violations = sourcePatternViolations(policyEngineDocPath, stalePolicyEngineDocPatterns);
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('sponsorship policy docs link to the current package layout', () => {
+  const violations = sourcePatternViolations(
+    sponsorshipPolicyDocPath,
+    staleSponsorshipPolicyDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('observability docs describe D1-era storage and current package paths', () => {
+  const violations = sourcePatternViolationsForFiles(
+    observabilityDocPaths,
+    staleObservabilityDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('SaaS frontend docs point at the current app layout', () => {
+  const violations = sourcePatternViolationsForFiles(
+    [policyDraftsDocPath, professionalizeDocPath],
+    staleSaasFrontendDocPatterns,
+  );
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
 test('Refactor 82 stale staging and relayer names stay deleted', () => {
   const violations = staleRefactor82NameViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Refactor 82 production source no longer describes current runtime as scaffolding', () => {
+  const violations = staleRefactor82ScaffoldingViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 staging scripts share JSON manifest writing', () => {
+  const violations = duplicatedD1StagingManifestWriterViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 staging scripts share common helpers', () => {
+  const violations = duplicatedD1StagingCliHelperViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
@@ -719,7 +2248,62 @@ test('console staging Worker stays isolated from signer custody bindings', () =>
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
-test('relay staging Worker owns signer custody and sponsored EVM bindings', () => {
-  const violations = relayStagingWorkerSignerCustodyViolations();
+test('Router API staging Worker owns signer custody and sponsored EVM bindings', () => {
+  const violations = routerApiStagingWorkerSignerCustodyViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 Worker entrypoints do not cache request-scoped FetchHandlers', () => {
+  const violations = d1WorkerRequestScopedHandlerCacheViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Cloudflare D1 runtime does not revive legacy registration modes', () => {
+  const violations = cloudflareRuntimeLegacyRegistrationModeViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('AuthService wallet registration does not revive legacy registration modes', () => {
+  const violations = authServiceLegacyRegistrationModeViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('durable registration intent writers keep signer-set state', () => {
+  const violations = durableRegistrationIntentLegacySelectionConversionViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('production source does not revive combined registration state', () => {
+  const violations = productionCombinedRegistrationStateViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 EVM-family ECDSA registration branch prepare stays split from mixed ceremony service', () => {
+  const violations = d1EvmFamilyEcdsaRegistrationBranchSplitViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 NEAR Ed25519 registration branch mechanics stay split from mixed ceremony service', () => {
+  const violations = d1NearEd25519RegistrationBranchSplitViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 wallet add-signer routes stay split from mixed ceremony service', () => {
+  const violations = d1WalletAddSignerServiceSplitViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('public/demo registration request construction stays on signer-set terminology', () => {
+  const violations = publicRegistrationLegacyModeConstructionViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('public registration type surfaces stay signer-set only', () => {
+  const violations = publicRegistrationLegacyModeTypeSurfaceViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('SDK registration helper files use signer-set filenames', () => {
+  const violations = removedRegistrationSignerSelectionFilenameViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });

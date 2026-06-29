@@ -14,8 +14,8 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(path.join(__dirname, '../..'));
-const RELAY_DIR = path.join(ROOT, 'examples', 'relay-server');
-const DEFAULT_CACHE = path.join(RELAY_DIR, '.provision-cache.json');
+const REPORT_DIR = path.join(ROOT, 'tests', 'playwright-report');
+const DEFAULT_CACHE = path.join(REPORT_DIR, 'router-api-provision-cache.json');
 const CACHE_PATH = process.env.RELAY_PROVISION_CACHE_PATH || DEFAULT_CACHE;
 const SIGNING_ROOT_SHARE_WIRES = [
   {
@@ -133,8 +133,8 @@ async function main() {
 
   const authService = new AuthService(config);
 
-  // Test harness: skip WebAuthn signature verification for relayer routes.
-  // The Playwright suite validates client-side behavior; keeping the relay permissive avoids
+  // Test harness: skip WebAuthn signature verification for Router API routes.
+  // The Playwright suite validates client-side behavior; keeping the harness permissive avoids
   // failures caused by browser WebAuthn mock signature differences.
   try {
     authService.verifyWebAuthnAuthenticationLite = async () => ({ success: true, verified: true });
@@ -166,7 +166,7 @@ async function main() {
     logger: null,
   });
 
-  // Default to 3001 to avoid conflicts with the example relay-server (which defaults to 3000).
+  // Default to 3001 to avoid conflicts with the app server default port.
   const port = Number(process.env.RELAY_PORT || '3001');
   const allowedOrigins = [
     process.env.EXPECTED_ORIGIN || 'https://example.localhost',
@@ -299,7 +299,7 @@ async function main() {
   });
 
   server.listen(port, () => {
-    console.log(`[test-relay] listening on http://localhost:${port}`);
+    console.log(`[test-router-api] listening on http://localhost:${port}`);
   });
 }
 

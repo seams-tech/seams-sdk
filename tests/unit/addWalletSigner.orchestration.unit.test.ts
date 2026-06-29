@@ -18,9 +18,12 @@ import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '../../package
 import {
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
+  normalizeRegistrationSignerPlan,
+  registrationSignerSetSelectionFromPlan,
   sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { parseNamedNearAccountId } from '../../packages/shared-ts/src/utils/near';
 import {
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
@@ -36,7 +39,13 @@ import type {
 
 const RELAYER_URL = 'https://relay.example.test';
 const WALLET_SUBJECT_ID = walletIdFromString('wallet-matrix.testnet');
-const RP_ID = 'wallet.example.test';
+
+function unwrapFixture<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid fixture value');
+  return result.value;
+}
+
+const RP_ID = unwrapFixture(parseWebAuthnRpId('wallet.example.test'));
 const AUTHENTICATION_PRF_FIRST_B64U = Buffer.alloc(32, 11).toString('base64url');
 const REGISTRATION_PRF_FIRST_B64U = Buffer.alloc(32, 12).toString('base64url');
 const CLIENT_PUBLIC_KEY_B64U =
@@ -82,16 +91,65 @@ function namedProvisioning(accountId: string) {
 }
 
 function mockedRegistrationRequestedAccountId(selection: any): string | null {
-  const provisioning = selection?.ed25519?.accountProvisioning;
+  const provisioning = mockedRegistrationNearEd25519Signer(selection)?.accountProvisioning;
   return provisioning?.kind === 'sponsored_named_account'
     ? String(provisioning.requestedAccountId)
     : null;
 }
 
+function mockedRegistrationIntentSignerSelection(raw: unknown) {
+  const plan = normalizeRegistrationSignerPlan(raw);
+  if (!plan.ok) throw new Error(plan.message);
+  const selection = registrationSignerSetSelectionFromPlan(plan.value);
+  if (!selection.ok) throw new Error(selection.message);
+  return selection.value;
+}
+
+function mockedRegistrationNearEd25519Signer(selection: any): any | null {
+  const signers = Array.isArray(selection?.signers) ? selection.signers : [];
+  return signers.find((signer: any) => signer?.kind === 'near_ed25519') || null;
+}
+
+function mockedRegistrationEvmFamilyEcdsaSigner(selection: any): any | null {
+  const signers = Array.isArray(selection?.signers) ? selection.signers : [];
+  return signers.find((signer: any) => signer?.kind === 'evm_family_ecdsa') || null;
+}
+
+function mockedRegistrationHasSignerKind(selection: any, kind: string): boolean {
+  const signers = Array.isArray(selection?.signers) ? selection.signers : [];
+  return signers.some((signer: any) => signer?.kind === kind);
+}
+
+function nearRegistrationSigner(accountId: string) {
+  return {
+    kind: 'near_ed25519' as const,
+    accountProvisioning: namedProvisioning(accountId),
+    signerSlot: 1,
+    participantIds: [1, 2],
+    derivationVersion: 1,
+  };
+}
+
+function evmFamilyRegistrationSigner(chainTargets: readonly unknown[]) {
+  return {
+    kind: 'evm_family_ecdsa' as const,
+    chainTargets: [...chainTargets],
+    participantIds: [1, 2],
+  };
+}
+
+function registrationSignerSet(...signers: readonly unknown[]) {
+  return {
+    kind: 'signer_set' as const,
+    signers,
+  };
+}
+
 function mockedRegistrationWalletId(body: any): ReturnType<typeof walletIdFromString> {
+  const signerSelection = mockedRegistrationIntentSignerSelection(body.signerSelection);
   if (body.wallet?.kind === 'provided') return walletIdFromString(String(body.wallet.walletId));
   return walletIdFromString(
-    mockedRegistrationRequestedAccountId(body.signerSelection) || String(WALLET_SUBJECT_ID),
+    mockedRegistrationRequestedAccountId(signerSelection) || String(WALLET_SUBJECT_ID),
   );
 }
 
@@ -154,9 +212,7 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
   const signingGrantId = String(bootstrap.signingGrantId || '').trim();
   const walletId = String(bootstrap.walletId || '').trim();
   const walletKeyId = String(bootstrap.walletKeyId || '').trim();
-  const applicationBindingDigestB64u = String(
-    bootstrap.applicationBindingDigestB64u || '',
-  ).trim();
+  const applicationBindingDigestB64u = String(bootstrap.applicationBindingDigestB64u || '').trim();
   const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
   const signingRootId = String(bootstrap.signingRootId || '').trim();
   const signingRootVersion = String(bootstrap.signingRootVersion || '').trim();
@@ -646,7 +702,8 @@ function createContext(captures: Record<string, unknown>): any {
                 'wallet-session-ed25519',
             );
         const chainTargets =
-          (captures.intent as any)?.signerSelection?.ecdsa?.chainTargets ||
+          mockedRegistrationEvmFamilyEcdsaSigner((captures.intent as any)?.signerSelection)
+            ?.chainTargets ||
           (captures.finalizeBody as any)?.ecdsa?.walletKeys?.map(
             (walletKey: { chainTarget: unknown }) => walletKey.chainTarget,
           ) ||
@@ -788,12 +845,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       });
     }
     if (path === '/wallets/register/intent') {
-      const selection = body.signerSelection;
+      captures.intentRequestBody = body;
+      const selection = mockedRegistrationIntentSignerSelection(body.signerSelection);
       const walletId = mockedRegistrationWalletId(body);
       const intent = {
         version: 'registration_intent_v1' as const,
         walletId,
-        rpId: RP_ID,
         authMethod: body.authMethod,
         signerSelection: selection,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -829,12 +886,16 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
     }
     if (path === '/wallets/register/start') {
       captures.startBody = body;
-      const mode = body.intent.signerSelection.mode;
+      const hasEd25519 = mockedRegistrationHasSignerKind(
+        body.intent.signerSelection,
+        'near_ed25519',
+      );
+      const ecdsaSigner = mockedRegistrationEvmFamilyEcdsaSigner(body.intent.signerSelection);
       return jsonResponse({
         ok: true,
         registrationCeremonyId: 'registration-ceremony',
         intent: body.intent,
-        ...(mode === 'ed25519_only' || mode === 'ed25519_and_ecdsa'
+        ...(hasEd25519
           ? {
               ed25519: {
                 ceremonyHandle: 'registration-ed25519-handle',
@@ -846,11 +907,11 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
               },
             }
           : {}),
-        ...(mode === 'ecdsa_only' || mode === 'ed25519_and_ecdsa'
+        ...(ecdsaSigner
           ? {
               ecdsa: {
                 kind: 'evm_family_ecdsa_keygen',
-                chainTargets: body.intent.signerSelection.ecdsa.chainTargets,
+                chainTargets: ecdsaSigner.chainTargets,
                 prepare: {
                   formatVersion: 'ecdsa-hss-role-local',
                   walletSessionUserId: String(body.intent.walletId),
@@ -971,36 +1032,36 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           recoveryExportCapable: true,
           clientParticipantId: 1,
           relayerParticipantId: 2,
-	          participantIds: [1, 2],
-	          session: {
-	            sessionKind: 'jwt',
-	            walletId: responseWalletId,
-	            nearAccountId,
-	            nearEd25519SigningKeyId,
-	            thresholdSessionId,
-	            signingGrantId,
-	            expiresAtMs: ed25519SessionExpiresAtMs,
-	            participantIds: [1, 2],
-	            remainingUses: 1,
-	            runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-	            routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
-	            jwt: ed25519WalletSessionJwt({
-	              walletId: responseWalletId,
-	              nearAccountId,
-	              nearEd25519SigningKeyId,
-	              sessionId: thresholdSessionId,
-	              signingGrantId,
-	              relayerKeyId: 'relayer-ed25519',
-	              expiresAtMs: ed25519SessionExpiresAtMs,
-	              participantIds: [1, 2],
-	            }),
-	          },
+          participantIds: [1, 2],
+          session: {
+            sessionKind: 'jwt',
+            walletId: responseWalletId,
+            nearAccountId,
+            nearEd25519SigningKeyId,
+            thresholdSessionId,
+            signingGrantId,
+            expiresAtMs: ed25519SessionExpiresAtMs,
+            participantIds: [1, 2],
+            remainingUses: 1,
+            runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+            routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
+            jwt: ed25519WalletSessionJwt({
+              walletId: responseWalletId,
+              nearAccountId,
+              nearEd25519SigningKeyId,
+              sessionId: thresholdSessionId,
+              signingGrantId,
+              relayerKeyId: 'relayer-ed25519',
+              expiresAtMs: ed25519SessionExpiresAtMs,
+              participantIds: [1, 2],
+            }),
+          },
         };
       }
       if (body.ecdsa) {
-        const chainTargets = (captures.intent as any)?.signerSelection?.ecdsa?.chainTargets || [
-          { kind: 'evm', namespace: 'eip155', chainId: 1 },
-        ];
+        const chainTargets =
+          mockedRegistrationEvmFamilyEcdsaSigner((captures.intent as any)?.signerSelection)
+            ?.chainTargets || [{ kind: 'evm', namespace: 'eip155', chainId: 1 }];
         const patchRegistrationWalletKey = captures.patchRegistrationWalletKey as
           | ((walletKey: Record<string, unknown>) => Record<string, unknown>)
           | undefined;
@@ -1085,11 +1146,11 @@ test('near.registerNearWallet wraps combined registration for configured ECDSA t
       getContext: () => createContext(captures),
     });
     const result = await withMockedIndexedDb(() =>
-	      signer.registerNearWallet({
-	        accountProvisioning: namedProvisioning('wrapper.testnet'),
-	        wallet: { kind: 'provided', walletId: walletIdFromString('wrapper.testnet') },
-	        options: {},
-	      }),
+      signer.registerNearWallet({
+        accountProvisioning: namedProvisioning('wrapper.testnet'),
+        wallet: { kind: 'provided', walletId: walletIdFromString('wrapper.testnet') },
+        options: {},
+      }),
     );
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
@@ -1097,20 +1158,29 @@ test('near.registerNearWallet wraps combined registration for configured ECDSA t
       nearAccountId: 'wrapper.testnet',
       operationalPublicKey: 'ed25519:public-key',
     });
-    expect((captures.intent as any)?.signerSelection).toMatchObject({
-      mode: 'ed25519_and_ecdsa',
-      ed25519: {
-        accountProvisioning: namedProvisioning('wrapper.testnet'),
-        signerSlot: 1,
-      },
-      ecdsa: {
-        participantIds: [1, 2],
-        chainTargets: [
-          { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
-          { kind: 'evm', namespace: 'eip155', chainId: 5042002, networkSlug: 'arc-testnet' },
-        ],
-      },
+    expect((captures.intentRequestBody as any)?.signerSelection).toEqual({
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: namedProvisioning('wrapper.testnet'),
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+        {
+          kind: 'evm_family_ecdsa',
+          participantIds: [1, 2],
+          chainTargets: [
+            { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
+            { kind: 'evm', namespace: 'eip155', chainId: 5042002, networkSlug: 'arc-testnet' },
+          ],
+        },
+      ],
     });
+    expect((captures.intent as any)?.signerSelection).toEqual(
+      (captures.intentRequestBody as any)?.signerSelection,
+    );
     expectSingleRegistrationTouchIdPrompt(captures);
     expect(captures.bootstrapGrantBody).toMatchObject({
       newAccountId: 'wrapper.testnet',
@@ -1147,10 +1217,10 @@ test('near.registerNearWallet respects per-call disabled ECDSA provisioning', as
       getContext: () => createContext(captures),
     });
     const result = await withMockedIndexedDb(() =>
-	      signer.registerNearWallet({
-	        accountProvisioning: namedProvisioning('ed-only-wrapper.testnet'),
-	        wallet: { kind: 'provided', walletId: walletIdFromString('ed-only-wrapper.testnet') },
-	        options: {
+      signer.registerNearWallet({
+        accountProvisioning: namedProvisioning('ed-only-wrapper.testnet'),
+        wallet: { kind: 'provided', walletId: walletIdFromString('ed-only-wrapper.testnet') },
+        options: {
           signerOptions: {
             tempo: {
               enabled: false,
@@ -1171,13 +1241,21 @@ test('near.registerNearWallet respects per-call disabled ECDSA provisioning', as
       nearAccountId: 'ed-only-wrapper.testnet',
       operationalPublicKey: 'ed25519:public-key',
     });
-    expect((captures.intent as any)?.signerSelection).toMatchObject({
-      mode: 'ed25519_only',
-      ed25519: {
-        accountProvisioning: namedProvisioning('ed-only-wrapper.testnet'),
-        signerSlot: 1,
-      },
+    expect((captures.intentRequestBody as any)?.signerSelection).toEqual({
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: namedProvisioning('ed-only-wrapper.testnet'),
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+      ],
     });
+    expect((captures.intent as any)?.signerSelection).toEqual(
+      (captures.intentRequestBody as any)?.signerSelection,
+    );
     expectSingleRegistrationTouchIdPrompt(captures);
   } finally {
     (globalThis as any).window = originalWindow;
@@ -1205,13 +1283,19 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
       success: true,
       thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
     });
-    expect((captures.intent as any)?.signerSelection).toMatchObject({
-      mode: 'ecdsa_only',
-      ecdsa: {
-        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'ethereum' }],
-        participantIds: [1, 2],
-      },
+    expect((captures.intentRequestBody as any)?.signerSelection).toEqual({
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'evm_family_ecdsa',
+          chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'ethereum' }],
+          participantIds: [1, 2],
+        },
+      ],
     });
+    expect((captures.intent as any)?.signerSelection).toEqual(
+      (captures.intentRequestBody as any)?.signerSelection,
+    );
     expectSingleRegistrationTouchIdPrompt(captures);
     expect(captures.bootstrapGrantBody).toMatchObject({
       rpId: RP_ID,
@@ -1228,16 +1312,11 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
     const result = await withMockedIndexedDb(() =>
       registerWallet({
         context: createContext(captures),
-        authMethod: { kind: 'passkey' },
-        wallet: { kind: 'server_generated' },
-        rpId: RP_ID,
-        signerSelection: {
-          mode: 'ecdsa_only',
-          ecdsa: {
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
-            participantIds: [1, 2],
-          },
-        },
+        authMethod: { kind: 'passkey', rpId: RP_ID },
+        wallet: { kind: 'server_allocated' },
+        signerSelection: registrationSignerSet(
+          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+        ),
         options: {},
         authenticatorOptions: {
           userVerification: UserVerificationPolicy.Preferred,
@@ -1309,16 +1388,11 @@ test('registerWallet rejects invalid ECDSA respond bootstrap before finalize', a
     const result = await withMockedIndexedDb(() =>
       registerWallet({
         context: createContext(captures),
-        authMethod: { kind: 'passkey' },
-        wallet: { kind: 'server_generated' },
-        rpId: RP_ID,
-        signerSelection: {
-          mode: 'ecdsa_only',
-          ecdsa: {
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
-            participantIds: [1, 2],
-          },
-        },
+        authMethod: { kind: 'passkey', rpId: RP_ID },
+        wallet: { kind: 'server_allocated' },
+        signerSelection: registrationSignerSet(
+          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+        ),
         options: {},
         authenticatorOptions: {
           userVerification: UserVerificationPolicy.Preferred,
@@ -1355,16 +1429,11 @@ test('registerWallet rejects mismatched ECDSA wallet key before registration per
     const result = await withMockedIndexedDb(() =>
       registerWallet({
         context: createContext(captures),
-        authMethod: { kind: 'passkey' },
-        wallet: { kind: 'server_generated' },
-        rpId: RP_ID,
-        signerSelection: {
-          mode: 'ecdsa_only',
-          ecdsa: {
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
-            participantIds: [1, 2],
-          },
-        },
+        authMethod: { kind: 'passkey', rpId: RP_ID },
+        wallet: { kind: 'server_allocated' },
+        signerSelection: registrationSignerSet(
+          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+        ),
         options: {},
         authenticatorOptions: {
           userVerification: UserVerificationPolicy.Preferred,
@@ -1403,24 +1472,12 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
     const result = await withMockedIndexedDb(() =>
       registerWallet({
         context: createContext(captures),
-        authMethod: { kind: 'passkey' },
-        wallet: { kind: 'server_generated' },
-        rpId: RP_ID,
-        signerSelection: {
-          mode: 'ed25519_and_ecdsa',
-          ed25519: {
-            accountProvisioning: namedProvisioning('combined.testnet'),
-            signerSlot: 1,
-            participantIds: [1, 2],
-            keyPurpose: 'near_tx',
-            keyVersion: 'threshold-ed25519-hss-v1',
-            derivationVersion: 1,
-          },
-          ecdsa: {
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
-            participantIds: [1, 2],
-          },
-        },
+        authMethod: { kind: 'passkey', rpId: RP_ID },
+        wallet: { kind: 'server_allocated' },
+        signerSelection: registrationSignerSet(
+          nearRegistrationSigner('combined.testnet'),
+          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+        ),
         options: {},
         authenticatorOptions: {
           userVerification: UserVerificationPolicy.Preferred,
@@ -1501,7 +1558,10 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       kind: 'registration_timing_summary_v1',
       status: 'succeeded',
       authMethod: 'passkey',
-      signerMode: 'ed25519_and_ecdsa',
+      signerSet: {
+        kind: 'signer_set',
+        branches: ['near_ed25519', 'evm_family_ecdsa'],
+      },
       timings: {
         inputValidationMs: expect.any(Number),
         registrationWarmupMs: expect.any(Number),
@@ -1599,24 +1659,12 @@ test('registerWallet rejects combined registration when persisted lanes split si
     const result = await withMockedIndexedDb(() =>
       registerWallet({
         context: createContext(captures),
-        authMethod: { kind: 'passkey' },
-        wallet: { kind: 'server_generated' },
-        rpId: RP_ID,
-        signerSelection: {
-          mode: 'ed25519_and_ecdsa',
-          ed25519: {
-            accountProvisioning: namedProvisioning('split-budget.testnet'),
-            signerSlot: 1,
-            participantIds: [1, 2],
-            keyPurpose: 'near_tx',
-            keyVersion: 'threshold-ed25519-hss-v1',
-            derivationVersion: 1,
-          },
-          ecdsa: {
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
-            participantIds: [1, 2],
-          },
-        },
+        authMethod: { kind: 'passkey', rpId: RP_ID },
+        wallet: { kind: 'server_allocated' },
+        signerSelection: registrationSignerSet(
+          nearRegistrationSigner('split-budget.testnet'),
+          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+        ),
         options: {},
         authenticatorOptions: {
           userVerification: UserVerificationPolicy.Preferred,
@@ -1824,30 +1872,30 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           recoveryExportCapable: true,
           clientParticipantId: 1,
           relayerParticipantId: 2,
-	          participantIds: [1, 2],
-	          session: {
-	            sessionKind: 'jwt',
-	            walletId: WALLET_SUBJECT_ID,
-	            nearAccountId: 'later.testnet',
-	            nearEd25519SigningKeyId: 'later.testnet',
-	            thresholdSessionId,
-	            signingGrantId,
-	            expiresAtMs: ed25519SessionExpiresAtMs,
-	            participantIds: [1, 2],
-	            remainingUses: 1,
-	            runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-	            routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
-	            jwt: ed25519WalletSessionJwt({
-	              walletId: WALLET_SUBJECT_ID,
-	              nearAccountId: 'later.testnet',
-	              nearEd25519SigningKeyId: 'later.testnet',
-	              sessionId: thresholdSessionId,
-	              signingGrantId,
-	              relayerKeyId: 'relayer-ed25519',
-	              expiresAtMs: ed25519SessionExpiresAtMs,
-	              participantIds: [1, 2],
-	            }),
-	          },
+          participantIds: [1, 2],
+          session: {
+            sessionKind: 'jwt',
+            walletId: WALLET_SUBJECT_ID,
+            nearAccountId: 'later.testnet',
+            nearEd25519SigningKeyId: 'later.testnet',
+            thresholdSessionId,
+            signingGrantId,
+            expiresAtMs: ed25519SessionExpiresAtMs,
+            participantIds: [1, 2],
+            remainingUses: 1,
+            runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+            routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
+            jwt: ed25519WalletSessionJwt({
+              walletId: WALLET_SUBJECT_ID,
+              nearAccountId: 'later.testnet',
+              nearEd25519SigningKeyId: 'later.testnet',
+              sessionId: thresholdSessionId,
+              signingGrantId,
+              relayerKeyId: 'relayer-ed25519',
+              expiresAtMs: ed25519SessionExpiresAtMs,
+              participantIds: [1, 2],
+            }),
+          },
         },
       });
     }

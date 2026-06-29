@@ -9,7 +9,11 @@ import {
   deriveEcdsaHssYRelayerFromSigningRootShareResolver,
   deriveEd25519HssServerInputsFromSigningRootShareResolver,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
-import type { SealedSigningRootShare } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
+import { MissingSigningRootKekError } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootKekProvider';
+import type {
+  SealedSigningRootShare,
+  SigningRootShareDecryptAdapter,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import {
   deriveEcdsaHssYRelayerFromSigningRootShares,
   deriveEd25519HssServerInputsFromSigningRootShares,
@@ -79,6 +83,27 @@ function policyForVector(vector: ThresholdPrfFixtureVector): ThresholdPrfPolicy 
   };
 }
 
+class FixtureSigningRootDecryptAdapter implements SigningRootShareDecryptAdapter {
+  readonly decryptCalls: number[] = [];
+
+  constructor(private readonly decryptedById: ReadonlyMap<number, Uint8Array>) {}
+
+  async decryptSigningRootShare(record: SealedSigningRootShare): Promise<Uint8Array> {
+    this.decryptCalls.push(record.shareId);
+    const share = this.decryptedById.get(record.shareId);
+    if (!share) throw new Error(`missing share ${record.shareId}`);
+    return share;
+  }
+}
+
+class ThrowingSigningRootDecryptAdapter implements SigningRootShareDecryptAdapter {
+  constructor(private readonly error: unknown) {}
+
+  async decryptSigningRootShare(_record: SealedSigningRootShare): Promise<Uint8Array> {
+    throw this.error;
+  }
+}
+
 function shareWires(vector: ThresholdPrfFixtureVector, ids: readonly number[]) {
   return ids.map((id) => {
     const share = vector.shares.find((candidate) => candidate.id === id);
@@ -140,7 +165,7 @@ test('hosted signing-root resolver composes storage and decrypt adapters', async
     vector.shares.map((share) => [share.id, hexToBytes(share.wire_hex)]),
   );
   const listInputs: unknown[] = [];
-  const decryptCalls: number[] = [];
+  const decryptAdapter = new FixtureSigningRootDecryptAdapter(decryptedById);
   const resolver = createHostedSigningRootShareResolver({
     policy,
     storageAdapter: {
@@ -149,14 +174,7 @@ test('hosted signing-root resolver composes storage and decrypt adapters', async
         return [sealedShareRecord(1), sealedShareRecord(2), sealedShareRecord(3)];
       },
     },
-    decryptAdapter: {
-      decryptSigningRootShare: async (record) => {
-        decryptCalls.push(record.shareId);
-        const share = decryptedById.get(record.shareId);
-        if (!share) throw new Error(`missing share ${record.shareId}`);
-        return share;
-      },
-    },
+    decryptAdapter,
   });
 
   const result = await deriveEcdsaHssYRelayerFromSigningRootShareResolver({
@@ -182,12 +200,42 @@ test('hosted signing-root resolver composes storage and decrypt adapters', async
   expect(listInputs).toEqual([
     { signingRootId: PROJECT_ID, signingRootVersion: SIGNING_ROOT_VERSION },
   ]);
-  expect(decryptCalls).toEqual([1, 2]);
+  expect(decryptAdapter.decryptCalls).toEqual([1, 2]);
   expect(Array.from(decryptedById.get(1)!)).toEqual(new Array(34).fill(0));
   expect(Array.from(decryptedById.get(2)!)).toEqual(new Array(34).fill(0));
   expect(bytesToHex(decryptedById.get(3)!)).toBe(vector.shares[2].wire_hex);
   result.value.fill(0);
   expected.fill(0);
+});
+
+test('hosted signing-root resolver reports missing KEK with the fail-closed error code', async () => {
+  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+  const policy = policyForVector(vector);
+  const preferredShareIds = [1, 2] as const;
+  const resolver = createHostedSigningRootShareResolver({
+    policy,
+    storageAdapter: {
+      listSealedSigningRootShares: async () => [sealedShareRecord(1), sealedShareRecord(2)],
+    },
+    decryptAdapter: new ThrowingSigningRootDecryptAdapter(
+      new MissingSigningRootKekError('kek-share-1', 'Worker secret'),
+    ),
+  });
+
+  const result = await deriveEcdsaHssYRelayerFromSigningRootShareResolver({
+    signingRootId: PROJECT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
+    resolver,
+    preferredShareIds,
+    context: {
+      ...ECDSA_HSS_CONTEXT,
+    },
+  });
+
+  expect(result.ok).toBe(false);
+  if (result.ok) throw new Error('missing KEK resolver result must fail');
+  expect(result.code).toBe('missing_signing_root_kek');
+  expect(result.message).toContain('kek-share-1');
 });
 
 test('self-host signing-root resolver derives Ed25519 HSS inputs through policy-shaped shares', async () => {

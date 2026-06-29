@@ -163,22 +163,17 @@ test.describe('WarmSessionStore capability resolution', () => {
         walletSessionJwt: 'jwt:ecdsa-email-otp-exhausted-session',
       }),
     });
-    let clearCount = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [evmRecord.thresholdSessionId]: {
           state: 'exhausted',
         },
       }),
-      clearThresholdEcdsaSessionRecordForWalletTarget: () => {
-        clearCount += 1;
-      },
     });
 
     const warmSession = await store.getWarmSession(evmRecord.walletId);
     const capability = warmSession.capabilities.ecdsa.evm;
 
-    expect(clearCount).toBe(0);
     expect(capability.record?.thresholdSessionId).toBe(evmRecord.thresholdSessionId);
     expect(capability.emailOtpAuthContext).toEqual({
       policy: 'session',

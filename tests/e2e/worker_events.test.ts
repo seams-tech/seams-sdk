@@ -27,7 +27,7 @@ test.describe('Worker Communication Protocol', () => {
     let operationalNearPublicKey = '';
 
     await installRegistrationBootstrapMock(page, {
-      relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
+      relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://router-api.localhost',
       onNewPublicKey: (pk) => {
         if (!operationalNearPublicKey) operationalNearPublicKey = pk;
         keysOnChain.add(pk);
@@ -430,7 +430,7 @@ test.describe('Worker Communication Protocol', () => {
         try {
           const testAccountId = utils.generateTestAccountId();
           if (!useServer) {
-            registrationFlowUtils?.setupRelayServerMock?.(true);
+            registrationFlowUtils?.setupRouterApiMock?.(true);
           }
 
           const registrationEvents: Array<{ phase: string; status: string }> = [];
@@ -543,7 +543,7 @@ test.describe('Worker Communication Protocol', () => {
     let operationalNearPublicKey = '';
 
     await installRegistrationBootstrapMock(page, {
-      relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
+      relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://router-api.localhost',
       onNewPublicKey: (pk) => {
         if (!operationalNearPublicKey) operationalNearPublicKey = pk;
         keysOnChain.add(pk);

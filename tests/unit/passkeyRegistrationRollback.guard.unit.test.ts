@@ -5,6 +5,7 @@ const REGISTRATION_URL = new URL(
   '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   import.meta.url,
 );
+const SEAMS_WEB_URL = new URL('../../packages/sdk-web/src/SeamsWeb/SeamsWeb.ts', import.meta.url);
 const PRODUCTION_CONTINUATION_SCAN_URLS = [
   '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
@@ -32,19 +33,19 @@ test.describe('Passkey registration rollback guard', () => {
     );
   });
 
-  test('passkey registration helper routes through wallet registration signer-selection builder', () => {
-    const source = readFileSync(REGISTRATION_URL, 'utf8');
-    const functionStart = source.indexOf('async function registerPasskeyWithAuthenticatorOptions');
+  test('passkey registration helper routes through wallet registration signer-set builder', () => {
+    const source = readFileSync(SEAMS_WEB_URL, 'utf8');
+    const functionStart = source.indexOf('private async registerPasskeyDomain');
     expect(functionStart).toBeGreaterThan(-1);
     const functionEnd = source.indexOf(
-      '// Public wrapper without explicit confirmationConfig override.',
+      'private createPasskeyRegistrationActivationSurfaceDomain',
       functionStart,
     );
     expect(functionEnd).toBeGreaterThan(functionStart);
     const functionBlock = source.slice(functionStart, functionEnd);
 
-    expect(functionBlock).toContain('return await registerWallet({');
-    expect(functionBlock).toContain('buildNearWalletRegistrationSignerSelection');
+    expect(functionBlock).toContain('return await this.registerWalletDomain({');
+    expect(functionBlock).toContain('buildNearWalletRegistrationSignerSetSelection');
     expect(functionBlock).not.toContain("mode: 'ed25519_only'");
     expect(source).not.toContain('async function provisionThresholdEcdsaAfterRegistration');
     expect(source).not.toContain("kind: 'registration_continuation'");

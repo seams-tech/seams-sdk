@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
-import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
+import { installRouterApiProxyShim } from '../setup/cross-origin-headers';
 import {
   installRegistrationBootstrapMock,
   installFastNearRpcMock,
@@ -31,10 +31,10 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
     });
     let operationalNearPublicKey = '';
     try {
-      const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
-      await installRelayServerProxyShim(page, {
-        relayOrigin: relayerUrl,
-        relayUpstream: managedRegistrationHarness.baseUrl,
+      const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://router-api.localhost';
+      await installRouterApiProxyShim(page, {
+        routerApiOrigin: relayerUrl,
+        routerApiUpstream: managedRegistrationHarness.baseUrl,
         logStyle: 'silent',
       });
       await installRegistrationBootstrapMock(page, {

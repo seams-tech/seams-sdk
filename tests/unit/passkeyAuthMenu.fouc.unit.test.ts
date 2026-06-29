@@ -50,7 +50,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           // Disable wallet iframe mode for this unit test (no iframe handshake / COEP concerns).
           iframeWallet: { walletOrigin: '' },
         };
@@ -105,7 +105,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = (window as any).__w3a_pam2_config__ || {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -170,7 +170,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -250,7 +250,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -523,7 +523,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -603,7 +603,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -698,7 +698,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -795,7 +795,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -893,7 +893,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -1514,7 +1514,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -1583,7 +1583,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -2019,7 +2019,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 
@@ -2072,7 +2072,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: { walletOrigin: '' },
         };
 

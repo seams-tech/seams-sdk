@@ -1,12 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { AuthService } from '@server/core/AuthService';
-import {
-  createEmailOtpChallengeStore,
-  createEmailOtpWalletEnrollmentStore,
-  createEmailOtpGrantStore,
-  createEmailOtpUnlockChallengeStore,
-} from '@server/core/EmailOtpStores';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   EMAIL_OTP_RECOVERY_KEY_COUNT,
@@ -16,7 +10,6 @@ import {
   buildEmailOtpRecoveryWrapBinding,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
-import { ensurePostgresSchema, getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const EMAIL_OTP_KEY_VERSION = 'kek-s-email-otp-test';
@@ -73,10 +66,6 @@ function recoveryEscrowAadHashB64u(metadata: {
       )
       .digest(),
   );
-}
-
-function randPrefix(tag: string): string {
-  return `test:${tag}:${Date.now()}:${Math.random().toString(16).slice(2)}:`;
 }
 
 function makeService(): AuthService {
@@ -1262,126 +1251,6 @@ test.describe('AuthService Email OTP policy', () => {
         });
       },
     );
-  });
-
-  test.describe('Postgres durable stores', () => {
-    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-    const enabled = Boolean(postgresUrl);
-    const emailOtpPrefix = randPrefix('email-otp:pg');
-
-    test.beforeAll(async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      await ensurePostgresSchema({ postgresUrl, logger: console as any });
-    });
-
-    test.afterAll(async () => {
-      if (!enabled) return;
-      const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM email_otp_challenges WHERE namespace = $1', [emailOtpPrefix]);
-      await pool.query('DELETE FROM email_otp_grants WHERE namespace = $1', [emailOtpPrefix]);
-      await pool.query('DELETE FROM email_otp_wallet_enrollments WHERE namespace = $1', [
-        emailOtpPrefix,
-      ]);
-      await pool.query('DELETE FROM email_otp_unlock_challenges WHERE namespace = $1', [
-        emailOtpPrefix,
-      ]);
-    });
-
-    test('persists challenge, grant, enrollment, and unlock state across store instances', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      const config = {
-        kind: 'postgres',
-        POSTGRES_URL: postgresUrl,
-        EMAIL_OTP_PREFIX: emailOtpPrefix,
-      } as any;
-      const storeInput = { config, logger: console as any, isNode: true };
-      const nowMs = Date.now();
-      const expiresAtMs = nowMs + 60_000;
-
-      const challengeWriter = createEmailOtpChallengeStore(storeInput);
-      const challengeReader = createEmailOtpChallengeStore(storeInput);
-      await challengeWriter.put({
-        version: 'email_otp_challenge_v1',
-        challengeId: 'challenge-pg',
-        challengeSubjectId: USER_ID,
-        walletId: WALLET_ID,
-        orgId: ORG_ID,
-        otpChannel: 'email_otp',
-        email: EMAIL,
-        otpCode: '169670',
-        sessionHash: SESSION_HASH,
-        appSessionVersion: APP_SESSION_VERSION,
-        action: 'wallet_email_otp_registration',
-        operation: 'registration',
-        createdAtMs: nowMs,
-        expiresAtMs,
-        attemptCount: 0,
-        maxAttempts: 5,
-      });
-      const persistedChallenge = await challengeReader.get('challenge-pg');
-      expect(persistedChallenge?.otpCode).toBe('169670');
-      await challengeReader.del('challenge-pg');
-      expect(await challengeWriter.get('challenge-pg')).toBeNull();
-
-      const grantWriter = createEmailOtpGrantStore(storeInput);
-      const grantReader = createEmailOtpGrantStore(storeInput);
-      await grantWriter.put({
-        version: 'email_otp_grant_v1',
-        grantToken: 'grant-pg',
-        userId: USER_ID,
-        walletId: WALLET_ID,
-        orgId: ORG_ID,
-        challengeId: 'challenge-pg',
-        otpChannel: 'email_otp',
-        sessionHash: SESSION_HASH,
-        appSessionVersion: APP_SESSION_VERSION,
-        action: 'wallet_email_otp_unseal',
-        issuedAtMs: nowMs,
-        expiresAtMs,
-      });
-      expect((await grantReader.consume('grant-pg'))?.challengeId).toBe('challenge-pg');
-      expect(await grantWriter.consume('grant-pg')).toBeNull();
-
-      const enrollmentWriter = createEmailOtpWalletEnrollmentStore(storeInput);
-      const enrollmentReader = createEmailOtpWalletEnrollmentStore(storeInput);
-      await enrollmentWriter.put({
-        version: 'email_otp_wallet_enrollment_v1',
-        walletId: WALLET_ID,
-        providerUserId: USER_ID,
-        orgId: ORG_ID,
-        verifiedEmail: EMAIL,
-        enrollmentId: RECOVERY_ENROLLMENT_ID,
-        enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
-        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-        signingRootId: RECOVERY_SIGNING_ROOT_ID,
-        signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
-        recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
-        clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
-        unlockKeyVersion: 'unlock-v1',
-        thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
-        createdAtMs: nowMs,
-        updatedAtMs: nowMs,
-      });
-      expect((await enrollmentReader.get(WALLET_ID))?.recoveryWrappedEnrollmentEscrowCount).toBe(
-        EMAIL_OTP_RECOVERY_KEY_COUNT,
-      );
-      await enrollmentReader.del(WALLET_ID);
-      expect(await enrollmentWriter.get(WALLET_ID)).toBeNull();
-
-      const unlockWriter = createEmailOtpUnlockChallengeStore(storeInput);
-      const unlockReader = createEmailOtpUnlockChallengeStore(storeInput);
-      await unlockWriter.put({
-        version: 'email_otp_unlock_challenge_v1',
-        challengeId: 'unlock-pg',
-        walletId: WALLET_ID,
-        userId: USER_ID,
-        challengeB64u: base64UrlEncode(Uint8Array.from([1, 2, 3, 4])),
-        createdAtMs: nowMs,
-        expiresAtMs,
-      });
-      expect((await unlockReader.consume('unlock-pg'))?.walletId).toBe(WALLET_ID);
-      expect(await unlockWriter.consume('unlock-pg')).toBeNull();
-    });
   });
 
   test('Email OTP dev delivery logs plaintext OTP codes but never plaintext secret material', async () => {

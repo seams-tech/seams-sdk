@@ -10,19 +10,19 @@ import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
 } from '../../packages/sdk-server-ts/src/core/types';
-import type {
-  ThresholdSigningService,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
+import type { ThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   implicitNearAccountProvisioning,
+  parseServerAllocatedWalletId,
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
@@ -37,9 +37,7 @@ import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
-import {
-  createSigningSessionSealShamir3PassBigIntRuntime,
-} from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
+import { createSigningSessionSealShamir3PassBigIntRuntime } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -66,6 +64,61 @@ type WebAuthnAssertionFixture = {
   readonly privateKey: CryptoKey;
 };
 
+const TEST_COMBINED_NEAR_ACCOUNT_ID =
+  '0000000000000000000000000000000000000000000000000000000000000001';
+const TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U =
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+function testEd25519PreparedServerState() {
+  return {
+    context: {
+      applicationBindingDigestB64u: TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U,
+      participantIds: [1, 2],
+    },
+    preparedServerSession: {
+      evaluatorDriverStateB64u: 'AQ',
+      garblerDriverStateB64u: 'Ag',
+    },
+    serverInputs: {
+      yRelayerB64u: 'Aw',
+      tauRelayerB64u: 'BA',
+    },
+  };
+}
+
+function testEvmFamilyRegistrationSignerSet() {
+  return {
+    kind: 'signer_set' as const,
+    signers: [
+      {
+        kind: 'evm_family_ecdsa' as const,
+        participantIds: [1, 2, 3],
+        chainTargets: [{ kind: 'evm' as const, namespace: 'eip155', chainId: 8453 }],
+      },
+    ],
+  };
+}
+
+function testCombinedRegistrationSignerSet() {
+  return {
+    kind: 'signer_set' as const,
+    signers: [
+      {
+        kind: 'near_ed25519' as const,
+        accountProvisioning: implicitNearAccountProvisioning(),
+        signerSlot: 1,
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+      {
+        kind: 'evm_family_ecdsa' as const,
+        participantIds: [1, 2, 3],
+        chainTargets: [{ kind: 'evm' as const, namespace: 'eip155', chainId: 8453 }],
+      },
+    ],
+  };
+}
+
 function requireParsedDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
   if (!result.ok) throw new Error('invalid test domain id');
   return result.value;
@@ -74,9 +127,7 @@ function requireParsedDomainId<T>(result: { ok: true; value: T } | { ok: false }
 class RecordingEmailOtpDeliveryProvider {
   readonly calls: CloudflareD1EmailOtpDeliveryProviderInput[] = [];
 
-  constructor(
-    private readonly result: CloudflareD1EmailOtpDeliveryProviderResult = { ok: true },
-  ) {}
+  constructor(private readonly result: CloudflareD1EmailOtpDeliveryProviderResult = { ok: true }) {}
 
   async deliver(
     input: CloudflareD1EmailOtpDeliveryProviderInput,
@@ -216,6 +267,9 @@ function testEcdsaClientBootstrap(
     signingRootVersion: prepare.signingRootVersion,
     keyScope: prepare.keyScope,
     relayerKeyId: prepare.relayerKeyId,
+    ...(prepare.registrationPreparationId
+      ? { registrationPreparationId: prepare.registrationPreparationId }
+      : {}),
     hssClientSharePublicKey33B64u: 'test-client-share-public-key' as TestEcdsaClientSharePublicKey,
     clientShareRetryCounter: 0,
     contextBinding32B64u: 'test-context-binding-32',
@@ -265,6 +319,91 @@ function testEcdsaServerBootstrapResponse(
   };
 }
 
+async function testEd25519PrepareForRegistration() {
+  return {
+    ok: true as const,
+    ceremonyHandle: 'ed25519-ceremony-handle',
+    preparedSession: {
+      contextBindingB64u: 'ed25519-context-binding',
+      evaluatorDriverStateB64u: 'ed25519-evaluator-driver-state',
+    },
+    clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
+    serverState: testEd25519PreparedServerState(),
+  };
+}
+
+async function testEd25519RespondForRegistration() {
+  return {
+    ok: true as const,
+    contextBindingB64u: 'ed25519-context-binding',
+    serverInputDeliveryB64u: 'ed25519-server-input-delivery',
+  };
+}
+
+async function testEd25519FinalizeForRegistration() {
+  return {
+    ok: true as const,
+    publicKey: 'ed25519:combined-test-public-key',
+    nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+    relayerKeyId: 'combined-test-relayer-key',
+    finalizedReport: {
+      kind: 'threshold_ed25519_hss_finalized_report_v1',
+    },
+  };
+}
+
+async function testEd25519RegistrationKeygenFromRegistrationMaterial() {
+  return {
+    ok: true as const,
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    participantIds: [1, 2],
+    relayerKeyId: 'combined-test-relayer-key',
+    publicKey: 'ed25519:combined-test-public-key',
+    keyVersion: 'threshold-ed25519-hss-v1',
+    recoveryExportCapable: true as const,
+    relayerVerifyingShareB64u: 'combined-test-relayer-verifying-share',
+  };
+}
+
+async function testEcdsaHssRoleLocalBootstrap(request: EcdsaHssClientBootstrapRequest) {
+  return {
+    ok: true as const,
+    value: testEcdsaServerBootstrapResponse(request),
+  };
+}
+
+function testGetCombinedRegistrationSchemeModule(schemeId: string) {
+  if (schemeId !== 'threshold-ed25519-frost-2p-v1') return null;
+  return {
+    schemeId: 'threshold-ed25519-frost-2p-v1',
+    protocol: {},
+    healthz: testThresholdSchemeHealthz,
+    session: testThresholdSchemeSession,
+    registration: {
+      keygenFromRegistrationMaterial: testEd25519RegistrationKeygenFromRegistrationMaterial,
+    },
+  };
+}
+
+async function testThresholdSchemeHealthz() {
+  return { ok: true };
+}
+
+async function testThresholdSchemeSession() {
+  return { ok: false as const, code: 'unsupported', message: 'not used by this test' };
+}
+
+const testCombinedRegistrationThresholdSigningService = {
+  ed25519Hss: {
+    prepareForRegistration: testEd25519PrepareForRegistration,
+    respondForRegistration: testEd25519RespondForRegistration,
+    finalizeForRegistration: testEd25519FinalizeForRegistration,
+  },
+  ecdsaHssRoleLocalBootstrap: testEcdsaHssRoleLocalBootstrap,
+  getSchemeModule: testGetCombinedRegistrationSchemeModule,
+} as unknown as ThresholdSigningService;
+
 function utf8Bytes(input: string): Uint8Array {
   return new TextEncoder().encode(input);
 }
@@ -313,11 +452,10 @@ function hexBytes(bytes: Uint8Array): string {
 }
 
 async function createWebAuthnAssertionFixture(): Promise<WebAuthnAssertionFixture> {
-  const keyPair = (await crypto.subtle.generateKey(
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    true,
-    ['sign', 'verify'],
-  )) as CryptoKeyPair;
+  const keyPair = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+    'sign',
+    'verify',
+  ])) as CryptoKeyPair;
   const jwk = (await crypto.subtle.exportKey('jwk', keyPair.publicKey)) as JsonWebKey;
   const x = base64UrlDecode(String(jwk.x || ''));
   const y = base64UrlDecode(String(jwk.y || ''));
@@ -548,7 +686,7 @@ async function insertIdentity(input: {
 }): Promise<void> {
   await input.database
     .prepare(
-      `INSERT INTO signer_identity_links (
+      `INSERT INTO identity_links (
         namespace, org_id, project_id, env_id, subject, user_id, record_json, created_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
@@ -592,7 +730,7 @@ async function insertWebAuthn(input: {
   const signerSlot = input.signerSlot ?? 2;
   await input.database
     .prepare(
-      `INSERT INTO signer_webauthn_authenticators (
+      `INSERT INTO webauthn_authenticators (
         namespace, org_id, project_id, env_id, user_id, credential_id_b64u,
         credential_public_key_b64u, counter, created_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -612,7 +750,7 @@ async function insertWebAuthn(input: {
     .run();
   await input.database
     .prepare(
-      `INSERT INTO signer_webauthn_credential_bindings (
+      `INSERT INTO webauthn_credential_bindings (
         namespace, org_id, project_id, env_id, rp_id, credential_id_b64u, user_id,
         signer_slot, record_json, created_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -655,7 +793,7 @@ async function readWebAuthnChallengeRow(input: {
   return await input.database
     .prepare(
       `SELECT challenge_kind, record_json, created_at_ms, expires_at_ms
-         FROM signer_webauthn_challenges
+         FROM webauthn_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -663,13 +801,7 @@ async function readWebAuthnChallengeRow(input: {
           AND challenge_id = ?
         LIMIT 1`,
     )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.challengeId,
-    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId, input.challengeId)
     .first<SqliteJsonRow>();
 }
 
@@ -685,7 +817,7 @@ async function readWebAuthnAuthenticatorRow(input: {
   return await input.database
     .prepare(
       `SELECT credential_public_key_b64u, counter, updated_at_ms
-         FROM signer_webauthn_authenticators
+         FROM webauthn_authenticators
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -729,7 +861,7 @@ async function insertNearPublicKey(input: {
   };
   await input.database
     .prepare(
-      `INSERT INTO signer_near_public_keys (
+      `INSERT INTO near_public_keys (
         namespace, org_id, project_id, env_id, user_id, public_key, kind, signer_slot,
         record_json, created_at_ms, updated_at_ms, removed_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -768,7 +900,7 @@ async function insertSignerWallet(input: {
   };
   await input.database
     .prepare(
-      `INSERT INTO signer_wallets (
+      `INSERT INTO wallets (
         namespace, org_id, project_id, env_id, wallet_id, record_json,
         created_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -864,7 +996,7 @@ async function insertWalletAuthMethod(input: {
   const identity = testWalletAuthMethodIdentity(input.record);
   await input.database
     .prepare(
-      `INSERT INTO signer_wallet_auth_methods (
+      `INSERT INTO wallet_auth_methods (
         namespace,
         org_id,
         project_id,
@@ -917,7 +1049,7 @@ async function readWalletAuthMethodRecord(input: {
   const row = await input.database
     .prepare(
       `SELECT record_json
-         FROM signer_wallet_auth_methods
+         FROM wallet_auth_methods
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -925,13 +1057,7 @@ async function readWalletAuthMethodRecord(input: {
           AND wallet_auth_method_id = ?
         LIMIT 1`,
     )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.walletAuthMethodId,
-    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId, input.walletAuthMethodId)
     .first<SqliteJsonRow>();
   const raw = row?.record_json;
   if (typeof raw !== 'string') throw new Error('wallet auth method record_json missing');
@@ -951,7 +1077,7 @@ async function readSignerWalletRecord(input: {
   const row = await input.database
     .prepare(
       `SELECT record_json
-         FROM signer_wallets
+         FROM wallets
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -959,13 +1085,7 @@ async function readSignerWalletRecord(input: {
           AND wallet_id = ?
         LIMIT 1`,
     )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.walletId,
-    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId, input.walletId)
     .first<SqliteJsonRow>();
   const raw = row?.record_json;
   if (typeof raw !== 'string') throw new Error('signer wallet record_json missing');
@@ -987,7 +1107,7 @@ async function readWalletSignerRecord(input: {
   const row = await input.database
     .prepare(
       `SELECT record_json
-         FROM signer_wallet_signers
+         FROM wallet_signers
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -1045,7 +1165,7 @@ async function insertEmailOtpEnrollment(input: {
   };
   await input.database
     .prepare(
-      `INSERT INTO signer_email_otp_wallet_enrollments (
+      `INSERT INTO email_otp_wallet_enrollments (
         namespace, org_id, project_id, env_id, wallet_id, provider_user_id, record_org_id,
         verified_email, record_json, created_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1077,7 +1197,7 @@ async function listGoogleEmailOtpRegistrationAttemptRows(input: {
     .prepare(
       `SELECT attempt_id, state, app_session_version, runtime_org_id, runtime_policy_key,
               offer_wallet_ids_json, record_json
-         FROM signer_email_otp_registration_attempts
+         FROM email_otp_registration_attempts
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -1115,7 +1235,7 @@ async function insertEmailOtpAuthState(input: {
   };
   await input.database
     .prepare(
-      `INSERT INTO signer_email_otp_auth_states (
+      `INSERT INTO email_otp_auth_states (
         namespace, org_id, project_id, env_id, wallet_id, provider_user_id, record_org_id,
         record_json, created_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1149,7 +1269,7 @@ async function insertEmailOtpRecoveryEscrow(input: {
   const record = emailOtpRecoveryEscrowRecord(input);
   await input.database
     .prepare(
-      `INSERT INTO signer_email_otp_recovery_wrapped_enrollment_escrows (
+      `INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
         namespace, org_id, project_id, env_id, wallet_id, recovery_key_id, recovery_key_status,
         record_json, issued_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1181,7 +1301,7 @@ async function insertEmailOtpGrant(input: {
   const record = emailOtpGrantRecord(input);
   await input.database
     .prepare(
-      `INSERT INTO signer_email_otp_grants (
+      `INSERT INTO email_otp_grants (
         namespace, org_id, project_id, env_id, grant_token, user_id, wallet_id, record_org_id,
         challenge_id, action, record_json, issued_at_ms, expires_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1315,9 +1435,7 @@ function recoveryRotationEscrowInput(index: number): RecoveryRotationEscrowInput
     nonceB64u: base64UrlEncode(new Uint8Array(12).fill(index)),
     wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(new Uint8Array(32).fill(index + 10)),
     aadHashB64u: base64UrlEncode(
-      createHash('sha256')
-        .update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding))
-        .digest(),
+      createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding)).digest(),
     ),
   };
 }
@@ -1396,9 +1514,7 @@ function recoveryWrappedEnrollmentEscrowInput(input: {
     recoveryKeyId,
     recoveryKeyStatus: 'active',
     nonceB64u: base64UrlEncode(new Uint8Array(12).fill(input.index)),
-    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
-      new Uint8Array(48).fill(input.index + 20),
-    ),
+    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(new Uint8Array(48).fill(input.index + 20)),
     aadHashB64u: recoveryEscrowAadHashB64u(binding),
     issuedAtMs: input.issuedAtMs,
     updatedAtMs: input.issuedAtMs,
@@ -1409,9 +1525,7 @@ function recoveryEscrowAadHashB64u(
   binding: ReturnType<typeof buildEmailOtpRecoveryWrapBinding>,
 ): string {
   return base64UrlEncode(
-    createHash('sha256')
-      .update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding))
-      .digest(),
+    createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding)).digest(),
   );
 }
 
@@ -1425,7 +1539,7 @@ async function readRecoveryEscrowStatusCounts(input: {
   const result = await input.database
     .prepare(
       `SELECT recovery_key_status, COUNT(*) AS count
-         FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+         FROM email_otp_recovery_wrapped_enrollment_escrows
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -1433,13 +1547,7 @@ async function readRecoveryEscrowStatusCounts(input: {
           AND wallet_id = ?
         GROUP BY recovery_key_status`,
     )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      'email-wallet.testnet',
-    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId, 'email-wallet.testnet')
     .all<SqliteJsonRow>();
   const counts: Record<string, number> = {};
   for (const row of result.results || []) {
@@ -1460,7 +1568,7 @@ async function countActiveRecoveryWrappedEnrollmentEscrows(input: {
   const row = await input.database
     .prepare(
       `SELECT COUNT(*) AS active_count
-         FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+         FROM email_otp_recovery_wrapped_enrollment_escrows
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -1468,13 +1576,7 @@ async function countActiveRecoveryWrappedEnrollmentEscrows(input: {
           AND wallet_id = ?
           AND recovery_key_status = 'active'`,
     )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.walletId,
-    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId, input.walletId)
     .first<SqliteJsonRow>();
   return toInteger(row?.active_count);
 }
@@ -1492,7 +1594,7 @@ async function insertRecoverySession(input: {
   const record = recoverySessionRecord(input);
   await input.database
     .prepare(
-      `INSERT INTO signer_recovery_sessions (
+      `INSERT INTO recovery_sessions (
         namespace, org_id, project_id, env_id, session_id, near_account_id, record_json,
         expires_at_ms, created_at_ms, updated_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1535,7 +1637,7 @@ function recoverySessionRecord(input: {
   };
 }
 
-test('Cloudflare D1 relay auth service reads signer metadata with tenant scope', async () => {
+test('Cloudflare D1 Router API auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -1949,10 +2051,7 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
     const syncChallengeId = String(syncOptions.challengeId || '');
     expect(syncChallengeId).not.toBe('');
     expect(syncOptions.challengeB64u).toEqual(expect.any(String));
-    expect(syncOptions.credentialIds).toEqual([
-      'credential-a',
-      webAuthnFixture.credentialIdB64u,
-    ]);
+    expect(syncOptions.credentialIds).toEqual(['credential-a', webAuthnFixture.credentialIdB64u]);
     expect(syncOptions.walletBinding).toEqual({
       walletId: scope.userId,
       nearAccountId: 'near.testnet',
@@ -2096,7 +2195,7 @@ test('Cloudflare D1 relay auth service reads signer metadata with tenant scope',
   }
 });
 
-test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', async () => {
+test('Cloudflare D1 Router API auth service revokes wallet auth methods through D1', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -2219,7 +2318,7 @@ test('Cloudflare D1 relay auth service revokes wallet auth methods through D1', 
   }
 });
 
-test('Cloudflare D1 relay auth service wires threshold signing from Durable Object config', async () => {
+test('Cloudflare D1 Router API auth service wires threshold signing from Durable Object config', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     const withoutThreshold = createCloudflareD1RouterApiAuthService({
@@ -2257,7 +2356,7 @@ test('Cloudflare D1 relay auth service wires threshold signing from Durable Obje
   }
 });
 
-test('Cloudflare D1 relay auth service stores wallet registration intents in Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service stores wallet registration intents in Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -2289,24 +2388,38 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
       request: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         authMethod: { kind: 'passkey', rpId },
         signerSelection: {
-          mode: 'ed25519_only',
-          ed25519: {
-            accountProvisioning: implicitNearAccountProvisioning(),
-            signerSlot: 1,
-            participantIds: [1, 2, 3],
-            keyPurpose: 'wallet-registration',
-            keyVersion: 'v1',
-            derivationVersion: 1,
-          },
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2, 3],
+              derivationVersion: 1,
+            },
+          ],
         },
       },
     });
     expect(registration.ok).toBe(true);
     if (!registration.ok) throw new Error(registration.message);
-    expect(registration.intent.walletId).toMatch(/^seams-wallet-[0-9a-f]{6}$/);
+    expect(registration.intent.signerSelection).toEqual({
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: implicitNearAccountProvisioning(),
+          signerSlot: 1,
+          participantIds: [1, 2, 3],
+          derivationVersion: 1,
+        },
+      ],
+    });
+    expect(parseServerAllocatedWalletId(registration.intent.walletId).ok).toBe(true);
+    expect(String(registration.intent.walletId)).not.toMatch(/^seams-wallet-/);
     expect(Object.prototype.hasOwnProperty.call(registration.intent, 'rpId')).toBe(false);
     expect(registration.intent.authMethod).toMatchObject({ kind: 'passkey', rpId: 'example.com' });
     expect(registration.intent.runtimePolicyScope).toEqual({
@@ -2315,6 +2428,28 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       envId: scope.envId,
       signingRootVersion: 'root-v1',
     });
+    const parsedStoredSignerSetIntent = parseD1RegistrationIntent({
+      version: 'registration_intent_v1',
+      walletId: registration.intent.walletId,
+      authMethod: { kind: 'passkey', rpId },
+      signerSelection: {
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'near_ed25519',
+            accountProvisioning: implicitNearAccountProvisioning(),
+            signerSlot: 1,
+            participantIds: [1, 2, 3],
+            derivationVersion: 1,
+          },
+        ],
+      },
+      runtimePolicyScope: registration.intent.runtimePolicyScope,
+      nonceB64u: 'stored-nonce',
+    });
+    expect(parsedStoredSignerSetIntent?.signerSelection).toEqual(
+      registration.intent.signerSelection,
+    );
 
     const addSigner = await service.createAddSignerIntent({
       orgId: scope.orgId,
@@ -2361,11 +2496,11 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
       expectedOrigin: 'https://app.example',
       intent: registration.intent,
     });
-    const generatedWalletReservationRequest = durableObjects.stub.requests.find(
+    const serverAllocatedWalletReservationRequest = durableObjects.stub.requests.find(
       isRecordingDurableObjectReplayReservationRequest,
     );
-    expect(recordingDurableObjectRequestKey(generatedWalletReservationRequest || {})).toBe(
-      `${prefix}generated-wallet-reservation:${registration.intent.walletId}`,
+    expect(recordingDurableObjectRequestKey(serverAllocatedWalletReservationRequest || {})).toBe(
+      `${prefix}server-allocated-wallet-reservation:${registration.intent.walletId}`,
     );
 
     const addSignerRecord = durableObjects.stub.values.get(
@@ -2399,7 +2534,7 @@ test('Cloudflare D1 relay auth service stores wallet registration intents in Dur
   }
 });
 
-test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremonies through Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service starts ECDSA wallet registration ceremonies through Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -2435,7 +2570,7 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
       request: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         authMethod: {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
@@ -2443,13 +2578,7 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
           otpCode: 'intent-otp-placeholder',
           appSessionJwt: 'intent-session-placeholder',
         },
-        signerSelection: {
-          mode: 'ecdsa_only',
-          ecdsa: {
-            participantIds: [1, 2, 3],
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-          },
-        },
+        signerSelection: testEvmFamilyRegistrationSignerSet(),
       },
     });
     expect(registration.ok).toBe(true);
@@ -2544,10 +2673,16 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
         challengeId: challenge.challenge.challengeId,
       },
       signerState: {
-        kind: 'ecdsa_prepared',
-        hssKind: 'evm_family_ecdsa_keygen',
-        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-        prepare: started.ecdsa?.prepare,
+        kind: 'signer_set_registration',
+        branches: [
+          {
+            kind: 'evm_family_ecdsa_prepared',
+            branchKey: 'evm_family_ecdsa:{"chainId":8453,"kind":"evm","namespace":"eip155"}',
+            hssKind: 'evm_family_ecdsa_keygen',
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+            prepare: started.ecdsa?.prepare,
+          },
+        ],
       },
     });
 
@@ -2580,7 +2715,527 @@ test('Cloudflare D1 relay auth service starts ECDSA wallet registration ceremoni
   }
 });
 
-test('Cloudflare D1 relay auth service responds to ECDSA wallet registration ceremonies through Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service starts and responds to combined Ed25519 and ECDSA registration ceremonies', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const email = 'owner@example.test';
+    const providerSubject = 'google:registration-user';
+    const appSessionVersion = 'registration-session-v1';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'dev_d1_outbox',
+      thresholdSigningService: testCombinedRegistrationThresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const registration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'server_allocated' },
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          email,
+          otpCode: 'intent-otp-placeholder',
+          appSessionJwt: 'intent-session-placeholder',
+        },
+        signerSelection: testCombinedRegistrationSignerSet(),
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+
+    const prepared = await service.prepareWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+      work: { kind: 'ed25519_hss_and_ecdsa' },
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.message);
+    expect(prepared.ed25519).toMatchObject({
+      ceremonyHandle: 'ed25519-ceremony-handle',
+      clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
+    });
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+      orgId: scope.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: registration.registrationIntentDigestB64u,
+      appSessionVersion,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      registrationPreparationId: prepared.registrationPreparationId,
+      intent: registration.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.message);
+    expect(started.ed25519).toMatchObject({
+      ceremonyHandle: 'ed25519-ceremony-handle',
+      clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
+    });
+    expect(started.ecdsa).toMatchObject({
+      kind: 'evm_family_ecdsa_keygen',
+      prepare: {
+        walletId: registration.intent.walletId,
+        signingRootId: `${scope.projectId}:${scope.envId}`,
+        signingRootVersion: 'root-v1',
+        keyScope: 'evm-family',
+      },
+    });
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(`${prefix}intent:${registration.registrationIntentGrant}`),
+    ).toBeUndefined();
+    expect(
+      durableObjects.stub.values.get(`${prefix}preparation:${prepared.registrationPreparationId}`),
+    ).toBeUndefined();
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toMatchObject({
+      signerState: {
+        kind: 'signer_set_registration',
+        branches: [
+          {
+            kind: 'near_ed25519_prepared',
+            branchKey: 'near_ed25519:slot:1',
+            ceremonyHandle: 'ed25519-ceremony-handle',
+          },
+          {
+            kind: 'evm_family_ecdsa_prepared',
+            branchKey: 'evm_family_ecdsa:{"chainId":8453,"kind":"evm","namespace":"eip155"}',
+            prepare: started.ecdsa?.prepare,
+          },
+        ],
+      },
+    });
+
+    if (!started.ecdsa) throw new Error('Expected ECDSA registration start payload');
+    const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ed25519: {
+        clientRequest: {
+          clientRequestMessageB64u: 'ed25519-client-request',
+        },
+      },
+      ecdsa: {
+        clientBootstrap,
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    expect(responded.ok).toBe(true);
+    expect(responded.ed25519).toEqual({
+      contextBindingB64u: 'ed25519-context-binding',
+      serverInputDeliveryB64u: 'ed25519-server-input-delivery',
+    });
+    expect(responded.ecdsa?.bootstrap).toMatchObject({
+      walletId: registration.intent.walletId,
+      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      thresholdSessionId: clientBootstrap.thresholdSessionId,
+      signingGrantId: clientBootstrap.signingGrantId,
+    });
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toMatchObject({
+      signerState: {
+        kind: 'signer_set_registration',
+        branches: [
+          {
+            kind: 'near_ed25519_responded',
+            branchKey: 'near_ed25519:slot:1',
+            responded: {
+              serverInputDeliveryB64u: 'ed25519-server-input-delivery',
+            },
+          },
+          {
+            kind: 'evm_family_ecdsa_responded',
+            branchKey: 'evm_family_ecdsa:{"chainId":8453,"kind":"evm","namespace":"eip155"}',
+            responded: {
+              bootstrap: {
+                thresholdSessionId: clientBootstrap.thresholdSessionId,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const enrollmentSealKeyVersion = 'combined-registration-seal-v1';
+    const unlockKeyVersion = 'combined-registration-unlock-v1';
+    const recoveryCodesIssuedAtMs = Date.now();
+    const privateKey32 = new Uint8Array(32);
+    privateKey32[31] = 9;
+    const publicKey33 = await secp256k1PrivateKey32ToPublicKey33(privateKey32);
+    const publicKeyB64u = base64UrlEncode(publicKey33);
+    const recoveryWrappedEnrollmentEscrows = makeRecoveryWrappedEnrollmentEscrows({
+      walletId: registration.intent.walletId,
+      userId: providerSubject,
+      enrollmentId: `email-otp-device-enrollment-v1:${registration.intent.walletId}`,
+      enrollmentSealKeyVersion,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      issuedAtMs: recoveryCodesIssuedAtMs,
+    });
+
+    const finalized = await service.finalizeWalletRegistration({
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'combined-registration-finalize-replay-a',
+      ed25519: {
+        evaluationResult: {
+          contextBindingB64u: 'ed25519-context-binding',
+          stagedEvaluatorArtifactB64u: 'ed25519-staged-evaluator-artifact',
+        },
+      },
+      ecdsa: {
+        expectedKeyHandles: ['unexpected-key-handle', 'test-add-signer-ecdsa-key-handle'],
+      },
+      emailOtpEnrollment: {
+        recoveryWrappedEnrollmentEscrows,
+        enrollmentSealKeyVersion,
+        clientUnlockPublicKeyB64u: publicKeyB64u,
+        unlockKeyVersion,
+        thresholdEcdsaClientVerifyingShareB64u: publicKeyB64u,
+      },
+      emailOtpBackupAck: {
+        kind: 'email_otp_recovery_code_backup_ack_v1',
+        recoveryCodesIssuedAtMs,
+        backupActionKind: 'copy',
+        acknowledgedAtMs: recoveryCodesIssuedAtMs + 1,
+        idempotencyKey: 'combined-registration-backup-ack-a',
+      },
+    });
+    if (!finalized.ok) throw new Error(finalized.message);
+    expect(finalized).toMatchObject({
+      walletId: registration.intent.walletId,
+      authMethod: {
+        kind: 'email_otp',
+        registrationAuthorityId: challenge.challenge.challengeId,
+      },
+      resolvedAccount: {
+        kind: 'implicit_account',
+        nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+      },
+      ed25519: {
+        nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+        publicKey: 'ed25519:combined-test-public-key',
+        relayerKeyId: 'combined-test-relayer-key',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        participantIds: [1, 2],
+      },
+      ecdsa: {
+        walletKeys: [
+          {
+            keyScope: 'evm-family',
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
+            walletId: registration.intent.walletId,
+            walletKeyId: started.ecdsa.prepare.walletKeyId,
+            keyHandle: 'test-add-signer-ecdsa-key-handle',
+          },
+        ],
+      },
+    });
+    expect(Object.prototype.hasOwnProperty.call(finalized, 'rpId')).toBe(false);
+
+    await expect(
+      readWalletSignerRecord({
+        database,
+        ...scope,
+        walletId: registration.intent.walletId,
+        signerFamily: 'ed25519',
+        signerId: `ed25519:${TEST_COMBINED_NEAR_ACCOUNT_ID}:1`,
+      }),
+    ).resolves.toMatchObject({
+      version: 'wallet_signer_ed25519_v1',
+      walletId: registration.intent.walletId,
+      signerSlot: 1,
+      nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+      publicKey: 'ed25519:combined-test-public-key',
+      relayerKeyId: 'combined-test-relayer-key',
+    });
+    await expect(
+      readWalletSignerRecord({
+        database,
+        ...scope,
+        walletId: registration.intent.walletId,
+        signerFamily: 'ecdsa',
+        signerId: 'ecdsa:evm:eip155:8453',
+      }),
+    ).resolves.toMatchObject({
+      version: 'wallet_signer_ecdsa_v1',
+      walletId: registration.intent.walletId,
+      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      signerId: 'ecdsa:evm:eip155:8453',
+      chainTargetKey: 'evm:eip155:8453',
+      walletKey: {
+        keyHandle: 'test-add-signer-ecdsa-key-handle',
+        ecdsaThresholdKeyId: started.ecdsa.prepare.ecdsaThresholdKeyId,
+      },
+    });
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toBeUndefined();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only signer-set registration ceremonies', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const email = 'owner@example.test';
+    const providerSubject = 'google:registration-user';
+    const appSessionVersion = 'registration-session-v1';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const thresholdSigningService = {
+      ed25519Hss: {
+        async prepareForRegistration() {
+          return {
+            ok: true as const,
+            ceremonyHandle: 'ed25519-only-ceremony-handle',
+            preparedSession: {
+              contextBindingB64u: 'ed25519-only-context-binding',
+              evaluatorDriverStateB64u: 'ed25519-only-evaluator-driver-state',
+            },
+            clientOtOfferMessageB64u: 'ed25519-only-client-ot-offer',
+            serverState: testEd25519PreparedServerState(),
+          };
+        },
+        async respondForRegistration() {
+          return {
+            ok: true as const,
+            contextBindingB64u: 'ed25519-only-context-binding',
+            serverInputDeliveryB64u: 'ed25519-only-server-input-delivery',
+          };
+        },
+      },
+    } as unknown as ThresholdSigningService;
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'dev_d1_outbox',
+      thresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const registration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'server_allocated' },
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          email,
+          otpCode: 'intent-otp-placeholder',
+          appSessionJwt: 'intent-session-placeholder',
+        },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+    expect(registration.intent.signerSelection).toEqual({
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: implicitNearAccountProvisioning(),
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+      ],
+    });
+
+    const prepared = await service.prepareWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+      work: { kind: 'ed25519_hss' },
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.message);
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+      orgId: scope.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: registration.registrationIntentDigestB64u,
+      appSessionVersion,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      registrationPreparationId: prepared.registrationPreparationId,
+      intent: registration.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.message);
+    expect(started.ed25519).toMatchObject({
+      ceremonyHandle: 'ed25519-only-ceremony-handle',
+      clientOtOfferMessageB64u: 'ed25519-only-client-ot-offer',
+    });
+    expect(started.ecdsa).toBeUndefined();
+
+    const prefix = 'intent-test:wallet-registration:';
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toMatchObject({
+      signerState: {
+        kind: 'signer_set_registration',
+        branches: [
+          {
+            kind: 'near_ed25519_prepared',
+            branchKey: 'near_ed25519:slot:1',
+            ceremonyHandle: 'ed25519-only-ceremony-handle',
+          },
+        ],
+      },
+    });
+
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ed25519: {
+        clientRequest: {
+          clientRequestMessageB64u: 'ed25519-only-client-request',
+        },
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    expect(responded.ed25519).toEqual({
+      contextBindingB64u: 'ed25519-only-context-binding',
+      serverInputDeliveryB64u: 'ed25519-only-server-input-delivery',
+    });
+    expect(responded.ecdsa).toBeUndefined();
+    expect(
+      durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
+    ).toMatchObject({
+      signerState: {
+        kind: 'signer_set_registration',
+        branches: [
+          {
+            kind: 'near_ed25519_responded',
+            branchKey: 'near_ed25519:slot:1',
+            responded: {
+              serverInputDeliveryB64u: 'ed25519-only-server-input-delivery',
+            },
+          },
+        ],
+      },
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service responds to ECDSA wallet registration ceremonies through Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -2627,7 +3282,7 @@ test('Cloudflare D1 relay auth service responds to ECDSA wallet registration cer
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
       request: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         authMethod: {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
@@ -2635,13 +3290,7 @@ test('Cloudflare D1 relay auth service responds to ECDSA wallet registration cer
           otpCode: 'intent-otp-placeholder',
           appSessionJwt: 'intent-session-placeholder',
         },
-        signerSelection: {
-          mode: 'ecdsa_only',
-          ecdsa: {
-            participantIds: [1, 2, 3],
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-          },
-        },
+        signerSelection: testEvmFamilyRegistrationSignerSet(),
       },
     });
     if (!registration.ok) throw new Error(registration.message);
@@ -2711,16 +3360,22 @@ test('Cloudflare D1 relay auth service responds to ECDSA wallet registration cer
       durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
     ).toMatchObject({
       signerState: {
-        kind: 'ecdsa_responded',
-        hssKind: 'evm_family_ecdsa_keygen',
-        prepare: started.ecdsa.prepare,
-        responded: {
-          bootstrap: {
-            keyHandle: 'test-add-signer-ecdsa-key-handle',
-            thresholdSessionId: clientBootstrap.thresholdSessionId,
-            signingGrantId: clientBootstrap.signingGrantId,
+        kind: 'signer_set_registration',
+        branches: [
+          {
+            kind: 'evm_family_ecdsa_responded',
+            branchKey: 'evm_family_ecdsa:{"chainId":8453,"kind":"evm","namespace":"eip155"}',
+            hssKind: 'evm_family_ecdsa_keygen',
+            prepare: started.ecdsa.prepare,
+            responded: {
+              bootstrap: {
+                keyHandle: 'test-add-signer-ecdsa-key-handle',
+                thresholdSessionId: clientBootstrap.thresholdSessionId,
+                signingGrantId: clientBootstrap.signingGrantId,
+              },
+            },
           },
-        },
+        ],
       },
     });
 
@@ -2740,7 +3395,7 @@ test('Cloudflare D1 relay auth service responds to ECDSA wallet registration cer
   }
 });
 
-test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration ceremonies through Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration ceremonies through Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -2785,7 +3440,7 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
       request: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         authMethod: {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
@@ -2793,13 +3448,7 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
           otpCode: 'intent-otp-placeholder',
           appSessionJwt: 'intent-session-placeholder',
         },
-        signerSelection: {
-          mode: 'ecdsa_only',
-          ecdsa: {
-            participantIds: [1, 2, 3],
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-          },
-        },
+        signerSelection: testEvmFamilyRegistrationSignerSet(),
       },
     });
     if (!registration.ok) throw new Error(registration.message);
@@ -2898,7 +3547,7 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
       registrationCeremonyId: started.registrationCeremonyId,
       idempotencyKey: 'registration-finalize-replay-a',
       ecdsa: {
-        expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+        expectedKeyHandles: ['unexpected-key-handle', 'test-add-signer-ecdsa-key-handle'],
       },
       emailOtpEnrollment: {
         recoveryWrappedEnrollmentEscrows,
@@ -3058,7 +3707,7 @@ test('Cloudflare D1 relay auth service finalizes ECDSA wallet registration cerem
   }
 });
 
-test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods through D1 and Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods through D1 and Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -3181,9 +3830,7 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
       ),
     ).toBeUndefined();
     expect(
-      durableObjects.stub.values.get(
-        `${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`,
-      ),
+      durableObjects.stub.values.get(`${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`),
     ).toMatchObject({
       digestB64u: intent.addAuthMethodIntentDigestB64u,
       orgId: scope.orgId,
@@ -3208,9 +3855,7 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
       },
     });
     expect(
-      durableObjects.stub.values.get(
-        `${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`,
-      ),
+      durableObjects.stub.values.get(`${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`),
     ).toBeUndefined();
 
     const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
@@ -3241,7 +3886,7 @@ test('Cloudflare D1 relay auth service adds Email OTP wallet auth methods throug
   }
 });
 
-test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies through Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies through Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -3381,7 +4026,7 @@ test('Cloudflare D1 relay auth service starts ECDSA add-signer ceremonies throug
   }
 });
 
-test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signer ceremonies through Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-signer ceremonies through Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -3524,7 +4169,7 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
     const finalized = await service.finalizeWalletAddSigner({
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
-        expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
+        expectedKeyHandles: ['unexpected-key-handle', 'test-add-signer-ecdsa-key-handle'],
       },
     });
     if (!finalized.ok) throw new Error(finalized.message);
@@ -3588,7 +4233,7 @@ test('Cloudflare D1 relay auth service responds to and finalizes ECDSA add-signe
   }
 });
 
-test('Cloudflare D1 relay auth service verifies Google OIDC tokens and links identity', async () => {
+test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and links identity', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   const key = await generateGoogleOidcTestKey('google-kid-success');
   const originalFetch = installGoogleJwksFetchMock(key.publicJwk);
@@ -3659,7 +4304,7 @@ test('Cloudflare D1 relay auth service verifies Google OIDC tokens and links ide
   }
 });
 
-test('Cloudflare D1 relay auth service verifies generic OIDC exchange tokens', async () => {
+test('Cloudflare D1 Router API auth service verifies generic OIDC exchange tokens', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   const key = await generateGoogleOidcTestKey('oidc-kid-success');
   const jwksUrl = 'https://issuer.example.com/.well-known/jwks.json';
@@ -3734,10 +4379,12 @@ test('Cloudflare D1 relay auth service verifies generic OIDC exchange tokens', a
       given_name: 'OIDC',
       family_name: 'User',
     });
-    await expect(service.listIdentities({ userId: 'linked-oidc-wallet.testnet' })).resolves.toEqual({
-      ok: true,
-      subjects: [providerSubject],
-    });
+    await expect(service.listIdentities({ userId: 'linked-oidc-wallet.testnet' })).resolves.toEqual(
+      {
+        ok: true,
+        subjects: [providerSubject],
+      },
+    );
 
     const parts = token.split('.');
     const tamperedPayloadB64u = jsonBase64Url({
@@ -3759,7 +4406,7 @@ test('Cloudflare D1 relay auth service verifies generic OIDC exchange tokens', a
   }
 });
 
-test('Cloudflare D1 relay auth service applies and removes Email OTP server seals', async () => {
+test('Cloudflare D1 Router API auth service applies and removes Email OTP server seals', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     const service = createCloudflareD1RouterApiAuthService({
@@ -3808,7 +4455,7 @@ test('Cloudflare D1 relay auth service applies and removes Email OTP server seal
   }
 });
 
-test('Cloudflare D1 relay auth service fails closed when Email OTP server seal is unconfigured', async () => {
+test('Cloudflare D1 Router API auth service fails closed when Email OTP server seal is unconfigured', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     const service = createCloudflareD1RouterApiAuthService({
@@ -3833,7 +4480,7 @@ test('Cloudflare D1 relay auth service fails closed when Email OTP server seal i
   }
 });
 
-test('Cloudflare D1 relay auth service starts, reuses, and restarts Google Email OTP registration attempts', async () => {
+test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google Email OTP registration attempts', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -3975,7 +4622,7 @@ test('Cloudflare D1 relay auth service starts, reuses, and restarts Google Email
   }
 });
 
-test('Cloudflare D1 relay auth service rate-limits Google Email OTP registration attempts', async () => {
+test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registration attempts', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4029,7 +4676,7 @@ test('Cloudflare D1 relay auth service rate-limits Google Email OTP registration
   }
 });
 
-test('Cloudflare D1 relay auth service rotates Email OTP recovery keys after fresh auth', async () => {
+test('Cloudflare D1 Router API auth service rotates Email OTP recovery keys after fresh auth', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4112,7 +4759,7 @@ test('Cloudflare D1 relay auth service rotates Email OTP recovery keys after fre
   }
 });
 
-test('Cloudflare D1 relay auth service rejects stale Email OTP recovery-key rotation', async () => {
+test('Cloudflare D1 Router API auth service rejects stale Email OTP recovery-key rotation', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4159,7 +4806,7 @@ test('Cloudflare D1 relay auth service rejects stale Email OTP recovery-key rota
   }
 });
 
-test('Cloudflare D1 relay auth service rejects invalid Email OTP recovery-key rotation payloads', async () => {
+test('Cloudflare D1 Router API auth service rejects invalid Email OTP recovery-key rotation payloads', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4234,7 +4881,7 @@ test('Cloudflare D1 relay auth service rejects invalid Email OTP recovery-key ro
   }
 });
 
-test('Cloudflare D1 relay auth service tracks recovery sessions and executions', async () => {
+test('Cloudflare D1 Router API auth service tracks recovery sessions and executions', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4326,7 +4973,7 @@ test('Cloudflare D1 relay auth service tracks recovery sessions and executions',
     const executionRow = await database
       .prepare(
         `SELECT status, record_json
-           FROM signer_recovery_executions
+           FROM recovery_executions
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -4367,7 +5014,7 @@ test('Cloudflare D1 relay auth service tracks recovery sessions and executions',
   }
 });
 
-test('Cloudflare D1 relay auth service issues and verifies login Email OTP challenges', async () => {
+test('Cloudflare D1 Router API auth service issues and verifies login Email OTP challenges', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4497,7 +5144,7 @@ test('Cloudflare D1 relay auth service issues and verifies login Email OTP chall
   }
 });
 
-test('Cloudflare D1 relay auth service issues registration Email OTP challenges', async () => {
+test('Cloudflare D1 Router API auth service issues registration Email OTP challenges', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4543,7 +5190,7 @@ test('Cloudflare D1 relay auth service issues registration Email OTP challenges'
     const challengeRow = await database
       .prepare(
         `SELECT action, operation, record_json
-           FROM signer_email_otp_challenges
+           FROM email_otp_challenges
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -4586,7 +5233,7 @@ test('Cloudflare D1 relay auth service issues registration Email OTP challenges'
   }
 });
 
-test('Cloudflare D1 relay auth service verifies registration Email OTP enrollment', async () => {
+test('Cloudflare D1 Router API auth service verifies registration Email OTP enrollment', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4736,7 +5383,7 @@ test('Cloudflare D1 relay auth service verifies registration Email OTP enrollmen
   }
 });
 
-test('Cloudflare D1 relay auth service delivers Email OTP through configured provider', async () => {
+test('Cloudflare D1 Router API auth service delivers Email OTP through configured provider', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4803,7 +5450,7 @@ test('Cloudflare D1 relay auth service delivers Email OTP through configured pro
   }
 });
 
-test('Cloudflare D1 relay auth service fails closed when Email OTP provider is missing', async () => {
+test('Cloudflare D1 Router API auth service fails closed when Email OTP provider is missing', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4843,7 +5490,7 @@ test('Cloudflare D1 relay auth service fails closed when Email OTP provider is m
     const challengeRows = await database
       .prepare(
         `SELECT challenge_id
-           FROM signer_email_otp_challenges
+           FROM email_otp_challenges
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -4857,7 +5504,7 @@ test('Cloudflare D1 relay auth service fails closed when Email OTP provider is m
   }
 });
 
-test('Cloudflare D1 relay auth service issues and verifies device recovery Email OTP challenges', async () => {
+test('Cloudflare D1 Router API auth service issues and verifies device recovery Email OTP challenges', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -4972,7 +5619,7 @@ test('Cloudflare D1 relay auth service issues and verifies device recovery Email
     const grantRow = await database
       .prepare(
         `SELECT action
-           FROM signer_email_otp_grants
+           FROM email_otp_grants
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -5037,7 +5684,7 @@ test('Cloudflare D1 relay auth service issues and verifies device recovery Email
     const consumedEscrowRow = await database
       .prepare(
         `SELECT recovery_key_status
-           FROM signer_email_otp_recovery_wrapped_enrollment_escrows
+           FROM email_otp_recovery_wrapped_enrollment_escrows
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -5089,7 +5736,7 @@ test('Cloudflare D1 relay auth service issues and verifies device recovery Email
   }
 });
 
-test('Cloudflare D1 relay auth service enforces Email OTP challenge rate limits', async () => {
+test('Cloudflare D1 Router API auth service enforces Email OTP challenge rate limits', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -5139,7 +5786,7 @@ test('Cloudflare D1 relay auth service enforces Email OTP challenge rate limits'
   }
 });
 
-test('Cloudflare D1 relay auth service verifies Email OTP unlock proofs once', async () => {
+test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs once', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);

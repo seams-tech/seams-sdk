@@ -6,6 +6,14 @@ import {
   registerWalletServiceRoute,
   captureOverlay,
 } from '../wallet-iframe/harness';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+
+function unwrapFixture<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid fixture value');
+  return result.value;
+}
+
+const REGISTRATION_RP_ID = unwrapFixture(parseWebAuthnRpId('example.localhost'));
 
 test.describe('Wallet iframe overlay specs on cancel', () => {
   test.beforeEach(async ({ page }) => {
@@ -30,7 +38,7 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
 
     const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
     const result = await page.evaluate(
-      async ({ captureOverlaySource }) => {
+      async ({ captureOverlaySource, registrationRpId }) => {
         try {
           // Dynamically import the wallet iframe client
           // @ts-ignore - runtime import path resolved by SDK build served at /sdk
@@ -89,19 +97,20 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
             (window as any).testUtils?.configs?.testReceiverAccountId || 'w3a-v1.testnet';
 
           const events: Record<string, any[]> = {};
-          const registrationSignerSelection = {
-            mode: 'ed25519_only' as const,
-            ed25519: {
-              accountProvisioning: {
-                kind: 'implicit_account' as const,
-                accountIdSource: 'ed25519_public_key' as const,
+          const registrationSignerSet = {
+            kind: 'signer_set' as const,
+            signers: [
+              {
+                kind: 'near_ed25519' as const,
+                accountProvisioning: {
+                  kind: 'implicit_account' as const,
+                  accountIdSource: 'ed25519_public_key' as const,
+                },
+                signerSlot: 1,
+                participantIds: [1, 2],
+                derivationVersion: 1,
               },
-              signerSlot: 1,
-              participantIds: [1, 2],
-              keyPurpose: 'near-ed25519-signing',
-              keyVersion: 'threshold-ed25519-hss-v1',
-              derivationVersion: 1,
-            },
+            ],
           };
 
           const flows: Array<{ name: string; run: () => Promise<unknown> }> = [
@@ -126,10 +135,9 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
               name: 'register',
               run: () =>
                 router.registerWallet({
-                  wallet: { kind: 'server_generated' },
-                  rpId: 'example.localhost',
-                  authMethod: { kind: 'passkey' },
-                  signerSelection: registrationSignerSelection,
+                  wallet: { kind: 'server_allocated' },
+                  authMethod: { kind: 'passkey', rpId: registrationRpId },
+                  signerSelection: registrationSignerSet,
                   options: {
                     onEvent: (evt: any) => {
                       (events.register ||= []).push({
@@ -202,7 +210,7 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
           return { success: false, error: error?.message || String(error) };
         }
       },
-      { captureOverlaySource: CAPTURE_OVERLAY_SOURCE },
+      { captureOverlaySource: CAPTURE_OVERLAY_SOURCE, registrationRpId: REGISTRATION_RP_ID },
     );
 
     if (!result.success) {

@@ -14,7 +14,7 @@ test.describe('SeamsWeb.setTheme', () => {
       const seams = new SeamsWeb({
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
-        relayer: { url: 'https://relay-server.localhost' },
+        relayer: { url: 'https://router-api.localhost' },
         iframeWallet: { walletOrigin: '' },
       });
 
@@ -36,7 +36,7 @@ test.describe('SeamsWeb.setTheme', () => {
         appearance: { theme: 'light' },
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
-        relayer: { url: 'https://relay-server.localhost' },
+        relayer: { url: 'https://router-api.localhost' },
         iframeWallet: { walletOrigin: '' },
       });
 

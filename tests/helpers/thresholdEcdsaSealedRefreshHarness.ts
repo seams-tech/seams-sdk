@@ -45,7 +45,7 @@ import {
   TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
 } from '../e2e/thresholdEd25519.testUtils';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
-import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
+import { installRouterApiProxyShim } from '../setup/cross-origin-headers';
 
 export const TEST_KEY_VERSION = 'signing-session-seal-kek-test-r1';
 export const TEST_SHAMIR_PRIME_B64U = '_____________________________________v___C8';
@@ -719,7 +719,7 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
   const routerAbNormalSigningAdmission = createRouterAbNormalSigningAdmissionAdapter(
     createInMemoryRouterAbNormalSigningAdmissionStore(),
   );
-  const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
+  const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://router-api.localhost';
   const thresholdWalletSessionStores = threshold as unknown as {
     walletSessionStore?: unknown;
     ecdsaWalletSessionStore?: unknown;
@@ -789,9 +789,9 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
     await targetPage.evaluate((config) => {
       (window as any).__w3aManagedRegistration = config;
     }, managedRegistration);
-    await installRelayServerProxyShim(targetPage, {
-      relayOrigin: relayerUrl,
-      relayUpstream: server.baseUrl,
+    await installRouterApiProxyShim(targetPage, {
+      routerApiOrigin: relayerUrl,
+      routerApiUpstream: server.baseUrl,
       logStyle: 'silent',
     });
     await installThresholdRegistrationFinalizeRelayKeyMaterialCapture(targetPage, {

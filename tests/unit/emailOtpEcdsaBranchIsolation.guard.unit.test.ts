@@ -74,7 +74,6 @@ test.describe('Email OTP ECDSA branch isolation guards', () => {
   test('wallet-subject vocabulary is isolated to migration and delete-only boundaries', () => {
     const allowedFiles = new Set([
       'packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema.ts',
-      'packages/sdk-server-ts/src/storage/postgres.ts',
     ]);
     const offenders = ['packages/sdk-web/src', 'packages/sdk-server-ts/src', 'packages/shared-ts/src']
       .flatMap(listSourceFiles)

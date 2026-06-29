@@ -43,13 +43,14 @@ const recoveryKeysAllowedSourceFiles = new Set([
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/publicTypes.typecheck.ts',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/workerEnrollment.ts',
   'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
+  'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.typecheck.ts',
   'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
   'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
-  'packages/sdk-server-ts/src/core/EmailOtpPostgresRecords.ts',
+  'packages/sdk-server-ts/src/core/EmailOtpRecords.ts',
   'packages/sdk-server-ts/src/core/EmailOtpStores.ts',
   'packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts',
-  'packages/sdk-server-ts/src/router/relayWalletRegistration.ts',
+  'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
 ]);
 
 const retainedBackupRecordAllowedSourceFiles = new Set([

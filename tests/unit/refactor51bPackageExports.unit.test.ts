@@ -88,11 +88,7 @@ test.describe('refactor 51b package exports', () => {
       default: './dist/esm/router/ror.js',
       types: './dist/types/sdk-server-ts/src/router/ror-adaptor.d.ts',
     });
-    expect(exportsMap['./storage/postgres']).toEqual({
-      import: './dist/esm/storage/postgres.js',
-      default: './dist/esm/storage/postgres.js',
-      types: './dist/types/sdk-server-ts/src/storage/postgres.d.ts',
-    });
+    expect(exportsMap['./storage/postgres']).toBeUndefined();
     expect(exportsMap['./wasm/signer']).toEqual({
       import: './dist/esm/wasm/signer.js',
       default: './dist/esm/wasm/signer.js',
@@ -113,6 +109,15 @@ test.describe('refactor 51b package exports', () => {
     const runtimeTypes = readRepoFile('packages/sdk-web/src/runtime.ts');
     expect(runtimeTypes).toContain('createSigningRuntime');
     expect(runtimeTypes).toContain('createSigningRuntimeStatePorts');
+  });
+
+  test('react provider subpath exposes named and default provider exports', async () => {
+    const packageJson = readJson('packages/sdk-web/package.json');
+    const providerExport = packageJson.exports['./react/provider'];
+    const providerModule = await import(pathToFileURL(resolveSdkWebPath(providerExport.import)).href);
+
+    expect(typeof providerModule.SeamsWebProvider).toBe('function');
+    expect(providerModule.default).toBe(providerModule.SeamsWebProvider);
   });
 
   test('keeps runtime source entry free of browser surfaces', () => {
@@ -176,7 +181,7 @@ test.describe('refactor 51b package exports', () => {
 
   test('keeps server runtime dependencies on @seams/sdk-server', () => {
     const packageJson = readJson('packages/sdk-server-ts/package.json');
-    const serverPackages = ['pg', '@simplewebauthn/server', 'express', 'bs58'];
+    const serverPackages = ['@simplewebauthn/server', 'express', 'bs58'];
 
     for (const packageName of serverPackages) {
       expect(packageJson.dependencies?.[packageName]).toBeTruthy();

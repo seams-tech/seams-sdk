@@ -16,15 +16,6 @@ import {
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
-  createPostgresConsoleApiKeyService,
-  createPostgresConsoleApprovalService,
-  createPostgresConsoleAuditService,
-  createPostgresConsoleBillingService,
-  createPostgresConsoleOrgProjectEnvService,
-  createPostgresConsolePolicyService,
-  createPostgresConsoleTeamRbacService,
-  createPostgresConsoleWalletService,
-  createPostgresConsoleWebhookService,
   type ConsoleApiKeyService,
   type ConsoleApprovalService,
   type ConsoleAuditService,
@@ -43,8 +34,52 @@ import {
 } from '@server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, startExpressRouter } from './helpers';
-import { getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
-import { withConsoleTenantContextTx } from '../../packages/sdk-server-ts/src/console/shared/postgresTenantContext';
+import type {
+  PostgresTenantStorageRoute,
+  TenantStorageRouteResolver,
+} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import { parseOrgId, type OrgId } from '../../packages/shared-ts/src/utils/domainIds';
+
+function orgIdFromString(input: string): OrgId {
+  const parsed = parseOrgId(input);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+const postgresTenantStorageRoute: PostgresTenantStorageRoute = {
+  kind: 'postgres',
+  namespace: 'seams',
+  orgId: orgIdFromString('org-1'),
+  routeVersion: 2,
+  migrationReason: 'd1_size_limit',
+  postgresRegion: 'wnam',
+  postgresBackupRegion: 'enam',
+  console: {
+    kind: 'postgres',
+    hyperdriveBindingName: 'SEAMS_POSTGRES',
+    hyperdrive: { connectionString: 'postgres://example.invalid/seams' },
+    postgresSchema: 'seams_console',
+  },
+  signer: {
+    kind: 'postgres',
+    hyperdriveBindingName: 'SEAMS_POSTGRES',
+    hyperdrive: { connectionString: 'postgres://example.invalid/seams' },
+    postgresSchema: 'seams_signer',
+    kekProvider: {
+      kind: 'worker_secret',
+      workerSecretsByKekId: {
+        'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      },
+      encoding: 'base64url',
+    },
+  },
+};
+
+const postgresTenantStorageRouteResolver: TenantStorageRouteResolver = {
+  resolveTenantStorageRoute(): PostgresTenantStorageRoute {
+    return postgresTenantStorageRoute;
+  },
+};
 
 function makeConsoleAuthAdapter(
   roles: string[],
@@ -63,11 +98,72 @@ function makeConsoleAuthAdapter(
   };
 }
 
+type EvmGasSponsorshipRulesFixtureInput = {
+  readonly environmentId: string;
+  readonly projectId: string | null;
+  readonly chainId: number;
+  readonly capMinor: number;
+  readonly enabled: boolean;
+};
+
+const TEST_EVM_SPONSORSHIP_CONTRACT = '0x1111111111111111111111111111111111111111';
+
+type ObservabilityIngestionEntry = {
+  readonly ingestCtx: Record<string, unknown>;
+  readonly event: Record<string, unknown>;
+};
+
+function evmGasSponsorshipRulesFixture(
+  input: EvmGasSponsorshipRulesFixtureInput,
+): Record<string, unknown> {
+  return {
+    kind: 'evm_call',
+    executionMode: 'evm_eoa',
+    scopeType: 'ENVIRONMENT',
+    ...(input.projectId ? { projectId: input.projectId } : {}),
+    environmentId: input.environmentId,
+    enabled: input.enabled,
+    allowedCalls: [
+      {
+        chainId: input.chainId,
+        to: TEST_EVM_SPONSORSHIP_CONTRACT,
+        functionSignature: 'sponsor(address,uint256)',
+        maxGasLimit: '100000',
+        maxValueWei: '0',
+      },
+    ],
+    spendCap: {
+      mode: 'CHAIN_TOTAL',
+      period: 'MONTHLY',
+      capsByChain: [{ chainId: input.chainId, capMinor: input.capMinor }],
+    },
+  };
+}
+
+function observabilityEventType(entry: ObservabilityIngestionEntry): string {
+  return String(getPath(entry, 'event', 'eventType') || '');
+}
+
+function isPolicyObservabilityEventType(eventType: string): boolean {
+  return eventType.startsWith('policy.');
+}
+
+function observabilityEventTypes(entries: readonly ObservabilityIngestionEntry[]): string[] {
+  return entries.map(observabilityEventType);
+}
+
+function policyObservabilityEventTypes(entries: readonly ObservabilityIngestionEntry[]): string[] {
+  return observabilityEventTypes(entries).filter(isPolicyObservabilityEventType);
+}
+
+function sortedWebhookDeliveryEventTypes(input: {
+  readonly items: readonly { readonly eventType: string }[];
+}): string[] {
+  return input.items.map((entry) => entry.eventType).sort();
+}
+
 function makeObservabilityIngestionCollector(
-  ingested: Array<{
-    ingestCtx: Record<string, unknown>;
-    event: Record<string, unknown>;
-  }>,
+  ingested: ObservabilityIngestionEntry[],
 ): ConsoleObservabilityIngestionService {
   const appendOne = async (
     ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
@@ -190,45 +286,6 @@ async function seedOrgProjectEnvironment(
     name: 'Default Project',
     liveEnvironmentsEnabled: true,
   });
-}
-
-async function seedPostgresWalletRecord(input: {
-  postgresUrl: string;
-  namespace: string;
-  orgId: string;
-  projectId: string;
-  environmentId: string;
-  walletId: string;
-  userId: string;
-  externalRefId: string;
-  address: string;
-}): Promise<void> {
-  const pool = await getPostgresPool(input.postgresUrl);
-  const createdAtMs = Date.now();
-  await withConsoleTenantContextTx(
-    pool,
-    { namespace: input.namespace, orgId: input.orgId },
-    async (q) => {
-      await q.query(
-        `INSERT INTO console_wallet_index
-        (namespace, id, org_id, project_id, environment_id, user_id, external_ref_id, address, chain, wallet_type, status, policy_id, balance_minor, last_activity_at_ms, created_at_ms, updated_at_ms)
-       VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, 'Ethereum', 'EOA', 'ACTIVE', NULL, 0, $9, $9, $9)
-       ON CONFLICT (namespace, id) DO NOTHING`,
-        [
-          input.namespace,
-          input.walletId,
-          input.orgId,
-          input.projectId,
-          input.environmentId,
-          input.userId,
-          input.externalRefId,
-          input.address,
-          createdAtMs,
-        ],
-      );
-    },
-  );
 }
 
 test.describe('console router (express)', () => {
@@ -1663,7 +1720,7 @@ test.describe('console router (express)', () => {
     const claims = {
       orgId: 'org-env-low-balance-live-enabled',
       actorUserId: 'user-env-low-balance-live-enabled',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     };
     await orgProjectEnv.upsertOrganization(claims, {
       name: 'Low Balance Live Enabled Org',
@@ -2716,17 +2773,13 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           kind: 'GAS_SPONSORSHIP',
           name: 'Scaffold gas policy express',
-          rules: {
-            scopeType: 'ENVIRONMENT',
+          rules: evmGasSponsorshipRulesFixture({
             environmentId: 'prod',
+            projectId: null,
+            chainId: 1,
+            capMinor: 500000,
             enabled: true,
-            allowedChainIds: [1],
-            spendCap: {
-              mode: 'CHAIN_TOTAL',
-              period: 'MONTHLY',
-              capsByChain: [{ chainId: 1, capMinor: 500000 }],
-            },
-          },
+          }),
         }),
       });
       expect(createdGas.status).toBe(201);
@@ -2748,17 +2801,13 @@ test.describe('console router (express)', () => {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            rules: {
-              scopeType: 'ENVIRONMENT',
+            rules: evmGasSponsorshipRulesFixture({
               environmentId: 'prod',
+              projectId: null,
+              chainId: 1,
+              capMinor: 500000,
               enabled: false,
-              allowedChainIds: [1],
-              spendCap: {
-                mode: 'CHAIN_TOTAL',
-                period: 'MONTHLY',
-                capsByChain: [{ chainId: 1, capMinor: 500000 }],
-              },
-            },
+            }),
           }),
         },
       );
@@ -3022,12 +3071,13 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           kind: 'GAS_SPONSORSHIP',
           name: 'Runtime gas policy express',
-          rules: {
-            scopeType: 'ENVIRONMENT',
+          rules: evmGasSponsorshipRulesFixture({
             environmentId,
-            allowedChainIds: [1],
-            callMode: 'ALLOW_ALL',
-          },
+            projectId: null,
+            chainId: 1,
+            capMinor: 500000,
+            enabled: true,
+          }),
         }),
       });
       expect(created.status).toBe(201);
@@ -3046,12 +3096,13 @@ test.describe('console router (express)', () => {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            rules: {
-              scopeType: 'ENVIRONMENT',
+            rules: evmGasSponsorshipRulesFixture({
               environmentId,
-              allowedChainIds: [10],
-              callMode: 'ALLOW_ALL',
-            },
+              projectId: null,
+              chainId: 10,
+              capMinor: 500000,
+              enabled: true,
+            }),
           }),
         },
       );
@@ -3094,7 +3145,7 @@ test.describe('console router (express)', () => {
           'snapshot',
           'payload',
           'gasSponsorship',
-          'sponsoredCallPolicies',
+          'resolvedPolicies',
           0,
           'policyId',
         ),
@@ -3105,7 +3156,7 @@ test.describe('console router (express)', () => {
           'snapshot',
           'payload',
           'gasSponsorship',
-          'sponsoredCallPolicies',
+          'resolvedPolicies',
           0,
           'allowedChainIds',
           0,
@@ -3447,11 +3498,13 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           kind: 'GAS_SPONSORSHIP',
           name: 'Isolation gas policy express',
-          rules: {
-            scopeType: 'ENVIRONMENT',
+          rules: evmGasSponsorshipRulesFixture({
             environmentId: ownerEnvironmentId,
-            allowedChainIds: [11_155_111],
-          },
+            projectId: null,
+            chainId: 11_155_111,
+            capMinor: 500000,
+            enabled: true,
+          }),
         }),
       });
       expect(createGas.status).toBe(201);
@@ -4077,11 +4130,8 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('successful policy create and Stripe top-up do not append durable observability events', async () => {
-    const ingested: Array<{
-      ingestCtx: Record<string, unknown>;
-      event: Record<string, unknown>;
-    }> = [];
+  test('successful policy create stays quiet while Stripe top-up emits billing observability', async () => {
+    const ingested: ObservabilityIngestionEntry[] = [];
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(
         ['admin'],
@@ -4100,12 +4150,13 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           kind: 'GAS_SPONSORSHIP',
           name: 'Healthy observability policy',
-          rules: {
-            scopeType: 'ENVIRONMENT',
+          rules: evmGasSponsorshipRulesFixture({
             projectId: 'proj_obs_success_express',
             environmentId: 'env_obs_success_express',
+            chainId: 1,
+            capMinor: 500000,
             enabled: true,
-          },
+          }),
         }),
       });
       expect(createdPolicy.status).toBe(201);
@@ -4140,7 +4191,8 @@ test.describe('console router (express)', () => {
       expect(reconciled.status).toBe(200);
       expect(getPath(reconciled.json, 'result', 'settled')).toBe(true);
 
-      expect(ingested).toEqual([]);
+      expect(policyObservabilityEventTypes(ingested)).toEqual([]);
+      expect(observabilityEventTypes(ingested)).toEqual(['billing.balance.recovered']);
     } finally {
       await srv.close();
     }
@@ -4258,18 +4310,13 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           kind: 'GAS_SPONSORSHIP',
           name: 'Express published audit policy',
-          rules: {
-            scopeType: 'ENVIRONMENT',
-            projectId: 'proj_policy_publish_audit_express',
+          rules: evmGasSponsorshipRulesFixture({
             environmentId: 'env_policy_publish_audit_express',
+            projectId: 'proj_policy_publish_audit_express',
+            chainId: 1,
+            capMinor: 500000,
             enabled: true,
-            allowedChainIds: [1],
-            spendCap: {
-              mode: 'CHAIN_TOTAL',
-              period: 'MONTHLY',
-              capsByChain: [{ chainId: 1, capMinor: 500000 }],
-            },
-          },
+          }),
         }),
       });
       expect(created.status).toBe(201);
@@ -5917,7 +5964,7 @@ test.describe('console router (express)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin']),
+      auth: makeConsoleAuthAdapter(['platform_admin', 'billing_admin']),
       billing,
       audit,
     });
@@ -6098,10 +6145,10 @@ test.describe('console router (express)', () => {
         { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
         endpoint.id,
       );
-      expect(deliveries.items.map((entry) => entry.eventType)).toEqual([
-        'billing.balance.recovered',
+      expect(sortedWebhookDeliveryEventTypes(deliveries)).toEqual([
         'billing.balance.blocked',
         'billing.balance.low_balance',
+        'billing.balance.recovered',
       ]);
       expect(ingested.map((entry) => String(entry.event.eventType || ''))).toEqual([
         'billing.balance.low_balance',
@@ -6869,6 +6916,26 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(res.status).toBe(501);
     expect(res.json?.code).toBe('webhooks_not_configured');
+  });
+
+  test('GET /console/webhooks rejects Postgres tenant routes in Cloudflare runtime', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      tenantStorageRouteResolver: postgresTenantStorageRouteResolver,
+      tenantStorageNamespace: 'seams',
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/webhooks',
+    });
+    expect(res.status).toBe(500);
+    expect(res.json?.code).toBe('tenant_storage_backend_not_supported_in_cloudflare_runtime');
+    expect(res.json?.route).toMatchObject({
+      backendFamily: 'postgres',
+      namespace: 'seams',
+      orgId: 'org-1',
+      routeVersion: 2,
+    });
   });
 
   test('GET /console/api-keys returns api_keys_not_configured without API key service', async () => {
@@ -8140,7 +8207,7 @@ test.describe('console router (cloudflare)', () => {
     const claims = {
       orgId: 'org-env-low-balance-live-enabled-cf',
       actorUserId: 'user-env-low-balance-live-enabled-cf',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     };
     await orgProjectEnv.upsertOrganization(claims, {
       name: 'Low Balance Live Enabled Org CF',
@@ -9093,17 +9160,13 @@ test.describe('console router (cloudflare)', () => {
       body: {
         kind: 'GAS_SPONSORSHIP',
         name: 'Scaffold gas policy cloudflare',
-        rules: {
-          scopeType: 'ENVIRONMENT',
+        rules: evmGasSponsorshipRulesFixture({
           environmentId: 'prod',
+          projectId: null,
+          chainId: 1,
+          capMinor: 500000,
           enabled: true,
-          allowedChainIds: [1],
-          spendCap: {
-            mode: 'CHAIN_TOTAL',
-            period: 'MONTHLY',
-            capsByChain: [{ chainId: 1, capMinor: 500000 }],
-          },
-        },
+        }),
       },
     });
     expect(createdGas.status).toBe(201);
@@ -9124,17 +9187,13 @@ test.describe('console router (cloudflare)', () => {
       method: 'PATCH',
       path: `/console/policies/${encodeURIComponent(createdGasId)}`,
       body: {
-        rules: {
-          scopeType: 'ENVIRONMENT',
+        rules: evmGasSponsorshipRulesFixture({
           environmentId: 'prod',
+          projectId: null,
+          chainId: 1,
+          capMinor: 500000,
           enabled: false,
-          allowedChainIds: [1],
-          spendCap: {
-            mode: 'CHAIN_TOTAL',
-            period: 'MONTHLY',
-            capsByChain: [{ chainId: 1, capMinor: 500000 }],
-          },
-        },
+        }),
       },
     });
     expect(patchedGas.status).toBe(200);
@@ -9376,12 +9435,13 @@ test.describe('console router (cloudflare)', () => {
       body: {
         kind: 'GAS_SPONSORSHIP',
         name: 'Runtime gas policy cloudflare',
-        rules: {
-          scopeType: 'ENVIRONMENT',
+        rules: evmGasSponsorshipRulesFixture({
           environmentId,
-          allowedChainIds: [1],
-          callMode: 'ALLOW_ALL',
-        },
+          projectId: null,
+          chainId: 1,
+          capMinor: 500000,
+          enabled: true,
+        }),
       },
     });
     expect(created.status).toBe(201);
@@ -9398,12 +9458,13 @@ test.describe('console router (cloudflare)', () => {
       method: 'PATCH',
       path: `/console/policies/${encodeURIComponent(policyId)}`,
       body: {
-        rules: {
-          scopeType: 'ENVIRONMENT',
+        rules: evmGasSponsorshipRulesFixture({
           environmentId,
-          allowedChainIds: [10],
-          callMode: 'ALLOW_ALL',
-        },
+          projectId: null,
+          chainId: 10,
+          capMinor: 500000,
+          enabled: true,
+        }),
       },
     });
     expect(drafted.status).toBe(200);
@@ -9445,7 +9506,7 @@ test.describe('console router (cloudflare)', () => {
         'snapshot',
         'payload',
         'gasSponsorship',
-        'sponsoredCallPolicies',
+        'resolvedPolicies',
         0,
         'policyId',
       ),
@@ -9456,7 +9517,7 @@ test.describe('console router (cloudflare)', () => {
         'snapshot',
         'payload',
         'gasSponsorship',
-        'sponsoredCallPolicies',
+        'resolvedPolicies',
         0,
         'allowedChainIds',
         0,
@@ -9761,11 +9822,13 @@ test.describe('console router (cloudflare)', () => {
       body: {
         kind: 'GAS_SPONSORSHIP',
         name: 'Isolation gas policy cloudflare',
-        rules: {
-          scopeType: 'ENVIRONMENT',
+        rules: evmGasSponsorshipRulesFixture({
           environmentId: ownerEnvironmentId,
-          allowedChainIds: [11_155_111],
-        },
+          projectId: null,
+          chainId: 11_155_111,
+          capMinor: 500000,
+          enabled: true,
+        }),
       },
     });
     expect(createGas.status).toBe(201);
@@ -10322,11 +10385,8 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(lifecycleByAction['policy.create'], 'metadata', 'version')).toBe(createdVersion);
   });
 
-  test('cloudflare successful policy create and Stripe top-up do not append durable observability events', async () => {
-    const ingested: Array<{
-      ingestCtx: Record<string, unknown>;
-      event: Record<string, unknown>;
-    }> = [];
+  test('cloudflare successful policy create stays quiet while Stripe top-up emits billing observability', async () => {
+    const ingested: ObservabilityIngestionEntry[] = [];
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(
         ['admin'],
@@ -10344,12 +10404,13 @@ test.describe('console router (cloudflare)', () => {
       body: {
         kind: 'GAS_SPONSORSHIP',
         name: 'Healthy observability policy cloudflare',
-        rules: {
-          scopeType: 'ENVIRONMENT',
+        rules: evmGasSponsorshipRulesFixture({
           projectId: 'proj_obs_success_cf',
           environmentId: 'env_obs_success_cf',
+          chainId: 1,
+          capMinor: 500000,
           enabled: true,
-        },
+        }),
       },
     });
     expect(createdPolicy.status).toBe(201);
@@ -10376,7 +10437,8 @@ test.describe('console router (cloudflare)', () => {
     expect(reconciled.status).toBe(200);
     expect(getPath(reconciled.json, 'result', 'settled')).toBe(true);
 
-    expect(ingested).toEqual([]);
+    expect(policyObservabilityEventTypes(ingested)).toEqual([]);
+    expect(observabilityEventTypes(ingested)).toEqual(['billing.balance.recovered']);
   });
 
   test('cloudflare policy assignment upsert and delete append audit rows', async () => {
@@ -10482,18 +10544,13 @@ test.describe('console router (cloudflare)', () => {
       body: {
         kind: 'GAS_SPONSORSHIP',
         name: 'Cloudflare published audit policy',
-        rules: {
-          scopeType: 'ENVIRONMENT',
-          projectId: 'proj_policy_publish_audit_cloudflare',
+        rules: evmGasSponsorshipRulesFixture({
           environmentId: 'env_policy_publish_audit_cloudflare',
+          projectId: 'proj_policy_publish_audit_cloudflare',
+          chainId: 1,
+          capMinor: 500000,
           enabled: true,
-          allowedChainIds: [1],
-          spendCap: {
-            mode: 'CHAIN_TOTAL',
-            period: 'MONTHLY',
-            capsByChain: [{ chainId: 1, capMinor: 500000 }],
-          },
-        },
+        }),
       },
     });
     expect(created.status).toBe(201);
@@ -11985,7 +12042,7 @@ test.describe('console router (cloudflare)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin']),
+      auth: makeConsoleAuthAdapter(['platform_admin', 'billing_admin']),
       billing,
       audit,
     });
@@ -12153,10 +12210,10 @@ test.describe('console router (cloudflare)', () => {
       { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
       endpoint.id,
     );
-    expect(deliveries.items.map((entry) => entry.eventType)).toEqual([
-      'billing.balance.recovered',
+    expect(sortedWebhookDeliveryEventTypes(deliveries)).toEqual([
       'billing.balance.blocked',
       'billing.balance.low_balance',
+      'billing.balance.recovered',
     ]);
     expect(ingested.map((entry) => String(entry.event.eventType || ''))).toEqual([
       'billing.balance.low_balance',
@@ -12770,2623 +12827,5 @@ test.describe('console router (cloudflare)', () => {
     expect(pageOne.status).toBe(200);
     const pageOneRows = Array.isArray(pageOne.json?.deliveries) ? pageOne.json?.deliveries : [];
     expect(pageOneRows.length).toBeGreaterThanOrEqual(1);
-  });
-});
-
-test.describe('console router (postgres org-project-env)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:org-project-env:postgres');
-  const authOrgId = 'org-router-postgres-org-project-env';
-  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
-  });
-
-  test('express org/project/environment routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    const ownerSeedProjectId = `${ownerOrgId}:seed-project`;
-    const attackerSeedProjectId = `${attackerOrgId}:seed-project`;
-    const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
-    const ownerManagedEnvironmentId = `${ownerOrgId}:${ownerManagedProjectId}:dev`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerSeedProjectId,
-      actorUserId: 'owner-org-project-env-seed',
-    });
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: attackerOrgId,
-      projectId: attackerSeedProjectId,
-      actorUserId: 'attacker-org-project-env-seed',
-    });
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user'),
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    let ownerProjectId = '';
-    try {
-      const projects = await fetchJson(`${ownerServer.baseUrl}/console/projects`, {
-        method: 'GET',
-      });
-      expect(projects.status).toBe(200);
-      ownerProjectId = String(getPath(projects.json, 'projects', 0, 'id') || '');
-      expect(ownerProjectId).toBeTruthy();
-      expect(
-        Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0),
-      ).toBeGreaterThanOrEqual(1);
-
-      const createdProject = await fetchJson(`${ownerServer.baseUrl}/console/projects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: ownerManagedProjectId,
-          name: 'Owner Managed Project',
-        }),
-      });
-      expect(createdProject.status).toBe(201);
-      expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(3);
-
-      const environments = await fetchJson(
-        `${ownerServer.baseUrl}/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
-        { method: 'GET' },
-      );
-      expect(environments.status).toBe(200);
-      const ownerEnvRows = Array.isArray(environments.json?.environments)
-        ? environments.json?.environments
-        : [];
-      expect(ownerEnvRows.length).toBeGreaterThanOrEqual(1);
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-org-project-env-user'),
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const org = await fetchJson(`${attackerServer.baseUrl}/console/org`, {
-        method: 'GET',
-      });
-      expect(org.status).toBe(200);
-      expect(String(getPath(org.json, 'org', 'id') || '')).toBe(attackerOrgId);
-      expect(String(getPath(org.json, 'org', 'id') || '')).not.toBe(ownerOrgId);
-
-      const projects = await fetchJson(`${attackerServer.baseUrl}/console/projects`, {
-        method: 'GET',
-      });
-      expect(projects.status).toBe(200);
-      const attackerProjects = Array.isArray(projects.json?.projects)
-        ? projects.json?.projects
-        : [];
-      expect(
-        attackerProjects.some((entry: any) => String(entry?.id || '') === ownerProjectId),
-      ).toBe(false);
-      expect(
-        attackerProjects.some((entry: any) => String(entry?.id || '') === ownerManagedProjectId),
-      ).toBe(false);
-
-      const scopedEnvironments = await fetchJson(
-        `${attackerServer.baseUrl}/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
-        {
-          method: 'GET',
-        },
-      );
-      expect(scopedEnvironments.status).toBe(200);
-      const attackerScopedRows = Array.isArray(scopedEnvironments.json?.environments)
-        ? scopedEnvironments.json?.environments
-        : [];
-      expect(attackerScopedRows.length).toBe(0);
-
-      const patchOwnerProject = await fetchJson(
-        `${attackerServer.baseUrl}/console/projects/${encodeURIComponent(ownerManagedProjectId)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'attacker rename' }),
-        },
-      );
-      expect(patchOwnerProject.status).toBe(404);
-      expect(patchOwnerProject.json?.code).toBe('project_not_found');
-
-      const archiveOwnerEnvironment = await fetchJson(
-        `${attackerServer.baseUrl}/console/environments/${encodeURIComponent(ownerManagedEnvironmentId)}/archive`,
-        {
-          method: 'POST',
-        },
-      );
-      expect(archiveOwnerEnvironment.status).toBe(404);
-      expect(archiveOwnerEnvironment.json?.code).toBe('environment_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare org/project/environment routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    const ownerSeedProjectId = `${ownerOrgId}:seed-project`;
-    const attackerSeedProjectId = `${attackerOrgId}:seed-project`;
-    const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
-    const ownerManagedEnvironmentId = `${ownerOrgId}:${ownerManagedProjectId}:dev`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerSeedProjectId,
-      actorUserId: 'owner-org-project-env-seed-cf',
-    });
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: attackerOrgId,
-      projectId: attackerSeedProjectId,
-      actorUserId: 'attacker-org-project-env-seed-cf',
-    });
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user-cf'),
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const ownerProjects = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/projects',
-    });
-    expect(ownerProjects.status).toBe(200);
-    const ownerProjectId = String(getPath(ownerProjects.json, 'projects', 0, 'id') || '');
-    expect(ownerProjectId).toBeTruthy();
-    expect(
-      Number(getPath(ownerProjects.json, 'projects', 0, 'environmentCount') || 0),
-    ).toBeGreaterThanOrEqual(1);
-
-    const ownerCreatedProject = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/projects',
-      body: {
-        id: ownerManagedProjectId,
-        name: 'Owner Managed Project CF',
-      },
-    });
-    expect(ownerCreatedProject.status).toBe(201);
-    expect(Number(getPath(ownerCreatedProject.json, 'project', 'environmentCount') || 0)).toBe(3);
-
-    const ownerEnvironments = await callCf(ownerHandler, {
-      method: 'GET',
-      path: `/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
-    });
-    expect(ownerEnvironments.status).toBe(200);
-    const ownerEnvRows = Array.isArray(ownerEnvironments.json?.environments)
-      ? ownerEnvironments.json?.environments
-      : [];
-    expect(ownerEnvRows.length).toBeGreaterThanOrEqual(1);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-org-project-env-user-cf'),
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const org = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/org',
-    });
-    expect(org.status).toBe(200);
-    expect(String(getPath(org.json, 'org', 'id') || '')).toBe(attackerOrgId);
-    expect(String(getPath(org.json, 'org', 'id') || '')).not.toBe(ownerOrgId);
-
-    const projects = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/projects',
-    });
-    expect(projects.status).toBe(200);
-    const attackerProjects = Array.isArray(projects.json?.projects) ? projects.json?.projects : [];
-    expect(attackerProjects.some((entry: any) => String(entry?.id || '') === ownerProjectId)).toBe(
-      false,
-    );
-    expect(
-      attackerProjects.some((entry: any) => String(entry?.id || '') === ownerManagedProjectId),
-    ).toBe(false);
-
-    const scopedEnvironments = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
-    });
-    expect(scopedEnvironments.status).toBe(200);
-    const attackerScopedRows = Array.isArray(scopedEnvironments.json?.environments)
-      ? scopedEnvironments.json?.environments
-      : [];
-    expect(attackerScopedRows.length).toBe(0);
-
-    const patchOwnerProject = await callCf(attackerHandler, {
-      method: 'PATCH',
-      path: `/console/projects/${encodeURIComponent(ownerManagedProjectId)}`,
-      body: { name: 'attacker rename cf' },
-    });
-    expect(patchOwnerProject.status).toBe(404);
-    expect(patchOwnerProject.json?.code).toBe('project_not_found');
-
-    const archiveOwnerEnvironment = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/environments/${encodeURIComponent(ownerManagedEnvironmentId)}/archive`,
-    });
-    expect(archiveOwnerEnvironment.status).toBe(404);
-    expect(archiveOwnerEnvironment.json?.code).toBe('environment_not_found');
-  });
-});
-
-test.describe('console router (postgres onboarding)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:onboarding:postgres');
-  const authOrgId = 'org-router-postgres-onboarding';
-  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
-  let apiKeys: ConsoleApiKeyService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-    apiKeys = await createPostgresConsoleApiKeyService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_api_keys WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
-  });
-
-  test('express onboarding routes enforce org isolation and idempotent reuse', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    const projectId = 'proj_onboarding_postgres';
-    const environmentId = 'proj_onboarding_postgres:dev';
-    const billing = createInMemoryConsoleBillingService();
-
-    const onboarding = createInMemoryConsoleOnboardingService({
-      orgProjectEnv: orgProjectEnv!,
-      apiKeys: apiKeys!,
-      billing,
-    });
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-onboarding-user'),
-      onboarding,
-      billing,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    try {
-      const before = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/state`, {
-        method: 'GET',
-      });
-      expect(before.status).toBe(200);
-      expect(getPath(before.json, 'state', 'complete')).toBe(false);
-
-      const organization = await fetchJson(
-        `${ownerServer.baseUrl}/console/onboarding/organization`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            org: { name: 'Onboarding Postgres Org', slug: 'onboarding-postgres-org' },
-          }),
-        },
-      );
-      expect(organization.status).toBe(201);
-      expect(getPath(organization.json, 'result', 'created', 'organization')).toBe(true);
-
-      const firstProject = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/project`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project: { id: projectId, name: 'Onboarding Postgres Project' },
-          environment: { id: environmentId, name: 'Development' },
-        }),
-      });
-      expect(firstProject.status).toBe(201);
-      expect(getPath(firstProject.json, 'result', 'created', 'project')).toBe(true);
-      expect(getPath(firstProject.json, 'result', 'created', 'environment')).toBe(false);
-
-      const secondProject = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/project`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project: { id: projectId, name: 'Onboarding Postgres Project' },
-          environment: { id: environmentId, name: 'Development' },
-        }),
-      });
-      expect(secondProject.status).toBe(200);
-      expect(getPath(secondProject.json, 'result', 'created', 'project')).toBe(false);
-      expect(getPath(secondProject.json, 'result', 'created', 'environment')).toBe(false);
-
-      const after = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/state`, {
-        method: 'GET',
-      });
-      expect(after.status).toBe(200);
-      expect(getPath(after.json, 'state', 'complete')).toBe(false);
-      expect(getPath(after.json, 'state', 'onboardingComplete')).toBe(true);
-      expect(Number(getPath(after.json, 'state', 'activeApiKeyCount') || 0)).toBe(0);
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-onboarding-user'),
-      onboarding,
-      billing,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const attackerState = await fetchJson(`${attackerServer.baseUrl}/console/onboarding/state`, {
-        method: 'GET',
-      });
-      expect(attackerState.status).toBe(200);
-      expect(getPath(attackerState.json, 'state', 'complete')).toBe(false);
-      expect(Number(getPath(attackerState.json, 'state', 'activeApiKeyCount') || 0)).toBe(0);
-      expect(String(getPath(attackerState.json, 'state', 'selectedProjectId') || '')).not.toBe(
-        projectId,
-      );
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare onboarding routes enforce org isolation and idempotent reuse', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    const projectId = 'proj_onboarding_postgres_cf';
-    const environmentId = 'proj_onboarding_postgres_cf:dev';
-    const billing = createInMemoryConsoleBillingService();
-
-    const onboarding = createInMemoryConsoleOnboardingService({
-      orgProjectEnv: orgProjectEnv!,
-      apiKeys: apiKeys!,
-      billing,
-    });
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-onboarding-user-cf'),
-      onboarding,
-      billing,
-    });
-
-    const before = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/onboarding/state',
-    });
-    expect(before.status).toBe(200);
-    expect(getPath(before.json, 'state', 'complete')).toBe(false);
-
-    const organization = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/onboarding/organization',
-      body: {
-        org: { name: 'Onboarding Postgres Org CF', slug: 'onboarding-postgres-org-cf' },
-      },
-    });
-    expect(organization.status).toBe(201);
-    expect(getPath(organization.json, 'result', 'created', 'organization')).toBe(true);
-
-    const firstProject = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/onboarding/project',
-      body: {
-        project: { id: projectId, name: 'Onboarding Postgres Project CF' },
-        environment: { id: environmentId, name: 'Development' },
-      },
-    });
-    expect(firstProject.status).toBe(201);
-    expect(getPath(firstProject.json, 'result', 'created', 'project')).toBe(true);
-    expect(getPath(firstProject.json, 'result', 'created', 'environment')).toBe(false);
-
-    const secondProject = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/onboarding/project',
-      body: {
-        project: { id: projectId, name: 'Onboarding Postgres Project CF' },
-        environment: { id: environmentId, name: 'Development' },
-      },
-    });
-    expect(secondProject.status).toBe(200);
-    expect(getPath(secondProject.json, 'result', 'created', 'project')).toBe(false);
-    expect(getPath(secondProject.json, 'result', 'created', 'environment')).toBe(false);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-onboarding-user-cf'),
-      onboarding,
-      billing,
-    });
-    const attackerState = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/onboarding/state',
-    });
-    expect(attackerState.status).toBe(200);
-    expect(getPath(attackerState.json, 'state', 'complete')).toBe(false);
-    expect(getPath(attackerState.json, 'state', 'onboardingComplete')).toBe(false);
-    expect(Number(getPath(attackerState.json, 'state', 'activeApiKeyCount') || 0)).toBe(0);
-    expect(String(getPath(attackerState.json, 'state', 'selectedProjectId') || '')).not.toBe(
-      projectId,
-    );
-  });
-});
-
-test.describe('console router (postgres team-rbac)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:team-rbac:postgres');
-  const authOrgId = 'org-router-postgres-team-rbac';
-  let teamRbac: ConsoleTeamRbacService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    teamRbac = await createPostgresConsoleTeamRbacService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_team_members WHERE namespace = $1', [namespace]);
-  });
-
-  test('express team member routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    let ownerMemberId = '';
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-team-rbac-user'),
-      teamRbac: teamRbac!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    try {
-      const invited = await fetchJson(`${ownerServer.baseUrl}/console/members/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: `${ownerOrgId}:member-user-1`,
-          email: 'owner-member@example.com',
-          roles: [{ role: 'wallet_operations_read' }],
-        }),
-      });
-      expect(invited.status).toBe(201);
-      ownerMemberId = String(getPath(invited.json, 'member', 'id') || '');
-      expect(ownerMemberId).toContain('mbr_');
-
-      const listed = await fetchJson(`${ownerServer.baseUrl}/console/members`, {
-        method: 'GET',
-      });
-      expect(listed.status).toBe(200);
-      const ownerMembers = Array.isArray(listed.json?.members) ? listed.json?.members : [];
-      expect(ownerMembers.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(
-        true,
-      );
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-team-rbac-user'),
-      teamRbac: teamRbac!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const listed = await fetchJson(`${attackerServer.baseUrl}/console/members`, {
-        method: 'GET',
-      });
-      expect(listed.status).toBe(200);
-      const attackerMembers = Array.isArray(listed.json?.members) ? listed.json?.members : [];
-      expect(attackerMembers.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(
-        false,
-      );
-
-      const patchOwnerMember = await fetchJson(
-        `${attackerServer.baseUrl}/console/members/${encodeURIComponent(ownerMemberId)}/roles`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            roles: [{ role: 'integrations_read' }],
-          }),
-        },
-      );
-      expect(patchOwnerMember.status).toBe(404);
-      expect(patchOwnerMember.json?.code).toBe('member_not_found');
-
-      const deleteOwnerMember = await fetchJson(
-        `${attackerServer.baseUrl}/console/members/${encodeURIComponent(ownerMemberId)}`,
-        { method: 'DELETE' },
-      );
-      expect(deleteOwnerMember.status).toBe(404);
-      expect(deleteOwnerMember.json?.code).toBe('member_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare team member routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    let ownerMemberId = '';
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-team-rbac-user-cf'),
-      teamRbac: teamRbac!,
-    });
-    const ownerInvite = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/members/invite',
-      body: {
-        userId: `${ownerOrgId}:member-user-1`,
-        email: 'owner-member-cf@example.com',
-        roles: [{ role: 'wallet_operations_read' }],
-      },
-    });
-    expect(ownerInvite.status).toBe(201);
-    ownerMemberId = String(getPath(ownerInvite.json, 'member', 'id') || '');
-    expect(ownerMemberId).toContain('mbr_');
-
-    const ownerMembers = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/members',
-    });
-    expect(ownerMembers.status).toBe(200);
-    const ownerRows = Array.isArray(ownerMembers.json?.members) ? ownerMembers.json?.members : [];
-    expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(true);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-team-rbac-user-cf'),
-      teamRbac: teamRbac!,
-    });
-    const attackerMembers = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/members',
-    });
-    expect(attackerMembers.status).toBe(200);
-    const attackerRows = Array.isArray(attackerMembers.json?.members)
-      ? attackerMembers.json?.members
-      : [];
-    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(
-      false,
-    );
-
-    const patchOwnerMember = await callCf(attackerHandler, {
-      method: 'PATCH',
-      path: `/console/members/${encodeURIComponent(ownerMemberId)}/roles`,
-      body: {
-        roles: [{ role: 'integrations_read' }],
-      },
-    });
-    expect(patchOwnerMember.status).toBe(404);
-    expect(patchOwnerMember.json?.code).toBe('member_not_found');
-
-    const deleteOwnerMember = await callCf(attackerHandler, {
-      method: 'DELETE',
-      path: `/console/members/${encodeURIComponent(ownerMemberId)}`,
-    });
-    expect(deleteOwnerMember.status).toBe(404);
-    expect(deleteOwnerMember.json?.code).toBe('member_not_found');
-  });
-});
-
-test.describe('console router (postgres approvals)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:approvals:postgres');
-  const authOrgId = 'org-router-postgres-approvals';
-  let approvals: ConsoleApprovalService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    approvals = await createPostgresConsoleApprovalService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_approvals WHERE namespace = $1', [namespace]);
-  });
-
-  test('express approval routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    const ownerApprovalId = `${ownerOrgId}:approval-1`;
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-approvals-user'),
-      approvals: approvals!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    try {
-      const created = await fetchJson(`${ownerServer.baseUrl}/console/approvals`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: ownerApprovalId,
-          operationType: 'KEY_EXPORT',
-          reason: 'Owner approval request',
-        }),
-      });
-      expect(created.status).toBe(201);
-
-      const listed = await fetchJson(`${ownerServer.baseUrl}/console/approvals`, {
-        method: 'GET',
-      });
-      expect(listed.status).toBe(200);
-      const ownerRows = Array.isArray(listed.json?.approvals) ? listed.json?.approvals : [];
-      expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(
-        true,
-      );
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-approvals-user'),
-      approvals: approvals!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const listed = await fetchJson(`${attackerServer.baseUrl}/console/approvals`, {
-        method: 'GET',
-      });
-      expect(listed.status).toBe(200);
-      const attackerRows = Array.isArray(listed.json?.approvals) ? listed.json?.approvals : [];
-      expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(
-        false,
-      );
-
-      const readOwner = await fetchJson(
-        `${attackerServer.baseUrl}/console/approvals/${encodeURIComponent(ownerApprovalId)}`,
-        { method: 'GET' },
-      );
-      expect(readOwner.status).toBe(404);
-      expect(readOwner.json?.code).toBe('approval_not_found');
-
-      const approveOwner = await fetchJson(
-        `${attackerServer.baseUrl}/console/approvals/${encodeURIComponent(ownerApprovalId)}/approve`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            reason: 'attacker approval attempt',
-            mfaVerified: true,
-          }),
-        },
-      );
-      expect(approveOwner.status).toBe(404);
-      expect(approveOwner.json?.code).toBe('approval_not_found');
-
-      const rejectOwner = await fetchJson(
-        `${attackerServer.baseUrl}/console/approvals/${encodeURIComponent(ownerApprovalId)}/reject`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            reason: 'attacker reject attempt',
-          }),
-        },
-      );
-      expect(rejectOwner.status).toBe(404);
-      expect(rejectOwner.json?.code).toBe('approval_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare approval routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    const ownerApprovalId = `${ownerOrgId}:approval-1`;
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-approvals-user-cf'),
-      approvals: approvals!,
-    });
-    const ownerCreate = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/approvals',
-      body: {
-        id: ownerApprovalId,
-        operationType: 'KEY_EXPORT',
-        reason: 'Owner approval request CF',
-      },
-    });
-    expect(ownerCreate.status).toBe(201);
-
-    const ownerList = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/approvals',
-    });
-    expect(ownerList.status).toBe(200);
-    const ownerRows = Array.isArray(ownerList.json?.approvals) ? ownerList.json?.approvals : [];
-    expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(true);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-approvals-user-cf'),
-      approvals: approvals!,
-    });
-    const attackerList = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/approvals',
-    });
-    expect(attackerList.status).toBe(200);
-    const attackerRows = Array.isArray(attackerList.json?.approvals)
-      ? attackerList.json?.approvals
-      : [];
-    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(
-      false,
-    );
-
-    const readOwner = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/approvals/${encodeURIComponent(ownerApprovalId)}`,
-    });
-    expect(readOwner.status).toBe(404);
-    expect(readOwner.json?.code).toBe('approval_not_found');
-
-    const approveOwner = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/approvals/${encodeURIComponent(ownerApprovalId)}/approve`,
-      body: {
-        reason: 'attacker approval attempt',
-        mfaVerified: true,
-      },
-    });
-    expect(approveOwner.status).toBe(404);
-    expect(approveOwner.json?.code).toBe('approval_not_found');
-
-    const rejectOwner = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/approvals/${encodeURIComponent(ownerApprovalId)}/reject`,
-      body: {
-        reason: 'attacker reject attempt',
-      },
-    });
-    expect(rejectOwner.status).toBe(404);
-    expect(rejectOwner.json?.code).toBe('approval_not_found');
-  });
-});
-
-test.describe('console router (postgres wallets)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:wallets:postgres');
-  const authOrgId = 'org-router-postgres-wallets';
-  let wallets: ConsoleWalletService | null = null;
-  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-    wallets = await createPostgresConsoleWalletService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_wallet_index WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
-  });
-
-  test('express wallet routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    const ownerProjectId = `${ownerOrgId}:wallet-project`;
-    const ownerEnvironmentId = `${ownerProjectId}:prod`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      actorUserId: 'owner-wallet-seed',
-    });
-    await seedPostgresWalletRecord({
-      postgresUrl,
-      namespace,
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      environmentId: ownerEnvironmentId,
-      walletId: `${ownerOrgId}:wallet-seed`,
-      userId: 'owner-wallet-seed-user',
-      externalRefId: 'owner-wallet-seed-ext',
-      address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    });
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-user'),
-      wallets: wallets!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    let ownerWalletId = '';
-    try {
-      const listed = await fetchJson(`${ownerServer.baseUrl}/console/wallets`, {
-        method: 'GET',
-      });
-      expect(listed.status).toBe(200);
-      ownerWalletId = String(getPath(listed.json, 'wallets', 0, 'id') || '');
-      expect(ownerWalletId).toBeTruthy();
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-user'),
-      wallets: wallets!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const detail = await fetchJson(
-        `${attackerServer.baseUrl}/console/wallets/${encodeURIComponent(ownerWalletId)}`,
-        {
-          method: 'GET',
-        },
-      );
-      expect(detail.status).toBe(404);
-      expect(detail.json?.code).toBe('wallet_not_found');
-
-      const searched = await fetchJson(
-        `${attackerServer.baseUrl}/console/wallets/search?q=${encodeURIComponent(ownerWalletId)}`,
-        { method: 'GET' },
-      );
-      expect(searched.status).toBe(200);
-      const attackerRows = Array.isArray(searched.json?.wallets) ? searched.json?.wallets : [];
-      expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerWalletId)).toBe(
-        false,
-      );
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare wallet routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    const ownerProjectId = `${ownerOrgId}:wallet-project`;
-    const ownerEnvironmentId = `${ownerProjectId}:prod`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      actorUserId: 'owner-wallet-seed-cf',
-    });
-    await seedPostgresWalletRecord({
-      postgresUrl,
-      namespace,
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      environmentId: ownerEnvironmentId,
-      walletId: `${ownerOrgId}:wallet-seed`,
-      userId: 'owner-wallet-seed-user-cf',
-      externalRefId: 'owner-wallet-seed-ext-cf',
-      address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    });
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-user-cf'),
-      wallets: wallets!,
-    });
-    const ownerList = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/wallets',
-    });
-    expect(ownerList.status).toBe(200);
-    const ownerWalletId = String(getPath(ownerList.json, 'wallets', 0, 'id') || '');
-    expect(ownerWalletId).toBeTruthy();
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-user-cf'),
-      wallets: wallets!,
-    });
-    const detail = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/wallets/${encodeURIComponent(ownerWalletId)}`,
-    });
-    expect(detail.status).toBe(404);
-    expect(detail.json?.code).toBe('wallet_not_found');
-
-    const searched = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/wallets/search?q=${encodeURIComponent(ownerWalletId)}`,
-    });
-    expect(searched.status).toBe(200);
-    const attackerRows = Array.isArray(searched.json?.wallets) ? searched.json?.wallets : [];
-    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerWalletId)).toBe(
-      false,
-    );
-  });
-
-  test('express policy/gas insight routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-insights`;
-    const attackerOrgId = `${authOrgId}:attacker-insights`;
-    const ownerSeedProjectId = `${ownerOrgId}:wallet-project`;
-    const ownerSeedEnvironmentId = `${ownerSeedProjectId}:prod`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerSeedProjectId,
-      actorUserId: 'owner-wallet-insights-seed',
-    });
-    await seedPostgresWalletRecord({
-      postgresUrl,
-      namespace,
-      orgId: ownerOrgId,
-      projectId: ownerSeedProjectId,
-      environmentId: ownerSeedEnvironmentId,
-      walletId: `${ownerOrgId}:wallet-insights-seed`,
-      userId: 'owner-wallet-insights-seed-user',
-      externalRefId: 'owner-wallet-insights-seed-ext',
-      address: '0xcccccccccccccccccccccccccccccccccccccccc',
-    });
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-insights-user'),
-      wallets: wallets!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    let ownerProjectId = '';
-    let ownerEnvironmentId = '';
-    try {
-      const ownerList = await fetchJson(`${ownerServer.baseUrl}/console/wallets`, {
-        method: 'GET',
-      });
-      expect(ownerList.status).toBe(200);
-      ownerProjectId = String(getPath(ownerList.json, 'wallets', 0, 'projectId') || '');
-      ownerEnvironmentId = String(getPath(ownerList.json, 'wallets', 0, 'environmentId') || '');
-      expect(ownerProjectId).toBeTruthy();
-      expect(ownerEnvironmentId).toBeTruthy();
-
-      const ownerCoverage = await fetchJson(
-        `${ownerServer.baseUrl}/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(ownerCoverage.status).toBe(200);
-      expect(
-        Number(getPath(ownerCoverage.json, 'coverage', 'totals', 'walletCount') || 0),
-      ).toBeGreaterThanOrEqual(1);
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-insights-user'),
-      wallets: wallets!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const coverage = await fetchJson(
-        `${attackerServer.baseUrl}/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(coverage.status).toBe(200);
-      expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBe(0);
-
-      const readiness = await fetchJson(
-        `${attackerServer.baseUrl}/console/gas/readiness?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(readiness.status).toBe(200);
-      expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBe(0);
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare policy/gas insight routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-insights-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-insights-cf`;
-    const ownerSeedProjectId = `${ownerOrgId}:wallet-project`;
-    const ownerSeedEnvironmentId = `${ownerSeedProjectId}:prod`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerSeedProjectId,
-      actorUserId: 'owner-wallet-insights-seed-cf',
-    });
-    await seedPostgresWalletRecord({
-      postgresUrl,
-      namespace,
-      orgId: ownerOrgId,
-      projectId: ownerSeedProjectId,
-      environmentId: ownerSeedEnvironmentId,
-      walletId: `${ownerOrgId}:wallet-insights-seed`,
-      userId: 'owner-wallet-insights-seed-user-cf',
-      externalRefId: 'owner-wallet-insights-seed-ext-cf',
-      address: '0xdddddddddddddddddddddddddddddddddddddddd',
-    });
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-insights-user-cf'),
-      wallets: wallets!,
-    });
-    const ownerList = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/wallets',
-    });
-    expect(ownerList.status).toBe(200);
-    const ownerProjectId = String(getPath(ownerList.json, 'wallets', 0, 'projectId') || '');
-    const ownerEnvironmentId = String(getPath(ownerList.json, 'wallets', 0, 'environmentId') || '');
-    expect(ownerProjectId).toBeTruthy();
-    expect(ownerEnvironmentId).toBeTruthy();
-
-    const ownerCoverage = await callCf(ownerHandler, {
-      method: 'GET',
-      path: `/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(ownerCoverage.status).toBe(200);
-    expect(
-      Number(getPath(ownerCoverage.json, 'coverage', 'totals', 'walletCount') || 0),
-    ).toBeGreaterThanOrEqual(1);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-insights-user-cf'),
-      wallets: wallets!,
-    });
-    const attackerCoverage = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(attackerCoverage.status).toBe(200);
-    expect(Number(getPath(attackerCoverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBe(
-      0,
-    );
-
-    const attackerReadiness = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/gas/readiness?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(attackerReadiness.status).toBe(200);
-    expect(Number(getPath(attackerReadiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBe(
-      0,
-    );
-  });
-});
-
-test('express policy routes expose published policy versions newest-first', async () => {
-  const orgId = 'org-router-policy-versions';
-  const router = createConsoleRouter({
-    auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-policy-versions'),
-    policies: createInMemoryConsolePolicyService(),
-  });
-  const srv = await startExpressRouter(router);
-  try {
-    const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Policy Versions Test',
-      }),
-    });
-    expect(created.status).toBe(201);
-    const policyId = String(getPath(created.json, 'policy', 'id') || '');
-    expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
-
-    const firstUpdate = await fetchJson(
-      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rules: {
-            blockedActions: ['delete_key'],
-            allowedChains: ['Ethereum', 'NEAR'],
-            maxAmountMinor: 250000,
-          },
-        }),
-      },
-    );
-    expect(firstUpdate.status).toBe(200);
-
-    const firstPublish = await fetchJson(
-      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
-      { method: 'POST' },
-    );
-    expect(firstPublish.status).toBe(200);
-
-    const secondUpdate = await fetchJson(
-      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rules: {
-            blockedActions: ['export_key'],
-            allowedChains: ['Ethereum'],
-            maxAmountMinor: 500000,
-          },
-        }),
-      },
-    );
-    expect(secondUpdate.status).toBe(200);
-
-    const secondPublish = await fetchJson(
-      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
-      { method: 'POST' },
-    );
-    expect(secondPublish.status).toBe(200);
-
-    const versions = await fetchJson(
-      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/versions`,
-      { method: 'GET' },
-    );
-    expect(versions.status).toBe(200);
-    const rows = Array.isArray(versions.json?.versions) ? versions.json.versions : [];
-    expect(rows).toHaveLength(2);
-    expect(Number(getPath(rows[0], 'version') || 0)).toBe(2);
-    expect(String(getPath(rows[0], 'status') || '')).toBe('PUBLISHED');
-    expect(getPath(rows[0], 'rules', 'blockedActions', 0)).toBe('export_key');
-    expect(getPath(rows[0], 'rules', 'allowedChains', 0)).toBe('Ethereum');
-    expect(Number(getPath(rows[0], 'rules', 'maxAmountMinor') || 0)).toBe(500000);
-    expect(Number(getPath(rows[1], 'version') || 0)).toBe(1);
-    expect(getPath(rows[1], 'rules', 'blockedActions', 0)).toBe('delete_key');
-    expect(getPath(rows[1], 'rules', 'allowedChains', 0)).toBe('Ethereum');
-    expect(getPath(rows[1], 'rules', 'allowedChains', 1)).toBe('NEAR');
-    expect(Number(getPath(rows[1], 'rules', 'maxAmountMinor') || 0)).toBe(250000);
-  } finally {
-    await srv.close();
-  }
-});
-
-test('express policy routes reject invalid contract-call policy rules', async () => {
-  const orgId = 'org-router-policy-validation';
-  const router = createConsoleRouter({
-    auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-policy-validation'),
-    policies: createInMemoryConsolePolicyService(),
-  });
-  const srv = await startExpressRouter(router);
-  try {
-    const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Invalid Contract Policy',
-        rules: {
-          allowedContractCalls: [
-            {
-              contractAddress: '0xabc123',
-              functions: ['approve('],
-            },
-          ],
-        },
-      }),
-    });
-    expect(created.status).toBe(400);
-    expect(created.json?.code).toBe('invalid_body');
-  } finally {
-    await srv.close();
-  }
-});
-
-test.describe('console router (postgres policies)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:policies:postgres');
-  const authOrgId = 'org-router-postgres-policies';
-  let policies: ConsolePolicyService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    policies = await createPostgresConsolePolicyService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_policy_assignments WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_policy_versions WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_policies WHERE namespace = $1', [namespace]);
-  });
-
-  test('express policy routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    let ownerPolicyId = '';
-    let ownerAssignmentId = '';
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-policy-user'),
-      policies: policies!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    try {
-      const created = await fetchJson(`${ownerServer.baseUrl}/console/policies`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Owner Managed Policy',
-        }),
-      });
-      expect(created.status).toBe(201);
-      ownerPolicyId = String(getPath(created.json, 'policy', 'id') || '');
-      expect(ownerPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
-
-      const published = await fetchJson(
-        `${ownerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
-        {
-          method: 'POST',
-        },
-      );
-      expect(published.status).toBe(200);
-
-      const listed = await fetchJson(`${ownerServer.baseUrl}/console/policies`, { method: 'GET' });
-      expect(listed.status).toBe(200);
-      const ownerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
-      expect(ownerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
-        true,
-      );
-      const ownerDefaultPolicy = ownerPolicies.find(
-        (entry: any) => entry?.isSystemDefault === true,
-      );
-      expect(ownerDefaultPolicy).toBeTruthy();
-      expect(String(ownerDefaultPolicy?.id || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
-
-      const upsertedAssignment = await fetchJson(
-        `${ownerServer.baseUrl}/console/policies/assignments`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            scopeType: 'ORG',
-            scopeId: ownerOrgId,
-            policyId: ownerPolicyId,
-          }),
-        },
-      );
-      expect(upsertedAssignment.status).toBe(200);
-      ownerAssignmentId = String(getPath(upsertedAssignment.json, 'assignment', 'id') || '');
-      expect(ownerAssignmentId).toBeTruthy();
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-policy-user'),
-      policies: policies!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const listed = await fetchJson(`${attackerServer.baseUrl}/console/policies`, {
-        method: 'GET',
-      });
-      expect(listed.status).toBe(200);
-      const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
-      expect(attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
-        false,
-      );
-
-      const listedAssignments = await fetchJson(
-        `${attackerServer.baseUrl}/console/policies/assignments?scopeType=ORG&scopeId=${encodeURIComponent(ownerOrgId)}`,
-        { method: 'GET' },
-      );
-      expect(listedAssignments.status).toBe(200);
-      const attackerAssignments = Array.isArray(listedAssignments.json?.assignments)
-        ? listedAssignments.json?.assignments
-        : [];
-      expect(attackerAssignments.length).toBe(0);
-
-      const patched = await fetchJson(
-        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'attacker rename' }),
-        },
-      );
-      expect(patched.status).toBe(404);
-      expect(patched.json?.code).toBe('policy_not_found');
-
-      const published = await fetchJson(
-        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
-        { method: 'POST' },
-      );
-      expect(published.status).toBe(404);
-      expect(published.json?.code).toBe('policy_not_found');
-
-      const simulated = await fetchJson(
-        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/simulate`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'transfer' }),
-        },
-      );
-      expect(simulated.status).toBe(404);
-      expect(simulated.json?.code).toBe('policy_not_found');
-
-      const deletedAssignment = await fetchJson(
-        `${attackerServer.baseUrl}/console/policies/assignments/${encodeURIComponent(ownerAssignmentId)}`,
-        { method: 'DELETE' },
-      );
-      expect(deletedAssignment.status).toBe(404);
-      expect(deletedAssignment.json?.code).toBe('assignment_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare policy routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    let ownerPolicyId = '';
-    let ownerAssignmentId = '';
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-policy-user-cf'),
-      policies: policies!,
-    });
-    const created = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/policies',
-      body: {
-        name: 'Owner Managed Policy CF',
-      },
-    });
-    expect(created.status).toBe(201);
-    ownerPolicyId = String(getPath(created.json, 'policy', 'id') || '');
-    expect(ownerPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
-
-    const ownerPublished = await callCf(ownerHandler, {
-      method: 'POST',
-      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
-    });
-    expect(ownerPublished.status).toBe(200);
-
-    const ownerAssignment = await callCf(ownerHandler, {
-      method: 'PUT',
-      path: '/console/policies/assignments',
-      body: {
-        scopeType: 'ORG',
-        scopeId: ownerOrgId,
-        policyId: ownerPolicyId,
-      },
-    });
-    expect(ownerAssignment.status).toBe(200);
-    ownerAssignmentId = String(getPath(ownerAssignment.json, 'assignment', 'id') || '');
-    expect(ownerAssignmentId).toBeTruthy();
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-policy-user-cf'),
-      policies: policies!,
-    });
-    const listed = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/policies',
-    });
-    expect(listed.status).toBe(200);
-    const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
-    expect(attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
-      false,
-    );
-
-    const listedAssignments = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/policies/assignments?scopeType=ORG&scopeId=${encodeURIComponent(ownerOrgId)}`,
-    });
-    expect(listedAssignments.status).toBe(200);
-    const attackerAssignments = Array.isArray(listedAssignments.json?.assignments)
-      ? listedAssignments.json?.assignments
-      : [];
-    expect(attackerAssignments.length).toBe(0);
-
-    const patched = await callCf(attackerHandler, {
-      method: 'PATCH',
-      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}`,
-      body: {
-        name: 'attacker rename cf',
-      },
-    });
-    expect(patched.status).toBe(404);
-    expect(patched.json?.code).toBe('policy_not_found');
-
-    const published = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
-    });
-    expect(published.status).toBe(404);
-    expect(published.json?.code).toBe('policy_not_found');
-
-    const simulated = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}/simulate`,
-      body: {
-        action: 'transfer',
-      },
-    });
-    expect(simulated.status).toBe(404);
-    expect(simulated.json?.code).toBe('policy_not_found');
-
-    const deletedAssignment = await callCf(attackerHandler, {
-      method: 'DELETE',
-      path: `/console/policies/assignments/${encodeURIComponent(ownerAssignmentId)}`,
-    });
-    expect(deletedAssignment.status).toBe(404);
-    expect(deletedAssignment.json?.code).toBe('assignment_not_found');
-  });
-});
-
-test.describe('console router (postgres api keys)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:api-keys:postgres');
-  const authOrgId = 'org-router-postgres-api-keys';
-  let apiKeys: ConsoleApiKeyService | null = null;
-  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-    apiKeys = await createPostgresConsoleApiKeyService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_api_keys WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
-  });
-
-  test('express API key routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    const ownerProjectId = `${ownerOrgId}:api-project`;
-    const ownerEnvironmentId = `${ownerProjectId}:prod`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      actorUserId: 'owner-api-key-seed',
-    });
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user'),
-      apiKeys: apiKeys!,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    let keyId = '';
-    try {
-      const created = await fetchJson(`${ownerServer.baseUrl}/console/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'owner-postgres-api-key',
-          environmentId: ownerEnvironmentId,
-          kind: 'secret_key',
-          scopes: ['accounts.create'],
-          ipAllowlist: ['203.0.113.20/32'],
-        }),
-      });
-      expect(created.status).toBe(201);
-      keyId = String(getPath(created.json, 'apiKey', 'id') || '');
-      expect(keyId).toBeTruthy();
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-api-key-user'),
-      apiKeys: apiKeys!,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const list = await fetchJson(`${attackerServer.baseUrl}/console/api-keys`, {
-        method: 'GET',
-      });
-      expect(list.status).toBe(200);
-      const attackerKeys = Array.isArray(list.json?.apiKeys) ? list.json?.apiKeys : [];
-      expect(attackerKeys.some((entry: any) => String(entry?.id || '') === keyId)).toBe(false);
-
-      const rotate = await fetchJson(
-        `${attackerServer.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/rotate`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: 'attacker rotate attempt' }),
-        },
-      );
-      expect(rotate.status).toBe(404);
-      expect(rotate.json?.code).toBe('api_key_not_found');
-
-      const deleted = await fetchJson(
-        `${attackerServer.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}`,
-        { method: 'DELETE' },
-      );
-      expect(deleted.status).toBe(404);
-      expect(deleted.json?.code).toBe('api_key_not_found');
-
-      const purged = await fetchJson(
-        `${attackerServer.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/purge`,
-        { method: 'DELETE' },
-      );
-      expect(purged.status).toBe(404);
-      expect(purged.json?.code).toBe('api_key_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare API key routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    const ownerProjectId = `${ownerOrgId}:api-project`;
-    const ownerEnvironmentId = `${ownerProjectId}:prod`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      actorUserId: 'owner-api-key-seed-cf',
-    });
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user-cf'),
-      apiKeys: apiKeys!,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const created = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/api-keys',
-      body: {
-        name: 'owner-postgres-api-key-cf',
-        environmentId: ownerEnvironmentId,
-        kind: 'secret_key',
-        scopes: ['accounts.create'],
-        ipAllowlist: ['198.51.100.25/32'],
-      },
-    });
-    expect(created.status).toBe(201);
-    const keyId = String(getPath(created.json, 'apiKey', 'id') || '');
-    expect(keyId).toBeTruthy();
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-api-key-user-cf'),
-      apiKeys: apiKeys!,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const list = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/api-keys',
-    });
-    expect(list.status).toBe(200);
-    const attackerKeys = Array.isArray(list.json?.apiKeys) ? list.json?.apiKeys : [];
-    expect(attackerKeys.some((entry: any) => String(entry?.id || '') === keyId)).toBe(false);
-
-    const rotate = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/api-keys/${encodeURIComponent(keyId)}/rotate`,
-      body: {
-        reason: 'attacker rotate attempt',
-      },
-    });
-    expect(rotate.status).toBe(404);
-    expect(rotate.json?.code).toBe('api_key_not_found');
-
-    const deleted = await callCf(attackerHandler, {
-      method: 'DELETE',
-      path: `/console/api-keys/${encodeURIComponent(keyId)}`,
-    });
-    expect(deleted.status).toBe(404);
-    expect(deleted.json?.code).toBe('api_key_not_found');
-
-    const purged = await callCf(attackerHandler, {
-      method: 'DELETE',
-      path: `/console/api-keys/${encodeURIComponent(keyId)}/purge`,
-    });
-    expect(purged.status).toBe(404);
-    expect(purged.json?.code).toBe('api_key_not_found');
-  });
-
-  test('postgres API key rows persist key_prefix for indexed lookup', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const orgId = `${authOrgId}:prefix`;
-    const projectId = `${orgId}:api-project`;
-    const environmentId = `${projectId}:prod`;
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId,
-      projectId,
-      actorUserId: 'owner-api-key-prefix-seed',
-    });
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], orgId, 'owner-api-key-prefix-user'),
-      apiKeys: apiKeys!,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const server = await startExpressRouter(router);
-    let keyId = '';
-    try {
-      const created = await fetchJson(`${server.baseUrl}/console/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'prefix-check-key',
-          environmentId,
-          kind: 'secret_key',
-          scopes: ['accounts.create'],
-        }),
-      });
-      expect(created.status).toBe(201);
-      keyId = String(getPath(created.json, 'apiKey', 'id') || '');
-      expect(keyId).toBeTruthy();
-    } finally {
-      await server.close();
-    }
-
-    const pool = await getPostgresPool(postgresUrl);
-    const row = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
-      const out = await q.query(
-        `SELECT key_prefix
-           FROM console_api_keys
-          WHERE namespace = $1
-            AND org_id = $2
-            AND id = $3`,
-        [namespace, orgId, keyId],
-      );
-      return (out.rows[0] as Record<string, unknown>) || null;
-    });
-    const keyPrefix = String((row || {}).key_prefix || '');
-    expect(keyPrefix.length).toBeGreaterThan(12);
-    expect(keyPrefix.startsWith('sk_')).toBe(true);
-  });
-
-  test('express export governance route enforces org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-export`;
-    const attackerOrgId = `${authOrgId}:attacker-export`;
-    const ownerProjectId = `${ownerOrgId}:api-project`;
-    const ownerEnvironmentId = `${ownerProjectId}:prod`;
-    const keyExports = createInMemoryConsoleKeyExportService();
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      actorUserId: 'owner-export-governance-seed',
-    });
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user'),
-      keyExports,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    try {
-      await keyExports.createKeyExport(
-        {
-          orgId: ownerOrgId,
-          actorUserId: 'owner-export-user',
-          roles: ['admin'],
-        },
-        {
-          environmentId: ownerEnvironmentId,
-          reason: 'Owner export governance review',
-        },
-      );
-
-      const ownerGovernance = await fetchJson(
-        `${ownerServer.baseUrl}/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(ownerGovernance.status).toBe(200);
-      expect(
-        Number(
-          getPath(
-            ownerGovernance.json,
-            'governance',
-            'totals',
-            'selectedEnvironmentRequestCount',
-          ) || 0,
-        ),
-      ).toBeGreaterThanOrEqual(1);
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user'),
-      keyExports,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const attackerGovernance = await fetchJson(
-        `${attackerServer.baseUrl}/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(attackerGovernance.status).toBe(200);
-      expect(
-        Number(
-          getPath(
-            attackerGovernance.json,
-            'governance',
-            'totals',
-            'selectedEnvironmentRequestCount',
-          ) || 0,
-        ),
-      ).toBe(0);
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare export governance route enforces org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-export-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-export-cf`;
-    const ownerProjectId = `${ownerOrgId}:api-project`;
-    const ownerEnvironmentId = `${ownerProjectId}:prod`;
-    const keyExports = createInMemoryConsoleKeyExportService();
-    await seedOrgProjectEnvironment(orgProjectEnv!, {
-      orgId: ownerOrgId,
-      projectId: ownerProjectId,
-      actorUserId: 'owner-export-governance-seed-cf',
-    });
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user-cf'),
-      keyExports,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    await keyExports.createKeyExport(
-      {
-        orgId: ownerOrgId,
-        actorUserId: 'owner-export-user-cf',
-        roles: ['admin'],
-      },
-      {
-        environmentId: ownerEnvironmentId,
-        reason: 'Owner export governance review',
-      },
-    );
-
-    const ownerGovernance = await callCf(ownerHandler, {
-      method: 'GET',
-      path: `/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(ownerGovernance.status).toBe(200);
-    expect(
-      Number(
-        getPath(ownerGovernance.json, 'governance', 'totals', 'selectedEnvironmentRequestCount') ||
-          0,
-      ),
-    ).toBeGreaterThanOrEqual(1);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user-cf'),
-      keyExports,
-      orgProjectEnv: orgProjectEnv!,
-    });
-    const attackerGovernance = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(attackerGovernance.status).toBe(200);
-    expect(
-      Number(
-        getPath(
-          attackerGovernance.json,
-          'governance',
-          'totals',
-          'selectedEnvironmentRequestCount',
-        ) || 0,
-      ),
-    ).toBe(0);
-  });
-});
-
-test.describe('console router (postgres audit)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:audit:postgres');
-  const authOrgId = 'org-router-postgres-audit';
-  let audit: ConsoleAuditService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    audit = await createPostgresConsoleAuditService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    const cleanupOrgIds = [
-      `${authOrgId}:owner`,
-      `${authOrgId}:attacker`,
-      `${authOrgId}:owner-cf`,
-      `${authOrgId}:attacker-cf`,
-    ];
-    for (const orgId of cleanupOrgIds) {
-      await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
-        await q.query('DELETE FROM console_audit_evidence WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_audit_events WHERE namespace = $1', [namespace]);
-      });
-    }
-  });
-
-  test('express audit routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-    const ownerActorUserId = 'owner-audit-user';
-    const ownerCtx = {
-      orgId: ownerOrgId,
-      actorUserId: ownerActorUserId,
-      roles: ['admin'],
-    };
-
-    const ownerEvent = await audit!.appendEvent(ownerCtx, {
-      id: `evt_owner_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
-      category: 'POLICY',
-      action: 'policy.publish',
-      outcome: 'SUCCESS',
-      summary: 'Owner-only audit event',
-      metadata: { path: 'owner-only' },
-    });
-    const ownerEvidence = await audit!.appendEvidence(ownerCtx, {
-      id: `evd_owner_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
-      domain: 'POLICY',
-      title: 'Owner-only policy evidence',
-      summary: 'Owner evidence record',
-      eventIds: [ownerEvent.id],
-      references: [
-        {
-          kind: 'APPROVAL',
-          referenceId: 'apr_owner_policy_1',
-          label: 'Owner policy approval',
-        },
-      ],
-    });
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, ownerActorUserId),
-      audit: audit!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    try {
-      const ownerEvents = await fetchJson(
-        `${ownerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only')}&limit=20`,
-        { method: 'GET' },
-      );
-      expect(ownerEvents.status).toBe(200);
-      const ownerRows = Array.isArray(ownerEvents.json?.events) ? ownerEvents.json?.events : [];
-      expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(true);
-
-      const ownerEvidenceRows = await fetchJson(
-        `${ownerServer.baseUrl}/console/audit/evidence?domain=POLICY&limit=20`,
-        { method: 'GET' },
-      );
-      expect(ownerEvidenceRows.status).toBe(200);
-      const evidenceRows = Array.isArray(ownerEvidenceRows.json?.evidence)
-        ? ownerEvidenceRows.json?.evidence
-        : [];
-      expect(evidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id)).toBe(
-        true,
-      );
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-audit-user'),
-      audit: audit!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const attackerEvents = await fetchJson(
-        `${attackerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only')}&limit=20`,
-        { method: 'GET' },
-      );
-      expect(attackerEvents.status).toBe(200);
-      const attackerRows = Array.isArray(attackerEvents.json?.events)
-        ? attackerEvents.json?.events
-        : [];
-      expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(
-        false,
-      );
-
-      const attackerEvidence = await fetchJson(
-        `${attackerServer.baseUrl}/console/audit/evidence?domain=POLICY&limit=20`,
-        { method: 'GET' },
-      );
-      expect(attackerEvidence.status).toBe(200);
-      const attackerEvidenceRows = Array.isArray(attackerEvidence.json?.evidence)
-        ? attackerEvidence.json?.evidence
-        : [];
-      expect(
-        attackerEvidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id),
-      ).toBe(false);
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare audit routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-    const ownerActorUserId = 'owner-audit-user-cf';
-    const ownerCtx = {
-      orgId: ownerOrgId,
-      actorUserId: ownerActorUserId,
-      roles: ['admin'],
-    };
-
-    const ownerEvent = await audit!.appendEvent(ownerCtx, {
-      id: `evt_owner_cf_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
-      category: 'POLICY',
-      action: 'policy.publish',
-      outcome: 'SUCCESS',
-      summary: 'Owner-only audit event (cloudflare)',
-      metadata: { path: 'owner-only-cf' },
-    });
-    const ownerEvidence = await audit!.appendEvidence(ownerCtx, {
-      id: `evd_owner_cf_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
-      domain: 'POLICY',
-      title: 'Owner-only policy evidence (cloudflare)',
-      summary: 'Owner evidence record (cloudflare)',
-      eventIds: [ownerEvent.id],
-      references: [
-        {
-          kind: 'APPROVAL',
-          referenceId: 'apr_owner_policy_cf_1',
-          label: 'Owner policy approval cloudflare',
-        },
-      ],
-    });
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, ownerActorUserId),
-      audit: audit!,
-    });
-    const ownerEvents = await callCf(ownerHandler, {
-      method: 'GET',
-      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only-cf')}&limit=20`,
-    });
-    expect(ownerEvents.status).toBe(200);
-    const ownerRows = Array.isArray(ownerEvents.json?.events) ? ownerEvents.json?.events : [];
-    expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(true);
-
-    const ownerEvidenceRowsResponse = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/audit/evidence?domain=POLICY&limit=20',
-    });
-    expect(ownerEvidenceRowsResponse.status).toBe(200);
-    const ownerEvidenceRows = Array.isArray(ownerEvidenceRowsResponse.json?.evidence)
-      ? ownerEvidenceRowsResponse.json?.evidence
-      : [];
-    expect(
-      ownerEvidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id),
-    ).toBe(true);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-audit-user-cf'),
-      audit: audit!,
-    });
-    const attackerEvents = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only-cf')}&limit=20`,
-    });
-    expect(attackerEvents.status).toBe(200);
-    const attackerRows = Array.isArray(attackerEvents.json?.events)
-      ? attackerEvents.json?.events
-      : [];
-    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(
-      false,
-    );
-
-    const attackerEvidence = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/audit/evidence?domain=POLICY&limit=20',
-    });
-    expect(attackerEvidence.status).toBe(200);
-    const attackerEvidenceRows = Array.isArray(attackerEvidence.json?.evidence)
-      ? attackerEvidence.json?.evidence
-      : [];
-    expect(
-      attackerEvidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id),
-    ).toBe(false);
-  });
-});
-
-test.describe('console router (postgres webhooks)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:webhooks:postgres');
-  const authOrgId = 'org-router-postgres-webhooks';
-  let webhooks: ConsoleWebhookService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    webhooks = await createPostgresConsoleWebhookService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    const cleanupOrgIds = [
-      authOrgId,
-      `${authOrgId}:owner`,
-      `${authOrgId}:attacker`,
-      `${authOrgId}:owner-cf`,
-      `${authOrgId}:attacker-cf`,
-    ];
-    for (const orgId of cleanupOrgIds) {
-      await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
-        await q.query('DELETE FROM console_webhook_attempts WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
-      });
-    }
-  });
-
-  test('express attempts list rejects non-numeric attempt cursor id', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], authOrgId, 'ops-router-postgres'),
-      webhooks: webhooks!,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const created = await fetchJson(`${srv.baseUrl}/console/webhooks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: 'https://example.com/postgres-router-bad-attempt-cursor-express',
-          eventCategories: ['billing'],
-        }),
-      });
-      expect(created.status).toBe(201);
-      const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
-      expect(endpointId).toBeTruthy();
-
-      const cursor = `${Date.parse('2026-01-03T00:00:00.000Z')}:non_numeric_attempt_id`;
-      const attempts = await fetchJson(
-        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?cursor=${encodeURIComponent(cursor)}`,
-        {
-          method: 'GET',
-        },
-      );
-      expect(attempts.status).toBe(400);
-      expect(attempts.json?.code).toBe('invalid_query');
-
-      const oversizedSortCursor = '9007199254740992:attempt_1';
-      const oversizedSortKey = await fetchJson(
-        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?cursor=${encodeURIComponent(oversizedSortCursor)}`,
-        {
-          method: 'GET',
-        },
-      );
-      expect(oversizedSortKey.status).toBe(400);
-      expect(oversizedSortKey.json?.code).toBe('invalid_query');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('cloudflare attempts list rejects non-numeric attempt cursor id', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], authOrgId, 'ops-router-postgres'),
-      webhooks: webhooks!,
-    });
-    const created = await callCf(handler, {
-      method: 'POST',
-      path: '/console/webhooks',
-      body: {
-        url: 'https://example.com/postgres-router-bad-attempt-cursor-cloudflare',
-        eventCategories: ['billing'],
-      },
-    });
-    expect(created.status).toBe(201);
-    const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
-    expect(endpointId).toBeTruthy();
-
-    const cursor = `${Date.parse('2026-01-03T00:00:00.000Z')}:non_numeric_attempt_id`;
-    const attempts = await callCf(handler, {
-      method: 'GET',
-      path: `/console/webhooks/${encodeURIComponent(endpointId)}/attempts?cursor=${encodeURIComponent(cursor)}`,
-    });
-    expect(attempts.status).toBe(400);
-    expect(attempts.json?.code).toBe('invalid_query');
-
-    const oversizedSortCursor = '9007199254740992:attempt_1';
-    const oversizedSortKey = await callCf(handler, {
-      method: 'GET',
-      path: `/console/webhooks/${encodeURIComponent(endpointId)}/attempts?cursor=${encodeURIComponent(oversizedSortCursor)}`,
-    });
-    expect(oversizedSortKey.status).toBe(400);
-    expect(oversizedSortKey.json?.code).toBe('invalid_query');
-  });
-
-  test('express webhook routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-user'),
-      webhooks: webhooks!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    let endpointId = '';
-    try {
-      const created = await fetchJson(`${ownerServer.baseUrl}/console/webhooks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: 'https://example.com/postgres-router-org-isolation-express-owner',
-          eventCategories: ['billing'],
-        }),
-      });
-      expect(created.status).toBe(201);
-      endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
-      expect(endpointId).toBeTruthy();
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-user'),
-      webhooks: webhooks!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const list = await fetchJson(`${attackerServer.baseUrl}/console/webhooks`, { method: 'GET' });
-      expect(list.status).toBe(200);
-      const attackerEndpoints = Array.isArray(list.json?.endpoints) ? list.json?.endpoints : [];
-      expect(attackerEndpoints.some((entry: any) => String(entry?.id || '') === endpointId)).toBe(
-        false,
-      );
-
-      const deliveries = await fetchJson(
-        `${attackerServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
-        { method: 'GET' },
-      );
-      expect(deliveries.status).toBe(404);
-      expect(deliveries.json?.code).toBe('webhook_not_found');
-
-      const replay = await fetchJson(
-        `${attackerServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        },
-      );
-      expect(replay.status).toBe(404);
-      expect(replay.json?.code).toBe('webhook_not_found');
-
-      const deleted = await fetchJson(
-        `${attackerServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`,
-        { method: 'DELETE' },
-      );
-      expect(deleted.status).toBe(404);
-      expect(deleted.json?.code).toBe('webhook_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare webhook routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-user-cf'),
-      webhooks: webhooks!,
-    });
-    const created = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/webhooks',
-      body: {
-        url: 'https://example.com/postgres-router-org-isolation-cloudflare-owner',
-        eventCategories: ['billing'],
-      },
-    });
-    expect(created.status).toBe(201);
-    const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
-    expect(endpointId).toBeTruthy();
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-user-cf'),
-      webhooks: webhooks!,
-    });
-    const list = await callCf(attackerHandler, { method: 'GET', path: '/console/webhooks' });
-    expect(list.status).toBe(200);
-    const attackerEndpoints = Array.isArray(list.json?.endpoints) ? list.json?.endpoints : [];
-    expect(attackerEndpoints.some((entry: any) => String(entry?.id || '') === endpointId)).toBe(
-      false,
-    );
-
-    const deliveries = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
-    });
-    expect(deliveries.status).toBe(404);
-    expect(deliveries.json?.code).toBe('webhook_not_found');
-
-    const replay = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
-      body: {},
-    });
-    expect(replay.status).toBe(404);
-    expect(replay.json?.code).toBe('webhook_not_found');
-
-    const deleted = await callCf(attackerHandler, {
-      method: 'DELETE',
-      path: `/console/webhooks/${encodeURIComponent(endpointId)}`,
-    });
-    expect(deleted.status).toBe(404);
-    expect(deleted.json?.code).toBe('webhook_not_found');
-  });
-});
-
-test.describe('console router (postgres billing)', () => {
-  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-  const enabled = Boolean(postgresUrl);
-  const namespace = randomNamespace('test:console-router:billing:postgres');
-  const authOrgId = 'org-router-postgres-billing';
-  let billing: ConsoleBillingService | null = null;
-
-  test.beforeAll(async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    billing = await createPostgresConsoleBillingService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-  });
-
-  test.afterAll(async () => {
-    if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    for (const orgId of [`${authOrgId}:owner`, `${authOrgId}:attacker`]) {
-      await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
-        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_billing_ledger_postings WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
-      });
-      await pool.query('DELETE FROM console_billing_ledger_accounts WHERE namespace = $1', [
-        namespace,
-      ]);
-    }
-  });
-
-  test('express billing routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner`;
-    const attackerOrgId = `${authOrgId}:attacker`;
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-billing-user'),
-      billing: billing!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    let ownerInvoiceId = '';
-    try {
-      const invoices = await fetchJson(`${ownerServer.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      ownerInvoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
-      expect(ownerInvoiceId).toBeTruthy();
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-billing-user'),
-      billing: billing!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const list = await fetchJson(`${attackerServer.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(list.status).toBe(200);
-      const attackerInvoices = Array.isArray(list.json?.invoices) ? list.json?.invoices : [];
-      expect(
-        attackerInvoices.some((entry: any) => String(entry?.id || '') === ownerInvoiceId),
-      ).toBe(false);
-
-      const getInvoice = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}`,
-        { method: 'GET' },
-      );
-      expect(getInvoice.status).toBe(404);
-      expect(getInvoice.json?.code).toBe('invoice_not_found');
-
-      const getLineItems = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}/line-items`,
-        { method: 'GET' },
-      );
-      expect(getLineItems.status).toBe(404);
-      expect(getLineItems.json?.code).toBe('invoice_not_found');
-
-      const getPdf = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}/pdf`,
-        { method: 'GET' },
-      );
-      expect(getPdf.status).toBe(404);
-      expect(getPdf.json?.code).toBe('invoice_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare billing routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-cf`;
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-billing-user-cf'),
-      billing: billing!,
-    });
-    const ownerInvoices = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(ownerInvoices.status).toBe(200);
-    const ownerInvoiceId = String(getPath(ownerInvoices.json, 'invoices', 0, 'id') || '');
-    expect(ownerInvoiceId).toBeTruthy();
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-billing-user-cf'),
-      billing: billing!,
-    });
-    const list = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(list.status).toBe(200);
-    const attackerInvoices = Array.isArray(list.json?.invoices) ? list.json?.invoices : [];
-    expect(attackerInvoices.some((entry: any) => String(entry?.id || '') === ownerInvoiceId)).toBe(
-      false,
-    );
-
-    const getInvoice = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}`,
-    });
-    expect(getInvoice.status).toBe(404);
-    expect(getInvoice.json?.code).toBe('invoice_not_found');
-
-    const getLineItems = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}/line-items`,
-    });
-    expect(getLineItems.status).toBe(404);
-    expect(getLineItems.json?.code).toBe('invoice_not_found');
-
-    const getPdf = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}/pdf`,
-    });
-    expect(getPdf.status).toBe(404);
-    expect(getPdf.json?.code).toBe('invoice_not_found');
-  });
-
-  test('express billing overview and MAW usage routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-usage`;
-    const attackerOrgId = `${authOrgId}:attacker-usage`;
-
-    const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-usage-user'),
-      billing: billing!,
-    });
-    const ownerServer = await startExpressRouter(ownerRouter);
-    let monthUtc = '';
-    try {
-      const event = await fetchJson(`${ownerServer.baseUrl}/console/billing/usage/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          walletId: 'wallet_owner_usage_1',
-          action: 'transfer',
-          succeeded: true,
-          sourceEventId: `owner_usage_evt_${Date.now()}`,
-        }),
-      });
-      expect(event.status).toBe(200);
-      monthUtc = String(getPath(event.json, 'result', 'monthUtc') || '');
-      expect(monthUtc).toMatch(/^\d{4}-\d{2}$/);
-
-      const ownerOverview = await fetchJson(`${ownerServer.baseUrl}/console/billing/overview`, {
-        method: 'GET',
-      });
-      expect(ownerOverview.status).toBe(200);
-      expect(Number(getPath(ownerOverview.json, 'overview', 'monthlyActiveWallets') || 0)).toBe(1);
-
-      const ownerUsage = await fetchJson(
-        `${ownerServer.baseUrl}/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`,
-        { method: 'GET' },
-      );
-      expect(ownerUsage.status).toBe(200);
-      expect(Number(getPath(ownerUsage.json, 'usage', 'monthlyActiveWallets') || 0)).toBe(1);
-    } finally {
-      await ownerServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-usage-user'),
-      billing: billing!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const attackerOverview = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/overview`,
-        {
-          method: 'GET',
-        },
-      );
-      expect(attackerOverview.status).toBe(200);
-      expect(Number(getPath(attackerOverview.json, 'overview', 'monthlyActiveWallets') || 0)).toBe(
-        0,
-      );
-
-      const attackerUsage = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`,
-        { method: 'GET' },
-      );
-      expect(attackerUsage.status).toBe(200);
-      expect(Number(getPath(attackerUsage.json, 'usage', 'monthlyActiveWallets') || 0)).toBe(0);
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare billing overview and MAW usage routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerOrgId = `${authOrgId}:owner-usage-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-usage-cf`;
-
-    const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-usage-user-cf'),
-      billing: billing!,
-    });
-    const event = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/billing/usage/events',
-      body: {
-        walletId: 'wallet_owner_usage_cf_1',
-        action: 'swap',
-        succeeded: true,
-        sourceEventId: `owner_usage_cf_evt_${Date.now()}`,
-      },
-    });
-    expect(event.status).toBe(200);
-    const monthUtc = String(getPath(event.json, 'result', 'monthUtc') || '');
-    expect(monthUtc).toMatch(/^\d{4}-\d{2}$/);
-
-    const ownerOverview = await callCf(ownerHandler, {
-      method: 'GET',
-      path: '/console/billing/overview',
-    });
-    expect(ownerOverview.status).toBe(200);
-    expect(Number(getPath(ownerOverview.json, 'overview', 'monthlyActiveWallets') || 0)).toBe(1);
-
-    const ownerUsage = await callCf(ownerHandler, {
-      method: 'GET',
-      path: `/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`,
-    });
-    expect(ownerUsage.status).toBe(200);
-    expect(Number(getPath(ownerUsage.json, 'usage', 'monthlyActiveWallets') || 0)).toBe(1);
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-usage-user-cf'),
-      billing: billing!,
-    });
-    const attackerOverview = await callCf(attackerHandler, {
-      method: 'GET',
-      path: '/console/billing/overview',
-    });
-    expect(attackerOverview.status).toBe(200);
-    expect(Number(getPath(attackerOverview.json, 'overview', 'monthlyActiveWallets') || 0)).toBe(0);
-
-    const attackerUsage = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`,
-    });
-    expect(attackerUsage.status).toBe(200);
-    expect(Number(getPath(attackerUsage.json, 'usage', 'monthlyActiveWallets') || 0)).toBe(0);
   });
 });

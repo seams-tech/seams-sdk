@@ -34,7 +34,7 @@ const CONTEXT_FROM_CHAIN = {
   network_id: 'testnet',
 } as const;
 
-test.describe('Email encryption compatibility with Outlayer worker seed', () => {
+test.describe('Email encryption interoperability with Outlayer worker seed', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await injectImportMap(page);
@@ -92,7 +92,7 @@ test.describe('Email encryption compatibility with Outlayer worker seed', () => 
     if (!res.success) {
       test.skip(
         true,
-        `email encryption Outlayer compat test unavailable: ${res.error || 'unknown error'}`,
+        `email encryption Outlayer interoperability test unavailable: ${res.error || 'unknown error'}`,
       );
       return;
     }
@@ -182,7 +182,9 @@ test.describe('Email encryption compatibility with Outlayer worker seed', () => 
     if (!res.success) {
       test.skip(
         true,
-        `gmail_reset_full.eml encryption compat test unavailable: ${res.error || 'unknown error'}`,
+        `gmail_reset_full.eml encryption interoperability test unavailable: ${
+          res.error || 'unknown error'
+        }`,
       );
       return;
     }

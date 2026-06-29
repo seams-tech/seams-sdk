@@ -57,6 +57,33 @@ test.describe('domain id boundary parsers', () => {
 
   test('public wallet-id boundary helpers reject invalid raw values', () => {
     expect(() => walletIdFromString('')).toThrow('walletId is required');
+    expect(() => walletIdFromString('alice testnet')).toThrow(
+      'walletId must not contain whitespace or control characters',
+    );
     expect(() => toWalletId(42)).toThrow('walletId must be a string');
+    expect(() => toWalletId('alice\ntestnet')).toThrow(
+      'walletId must not contain whitespace or control characters',
+    );
+  });
+
+  test('wallet-id parser rejects embedded whitespace and control characters', () => {
+    expect(parseWalletId('wallet:alice')).toEqual({
+      ok: true,
+      value: 'wallet:alice',
+    });
+    expect(parseWalletId('alice testnet')).toEqual({
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'walletId must not contain whitespace or control characters',
+      },
+    });
+    expect(parseWalletId('alice\u0000testnet')).toEqual({
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'walletId must not contain whitespace or control characters',
+      },
+    });
   });
 });

@@ -1,133 +1,67 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const scriptPath = path.join(repoRoot, 'packages/sdk-server-ts/scripts/d1-staging-runbook.mjs');
+import {
+  D1_STAGING_GENERATED_AT_ISO,
+  loadD1StagingScriptModule,
+  writeD1StagingTempFile,
+  writeMisScopedConsoleD1StagingConfigFiles,
+  writeValidD1StagingConfigFiles,
+} from './helpers/d1StagingScriptFixtures';
 
 type RunbookModule = {
   readonly buildD1StagingRunbook: (input: {
     readonly consoleConfigPath: string;
-    readonly relayConfigPath: string;
+    readonly routerApiConfigPath: string;
     readonly outputPath?: string;
     readonly generatedAtIso?: string;
     readonly operator?: string;
     readonly r2Bucket?: string;
     readonly consoleOrigin?: string;
-    readonly relayOrigin?: string;
+    readonly routerApiOrigin?: string;
   }) => string;
   readonly writeD1StagingRunbook: (input: {
     readonly consoleConfigPath: string;
-    readonly relayConfigPath: string;
+    readonly routerApiConfigPath: string;
     readonly outputPath: string;
     readonly generatedAtIso?: string;
     readonly operator?: string;
+    readonly r2Bucket?: string;
+    readonly consoleOrigin?: string;
+    readonly routerApiOrigin?: string;
   }) => {
     readonly outputPath: string;
     readonly markdown: string;
   };
 };
 
-async function loadRunbookModule(): Promise<RunbookModule> {
-  return (await import(pathToFileURL(scriptPath).href)) as RunbookModule;
-}
-
-function writeTempFile(fileName: string, source: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seams-d1-staging-runbook-'));
-  const filePath = path.join(dir, fileName);
-  fs.writeFileSync(filePath, source);
-  return filePath;
-}
-
-function validConsoleStagingConfig(): string {
-  return `
-name = "seams-sdk-d1-console-staging"
-main = "src/router/cloudflare/d1ConsoleStagingWorker.ts"
-compatibility_date = "2026-04-17"
-compatibility_flags = ["nodejs_compat"]
-
-[[d1_databases]]
-binding = "CONSOLE_DB"
-database_name = "seams-console-staging"
-database_id = "11111111-1111-4111-8111-111111111111"
-migrations_dir = "migrations/d1-console"
-
-[vars]
-SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
-CONSOLE_SESSION_ISSUER = "seams-console-staging"
-CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
-
-[secrets]
-required = ["CONSOLE_SESSION_HMAC_SECRET"]
-`;
-}
-
-function validRelayStagingConfig(): string {
-  return `
-name = "seams-sdk-d1-relay-staging"
-main = "src/router/cloudflare/d1RouterApiStagingWorker.ts"
-compatibility_date = "2026-04-17"
-compatibility_flags = ["nodejs_compat"]
-
-[[d1_databases]]
-binding = "CONSOLE_DB"
-database_name = "seams-console-staging"
-database_id = "11111111-1111-4111-8111-111111111111"
-migrations_dir = "migrations/d1-console"
-
-[[d1_databases]]
-binding = "SIGNER_DB"
-database_name = "seams-signer-staging"
-database_id = "22222222-2222-4222-8222-222222222222"
-migrations_dir = "migrations/d1-signer"
-
-[[durable_objects.bindings]]
-name = "THRESHOLD_STORE"
-class_name = "ThresholdStoreDurableObject"
-
-[[migrations]]
-tag = "threshold-store-sqlite-v1"
-new_sqlite_classes = ["ThresholdStoreDurableObject"]
-
-[[secrets_store_secrets]]
-binding = "SIGNING_ROOT_KEK_STAGING_R1"
-store_id = "33333333333333333333333333333333"
-secret_name = "signing-root-kek-staging-r1"
-
-[vars]
-SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
-SEAMS_STAGING_ORG_ID = "org_staging"
-SEAMS_STAGING_PROJECT_ID = "project_staging"
-SEAMS_STAGING_ENV_ID = "staging"
-ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "seams-d1-relay-staging"
-RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
-RELAYER_PUBLIC_KEY = "ed25519:11111111111111111111111111111111"
-RELAY_SESSION_ISSUER = "seams-relay-staging"
-RELAY_SESSION_AUDIENCE = "seams-wallet-session"
-SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
-SIGNING_ROOT_KEK_ENCODING = "base64url"
-SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
-
-[secrets]
-required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "SPONSORED_EVM_EXECUTORS_JSON"]
-`;
-}
+const runbookModule = loadD1StagingScriptModule<RunbookModule>('d1-staging-runbook.mjs');
+const runbookConfigPaths = writeValidD1StagingConfigFiles('seams-d1-staging-runbook-');
+const runbookOptions = {
+  ...runbookConfigPaths,
+  generatedAtIso: D1_STAGING_GENERATED_AT_ISO,
+  operator: 'staging-operator',
+  r2Bucket: 'seams-staging-backups',
+  consoleOrigin: 'https://console.staging.example',
+  routerApiOrigin: 'https://router-api.staging.example',
+};
+const finalEvidenceManifestFlags = [
+  '--resources "$RESOURCE_INVENTORY_MANIFEST"',
+  '--kek-check "$KEK_CHECK_MANIFEST"',
+  '--migrations "$MIGRATIONS_MANIFEST"',
+  '--bookmark-before-fixture-import "$BOOKMARK_BEFORE_FIXTURE_IMPORT_MANIFEST"',
+  '--fixture-import "$FIXTURE_IMPORT_MANIFEST"',
+  '--bookmark-before-route-switch "$BOOKMARK_BEFORE_ROUTE_SWITCH_MANIFEST"',
+  '--smoke "$SMOKE_MANIFEST"',
+  '--reconciliation "$RECONCILIATION_MANIFEST"',
+  '--signer-custody "$SIGNER_CUSTODY_MANIFEST"',
+  '--r2-restore-drill "$R2_RESTORE_DRILL_MANIFEST"',
+] as const;
 
 test('D1 staging runbook renders exact Phase 6 command sequence from readiness-clean configs', async () => {
-  const consoleConfigPath = writeTempFile('wrangler.d1-staging-console.toml', validConsoleStagingConfig());
-  const relayConfigPath = writeTempFile('wrangler.d1-staging-relay.toml', validRelayStagingConfig());
-  const module = await loadRunbookModule();
+  const module = await runbookModule;
 
   const markdown = module.buildD1StagingRunbook({
-    consoleConfigPath,
-    relayConfigPath,
-    generatedAtIso: '2026-06-28T00:00:00.000Z',
-    operator: 'staging-operator',
-    r2Bucket: 'seams-staging-backups',
-    consoleOrigin: 'https://console.staging.example',
-    relayOrigin: 'https://relay.staging.example',
+    ...runbookOptions,
   });
 
   expect(markdown).toContain('Generated: 2026-06-28T00:00:00.000Z');
@@ -145,26 +79,32 @@ test('D1 staging runbook renders exact Phase 6 command sequence from readiness-c
   expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:reconcile');
   expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:signer-custody');
   expect(markdown).toContain('pnpm --dir packages/sdk-server-ts run d1:staging:evidence');
-  expect(markdown).toContain('--bookmark-before-fixture-import "$BOOKMARK_BEFORE_FIXTURE_IMPORT_MANIFEST"');
-  expect(markdown).toContain('SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT');
+  for (const flag of finalEvidenceManifestFlags) expect(markdown).toContain(flag);
+  expect(markdown).toContain('--origin https://console.staging.example');
+  expect(markdown).toContain('--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT');
+  expect(markdown).toContain('SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT');
+  expect(markdown).toContain('--missing-kek-fixture "$ECDSA_MISSING_KEK_EXPORT_SHARE_FIXTURE"');
+  expect(markdown).toContain('--missing-kek-expected-status 503');
+  expect(markdown).toContain('ecdsa_export_share_missing_kek_fail_closed');
   expect(markdown).toContain('--console-origin https://console.staging.example');
-  expect(markdown).toContain('Relay `/router-ab/ed25519/healthz` configured');
-  expect(markdown).toContain('Relay `/router-ab/ecdsa-hss/healthz` configured');
-  expect(markdown).toContain('Fixture-backed signer custody and KEK isolation');
+  expect(markdown).toContain('Router API `/router-ab/ed25519/healthz` configured');
+  expect(markdown).toContain('Router API `/router-ab/ecdsa-hss/healthz` configured');
+  expect(markdown).toContain('Fixture-backed signer custody, KEK isolation, and missing-KEK fail-closed');
+  expect(markdown.indexOf('## Preflight')).toBeLessThan(
+    markdown.indexOf('## Resource Inventory Capture'),
+  );
+  expect(markdown.indexOf('## Resource Inventory Capture')).toBeLessThan(
+    markdown.indexOf('## Remote D1 Migrations'),
+  );
 });
 
 test('D1 staging runbook writes the deployment log after readiness checks pass', async () => {
-  const consoleConfigPath = writeTempFile('wrangler.d1-staging-console.toml', validConsoleStagingConfig());
-  const relayConfigPath = writeTempFile('wrangler.d1-staging-relay.toml', validRelayStagingConfig());
-  const outputPath = path.join(os.tmpdir(), `seams-d1-staging-log-${Date.now()}.md`);
-  const module = await loadRunbookModule();
+  const outputPath = writeD1StagingTempFile('seams-d1-staging-log-', 'runbook.md', '');
+  const module = await runbookModule;
 
   const result = module.writeD1StagingRunbook({
-    consoleConfigPath,
-    relayConfigPath,
+    ...runbookOptions,
     outputPath,
-    generatedAtIso: '2026-06-28T00:00:00.000Z',
-    operator: 'staging-operator',
   });
 
   expect(result.outputPath).toBe(outputPath);
@@ -173,15 +113,47 @@ test('D1 staging runbook writes the deployment log after readiness checks pass',
 });
 
 test('D1 staging runbook rejects configs that fail the staging readiness gate', async () => {
-  const consoleConfigPath = writeTempFile('wrangler.d1-staging-console.toml', validRelayStagingConfig());
-  const relayConfigPath = writeTempFile('wrangler.d1-staging-relay.toml', validRelayStagingConfig());
-  const module = await loadRunbookModule();
+  const module = await runbookModule;
 
   expect(() =>
     module.buildD1StagingRunbook({
-      consoleConfigPath,
-      relayConfigPath,
-      generatedAtIso: '2026-06-28T00:00:00.000Z',
+      ...runbookOptions,
+      ...writeMisScopedConsoleD1StagingConfigFiles('seams-d1-staging-runbook-'),
     }),
   ).toThrow(/console staging config must not reference SIGNER_DB/);
+});
+
+test('D1 staging runbook requires concrete HTTPS origins', async () => {
+  const module = await runbookModule;
+
+  expect(() =>
+    module.buildD1StagingRunbook({
+      ...runbookOptions,
+      routerApiOrigin: 'http://router-api.staging.example',
+    }),
+  ).toThrow(/--router-api-origin must use https/);
+});
+
+test('D1 staging runbook rejects placeholder endpoint commands', async () => {
+  const module = await runbookModule;
+
+  expect(() =>
+    module.buildD1StagingRunbook({
+      ...runbookConfigPaths,
+      generatedAtIso: D1_STAGING_GENERATED_AT_ISO,
+      operator: 'staging-operator',
+      r2Bucket: 'seams-staging-backups',
+    }),
+  ).toThrow(/--console-origin is required/);
+});
+
+test('D1 staging runbook rejects R2 object paths as bucket names', async () => {
+  const module = await runbookModule;
+
+  expect(() =>
+    module.buildD1StagingRunbook({
+      ...runbookOptions,
+      r2Bucket: 'seams-staging-backups/refactor-82',
+    }),
+  ).toThrow(/--r2-bucket must be a bucket name/);
 });

@@ -13,8 +13,9 @@ import {
   type AddSignerIntentV1,
   type NearAccountOwnershipProofV1,
   type RegistrationAuthMethodInput,
-  type RegistrationSignerSelection,
+  type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
@@ -42,6 +43,27 @@ const EXISTING_PASSKEY_CREDENTIAL_ID = base64UrlEncode(
   new TextEncoder().encode('existing-credential-id'),
 );
 const NEW_PASSKEY_CREDENTIAL_ID = base64UrlEncode(new TextEncoder().encode('new-credential-id'));
+
+function unwrapFixture<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid fixture value');
+  return result.value;
+}
+
+const RP_ID = unwrapFixture(parseWebAuthnRpId('wallet.example.test'));
+const ED25519_HSS_SERVER_STATE = {
+  context: {
+    applicationBindingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    participantIds: [1, 2],
+  },
+  preparedServerSession: {
+    evaluatorDriverStateB64u: 'AQID',
+    garblerDriverStateB64u: 'BAUG',
+  },
+  serverInputs: {
+    yRelayerB64u: 'BwgJ',
+    tauRelayerB64u: 'CgsM',
+  },
+};
 
 function namedProvisioning(accountId: string) {
   const parsed = parseNamedNearAccountId(accountId);
@@ -146,43 +168,47 @@ function emailOtpBackupAck(input?: { offerId?: string; candidateId?: string }) {
   };
 }
 
+const ECDSA_CHAIN_TARGETS = [
+  { kind: 'evm', namespace: 'eip155', chainId: 1 },
+  { kind: 'tempo', chainId: 42431 },
+] as const;
+
+const NEAR_ED25519_SIGNER = {
+  kind: 'near_ed25519',
+  accountProvisioning: namedProvisioning('alice.testnet'),
+  signerSlot: 1,
+  participantIds: [1, 2],
+  derivationVersion: 1,
+} as const;
+
+const EVM_FAMILY_ECDSA_SIGNER = {
+  kind: 'evm_family_ecdsa',
+  chainTargets: ECDSA_CHAIN_TARGETS,
+  participantIds: [1, 2],
+} as const;
+
 const SIGNER_SELECTION = {
-  mode: 'ed25519_only',
-  ed25519: {
-    accountProvisioning: namedProvisioning('alice.testnet'),
-    signerSlot: 1,
-    participantIds: [1, 2],
-    keyPurpose: 'near_tx',
-    keyVersion: 'threshold-ed25519-hss-v1',
-    derivationVersion: 1,
-  },
-} satisfies RegistrationSignerSelection;
+  kind: 'signer_set',
+  signers: [NEAR_ED25519_SIGNER],
+} satisfies RegistrationSignerSetSelection;
 
 const ECDSA_SIGNER_SELECTION = {
-  mode: 'ecdsa_only',
-  ecdsa: {
-    chainTargets: [
-      { kind: 'evm', namespace: 'eip155', chainId: 1 },
-      { kind: 'tempo', chainId: 42431 },
-    ],
-    participantIds: [1, 2],
-  },
-} satisfies RegistrationSignerSelection;
+  kind: 'signer_set',
+  signers: [EVM_FAMILY_ECDSA_SIGNER],
+} satisfies RegistrationSignerSetSelection;
 
 const COMBINED_SIGNER_SELECTION = {
-  mode: 'ed25519_and_ecdsa',
-  ed25519: SIGNER_SELECTION.ed25519,
-  ecdsa: ECDSA_SIGNER_SELECTION.ecdsa,
-} satisfies RegistrationSignerSelection;
+  kind: 'signer_set',
+  signers: [NEAR_ED25519_SIGNER, EVM_FAMILY_ECDSA_SIGNER],
+} satisfies RegistrationSignerSetSelection;
 
 const ECDSA_ADD_SIGNER_INTENT = {
   version: 'add_signer_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   signerSelection: {
     mode: 'ecdsa',
     ecdsa: {
-      chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+      chainTargets: ECDSA_CHAIN_TARGETS,
       participantIds: [1, 2],
     },
   },
@@ -190,10 +216,19 @@ const ECDSA_ADD_SIGNER_INTENT = {
   nonceB64u: 'add-signer-nonce',
 } satisfies AddSignerIntentV1;
 
+function registrationSignerSetHasKind(
+  selection: RegistrationSignerSetSelection,
+  kind: 'near_ed25519' | 'evm_family_ecdsa',
+): boolean {
+  for (const signer of selection.signers) {
+    if (signer.kind === kind) return true;
+  }
+  return false;
+}
+
 const ED25519_ADD_SIGNER_INTENT = {
   version: 'add_signer_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   signerSelection: {
     mode: 'ed25519',
     ed25519: {
@@ -225,8 +260,8 @@ function makeService(): AuthService {
 
 async function allocateIntent(
   service: AuthService,
-  signerSelection: RegistrationSignerSelection = SIGNER_SELECTION,
-  authMethod: RegistrationAuthMethodInput = { kind: 'passkey' },
+  signerSelection: RegistrationSignerSetSelection = SIGNER_SELECTION,
+  authMethod: RegistrationAuthMethodInput = { kind: 'passkey', rpId: RP_ID },
 ) {
   return await service.createRegistrationIntent({
     request: {
@@ -234,7 +269,6 @@ async function allocateIntent(
         kind: 'provided',
         walletId: walletIdFromString('wallet_alice'),
       },
-      rpId: 'wallet.example.test',
       authMethod,
       signerSelection,
     },
@@ -259,9 +293,10 @@ async function prepareAllocatedEd25519Registration(
   allocated: Extract<CreateRegistrationIntentResponse, { ok: true }>,
 ) {
   const selection = allocated.intent.signerSelection;
-  if (selection.mode === 'ecdsa_only') {
+  if (!registrationSignerSetHasKind(selection, 'near_ed25519')) {
     throw new Error('prepareAllocatedEd25519Registration requires an Ed25519 intent');
   }
+  const hasEcdsa = registrationSignerSetHasKind(selection, 'evm_family_ecdsa');
   const prepared = await service.prepareWalletRegistration({
     registrationIntentGrant: allocated.registrationIntentGrant,
     registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
@@ -271,7 +306,7 @@ async function prepareAllocatedEd25519Registration(
       reason: 'direct_service_call',
     },
     work: {
-      kind: selection.mode === 'ed25519_and_ecdsa' ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss',
+      kind: hasEcdsa ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss',
     },
   });
   if (!prepared.ok) throw new Error(`${prepared.code}: ${prepared.message}`);
@@ -286,7 +321,6 @@ async function allocateAddSignerIntent(
   return await service.createAddSignerIntent({
     request: {
       walletId: walletIdFromString('wallet_alice'),
-      rpId: 'wallet.example.test',
       signerSelection,
     },
     orgId: ORG_ID,
@@ -297,12 +331,14 @@ async function allocateAddSignerIntent(
 
 async function allocateAddAuthMethodIntent(
   service: AuthService,
-  authMethod: AddAuthMethodIntentV1['authMethod'] = { kind: 'passkey' },
+  authMethod: AddAuthMethodIntentV1['authMethod'] = {
+    kind: 'passkey',
+    rpId: RP_ID,
+  },
 ) {
   return await service.createAddAuthMethodIntent({
     request: {
       walletId: walletIdFromString('wallet_alice'),
-      rpId: 'wallet.example.test',
       authMethod,
     },
     orgId: ORG_ID,
@@ -323,7 +359,7 @@ function activePasskeyAuthMethod(input: {
     kind: 'passkey' as const,
     status: 'active' as const,
     walletId: walletIdFromString(input.walletId || 'wallet_alice'),
-    rpId: 'wallet.example.test',
+    rpId: RP_ID,
     credentialIdB64u: input.credentialIdB64u,
     credentialPublicKeyB64u: input.credentialPublicKeyB64u || 'existing-public-key',
     counter: input.counter ?? 0,
@@ -343,7 +379,6 @@ function activeEmailOtpAuthMethod(input: {
     kind: 'email_otp' as const,
     status: 'active' as const,
     walletId: walletIdFromString(input.walletId || 'wallet_alice'),
-    rpId: 'wallet.example.test',
     emailHashHex: input.emailHashHex || 'email-hash-1',
     registrationAuthorityId: input.registrationAuthorityId || 'challenge-1',
     createdAtMs: now,
@@ -365,7 +400,6 @@ function clientDataJsonB64u(input: { challenge: string }): string {
 
 function createNearAccountOwnershipProof(input: {
   walletId: ReturnType<typeof walletIdFromString>;
-  rpId: string;
   nearAccountId: string;
   issuedAtMs?: number;
   expiresAtMs?: number;
@@ -376,7 +410,6 @@ function createNearAccountOwnershipProof(input: {
   const message = {
     version: 'near_account_ownership_proof_message_v1' as const,
     walletId: input.walletId,
-    rpId: input.rpId,
     nearAccountId: input.nearAccountId,
     publicKey: `ed25519:${base58Encode(publicKeyBytes)}`,
     nonceB64u: base64UrlEncode(new Uint8Array(16).fill(7)),
@@ -406,7 +439,7 @@ function ecdsaServerBootstrapValue(input: {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: input.request.walletId,
     walletSessionUserId: input.request.walletSessionUserId,
-    rpId: input.request.rpId,
+    walletKeyId: input.request.walletKeyId,
     subjectId: input.request.subjectId,
     ecdsaThresholdKeyId: input.request.ecdsaThresholdKeyId,
     relayerKeyId: input.request.relayerKeyId,
@@ -472,6 +505,7 @@ test.describe('registration intent allocation', () => {
                 evaluatorDriverStateB64u: 'evaluator-driver-state',
               },
               clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
             };
           },
         },
@@ -593,6 +627,7 @@ test.describe('registration intent allocation', () => {
             evaluatorDriverStateB64u: 'evaluator-driver-state',
           },
           clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
         }),
       },
     });
@@ -607,8 +642,7 @@ test.describe('registration intent allocation', () => {
           kind: 'provided',
           walletId: walletIdFromString('wallet_bob'),
         },
-        rpId: 'wallet.example.test',
-        authMethod: { kind: 'passkey' },
+        authMethod: { kind: 'passkey', rpId: RP_ID },
         signerSelection: SIGNER_SELECTION,
       },
       orgId: ORG_ID,
@@ -684,6 +718,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
           };
         },
         respondForRegistration: async (request: Record<string, unknown>) => {
@@ -755,11 +790,10 @@ test.describe('registration intent allocation', () => {
         registrationAccountScope: {
           kind: 'sponsored_named_registration_scope',
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
           nearEd25519SigningKeyId: 'wallet_alice',
           requestedAccountId: 'alice.testnet',
         },
-        wallet_key_id: 'wallet.example.test',
+        wallet_key_id: 'wallet_alice',
       },
     });
     await expect(
@@ -795,7 +829,7 @@ test.describe('registration intent allocation', () => {
     expect(finalized).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
       ed25519: {
         nearAccountId: 'alice.testnet',
         publicKey: 'ed25519:public-key',
@@ -849,6 +883,7 @@ test.describe('registration intent allocation', () => {
             evaluatorDriverStateB64u: 'evaluator-driver-state',
           },
           clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
         }),
       },
     });
@@ -908,7 +943,6 @@ test.describe('registration intent allocation', () => {
     expect(ceremony.authority).toMatchObject({
       kind: 'email_otp',
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
       challengeId: 'email-otp-challenge-1',
       registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
       providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
@@ -966,6 +1000,7 @@ test.describe('registration intent allocation', () => {
             evaluatorDriverStateB64u: 'evaluator-driver-state',
           },
           clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
         }),
         respondForRegistration: async () => ({
           ok: true,
@@ -1058,7 +1093,6 @@ test.describe('registration intent allocation', () => {
       kind: 'email_otp',
       status: 'active',
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
       registrationAuthorityId: 'email-otp-challenge-1',
     });
     expect(String((walletAuthMethodWrite as any)?.emailHashHex || '')).toMatch(/^[0-9a-f]{64}$/);
@@ -1130,7 +1164,6 @@ test.describe('registration intent allocation', () => {
           kind: 'provided',
           walletId: walletIdFromString('wallet_bob'),
         },
-        rpId: 'wallet.example.test',
         authMethod: {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
@@ -1271,6 +1304,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
           };
         },
         respondForRegistration: async (request: Record<string, unknown>) => {
@@ -1373,7 +1407,7 @@ test.describe('registration intent allocation', () => {
       },
       ecdsa: {
         kind: 'evm_family_ecdsa_keygen',
-        chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+        chainTargets: ECDSA_CHAIN_TARGETS,
       },
     });
     if (!started.ok || !started.ed25519 || !started.ecdsa) {
@@ -1390,11 +1424,10 @@ test.describe('registration intent allocation', () => {
         registrationAccountScope: {
           kind: 'sponsored_named_registration_scope',
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
           nearEd25519SigningKeyId: 'wallet_alice',
           requestedAccountId: 'alice.testnet',
         },
-        wallet_key_id: 'wallet.example.test',
+        wallet_key_id: 'wallet_alice',
       },
     });
     await expect(
@@ -1470,7 +1503,7 @@ test.describe('registration intent allocation', () => {
         sessionPolicy: {
           version: 'threshold_session_v1',
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
+          authorityScope: { kind: 'passkey_rp', rpId: RP_ID },
           nearAccountId: 'alice.testnet',
           nearEd25519SigningKeyId: 'wallet_alice',
           relayerKeyId: 'relayer-key-ed25519',
@@ -1487,13 +1520,13 @@ test.describe('registration intent allocation', () => {
         sessionKind: 'jwt',
       },
       ecdsa: {
-        expectedKeyHandles: ['ehss-combined-key-alice'],
+        expectedKeyHandles: ['unexpected-key-handle', 'ehss-combined-key-alice'],
       },
     });
     expect(finalized).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
       ed25519: {
         nearAccountId: 'alice.testnet',
         publicKey: 'ed25519:public-key',
@@ -1505,21 +1538,26 @@ test.describe('registration intent allocation', () => {
       },
     });
     expect(ed25519SessionMintRequest).toMatchObject({
+      rpId: RP_ID,
       sessionPolicy: {
+        authorityScope: { kind: 'passkey_rp', rpId: RP_ID },
         thresholdSessionId: 'tsess_combined_ed25519',
         signingGrantId: started.ecdsa.prepare.signingGrantId,
         remainingUses: started.ecdsa.prepare.remainingUses,
       },
     });
+    expect(
+      (ed25519SessionMintRequest?.sessionPolicy as Record<string, unknown> | undefined)?.rpId,
+    ).toBeUndefined();
     expect(finalized.ok && finalized.ecdsa?.walletKeys).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          chainTarget: COMBINED_SIGNER_SELECTION.ecdsa.chainTargets[0],
+          chainTarget: ECDSA_CHAIN_TARGETS[0],
           keyHandle: 'ehss-combined-key-alice',
           thresholdOwnerAddress: '0x3333333333333333333333333333333333333333',
         }),
         expect.objectContaining({
-          chainTarget: COMBINED_SIGNER_SELECTION.ecdsa.chainTargets[1],
+          chainTarget: ECDSA_CHAIN_TARGETS[1],
           keyHandle: 'ehss-combined-key-alice',
           thresholdOwnerAddress: '0x3333333333333333333333333333333333333333',
         }),
@@ -1602,7 +1640,7 @@ test.describe('registration intent allocation', () => {
       ok: true,
       ecdsa: {
         kind: 'evm_family_ecdsa_keygen',
-        chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+        chainTargets: ECDSA_CHAIN_TARGETS,
       },
     });
     if (!started.ok || !started.ecdsa) throw new Error('ECDSA start failed');
@@ -1639,14 +1677,14 @@ test.describe('registration intent allocation', () => {
     const finalized = await service.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       ecdsa: {
-        expectedKeyHandles: ['ehss-key-alice'],
+        expectedKeyHandles: ['unexpected-key-handle', 'ehss-key-alice'],
       },
     });
 
     expect(finalized).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
       ecdsa: {
         walletKeys: [
           {
@@ -1718,7 +1756,6 @@ test.describe('registration intent allocation', () => {
           kind: 'provided',
           walletId: walletIdFromString(selected.walletId),
         },
-        rpId: 'wallet.example.test',
         authMethod: {
           kind: 'email_otp',
           proofKind: 'google_sso_registration',
@@ -1859,7 +1896,6 @@ test.describe('registration intent allocation', () => {
     expect(replay?.response).toMatchObject({
       ok: true,
       walletId: walletIdFromString(selected.walletId),
-      rpId: 'wallet.example.test',
     });
     const replayJson = JSON.stringify(replay);
     expect(replayJson).not.toContain('app-session.jwt');
@@ -1909,7 +1945,6 @@ test.describe('registration intent allocation', () => {
           kind: 'provided',
           walletId: walletIdFromString(selected.walletId),
         },
-        rpId: 'wallet.example.test',
         authMethod: {
           kind: 'email_otp',
           proofKind: 'google_sso_registration',
@@ -2008,7 +2043,7 @@ test.describe('registration intent allocation', () => {
     await expect(
       authMethodStore.listForWallet({
         walletId: walletIdFromString(selected.walletId),
-        rpId: 'wallet.example.test',
+        rpId: RP_ID,
       }),
     ).resolves.toEqual([]);
     await expect(
@@ -2118,7 +2153,6 @@ test.describe('registration intent allocation', () => {
       getWallet: async () => ({
         version: 'wallet_v1',
         walletId: 'wallet_alice',
-        rpId: 'wallet.example.test',
         createdAtMs: 1,
         updatedAtMs: 1,
       }),
@@ -2328,6 +2362,7 @@ test.describe('registration intent allocation', () => {
       intent: allocated.intent,
       auth: {
         kind: 'webauthn_assertion',
+        rpId: RP_ID,
         credential: {
           id: EXISTING_PASSKEY_CREDENTIAL_ID,
           rawId: EXISTING_PASSKEY_CREDENTIAL_ID,
@@ -2380,7 +2415,6 @@ test.describe('registration intent allocation', () => {
     expect(finalized).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
       authMethod: {
         kind: 'passkey',
         status: 'active',
@@ -2389,7 +2423,7 @@ test.describe('registration intent allocation', () => {
 
     const walletMethods = await authMethodStore.listForWallet({
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
     });
     expect(walletMethods).toEqual(
       expect.arrayContaining([
@@ -2452,6 +2486,7 @@ test.describe('registration intent allocation', () => {
         intent: allocated.intent,
         auth: {
           kind: 'webauthn_assertion',
+          rpId: RP_ID,
           credential: {
             id: EXISTING_PASSKEY_CREDENTIAL_ID,
             rawId: EXISTING_PASSKEY_CREDENTIAL_ID,
@@ -2584,7 +2619,6 @@ test.describe('registration intent allocation', () => {
     expect(finalized).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
       authMethod: {
         kind: 'email_otp',
         status: 'active',
@@ -2593,7 +2627,7 @@ test.describe('registration intent allocation', () => {
 
     const walletMethods = await authMethodStore.listForWallet({
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
     });
     expect(walletMethods).toEqual(
       expect.arrayContaining([
@@ -2666,7 +2700,6 @@ test.describe('registration intent allocation', () => {
 
     const revoked = await service.revokeWalletAuthMethod({
       walletId: walletIdFromString('wallet_alice'),
-      rpId: 'wallet.example.test',
       auth: {
         kind: 'app_session',
         policy: {
@@ -2674,6 +2707,7 @@ test.describe('registration intent allocation', () => {
           walletId: walletIdFromString('wallet_alice'),
           target: {
             kind: 'passkey',
+            rpId: RP_ID,
             credentialIdB64u: EXISTING_PASSKEY_CREDENTIAL_ID,
           },
           runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -2682,6 +2716,7 @@ test.describe('registration intent allocation', () => {
       },
       target: {
         kind: 'passkey',
+        rpId: RP_ID,
         credentialIdB64u: EXISTING_PASSKEY_CREDENTIAL_ID,
       },
     });
@@ -2689,7 +2724,7 @@ test.describe('registration intent allocation', () => {
     expect(revoked).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
       authMethod: {
         kind: 'passkey',
         status: 'revoked',
@@ -2697,7 +2732,7 @@ test.describe('registration intent allocation', () => {
     });
     const walletMethods = await authMethodStore.listForWallet({
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
     });
     expect(walletMethods).toEqual(
       expect.arrayContaining([
@@ -2727,7 +2762,6 @@ test.describe('registration intent allocation', () => {
     await expect(
       service.revokeWalletAuthMethod({
         walletId: walletIdFromString('wallet_alice'),
-        rpId: 'wallet.example.test',
         auth: {
           kind: 'app_session',
           policy: {
@@ -2735,6 +2769,7 @@ test.describe('registration intent allocation', () => {
             walletId: walletIdFromString('wallet_alice'),
             target: {
               kind: 'passkey',
+              rpId: RP_ID,
               credentialIdB64u: EXISTING_PASSKEY_CREDENTIAL_ID,
             },
             runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -2743,6 +2778,7 @@ test.describe('registration intent allocation', () => {
         },
         target: {
           kind: 'passkey',
+          rpId: RP_ID,
           credentialIdB64u: EXISTING_PASSKEY_CREDENTIAL_ID,
         },
       }),
@@ -2789,6 +2825,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
           };
         },
         respondForRegistration: async (request: Record<string, unknown>) => {
@@ -2843,6 +2880,7 @@ test.describe('registration intent allocation', () => {
       intent: allocated.intent,
       auth: {
         kind: 'webauthn_assertion',
+        rpId: RP_ID,
         credential: {
           id: 'Y3JlZGVudGlhbC1pZA',
           rawId: 'Y3JlZGVudGlhbC1pZA',
@@ -2874,17 +2912,12 @@ test.describe('registration intent allocation', () => {
         registrationAccountScope: {
           kind: 'known_account_registration_scope',
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
           nearEd25519SigningKeyId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        wallet_key_id: 'wallet.example.test',
+        wallet_key_id: 'alice.testnet',
         context: {
-          nearAccountId: 'alice.testnet',
-          keyPurpose: 'near_tx',
-          keyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
-          derivationVersion: 1,
         },
       },
     });
@@ -2909,11 +2942,10 @@ test.describe('registration intent allocation', () => {
         registrationAccountScope: {
           kind: 'known_account_registration_scope',
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
           nearEd25519SigningKeyId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        wallet_key_id: 'wallet.example.test',
+        wallet_key_id: 'alice.testnet',
         ceremonyHandle: 'ed25519-add-signer-handle',
       },
     });
@@ -2928,7 +2960,7 @@ test.describe('registration intent allocation', () => {
     expect(finalized).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
 	      ed25519: {
 	        nearAccountId: 'alice.testnet',
 	        nearEd25519SigningKeyId: 'alice.testnet',
@@ -2942,11 +2974,10 @@ test.describe('registration intent allocation', () => {
         registrationAccountScope: {
           kind: 'known_account_registration_scope',
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
           nearEd25519SigningKeyId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        wallet_key_id: 'wallet.example.test',
+        wallet_key_id: 'alice.testnet',
         ceremonyHandle: 'ed25519-add-signer-handle',
       },
     });
@@ -2954,7 +2985,7 @@ test.describe('registration intent allocation', () => {
 	      walletId: 'wallet_alice',
 	      nearAccountId: 'alice.testnet',
 	      nearEd25519SigningKeyId: 'alice.testnet',
-	      rpId: 'wallet.example.test',
+	      rpId: RP_ID,
 	      keyVersion: 'threshold-ed25519-hss-v1',
       publicKey: 'ed25519:public-key',
       relayerKeyId: 'relayer-key-ed25519',
@@ -2964,7 +2995,7 @@ test.describe('registration intent allocation', () => {
       publicKey: 'ed25519:public-key',
     });
     expect(bindingWrite).toMatchObject({
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
 	      credentialIdB64u: 'Y3JlZGVudGlhbC1pZA',
 	      userId: 'wallet_alice',
 	      nearAccountId: 'alice.testnet',
@@ -2983,7 +3014,6 @@ test.describe('registration intent allocation', () => {
     const service = makeService();
     const proof = createNearAccountOwnershipProof({
       walletId: walletIdFromString('wallet_alice'),
-      rpId: 'wallet.example.test',
       nearAccountId: 'alice.testnet',
     });
     (service as any).nearClient = {
@@ -3040,7 +3070,6 @@ test.describe('registration intent allocation', () => {
     const service = makeService();
     const proof = createNearAccountOwnershipProof({
       walletId: walletIdFromString('wallet_alice'),
-      rpId: 'wallet.example.test',
       nearAccountId: 'alice.testnet',
     });
     let viewedAccessKey: Record<string, unknown> | null = null;
@@ -3068,6 +3097,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
+              serverState: ED25519_HSS_SERVER_STATE,
           };
         },
       },
@@ -3123,11 +3153,10 @@ test.describe('registration intent allocation', () => {
         registrationAccountScope: {
           kind: 'known_account_registration_scope',
           walletId: 'wallet_alice',
-          rpId: 'wallet.example.test',
           nearEd25519SigningKeyId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        wallet_key_id: 'wallet.example.test',
+        wallet_key_id: 'alice.testnet',
       },
     });
   });
@@ -3166,6 +3195,7 @@ test.describe('registration intent allocation', () => {
       intent: allocated.intent,
       auth: {
         kind: 'webauthn_assertion',
+        rpId: RP_ID,
         credential: {
           id: 'Y3JlZGVudGlhbC1pZA',
           rawId: 'Y3JlZGVudGlhbC1pZA',
@@ -3187,7 +3217,7 @@ test.describe('registration intent allocation', () => {
       ok: true,
       ecdsa: {
         kind: 'evm_family_ecdsa_keygen',
-        chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+        chainTargets: ECDSA_CHAIN_TARGETS,
       },
     });
     if (!started.ok || !started.ecdsa) throw new Error('ECDSA add-signer start failed');
@@ -3224,14 +3254,14 @@ test.describe('registration intent allocation', () => {
     const finalized = await service.finalizeWalletAddSigner({
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
-        expectedKeyHandles: ['ehss-add-signer-key-alice'],
+        expectedKeyHandles: ['unexpected-key-handle', 'ehss-add-signer-key-alice'],
       },
     });
 
     expect(finalized).toMatchObject({
       ok: true,
       walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
+      rpId: RP_ID,
       ecdsa: {
         walletKeys: [
           {
@@ -3277,6 +3307,7 @@ test.describe('registration intent allocation', () => {
       intent: allocated.intent,
       auth: {
         kind: 'webauthn_assertion',
+        rpId: RP_ID,
         credential: {
           id: 'Y3JlZGVudGlhbC1pZA',
           rawId: 'Y3JlZGVudGlhbC1pZA',

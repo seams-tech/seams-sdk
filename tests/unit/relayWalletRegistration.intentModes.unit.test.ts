@@ -10,9 +10,9 @@ import {
 import type { RouterApiKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import {
   implicitNearAccountProvisioning,
-  parseGeneratedImplicitWalletId,
+  parseServerAllocatedWalletId,
   sponsoredNamedNearAccountProvisioning,
-  type RegistrationSignerSelection,
+  type RegistrationSignerSetSelection,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseNamedNearAccountId } from '../../packages/shared-ts/src/utils/near';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
@@ -35,53 +35,98 @@ const routeDefinitions = createRouterApiRouteDefinitions({
   enableReadyz: true,
 });
 
-const modeCases = [
+const signerSetCases = [
   {
-    mode: 'ed25519_only',
+    name: 'near_ed25519',
+    wallet: { kind: 'provided', walletId: 'wallet_alice' },
+    expectedKinds: ['near_ed25519'],
     signerSelection: {
-      mode: 'ed25519_only',
-      ed25519: {
-        accountProvisioning: namedProvisioning('alice.testnet'),
-        signerSlot: 1,
-        participantIds: [1, 2],
-        keyPurpose: 'near_tx',
-        keyVersion: 'threshold-ed25519-hss-v1',
-        derivationVersion: 1,
-      },
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: namedProvisioning('alice.testnet'),
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+      ],
     },
   },
   {
-    mode: 'ecdsa_only',
+    name: 'evm_family_ecdsa',
+    wallet: { kind: 'server_allocated' },
+    expectedKinds: ['evm_family_ecdsa'],
     signerSelection: {
-      mode: 'ecdsa_only',
-      ecdsa: {
-        chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
-        participantIds: [1, 2],
-      },
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'evm_family_ecdsa',
+          chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
+          participantIds: [1, 2],
+        },
+      ],
     },
   },
   {
-    mode: 'ed25519_and_ecdsa',
+    name: 'near_ed25519 and evm_family_ecdsa',
+    wallet: { kind: 'provided', walletId: 'wallet_alice' },
+    expectedKinds: ['near_ed25519', 'evm_family_ecdsa'],
     signerSelection: {
-      mode: 'ed25519_and_ecdsa',
-      ed25519: {
-        accountProvisioning: namedProvisioning('combined.testnet'),
-        signerSlot: 1,
-        participantIds: [1, 2],
-        keyPurpose: 'near_tx',
-        keyVersion: 'threshold-ed25519-hss-v1',
-        derivationVersion: 1,
-      },
-      ecdsa: {
-        chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
-        participantIds: [1, 2],
-      },
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: namedProvisioning('combined.testnet'),
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+        {
+          kind: 'evm_family_ecdsa',
+          chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
+          participantIds: [1, 2],
+        },
+      ],
     },
   },
 ] satisfies ReadonlyArray<{
-  mode: RegistrationSignerSelection['mode'];
-  signerSelection: RegistrationSignerSelection;
+  name: string;
+  wallet: Record<string, unknown>;
+  expectedKinds: string[];
+  signerSelection: RegistrationSignerSetSelection;
 }>;
+
+const signerSetSelection = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: namedProvisioning('set-combined.testnet'),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+    {
+      kind: 'evm_family_ecdsa',
+      chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
+      participantIds: [1, 2],
+    },
+  ],
+} as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function signerKindsFromSelection(selection: unknown): string[] {
+  if (!isRecord(selection) || !Array.isArray(selection.signers)) return [];
+  const kinds: string[] = [];
+  for (const signer of selection.signers) {
+    if (isRecord(signer)) kinds.push(String(signer.kind || ''));
+  }
+  return kinds;
+}
 
 function route(id: string): RouteDefinition {
   const found = findRouteDefinitionById(routeDefinitions, id);
@@ -142,14 +187,14 @@ async function makeOrgProjectEnv() {
   return service;
 }
 
-test.describe('wallet registration intent relayer modes', () => {
+test.describe('wallet registration intent relayer signer sets', () => {
   test('requires an exact origin before API credential auth', async () => {
     let authCalled = false;
     const response = await handleRouterApiWalletRegistrationIntent({
       body: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
-        signerSelection: modeCases[0].signerSelection,
+        signerSelection: signerSetCases[0].signerSelection,
       },
       headers: {
         authorization: 'Bearer sk_test',
@@ -192,9 +237,9 @@ test.describe('wallet registration intent relayer modes', () => {
     let capturedRequest: unknown = null;
     const response = await handleRouterApiWalletRegistrationIntent({
       body: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'server_allocated' },
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
-        signerSelection: modeCases[0].signerSelection,
+        signerSelection: signerSetCases[0].signerSelection,
       },
       headers: {
         authorization: 'Bearer sk_test',
@@ -218,7 +263,7 @@ test.describe('wallet registration intent relayer modes', () => {
                 version: 'registration_intent_v1',
                 walletId: 'wallet_route_context',
                 authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
-                signerSelection: modeCases[0].signerSelection,
+                signerSelection: signerSetCases[0].signerSelection,
                 runtimePolicyScope: {
                   orgId: ORG_ID,
                   projectId: PROJECT_ID,
@@ -254,14 +299,11 @@ test.describe('wallet registration intent relayer modes', () => {
     });
   });
 
-  for (const entry of modeCases) {
-    test(`creates ${entry.mode} registration intents through the relayer route`, async () => {
+  for (const entry of signerSetCases) {
+    test(`creates ${entry.name} registration intents through the relayer route`, async () => {
       const response = await handleRouterApiWalletRegistrationIntent({
         body: {
-          wallet:
-            entry.mode === 'ecdsa_only'
-              ? { kind: 'server_generated' }
-              : { kind: 'provided', walletId: 'wallet_alice' },
+          wallet: entry.wallet,
           authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
           signerSelection: entry.signerSelection,
         },
@@ -297,26 +339,73 @@ test.describe('wallet registration intent relayer modes', () => {
         envId: ENV_ID,
         signingRootVersion: SIGNING_ROOT_VERSION,
       });
-      expect(response.body.intent.signerSelection.mode).toBe(entry.mode);
+      expect(response.body.intent.signerSelection.kind).toBe('signer_set');
+      expect(Object.prototype.hasOwnProperty.call(response.body.intent.signerSelection, 'mode')).toBe(
+        false,
+      );
+      expect(signerKindsFromSelection(response.body.intent.signerSelection)).toEqual(
+        entry.expectedKinds,
+      );
       expect(response.body.registrationIntentGrant).toMatch(/^rig_/);
     });
   }
 
-  test('creates an implicit Ed25519 registration intent with a generated wallet ID', async () => {
+  test('accepts signer-set registration intent input at the relayer route boundary', async () => {
     const response = await handleRouterApiWalletRegistrationIntent({
       body: {
-        wallet: { kind: 'server_generated' },
+        wallet: { kind: 'provided', walletId: 'wallet_signer_set' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
+        signerSelection: signerSetSelection,
+      },
+      headers: {
+        authorization: 'Bearer sk_test',
+        'x-seams-environment-id': ENVIRONMENT_ID,
+      },
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
+      origin: 'https://wallet.example.test',
+      route: route('wallet_registration_intent'),
+      services: {
+        authService: makeService(),
+        apiKeyAuth: makeApiKeyAuth(),
+        orgProjectEnv: await makeOrgProjectEnv(),
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    if (!response.body.ok) throw new Error(response.body.message);
+    expect(response.body.intent.signerSelection.kind).toBe('signer_set');
+    expect(Object.prototype.hasOwnProperty.call(response.body.intent.signerSelection, 'mode')).toBe(
+      false,
+    );
+    expect(signerKindsFromSelection(response.body.intent.signerSelection)).toEqual([
+      'near_ed25519',
+      'evm_family_ecdsa',
+    ]);
+    expect(response.body.registrationIntentGrant).toMatch(/^rig_/);
+  });
+
+  test('creates an implicit Ed25519 registration intent with a server-allocated wallet ID', async () => {
+    const response = await handleRouterApiWalletRegistrationIntent({
+      body: {
+        wallet: { kind: 'server_allocated' },
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
         signerSelection: {
-          mode: 'ed25519_only',
-          ed25519: {
-            accountProvisioning: implicitNearAccountProvisioning(),
-            signerSlot: 1,
-            participantIds: [1, 2],
-            keyPurpose: 'near_tx',
-            keyVersion: 'threshold-ed25519-hss-v1',
-            derivationVersion: 1,
-          },
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
         },
       },
       headers: {
@@ -342,14 +431,20 @@ test.describe('wallet registration intent relayer modes', () => {
     expect(response.body.ok).toBe(true);
     if (!response.body.ok) throw new Error(response.body.message);
 
-    const generatedWalletId = parseGeneratedImplicitWalletId(response.body.intent.walletId);
-    expect(generatedWalletId.ok).toBe(true);
+    const serverAllocatedWalletId = parseServerAllocatedWalletId(response.body.intent.walletId);
+    expect(serverAllocatedWalletId.ok).toBe(true);
     expect(response.body.intent.signerSelection).toMatchObject({
-      mode: 'ed25519_only',
-      ed25519: {
-        accountProvisioning: { kind: 'implicit_account' },
-      },
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: { kind: 'implicit_account' },
+        },
+      ],
     });
+    expect(Object.prototype.hasOwnProperty.call(response.body.intent.signerSelection, 'mode')).toBe(
+      false,
+    );
     expect(response.body.registrationIntentGrant).toMatch(/^rig_/);
   });
 });

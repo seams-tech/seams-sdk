@@ -14,7 +14,7 @@ const verifierCallFiles = [
   'packages/sdk-server-ts/src/router/express/routes/sessions.ts',
   'packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
   'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
-  'packages/sdk-server-ts/src/router/relayWalletRegistration.ts',
+  'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
   'packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts',
   'packages/sdk-server-ts/src/core/AuthService.ts',
   'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',

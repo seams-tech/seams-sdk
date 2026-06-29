@@ -11,8 +11,11 @@ import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stor
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
 import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
 import { createConfiguredSigningRootShareResolver } from '@server/core/ThresholdService/signingRootSecretConfig';
-import type { ThresholdStoreConfigInput } from '@server/core/types';
-import type { WebAuthnAuthenticationCredential } from '@server/core/types';
+import type {
+  ThresholdEd25519AuthorityScope,
+  ThresholdStoreConfigInput,
+  WebAuthnAuthenticationCredential,
+} from '@server/core/types';
 import { normalizeLogger, type Logger } from '@server/core/logger';
 import { readFileSync } from 'node:fs';
 import {
@@ -132,6 +135,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
     walletId?: string;
     nearAccountId?: string;
     nearEd25519SigningKeyId?: string;
+    authorityScope?: ThresholdEd25519AuthorityScope;
     rpId?: string;
     publicKey: string;
     relayerSigningShareB64u: string;
@@ -209,7 +213,10 @@ export function createThresholdSigningServiceForUnitTests(input: {
           nearAccountId: keyRecord.nearAccountId || 'alice.testnet',
           nearEd25519SigningKeyId:
             keyRecord.nearEd25519SigningKeyId || keyRecord.nearAccountId || 'alice.testnet',
-          rpId: keyRecord.rpId || 'wallet.example.test',
+          authorityScope: keyRecord.authorityScope || {
+            kind: 'passkey_rp',
+            rpId: keyRecord.rpId || 'wallet.example.test',
+          },
           publicKey: keyRecord.publicKey,
           relayerSigningShareB64u: keyRecord.relayerSigningShareB64u,
           relayerVerifyingShareB64u:

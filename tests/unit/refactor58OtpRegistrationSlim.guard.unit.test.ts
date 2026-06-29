@@ -93,28 +93,29 @@ test.describe('refactor 58 OTP registration slim guards', () => {
     }
   });
 
-  test('non-Postgres Google SSO Email OTP registration activates identity before wallet visibility', () => {
+  test('Google SSO Email OTP registration activates identity before wallet visibility', () => {
     const source = readRepoSource('packages/sdk-server-ts/src/core/AuthService.ts');
     const consumeStart = source.indexOf('private async consumeRegistrationCeremonyAndPersist');
-    const consumeEnd = source.indexOf('const pool = await getPostgresPool', consumeStart);
+    const consumeEnd = source.indexOf('private async consumeAddSignerCeremonyAndPersist', consumeStart);
     if (consumeStart < 0 || consumeEnd < consumeStart) {
-      throw new Error('Missing non-Postgres registration ceremony persistence block');
+      throw new Error('Missing registration ceremony persistence block');
     }
-    const genericStorePath = source.slice(consumeStart, consumeEnd);
+    const storePath = source.slice(consumeStart, consumeEnd);
 
-    const preflightIndex = genericStorePath.indexOf(
+    const preflightIndex = storePath.indexOf(
       'preflightGoogleEmailOtpRegistrationActivationForStores',
     );
-    const activationIndex = genericStorePath.indexOf(
+    const activationIndex = storePath.indexOf(
       'persistGoogleEmailOtpRegistrationActivationToStores',
     );
-    const persistenceIndex = genericStorePath.indexOf('writeRegistrationPersistenceToStores({');
+    const persistenceIndex = storePath.indexOf('writeRegistrationPersistenceToStores({');
     expect(preflightIndex).toBeGreaterThan(-1);
     expect(activationIndex).toBeGreaterThan(preflightIndex);
     expect(persistenceIndex).toBeGreaterThan(activationIndex);
-    expect(genericStorePath).toContain(
+    expect(storePath).toContain(
       'deferWalletRecordUntilActivation: !!input.googleEmailOtpActivation',
     );
+    expect(storePath).not.toContain('getPostgresPool');
   });
 
   test('generic Google SSO Email OTP registration persistence defers wallet visibility', () => {

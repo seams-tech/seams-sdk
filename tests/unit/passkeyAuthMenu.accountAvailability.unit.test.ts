@@ -43,7 +43,7 @@ test.describe('Passkey auth account availability', () => {
           network: {
             relayer: {
               accountId: 'w3a-v1.testnet',
-              url: 'https://relay-server.localhost',
+              url: 'https://router-api.localhost',
             },
           },
         },

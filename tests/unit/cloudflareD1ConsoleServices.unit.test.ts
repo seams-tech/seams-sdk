@@ -181,10 +181,10 @@ function settleStorageTransaction<T>(promise: Promise<T>): Promise<void> {
 function noop(): void {}
 
 function firstFakeD1Row<T>(query: string): T | null {
-  if (query.includes('sqlite_master') && query.includes('console_runtime_snapshot_outbox')) {
+  if (query.includes('sqlite_master') && query.includes('runtime_snapshot_outbox')) {
     return { table_count: 40 } as T;
   }
-  if (query.includes('sqlite_master') && query.includes('signer_email_otp_registration_attempts')) {
+  if (query.includes('sqlite_master') && query.includes('email_otp_registration_attempts')) {
     return { table_count: 21 } as T;
   }
   return null;
@@ -247,6 +247,19 @@ function createLocalD1WorkflowEnv(input: {
     SEAMS_LOCAL_CONSOLE_ROLES:
       'owner,admin,platform_admin,billing_admin,ops,developer,security_admin',
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
+    SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH: 'epoch-1',
+    SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:
+      'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+    SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH: 'epoch-1',
+    SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:
+      'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+    SIGNER_A_PEER_VERIFYING_KEY_HEX:
+      '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
+    SIGNER_B_PEER_VERIFYING_KEY_HEX:
+      '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH: 'epoch-1',
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
+      'x25519:3333333333333333333333333333333333333333333333333333333333333333',
     ACCOUNT_ID_DERIVATION_SECRET: 'local-workflow-account-id-derivation-secret',
   };
 }
@@ -419,7 +432,7 @@ test('Cloudflare D1 console-only bundle omits signer custody bindings', async ()
   expect(bundle.consoleRouterOptions.sponsoredCalls).toBe(bundle.sponsoredCalls);
 });
 
-test('D1 relay storage options expose sponsored EVM only with executor config', async () => {
+test('D1 Router API storage options expose sponsored EVM only with executor config', async () => {
   const database = new FakeD1Database();
   const sponsoredEvmCallConfig = createSponsoredEvmCallExecutorConfig();
   const bundle = await createCloudflareD1ConsoleServiceBundle({
@@ -527,7 +540,7 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     env,
     ctx,
   );
-  expect(ed25519Prepare.status).toBe(404);
+  expect(ed25519Prepare.status).toBe(400);
 
   const sponsored = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {
@@ -618,6 +631,38 @@ test('local D1 Worker mounts sponsored EVM Router API route when local executor 
   });
 });
 
+test('local D1 Worker serves Router A/B public keyset from local Worker env', async () => {
+  const database = new FakeD1Database();
+  const env = createLocalD1WorkflowEnv({
+    consoleDatabase: database,
+    signerDatabase: database,
+  });
+  const response = await callLocalWorkflowWorker(env, {
+    method: 'GET',
+    path: '/router-ab/keyset',
+  });
+
+  expect(response.status).toBe(200);
+  await expect(readJsonRecord(response)).resolves.toMatchObject({
+    keyset_version: 'router_ab_keyset_v2',
+    signer_envelope_hpke: {
+      current: {
+        deriver_a: {
+          role: 'signer_a',
+          key_epoch: 'epoch-1',
+        },
+        deriver_b: {
+          role: 'signer_b',
+          key_epoch: 'epoch-1',
+        },
+      },
+    },
+    signing_worker_server_output_hpke: {
+      key_epoch: 'epoch-1',
+    },
+  });
+});
+
 test('local D1 Worker runs a representative signer smoke through relay prefix', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
@@ -646,7 +691,7 @@ test('local D1 Worker runs a representative signer smoke through relay prefix', 
     ok: true,
   });
   expect(
-    database.queries.some((query) => query.includes('INSERT INTO signer_webauthn_challenges')),
+    database.queries.some((query) => query.includes('INSERT INTO webauthn_challenges')),
   ).toBe(true);
 });
 

@@ -16,22 +16,42 @@ import {
 } from '@server/core/types';
 import {
   nearEd25519SigningKeyIdFromWalletId,
+  registrationEd25519AuthorityScope,
   registrationIntentGrantFromString,
-  requireGeneratedImplicitWalletId,
+  requireServerAllocatedWalletId,
   sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
   type AddSignerIntentV1,
   type RegistrationIntentV1,
-  type RegistrationSignerSelection,
+  type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 
 function requireWebAuthnRpId(value: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }
+
+const RP_ID = requireWebAuthnRpId('wallet.example.test');
+const ED25519_HSS_SERVER_STATE = {
+  context: {
+    applicationBindingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    participantIds: [1, 2],
+  },
+  preparedServerSession: {
+    evaluatorDriverStateB64u: 'AQID',
+    garblerDriverStateB64u: 'BAUG',
+  },
+  serverInputs: {
+    yRelayerB64u: 'BwgJ',
+    tauRelayerB64u: 'CgsM',
+  },
+};
+const NEAR_ED25519_KEY_PURPOSE = 'near_tx';
+const NEAR_ED25519_KEY_VERSION = 'threshold-ed25519-hss-v1';
 
 class FakeDurableObjectStub {
   private readonly records = new Map<string, { value: unknown; expiresAtMs?: number }>();
@@ -125,23 +145,23 @@ function namedAccountId(accountId: string) {
   return parsed.value;
 }
 
+const NEAR_ED25519_SIGNER = {
+  kind: 'near_ed25519',
+  accountProvisioning: namedProvisioning('registration-store.testnet'),
+  signerSlot: 1,
+  participantIds: [1, 2],
+  derivationVersion: 1,
+} as const;
+
 const SIGNER_SELECTION = {
-  mode: 'ed25519_only',
-  ed25519: {
-    accountProvisioning: namedProvisioning('registration-store.testnet'),
-    signerSlot: 1,
-    participantIds: [1, 2],
-    keyPurpose: 'near_tx',
-    keyVersion: 'threshold-ed25519-hss-v1',
-    derivationVersion: 1,
-  },
-} satisfies RegistrationSignerSelection;
+  kind: 'signer_set',
+  signers: [NEAR_ED25519_SIGNER],
+} satisfies RegistrationSignerSetSelection;
 
 const INTENT = {
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_registration_store'),
-  rpId: 'wallet.example.test',
-  authMethod: { kind: 'passkey' },
+  authMethod: { kind: 'passkey', rpId: RP_ID },
   signerSelection: SIGNER_SELECTION,
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
@@ -149,7 +169,6 @@ const INTENT = {
 const ADD_SIGNER_INTENT = {
   version: 'add_signer_intent_v1',
   walletId: INTENT.walletId,
-  rpId: INTENT.rpId,
   signerSelection: {
     mode: 'ecdsa',
     ecdsa: {
@@ -181,7 +200,7 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
     authority: {
       kind: 'passkey',
       walletId: INTENT.walletId,
-      rpId: requireWebAuthnRpId(INTENT.rpId),
+      rpId: RP_ID,
       credentialIdB64u: 'credential',
       credentialPublicKeyB64u: 'public-key',
       counter: 0,
@@ -195,6 +214,7 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
         evaluatorDriverStateB64u: 'driver-state',
       },
       clientOtOfferMessageB64u: 'client-ot-offer',
+      serverState: ED25519_HSS_SERVER_STATE,
     },
   };
 }
@@ -217,19 +237,18 @@ function makePreparationBase(
     signingRootVersion: 'default',
     ed25519Scope: {
       walletId: String(INTENT.walletId),
-      rpId: INTENT.rpId,
-      authMethodKind: INTENT.authMethod.kind,
+      authorityScope: registrationEd25519AuthorityScope(INTENT.authMethod),
       expectedOrigin: 'https://wallet.example.test',
       orgId: 'org_registration_store',
       signingRootId: 'project:dev',
       signingRootVersion: 'default',
       registrationIntentDigestB64u: 'digest',
       nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(INTENT.walletId),
-      signerSlot: SIGNER_SELECTION.ed25519.signerSlot,
-      keyPurpose: SIGNER_SELECTION.ed25519.keyPurpose,
-      keyVersion: SIGNER_SELECTION.ed25519.keyVersion,
-      derivationVersion: SIGNER_SELECTION.ed25519.derivationVersion,
-      participantIds: [...SIGNER_SELECTION.ed25519.participantIds],
+      signerSlot: NEAR_ED25519_SIGNER.signerSlot,
+      keyPurpose: NEAR_ED25519_KEY_PURPOSE,
+      keyVersion: NEAR_ED25519_KEY_VERSION,
+      derivationVersion: NEAR_ED25519_SIGNER.derivationVersion,
+      participantIds: [...NEAR_ED25519_SIGNER.participantIds],
     },
     createdAtMs: Date.now(),
     expiresAtMs,
@@ -249,6 +268,7 @@ function makePreparation(
         evaluatorDriverStateB64u: 'driver-state',
       },
       clientOtOfferMessageB64u: 'client-ot-offer',
+      serverState: ED25519_HSS_SERVER_STATE,
     },
   });
 }
@@ -262,7 +282,11 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     expiresAtMs,
-    auth: { kind: 'webauthn_assertion', credentialIdB64u: 'credential-id' },
+    auth: {
+      kind: 'webauthn_assertion',
+      rpId: 'wallet.example.test',
+      credentialIdB64u: 'credential-id',
+    },
     signerState: {
       kind: 'ecdsa_add_signer_prepared',
       hssKind: 'evm_family_ecdsa_keygen',
@@ -287,33 +311,31 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
   };
 }
 
-test('registration ceremony store scopes generated wallet reservations by RP ID', async () => {
+test('registration ceremony store scopes server-allocated wallet reservations by wallet ID', async () => {
   const store = createRegistrationCeremonyStore({
     config: null,
     logger: undefined,
     isNode: false,
   });
-  const walletId = requireGeneratedImplicitWalletId('frost-vermillion-k7p9m2');
+  const walletId = requireServerAllocatedWalletId('frost-vermillion-k7p9m2');
+  const otherWalletId = requireServerAllocatedWalletId('frost-giant-h8q2n4');
   const expiresAtMs = Date.now() + 60_000;
 
   await expect(
-    store.reserveGeneratedWalletId({
-      rpId: 'wallet.example.test',
+    store.reserveServerAllocatedWalletId({
       walletId,
       expiresAtMs,
     }),
   ).resolves.toBe(true);
   await expect(
-    store.reserveGeneratedWalletId({
-      rpId: 'wallet.example.test',
+    store.reserveServerAllocatedWalletId({
       walletId,
       expiresAtMs,
     }),
   ).resolves.toBe(false);
   await expect(
-    store.reserveGeneratedWalletId({
-      rpId: 'other-wallet.example.test',
-      walletId,
+    store.reserveServerAllocatedWalletId({
+      walletId: otherWalletId,
       expiresAtMs,
     }),
   ).resolves.toBe(true);
@@ -375,7 +397,7 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
     response: {
       ok: true,
       walletId: INTENT.walletId,
-      rpId: INTENT.rpId,
+      rpId: RP_ID,
       authMethod: {
         kind: 'passkey',
         credentialIdB64u: 'credential-id',
@@ -497,7 +519,7 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
       response: {
         ok: true,
         walletId: INTENT.walletId,
-        rpId: INTENT.rpId,
+        rpId: RP_ID,
         authMethod: {
           kind: 'passkey',
           credentialIdB64u: 'credential-id',

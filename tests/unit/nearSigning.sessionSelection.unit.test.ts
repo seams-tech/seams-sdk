@@ -568,7 +568,7 @@ test.describe('near signing session selection', () => {
     expect(context.coordinatorInput.remainingUses).toBe(0);
   });
 
-  test('uses generated wallet id for implicit NEAR signing lane while preserving NEAR account id', async () => {
+  test('uses server-allocated wallet id for implicit NEAR signing lane while preserving NEAR account id', async () => {
     const walletId = 'frost-vermillion-k7p9m2';
     const nearAccountId = 'a'.repeat(64);
     const signingGrantId = 'wallet-implicit-ed25519-direct-signing';

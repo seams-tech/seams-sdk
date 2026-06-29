@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
   createInMemoryConsoleBillingService,
-  createPostgresConsoleBillingService,
   type ConsoleBillingService,
 } from '@server/router/express-adaptor';
 

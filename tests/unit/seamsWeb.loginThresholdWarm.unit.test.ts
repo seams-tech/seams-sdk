@@ -5,8 +5,9 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
-  clearStoredThresholdEd25519SessionRecordForAccount,
+  clearStoredThresholdEd25519SessionRecordForLaneKey,
   getStoredThresholdEd25519SessionRecordForAccount,
+  thresholdEd25519SessionRecordKeyFromRecord,
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -766,7 +767,8 @@ async function withMockedMostRecentProjection<T>(
       String(seededRecord.thresholdSessionId || '') ===
         `binding-only-ed25519-session:${mockNearAccountId}`
     ) {
-      clearStoredThresholdEd25519SessionRecordForAccount(mockNearAccount);
+      const laneKey = thresholdEd25519SessionRecordKeyFromRecord(seededRecord);
+      if (laneKey) clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
     }
     continuityPort.getProfileContinuitySnapshot = originalContinuity;
     profileLookupPort.resolveProfileAccountContext = originalProfileLookup;
@@ -966,7 +968,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     );
   });
 
-  test('implicit passkey unlock warms Ed25519 and ECDSA under the generated wallet id', async () => {
+  test('implicit passkey unlock warms Ed25519 and ECDSA under the server-allocated wallet id', async () => {
     clearAllStoredThresholdEd25519SessionRecords();
     const nearAccountId = IMPLICIT_NEAR_ACCOUNT_ID;
     const walletId = IMPLICIT_WALLET_ID;

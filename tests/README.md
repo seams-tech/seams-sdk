@@ -63,9 +63,8 @@ The test bootstrap is a precise 5‑step sequence to avoid WebAuthn/import‑map
 - `tests/setup/index.ts`:
   - `setupBasicPasskeyTest(page, overrides)` orchestrates the 5 steps
   - `handleInfrastructureErrors()` centralizes CI‑skip for faucet 429
-  - `setupRelayServerTest()` / `setupTestnetFaucetTest()` presets
+  - `setupRouterApiServerTest()` / `setupTestnetFaucetTest()` presets
 
-- `tests/setup/route-mocks.ts`: Playwright route mocks (relay/faucet/access-key/send-tx)
 - `tests/setup/logging.ts`: quiet‑by‑default console capture (`VERBOSE_TEST_LOGS`)
 
 ## Fixtures & Helpers
@@ -131,7 +130,7 @@ pnpm -C tests run test:signers:gates
 Threshold ECDSA lane-key queue matrix (Refactor 22):
 
 ```bash
-(pnpm -C packages/sdk-web run build:prepare) \
+(pnpm build:sdk-full) \
   && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.commitQueue.unit.test.ts --reporter=line \
   && pnpm -C tests exec playwright test ./e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts -g "same-tab refresh reuses sealed PRF session without extra TouchID prompt" --reporter=line \
   && pnpm -C tests exec playwright test ./unit/reportTempoBroadcastFailure.unit.test.ts ./unit/evmSigning.noncePrefetch.unit.test.ts --reporter=line
@@ -148,7 +147,7 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
 Manual build without tests:
 
 ```bash
-pnpm -C packages/sdk-web build
+pnpm build:sdk
 ```
 
 ## Suite Quick Reference

@@ -388,19 +388,20 @@ test.describe('console API key kinds', () => {
           wallet: { kind: 'provided', walletId: 'alice.testnet' },
           authMethod: { kind: 'passkey', rpId: 'example.com' },
           signerSelection: {
-            mode: 'ed25519_only',
-            ed25519: {
-              accountProvisioning: {
-                kind: 'sponsored_named_account',
-                requestedAccountId: 'alice.testnet',
-                sponsor: 'relayer',
+            kind: 'signer_set',
+            signers: [
+              {
+                kind: 'near_ed25519',
+                accountProvisioning: {
+                  kind: 'sponsored_named_account',
+                  requestedAccountId: 'alice.testnet',
+                  sponsor: 'relayer',
+                },
+                signerSlot: 1,
+                participantIds: [1, 2],
+                derivationVersion: 1,
               },
-              signerSlot: 1,
-              keyPurpose: 'ed25519-hss/y_relayer',
-              keyVersion: 'threshold-ed25519-hss-v1',
-              participantIds: [1, 2],
-              derivationVersion: 1,
-            },
+            ],
           },
         }),
       });

@@ -8,6 +8,8 @@ import type { RegistrationResult } from '@/core/types/seams';
 import { buildEmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
+  normalizeRegistrationSignerPlan,
+  registrationEd25519AuthorityScope,
   registrationProvisioningScopeKey,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
@@ -141,6 +143,36 @@ function makeEmailOtpRegistrationEnrollmentMaterial(args: {
   };
 }
 
+function signerSetScopeKeyFromRegistrationArgs(
+  args: Parameters<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']>[0],
+): string {
+  const plan = normalizeRegistrationSignerPlan(args.signerSelection);
+  if (!plan.ok) {
+    throw new Error(plan.message);
+  }
+  const branchKeys: string[] = [];
+  for (const branch of plan.value.branches) {
+    branchKeys.push(branch.branchKey);
+  }
+  return branchKeys.join(',');
+}
+
+function accountProvisioningScopeKeyFromRegistrationArgs(
+  args: Parameters<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']>[0],
+  fallbackWalletId: string,
+): string {
+  const plan = normalizeRegistrationSignerPlan(args.signerSelection);
+  if (!plan.ok) {
+    throw new Error(plan.message);
+  }
+  for (const branch of plan.value.branches) {
+    if (branch.kind === 'near_ed25519') {
+      return registrationProvisioningScopeKey(branch.accountProvisioning);
+    }
+  }
+  return fallbackWalletId;
+}
+
 function makeStartedPrecompute(
   args: Parameters<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']>[0],
 ): ReturnType<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']> {
@@ -156,15 +188,13 @@ function makeStartedPrecompute(
         walletScopeKey:
           args.wallet.kind === 'provided'
             ? `provided:${String(args.wallet.walletId)}`
-            : 'server_generated',
-        rpId: args.rpId,
-        signerMode:
-          args.signerSelection.mode === 'ed25519_and_ecdsa' ? 'ed25519_and_ecdsa' : 'ed25519_only',
-        accountProvisioningScopeKey:
-          args.signerSelection.mode === 'ed25519_and_ecdsa' ||
-          args.signerSelection.mode === 'ed25519_only'
-            ? registrationProvisioningScopeKey(args.signerSelection.ed25519.accountProvisioning)
-            : walletId,
+            : 'server_allocated',
+        authorityScopeKey: JSON.stringify(registrationEd25519AuthorityScope(args.authMethod)),
+        signerSetScopeKey: signerSetScopeKeyFromRegistrationArgs(args),
+        accountProvisioningScopeKey: accountProvisioningScopeKeyFromRegistrationArgs(
+          args,
+          walletId,
+        ),
       },
       read: async () => {
         throw new Error('test precompute handle read should not be called by flow unit tests');
@@ -207,7 +237,6 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
     });
   const deps: GoogleEmailOtpWalletAuthDeps = {
     configs: testConfigs(),
-    getRpId: () => 'localhost',
     exchangeGoogleEmailOtpSession: async (args) => {
       calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
       const walletId = 'alice.testnet';
@@ -929,10 +958,14 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const registerCall = calls.find((call) => call.type === 'registerWallet');
     expect(registerCall?.args).toMatchObject({
       signerSelection: {
-        mode: 'ed25519_and_ecdsa',
-        ecdsa: {
-          chainTargets: [EVM_TARGET],
-        },
+        kind: 'signer_set',
+        signers: [
+          { kind: 'near_ed25519' },
+          {
+            kind: 'evm_family_ecdsa',
+            chainTargets: [EVM_TARGET],
+          },
+        ],
       },
     });
   });

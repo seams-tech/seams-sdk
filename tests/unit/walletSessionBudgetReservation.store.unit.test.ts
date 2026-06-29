@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
+  createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
+  createWalletSigningBudgetSessionStore,
   type Ed25519WalletSessionStore,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
-import { ensurePostgresSchema } from '../../packages/sdk-server-ts/src/storage/postgres';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -21,6 +23,12 @@ const logger = {
 
 const testSigningWorkerId = 'signing-worker-1';
 
+function authorityScope() {
+  const rpId = parseWebAuthnRpId('rp.example');
+  if (!rpId.ok) throw new Error('invalid rpId fixture');
+  return { kind: 'passkey_rp' as const, rpId: rpId.value };
+}
+
 function createStore() {
   return createEd25519WalletSessionStore({
     config: { kind: 'in-memory' },
@@ -35,10 +43,41 @@ function storeConfig(config: ThresholdStoreConfigInput): ThresholdStoreConfigInp
 
 type TestDurableObjectStorageLike = {
   get(key: string): Promise<unknown>;
-  put(key: string, value: unknown): Promise<void>;
+  put(key: string, value: unknown, opts?: { expirationTtl?: number }): Promise<void>;
   delete(key: string): Promise<boolean>;
   transaction<T>(fn: (txn: TestDurableObjectStorageLike) => Promise<T>): Promise<T>;
 };
+
+class MemoryDurableObjectStorage implements TestDurableObjectStorageLike {
+  private readonly values = new Map<string, unknown>();
+  private transactionTail: Promise<void> = Promise.resolve();
+
+  async get(key: string): Promise<unknown> {
+    return this.values.get(key) ?? null;
+  }
+
+  async put(key: string, value: unknown): Promise<void> {
+    this.values.set(key, value);
+  }
+
+  async delete(key: string): Promise<boolean> {
+    return this.values.delete(key);
+  }
+
+  async transaction<T>(fn: (txn: TestDurableObjectStorageLike) => Promise<T>): Promise<T> {
+    const previous = this.transactionTail;
+    let release: () => void = () => {};
+    this.transactionTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await fn(this);
+    } finally {
+      release();
+    }
+  }
+}
 
 function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceLike {
   const objects = new Map<string, CloudflareDurableObjectStubLike>();
@@ -49,15 +88,7 @@ function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceL
       const existing = objects.get(key);
       if (existing) return existing;
 
-      const storageMap = new Map<string, unknown>();
-      const storage: TestDurableObjectStorageLike = {
-        get: async (storageKey) => storageMap.get(storageKey) ?? null,
-        put: async (storageKey, value) => {
-          storageMap.set(storageKey, value);
-        },
-        delete: async (storageKey) => storageMap.delete(storageKey),
-        transaction: async (fn) => await fn(storage),
-      };
+      const storage = new MemoryDurableObjectStorage();
       const durableObject = new ThresholdStoreDurableObject({ storage }, {});
       const stub: CloudflareDurableObjectStubLike = {
         fetch: async (request, init) =>
@@ -97,7 +128,7 @@ async function putWalletSessionOnStore(
       walletId: 'user-1',
       nearAccountId: 'user-1',
       nearEd25519SigningKeyId: 'user-1',
-      rpId: 'rp.example',
+      authorityScope: authorityScope(),
       relayerKeyId: 'relayer-1',
       participantIds: [1, 2],
       expiresAtMs: input.expiresAtMs,
@@ -235,6 +266,42 @@ async function expectReservationLifecycleContract(input: {
     remainingUses: 1,
     reservedUses: 0,
     availableUses: 1,
+  });
+}
+
+async function expectUseCountIdempotencyContract(input: {
+  store: Ed25519WalletSessionStore;
+  label: string;
+}) {
+  const sessionId = `${input.label}-wallet-session`;
+  const thresholdSessionId = `${input.label}-threshold-session`;
+  const expiresAtMs = Date.now() + 60_000;
+  const idempotencyKey = `${input.label}-idempotency`;
+  await putWalletSessionOnStore(input.store, {
+    id: sessionId,
+    thresholdSessionId,
+    expiresAtMs,
+    remainingUses: 1,
+  });
+
+  const results = await Promise.all([
+    input.store.consumeUseCountOnce(sessionId, idempotencyKey),
+    input.store.consumeUseCountOnce(sessionId, idempotencyKey),
+  ]);
+
+  expect(results).toEqual([
+    { ok: true, remainingUses: 0 },
+    { ok: true, remainingUses: 0 },
+  ]);
+  await expect(input.store.hasConsumedUseCountOnce(sessionId, idempotencyKey)).resolves.toEqual({
+    ok: true,
+    consumed: true,
+  });
+  await expect(
+    input.store.consumeUseCountOnce(sessionId, `${input.label}-second-idempotency`),
+  ).resolves.toMatchObject({
+    ok: false,
+    code: 'wallet_budget_exhausted',
   });
 }
 
@@ -605,6 +672,21 @@ test.describe('Wallet Session budget reservation backend contracts', () => {
     });
   });
 
+  test('Cloudflare Durable Object store consumes a session idempotency key once', async () => {
+    await expectUseCountIdempotencyContract({
+      store: createEd25519WalletSessionStore({
+        config: storeConfig({
+          kind: 'cloudflare-do',
+          namespace: createMemoryDurableObjectNamespace(),
+          name: randomPrefix('wallet-budget-do-object'),
+        }),
+        logger,
+        isNode: false,
+      }),
+      label: randomPrefix('wallet-budget-do-consume-once'),
+    });
+  });
+
   test('Redis store preserves reservation lifecycle semantics', async () => {
     const redisUrl = String(process.env.REDIS_URL || '').trim();
     test.skip(!redisUrl, 'REDIS_URL not set');
@@ -640,25 +722,6 @@ test.describe('Wallet Session budget reservation backend contracts', () => {
         isNode: true,
       }),
       label: randomPrefix('wallet-budget-upstash-contract'),
-    });
-  });
-
-  test('Postgres store preserves reservation lifecycle semantics', async () => {
-    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-    test.skip(!postgresUrl, 'POSTGRES_URL not set');
-
-    await ensurePostgresSchema({ postgresUrl, logger });
-    await expectReservationLifecycleContract({
-      store: createEd25519WalletSessionStore({
-        config: storeConfig({
-          kind: 'postgres',
-          postgresUrl,
-          keyPrefix: randomPrefix('wallet-budget-postgres'),
-        }),
-        logger,
-        isNode: true,
-      }),
-      label: randomPrefix('wallet-budget-postgres-contract'),
     });
   });
 });

@@ -117,7 +117,7 @@ test.describe('EVM family threshold reconnect events', () => {
         getPasskeyThresholdEcdsaSessionRecordForSigning: () => staleRecord,
         getThresholdEcdsaSessionRecordByKey: (identity: Parameters<typeof getThresholdEcdsaSessionRecordByKey>[1]) =>
           getThresholdEcdsaSessionRecordByKey(ecdsaStore, identity),
-        clearThresholdEcdsaSessionRecordForWalletTarget: () => undefined,
+        clearThresholdEcdsaSessionRecordForExactIdentity: () => undefined,
         provisionThresholdEcdsaSession: async (request: {
           walletKey: {
             walletId: string;

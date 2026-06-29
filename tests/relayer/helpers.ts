@@ -316,8 +316,6 @@ export function makeFakeAuthService(
     viewAccessKeyList: AuthService['viewAccessKeyList'];
     prepareEmailRecovery: AuthService['prepareEmailRecovery'];
     respondEmailRecoveryEcdsa: AuthService['respondEmailRecoveryEcdsa'];
-    prepareLinkDevice: AuthService['prepareLinkDevice'];
-    respondLinkDeviceEcdsa: AuthService['respondLinkDeviceEcdsa'];
     getRecoverySession: AuthService['getRecoverySession'];
     updateRecoverySessionStatus: AuthService['updateRecoverySessionStatus'];
     recordRecoveryExecution: AuthService['recordRecoveryExecution'];
@@ -477,12 +475,6 @@ export function makeFakeAuthService(
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     respondEmailRecoveryEcdsa:
       overrides.respondEmailRecoveryEcdsa ||
-      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
-    prepareLinkDevice:
-      overrides.prepareLinkDevice ||
-      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
-    respondLinkDeviceEcdsa:
-      overrides.respondLinkDeviceEcdsa ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     getRecoverySession: overrides.getRecoverySession || (async () => ({ ok: true, record: null })),
     updateRecoverySessionStatus:

@@ -17,6 +17,7 @@ function createAuthServiceMock(): AuthService {
 test('threshold signing service reports signing-root resolver configured from server SDK config', () => {
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
     signingRootShareResolverAdapters: {
       policy: {
         protocol: 'threshold-prf',

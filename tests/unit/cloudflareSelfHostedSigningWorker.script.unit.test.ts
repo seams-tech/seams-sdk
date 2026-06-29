@@ -374,6 +374,29 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
   );
   expect(missingBody.status).toBe(400);
 
+  const invalidWalletId = await router(
+    new Request('https://self-host.example.test/self-host/signing-root/verify-wallet', {
+      method: 'POST',
+      headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        signingRootId: SIGNING_ROOT_ID,
+        signingRootVersion: 'root-v1',
+        walletSessionUserId: 'wallet-user-alpha',
+        subjectId: 'subject alpha',
+        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
+        ecdsaThresholdKeyId: 'ecdsa-alpha',
+        signingGrantId: 'wallet-signing-alpha',
+        thresholdSessionId: 'threshold-alpha',
+        rpId: 'wallet.example.test',
+        clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(0x07)),
+      }),
+    }),
+    {},
+    fakeCtx,
+  );
+  expect(invalidWalletId.status).toBe(400);
+  expect(calls).toEqual([]);
+
   const verified = await router(
     new Request('https://self-host.example.test/self-host/signing-root/verify-wallet', {
       method: 'POST',
@@ -433,6 +456,7 @@ test('self-host Cloudflare signing router keeps hosted SaaS dependencies out of 
     './routes/sessions',
     '../console',
     'bootstrapGrantBroker',
+    'HssWalletId',
   ]) {
     expect(source, `forbidden self-host dependency: ${forbidden}`).not.toContain(forbidden);
   }

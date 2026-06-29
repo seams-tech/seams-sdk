@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Start both relay-server and vite dev servers with health check for relay.
- * - Runs provision-relay-server first (with TTL cache)
- * - Spawns relay dev server and waits for /healthz to be ready
+ * Start both Router API test and Vite dev servers with a Router API health check.
+ * - Runs provision-router-api-server first (with TTL cache)
+ * - Spawns the Router API test server and waits for /healthz to be ready
  * - Spawns vite dev server in foreground (so Playwright webServer can track it)
  * - Propagates signals, cleans up children on exit
  */
@@ -16,12 +16,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Resolve repository root: this file lives at tests/scripts
 const ROOT = path.resolve(path.join(__dirname, '../..'));
-const RELAY_DIR = path.join(ROOT, 'examples', 'relay-server');
-const DEFAULT_CACHE_PATH = path.join(RELAY_DIR, '.provision-cache.json');
-// Store relay cache and generated artifacts under the tests Playwright report
+// Store Router API cache and generated artifacts under the tests Playwright report.
 const REPORT_DIR = path.join(ROOT, 'tests', 'playwright-report');
 const CACHE_PATH =
-  process.env.RELAY_PROVISION_CACHE_PATH || path.join(REPORT_DIR, 'relay-provision-cache.json');
+  process.env.RELAY_PROVISION_CACHE_PATH || path.join(REPORT_DIR, 'router-api-provision-cache.json');
 
 function resolveFrontendDirRel() {
   const candidates = ['examples/vite', 'apps/seams-site'];
@@ -56,7 +54,7 @@ async function readCache(file) {
   }
 }
 
-async function waitForRelayHealth(port, timeoutMs = 120_000) {
+async function waitForRouterApiHealth(port, timeoutMs = 120_000) {
   const started = Date.now();
   const url = `http://127.0.0.1:${port}/healthz`;
   let attempt = 0;
@@ -65,26 +63,26 @@ async function waitForRelayHealth(port, timeoutMs = 120_000) {
     try {
       const res = await fetch(url, { method: 'GET' });
       if (res.ok) {
-        console.log(`[start-servers] Relay health OK after ${attempt} attempts`);
+        console.log(`[start-servers] Router API health OK after ${attempt} attempts`);
         return;
       }
     } catch {}
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error(`[start-servers] Relay server not healthy within ${timeoutMs}ms`);
+  throw new Error(`[start-servers] Router API test server not healthy within ${timeoutMs}ms`);
 }
 
 async function main() {
   // 1) Provision relayer keys
-  await runWait('node', ['tests/scripts/provision-relay-server.mjs'], {
+  await runWait('node', ['tests/scripts/provision-router-api-server.mjs'], {
     env: { ...process.env, RELAY_PROVISION_CACHE_PATH: CACHE_PATH },
   });
 
-  // 2) Build environment variables for relay (do not require .env)
-  const cache = await readCache(CACHE_PATH || DEFAULT_CACHE_PATH);
+  // 2) Build environment variables for the Router API test server.
+  const cache = await readCache(CACHE_PATH);
   if (!cache) throw new Error('missing provision cache');
-  // Default to 3001 to avoid conflicts with the example relay-server (which defaults to 3000).
-  const relayPort = Number(process.env.RELAY_PORT || '3001');
+  // Default to 3001 to avoid conflicts with the app server default port.
+  const routerApiPort = Number(process.env.RELAY_PORT || '3001');
   const NO_CADDY =
     process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1';
   const frontendOverride = String(process.env.W3A_TEST_FRONTEND_URL || '').trim();
@@ -98,9 +96,9 @@ async function main() {
     }
     return NO_CADDY ? 'http://127.0.0.1:3600' : 'https://example.localhost';
   })();
-  const relayEnv = {
+  const routerApiEnv = {
     ...process.env,
-    PORT: String(relayPort),
+    PORT: String(routerApiPort),
     RELAYER_ACCOUNT_ID: cache.accountId,
     RELAYER_PRIVATE_KEY: cache.nearPrivateKey,
     NEAR_NETWORK_ID: 'testnet',
@@ -112,16 +110,16 @@ async function main() {
     RELAY_PROVISION_CACHE_PATH: CACHE_PATH,
   };
 
-  // 3) Start test relay server in background (self-contained)
-  const relay = spawn('node', ['tests/scripts/test-relay-server.mjs'], {
+  // 3) Start the Router API test server in background.
+  const routerApi = spawn('node', ['tests/scripts/test-router-api-server.mjs'], {
     stdio: 'inherit',
     cwd: ROOT,
-    env: relayEnv,
+    env: routerApiEnv,
   });
 
   // 4) Determine port and wait for health
-  const port = relayPort;
-  await waitForRelayHealth(port).catch((e) => {
+  const port = routerApiPort;
+  await waitForRouterApiHealth(port).catch((e) => {
     console.error(e?.message || e);
     process.exit(1);
   });
@@ -190,7 +188,7 @@ async function main() {
   // Cleanup on exit
   function shutdown(code = 0) {
     try {
-      relay.kill();
+      routerApi.kill();
     } catch {}
     try {
       vite.kill();

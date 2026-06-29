@@ -10,6 +10,25 @@ const RUNTIME_POLICY_SCOPE = {
   signingRootVersion: 'default',
 } as const;
 
+function testNearEd25519RegistrationSignerSet(walletId: string) {
+  return {
+    kind: 'signer_set' as const,
+    signers: [
+      {
+        kind: 'near_ed25519' as const,
+        accountProvisioning: {
+          kind: 'sponsored_named_account' as const,
+          requestedAccountId: walletId,
+          sponsor: 'relayer' as const,
+        },
+        signerSlot: 1,
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+    ],
+  };
+}
+
 function b64u(input: Uint8Array | string): string {
   const bytes = typeof input === 'string' ? Buffer.from(input, 'utf8') : Buffer.from(input);
   return bytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -104,21 +123,7 @@ function googleEmailOtpRegistrationAuthorityInput(input: {
         googleEmailOtpRegistrationOfferId: input.offerId,
         googleEmailOtpRegistrationCandidateId: input.candidateId,
       },
-      signerSelection: {
-        mode: 'ed25519_only',
-	        ed25519: {
-	          accountProvisioning: {
-	            kind: 'sponsored_named_account',
-	            requestedAccountId: input.walletId,
-	            sponsor: 'relayer',
-	          },
-	          signerSlot: 1,
-	          participantIds: [1, 2],
-	          keyPurpose: 'near_tx',
-	          keyVersion: 'threshold-ed25519-hss-v1',
-	          derivationVersion: 1,
-	        },
-      },
+      signerSelection: testNearEd25519RegistrationSignerSet(input.walletId),
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       nonceB64u: 'nonce',
     },
@@ -393,21 +398,7 @@ test.describe('AuthService OIDC exchange verification', () => {
           googleEmailOtpRegistrationOfferId: second.offer.offerId,
           googleEmailOtpRegistrationCandidateId: selected.candidateId,
         },
-        signerSelection: {
-          mode: 'ed25519_only',
-	          ed25519: {
-	            accountProvisioning: {
-	              kind: 'sponsored_named_account',
-	              requestedAccountId: selected.walletId,
-	              sponsor: 'relayer',
-	            },
-	            signerSlot: 1,
-	            participantIds: [1, 2],
-	            keyPurpose: 'near_tx',
-	            keyVersion: 'threshold-ed25519-hss-v1',
-	            derivationVersion: 1,
-	          },
-        },
+        signerSelection: testNearEd25519RegistrationSignerSet(selected.walletId),
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         nonceB64u: 'nonce',
       },
@@ -464,21 +455,7 @@ test.describe('AuthService OIDC exchange verification', () => {
         walletId: selected.walletId,
         rpId: 'localhost',
         authMethod,
-        signerSelection: {
-          mode: 'ed25519_only',
-	          ed25519: {
-	            accountProvisioning: {
-	              kind: 'sponsored_named_account',
-	              requestedAccountId: selected.walletId,
-	              sponsor: 'relayer',
-	            },
-	            signerSlot: 1,
-	            participantIds: [1, 2],
-	            keyPurpose: 'near_tx',
-	            keyVersion: 'threshold-ed25519-hss-v1',
-	            derivationVersion: 1,
-	          },
-        },
+        signerSelection: testNearEd25519RegistrationSignerSet(selected.walletId),
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         nonceB64u: 'nonce',
       },
@@ -554,21 +531,7 @@ test.describe('AuthService OIDC exchange verification', () => {
           googleEmailOtpRegistrationOfferId: registered.offer.offerId,
           googleEmailOtpRegistrationCandidateId: other.candidateId,
         },
-        signerSelection: {
-          mode: 'ed25519_only',
-	          ed25519: {
-	            accountProvisioning: {
-	              kind: 'sponsored_named_account',
-	              requestedAccountId: selected.walletId,
-	              sponsor: 'relayer',
-	            },
-	            signerSlot: 1,
-	            participantIds: [1, 2],
-	            keyPurpose: 'near_tx',
-	            keyVersion: 'threshold-ed25519-hss-v1',
-	            derivationVersion: 1,
-	          },
-        },
+        signerSelection: testNearEd25519RegistrationSignerSet(selected.walletId),
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         nonceB64u: 'nonce',
       },
@@ -1044,7 +1007,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     const identity = (service as any).getIdentityStore();
     const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
     await identity.linkSubjectToUserId({
-      userId: 'orphaned.relayer.testnet',
+      userId: 'orphaned-wallet-a1b2c3d4e5.relayer.testnet',
       subject: 'wallet:google:subject-orphaned',
       allowMoveIfSoleIdentity: false,
     });
@@ -1053,12 +1016,12 @@ test.describe('AuthService OIDC exchange verification', () => {
       attemptId: 'expired-attempt',
       providerSubject: 'google:expired-subject',
       email: 'expired@example.com',
-      walletId: 'expired.relayer.testnet',
+      walletId: 'expired-wallet-e1f2g3h4i5.relayer.testnet',
       offerId: 'offer-expired-attempt',
       offerCandidates: [
         {
           candidateId: 'candidate-expired-attempt',
-          walletId: 'expired.relayer.testnet',
+          walletId: 'expired-wallet-e1f2g3h4i5.relayer.testnet',
           collisionCounter: 0,
         },
       ],
@@ -1083,7 +1046,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       ok: true,
       providerSubject: 'google:subject-orphaned',
       expiredRegistrationAttemptsDeleted: 1,
-      linkedWalletId: 'orphaned.relayer.testnet',
+      linkedWalletId: 'orphaned-wallet-a1b2c3d4e5.relayer.testnet',
       orphanedWalletMappingRemoved: true,
     });
     await expect(identity.getUserIdBySubject('wallet:google:subject-orphaned')).resolves.toBeNull();
@@ -1095,18 +1058,18 @@ test.describe('AuthService OIDC exchange verification', () => {
     const identity = (service as any).getIdentityStore();
     const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     await identity.linkSubjectToUserId({
-      userId: 'active.relayer.testnet',
+      userId: 'active-wallet-b1c2d3e4f5.relayer.testnet',
       subject: 'wallet:google:subject-active-cleanup',
       allowMoveIfSoleIdentity: false,
     });
     await enrollmentStore.put({
       version: 'email_otp_wallet_enrollment_v1',
-      walletId: 'active.relayer.testnet',
+      walletId: 'active-wallet-b1c2d3e4f5.relayer.testnet',
       providerUserId: 'google:subject-active-cleanup',
       orgId: ORG_ID,
       verifiedEmail: 'active-cleanup@example.com',
       enrollmentId:
-        'email-otp-device-enrollment-v1:active.relayer.testnet:google:subject-active-cleanup',
+        'email-otp-device-enrollment-v1:active-wallet-b1c2d3e4f5.relayer.testnet:google:subject-active-cleanup',
       enrollmentVersion: '1',
       enrollmentSealKeyVersion: 'email-key-v1',
       signingRootId: 'email_otp_default_signing_root',
@@ -1125,12 +1088,12 @@ test.describe('AuthService OIDC exchange verification', () => {
 
     expect(cleaned).toMatchObject({
       ok: true,
-      linkedWalletId: 'active.relayer.testnet',
+      linkedWalletId: 'active-wallet-b1c2d3e4f5.relayer.testnet',
       orphanedWalletMappingRemoved: false,
       orphanedWalletMappingSkippedReason: 'active_email_otp_enrollment',
     });
     await expect(identity.getUserIdBySubject('wallet:google:subject-active-cleanup')).resolves.toBe(
-      'active.relayer.testnet',
+      'active-wallet-b1c2d3e4f5.relayer.testnet',
     );
   });
 
@@ -1139,18 +1102,18 @@ test.describe('AuthService OIDC exchange verification', () => {
     const identity = (service as any).getIdentityStore();
     const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     await identity.linkSubjectToUserId({
-      userId: 'mismatched-subject.relayer.testnet',
+      userId: 'mismatch-subject-c1d2e3f4g5.relayer.testnet',
       subject: 'wallet:google:subject-cleanup-target',
       allowMoveIfSoleIdentity: false,
     });
     await enrollmentStore.put({
       version: 'email_otp_wallet_enrollment_v1',
-      walletId: 'mismatched-subject.relayer.testnet',
+      walletId: 'mismatch-subject-c1d2e3f4g5.relayer.testnet',
       providerUserId: 'google:another-subject',
       orgId: ORG_ID,
       verifiedEmail: 'mismatched-subject@example.com',
       enrollmentId:
-        'email-otp-device-enrollment-v1:mismatched-subject.relayer.testnet:google:another-subject',
+        'email-otp-device-enrollment-v1:mismatch-subject-c1d2e3f4g5.relayer.testnet:google:another-subject',
       enrollmentVersion: '1',
       enrollmentSealKeyVersion: 'email-key-v1',
       signingRootId: 'email_otp_default_signing_root',
@@ -1169,7 +1132,7 @@ test.describe('AuthService OIDC exchange verification', () => {
 
     expect(cleaned).toMatchObject({
       ok: true,
-      linkedWalletId: 'mismatched-subject.relayer.testnet',
+      linkedWalletId: 'mismatch-subject-c1d2e3f4g5.relayer.testnet',
       orphanedWalletMappingRemoved: true,
     });
     await expect(
@@ -1182,18 +1145,18 @@ test.describe('AuthService OIDC exchange verification', () => {
     const identity = (service as any).getIdentityStore();
     const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     await identity.linkSubjectToUserId({
-      userId: 'mismatched-org.relayer.testnet',
+      userId: 'mismatch-org-d1e2f3g4h5.relayer.testnet',
       subject: 'wallet:google:subject-cleanup-org',
       allowMoveIfSoleIdentity: false,
     });
     await enrollmentStore.put({
       version: 'email_otp_wallet_enrollment_v1',
-      walletId: 'mismatched-org.relayer.testnet',
+      walletId: 'mismatch-org-d1e2f3g4h5.relayer.testnet',
       providerUserId: 'google:subject-cleanup-org',
       orgId: 'another-org',
       verifiedEmail: 'mismatched-org@example.com',
       enrollmentId:
-        'email-otp-device-enrollment-v1:mismatched-org.relayer.testnet:google:subject-cleanup-org',
+        'email-otp-device-enrollment-v1:mismatch-org-d1e2f3g4h5.relayer.testnet:google:subject-cleanup-org',
       enrollmentVersion: '1',
       enrollmentSealKeyVersion: 'email-key-v1',
       signingRootId: 'email_otp_default_signing_root',
@@ -1213,7 +1176,7 @@ test.describe('AuthService OIDC exchange verification', () => {
 
     expect(cleaned).toMatchObject({
       ok: true,
-      linkedWalletId: 'mismatched-org.relayer.testnet',
+      linkedWalletId: 'mismatch-org-d1e2f3g4h5.relayer.testnet',
       orphanedWalletMappingRemoved: true,
     });
     await expect(

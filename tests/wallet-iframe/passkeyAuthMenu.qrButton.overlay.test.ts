@@ -135,7 +135,7 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
         const config = {
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://relay-server.localhost' },
+          relayer: { url: 'https://router-api.localhost' },
           iframeWallet: {
             walletOrigin,
             walletServicePath: '/wallet-service',

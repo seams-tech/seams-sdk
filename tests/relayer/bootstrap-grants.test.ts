@@ -60,10 +60,13 @@ async function createPublishableKey(input: {
 
 async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
   const relayBody = makeWalletRegistrationIntentBody(overrides);
+  const signerSelection = relayBody.signerSelection as { signers?: Array<Record<string, unknown>> };
+  const nearSigner = signerSelection.signers?.find((signer) => signer.kind === 'near_ed25519');
+  const accountProvisioning = nearSigner?.accountProvisioning as Record<string, unknown> | undefined;
   return {
     environmentId,
     flow: 'registration_v1',
-    newAccountId: String(relayBody.signerSelection.ed25519.accountProvisioning.requestedAccountId),
+    newAccountId: String(accountProvisioning?.requestedAccountId || ''),
     rpId: String(relayBody.authMethod.rpId),
     clientContext: {
       sdk: 'web',
@@ -77,19 +80,20 @@ function makeWalletRegistrationIntentBody(overrides?: Partial<Record<string, unk
     wallet: { kind: 'provided', walletId: 'alice.w3a-relayer.testnet' },
     authMethod: { kind: 'passkey', rpId: 'app.example.com' },
     signerSelection: {
-      mode: 'ed25519_only',
-      ed25519: {
-        accountProvisioning: {
-          kind: 'sponsored_named_account',
-          requestedAccountId: 'alice.w3a-relayer.testnet',
-          sponsor: 'relayer',
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: {
+            kind: 'sponsored_named_account',
+            requestedAccountId: 'alice.w3a-relayer.testnet',
+            sponsor: 'relayer',
+          },
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
         },
-        signerSlot: 1,
-        keyPurpose: 'ed25519-hss/y_relayer',
-        keyVersion: 'threshold-ed25519-hss-v1',
-        participantIds: [1, 2],
-        derivationVersion: 1,
-      },
+      ],
     },
     ...(overrides || {}),
   };
@@ -420,19 +424,20 @@ test.describe('managed bootstrap grants', () => {
       body: makeWalletRegistrationIntentBody({
         wallet: { kind: 'provided', walletId: 'mallory.w3a-relayer.testnet' },
         signerSelection: {
-          mode: 'ed25519_only',
-          ed25519: {
-            accountProvisioning: {
-              kind: 'sponsored_named_account',
-              requestedAccountId: 'mallory.w3a-relayer.testnet',
-              sponsor: 'relayer',
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: {
+                kind: 'sponsored_named_account',
+                requestedAccountId: 'mallory.w3a-relayer.testnet',
+                sponsor: 'relayer',
+              },
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
             },
-            signerSlot: 1,
-            keyPurpose: 'ed25519-hss/y_relayer',
-            keyVersion: 'threshold-ed25519-hss-v1',
-            participantIds: [1, 2],
-            derivationVersion: 1,
-          },
+          ],
         },
       }),
     });

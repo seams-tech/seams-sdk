@@ -5,7 +5,7 @@ import {
   normalizeStripeSecretKey,
 } from '../../apps/web-server/src/stripeBillingProvider';
 
-test.describe('relay-server stripe billing provider config', () => {
+test.describe('web-server stripe billing provider config', () => {
   test('accepts Stripe secret and restricted keys for server-side billing', async () => {
     expect(normalizeStripeSecretKey('sk_test_123')).toBe('sk_test_123');
     expect(normalizeStripeSecretKey('rk_test_123')).toBe('rk_test_123');

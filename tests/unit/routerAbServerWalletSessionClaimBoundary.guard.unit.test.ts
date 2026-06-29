@@ -23,13 +23,6 @@ function listTsFiles(relativePath: string): string[] {
   });
 }
 
-const legacyParserAllowlist = new Map([
-  [
-    'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
-    'Legacy parser compatibility boundary',
-  ],
-]);
-
 test.describe('Router A/B server Wallet Session claim boundary guards', () => {
   test('active signing-capable server code rejects legacy threshold-session claim kinds', () => {
     const guardedRoots = [
@@ -60,12 +53,7 @@ test.describe('Router A/B server Wallet Session claim boundary guards', () => {
       .flatMap((root) => listTsFiles(root))
       .flatMap((relativePath) => {
         if (relativePath.endsWith('.typecheck.ts')) return [];
-        const allowedComment = legacyParserAllowlist.get(relativePath);
         const source = read(relativePath);
-        if (allowedComment) {
-          expect(source).toContain(allowedComment);
-          return [];
-        }
         return forbiddenMarkers
           .filter((marker) => source.includes(marker))
           .map((marker) => `${relativePath} contains ${marker}`);
@@ -88,8 +76,12 @@ test.describe('Router A/B server Wallet Session claim boundary guards', () => {
       .map((marker) => `commonRouterUtils.ts contains ${marker}`);
 
     expect(offenders, offenders.join('\n')).toEqual([]);
-    expect(source).toContain('const claims: RouterAbEd25519WalletSessionClaims = {');
+    expect(source).toContain('function buildRouterAbEd25519WalletSessionClaims(');
+    expect(source).toContain('): RouterAbEd25519WalletSessionClaims {');
+    expect(source).toContain('const claims = buildRouterAbEd25519WalletSessionClaims({');
+    expect(source).toContain('function buildRouterAbEcdsaHssWalletSessionClaims(');
     expect(source).toContain('const claims: RouterAbEcdsaHssWalletSessionClaims = {');
+    expect(source).toContain('const claims = buildRouterAbEcdsaHssWalletSessionClaims({');
   });
 
   test('Router A/B ECDSA-HSS scope comparison uses canonical protocol bytes', () => {

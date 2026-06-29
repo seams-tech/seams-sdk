@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { deriveHostedNearAccountId } from '../../packages/sdk-server-ts/src/core/hostedAccountIds';
+import {
+  deriveHostedNearAccountId,
+  parseHostedHmacReadableRelayerWalletId,
+} from '../../packages/sdk-server-ts/src/core/hostedAccountIds';
 
 const BASE_INPUT = {
   accountIdDerivationSecret: 'unit-test-account-id-secret',
@@ -55,6 +58,37 @@ test.describe('hosted account ID derivation', () => {
 
     expect(nonceA).toBe(sameNonceA);
     expect(new Set([base, nonceA, nonceB]).size).toBe(3);
+  });
+
+  test('parses only hosted HMAC-readable relayer wallet IDs as hosted NEAR accounts', async () => {
+    const hostedWalletId = await deriveHostedNearAccountId(BASE_INPUT);
+
+    const hosted = parseHostedHmacReadableRelayerWalletId({
+      walletId: hostedWalletId,
+      relayerAccount: BASE_INPUT.relayerAccount,
+    });
+    const genericWallet = parseHostedHmacReadableRelayerWalletId({
+      walletId: 'wallet_alice',
+      relayerAccount: BASE_INPUT.relayerAccount,
+    });
+    const nonNearWallet = parseHostedHmacReadableRelayerWalletId({
+      walletId: 'wallet alice',
+      relayerAccount: BASE_INPUT.relayerAccount,
+    });
+    const genericNonNearWallet = parseHostedHmacReadableRelayerWalletId({
+      walletId: 'wallet:alice',
+      relayerAccount: BASE_INPUT.relayerAccount,
+    });
+    const plainRelayerSubaccount = parseHostedHmacReadableRelayerWalletId({
+      walletId: 'alice.relayer.testnet',
+      relayerAccount: BASE_INPUT.relayerAccount,
+    });
+
+    expect(hosted).toEqual({ ok: true, value: hostedWalletId });
+    expect(genericWallet).toEqual({ ok: false, code: 'not_relayer_subaccount' });
+    expect(nonNearWallet).toEqual({ ok: false, code: 'not_near_account' });
+    expect(genericNonNearWallet).toEqual({ ok: false, code: 'not_near_account' });
+    expect(plainRelayerSubaccount).toEqual({ ok: false, code: 'not_hmac_readable' });
   });
 
   test('requires a derivation secret and provider identity', async () => {
