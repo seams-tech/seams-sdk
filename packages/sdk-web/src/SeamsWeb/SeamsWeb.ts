@@ -46,6 +46,7 @@ import { ActionType } from '@/core/types/actions';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
@@ -124,10 +125,18 @@ import {
   type NearEd25519SignerBinding,
 } from '@shared/utils/walletCapabilityBindings';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { isObject } from '@shared/utils/validation';
+
+function requireSeamsWebRegistrationRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
+}
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -310,7 +319,13 @@ function emailOtpEd25519KeyIdentityFromSigner(
     relayerKeyId,
     metadata,
   });
-  if (!relayerKeyId || !keyVersion || !nearAccountId || !nearEd25519SigningKeyId || !participantIds.length) {
+  if (
+    !relayerKeyId ||
+    !keyVersion ||
+    !nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !participantIds.length
+  ) {
     return null;
   }
   const account = nearAccountBindingFromRaw({
@@ -399,10 +414,14 @@ function normalizeExportKeypairWithUIInput(
   switch (input.kind) {
     case 'near': {
       const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
-      if (String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)) {
+      if (
+        String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)
+      ) {
         throw new Error('[SeamsWeb] key export lane wallet does not match wallet session');
       }
-      if (String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)) {
+      if (
+        String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)
+      ) {
         throw new Error('[SeamsWeb] key export lane NEAR account does not match request account');
       }
       return {
@@ -511,7 +530,6 @@ export class SeamsWeb {
           await beginGoogleEmailOtpWalletAuth(
             {
               configs: this.configs,
-              getRpId: () => this.signingEngine.getRpId(),
               exchangeGoogleEmailOtpSession: async (exchangeArgs) =>
                 await this.exchangeGoogleEmailOtpSessionDomain(exchangeArgs),
               requestEmailOtpChallenge: async (challengeArgs) =>
@@ -538,7 +556,6 @@ export class SeamsWeb {
                     context: this.getContext(),
                     authMethod: registerArgs.authMethod,
                     wallet: registerArgs.wallet,
-                    rpId: registerArgs.rpId,
                     signerSelection: registerArgs.signerSelection,
                   }),
                 };
@@ -551,7 +568,6 @@ export class SeamsWeb {
                   context: this.getContext(),
                   authMethod: registration.authMethod,
                   wallet: registration.wallet,
-                  rpId: registration.rpId,
                   signerSelection: registration.signerSelection,
                   options: registration.options || {},
                   authenticatorOptions: cloneAuthenticatorOptions(
@@ -724,9 +740,7 @@ export class SeamsWeb {
         nearAccountBinding && !shouldAvoidLocalUserState
           ? { kind: 'near_account_bound' as const, account: nearAccountBinding }
           : { kind: 'none' as const };
-      tasks.push(
-        this.signingEngine.warmCriticalResources(accountContext),
-      );
+      tasks.push(this.signingEngine.warmCriticalResources(accountContext));
     }
 
     if (tasks.length === 0) return;
@@ -809,7 +823,6 @@ export class SeamsWeb {
       context: this.getContext(),
       authMethod: args.authMethod,
       wallet: args.wallet,
-      rpId: args.rpId,
       signerSelection: args.signerSelection,
       options: args.options || {},
       authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
@@ -849,17 +862,16 @@ export class SeamsWeb {
         '[SeamsWeb] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
       );
     }
-    const rpId = this.signingEngine.getRpId();
+    const rpId = requireSeamsWebRegistrationRpId(this.signingEngine.getRpId());
     if (!rpId) {
-      throw new Error('Missing rpId for relay registration');
+      throw new Error('Missing rpId for Router API registration');
     }
     return await this.registerWalletDomain({
       wallet: {
-        kind: 'server_generated',
+        kind: 'server_allocated',
       },
-      rpId,
-      authMethod: { kind: 'passkey' },
-      signerSelection: buildNearWalletRegistrationSignerSelection({
+      authMethod: { kind: 'passkey', rpId },
+      signerSelection: buildNearWalletRegistrationSignerSetSelection({
         configs: this.configs,
         options,
       }),
@@ -1615,7 +1627,9 @@ export class SeamsWeb {
     const session = await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
     const walletSessionUserId = String(session.login.walletId || '').trim();
     if (walletSessionUserId !== String(walletId)) {
-      throw new Error('[SeamsWeb] recovery-code app-session resolution requires a wallet-bound session');
+      throw new Error(
+        '[SeamsWeb] recovery-code app-session resolution requires a wallet-bound session',
+      );
     }
     return await this.signingEngine.resolveEmailOtpAppSessionJwt({
       walletSession: walletSessionRefFromSession({

@@ -8,7 +8,7 @@ import type {
   WalletId,
   WebAuthnRpId,
 } from './domainIds';
-import { parseWalletId } from './domainIds';
+import { parseWalletId, parseWebAuthnRpId } from './domainIds';
 import { base64UrlEncode } from './encoders';
 import {
   parseNamedNearAccountId,
@@ -31,8 +31,8 @@ export type AddSignerIntentGrant = string & {
   readonly __addSignerIntentGrantBrand: unique symbol;
 };
 
-export type GeneratedImplicitWalletId = WalletId & {
-  readonly __generatedImplicitWalletIdBrand: unique symbol;
+export type ServerAllocatedWalletId = WalletId & {
+  readonly __serverAllocatedWalletIdBrand: unique symbol;
 };
 
 export type NearEd25519SigningKeyId = string & {
@@ -41,7 +41,7 @@ export type NearEd25519SigningKeyId = string & {
 
 export type RegisterWalletInput =
   | {
-      kind: 'server_generated';
+      kind: 'server_allocated';
       walletId?: never;
     }
   | {
@@ -51,6 +51,7 @@ export type RegisterWalletInput =
 
 export type PasskeyRegistrationAuthMethodInput = {
   kind: 'passkey';
+  rpId: WebAuthnRpId;
   authenticatorOptions?: unknown;
   email?: never;
   otpCode?: never;
@@ -66,6 +67,7 @@ export type EmailOtpRegistrationAuthMethodInput =
       otpCode: string;
       appSessionJwt: string;
       challengeId?: string;
+      rpId?: never;
       googleEmailOtpRegistrationAttemptId?: never;
       googleEmailOtpRegistrationOfferId?: never;
       googleEmailOtpRegistrationCandidateId?: never;
@@ -79,6 +81,7 @@ export type EmailOtpRegistrationAuthMethodInput =
       googleEmailOtpRegistrationAttemptId: string;
       googleEmailOtpRegistrationOfferId: string;
       googleEmailOtpRegistrationCandidateId: string;
+      rpId?: never;
       otpCode?: never;
       challengeId?: never;
       authenticatorOptions?: never;
@@ -91,6 +94,7 @@ export type RegistrationAuthMethodInput =
 export type AddAuthMethodInput =
   | {
       kind: 'passkey';
+      rpId: WebAuthnRpId;
       email?: never;
       otpCode?: never;
       challengeId?: never;
@@ -100,6 +104,7 @@ export type AddAuthMethodInput =
   | {
       kind: 'email_otp';
       email: string;
+      rpId?: never;
       otpCode?: never;
       challengeId?: never;
       appSessionJwt?: never;
@@ -109,12 +114,14 @@ export type AddAuthMethodInput =
 export type WalletAuthMethodTarget =
   | {
       kind: 'passkey';
+      rpId: WebAuthnRpId;
       credentialIdB64u: string;
       email?: never;
     }
   | {
       kind: 'email_otp';
       email: string;
+      rpId?: never;
       credentialIdB64u?: never;
     };
 
@@ -306,7 +313,6 @@ export type ThresholdEcdsaRegistrationSpec = {
 export type NearAccountOwnershipProofMessageV1 = {
   version: 'near_account_ownership_proof_message_v1';
   walletId: WalletId;
-  rpId: string;
   nearAccountId: string;
   publicKey: string;
   nonceB64u: string;
@@ -347,22 +353,68 @@ export type ThresholdEcdsaAddSignerSpec = {
   participantIds: number[];
 };
 
-export type RegistrationSignerSelection =
-  | {
-      mode: 'ed25519_only';
-      ed25519: ThresholdEd25519RegistrationSpec;
-      ecdsa?: never;
-    }
-  | {
-      mode: 'ecdsa_only';
-      ecdsa: ThresholdEcdsaRegistrationSpec;
-      ed25519?: never;
-    }
-  | {
-      mode: 'ed25519_and_ecdsa';
-      ed25519: ThresholdEd25519RegistrationSpec;
-      ecdsa: ThresholdEcdsaRegistrationSpec;
-    };
+export type RegistrationSignerBranchKey = string & {
+  readonly __registrationSignerBranchKeyBrand: unique symbol;
+};
+
+export type RegistrationNearEd25519SignerRequest = {
+  kind: 'near_ed25519';
+  accountProvisioning: RegistrationNearAccountProvisioning;
+  signerSlot: number;
+  participantIds: readonly number[];
+  derivationVersion: number;
+  keyPurpose?: never;
+  keyVersion?: never;
+  chainTargets?: never;
+};
+
+export type RegistrationEvmFamilyEcdsaSignerRequest = {
+  kind: 'evm_family_ecdsa';
+  participantIds: readonly number[];
+  chainTargets: readonly unknown[];
+  accountProvisioning?: never;
+  signerSlot?: never;
+  keyPurpose?: never;
+  keyVersion?: never;
+  derivationVersion?: never;
+};
+
+export type RegistrationSignerRequest =
+  | RegistrationNearEd25519SignerRequest
+  | RegistrationEvmFamilyEcdsaSignerRequest;
+
+export type RegistrationSignerSetSelection = {
+  kind: 'signer_set';
+  signers: readonly RegistrationSignerRequest[];
+  mode?: never;
+  ed25519?: never;
+  ecdsa?: never;
+};
+
+export type RegistrationNearEd25519SignerPlan = {
+  kind: 'near_ed25519';
+  branchKey: RegistrationSignerBranchKey;
+  accountProvisioning: RegistrationNearAccountProvisioning;
+  signerSlot: number;
+  participantIds: readonly number[];
+  keyPurpose: string;
+  keyVersion: string;
+  derivationVersion: number;
+  chainTargets?: never;
+};
+
+export type RegistrationEvmFamilyEcdsaSignerPlan = RegistrationEvmFamilyEcdsaSignerRequest & {
+  branchKey: RegistrationSignerBranchKey;
+};
+
+export type RegistrationSignerPlanBranch =
+  | RegistrationNearEd25519SignerPlan
+  | RegistrationEvmFamilyEcdsaSignerPlan;
+
+export type RegistrationSignerPlan = {
+  kind: 'signer_set';
+  branches: readonly RegistrationSignerPlanBranch[];
+};
 
 export type AddSignerSelection =
   | {
@@ -386,9 +438,8 @@ export type RuntimePolicyScopeLike = {
 export type RegistrationIntentV1 = {
   version: 'registration_intent_v1';
   walletId: WalletId;
-  rpId: string;
   authMethod: RegistrationAuthMethodInput;
-  signerSelection: RegistrationSignerSelection;
+  signerSelection: RegistrationSignerSetSelection;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
 };
@@ -396,7 +447,6 @@ export type RegistrationIntentV1 = {
 export type AddSignerIntentV1 = {
   version: 'add_signer_intent_v1';
   walletId: WalletId;
-  rpId: string;
   signerSelection: AddSignerSelection;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
@@ -405,7 +455,6 @@ export type AddSignerIntentV1 = {
 export type AddAuthMethodIntentV1 = {
   version: 'add_auth_method_intent_v1';
   walletId: WalletId;
-  rpId: string;
   authMethod: AddAuthMethodInput;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
@@ -419,8 +468,8 @@ export function walletIdFromString(value: string): WalletId {
   return parsed.value;
 }
 
-export type GeneratedImplicitWalletIdParseResult =
-  | { ok: true; value: GeneratedImplicitWalletId }
+export type ServerAllocatedWalletIdParseResult =
+  | { ok: true; value: ServerAllocatedWalletId }
   | {
       ok: false;
       error: {
@@ -429,33 +478,131 @@ export type GeneratedImplicitWalletIdParseResult =
       };
     };
 
-const GENERATED_IMPLICIT_WALLET_ID_PATTERN = /^[a-z]+-[a-z]+-[a-z0-9]{6}$/;
+const SERVER_ALLOCATED_WALLET_ADJECTIVES = [
+  'amber',
+  'brisk',
+  'cedar',
+  'cobalt',
+  'crimson',
+  'frost',
+  'golden',
+  'harbor',
+  'indigo',
+  'jade',
+  'lunar',
+  'maple',
+  'opal',
+  'polar',
+  'silver',
+  'verdant',
+  'violet',
+  'willow',
+] as const;
 
-export function parseGeneratedImplicitWalletId(
-  raw: unknown,
-): GeneratedImplicitWalletIdParseResult {
+const SERVER_ALLOCATED_WALLET_NOUNS = [
+  'atlas',
+  'bloom',
+  'canyon',
+  'ember',
+  'fjord',
+  'giant',
+  'grove',
+  'harvest',
+  'lantern',
+  'meadow',
+  'orchid',
+  'quartz',
+  'raven',
+  'solstice',
+  'summit',
+  'tempo',
+  'vermillion',
+  'voyage',
+  'zenith',
+] as const;
+
+const SERVER_ALLOCATED_WALLET_SUFFIX_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz';
+const SERVER_ALLOCATED_WALLET_ID_PATTERN = /^([a-z]+)-([a-z]+)-([a-z0-9]{6})$/;
+const SERVER_ALLOCATED_WALLET_ADJECTIVE_SET = new Set<string>(SERVER_ALLOCATED_WALLET_ADJECTIVES);
+const SERVER_ALLOCATED_WALLET_NOUN_SET = new Set<string>(SERVER_ALLOCATED_WALLET_NOUNS);
+
+export function createServerAllocatedWalletId(): ServerAllocatedWalletId {
+  return requireServerAllocatedWalletId(
+    [
+      randomServerAllocatedWalletWord(SERVER_ALLOCATED_WALLET_ADJECTIVES),
+      randomServerAllocatedWalletWord(SERVER_ALLOCATED_WALLET_NOUNS),
+      randomServerAllocatedWalletSuffix(6),
+    ].join('-'),
+  );
+}
+
+export function parseServerAllocatedWalletId(raw: unknown): ServerAllocatedWalletIdParseResult {
   const parsed = parseWalletId(raw);
   if (!parsed.ok) return parsed;
   const value = String(parsed.value);
-  if (!GENERATED_IMPLICIT_WALLET_ID_PATTERN.test(value)) {
+  const match = SERVER_ALLOCATED_WALLET_ID_PATTERN.exec(value);
+  const adjective = match?.[1] || '';
+  const noun = match?.[2] || '';
+  const suffix = match?.[3] || '';
+  if (
+    !match ||
+    !SERVER_ALLOCATED_WALLET_ADJECTIVE_SET.has(adjective) ||
+    !SERVER_ALLOCATED_WALLET_NOUN_SET.has(noun) ||
+    !serverAllocatedWalletSuffixIsValid(suffix)
+  ) {
     return {
       ok: false,
       error: {
         code: 'invalid',
         message:
-          'generated implicit walletId must match the word-word-suffix generated format',
+          'server-allocated walletId must match the approved readable word-word-suffix allocation format',
       },
     };
   }
-  return { ok: true, value: parsed.value as GeneratedImplicitWalletId };
+  return { ok: true, value: parsed.value as ServerAllocatedWalletId };
 }
 
-export function requireGeneratedImplicitWalletId(value: unknown): GeneratedImplicitWalletId {
-  const parsed = parseGeneratedImplicitWalletId(value);
+export function requireServerAllocatedWalletId(value: unknown): ServerAllocatedWalletId {
+  const parsed = parseServerAllocatedWalletId(value);
   if (!parsed.ok) {
     throw new Error(parsed.error.message);
   }
   return parsed.value;
+}
+
+function serverAllocatedRandomIndex(maxExclusive: number): number {
+  if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0 || maxExclusive > 256) {
+    throw new Error('Invalid server-allocated wallet random bound');
+  }
+  const limit = 256 - (256 % maxExclusive);
+  const byte = new Uint8Array(1);
+  for (;;) {
+    crypto.getRandomValues(byte);
+    if (byte[0] < limit) return byte[0] % maxExclusive;
+  }
+}
+
+function randomServerAllocatedWalletWord(words: readonly string[]): string {
+  return words[serverAllocatedRandomIndex(words.length)]!;
+}
+
+function randomServerAllocatedWalletSuffix(length: number): string {
+  let suffix = '';
+  for (let index = 0; index < length; index += 1) {
+    suffix +=
+      SERVER_ALLOCATED_WALLET_SUFFIX_ALPHABET[
+        serverAllocatedRandomIndex(SERVER_ALLOCATED_WALLET_SUFFIX_ALPHABET.length)
+      ];
+  }
+  return suffix;
+}
+
+function serverAllocatedWalletSuffixIsValid(suffix: string): boolean {
+  if (suffix.length !== 6) return false;
+  for (const character of suffix) {
+    if (!SERVER_ALLOCATED_WALLET_SUFFIX_ALPHABET.includes(character)) return false;
+  }
+  return true;
 }
 
 export function nearEd25519SigningKeyIdFromString(value: string): NearEd25519SigningKeyId {
@@ -473,9 +620,7 @@ export function parseNearEd25519SigningKeyId(value: unknown): NearEd25519Signing
   return nearEd25519SigningKeyIdFromString(value);
 }
 
-export function formatNearEd25519SigningKeyIdForWire(
-  value: NearEd25519SigningKeyId,
-): string {
+export function formatNearEd25519SigningKeyIdForWire(value: NearEd25519SigningKeyId): string {
   return value;
 }
 
@@ -485,8 +630,8 @@ export function nearEd25519SigningKeyIdFromWalletId(walletId: WalletId): NearEd2
 
 export type GeneratedImplicitNearEd25519SigningKeyDigestInput = {
   kind: 'generated_implicit_near_ed25519_signing_key_v1';
-  walletId: GeneratedImplicitWalletId;
-  rpId: WebAuthnRpId;
+  walletId: ServerAllocatedWalletId;
+  authorityScope: RegistrationEd25519AuthorityScope;
   signingRootId: string;
   signingRootVersion: string;
   signerSlot: number;
@@ -502,7 +647,7 @@ export async function computeGeneratedImplicitNearEd25519SigningKeyId(
   const canonical = alphabetizeStringify({
     kind: input.kind,
     walletId: String(input.walletId),
-    rpId: input.rpId,
+    authorityScope: input.authorityScope,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
     signerSlot: input.signerSlot,
@@ -515,9 +660,80 @@ export async function computeGeneratedImplicitNearEd25519SigningKeyId(
   return nearEd25519SigningKeyIdFromString(`ed25519ks_${digest}`);
 }
 
+export type RegistrationEd25519AuthorityScope =
+  | {
+      kind: 'passkey';
+      rpId: WebAuthnRpId;
+      proofKind?: never;
+      email?: never;
+      challengeId?: never;
+      googleEmailOtpRegistrationAttemptId?: never;
+      googleEmailOtpRegistrationOfferId?: never;
+      googleEmailOtpRegistrationCandidateId?: never;
+    }
+  | {
+      kind: 'email_otp';
+      proofKind: 'otp_challenge';
+      email: string;
+      challengeId?: string;
+      rpId?: never;
+      googleEmailOtpRegistrationAttemptId?: never;
+      googleEmailOtpRegistrationOfferId?: never;
+      googleEmailOtpRegistrationCandidateId?: never;
+    }
+  | {
+      kind: 'email_otp';
+      proofKind: 'google_sso_registration';
+      email: string;
+      googleEmailOtpRegistrationAttemptId: string;
+      googleEmailOtpRegistrationOfferId: string;
+      googleEmailOtpRegistrationCandidateId: string;
+      rpId?: never;
+      challengeId?: never;
+    };
+
+export function registrationEd25519AuthorityScope(
+  authMethod: RegistrationAuthMethodInput,
+): RegistrationEd25519AuthorityScope {
+  switch (authMethod.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey',
+        rpId: authMethod.rpId,
+      };
+    case 'email_otp':
+      switch (authMethod.proofKind) {
+        case 'otp_challenge':
+          return {
+            kind: 'email_otp',
+            proofKind: 'otp_challenge',
+            email: authMethod.email,
+            ...(authMethod.challengeId ? { challengeId: authMethod.challengeId } : {}),
+          };
+        case 'google_sso_registration':
+          return {
+            kind: 'email_otp',
+            proofKind: 'google_sso_registration',
+            email: authMethod.email,
+            googleEmailOtpRegistrationAttemptId: authMethod.googleEmailOtpRegistrationAttemptId,
+            googleEmailOtpRegistrationOfferId: authMethod.googleEmailOtpRegistrationOfferId,
+            googleEmailOtpRegistrationCandidateId: authMethod.googleEmailOtpRegistrationCandidateId,
+          };
+        default: {
+          const exhaustive: never = authMethod;
+          return exhaustive;
+        }
+      }
+    default: {
+      const exhaustive: never = authMethod;
+      return exhaustive;
+    }
+  }
+}
+
 export async function computeRegistrationNearEd25519SigningKeyId(input: {
   walletId: WalletId;
-  rpId: WebAuthnRpId;
+  authorityScope: RegistrationEd25519AuthorityScope;
   signingRootId: string;
   signingRootVersion: string;
   ed25519: ThresholdEd25519RegistrationSpec;
@@ -526,8 +742,8 @@ export async function computeRegistrationNearEd25519SigningKeyId(input: {
     case 'implicit_account':
       return await computeGeneratedImplicitNearEd25519SigningKeyId({
         kind: 'generated_implicit_near_ed25519_signing_key_v1',
-        walletId: requireGeneratedImplicitWalletId(input.walletId),
-        rpId: input.rpId,
+        walletId: requireServerAllocatedWalletId(input.walletId),
+        authorityScope: input.authorityScope,
         signingRootId: input.signingRootId,
         signingRootVersion: input.signingRootVersion,
         signerSlot: input.ed25519.signerSlot,
@@ -690,43 +906,6 @@ function normalizeRegistrationNearAccountProvisioning(
   }
 }
 
-function normalizeRegistrationEd25519Spec(
-  value: Record<string, unknown> | null,
-): ThresholdEd25519RegistrationSpec | null {
-  if (!value) return null;
-  if (
-    Object.prototype.hasOwnProperty.call(value, 'nearAccountId') ||
-    Object.prototype.hasOwnProperty.call(value, 'createNearAccount')
-  ) {
-    return null;
-  }
-  const accountProvisioning = normalizeRegistrationNearAccountProvisioning(
-    value.accountProvisioning,
-  );
-  const keyPurpose = trimString(value.keyPurpose);
-  const keyVersion = trimString(value.keyVersion);
-  const derivationVersion = Number(value.derivationVersion);
-  const participantIds = collectPositiveParticipantIds(value.participantIds);
-  if (
-    !accountProvisioning ||
-    !keyPurpose ||
-    !keyVersion ||
-    !Number.isInteger(derivationVersion) ||
-    derivationVersion < 1 ||
-    participantIds.length === 0
-  ) {
-    return null;
-  }
-  return {
-    accountProvisioning,
-    signerSlot: normalizePositiveInteger(value.signerSlot, 1),
-    participantIds,
-    keyPurpose,
-    keyVersion,
-    derivationVersion,
-  };
-}
-
 function normalizeRegistrationEcdsaSpec(
   value: Record<string, unknown> | null,
 ): ThresholdEcdsaRegistrationSpec | null {
@@ -745,38 +924,381 @@ export type NormalizeAddSignerSelectionOptions = {
   readonly normalizeEcdsaChainTarget: (target: unknown) => unknown | null;
 };
 
-export function normalizeRegistrationSignerSelection(
+export type RegistrationSignerSetSelectionFromPlanOptions = {
+  readonly normalizeEcdsaChainTarget?: (target: unknown) => unknown | null;
+};
+
+const REGISTRATION_NEAR_ED25519_KEY_PURPOSE = 'near_tx';
+const REGISTRATION_NEAR_ED25519_KEY_VERSION = 'threshold-ed25519-hss-v1';
+
+export function registrationSignerBranchKeyFromString(value: string): RegistrationSignerBranchKey {
+  const normalized = trimString(value);
+  if (!normalized) {
+    throw new Error('registration signer branch key is required');
+  }
+  return normalized as RegistrationSignerBranchKey;
+}
+
+export function registrationNearEd25519BranchKey(signerSlot: number): RegistrationSignerBranchKey {
+  return registrationSignerBranchKeyFromString(`near_ed25519:slot:${signerSlot}`);
+}
+
+function registrationEvmFamilyEcdsaTargetKey(target: unknown): string {
+  return alphabetizeStringify(target);
+}
+
+export function registrationEvmFamilyEcdsaBranchKey(
+  chainTargets: readonly unknown[],
+): RegistrationSignerBranchKey {
+  return registrationSignerBranchKeyFromString(
+    `evm_family_ecdsa:${chainTargets.map(registrationEvmFamilyEcdsaTargetKey).join('|')}`,
+  );
+}
+
+function registrationSignerPlanFromRequests(
+  signers: readonly RegistrationSignerRequest[],
+): NormalizeSignerSelectionResult<RegistrationSignerPlan> {
+  return registrationSignerPlanFromBranches(signers.map(registrationSignerPlanBranchFromRequest));
+}
+
+function registrationSignerPlanFromBranches(
+  branches: readonly RegistrationSignerPlanBranch[],
+): NormalizeSignerSelectionResult<RegistrationSignerPlan> {
+  if (branches.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'signer set must include at least one signer',
+    };
+  }
+  const nearSlots = new Set<number>();
+  const ecdsaTargetKeys = new Set<string>();
+  const branchKeys = new Set<string>();
+  for (const branch of branches) {
+    const duplicate = findRegistrationSignerPlanDuplicate({
+      branch,
+      nearSlots,
+      ecdsaTargetKeys,
+      branchKeys,
+    });
+    if (duplicate) return duplicate;
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'signer_set',
+      branches,
+    },
+  };
+}
+
+function registrationSignerPlanBranchFromRequest(
+  signer: RegistrationSignerRequest,
+): RegistrationSignerPlanBranch {
+  switch (signer.kind) {
+    case 'near_ed25519':
+      return {
+        kind: 'near_ed25519',
+        branchKey: registrationNearEd25519BranchKey(signer.signerSlot),
+        accountProvisioning: signer.accountProvisioning,
+        signerSlot: signer.signerSlot,
+        participantIds: signer.participantIds,
+        keyPurpose: REGISTRATION_NEAR_ED25519_KEY_PURPOSE,
+        keyVersion: REGISTRATION_NEAR_ED25519_KEY_VERSION,
+        derivationVersion: signer.derivationVersion,
+      };
+    case 'evm_family_ecdsa':
+      return {
+        kind: 'evm_family_ecdsa',
+        branchKey: registrationEvmFamilyEcdsaBranchKey(signer.chainTargets),
+        participantIds: signer.participantIds,
+        chainTargets: signer.chainTargets,
+      };
+    default:
+      return assertNeverRegistrationSignerRequest(signer);
+  }
+}
+
+function findRegistrationSignerPlanDuplicate(input: {
+  readonly branch: RegistrationSignerPlanBranch;
+  readonly nearSlots: Set<number>;
+  readonly ecdsaTargetKeys: Set<string>;
+  readonly branchKeys: Set<string>;
+}): NormalizeSignerSelectionResult<RegistrationSignerPlan> | null {
+  switch (input.branch.kind) {
+    case 'near_ed25519':
+      if (input.nearSlots.has(input.branch.signerSlot)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'duplicate near_ed25519 signer slot is invalid',
+        };
+      }
+      input.nearSlots.add(input.branch.signerSlot);
+      break;
+    case 'evm_family_ecdsa':
+      {
+        const duplicateTarget = findDuplicateRegistrationEcdsaTarget(
+          input.branch,
+          input.ecdsaTargetKeys,
+        );
+        if (duplicateTarget) return duplicateTarget;
+      }
+      break;
+    default:
+      return assertNeverRegistrationSignerPlanBranch(input.branch);
+  }
+  return findDuplicateRegistrationSignerBranch(input.branch, input.branchKeys);
+}
+
+function findDuplicateRegistrationSignerBranch(
+  branch: RegistrationSignerPlanBranch,
+  branchKeys: Set<string>,
+): NormalizeSignerSelectionResult<RegistrationSignerPlan> | null {
+  const branchKey = String(branch.branchKey);
+  if (branchKeys.has(branchKey)) {
+    return { ok: false, code: 'invalid_body', message: 'duplicate signer branch is invalid' };
+  }
+  branchKeys.add(branchKey);
+  return null;
+}
+
+function findDuplicateRegistrationEcdsaTarget(
+  branch: RegistrationEvmFamilyEcdsaSignerPlan,
+  ecdsaTargetKeys: Set<string>,
+): NormalizeSignerSelectionResult<RegistrationSignerPlan> | null {
+  for (const target of branch.chainTargets) {
+    const targetKey = registrationEvmFamilyEcdsaTargetKey(target);
+    if (ecdsaTargetKeys.has(targetKey)) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'duplicate evm_family_ecdsa chain target is invalid',
+      };
+    }
+    ecdsaTargetKeys.add(targetKey);
+  }
+  return null;
+}
+
+function normalizeRegistrationSignerRequest(
   raw: unknown,
-): NormalizeSignerSelectionResult<RegistrationSignerSelection> {
+): NormalizeSignerSelectionResult<RegistrationSignerRequest> {
+  if (!isRecord(raw)) {
+    return { ok: false, code: 'invalid_body', message: 'signer set entry must be an object' };
+  }
+  const kind = trimString(raw.kind);
+  switch (kind) {
+    case 'near_ed25519':
+      return normalizeRegistrationNearEd25519SignerRequest(raw);
+    case 'evm_family_ecdsa':
+      return normalizeRegistrationEvmFamilyEcdsaSignerRequest(raw);
+    default:
+      return { ok: false, code: 'invalid_body', message: 'unsupported registration signer kind' };
+  }
+}
+
+function normalizeRegistrationNearEd25519SignerRequest(
+  raw: Record<string, unknown>,
+): NormalizeSignerSelectionResult<RegistrationSignerRequest> {
+  if (
+    Object.prototype.hasOwnProperty.call(raw, 'keyPurpose') ||
+    Object.prototype.hasOwnProperty.call(raw, 'keyVersion')
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'near_ed25519 signer spec cannot include protocol key fields',
+    };
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(raw, 'nearAccountId') ||
+    Object.prototype.hasOwnProperty.call(raw, 'createNearAccount')
+  ) {
+    return { ok: false, code: 'invalid_body', message: 'near_ed25519 signer spec is invalid' };
+  }
+  const accountProvisioning = normalizeRegistrationNearAccountProvisioning(raw.accountProvisioning);
+  const signerSlot = normalizePositiveInteger(raw.signerSlot, 0);
+  const derivationVersion = Number(raw.derivationVersion);
+  const participantIds = collectPositiveParticipantIds(raw.participantIds);
+  if (
+    !accountProvisioning ||
+    signerSlot < 1 ||
+    participantIds.length === 0 ||
+    derivationVersion !== 1
+  ) {
+    return { ok: false, code: 'invalid_body', message: 'near_ed25519 signer spec is invalid' };
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'near_ed25519',
+      accountProvisioning,
+      signerSlot,
+      participantIds,
+      derivationVersion,
+    },
+  };
+}
+
+function normalizeRegistrationEvmFamilyEcdsaSignerRequest(
+  raw: Record<string, unknown>,
+): NormalizeSignerSelectionResult<RegistrationSignerRequest> {
+  const ecdsa = normalizeRegistrationEcdsaSpec(raw);
+  if (!ecdsa) {
+    return { ok: false, code: 'invalid_body', message: 'evm_family_ecdsa signer spec is invalid' };
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'evm_family_ecdsa',
+      participantIds: ecdsa.participantIds,
+      chainTargets: ecdsa.chainTargets,
+    },
+  };
+}
+
+function normalizeRegistrationSignerSetPlan(
+  raw: Record<string, unknown>,
+): NormalizeSignerSelectionResult<RegistrationSignerPlan> {
+  if (!Array.isArray(raw.signers)) {
+    return { ok: false, code: 'invalid_body', message: 'signerSelection.signers must be an array' };
+  }
+  const signers: RegistrationSignerRequest[] = [];
+  for (const rawSigner of raw.signers) {
+    const signer = normalizeRegistrationSignerRequest(rawSigner);
+    if (!signer.ok) return signer;
+    signers.push(signer.value);
+  }
+  return registrationSignerPlanFromRequests(signers);
+}
+
+export function normalizeRegistrationSignerPlan(
+  raw: unknown,
+): NormalizeSignerSelectionResult<RegistrationSignerPlan> {
   if (!isRecord(raw)) {
     return { ok: false, code: 'invalid_body', message: 'signerSelection must be an object' };
   }
-  const mode = trimString(raw.mode);
-  const ed25519Raw = isRecord(raw.ed25519) ? raw.ed25519 : null;
-  const ecdsaRaw = isRecord(raw.ecdsa) ? raw.ecdsa : null;
-
-  const ed25519 = normalizeRegistrationEd25519Spec(ed25519Raw);
-  const ecdsa = normalizeRegistrationEcdsaSpec(ecdsaRaw);
-  switch (mode) {
-    case 'ed25519_only':
-      return ed25519
-        ? { ok: true, value: { mode, ed25519 } }
-        : { ok: false, code: 'invalid_body', message: 'ed25519 signer spec is invalid' };
-    case 'ecdsa_only':
-      return ecdsa
-        ? { ok: true, value: { mode, ecdsa } }
-        : { ok: false, code: 'invalid_body', message: 'ecdsa signer spec is invalid' };
-    case 'ed25519_and_ecdsa':
-      return ed25519 && ecdsa
-        ? { ok: true, value: { mode, ed25519, ecdsa } }
-        : {
-            ok: false,
-            code: 'invalid_body',
-            message: 'combined registration requires valid ed25519 and ecdsa specs',
-          };
-    default:
-      return { ok: false, code: 'invalid_body', message: 'unsupported registration mode' };
+  if (trimString(raw.kind) === 'signer_set') {
+    return normalizeRegistrationSignerSetPlan(raw);
   }
+  return { ok: false, code: 'invalid_body', message: 'signerSelection.kind must be signer_set' };
+}
+
+export function registrationSignerPlanFromSelection(
+  selection: RegistrationSignerSetSelection,
+): NormalizeSignerSelectionResult<RegistrationSignerPlan> {
+  return registrationSignerPlanFromRequests(selection.signers);
+}
+
+export function findRegistrationSignerPlanNearEd25519Branch(
+  plan: RegistrationSignerPlan,
+): RegistrationNearEd25519SignerPlan | null {
+  for (const branch of plan.branches) {
+    if (branch.kind === 'near_ed25519') return branch;
+  }
+  return null;
+}
+
+export function findRegistrationSignerPlanEvmFamilyEcdsaBranch(
+  plan: RegistrationSignerPlan,
+): RegistrationEvmFamilyEcdsaSignerPlan | null {
+  for (const branch of plan.branches) {
+    if (branch.kind === 'evm_family_ecdsa') return branch;
+  }
+  return null;
+}
+
+export function registrationSignerSetSelectionFromPlan(
+  plan: RegistrationSignerPlan,
+  options: RegistrationSignerSetSelectionFromPlanOptions = {},
+): NormalizeSignerSelectionResult<RegistrationSignerSetSelection> {
+  const signers: RegistrationSignerRequest[] = [];
+  for (const branch of plan.branches) {
+    const signer = registrationSignerRequestFromPlanBranchForSelection(branch, options);
+    if (!signer.ok) return signer;
+    signers.push(signer.value);
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'signer_set',
+      signers,
+    },
+  };
+}
+
+function registrationSignerRequestFromPlanBranchForSelection(
+  branch: RegistrationSignerPlanBranch,
+  options: RegistrationSignerSetSelectionFromPlanOptions,
+): NormalizeSignerSelectionResult<RegistrationSignerRequest> {
+  switch (branch.kind) {
+    case 'near_ed25519':
+      return {
+        ok: true,
+        value: registrationNearEd25519RequestFromPlanBranch(branch),
+      };
+    case 'evm_family_ecdsa':
+      return registrationEvmFamilyEcdsaRequestFromPlanBranch(branch, options);
+    default:
+      return assertNeverRegistrationSignerPlanBranch(branch);
+  }
+}
+
+function registrationNearEd25519RequestFromPlanBranch(
+  branch: RegistrationNearEd25519SignerPlan,
+): RegistrationNearEd25519SignerRequest {
+  return {
+    kind: 'near_ed25519',
+    accountProvisioning: branch.accountProvisioning,
+    signerSlot: branch.signerSlot,
+    participantIds: [...branch.participantIds],
+    derivationVersion: branch.derivationVersion,
+  };
+}
+
+function registrationEvmFamilyEcdsaRequestFromPlanBranch(
+  branch: RegistrationEvmFamilyEcdsaSignerPlan,
+  options: RegistrationSignerSetSelectionFromPlanOptions,
+): NormalizeSignerSelectionResult<RegistrationEvmFamilyEcdsaSignerRequest> {
+  const chainTargets = registrationEcdsaChainTargetsFromPlanBranch(branch, options);
+  if (!chainTargets) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration ECDSA chainTargets are invalid',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'evm_family_ecdsa',
+      participantIds: [...branch.participantIds],
+      chainTargets,
+    },
+  };
+}
+
+function registrationEcdsaChainTargetsFromPlanBranch(
+  branch: RegistrationEvmFamilyEcdsaSignerPlan,
+  options: RegistrationSignerSetSelectionFromPlanOptions,
+): unknown[] | null {
+  if (!options.normalizeEcdsaChainTarget) return [...branch.chainTargets];
+  const chainTargets: unknown[] = [];
+  for (const target of branch.chainTargets) {
+    const normalized = options.normalizeEcdsaChainTarget(target);
+    if (!normalized) return null;
+    chainTargets.push(normalized);
+  }
+  return chainTargets;
+}
+
+function assertNeverRegistrationSignerRequest(value: never): never {
+  throw new Error(`Unsupported registration signer request: ${String(value)}`);
+}
+
+function assertNeverRegistrationSignerPlanBranch(value: never): never {
+  throw new Error(`Unsupported registration signer plan branch: ${String(value)}`);
 }
 
 export function normalizeAddSignerSelection(
@@ -922,7 +1444,9 @@ export function normalizeRegistrationAuthMethodInput(
   if (!isRecord(raw)) return null;
   const kind = trimString(raw.kind);
   if (kind === 'passkey') {
+    const rpId = parseWebAuthnRpId(raw.rpId);
     if (
+      !rpId.ok ||
       Object.prototype.hasOwnProperty.call(raw, 'email') ||
       Object.prototype.hasOwnProperty.call(raw, 'otpCode') ||
       Object.prototype.hasOwnProperty.call(raw, 'challengeId')
@@ -931,6 +1455,7 @@ export function normalizeRegistrationAuthMethodInput(
     }
     return {
       kind: 'passkey',
+      rpId: rpId.value,
       ...(raw.authenticatorOptions !== undefined
         ? { authenticatorOptions: raw.authenticatorOptions }
         : {}),
@@ -943,6 +1468,7 @@ export function normalizeRegistrationAuthMethodInput(
     if (
       !email ||
       !appSessionJwt ||
+      Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
       Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')
     ) {
       return null;
@@ -1003,7 +1529,9 @@ export function normalizeAddAuthMethodInput(raw: unknown): AddAuthMethodInput | 
   if (!isRecord(raw)) return null;
   const kind = trimString(raw.kind);
   if (kind === 'passkey') {
+    const rpId = parseWebAuthnRpId(raw.rpId);
     if (
+      !rpId.ok ||
       Object.prototype.hasOwnProperty.call(raw, 'email') ||
       Object.prototype.hasOwnProperty.call(raw, 'otpCode') ||
       Object.prototype.hasOwnProperty.call(raw, 'challengeId') ||
@@ -1012,12 +1540,13 @@ export function normalizeAddAuthMethodInput(raw: unknown): AddAuthMethodInput | 
     ) {
       return null;
     }
-    return { kind: 'passkey' };
+    return { kind: 'passkey', rpId: rpId.value };
   }
   if (kind === 'email_otp') {
     const email = trimString(raw.email);
     if (
       !email ||
+      Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
       Object.prototype.hasOwnProperty.call(raw, 'otpCode') ||
       Object.prototype.hasOwnProperty.call(raw, 'challengeId') ||
       Object.prototype.hasOwnProperty.call(raw, 'appSessionJwt') ||
@@ -1037,18 +1566,24 @@ export function normalizeWalletAuthMethodTarget(raw: unknown): WalletAuthMethodT
   if (!isRecord(raw)) return null;
   const kind = trimString(raw.kind);
   if (kind === 'passkey') {
+    const rpId = parseWebAuthnRpId(raw.rpId);
     const credentialIdB64u = trimString(raw.credentialIdB64u);
-    if (!credentialIdB64u || Object.prototype.hasOwnProperty.call(raw, 'email')) {
+    if (!rpId.ok || !credentialIdB64u || Object.prototype.hasOwnProperty.call(raw, 'email')) {
       return null;
     }
     return {
       kind: 'passkey',
+      rpId: rpId.value,
       credentialIdB64u,
     };
   }
   if (kind === 'email_otp') {
     const email = trimString(raw.email).toLowerCase();
-    if (!email || Object.prototype.hasOwnProperty.call(raw, 'credentialIdB64u')) {
+    if (
+      !email ||
+      Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
+      Object.prototype.hasOwnProperty.call(raw, 'credentialIdB64u')
+    ) {
       return null;
     }
     return {
@@ -1147,8 +1682,7 @@ export function normalizeNearAccountOwnershipProofV1(
   if (!message) return null;
   const proofVersion = trimString(raw.version);
   const messageVersion = trimString(message.version);
-  const walletId = walletIdFromString(trimString(message.walletId));
-  const rpId = trimString(message.rpId);
+  const walletId = parseWalletId(trimString(message.walletId));
   const nearAccountId = trimString(message.nearAccountId);
   const publicKey = trimString(message.publicKey);
   const nonceB64u = trimString(message.nonceB64u);
@@ -1158,8 +1692,8 @@ export function normalizeNearAccountOwnershipProofV1(
   if (
     proofVersion !== 'near_account_ownership_proof_v1' ||
     messageVersion !== 'near_account_ownership_proof_message_v1' ||
-    !walletId ||
-    !rpId ||
+    Object.prototype.hasOwnProperty.call(message, 'rpId') ||
+    !walletId.ok ||
     !nearAccountId ||
     !publicKey ||
     !nonceB64u ||
@@ -1174,8 +1708,7 @@ export function normalizeNearAccountOwnershipProofV1(
     signatureB64u,
     message: {
       version: 'near_account_ownership_proof_message_v1',
-      walletId,
-      rpId,
+      walletId: walletId.value,
       nearAccountId,
       publicKey,
       nonceB64u,

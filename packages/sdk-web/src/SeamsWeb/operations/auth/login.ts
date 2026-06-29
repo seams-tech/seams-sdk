@@ -53,7 +53,6 @@ import type { WalletSessionReconnectEcdsaBootstrapRouteAuth } from '@/core/signi
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
-  clearStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForWallet,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -848,11 +847,11 @@ async function readLoginUnlockAccountPhase(args: {
 }
 
 /**
- * Core login function (passkey identity + relay-issued sessions).
+ * Core login function (passkey identity + Router API-issued sessions).
  *
  * Responsibilities:
  * - Select the active account + signer slot (last-user pointer).
- * - Optionally mint a relayer app session (JWT/cookie) via session exchange.
+ * - Optionally mint a Router API app session (JWT/cookie) via session exchange.
  *
  * Note: signing flows still perform their own UserConfirm/WebAuthn prompting as needed.
  */
@@ -1290,7 +1289,7 @@ export async function unlock(
         const exchangePath = exchangeRoute.startsWith('/') ? exchangeRoute : `/${exchangeRoute}`;
         let exchangeInput: SessionExchangeInput;
 
-        // Build the exact proof the relayer expects for this exchange mode.
+        // Build the exact proof the Router API expects for this exchange mode.
         if (exchange.type === 'oidc_jwt') {
           // OIDC exchange uses the caller-provided token directly.
           exchangeInput = {
@@ -1302,7 +1301,7 @@ export async function unlock(
             status: 'running',
           });
         } else {
-          // Passkey exchange first asks the relayer for a challenge tied to this account and RP.
+          // Passkey exchange first asks the Router API for a challenge tied to this account and RP.
           const rpId = String(signingEngine.getRpId() || '').trim();
           if (!rpId) {
             throw new Error('Missing rpId for passkey_assertion session exchange');
@@ -1391,7 +1390,7 @@ export async function unlock(
           });
           loginCredential = webauthnAuthentication;
 
-          // The relayer validates the assertion origin when the caller supplies one.
+          // The Router API validates the assertion origin when the caller supplies one.
           const expectedOrigin = String(
             exchange.expectedOrigin ??
               exchange.expected_origin ??
@@ -1622,9 +1621,6 @@ async function clearFailedUnlockSessionState(args: {
     if (args.walletId) {
       await args.context.signingEngine.clearVolatileWarmSigningMaterial(args.walletId);
     }
-  } catch {}
-  try {
-    clearStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
   } catch {}
 }
 

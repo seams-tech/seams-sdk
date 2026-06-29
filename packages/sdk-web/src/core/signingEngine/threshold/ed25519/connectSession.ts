@@ -22,7 +22,7 @@ import {
  *
  * Notes:
  * - This function is intentionally standard-WebAuthn (no contract verifier).
- * - The WebAuthn credential sent to the relay is PRF-redacted in `mintEd25519WalletSession`.
+ * - The WebAuthn credential sent to the Router API is PRF-redacted in `mintEd25519WalletSession`.
  */
 export async function connectEd25519Session(args: {
   credentialStore: ThresholdCredentialStorePort;

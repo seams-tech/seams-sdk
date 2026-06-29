@@ -52,7 +52,7 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
   const accountInputHook = useAccountInput({
     seams,
     // If the host app didn't explicitly provide a relayer account id/domain, allow the hook to
-    // best-effort discover it from the relay `/healthz` endpoint (prevents postfix mismatches).
+    // best-effort discover it from the Router API `/healthz` endpoint (prevents postfix mismatches).
     ...(hasExplicitAccountDomainOverride
       ? { accountDomain: seams.configs.network.relayer.accountId }
       : {}),

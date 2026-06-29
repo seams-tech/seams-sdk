@@ -34,6 +34,7 @@ import type {
   ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecordLookupKey,
 } from '../../session/persistence/records';
+import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
@@ -199,11 +200,9 @@ export type CreateSigningEnginePortsArgs = {
     thresholdSessionId?: string;
     uses?: number;
   }) => void;
-  clearThresholdEcdsaSessionRecordForWalletTarget: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => void;
+  clearThresholdEcdsaSessionRecordForExactIdentity: (
+    identity: ExactEcdsaSigningLaneIdentity,
+  ) => void;
   provisionThresholdEcdsaSession: (
     args: import('../../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;

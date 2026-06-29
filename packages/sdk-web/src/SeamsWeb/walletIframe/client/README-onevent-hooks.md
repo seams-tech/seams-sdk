@@ -14,7 +14,7 @@ This is the app-facing progress path. Lower-level signer worker progress is priv
 ```ts
 // Parent app code
 await walletRouter.registerWallet({
-  wallet: { kind: 'server_generated' },
+  wallet: { kind: 'server_allocated' },
   rpId,
   authMethod: { kind: 'passkey' },
   signerSelection,

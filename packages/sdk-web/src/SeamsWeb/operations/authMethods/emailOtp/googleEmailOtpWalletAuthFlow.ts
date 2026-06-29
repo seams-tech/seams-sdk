@@ -17,8 +17,8 @@ import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ec
 import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/threshold/sessionPolicy';
 import { derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
-import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
-import { sponsoredNamedRegistrationProvisioningFromAccountId } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import { sponsoredNamedRegistrationProvisioningFromAccountId } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import {
   disposeWalletRegistrationPrecompute,
   type WalletRegistrationPrecomputeHandle,
@@ -108,7 +108,6 @@ type GoogleSessionState = {
 
 export type GoogleEmailOtpWalletAuthDeps = {
   configs: SeamsConfigsReadonly;
-  getRpId(): string | undefined;
   exchangeGoogleEmailOtpSession(
     args: Parameters<RegistrationlessGoogleSessionExchange>[0],
   ): Promise<GoogleEmailOtpSessionExchangeResult>;
@@ -678,11 +677,6 @@ function createGoogleEmailOtpWalletRegistrationFlow(
   const registrationOptions = requiredTargets.length
     ? eventOptions
     : registrationOptionsForNoEcdsa({ options: eventOptions });
-  const rpId = (() => {
-    const value = String(deps.getRpId() || '').trim();
-    if (!value) throw new Error('Google Email OTP registration requires rpId');
-    return value;
-  })();
   const appSessionJwt = (() => {
     const value = String(args.state.appSessionJwt || '').trim();
     if (!value) throw new Error('Google Email OTP registration requires an app session token');
@@ -699,9 +693,8 @@ function createGoogleEmailOtpWalletRegistrationFlow(
   } satisfies GoogleEmailOtpWalletRegistrationArgs['authMethod'];
   const registrationArgs: GoogleEmailOtpWalletRegistrationArgs = {
     wallet: { kind: 'provided', walletId: args.state.walletId },
-    rpId,
     authMethod: registrationAuthMethod,
-    signerSelection: buildNearWalletRegistrationSignerSelection({
+    signerSelection: buildNearWalletRegistrationSignerSetSelection({
       configs: deps.configs,
       accountProvisioning: sponsoredNamedRegistrationProvisioningFromAccountId(args.state.walletId),
       options: registrationOptions,

@@ -21,5 +21,8 @@
   },
   "scripts": {
     "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "bs58": "^6.0.0"
   }
 }

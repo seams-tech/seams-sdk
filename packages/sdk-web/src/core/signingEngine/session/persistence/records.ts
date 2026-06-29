@@ -5,7 +5,7 @@ import {
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
 import { base64UrlDecode } from '@shared/utils/base64';
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { toAccountId, type AccountId, type StrictAccountId } from '@/core/types/accountIds';
 import type {
   EcdsaLaneCandidate,
   Ed25519LaneCandidate,
@@ -45,7 +45,12 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { nearEd25519SigningKeyIdFromString, type NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import {
+  nearEd25519SigningKeyIdFromString,
+  parseNearEd25519SigningKeyId,
+  type NearEd25519SigningKeyId,
+} from '@shared/utils/registrationIntent';
+import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
 import {
   buildPasskeyEcdsaAuthBinding,
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
@@ -72,6 +77,7 @@ import {
   exactSigningLaneIdentityKey,
   isExactEcdsaSigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
+  type ExactEd25519SigningLaneIdentity,
   type ExactSigningLaneIdentityKey,
 } from '../identity/exactSigningLaneIdentity';
 import {
@@ -81,6 +87,7 @@ import {
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
+  type ThresholdEd25519SessionId,
   type SigningGrantId,
 } from '../operationState/types';
 import {
@@ -1851,12 +1858,22 @@ type ThresholdEd25519SessionAuthMethod = 'email_otp' | 'passkey';
 
 export type ThresholdEd25519SessionRecordKey = {
   walletId: WalletId;
-  nearAccountId: AccountId;
+  nearAccountId: StrictAccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   authMethod: ThresholdEd25519SessionAuthMethod;
-  signingGrantId: string;
-  thresholdSessionId: string;
-  signerSlot: number;
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEd25519SessionId;
+  signerSlot: SignerSlot;
+};
+
+export type ThresholdEd25519SessionRecordKeyInput = {
+  walletId: unknown;
+  nearAccountId: unknown;
+  nearEd25519SigningKeyId: unknown;
+  authMethod: ThresholdEd25519SessionAuthMethod;
+  signingGrantId: unknown;
+  thresholdSessionId: unknown;
+  signerSlot: unknown;
 };
 
 function thresholdEd25519AuthMethodForRecord(
@@ -1932,23 +1949,21 @@ export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
 }
 
 export function serializeThresholdEd25519SessionLaneKey(args: {
-  walletId: WalletId | string;
-  nearAccountId: AccountId | string;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId | string;
+  walletId: WalletId;
+  nearAccountId: StrictAccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   authMethod: ThresholdEd25519SessionAuthMethod;
-  signingGrantId: string;
-  thresholdSessionId: string;
-  signerSlot: unknown;
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEd25519SessionId;
+  signerSlot: SignerSlot;
 }): string {
-  const walletId = String(toWalletId(args.walletId)).trim();
-  const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
-  const nearEd25519SigningKeyId = String(
-    nearEd25519SigningKeyIdFromString(args.nearEd25519SigningKeyId),
-  ).trim();
-  const authMethod = String(args.authMethod || '').trim();
-  const signingGrantId = normalizeOptionalNonEmptyString(args.signingGrantId);
-  const thresholdSessionId = normalizeOptionalNonEmptyString(args.thresholdSessionId);
-  const signerSlot = normalizeInteger(args.signerSlot);
+  const walletId = String(args.walletId).trim();
+  const nearAccountId = String(args.nearAccountId).trim();
+  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId).trim();
+  const authMethod = args.authMethod;
+  const signingGrantId = String(args.signingGrantId).trim();
+  const thresholdSessionId = String(args.thresholdSessionId).trim();
+  const signerSlot = args.signerSlot;
   if (
     !walletId ||
     !nearAccountId ||
@@ -1972,25 +1987,68 @@ export function serializeThresholdEd25519SessionLaneKey(args: {
   ].join('|');
 }
 
-function getThresholdEd25519SessionLaneKeyForRecord(
+export function buildThresholdEd25519SessionRecordKey(
+  args: ThresholdEd25519SessionRecordKeyInput,
+): ThresholdEd25519SessionRecordKey {
+  const signerSlot = parseSignerSlot(args.signerSlot);
+  if (!signerSlot) {
+    throw new Error('[SigningEngine] invalid threshold Ed25519 lane signerSlot');
+  }
+  if (typeof args.nearAccountId !== 'string') {
+    throw new Error('[SigningEngine] invalid threshold Ed25519 lane nearAccountId');
+  }
+  if (args.authMethod !== 'email_otp' && args.authMethod !== 'passkey') {
+    throw new Error('[SigningEngine] invalid threshold Ed25519 lane authMethod');
+  }
+  return {
+    walletId: toWalletId(args.walletId),
+    nearAccountId: toAccountId(args.nearAccountId),
+    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(args.nearEd25519SigningKeyId),
+    authMethod: args.authMethod,
+    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(args.thresholdSessionId),
+    signerSlot,
+  };
+}
+
+export function thresholdEd25519SessionRecordKeyFromRecord(
   record: ThresholdEd25519SessionRecord,
-): string | null {
-  const signingGrantId = normalizeOptionalNonEmptyString(record.signingGrantId);
-  const thresholdSessionId = normalizeOptionalNonEmptyString(record.thresholdSessionId);
-  if (!signingGrantId || !thresholdSessionId) return null;
+): ThresholdEd25519SessionRecordKey | null {
   try {
-    return serializeThresholdEd25519SessionLaneKey({
+    return buildThresholdEd25519SessionRecordKey({
       walletId: record.walletId,
       nearAccountId: record.nearAccountId,
       nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
       authMethod: thresholdEd25519AuthMethodForRecord(record),
-      signingGrantId,
-      thresholdSessionId,
+      signingGrantId: record.signingGrantId,
+      thresholdSessionId: record.thresholdSessionId,
       signerSlot: record.signerSlot,
     });
   } catch {
     return null;
   }
+}
+
+export function thresholdEd25519SessionRecordKeyFromExactIdentity(
+  identity: ExactEd25519SigningLaneIdentity,
+): ThresholdEd25519SessionRecordKey {
+  const signer = identity.signer;
+  return buildThresholdEd25519SessionRecordKey({
+    walletId: signer.account.wallet.walletId,
+    nearAccountId: signer.account.nearAccountId,
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+    authMethod: signingLaneAuthMethod(identity.auth),
+    signingGrantId: identity.signingGrantId,
+    thresholdSessionId: identity.thresholdSessionId,
+    signerSlot: signer.signerSlot,
+  });
+}
+
+function getThresholdEd25519SessionLaneKeyForRecord(
+  record: ThresholdEd25519SessionRecord,
+): string | null {
+  const key = thresholdEd25519SessionRecordKeyFromRecord(record);
+  return key ? serializeThresholdEd25519SessionLaneKey(key) : null;
 }
 
 function thresholdEd25519RecordMatchesLane(
@@ -2002,8 +2060,8 @@ function thresholdEd25519RecordMatchesLane(
     String(record.nearAccountId) === String(lane.nearAccountId) &&
     String(record.nearEd25519SigningKeyId) === String(lane.nearEd25519SigningKeyId) &&
     thresholdEd25519AuthMethodForRecord(record) === lane.authMethod &&
-    String(record.signingGrantId || '').trim() === lane.signingGrantId &&
-    String(record.thresholdSessionId || '').trim() === lane.thresholdSessionId &&
+    String(record.signingGrantId || '').trim() === String(lane.signingGrantId) &&
+    String(record.thresholdSessionId || '').trim() === String(lane.thresholdSessionId) &&
     Number(record.signerSlot) === lane.signerSlot
   );
 }
@@ -2900,6 +2958,50 @@ export function clearThresholdEcdsaSessionRecordForWalletTarget(
   }
 }
 
+export type ClearThresholdEcdsaSessionRecordForExactIdentityResult =
+  | { readonly ok: true; readonly cleared: boolean }
+  | {
+      readonly ok: false;
+      readonly code: 'mismatched_record';
+      readonly message: string;
+    };
+
+export function clearThresholdEcdsaSessionRecordForExactIdentity(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  identity: ExactEcdsaSigningLaneIdentity,
+): ClearThresholdEcdsaSessionRecordForExactIdentityResult {
+  const laneKey = thresholdEcdsaLaneKey(thresholdEcdsaRecordKeyFromLookupKey(identity));
+  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
+  const persistedRecord = deps.recordsByLane.get(laneKey) || null;
+  const runtimeRecord = inMemoryEcdsaRecordsByLane.get(laneKey) || null;
+  let cleared = false;
+  if (persistedRecord) {
+    if (!thresholdEcdsaRecordMatchesExactIdentity({ record: persistedRecord, identity })) {
+      return {
+        ok: false,
+        code: 'mismatched_record',
+        message: '[SigningEngine] threshold ECDSA lane clear refused mismatched persisted record',
+      };
+    }
+    deindexThresholdEcdsaRecord(depsIndex, laneKey, persistedRecord);
+    deps.recordsByLane.delete(laneKey);
+    deps.exportArtifactsByLane?.delete(laneKey);
+    cleared = true;
+  }
+  if (runtimeRecord) {
+    if (!thresholdEcdsaRecordMatchesExactIdentity({ record: runtimeRecord, identity })) {
+      return {
+        ok: false,
+        code: 'mismatched_record',
+        message: '[SigningEngine] threshold ECDSA lane clear refused mismatched runtime record',
+      };
+    }
+    forgetInMemoryThresholdEcdsaRecord(laneKey);
+    cleared = true;
+  }
+  return { ok: true, cleared };
+}
+
 export function clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
@@ -3383,6 +3485,8 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
   });
 }
 
+// Broad Ed25519 wallet/account readers expose default/discovery records only.
+// Authority-bearing mutations must use exact lane-key helpers.
 export function getStoredThresholdEd25519SessionRecordForAccount(
   nearAccountIdRaw: AccountId | string,
 ): ThresholdEd25519SessionRecord | null {
@@ -3438,6 +3542,34 @@ export function listStoredThresholdEd25519SessionLaneRecordsForAccount(
       recordsBySessionId.set(thresholdSessionId, record);
     };
     add(inMemoryEd25519RecordsByAccount.get(accountKey) || null);
+    for (const record of inMemoryEd25519RecordsByLane.values()) {
+      add(record);
+    }
+    return [...recordsBySessionId.values()].sort(
+      (left, right) =>
+        Math.floor(Number(right.updatedAtMs) || 0) -
+        Math.floor(Number(left.updatedAtMs) || 0),
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function listStoredThresholdEd25519SessionLaneRecordsForWallet(
+  walletIdRaw: WalletId | string,
+): ThresholdEd25519SessionRecord[] {
+  try {
+    const walletKey = String(toWalletId(walletIdRaw)).trim();
+    if (!walletKey) return [];
+    const recordsBySessionId = new Map<string, ThresholdEd25519SessionRecord>();
+    const add = (record: ThresholdEd25519SessionRecord | null): void => {
+      if (!record) return;
+      if (String(record.walletId || '').trim() !== walletKey) return;
+      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+      if (!thresholdSessionId) return;
+      recordsBySessionId.set(thresholdSessionId, record);
+    };
+    add(inMemoryEd25519RecordsByWallet.get(walletKey) || null);
     for (const record of inMemoryEd25519RecordsByLane.values()) {
       add(record);
     }
@@ -3576,26 +3708,14 @@ export function getStoredThresholdEd25519SessionRecordForLane(args: {
   nearAccountId: AccountId | string;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId | string;
   authMethod: ThresholdEd25519SessionAuthMethod;
-  signingGrantId: string;
-  thresholdSessionId: string;
+  signingGrantId: SigningGrantId | string;
+  thresholdSessionId: ThresholdEd25519SessionId | string;
   signerSlot: unknown;
 }): ThresholdEd25519SessionRecord | null {
   let lane: ThresholdEd25519SessionRecordKey;
   let laneKey: string;
   try {
-    const signerSlot = normalizeInteger(args.signerSlot);
-    if (signerSlot == null || signerSlot < 1) return null;
-    lane = {
-      walletId: toWalletId(args.walletId),
-      nearAccountId: toAccountId(args.nearAccountId),
-      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-        args.nearEd25519SigningKeyId,
-      ),
-      authMethod: args.authMethod,
-      signingGrantId: String(args.signingGrantId || '').trim(),
-      thresholdSessionId: String(args.thresholdSessionId || '').trim(),
-      signerSlot,
-    };
+    lane = buildThresholdEd25519SessionRecordKey(args);
     laneKey = serializeThresholdEd25519SessionLaneKey(lane);
   } catch {
     return null;
@@ -3610,6 +3730,39 @@ export function getStoredThresholdEd25519SessionRecordForLane(args: {
     }
   }
   return null;
+}
+
+export type ClearStoredThresholdEd25519SessionRecordForLaneKeyResult =
+  | { readonly ok: true; readonly cleared: boolean }
+  | {
+      readonly ok: false;
+      readonly code: 'mismatched_record';
+      readonly message: string;
+    };
+
+export function clearStoredThresholdEd25519SessionRecordForLaneKey(
+  lane: ThresholdEd25519SessionRecordKey,
+): ClearStoredThresholdEd25519SessionRecordForLaneKeyResult {
+  const laneKey = serializeThresholdEd25519SessionLaneKey(lane);
+  const record = inMemoryEd25519RecordsByLane.get(laneKey) || null;
+  if (!record) return { ok: true, cleared: false };
+  if (!thresholdEd25519RecordMatchesLane(record, lane)) {
+    return {
+      ok: false,
+      code: 'mismatched_record',
+      message: '[SigningEngine] threshold Ed25519 lane clear refused mismatched record',
+    };
+  }
+  forgetInMemoryThresholdEd25519Record(record);
+  return { ok: true, cleared: true };
+}
+
+export function clearStoredThresholdEd25519SessionRecordForExactIdentity(
+  identity: ExactEd25519SigningLaneIdentity,
+): ClearStoredThresholdEd25519SessionRecordForLaneKeyResult {
+  return clearStoredThresholdEd25519SessionRecordForLaneKey(
+    thresholdEd25519SessionRecordKeyFromExactIdentity(identity),
+  );
 }
 
 export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
@@ -3688,31 +3841,6 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
   const inMemory = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
   if (inMemory) return inMemory;
   return null;
-}
-
-export function clearStoredThresholdEd25519SessionRecordForAccount(
-  nearAccountIdRaw: AccountId | string,
-): void {
-  const inMemory = getInMemoryThresholdEd25519SessionRecordForAccount(nearAccountIdRaw);
-  if (inMemory) {
-    forgetInMemoryThresholdEd25519Record(inMemory);
-  }
-  try {
-    const nearAccountId = toAccountId(nearAccountIdRaw);
-    const accountKey = String(nearAccountId);
-    inMemoryEd25519RecordsByAccount.delete(accountKey);
-    for (const [laneKey, record] of inMemoryEd25519RecordsByLane.entries()) {
-      if (String(record.nearAccountId || '').trim() !== accountKey) continue;
-      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-      inMemoryEd25519RecordsByLane.delete(laneKey);
-      if (
-        thresholdSessionId &&
-        inMemoryEd25519LaneBySessionId.get(thresholdSessionId) === laneKey
-      ) {
-        inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
-      }
-    }
-  } catch {}
 }
 
 export function clearAllStoredThresholdEd25519SessionRecords(): void {

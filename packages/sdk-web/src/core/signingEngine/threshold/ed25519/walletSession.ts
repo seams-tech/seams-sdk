@@ -180,7 +180,7 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
  * the app session; the local PRF credential stays in wallet origin.
  *
  * Notes:
- * - PRF outputs must never be sent to the relay; they should be used only in wallet origin.
+ * - PRF outputs must never be sent to the Router API; they should be used only in wallet origin.
  */
 export async function mintEd25519WalletSession(args: {
   relayerUrl: string;

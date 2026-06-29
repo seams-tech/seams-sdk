@@ -21,6 +21,7 @@ import type {
 import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
   clearThresholdEcdsaSessionRecordForWallet as clearThresholdEcdsaSessionRecordForWalletValue,
+  clearThresholdEcdsaSessionRecordForExactIdentity as clearThresholdEcdsaSessionRecordForExactIdentityValue,
   getThresholdEcdsaKeyRefByKey as getThresholdEcdsaKeyRefByKeyValue,
   getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetValue,
   listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetValue,
@@ -34,6 +35,7 @@ import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
 } from './identity/laneIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from './identity/exactSigningLaneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from './routerAbSigningWalletSession';
 
@@ -235,6 +237,13 @@ export function clearThresholdEcdsaSessionRecordForWalletTarget(
   },
 ): void {
   clearThresholdEcdsaSessionRecordForWalletTargetValue(deps.ecdsaSessions, args);
+}
+
+export function clearThresholdEcdsaSessionRecordForExactIdentity(
+  deps: SessionPublicDeps,
+  identity: ExactEcdsaSigningLaneIdentity,
+): void {
+  clearThresholdEcdsaSessionRecordForExactIdentityValue(deps.ecdsaSessions, identity);
 }
 
 export function clearThresholdEcdsaSessionRecordForWallet(

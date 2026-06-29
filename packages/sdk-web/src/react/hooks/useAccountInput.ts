@@ -111,7 +111,7 @@ export function useAccountInput({
   const suppressRefreshAutofillRef = useRef(false);
 
   // Best-effort: when the host app didn't explicitly configure `relayerAccount`, try to
-  // discover it from the relay's `/healthz` response so atomic registration uses the
+  // discover it from the Router API `/healthz` response so atomic registration uses the
   // correct accountId postfix.
   useEffect(() => {
     const hasExplicitDomain = typeof accountDomain === 'string' && accountDomain.trim().length > 0;

@@ -4,8 +4,8 @@ import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableS
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
+  clearThresholdEcdsaSessionRecordForExactIdentity as clearThresholdEcdsaSessionRecordForExactIdentityOperation,
   consumeSingleUseEmailOtpEcdsaLane as consumeSingleUseEmailOtpEcdsaLaneOperation,
-  clearThresholdEcdsaSessionRecordForWalletTarget as clearThresholdEcdsaSessionRecordForWalletTargetOperation,
   getThresholdEcdsaSessionRecordByKey as getThresholdEcdsaSessionRecordByIdentityOperation,
   getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetOperation,
   listThresholdEcdsaKeyRefsForWalletTarget as listThresholdEcdsaKeyRefsForWalletTargetOperation,
@@ -240,10 +240,10 @@ export function createBrowserSigningSurfaceEnginePorts(
       consumeSingleUseEmailOtpEcdsaLaneOperation(args.warmSigning.ecdsaSessions, command),
     markThresholdEd25519EmailOtpSessionConsumedForWallet: (markArgs) =>
       markThresholdEd25519EmailOtpSessionConsumedForWalletOperation(markArgs),
-    clearThresholdEcdsaSessionRecordForWalletTarget: (clearArgs) =>
-      clearThresholdEcdsaSessionRecordForWalletTargetOperation(
+    clearThresholdEcdsaSessionRecordForExactIdentity: (identity) =>
+      clearThresholdEcdsaSessionRecordForExactIdentityOperation(
         args.warmSigning.ecdsaSessions,
-        clearArgs,
+        identity,
       ),
     provisionThresholdEcdsaSession: (provisionArgs) =>
       provisionThresholdEcdsaSessionOperation(

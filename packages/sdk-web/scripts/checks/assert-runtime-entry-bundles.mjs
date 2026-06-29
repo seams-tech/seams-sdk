@@ -79,7 +79,7 @@ async function assertPublicRuntimeValueExports() {
 }
 
 if (!fs.existsSync(distEsmRoot)) {
-  fail(`Missing directory: ${distEsmRoot}. Run pnpm -C packages/sdk-web build first.`);
+  fail(`Missing directory: ${distEsmRoot}. Run pnpm build:sdk first.`);
 }
 
 const missingEntries = entryFiles.filter((entry) => !fs.existsSync(path.join(distEsmRoot, entry)));

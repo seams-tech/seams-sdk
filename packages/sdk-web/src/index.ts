@@ -9,7 +9,10 @@ export type {
   RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
-  RegistrationSignerSelection,
+  RegistrationEvmFamilyEcdsaSignerRequest,
+  RegistrationNearEd25519SignerRequest,
+  RegistrationSignerRequest,
+  RegistrationSignerSetSelection,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
   WalletId as RegistrationWalletId,
@@ -89,7 +92,10 @@ export type {
 export type { AccountId } from './core/types/accountIds';
 export { toAccountId } from './core/types/accountIds';
 
-export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/types/sdkPublicResults';
+export type {
+  SignNEP413MessageParams,
+  SignNEP413MessageResult,
+} from './core/types/sdkPublicResults';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';

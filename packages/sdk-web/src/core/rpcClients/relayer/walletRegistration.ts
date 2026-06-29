@@ -11,9 +11,9 @@ import type {
   ResolvedRegistrationNearAccount,
   RegistrationIntentGrant,
   RegistrationIntentV1,
-  RegistrationSignerSelection,
   WalletAuthMethodTarget,
   WalletId,
+  WebAuthnRpId,
 } from '@shared/utils/registrationIntent';
 import {
   parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
@@ -64,6 +64,10 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
+import {
+  registrationSignerSetRequestSelection,
+  type RegistrationSignerSetRequest,
+} from './registrationSignerSetRequest';
 
 const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL = '[Registration] wallet route payload summary';
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_DEPTH = 2;
@@ -142,6 +146,16 @@ async function readResponseText(response: Response): Promise<string> {
   }
 }
 
+function logWalletRegistrationRouteProgress(
+  stage: string,
+  details?: Record<string, unknown>,
+): void {
+  console.info('[wallet-registration][route] progress', {
+    stage,
+    ...(details || {}),
+  });
+}
+
 async function postJson<TResponse>(args: {
   relayerUrl: string;
   path: string;
@@ -150,6 +164,11 @@ async function postJson<TResponse>(args: {
 }): Promise<TResponse> {
   const startedAt = Date.now();
   const requestBody = JSON.stringify(args.body);
+  if (args.path === '/wallets/register/finalize') {
+    logWalletRegistrationRouteProgress('finalize_fetch_started', {
+      requestBytes: utf8Bytes(requestBody),
+    });
+  }
   const response = await fetch(
     `${normalizeRelayerBaseUrl(args.relayerUrl, { trim: false })}${args.path}`,
     buildRelayerJsonPostRequestInit({
@@ -158,7 +177,20 @@ async function postJson<TResponse>(args: {
       bodyJson: requestBody,
     }),
   );
+  if (args.path === '/wallets/register/finalize') {
+    logWalletRegistrationRouteProgress('finalize_fetch_headers_received', {
+      status: response.status,
+      ok: response.ok,
+      durationMs: Date.now() - startedAt,
+    });
+  }
   const responseText = await readResponseText(response);
+  if (args.path === '/wallets/register/finalize') {
+    logWalletRegistrationRouteProgress('finalize_fetch_body_read', {
+      responseBytes: utf8Bytes(responseText),
+      durationMs: Date.now() - startedAt,
+    });
+  }
   const data = parseJsonText(responseText);
   if (registrationBenchmarkDiagnosticsEnabled()) {
     console.info(REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL, {
@@ -206,10 +238,19 @@ function requireResponseRecord(args: {
 
 export type CreateRegistrationIntentRequest = {
   wallet: RegisterWalletInput;
-  rpId: string;
   authMethod: RegistrationAuthMethodInput;
-  signerSelection: RegistrationSignerSelection;
+  signerSelection: RegistrationSignerSetRequest;
 };
+
+function createRegistrationIntentWireRequest(
+  request: CreateRegistrationIntentRequest,
+): CreateRegistrationIntentRequest {
+  return {
+    wallet: request.wallet,
+    authMethod: request.authMethod,
+    signerSelection: registrationSignerSetRequestSelection(request.signerSelection),
+  };
+}
 
 export type CreateRegistrationIntentResponse = {
   ok: true;
@@ -417,7 +458,7 @@ export type WalletRegistrationFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       authMethod: WalletRegistrationFinalizeAuthMethod;
       accountProvisioning: RegistrationNearAccountProvisioning;
       resolvedAccount: ResolvedRegistrationNearAccount;
@@ -432,13 +473,13 @@ export type WalletRegistrationFinalizeResponse =
         clientParticipantId?: number;
         relayerParticipantId?: number;
         participantIds?: number[];
-	        session?: {
-	          sessionKind: 'jwt' | 'cookie';
-	          walletId: string;
-	          nearAccountId: string;
-	          nearEd25519SigningKeyId: string;
-	          thresholdSessionId: string;
-	          signingGrantId: string;
+        session?: {
+          sessionKind: 'jwt' | 'cookie';
+          walletId: string;
+          nearAccountId: string;
+          nearEd25519SigningKeyId: string;
+          thresholdSessionId: string;
+          signingGrantId: string;
           expiresAtMs: number;
           expiresAt?: string;
           participantIds?: number[];
@@ -455,7 +496,7 @@ export type WalletRegistrationFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       authMethod: WalletRegistrationFinalizeAuthMethod;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ecdsa: {
@@ -469,7 +510,7 @@ export type WalletRegistrationFinalizeResponse =
       ok: true;
       kind: 'already_finalized_restore_required';
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       reason: 'replay_without_session_material';
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       authMethod?: never;
@@ -602,6 +643,7 @@ export type WalletAddAuthMethodFinalizeResponse = {
 export type RevokeAuthMethodAuth =
   | {
       kind: 'webauthn_assertion';
+      rpId: WebAuthnRpId;
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
@@ -611,15 +653,25 @@ export type RevokeAuthMethodAuth =
       policy: RevokeAuthMethodAppSessionPolicy;
     };
 
-export type WalletRevokeAuthMethodResponse = {
-  ok: true;
-  walletId: WalletId;
-  rpId: string;
-  authMethod: {
-    kind: 'passkey' | 'email_otp';
-    status: 'revoked';
-  };
-};
+export type WalletRevokeAuthMethodResponse =
+  | {
+      ok: true;
+      walletId: WalletId;
+      authMethod: {
+        kind: 'passkey';
+        status: 'revoked';
+      };
+      rpId: string;
+    }
+  | {
+      ok: true;
+      walletId: WalletId;
+      authMethod: {
+        kind: 'email_otp';
+        status: 'revoked';
+      };
+      rpId?: never;
+    };
 
 export type WalletAddSignerStartResponse = {
   ok: true;
@@ -912,11 +964,13 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     expected: args.walletKey.keyHandle,
     actual: serverBootstrap.keyHandle,
   });
-  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(requireMatchingString({
-    field: 'ecdsaThresholdKeyId',
-    expected: args.walletKey.ecdsaThresholdKeyId,
-    actual: serverBootstrap.ecdsaThresholdKeyId,
-  }));
+  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(
+    requireMatchingString({
+      field: 'ecdsaThresholdKeyId',
+      expected: args.walletKey.ecdsaThresholdKeyId,
+      actual: serverBootstrap.ecdsaThresholdKeyId,
+    }),
+  );
   const signingRootId = requireMatchingString({
     field: 'signingRootId',
     expected: args.walletKey.signingRootId,
@@ -1038,11 +1092,11 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     ...(args.authMethod.kind === 'passkey'
       ? { passkeyCredentialIdB64u: args.authMethod.credentialIdB64u }
       : {}),
-	    keygen: {
-	      ok: true,
-	      keygenSessionId: args.keygenSessionId,
-	      walletKeyId,
-	      keyHandle,
+    keygen: {
+      ok: true,
+      keygenSessionId: args.keygenSessionId,
+      walletKeyId,
+      keyHandle,
       ecdsaThresholdKeyId,
       clientVerifyingShareB64u: args.clientVerifyingShareB64u,
       thresholdEcdsaPublicKeyB64u,
@@ -1090,7 +1144,7 @@ export async function createWalletRegistrationIntent(args: {
   return await postJson<CreateRegistrationIntentResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/intent',
-    body: args.request,
+    body: createRegistrationIntentWireRequest(args.request),
     headers: args.headers,
   });
 }
@@ -1315,6 +1369,7 @@ function revokeAuthMethodAuthBody(auth: RevokeAuthMethodAuth): unknown {
     case 'webauthn_assertion':
       return {
         kind: 'webauthn_assertion',
+        rpId: auth.rpId,
         credential: auth.credential,
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
       };
@@ -1443,20 +1498,16 @@ export async function finalizeWalletAddAuthMethod(args: {
 export async function revokeWalletAuthMethod(args: {
   relayerUrl: string;
   walletId: WalletId;
-  rpId: string;
   auth: RevokeAuthMethodAuth;
   target: WalletAuthMethodTarget;
 }): Promise<WalletRevokeAuthMethodResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for auth-method revoke');
-  const rpId = String(args.rpId || '').trim();
-  if (!rpId) throw new Error('rpId is required for auth-method revoke');
   return await postJson<WalletRevokeAuthMethodResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/revoke`,
     headers: revokeAuthMethodAuthHeaders(args.auth),
     body: {
-      rpId,
       auth: revokeAuthMethodAuthBody(args.auth),
       target: args.target,
     },

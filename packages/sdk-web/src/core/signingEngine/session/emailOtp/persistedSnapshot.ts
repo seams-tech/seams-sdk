@@ -8,7 +8,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
-  listStoredThresholdEd25519SessionRecordsForWallet,
+  listStoredThresholdEd25519SessionLaneRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
   thresholdEd25519LaneCandidateFromSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
@@ -174,7 +174,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
           seen.add(identityKey);
           records.push(record);
         };
-        for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForWallet(
+        for (const runtimeRecord of listStoredThresholdEd25519SessionLaneRecordsForWallet(
           recordWalletId,
         )) {
           const laneCandidate = thresholdEd25519LaneCandidateFromSessionRecord({

@@ -578,7 +578,6 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const result = await pm.registration.registerWallet({
         authMethod: payload.authMethod,
         wallet: payload.wallet,
-        rpId: payload.rpId,
         signerSelection: payload.signerSelection,
         options: {
           ...hooksOptions,

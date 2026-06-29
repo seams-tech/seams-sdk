@@ -156,7 +156,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           }
         }
       } catch {
-        // Ignore relay metadata failures; fallback is pure on-chain access key listing.
+        // Ignore Router API metadata failures; fallback is pure on-chain access key listing.
       }
 
       const currentKey = loginState?.nearPublicKey || null;

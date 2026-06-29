@@ -127,8 +127,23 @@ function parseDomainId<T>(raw: unknown, fieldName: string): DomainIdParseResult<
   return { ok: true, value: value as T };
 }
 
+function walletIdHasEmbeddedWhitespaceOrControl(value: string): boolean {
+  return /[\s\x00-\x1F\x7F]/.test(value);
+}
+
 export function parseWalletId(raw: unknown): DomainIdParseResult<WalletId> {
-  return parseDomainId(raw, 'walletId');
+  const parsed = parseDomainId<WalletId>(raw, 'walletId');
+  if (!parsed.ok) return parsed;
+  if (walletIdHasEmbeddedWhitespaceOrControl(parsed.value)) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'walletId must not contain whitespace or control characters',
+      },
+    };
+  }
+  return parsed;
 }
 
 export function parseProviderSubject(raw: unknown): DomainIdParseResult<ProviderSubject> {

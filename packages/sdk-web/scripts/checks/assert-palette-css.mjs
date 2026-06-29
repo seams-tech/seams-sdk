@@ -51,7 +51,7 @@ function readText(p) {
 
 if (!fs.existsSync(palettePath)) fail(`Missing palette.json at ${palettePath}`);
 if (!fs.existsSync(cssPath)) {
-  fail(`CSS not found at ${cssPath}. Did you run 'pnpm -C packages/sdk-web build'?`);
+  fail(`CSS not found at ${cssPath}. Did you run 'pnpm build:sdk'?`);
 }
 
 const palette = readJson(palettePath);

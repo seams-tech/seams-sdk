@@ -21,7 +21,7 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": ".",
-    "types": ["@playwright/test", "node", "react", "react-dom", "qrcode", "pg"],
+    "types": ["node", "react", "react-dom", "qrcode"],
     "typeRoots": [
       "./node_modules/@types",
       "../node_modules/@types",
@@ -43,7 +43,6 @@
       "@seams/sdk-server/router/cloudflare": ["../sdk-server-ts/src/router/cloudflare-adaptor.ts"],
       "@seams/sdk-server/router/express": ["../sdk-server-ts/src/router/express-adaptor.ts"],
       "@seams/sdk-server/router/ror": ["../sdk-server-ts/src/router/ror-adaptor.ts"],
-      "@seams/sdk-server/storage/postgres": ["../sdk-server-ts/src/storage/postgres.ts"],
       "@seams/sdk-server/wasm/signer": ["../sdk-server-ts/src/wasm/signer.ts"],
       "@build-paths": ["./build-paths.ts"],
       "react": ["./node_modules/@types/react/index.d.ts"],
@@ -52,10 +51,9 @@
       "react-dom/client": ["./node_modules/@types/react-dom/client.d.ts"],
       "react-dom/server": ["./node_modules/@types/react-dom/server.d.ts"],
       "qrcode": ["./node_modules/@types/qrcode/index.d.ts"],
-      "pg": ["./node_modules/@types/pg/index.d.ts"],
       "*": ["./node_modules/*", "../node_modules/*", "../../node_modules/*"]
     }
   },
-  "include": ["src/**/*", "../sdk-server-ts/src/**/*", "../shared-ts/src/**/*", "../../tests/**/*"],
+  "include": ["src/**/*", "../sdk-server-ts/src/**/*", "../shared-ts/src/**/*"],
   "exclude": ["node_modules", "dist", "../dist", "../../tests/scripts/**/*"]
 }

@@ -11,7 +11,7 @@ export interface StoredAuthenticator {
   signerSlot?: number;
 }
 
-/** WebAuthn authentication data structure for relay verification */
+/** WebAuthn authentication data structure for Router API verification */
 export interface WebAuthnAuthenticationCredential {
   id: string;
   rawId: string; // base64-encoded

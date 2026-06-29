@@ -1,15 +1,17 @@
-import type { AccountId } from '@/core/types/accountIds';
-import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import type { VolatileWarmMaterialPort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
-  clearStoredThresholdEd25519SessionRecordForAccount,
+  clearStoredThresholdEd25519SessionRecordForLaneKey,
+  listStoredThresholdEd25519SessionLaneRecordsForWallet,
   listStoredThresholdEcdsaSessionRecordsForWallet,
+  serializeThresholdEd25519SessionLaneKey,
+  thresholdEd25519SessionRecordKeyFromRecord,
+  toExactEcdsaSigningLaneIdentity,
+  type ThresholdEd25519SessionRecordKey,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import type {
   SigningSessionSealedRecordFilter,
   deleteExactSealedSession,
@@ -51,6 +53,10 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  exactSigningLaneIdentityKey,
+  type ExactEcdsaSigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
 
 export type SigningSessionLane = {
   curve: 'ed25519' | 'ecdsa';
@@ -91,11 +97,9 @@ export type SigningGrantReadinessDeps = {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial?: (args: { sessionId: string }) => Promise<void>;
-  clearThresholdEcdsaSessionRecordForWalletTarget?: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => void;
+  clearThresholdEcdsaSessionRecordForExactIdentity?: (
+    identity: ExactEcdsaSigningLaneIdentity,
+  ) => void;
   updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
   deleteExactSealedSession?: typeof deleteExactSealedSession;
   markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
@@ -402,16 +406,39 @@ export function buildDiscoveredLaneForRecord(
   };
 }
 
+function addDiscoveredEd25519LaneRecord(args: {
+  lanes: DiscoveredSigningSessionLane[];
+  seenLaneKeys: Set<string>;
+  record: ThresholdEd25519SessionRecord | null;
+}): void {
+  if (!args.record) return;
+  const laneKey = thresholdEd25519SessionRecordKeyFromRecord(args.record);
+  if (!laneKey) return;
+  const serializedLaneKey = serializeThresholdEd25519SessionLaneKey(laneKey);
+  if (args.seenLaneKeys.has(serializedLaneKey)) return;
+  args.seenLaneKeys.add(serializedLaneKey);
+  addLane(args.lanes, buildDiscoveredLaneForRecord(args.record));
+}
+
 export function discoverLanesForWallet(
   deps: SigningGrantReadinessDeps,
   walletId: WalletId,
 ): DiscoveredSigningSessionLane[] {
   const records = readWarmSessionCapabilityRecordsForWallet(walletId);
   const lanes: DiscoveredSigningSessionLane[] = [];
-  const ed25519Record = records.ed25519;
-  if (ed25519Record) {
-    addLane(lanes, buildDiscoveredLaneForRecord(ed25519Record));
+  const seenEd25519LaneKeys = new Set<string>();
+  for (const record of listStoredThresholdEd25519SessionLaneRecordsForWallet(walletId)) {
+    addDiscoveredEd25519LaneRecord({
+      lanes,
+      seenLaneKeys: seenEd25519LaneKeys,
+      record,
+    });
   }
+  addDiscoveredEd25519LaneRecord({
+    lanes,
+    seenLaneKeys: seenEd25519LaneKeys,
+    record: records.ed25519,
+  });
 
   const candidateRecords = listStoredThresholdEcdsaSessionRecordsForWallet(walletId);
   const seen = new Set<string>();
@@ -590,6 +617,24 @@ export function walletOwnerSigningSessionStatusOverrideKey(
   signingGrantId: string,
 ): string {
   return `${walletBudgetOwnerKey(owner)}:${normalizeNonEmpty(signingGrantId)}`;
+}
+
+function ed25519LaneKeyFromDiscoveredLane(
+  lane: DiscoveredSigningSessionLane,
+): ThresholdEd25519SessionRecordKey | null {
+  if (lane.curve !== 'ed25519') return null;
+  return thresholdEd25519SessionRecordKeyFromRecord(lane.record as ThresholdEd25519SessionRecord);
+}
+
+function ecdsaExactIdentityFromDiscoveredLane(
+  lane: DiscoveredSigningSessionLane,
+): ExactEcdsaSigningLaneIdentity | null {
+  if (lane.curve !== 'ecdsa') return null;
+  try {
+    return toExactEcdsaSigningLaneIdentity(lane.record as ThresholdEcdsaSessionRecord);
+  } catch {
+    return null;
+  }
 }
 
 function signingGrantStatusOverrideOwners(args: {
@@ -1327,25 +1372,20 @@ export async function clearSigningGrant(args: {
     ),
   );
   const cleared = new Set<string>();
-  let clearEd25519Record = false;
-  const ecdsaLanesToClear = new Map<
-    string,
-    {
-      walletId: WalletId;
-      chainTarget: ThresholdEcdsaChainTarget;
-      source: ThresholdEcdsaSessionStoreSource;
-    }
-  >();
+  const ed25519LaneKeysToClear = new Map<string, ThresholdEd25519SessionRecordKey>();
+  const ecdsaLanesToClear = new Map<string, ExactEcdsaSigningLaneIdentity>();
   await Promise.all(
     lanes.map(async (lane) => {
-      if (lane.curve === 'ed25519') clearEd25519Record = true;
-      if (lane.curve === 'ecdsa' && lane.chainTarget) {
-        const source = (lane.record as ThresholdEcdsaSessionRecord).source;
-        ecdsaLanesToClear.set(`${thresholdEcdsaChainTargetKey(lane.chainTarget)}:${source}`, {
-          walletId: (lane.record as ThresholdEcdsaSessionRecord).walletId,
-          chainTarget: lane.chainTarget,
-          source,
-        });
+      const ed25519LaneKey = ed25519LaneKeyFromDiscoveredLane(lane);
+      if (ed25519LaneKey) {
+        ed25519LaneKeysToClear.set(
+          serializeThresholdEd25519SessionLaneKey(ed25519LaneKey),
+          ed25519LaneKey,
+        );
+      }
+      const ecdsaIdentity = ecdsaExactIdentityFromDiscoveredLane(lane);
+      if (ecdsaIdentity) {
+        ecdsaLanesToClear.set(exactSigningLaneIdentityKey(ecdsaIdentity), ecdsaIdentity);
       }
       if (cleared.has(lane.backingMaterialSessionId)) return;
       cleared.add(lane.backingMaterialSessionId);
@@ -1365,15 +1405,11 @@ export async function clearSigningGrant(args: {
         .catch(() => undefined);
     }),
   );
-  if (clearEd25519Record) {
-    clearStoredThresholdEd25519SessionRecordForAccount(args.walletId);
+  for (const laneKey of ed25519LaneKeysToClear.values()) {
+    clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
   }
-  for (const lane of ecdsaLanesToClear.values()) {
-    args.deps.clearThresholdEcdsaSessionRecordForWalletTarget?.({
-      walletId: toWalletId(lane.walletId),
-      chainTarget: lane.chainTarget,
-      source: lane.source,
-    });
+  for (const identity of ecdsaLanesToClear.values()) {
+    args.deps.clearThresholdEcdsaSessionRecordForExactIdentity?.(identity);
   }
 }
 

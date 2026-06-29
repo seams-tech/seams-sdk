@@ -17,7 +17,7 @@ import {
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   decodeJwtPayloadRecord,
 } from '@shared/utils/sessionTokens';
-import { sha256 } from '@noble/hashes/sha2';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import { buildEcdsaRoleLocalSigningMaterialHandle } from './identity/ecdsaHssSigningMaterialHandle';
 import {

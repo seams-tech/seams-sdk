@@ -126,6 +126,7 @@ const external = [
 
   // WASM modules - externalize so bundlers handle them correctly
   /\.wasm$/,
+  /\.css$/,
 ];
 
 // External dependencies for embedded components.
@@ -375,6 +376,65 @@ const emitWalletServiceStaticPlugin = {
   },
 };
 
+const collectCssFiles = (dir: string, files: string[] = []): string[] => {
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectCssFiles(fullPath, files);
+      continue;
+    }
+    if (entry.isFile() && fullPath.endsWith('.css')) files.push(fullPath);
+  }
+  return files;
+};
+
+const CSS_IMPORT_LINE_PATTERN = /^\s*@import\s+['"]([^'"]+)['"];\s*$/;
+
+const inlineCssImportLine = (line: string, currentFilePath: string, seen: Set<string>): string => {
+  const match = line.match(CSS_IMPORT_LINE_PATTERN);
+  if (!match) return line;
+  const child = path.resolve(path.dirname(currentFilePath), match[1]);
+  return inlineCssImports(child, seen);
+};
+
+const inlineCssImports = (filePath: string, seen = new Set<string>()): string => {
+  const normalized = path.resolve(filePath);
+  if (seen.has(normalized)) return '';
+  seen.add(normalized);
+  const source = fs.readFileSync(normalized, 'utf-8');
+  const lines = source.split(/\r?\n/);
+  const inlinedLines: string[] = [];
+  for (const line of lines) {
+    inlinedLines.push(inlineCssImportLine(line, normalized, seen));
+  }
+  return inlinedLines.join('\n');
+};
+
+const emitReactCssAssets = (sdkRoot = process.cwd()): void => {
+  const srcReactRoot = path.join(sdkRoot, 'src/react');
+  const destReactRoot = path.join(sdkRoot, `${BUILD_PATHS.BUILD.ESM}/react`);
+  const destModuleRoot = path.join(sdkRoot, BUILD_PATHS.BUILD.ESM);
+  for (const src of collectCssFiles(srcReactRoot)) {
+    const rel = path.relative(srcReactRoot, src);
+    for (const root of [destReactRoot, destModuleRoot]) {
+      const dest = path.join(root, rel);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+    }
+  }
+  const stylesOut = path.join(destReactRoot, 'styles/styles.css');
+  fs.mkdirSync(path.dirname(stylesOut), { recursive: true });
+  fs.writeFileSync(stylesOut, inlineCssImports(path.join(srcReactRoot, 'styles.css')), 'utf-8');
+};
+
+const emitReactCssAssetsPlugin = {
+  name: 'emit-react-css-assets',
+  generateBundle() {
+    emitReactCssAssets();
+  },
+};
+
 const copyWasmAsset = (source: string, destination: string, label: string): void => {
   if (!fs.existsSync(source)) {
     throw new Error(`Missing WASM source at ${source}`);
@@ -419,6 +479,7 @@ const configs = [
     resolve: {
       alias: aliasConfig,
     },
+    plugins: [emitReactCssAssetsPlugin],
   },
   // Plugins: headers helper ESM
   {
@@ -452,6 +513,7 @@ const configs = [
   {
     input: [
       'src/react/index.ts',
+      'src/react/context/SeamsWebProvider.tsx',
       // Ensure public subpath entrypoints exist in dist even when re-exports are flattened.
       'src/react/components/PasskeyAuthMenu/public.ts',
       // Public subpath entrypoints (avoid treeshaking away default exports).
@@ -500,15 +562,6 @@ const configs = [
     external,
     resolve: {
       alias: aliasConfig,
-    },
-  },
-  // React CSS build - output to separate styles directory to avoid JS conflicts
-  {
-    input: 'src/react/styles.css',
-    output: {
-      dir: `${BUILD_PATHS.BUILD.ESM}/react/styles`,
-      format: 'esm',
-      assetFileNames: 'styles.css',
     },
   },
   // WASM Signer Worker build for server usage - includes WASM binary

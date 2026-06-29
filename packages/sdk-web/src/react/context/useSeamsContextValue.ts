@@ -8,6 +8,31 @@ import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBi
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
 
+async function refreshReactStateAfterRegistration(args: {
+  walletId: string;
+  refreshLoginState: SeamsContextType['refreshLoginState'];
+  refreshAccountData: SeamsContextType['refreshAccountData'];
+}): Promise<void> {
+  try {
+    console.info('[Registration] progress', {
+      stage: 'react_context_refresh_started',
+      walletId: args.walletId,
+    });
+    await args.refreshLoginState(args.walletId);
+    console.info('[Registration] progress', {
+      stage: 'react_context_login_state_refreshed',
+      walletId: args.walletId,
+    });
+    await args.refreshAccountData();
+    console.info('[Registration] progress', {
+      stage: 'react_context_account_data_refreshed',
+      walletId: args.walletId,
+    });
+  } catch (error) {
+    console.warn('[Registration] post-registration React state refresh failed:', error);
+  }
+}
+
 export function useSeamsContextValue(args: {
   seams: SeamsContextType['seams'];
   loginState: LoginState;
@@ -107,8 +132,15 @@ export function useSeamsContextValue(args: {
 
       const walletId = result?.success ? String(result.walletId || '').trim() : '';
       if (result?.success && walletId) {
-        await refreshLoginState(walletId);
-        await refreshAccountData();
+        console.info('[Registration] progress', {
+          stage: 'react_context_register_passkey_returned',
+          walletId,
+        });
+        void refreshReactStateAfterRegistration({
+          walletId,
+          refreshLoginState,
+          refreshAccountData,
+        });
       }
       return result;
     },
@@ -129,8 +161,15 @@ export function useSeamsContextValue(args: {
       });
       const walletId = result?.success ? String(result.walletId || '') : '';
       if (result?.success && walletId) {
-        await refreshLoginState(walletId);
-        await refreshAccountData();
+        console.info('[Registration] progress', {
+          stage: 'react_context_register_wallet_returned',
+          walletId,
+        });
+        void refreshReactStateAfterRegistration({
+          walletId,
+          refreshLoginState,
+          refreshAccountData,
+        });
       }
       return result;
     },

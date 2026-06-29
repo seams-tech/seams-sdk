@@ -31,7 +31,7 @@ export type PMUnlockPayload =
       options: PMUnlockOptions;
     };
 
-export type WalletIframeUnlockRequest =
+export type LoginUnlockRequest =
   | {
       kind: 'default_options';
       walletId: string;

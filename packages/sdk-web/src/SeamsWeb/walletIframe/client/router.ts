@@ -129,6 +129,7 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { registrationSignerSetRequestSelection } from '@/core/rpcClients/relayer/registrationSignerSetRequest';
 import {
   parseExactEcdsaSigningLaneIdentity,
   parseExactEd25519SigningLaneIdentity,
@@ -194,7 +195,7 @@ import type { SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { cloneResolvedChainConfig } from '@/core/config/chains';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
-import type { WalletIframeUnlockRequest } from '@/core/types/login.types';
+import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 
 // Simple, framework-agnostic service iframe client.
@@ -1435,8 +1436,7 @@ export class WalletIframeRouter {
           payload: {
             authMethod: payload.authMethod,
             wallet: payload.wallet,
-            rpId: payload.rpId,
-            signerSelection: payload.signerSelection,
+            signerSelection: registrationSignerSetRequestSelection(payload.signerSelection),
             options: safeOptions,
             ...(confirmationConfig ? { confirmationConfig } : {}),
           },
@@ -1516,7 +1516,7 @@ export class WalletIframeRouter {
     }
   }
 
-  async unlock(payload: WalletIframeUnlockRequest): Promise<LoginAndCreateSessionResult> {
+  async unlock(payload: LoginUnlockRequest): Promise<LoginAndCreateSessionResult> {
     this.showFrameForActivation();
     try {
       const unlockPayload = buildPMUnlockPayload(payload);
@@ -2203,9 +2203,7 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async getRecoveryEmails(
-    walletId: string,
-  ): Promise<Array<{ hashHex: string; email: string }>> {
+  async getRecoveryEmails(walletId: string): Promise<Array<{ hashHex: string; email: string }>> {
     const res = await this.post<Array<{ hashHex: string; email: string }>>({
       type: 'PM_GET_RECOVERY_EMAILS',
       payload: { walletId },
@@ -2465,10 +2463,16 @@ export class WalletIframeRouter {
     const { onEvent, ...messageOptions } = input.options;
     if (input.kind === 'near') {
       const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
-      if (String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)) {
-        throw new Error('[WalletIframeRouter] key export lane wallet does not match wallet session');
+      if (
+        String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)
+      ) {
+        throw new Error(
+          '[WalletIframeRouter] key export lane wallet does not match wallet session',
+        );
       }
-      if (String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)) {
+      if (
+        String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)
+      ) {
         throw new Error(
           '[WalletIframeRouter] key export lane NEAR account does not match request account',
         );
@@ -2498,7 +2502,9 @@ export class WalletIframeRouter {
       throw new Error('[WalletIframeRouter] key export lane wallet does not match wallet session');
     }
     if (!thresholdEcdsaChainTargetsEqual(laneIdentity.signer.chainTarget, input.chainTarget)) {
-      throw new Error('[WalletIframeRouter] key export lane chain target does not match request target');
+      throw new Error(
+        '[WalletIframeRouter] key export lane chain target does not match request target',
+      );
     }
     await this.post<void>({
       type: 'PM_EXPORT_KEYPAIR_UI',
@@ -2960,7 +2966,7 @@ function normalizeSignedTransactionResult(result: SignTransactionResult): SignTr
 import { stripFunctionsShallow } from '@shared/utils/validation';
 
 function unlockOnEventFromRequest(
-  request: WalletIframeUnlockRequest,
+  request: LoginUnlockRequest,
 ): LoginHooksOptions['onEvent'] | undefined {
   switch (request.kind) {
     case 'default_options':
@@ -2968,7 +2974,7 @@ function unlockOnEventFromRequest(
     case 'custom_options':
       return request.options.onEvent;
   }
-  return assertNeverWalletIframeUnlockRequest(request);
+  return assertNeverLoginUnlockRequest(request);
 }
 
 function removeFunctionsFromOptions(options?: object): object | undefined {
@@ -2976,6 +2982,6 @@ function removeFunctionsFromOptions(options?: object): object | undefined {
   return stripFunctionsShallow(options);
 }
 
-function assertNeverWalletIframeUnlockRequest(value: never): never {
+function assertNeverLoginUnlockRequest(value: never): never {
   throw new Error(`Unhandled wallet iframe unlock request: ${String(value)}`);
 }

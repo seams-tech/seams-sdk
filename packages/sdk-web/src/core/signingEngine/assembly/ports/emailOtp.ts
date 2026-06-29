@@ -31,12 +31,8 @@ export function createSigningSessionCoordinatorPort(args: {
     touchConfirm: createArgs.touchConfirm,
     getEmailOtpWarmSessionStatus,
     consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
-    clearThresholdEcdsaSessionRecordForWalletTarget: ({ walletId, chainTarget, source }) =>
-      createArgs.clearThresholdEcdsaSessionRecordForWalletTarget({
-        walletId,
-        chainTarget,
-        ...(source ? { source } : {}),
-      }),
+    clearThresholdEcdsaSessionRecordForExactIdentity:
+      createArgs.clearThresholdEcdsaSessionRecordForExactIdentity,
     markThresholdEd25519EmailOtpSessionConsumedForWallet:
       createArgs.markThresholdEd25519EmailOtpSessionConsumedForWallet,
   });

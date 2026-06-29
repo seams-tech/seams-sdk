@@ -1,14 +1,14 @@
 import type { LoginHooksOptions } from '@/core/types/sdkSentEvents';
 import type {
+  LoginUnlockRequest,
   LoginUnlockPayloadOption,
   PMUnlockPayload,
-  WalletIframeUnlockRequest,
 } from '@/core/types/login.types';
 
 export function walletIframeUnlockRequestFromLoginHooks(args: {
   walletId: string;
   options: LoginHooksOptions | undefined;
-}): WalletIframeUnlockRequest {
+}): LoginUnlockRequest {
   if (!args.options) return { kind: 'default_options', walletId: args.walletId };
   return {
     kind: 'custom_options',
@@ -17,7 +17,7 @@ export function walletIframeUnlockRequestFromLoginHooks(args: {
   };
 }
 
-export function buildPMUnlockPayload(request: WalletIframeUnlockRequest): PMUnlockPayload {
+export function buildPMUnlockPayload(request: LoginUnlockRequest): PMUnlockPayload {
   switch (request.kind) {
     case 'default_options':
       return {

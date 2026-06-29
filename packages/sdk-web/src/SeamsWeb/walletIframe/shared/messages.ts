@@ -36,14 +36,14 @@ import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
   RegisterWalletInput,
-  RegistrationSignerSelection,
+  RegistrationSignerSetSelection,
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type { PMUnlockPayload } from '@/core/types/login.types';
 export type {
+  LoginUnlockRequest,
   PMUnlockOptions,
   PMUnlockPayload,
-  WalletIframeUnlockRequest,
 } from '@/core/types/login.types';
 
 export type WalletProtocolVersion = '1.0.0';
@@ -265,8 +265,7 @@ export function parseRegistrationActivationButtonStatePayload(
 export interface PMRegisterWalletPayload {
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  rpId: string;
-  signerSelection: RegistrationSignerSelection;
+  signerSelection: RegistrationSignerSetSelection;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
 }

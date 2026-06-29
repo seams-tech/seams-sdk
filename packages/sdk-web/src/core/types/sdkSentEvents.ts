@@ -751,7 +751,7 @@ export interface LoginHooksOptions {
   session?: {
     // 'jwt' returns the token in the JSON body; 'cookie' sets HttpOnly cookie
     kind: 'jwt' | 'cookie';
-    // Optional: override relay URL; defaults to SeamsConfigsReadonly.network.relayer.url
+    // Optional: override Router API URL; defaults to SeamsConfigsReadonly.network.relayer.url
     relayUrl?: string;
     // Optional: override route path.
     // - defaults to '/session/exchange'
@@ -760,7 +760,7 @@ export interface LoginHooksOptions {
     // Required exchange input for `POST /session/exchange`.
     exchange?:
       | {
-          // BYO auth: external OIDC token -> relay app session mint
+          // BYO auth: external OIDC token -> Router API app session mint
           type: 'oidc_jwt';
           token: string;
         }

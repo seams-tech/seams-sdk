@@ -145,7 +145,7 @@ import type {
   RegistrationAuthMethodInput,
   RegisterWalletInput,
   RegistrationNearAccountProvisioning,
-  RegistrationSignerSelection,
+  RegistrationSignerSetSelection,
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type {
@@ -210,7 +210,10 @@ export type RegisterNearImplicitWalletArgs = {
 };
 
 export type RegisterNearSponsoredWalletArgs = {
-  accountProvisioning: Extract<RegistrationNearAccountProvisioning, { kind: 'sponsored_named_account' }>;
+  accountProvisioning: Extract<
+    RegistrationNearAccountProvisioning,
+    { kind: 'sponsored_named_account' }
+  >;
   wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
   nearAccountId?: never;
   authMethod?: RegistrationAuthMethodInput;
@@ -631,13 +634,13 @@ export interface RegistrationCapability {
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
     wallet: RegisterWalletInput;
-    signerSelection: RegistrationSignerSelection;
+    signerSelection: RegistrationSignerSetSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
   registerWithEmailOtp(args: {
     authMethod: Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
     wallet: RegisterWalletInput;
-    signerSelection: RegistrationSignerSelection;
+    signerSelection: RegistrationSignerSetSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
   registerPasskey(options?: RegistrationHooksOptions): Promise<RegistrationResult>;

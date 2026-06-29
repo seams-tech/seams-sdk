@@ -93,7 +93,7 @@ export type SignerWorkerRequestType = WorkerRequestType | NearSignerWorkerCustom
 export type SignerWorkerResponseType = WorkerResponseType;
 
 export interface ThresholdSignerConfig {
-  /** Base URL of the relayer server (e.g. https://relay.example.com) */
+  /** Base URL of the Router API server (e.g. https://router-api.example.com) */
   relayerUrl: string;
   /** Identifies which relayer-held key share to use */
   relayerKeyId: string;

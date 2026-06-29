@@ -218,6 +218,18 @@ const DEFAULT_NONCE_LANE_LOCK_TTL_MS = 5_000;
 const DEFAULT_NONCE_LANE_LOCK_WAIT_TIMEOUT_MS = 3_000;
 const DEFAULT_NONCE_LANE_LOCK_POLL_MS = 25;
 const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState';
+
+function logWalletRegistrationFinalizeProgress(
+  stage: string,
+  details?: Record<string, unknown>,
+): void {
+  try {
+    console.info('[SeamsWalletDB][wallet-registration-finalize] progress', {
+      stage,
+      ...(details || {}),
+    });
+  } catch {}
+}
 const DEFAULT_WALLET_RP_ID = 'local';
 
 function requireWebAuthnRpId(value: string): WebAuthnRpId {
@@ -2679,6 +2691,12 @@ export class SeamsWalletRepositories {
     const authMethodRows = walletAuthMethodRowsForRegistrationFinalize(input);
     const keyMaterialRows = input.keyMaterials.map((keyMaterial) => keyMaterialRow(keyMaterial));
     const signerActivations: ActivateAccountSignerResult[] = [];
+    logWalletRegistrationFinalizeProgress('batch_started', {
+      profileCount: input.profiles.length,
+      authMethodRowCount: authMethodRows.length,
+      signerActivationCount: input.signerActivations.length,
+      keyMaterialCount: keyMaterialRows.length,
+    });
     await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.appState,
@@ -2691,6 +2709,7 @@ export class SeamsWalletRepositories {
       ],
       'readwrite',
       async (ctx) => {
+        logWalletRegistrationFinalizeProgress('transaction_opened');
         const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
         for (const profile of input.profiles) {
           const profileId = toTrimmedString(profile.profileId || '');
@@ -2698,6 +2717,9 @@ export class SeamsWalletRepositories {
           const existing = parseProfileRow(await profileStore.get(profileId)) || undefined;
           await profileStore.put(profileRow(profile, existing));
         }
+        logWalletRegistrationFinalizeProgress('profiles_written', {
+          profileCount: input.profiles.length,
+        });
 
         const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
         for (const row of authMethodRows) {
@@ -2714,20 +2736,38 @@ export class SeamsWalletRepositories {
           }
           await authMethodStore.put(row);
         }
+        logWalletRegistrationFinalizeProgress('auth_methods_written', {
+          authMethodRowCount: authMethodRows.length,
+        });
 
+        let signerActivationIndex = 0;
         for (const activation of input.signerActivations) {
+          logWalletRegistrationFinalizeProgress('signer_activation_started', {
+            index: signerActivationIndex,
+            profileId: activation.account.profileId,
+            chainIdKey: activation.account.chainIdKey,
+          });
           signerActivations.push(await this.activateAccountSignerInTransaction(ctx, activation));
+          logWalletRegistrationFinalizeProgress('signer_activation_completed', {
+            index: signerActivationIndex,
+            signerSlot: signerActivations[signerActivations.length - 1]?.signerSlot,
+          });
+          signerActivationIndex += 1;
         }
         await assertSignerKeyMaterialPairsInTransaction({
           ctx,
           signers: signerActivations.map((activation) => activation.signer),
           keyMaterials: input.keyMaterials,
         });
+        logWalletRegistrationFinalizeProgress('key_material_pairs_verified');
 
         const keyMaterialStore = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
         for (const row of keyMaterialRows) {
           await keyMaterialStore.put(row);
         }
+        logWalletRegistrationFinalizeProgress('key_material_written', {
+          keyMaterialCount: keyMaterialRows.length,
+        });
 
         if (input.lastProfileState) {
           await ctx.store(SEAMS_WALLET_STORES.appState).put({
@@ -2737,12 +2777,18 @@ export class SeamsWalletRepositories {
               activeSignerSlot: input.lastProfileState.activeSignerSlot,
               ...(input.lastProfileState.scope
                 ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
-                : {}),
+              : {}),
             },
+          });
+          logWalletRegistrationFinalizeProgress('last_profile_state_written', {
+            profileId: input.lastProfileState.profileId,
           });
         }
       },
     );
+    logWalletRegistrationFinalizeProgress('transaction_committed', {
+      signerActivationCount: signerActivations.length,
+    });
     return { signerActivations };
   }
 

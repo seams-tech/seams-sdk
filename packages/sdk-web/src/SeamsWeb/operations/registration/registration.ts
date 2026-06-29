@@ -46,17 +46,25 @@ import type {
   AddSignerSelection,
   NearEd25519SigningKeyId,
   RegistrationAuthMethodInput,
+  RegistrationEvmFamilyEcdsaSignerPlan,
   RegistrationNearAccountProvisioning,
+  RegistrationNearEd25519SignerPlan,
+  RegistrationSignerPlan,
+  RegistrationSignerPlanBranch,
   RegisterWalletInput,
-  RegistrationSignerSelection,
+  RegistrationSignerSetSelection,
   ThresholdEcdsaRegistrationSpec,
+  ThresholdEd25519RegistrationSpec,
   WalletId,
 } from '@shared/utils/registrationIntent';
 import {
   computeRegistrationNearEd25519SigningKeyId,
+  findRegistrationSignerPlanEvmFamilyEcdsaBranch,
+  findRegistrationSignerPlanNearEd25519Branch,
   nearEd25519SigningKeyIdFromString,
   registrationEd25519AuthorityScope,
   registrationProvisioningScopeKey,
+  registrationSignerPlanFromSelection,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
@@ -145,7 +153,11 @@ export function isRegistrationBenchmarkDiagnosticsEnabled(): boolean {
 type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
 
 type RegistrationTimingAuthMethod = RegistrationAuthMethodInput['kind'];
-type RegistrationTimingSignerMode = RegistrationSignerSelection['mode'];
+type RegistrationTimingSignerBranch = 'near_ed25519' | 'evm_family_ecdsa';
+type RegistrationTimingSignerSet = {
+  kind: 'signer_set';
+  branches: readonly RegistrationTimingSignerBranch[];
+};
 
 type RegistrationTimingBucketValues = {
   inputValidationMs: number;
@@ -219,21 +231,20 @@ export type RegisterWalletOperationInput = {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  signerSelection: RegistrationSignerSelection;
+  signerSelection: RegistrationSignerSetSelection;
   options: RegistrationHooksOptions;
   authenticatorOptions: AuthenticatorOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 };
 
-type Ed25519RegistrationSignerSelection =
-  | Extract<RegistrationSignerSelection, { mode: 'ed25519_only' }>
-  | Extract<RegistrationSignerSelection, { mode: 'ed25519_and_ecdsa' }>;
+type NearEd25519RegistrationBranch = RegistrationNearEd25519SignerPlan;
+type EvmFamilyEcdsaRegistrationBranch = RegistrationEvmFamilyEcdsaSignerPlan;
 
 export type WalletRegistrationPrecomputeScope = {
   authMethodKind: RegistrationAuthMethodInput['kind'];
   walletScopeKey: string;
   authorityScopeKey: string;
-  signerMode: Extract<RegistrationSignerSelection['mode'], 'ed25519_only' | 'ed25519_and_ecdsa'>;
+  signerSetScopeKey: string;
   accountProvisioningScopeKey: string;
 };
 
@@ -380,7 +391,7 @@ type SucceededRegistrationTimingSummary = {
   kind: 'registration_timing_summary_v1';
   status: 'succeeded';
   authMethod: RegistrationTimingAuthMethod;
-  signerMode: RegistrationTimingSignerMode;
+  signerSet: RegistrationTimingSignerSet;
   totalMs: number;
   relayDiagnostics: WalletRegistrationRouteDiagnostics[];
   errorCode?: never;
@@ -391,7 +402,7 @@ type FailedRegistrationTimingSummary = {
   kind: 'registration_timing_summary_v1';
   status: 'failed';
   authMethod: RegistrationTimingAuthMethod;
-  signerMode: RegistrationTimingSignerMode;
+  signerSet: RegistrationTimingSignerSet;
   totalMs: number;
   errorCode: string | null;
   relayDiagnostics: WalletRegistrationRouteDiagnostics[];
@@ -404,6 +415,71 @@ type RegistrationTimingSummary =
 
 function assertNever(value: never): never {
   throw new Error(`Unexpected registration timing branch: ${String(value)}`);
+}
+
+function registrationSignerPlanFromSignerSet(
+  selection: RegistrationSignerSetSelection,
+): RegistrationSignerPlan {
+  const plan = registrationSignerPlanFromSelection(selection);
+  if (!plan.ok) {
+    throw new Error(plan.message);
+  }
+  return plan.value;
+}
+
+function registrationSignerPlanFromIntentSelection(input: {
+  selection: Parameters<typeof registrationSignerPlanFromSelection>[0];
+}): RegistrationSignerPlan {
+  const plan = registrationSignerPlanFromSelection(input.selection);
+  if (!plan.ok) {
+    throw new Error(plan.message);
+  }
+  return plan.value;
+}
+
+function requireNearEd25519RegistrationBranch(
+  plan: RegistrationSignerPlan,
+): RegistrationNearEd25519SignerPlan {
+  const branch = findRegistrationSignerPlanNearEd25519Branch(plan);
+  if (!branch) {
+    throw new Error('Wallet registration requires a NEAR Ed25519 signer branch');
+  }
+  return branch;
+}
+
+function registrationTimingBranchFromPlanBranch(
+  branch: RegistrationSignerPlanBranch,
+): RegistrationTimingSignerBranch {
+  switch (branch.kind) {
+    case 'near_ed25519':
+      return 'near_ed25519';
+    case 'evm_family_ecdsa':
+      return 'evm_family_ecdsa';
+    default:
+      return assertNever(branch);
+  }
+}
+
+function registrationTimingSignerSetFromPlan(plan: RegistrationSignerPlan): RegistrationTimingSignerSet {
+  return {
+    kind: 'signer_set',
+    branches: plan.branches.map(registrationTimingBranchFromPlanBranch),
+  };
+}
+
+function registrationSignerPlanBranchScopeKey(branch: RegistrationSignerPlanBranch): string {
+  return branch.branchKey;
+}
+
+function registrationSignerSetScopeKey(plan: RegistrationSignerPlan): string {
+  return plan.branches.map(registrationSignerPlanBranchScopeKey).join(',');
+}
+
+function registrationTimingSignerSetHasBranch(
+  signerSet: RegistrationTimingSignerSet,
+  branch: RegistrationTimingSignerBranch,
+): boolean {
+  return signerSet.branches.includes(branch);
 }
 
 function registrationAuthorityScopeKey(authMethod: RegistrationAuthMethodInput): string {
@@ -696,60 +772,50 @@ function buildRegistrationAuthTiming(input: {
 }
 
 function buildRegistrationEd25519Timing(input: {
-  signerMode: RegistrationTimingSignerMode;
+  signerSet: RegistrationTimingSignerSet;
   buckets: RegistrationTimingBucketValues;
 }): RegistrationEd25519Timing {
-  switch (input.signerMode) {
-    case 'ed25519_only':
-    case 'ed25519_and_ecdsa':
-      return {
-        kind: 'ed25519_enabled',
-        ed25519ClientMaterialMs: input.buckets.ed25519ClientMaterialMs,
-        ed25519ClientRequestMs: input.buckets.ed25519ClientRequestMs,
-        ed25519EvaluationArtifactMs: input.buckets.ed25519EvaluationArtifactMs,
-        ed25519CompletionParseMs: input.buckets.ed25519CompletionParseMs,
-        thresholdEd25519SessionPersistenceMs: input.buckets.thresholdEd25519SessionPersistenceMs,
-      };
-    case 'ecdsa_only':
-      return {
-        kind: 'ed25519_disabled',
-        ed25519ClientMaterialMs: 0,
-        ed25519ClientRequestMs: 0,
-        ed25519EvaluationArtifactMs: 0,
-        ed25519CompletionParseMs: 0,
-        thresholdEd25519SessionPersistenceMs: 0,
-      };
-    default:
-      return assertNever(input.signerMode);
+  if (registrationTimingSignerSetHasBranch(input.signerSet, 'near_ed25519')) {
+    return {
+      kind: 'ed25519_enabled',
+      ed25519ClientMaterialMs: input.buckets.ed25519ClientMaterialMs,
+      ed25519ClientRequestMs: input.buckets.ed25519ClientRequestMs,
+      ed25519EvaluationArtifactMs: input.buckets.ed25519EvaluationArtifactMs,
+      ed25519CompletionParseMs: input.buckets.ed25519CompletionParseMs,
+      thresholdEd25519SessionPersistenceMs: input.buckets.thresholdEd25519SessionPersistenceMs,
+    };
   }
+  return {
+    kind: 'ed25519_disabled',
+    ed25519ClientMaterialMs: 0,
+    ed25519ClientRequestMs: 0,
+    ed25519EvaluationArtifactMs: 0,
+    ed25519CompletionParseMs: 0,
+    thresholdEd25519SessionPersistenceMs: 0,
+  };
 }
 
 function buildRegistrationEcdsaTiming(input: {
-  signerMode: RegistrationTimingSignerMode;
+  signerSet: RegistrationTimingSignerSet;
   buckets: RegistrationTimingBucketValues;
 }): RegistrationEcdsaTiming {
-  switch (input.signerMode) {
-    case 'ecdsa_only':
-    case 'ed25519_and_ecdsa':
-      return {
-        kind: 'ecdsa_enabled',
-        ecdsaClientBootstrapMs: input.buckets.ecdsaClientBootstrapMs,
-        ecdsaRegistrationPersistenceMs: input.buckets.ecdsaRegistrationPersistenceMs,
-      };
-    case 'ed25519_only':
-      return {
-        kind: 'ecdsa_disabled',
-        ecdsaClientBootstrapMs: 0,
-        ecdsaRegistrationPersistenceMs: 0,
-      };
-    default:
-      return assertNever(input.signerMode);
+  if (registrationTimingSignerSetHasBranch(input.signerSet, 'evm_family_ecdsa')) {
+    return {
+      kind: 'ecdsa_enabled',
+      ecdsaClientBootstrapMs: input.buckets.ecdsaClientBootstrapMs,
+      ecdsaRegistrationPersistenceMs: input.buckets.ecdsaRegistrationPersistenceMs,
+    };
   }
+  return {
+    kind: 'ecdsa_disabled',
+    ecdsaClientBootstrapMs: 0,
+    ecdsaRegistrationPersistenceMs: 0,
+  };
 }
 
 function buildRegistrationTimingBuckets(input: {
   authMethod: RegistrationTimingAuthMethod;
-  signerMode: RegistrationTimingSignerMode;
+  signerSet: RegistrationTimingSignerSet;
   buckets: RegistrationTimingBucketValues;
 }): RegistrationTimingBuckets {
   const buckets = copyRegistrationTimingBucketValues(input.buckets);
@@ -809,11 +875,11 @@ function buildRegistrationTimingBuckets(input: {
       buckets,
     }),
     ed25519: buildRegistrationEd25519Timing({
-      signerMode: input.signerMode,
+      signerSet: input.signerSet,
       buckets,
     }),
     ecdsa: buildRegistrationEcdsaTiming({
-      signerMode: input.signerMode,
+      signerSet: input.signerSet,
       buckets,
     }),
   };
@@ -1021,26 +1087,12 @@ async function waitForRegistrationWarmup(input: {
   }
 }
 
-function requireEd25519RegistrationSignerSelection(
-  signerSelection: RegistrationSignerSelection,
-): Ed25519RegistrationSignerSelection {
-  switch (signerSelection.mode) {
-    case 'ed25519_only':
-    case 'ed25519_and_ecdsa':
-      return signerSelection;
-    case 'ecdsa_only':
-      throw new Error('Wallet registration precompute requires Ed25519 signer selection');
-    default:
-      return assertNever(signerSelection);
-  }
-}
-
 function walletScopeKey(wallet: RegisterWalletInput): string {
   switch (wallet.kind) {
     case 'provided':
       return `provided:${String(wallet.walletId)}`;
-    case 'server_generated':
-      return 'server_generated';
+    case 'server_allocated':
+      return 'server_allocated';
     default:
       return assertNever(wallet);
   }
@@ -1092,10 +1144,10 @@ function sponsoredNamedRegistrationAccountId(
 
 function registrationGrantIdentityFromEd25519Selection(args: {
   wallet: RegisterWalletInput;
-  signerSelection: Ed25519RegistrationSignerSelection;
+  signerSelection: NearEd25519RegistrationBranch;
 }): RegistrationGrantIdentity {
   const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
-    args.signerSelection.ed25519.accountProvisioning,
+    args.signerSelection.accountProvisioning,
   );
   if (sponsoredNamedAccountId) {
     return { kind: 'near_account', nearAccountId: sponsoredNamedAccountId };
@@ -1103,7 +1155,7 @@ function registrationGrantIdentityFromEd25519Selection(args: {
   switch (args.wallet.kind) {
     case 'provided':
       return { kind: 'wallet', walletId: String(args.wallet.walletId) };
-    case 'server_generated':
+    case 'server_allocated':
       return { kind: 'none' };
     default:
       return assertNever(args.wallet);
@@ -1112,7 +1164,7 @@ function registrationGrantIdentityFromEd25519Selection(args: {
 
 function initialRegistrationEventAccountId(args: {
   wallet: RegisterWalletInput;
-  signerSelection: Ed25519RegistrationSignerSelection;
+  signerSelection: NearEd25519RegistrationBranch;
 }): string {
   const grantIdentity = registrationGrantIdentityFromEd25519Selection(args);
   switch (grantIdentity.kind) {
@@ -1129,10 +1181,10 @@ function initialRegistrationEventAccountId(args: {
 
 function registrationPreflightFromEd25519Selection(args: {
   wallet: RegisterWalletInput;
-  signerSelection: Ed25519RegistrationSignerSelection;
+  signerSelection: NearEd25519RegistrationBranch;
 }): RegistrationAccountPreflight {
   const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
-    args.signerSelection.ed25519.accountProvisioning,
+    args.signerSelection.accountProvisioning,
   );
   if (sponsoredNamedAccountId) {
     return {
@@ -1154,11 +1206,12 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
     envId: string;
     signingRootVersion?: string;
   };
-  signerSelection: RegistrationSignerSelection;
+  signerSelection: Parameters<typeof registrationSignerPlanFromSelection>[0];
 }): Promise<NearEd25519SigningKeyId> {
-  if (intent.signerSelection.mode === 'ecdsa_only') {
-    throw new Error('Ed25519 registration key scope requires an Ed25519 signer selection');
-  }
+  const signerPlan = registrationSignerPlanFromIntentSelection({
+    selection: intent.signerSelection,
+  });
+  const nearEd25519 = requireNearEd25519RegistrationBranch(signerPlan);
   const runtimePolicyScope = intent.runtimePolicyScope;
   if (!runtimePolicyScope?.signingRootVersion) {
     throw new Error('Ed25519 registration key scope requires signing root scope');
@@ -1168,7 +1221,7 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
     authorityScope: registrationEd25519AuthorityScope(intent.authMethod),
     signingRootId: deriveSigningRootId(runtimePolicyScope),
     signingRootVersion: runtimePolicyScope.signingRootVersion,
-    ed25519: intent.signerSelection.ed25519,
+    ed25519: thresholdEd25519RegistrationSpecFromBranch(nearEd25519),
   });
 }
 
@@ -1194,15 +1247,16 @@ function plannedEvmFamilyWalletKeyIdFromRegistrationIntent(intent: {
 function walletRegistrationPrecomputeScopeFromArgs(args: {
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  signerSelection: Ed25519RegistrationSignerSelection;
+  signerPlan: RegistrationSignerPlan;
+  nearEd25519: NearEd25519RegistrationBranch;
 }): WalletRegistrationPrecomputeScope {
   return {
     authMethodKind: args.authMethod.kind,
     walletScopeKey: walletScopeKey(args.wallet),
     authorityScopeKey: registrationAuthorityScopeKey(args.authMethod),
-    signerMode: args.signerSelection.mode,
+    signerSetScopeKey: registrationSignerSetScopeKey(args.signerPlan),
     accountProvisioningScopeKey: registrationProvisioningScopeKey(
-      args.signerSelection.ed25519.accountProvisioning,
+      args.nearEd25519.accountProvisioning,
     ),
   };
 }
@@ -1215,7 +1269,7 @@ function assertWalletRegistrationPrecomputeScopeMatches(input: {
     input.expected.authMethodKind !== input.actual.authMethodKind ||
     input.expected.walletScopeKey !== input.actual.walletScopeKey ||
     input.expected.authorityScopeKey !== input.actual.authorityScopeKey ||
-    input.expected.signerMode !== input.actual.signerMode ||
+    input.expected.signerSetScopeKey !== input.actual.signerSetScopeKey ||
     input.expected.accountProvisioningScopeKey !== input.actual.accountProvisioningScopeKey
   ) {
     throw new Error('Started wallet registration precompute does not match registration input');
@@ -1244,7 +1298,10 @@ async function startWalletRegistrationPrecomputeReady(input: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  signerSelection: Ed25519RegistrationSignerSelection;
+  signerSelection: RegistrationSignerSetSelection;
+  signerPlan: RegistrationSignerPlan;
+  nearEd25519: NearEd25519RegistrationBranch;
+  evmFamilyEcdsa: EvmFamilyEcdsaRegistrationBranch | null;
   recorder: RegistrationTimingRecorder;
 }): Promise<WalletRegistrationPrecomputeReady> {
   const relayerUrl = String(input.context.configs.network.relayer.url || '').trim();
@@ -1259,11 +1316,12 @@ async function startWalletRegistrationPrecomputeReady(input: {
   const scope = walletRegistrationPrecomputeScopeFromArgs({
     authMethod: input.authMethod,
     wallet: input.wallet,
-    signerSelection: input.signerSelection,
+    signerPlan: input.signerPlan,
+    nearEd25519: input.nearEd25519,
   });
   const grantIdentity = registrationGrantIdentityFromEd25519Selection({
     wallet: input.wallet,
-    signerSelection: input.signerSelection,
+    signerSelection: input.nearEd25519,
   });
   const registrationWarmup = startRegistrationWarmup({
     recorder: input.recorder,
@@ -1300,8 +1358,6 @@ async function startWalletRegistrationPrecomputeReady(input: {
     throw new Error('Registration intent digest mismatch');
   }
   await requireRouterAbPublicKeysetPrefetch(routerAbPublicKeysetPrefetch);
-  const ecdsaSelection =
-    input.signerSelection.mode === 'ed25519_and_ecdsa' ? input.signerSelection.ecdsa : null;
   const preparedRegistrationPromise = input.recorder
     .measure('walletRegisterPrepareMs', () =>
       prepareWalletRegistration({
@@ -1311,7 +1367,7 @@ async function startWalletRegistrationPrecomputeReady(input: {
         intent: intentResponse.intent,
         headers: registrationRouteDiagnosticsHeaders(),
         work: {
-          kind: ecdsaSelection ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss',
+          kind: input.evmFamilyEcdsa ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss',
         },
       }),
     )
@@ -1345,13 +1401,16 @@ export function startWalletRegistrationPrecompute(args: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  signerSelection: RegistrationSignerSelection;
+  signerSelection: RegistrationSignerSetSelection;
 }): WalletRegistrationPrecomputeHandle {
-  const signerSelection = requireEd25519RegistrationSignerSelection(args.signerSelection);
+  const signerPlan = registrationSignerPlanFromSignerSet(args.signerSelection);
+  const nearEd25519 = requireNearEd25519RegistrationBranch(signerPlan);
+  const evmFamilyEcdsa = findRegistrationSignerPlanEvmFamilyEcdsaBranch(signerPlan);
   const scope = walletRegistrationPrecomputeScopeFromArgs({
     authMethod: args.authMethod,
     wallet: args.wallet,
-    signerSelection,
+    signerPlan,
+    nearEd25519,
   });
   const startedAt = performance.now();
   const recorder = new RegistrationTimingRecorder(startedAt);
@@ -1363,7 +1422,10 @@ export function startWalletRegistrationPrecompute(args: {
     context: args.context,
     authMethod: args.authMethod,
     wallet: args.wallet,
-    signerSelection,
+    signerSelection: args.signerSelection,
+    signerPlan,
+    nearEd25519,
+    evmFamilyEcdsa,
     recorder,
   });
   void ready.catch(() => undefined);
@@ -1399,18 +1461,18 @@ export function disposeWalletRegistrationPrecompute(
 function createSucceededRegistrationTimingSummary(input: {
   recorder: RegistrationTimingRecorder;
   authMethod: RegistrationTimingAuthMethod;
-  signerMode: RegistrationTimingSignerMode;
+  signerSet: RegistrationTimingSignerSet;
 }): SucceededRegistrationTimingSummary {
   return {
     kind: 'registration_timing_summary_v1',
     status: 'succeeded',
     authMethod: input.authMethod,
-    signerMode: input.signerMode,
+    signerSet: input.signerSet,
     totalMs: input.recorder.totalMs(),
     relayDiagnostics: input.recorder.routeDiagnosticsSnapshot(),
     timings: buildRegistrationTimingBuckets({
       authMethod: input.authMethod,
-      signerMode: input.signerMode,
+      signerSet: input.signerSet,
       buckets: input.recorder.snapshot(),
     }),
   };
@@ -1419,20 +1481,20 @@ function createSucceededRegistrationTimingSummary(input: {
 function createFailedRegistrationTimingSummary(input: {
   recorder: RegistrationTimingRecorder;
   authMethod: RegistrationTimingAuthMethod;
-  signerMode: RegistrationTimingSignerMode;
+  signerSet: RegistrationTimingSignerSet;
   errorCode: string | null;
 }): FailedRegistrationTimingSummary {
   return {
     kind: 'registration_timing_summary_v1',
     status: 'failed',
     authMethod: input.authMethod,
-    signerMode: input.signerMode,
+    signerSet: input.signerSet,
     totalMs: input.recorder.totalMs(),
     errorCode: input.errorCode,
     relayDiagnostics: input.recorder.routeDiagnosticsSnapshot(),
     timings: buildRegistrationTimingBuckets({
       authMethod: input.authMethod,
-      signerMode: input.signerMode,
+      signerSet: input.signerSet,
       buckets: input.recorder.snapshot(),
     }),
   };
@@ -1930,6 +1992,28 @@ function assertCombinedRegistrationSharedSigningGrant(args: {
   }
 }
 
+function thresholdEd25519RegistrationSpecFromBranch(
+  branch: RegistrationNearEd25519SignerPlan,
+): ThresholdEd25519RegistrationSpec {
+  return {
+    accountProvisioning: branch.accountProvisioning,
+    signerSlot: branch.signerSlot,
+    participantIds: [...branch.participantIds],
+    keyPurpose: branch.keyPurpose,
+    keyVersion: branch.keyVersion,
+    derivationVersion: branch.derivationVersion,
+  };
+}
+
+function thresholdEcdsaRegistrationSpecFromBranch(
+  branch: RegistrationEvmFamilyEcdsaSignerPlan,
+): ThresholdEcdsaRegistrationSpec {
+  return {
+    chainTargets: [...branch.chainTargets],
+    participantIds: [...branch.participantIds],
+  };
+}
+
 function expectedEcdsaChainTargetsFromRegistrationSpec(
   ecdsa: ThresholdEcdsaRegistrationSpec,
 ): ThresholdEcdsaChainTarget[] {
@@ -1952,7 +2036,9 @@ async function registerEcdsaWalletOnly(args: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
-  signerSelection: Extract<RegistrationSignerSelection, { mode: 'ecdsa_only' }>;
+  signerSelection: RegistrationSignerSetSelection;
+  signerPlan: RegistrationSignerPlan;
+  ecdsaSelection: EvmFamilyEcdsaRegistrationBranch;
   options: RegistrationHooksOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 }): Promise<RegistrationResult> {
@@ -2220,7 +2306,7 @@ async function registerEcdsaWalletOnly(args: {
         createFailedRegistrationTimingSummary({
           recorder: registrationTiming,
           authMethod: args.authMethod.kind,
-          signerMode: signerSelection.mode,
+          signerSet: registrationTimingSignerSetFromPlan(args.signerPlan),
           errorCode: 'already_finalized_restore_required',
         }),
       );
@@ -2293,7 +2379,7 @@ async function registerEcdsaWalletOnly(args: {
         authMethod: args.authMethod.kind,
         expectEd25519: false,
         expectedEcdsaChainTargets: expectedEcdsaChainTargetsFromRegistrationSpec(
-          signerSelection.ecdsa,
+          thresholdEcdsaRegistrationSpecFromBranch(args.ecdsaSelection),
         ),
         requireSharedSigningGrant: false,
       }),
@@ -2320,7 +2406,7 @@ async function registerEcdsaWalletOnly(args: {
       createSucceededRegistrationTimingSummary({
         recorder: registrationTiming,
         authMethod: args.authMethod.kind,
-        signerMode: signerSelection.mode,
+        signerSet: registrationTimingSignerSetFromPlan(args.signerPlan),
       }),
     );
     afterCall?.(true, result);
@@ -2353,7 +2439,7 @@ async function registerEcdsaWalletOnly(args: {
       createFailedRegistrationTimingSummary({
         recorder: registrationTiming,
         authMethod: args.authMethod.kind,
-        signerMode: signerSelection.mode,
+        signerSet: registrationTimingSignerSetFromPlan(args.signerPlan),
         errorCode: errorCode || null,
       }),
     );
@@ -2378,32 +2464,34 @@ async function registerWalletInternal(
     databaseStored: false,
     contractTransactionId: null as string | null,
   };
+  const signerPlan = registrationSignerPlanFromSignerSet(signerSelection);
+  const ed25519Branch = findRegistrationSignerPlanNearEd25519Branch(signerPlan);
+  const ecdsaBranch = findRegistrationSignerPlanEvmFamilyEcdsaBranch(signerPlan);
 
-  if (signerSelection.mode === 'ecdsa_only') {
+  if (!ed25519Branch) {
+    if (!ecdsaBranch) {
+      throw new Error('Wallet registration requires at least one signer branch');
+    }
     return await registerEcdsaWalletOnly({
       context,
       authMethod: args.authMethod,
       wallet,
       signerSelection,
+      signerPlan,
+      ecdsaSelection: ecdsaBranch,
       options,
       ...(args.confirmationConfigOverride
         ? { confirmationConfigOverride: args.confirmationConfigOverride }
         : {}),
     });
   }
-  if (signerSelection.mode !== 'ed25519_only' && signerSelection.mode !== 'ed25519_and_ecdsa') {
-    throw new Error(
-      'Unified wallet registration currently supports ed25519_only, ecdsa_only, and ed25519_and_ecdsa signer selection',
-    );
-  }
 
-  const ed25519Selection = signerSelection.ed25519;
-  const ecdsaSelection =
-    signerSelection.mode === 'ed25519_and_ecdsa' ? signerSelection.ecdsa : null;
+  const ed25519Selection = ed25519Branch;
+  const ecdsaSelection = ecdsaBranch;
   let eventAccountId = registrationEventAccountId(
     initialRegistrationEventAccountId({
       wallet,
-      signerSelection: requireEd25519RegistrationSignerSelection(signerSelection),
+      signerSelection: ed25519Selection,
     }),
   );
   let finalizedNearAccountId: AccountId | null = null;
@@ -2420,7 +2508,7 @@ async function registerWalletInternal(
         context,
         registrationPreflightFromEd25519Selection({
           wallet,
-          signerSelection: requireEd25519RegistrationSignerSelection(signerSelection),
+          signerSelection: ed25519Selection,
         }),
         args.authMethod.kind,
         onEvent,
@@ -2432,7 +2520,8 @@ async function registerWalletInternal(
     const expectedPrecomputeScope = walletRegistrationPrecomputeScopeFromArgs({
       authMethod: args.authMethod,
       wallet,
-      signerSelection: requireEd25519RegistrationSignerSelection(signerSelection),
+      signerPlan,
+      nearEd25519: ed25519Selection,
     });
     let startedPrecomputeHandle: WalletRegistrationPrecomputeHandleInternal | null = null;
     let precomputeReady: WalletRegistrationPrecomputeReady;
@@ -2454,7 +2543,10 @@ async function registerWalletInternal(
           context,
           authMethod: args.authMethod,
           wallet,
-          signerSelection: requireEd25519RegistrationSignerSelection(signerSelection),
+          signerSelection,
+          signerPlan,
+          nearEd25519: ed25519Selection,
+          evmFamilyEcdsa: ecdsaSelection,
           recorder: registrationTiming,
         });
         break;
@@ -2606,14 +2698,14 @@ async function registerWalletInternal(
               credential: passkeyAuthority!.credential,
               runtimePolicyScope: thresholdRuntimePolicyScope,
               nearEd25519SigningKeyId,
-              participantIds: ed25519Selection.participantIds,
+              participantIds: [...ed25519Selection.participantIds],
             })
           : await prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst({
               context,
               prfFirstB64u: ed25519PrfFirstB64u,
               runtimePolicyScope: thresholdRuntimePolicyScope,
               nearEd25519SigningKeyId,
-              participantIds: ed25519Selection.participantIds,
+              participantIds: [...ed25519Selection.participantIds],
             }),
     );
     const preparedRegistrationOutcome = await registrationTiming.measure(
@@ -2783,7 +2875,7 @@ async function registerWalletInternal(
         createFailedRegistrationTimingSummary({
           recorder: registrationTiming,
           authMethod: args.authMethod.kind,
-          signerMode: signerSelection.mode,
+          signerSet: registrationTimingSignerSetFromPlan(signerPlan),
           errorCode: 'already_finalized_restore_required',
         }),
       );
@@ -3092,7 +3184,9 @@ async function registerWalletInternal(
         authMethod: args.authMethod.kind,
         expectEd25519: true,
         expectedEcdsaChainTargets: ecdsaSelection
-          ? expectedEcdsaChainTargetsFromRegistrationSpec(ecdsaSelection)
+          ? expectedEcdsaChainTargetsFromRegistrationSpec(
+              thresholdEcdsaRegistrationSpecFromBranch(ecdsaSelection),
+            )
           : [],
         requireSharedSigningGrant: Boolean(ecdsaSelection),
       }),
@@ -3142,7 +3236,7 @@ async function registerWalletInternal(
       createSucceededRegistrationTimingSummary({
         recorder: registrationTiming,
         authMethod: args.authMethod.kind,
-        signerMode: signerSelection.mode,
+        signerSet: registrationTimingSignerSetFromPlan(signerPlan),
       }),
     );
     afterCall?.(true, successResult);
@@ -3183,7 +3277,7 @@ async function registerWalletInternal(
       createFailedRegistrationTimingSummary({
         recorder: registrationTiming,
         authMethod: args.authMethod.kind,
-        signerMode: signerSelection.mode,
+        signerSet: registrationTimingSignerSetFromPlan(signerPlan),
         errorCode: errorCode || null,
       }),
     );

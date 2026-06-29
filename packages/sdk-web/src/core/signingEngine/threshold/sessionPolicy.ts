@@ -4,6 +4,7 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { parseWalletKeyId, type WalletKeyId } from '@shared/signing-lanes';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -28,6 +29,11 @@ export type ThresholdSessionKind = 'jwt' | 'cookie';
 
 export const THRESHOLD_SESSION_POLICY_VERSION = 'threshold_session_v1' as const;
 export const THRESHOLD_ECDSA_SESSION_POLICY_VERSION = 'threshold_session_policy_v2' as const;
+
+export type Ed25519AuthorityScope = {
+  kind: 'passkey_rp';
+  rpId: WebAuthnRpId;
+};
 
 function decodeBase64UrlUtf8(input: string): string | null {
   const normalized = String(input || '')
@@ -82,7 +88,7 @@ export type Ed25519SessionPolicy = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: Ed25519AuthorityScope;
   relayerKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -204,12 +210,16 @@ export async function buildEd25519SessionPolicy(params: {
   });
   const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
+  const rpId = parseWebAuthnRpId(params.rpId);
+  if (!rpId.ok) {
+    throw new Error('[threshold-ed25519] rpId is required');
+  }
   const policy: Ed25519SessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     walletId: params.walletId,
     nearAccountId: params.nearAccountId,
     nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
-    rpId: params.rpId,
+    authorityScope: { kind: 'passkey_rp', rpId: rpId.value },
     relayerKeyId: params.relayerKeyId,
     thresholdSessionId,
     signingGrantId,

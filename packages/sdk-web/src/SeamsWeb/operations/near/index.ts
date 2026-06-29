@@ -8,9 +8,8 @@ import {
   type RegisterWalletInput,
   type RegistrationNearAccountProvisioning,
 } from '@shared/utils/registrationIntent';
-import {
-  buildNearWalletRegistrationSignerSelection,
-} from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 
 type NearWalletRegistrationArgs = Parameters<RegistrationCapability['registerWallet']>[0] & {
   options: NonNullable<Parameters<RegistrationCapability['registerWallet']>[0]['options']>;
@@ -25,24 +24,34 @@ function resolveNearRegistrationAccountProvisioning(
   return args.accountProvisioning;
 }
 
+function requireNearRegistrationRpId(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
+}
+
 export function buildNearWalletRegistrationArgs(
   context: NearSigningWebContext,
   args: Parameters<NearSignerCapability['registerNearWallet']>[0],
 ): NearWalletRegistrationArgs {
-  const rpId = context.signingEngine.getRpId();
+  const rpId = requireNearRegistrationRpId(context.signingEngine.getRpId());
   if (!rpId) {
     throw new Error('[SeamsWeb][near] registerNearWallet requires rpId');
   }
-  const authMethod = args.authMethod || { kind: 'passkey' as const };
+  const authMethod = args.authMethod || { kind: 'passkey' as const, rpId };
   const accountProvisioning = resolveNearRegistrationAccountProvisioning(args);
   let wallet: RegisterWalletInput;
   switch (accountProvisioning.kind) {
     case 'implicit_account':
-      wallet = { kind: 'server_generated' };
+      wallet = { kind: 'server_allocated' };
       break;
     case 'sponsored_named_account':
       if (!args.wallet) {
-        throw new Error('[SeamsWeb][near] sponsored NEAR registration requires a provided walletId');
+        throw new Error(
+          '[SeamsWeb][near] sponsored NEAR registration requires a provided walletId',
+        );
       }
       wallet = args.wallet;
       break;
@@ -51,9 +60,8 @@ export function buildNearWalletRegistrationArgs(
   }
   return {
     wallet,
-    rpId,
     authMethod,
-    signerSelection: buildNearWalletRegistrationSignerSelection({
+    signerSelection: buildNearWalletRegistrationSignerSetSelection({
       configs: context.configs,
       accountProvisioning,
       options: args.options || {},

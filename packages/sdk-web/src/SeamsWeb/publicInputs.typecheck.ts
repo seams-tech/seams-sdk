@@ -101,9 +101,7 @@ const validNearSendTransactionInput: Parameters<NearSignerCapability['sendTransa
 };
 void validNearSendTransactionInput;
 
-const validEvmEmailOtpRegistrationInput: Parameters<
-  EvmSignerCapability['registerEvmWallet']
->[0] = {
+const validEvmEmailOtpRegistrationInput: Parameters<EvmSignerCapability['registerEvmWallet']>[0] = {
   chainTargets: [tempoChainTarget],
   participantIds: [1, 2],
   authMethod: {
@@ -117,17 +115,23 @@ const validEvmEmailOtpRegistrationInput: Parameters<
 void validEvmEmailOtpRegistrationInput;
 
 declare const registrationCapability: RegistrationCapability;
+const legacyPublicNearMode = ['ed25519', 'only'].join('_');
+const legacyPublicEvmMode = ['ecdsa', 'only'].join('_');
+
 void registrationCapability.registerWithEmailOtp({
   wallet: {
     kind: 'provided',
     walletId: 'alice.testnet' as import('@shared/utils/registrationIntent').WalletId,
   },
   signerSelection: {
-    mode: 'ecdsa_only',
-    ecdsa: {
-      chainTargets: [tempoChainTarget],
-      participantIds: [1, 2],
-    },
+    kind: 'signer_set',
+    signers: [
+      {
+        kind: 'evm_family_ecdsa',
+        chainTargets: [tempoChainTarget],
+        participantIds: [1, 2],
+      },
+    ],
   },
   authMethod: {
     kind: 'email_otp',
@@ -135,6 +139,56 @@ void registrationCapability.registerWithEmailOtp({
     email: 'alice@example.test',
     otpCode: '123456',
     appSessionJwt: 'email-otp-app-session-jwt',
+  },
+});
+
+void registrationCapability.registerWallet({
+  wallet: {
+    kind: 'provided',
+    walletId: 'alice.testnet' as import('@shared/utils/registrationIntent').WalletId,
+  },
+  authMethod: {
+    kind: 'passkey',
+    rpId: 'wallet.example.test' as import('@shared/utils/domainIds').WebAuthnRpId,
+  },
+    signerSelection: {
+    // @ts-expect-error Public wallet registration accepts signer-set requests, not legacy modes.
+    mode: legacyPublicNearMode,
+    // @ts-expect-error Public wallet registration accepts signer-set requests, not legacy modes.
+    ed25519: {
+      accountProvisioning: {
+        kind: 'implicit_account',
+        accountIdSource: 'ed25519_public_key',
+      },
+      signerSlot: 1,
+      participantIds: [1, 2],
+      keyPurpose: 'near_tx',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      derivationVersion: 1,
+    },
+  },
+});
+
+void registrationCapability.registerWithEmailOtp({
+  wallet: {
+    kind: 'provided',
+    walletId: 'alice.testnet' as import('@shared/utils/registrationIntent').WalletId,
+  },
+  authMethod: {
+    kind: 'email_otp',
+    proofKind: 'otp_challenge',
+    email: 'alice@example.test',
+    otpCode: '123456',
+    appSessionJwt: 'email-otp-app-session-jwt',
+  },
+  signerSelection: {
+    // @ts-expect-error Public Email OTP registration accepts signer-set requests, not legacy modes.
+    mode: legacyPublicEvmMode,
+    // @ts-expect-error Public Email OTP registration accepts signer-set requests, not legacy modes.
+    ecdsa: {
+      chainTargets: [tempoChainTarget],
+      participantIds: [1, 2],
+    },
   },
 });
 
@@ -219,20 +273,25 @@ const invalidEcdsaBootstrapSubjectInput: BootstrapThresholdEcdsaSessionArgs = {
 void invalidEcdsaBootstrapSubjectInput;
 
 declare const publicEcdsaBootstrapResult: PublicThresholdEcdsaSessionBootstrapResult;
-// @ts-expect-error Public bootstrap keyRef hides internal threshold key identity.
-const invalidPublicBootstrapEcdsaKeyId = publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaThresholdKeyId;
+const invalidPublicBootstrapEcdsaKeyId =
+  // @ts-expect-error Public bootstrap keyRef hides internal threshold key identity.
+  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaThresholdKeyId;
 void invalidPublicBootstrapEcdsaKeyId;
-// @ts-expect-error Public bootstrap keyRef hides internal signing-root identity.
-const invalidPublicBootstrapSigningRootId = publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.signingRootId;
+const invalidPublicBootstrapSigningRootId =
+  // @ts-expect-error Public bootstrap keyRef hides internal signing-root identity.
+  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.signingRootId;
 void invalidPublicBootstrapSigningRootId;
-// @ts-expect-error Public bootstrap keyRef hides internal signing-root identity.
-const invalidPublicBootstrapSigningRootVersion = publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.signingRootVersion;
+const invalidPublicBootstrapSigningRootVersion =
+  // @ts-expect-error Public bootstrap keyRef hides internal signing-root identity.
+  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.signingRootVersion;
 void invalidPublicBootstrapSigningRootVersion;
-// @ts-expect-error Public bootstrap keyRef hides internal export artifact identity.
-const invalidPublicBootstrapExportArtifact = publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaHssExportArtifact;
+const invalidPublicBootstrapExportArtifact =
+  // @ts-expect-error Public bootstrap keyRef hides internal export artifact identity.
+  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaHssExportArtifact;
 void invalidPublicBootstrapExportArtifact;
-// @ts-expect-error Public bootstrap keyRef hides internal Wallet Session bearer auth.
-const invalidPublicBootstrapWalletSessionJwt = publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.walletSessionJwt;
+const invalidPublicBootstrapWalletSessionJwt =
+  // @ts-expect-error Public bootstrap keyRef hides internal Wallet Session bearer auth.
+  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.walletSessionJwt;
 void invalidPublicBootstrapWalletSessionJwt;
 
 const invalidEcdsaBootstrapLifecycleInput: BootstrapThresholdEcdsaSessionArgs = {

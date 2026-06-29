@@ -16,7 +16,7 @@ import {
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getThresholdEcdsaSessionRecordByKey,
-  listStoredThresholdEd25519SessionRecordsForWallet,
+  listStoredThresholdEd25519SessionLaneRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
   thresholdEd25519LaneCandidateFromSessionRecord,
   thresholdEcdsaLaneCandidateFromSessionRecord,
@@ -354,7 +354,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
           seen.add(identityKey);
           records.push(record);
         };
-        for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForWallet(
+        for (const runtimeRecord of listStoredThresholdEd25519SessionLaneRecordsForWallet(
           recordWalletId,
         )) {
           const authMethod =

@@ -24,7 +24,7 @@ function fail(msg) {
 }
 
 if (!fs.existsSync(distEsmRoot)) {
-  fail(`Missing directory: ${distEsmRoot}. Did you run 'pnpm -C packages/sdk-web build'?`);
+  fail(`Missing directory: ${distEsmRoot}. Did you run 'pnpm build:sdk'?`);
 }
 if (!targetReal) {
   fail(`Missing NEAR signer wasm JS at: ${targetAbs}`);

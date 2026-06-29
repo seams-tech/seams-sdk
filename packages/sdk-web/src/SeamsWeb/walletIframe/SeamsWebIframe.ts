@@ -108,9 +108,7 @@ import {
   type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
-import {
-  buildNearWalletRegistrationSignerSelection,
-} from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 
 export class SeamsWebIframe {
   readonly configs: SeamsConfigsReadonly;
@@ -280,11 +278,13 @@ export class SeamsWebIframe {
         let wallet: RegisterWalletInput;
         switch (accountProvisioning.kind) {
           case 'implicit_account':
-            wallet = { kind: 'server_generated' };
+            wallet = { kind: 'server_allocated' };
             break;
           case 'sponsored_named_account':
             if (!args.wallet) {
-              throw new Error('[SeamsWebIframe][near] sponsored NEAR registration requires a provided walletId');
+              throw new Error(
+                '[SeamsWebIframe][near] sponsored NEAR registration requires a provided walletId',
+              );
             }
             wallet = args.wallet;
             break;
@@ -294,7 +294,7 @@ export class SeamsWebIframe {
         return await this.registration.registerWallet({
           wallet,
           authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
-          signerSelection: buildNearWalletRegistrationSignerSelection({
+          signerSelection: buildNearWalletRegistrationSignerSetSelection({
             configs: this.configs,
             accountProvisioning,
             options: args.options || {},
@@ -341,14 +341,17 @@ export class SeamsWebIframe {
         }
         const rpId = this.resolveRegistrationRpId('evm.registerEvmWallet');
         return await this.registration.registerWallet({
-          wallet: { kind: 'server_generated' },
+          wallet: { kind: 'server_allocated' },
           authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
           signerSelection: {
-            mode: 'ecdsa_only',
-            ecdsa: {
-              chainTargets: [...args.chainTargets],
-              participantIds: [...args.participantIds],
-            },
+            kind: 'signer_set',
+            signers: [
+              {
+                kind: 'evm_family_ecdsa',
+                chainTargets: [...args.chainTargets],
+                participantIds: [...args.participantIds],
+              },
+            ],
           },
           options: args.options,
         });

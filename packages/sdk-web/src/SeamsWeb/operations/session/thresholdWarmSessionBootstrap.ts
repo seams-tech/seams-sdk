@@ -185,7 +185,10 @@ export type ThresholdWarmSessionRequestEnvelope = {
     walletId?: string;
     nearAccountId?: string;
     nearEd25519SigningKeyId?: string;
-    rpId: string;
+    authorityScope: {
+      kind: 'passkey_rp';
+      rpId: string;
+    };
     relayerKeyId?: string;
     thresholdSessionId: string;
     signingGrantId: string;
@@ -464,7 +467,8 @@ function ed25519RestoreIdentityMismatchReasons(args: {
     reasons.push('walletId');
   }
   if (
-    normalizedRestoreString(restore.nearAccountId) !== normalizedRestoreString(current.nearAccountId)
+    normalizedRestoreString(restore.nearAccountId) !==
+    normalizedRestoreString(current.nearAccountId)
   ) {
     reasons.push('nearAccountId');
   }
@@ -561,7 +565,10 @@ function selectSingleEd25519WorkerMaterialRestoreRecord(
 }
 
 function duplicateExactEd25519RestoreDetails(
-  selection: Extract<ExactEd25519WorkerMaterialRestoreRecordSelection, { kind: 'duplicate_records' }>,
+  selection: Extract<
+    ExactEd25519WorkerMaterialRestoreRecordSelection,
+    { kind: 'duplicate_records' }
+  >,
 ): string {
   return `candidate records=${selection.exactMatchCount}; storeKeys=${selection.storeKeys.join(',') || 'unknown'}`;
 }
@@ -723,7 +730,13 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
   const nearEd25519SigningKeyId = normalizedRestoreString(args.nearEd25519SigningKeyId);
   const signingGrantId = normalizedRestoreString(args.signingGrantId);
   const thresholdSessionId = normalizedRestoreString(args.thresholdSessionId);
-  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !signingGrantId || !thresholdSessionId) {
+  if (
+    !walletId ||
+    !nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !signingGrantId ||
+    !thresholdSessionId
+  ) {
     return {
       kind: 'not_found',
       pendingReason: 'pending_material',
@@ -828,7 +841,8 @@ export async function hydrateAccountScopedDiscoveryEd25519SessionFromDurableSeal
   const records = (await listPasskeyEd25519RestoreSealedSessionsForWallet(walletId)).filter(
     (record) =>
       normalizedRestoreString(record.ed25519Restore.nearAccountId) === nearAccountId &&
-      normalizedRestoreString(record.ed25519Restore.nearEd25519SigningKeyId) === nearEd25519SigningKeyId,
+      normalizedRestoreString(record.ed25519Restore.nearEd25519SigningKeyId) ===
+        nearEd25519SigningKeyId,
   );
   const materialRecords = records.filter(sealedEd25519RestoreHasWorkerMaterial);
   if (!records.length) {
@@ -1429,7 +1443,10 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       ...(args.nearEd25519SigningKeyId
         ? { nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId || '').trim() }
         : {}),
-      rpId,
+      authorityScope: {
+        kind: 'passkey_rp',
+        rpId,
+      },
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
       thresholdSessionId,
       signingGrantId,
@@ -1754,7 +1771,8 @@ async function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(arg
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
   });
   if (
-    material.bindingFacts.nearEd25519SigningKeyId !== expectedBindingFacts.nearEd25519SigningKeyId ||
+    material.bindingFacts.nearEd25519SigningKeyId !==
+      expectedBindingFacts.nearEd25519SigningKeyId ||
     material.bindingFacts.signingRootId !== expectedBindingFacts.signingRootId ||
     material.bindingFacts.signingRootVersion !== expectedBindingFacts.signingRootVersion
   ) {
@@ -2144,7 +2162,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const keyVersion = formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion);
   if (!relayerUrl || !relayerKeyId || !keyVersion) {
-    throw new Error('Threshold Ed25519 warm-session reconstruction is missing relay metadata');
+    throw new Error('Threshold Ed25519 warm-session reconstruction is missing Router API metadata');
   }
   const signingGrantId = String(args.session.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(args.session.expiresAtMs));

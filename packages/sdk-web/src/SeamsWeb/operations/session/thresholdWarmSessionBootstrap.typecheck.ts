@@ -45,3 +45,22 @@ buildThresholdWarmSessionRequestEnvelope({
     },
   },
 });
+
+const warmSessionEnvelope = buildThresholdWarmSessionRequestEnvelope({
+  rpId: 'example.localhost',
+  requestedPolicy: {
+    sessionId: 'threshold-session-1',
+    signingGrantId: 'signing-grant-1',
+    ttlMs: 600_000,
+    remainingUses: 3,
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'signing-worker-1',
+    },
+  },
+});
+
+warmSessionEnvelope.session_policy.authorityScope.rpId;
+
+// @ts-expect-error Ed25519 warm-session route policies carry authorityScope, never root rpId.
+warmSessionEnvelope.session_policy.rpId;

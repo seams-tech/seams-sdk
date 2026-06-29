@@ -1,7 +1,7 @@
 // Type-level regression test: confirmation flows must never allow PRF outputs or wrap key
 // material in main-thread request/response envelopes.
 //
-// This file is compiled by `tsc` during `pnpm -C packages/sdk-web build`. The `@ts-expect-error`
+// This file is compiled by `tsc` during `pnpm build:sdk`. The `@ts-expect-error`
 // assertions ensure ForbiddenMainThreadSecrets remains enforced.
 
 import { sendConfirmResponse } from './confirmCommon';

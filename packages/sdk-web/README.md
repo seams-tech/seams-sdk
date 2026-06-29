@@ -66,7 +66,7 @@ function App() {
           walletOrigin: 'https://wallet.web3authn.org',
         },
         relayer: {
-          url: 'https://relay-server.example.com',
+          url: 'https://router-api.example.com',
         },
       }}
     >

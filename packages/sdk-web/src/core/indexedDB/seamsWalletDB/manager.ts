@@ -17,6 +17,15 @@ export type SeamsWalletTransactionContext = {
   store<Name extends SeamsWalletStoreName>(name: Name): any;
 };
 
+const INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS = 3_000;
+const LEGACY_INDEXED_DB_DELETE_TIMEOUT_MS = 1_000;
+
+function seamsWalletDbOpenBlockedError(dbName: string): Error {
+  return new Error(
+    `[SeamsWalletDBManager] IndexedDB open is blocked for ${dbName}. Close other tabs using this app and retry.`,
+  );
+}
+
 export class SeamsWalletDBManager {
   private config: SeamsWalletDBConfig;
   private dbPromise: Promise<IDBPDatabase> | null = null;
@@ -65,19 +74,47 @@ export class SeamsWalletDBManager {
     }
     await this.deleteLegacyDatabasesBeforeOpen();
     if (!this.dbPromise) {
-      this.dbPromise = openDB(this.config.dbName, this.config.dbVersion, {
+      const dbName = this.config.dbName;
+      const dbVersion = this.config.dbVersion;
+      console.info('[SeamsWalletDBManager] Opening IndexedDB.', { dbName, dbVersion });
+      let blockedTimer: ReturnType<typeof setTimeout> | null = null;
+      let rejectBlockedOpen: ((error: Error) => void) | null = null;
+      const blockedOpen = new Promise<IDBPDatabase>((_resolve, reject) => {
+        rejectBlockedOpen = reject;
+      });
+      const openPromise = openDB(dbName, dbVersion, {
         upgrade(db, _oldVersion, _newVersion, tx) {
           upgradeSeamsWalletDBSchema(db, tx);
         },
         blocked() {
-          console.warn('seams_wallet IndexedDB connection is blocked.');
+          console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', {
+            dbName,
+            dbVersion,
+          });
+          blockedTimer = setTimeout(() => {
+            rejectBlockedOpen?.(seamsWalletDbOpenBlockedError(dbName));
+          }, INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS);
         },
         blocking() {
-          console.warn('seams_wallet IndexedDB connection is blocking another connection.');
+          console.warn('[SeamsWalletDBManager] IndexedDB connection is blocking an upgrade.', {
+            dbName,
+            dbVersion,
+          });
         },
         terminated() {
-          console.warn('seams_wallet IndexedDB connection has been terminated.');
+          console.warn('[SeamsWalletDBManager] IndexedDB connection has been terminated.', {
+            dbName,
+            dbVersion,
+          });
         },
+      });
+      const guardedOpen = Promise.race([openPromise, blockedOpen]).finally(() => {
+        if (blockedTimer) clearTimeout(blockedTimer);
+      });
+      this.dbPromise = guardedOpen.catch((error) => {
+        this.dbPromise = null;
+        void openPromise.then((db) => db.close()).catch(() => undefined);
+        throw error;
       });
     }
     return await this.dbPromise;
@@ -89,10 +126,14 @@ export class SeamsWalletDBManager {
       await this.legacyDatabaseCleanupPromise;
       return;
     }
+    console.info('[SeamsWalletDBManager] Cleaning up legacy IndexedDB databases.', {
+      databaseNames: this.legacyDatabaseNamesToDelete,
+    });
     this.legacyDatabaseCleanupPromise = Promise.all(
       this.legacyDatabaseNamesToDelete.map((databaseName) => deleteIndexedDBDatabase(databaseName)),
     ).then(() => undefined);
     await this.legacyDatabaseCleanupPromise;
+    console.info('[SeamsWalletDBManager] Legacy IndexedDB cleanup completed.');
   }
 
   async runTransaction<T>(
@@ -127,18 +168,31 @@ async function deleteIndexedDBDatabase(databaseName: string): Promise<void> {
   const indexedDBFactory = globalThis.indexedDB;
   if (!indexedDBFactory) return;
   await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      console.warn('[SeamsWalletDBManager] Legacy IndexedDB cleanup timed out.', {
+        databaseName,
+      });
+      finish();
+    }, LEGACY_INDEXED_DB_DELETE_TIMEOUT_MS);
     const request = indexedDBFactory.deleteDatabase(databaseName);
-    request.onsuccess = () => resolve();
+    request.onsuccess = () => finish();
     request.onerror = () => {
       console.warn('[SeamsWalletDBManager] Legacy IndexedDB cleanup failed.', {
         databaseName,
         error: request.error?.message || request.error?.name || 'unknown_error',
       });
-      resolve();
+      finish();
     };
     request.onblocked = () => {
       console.warn('[SeamsWalletDBManager] Legacy IndexedDB cleanup blocked.', { databaseName });
-      resolve();
+      finish();
     };
   });
 }

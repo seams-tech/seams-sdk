@@ -3,10 +3,14 @@ import {
   normalizeWalletAuthMethodTarget,
   sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
+  type AddAuthMethodIntentV1,
+  type AddSignerIntentV1,
+  type NearAccountOwnershipProofV1,
   type RegistrationAuthMethodInput,
   type RegistrationAuthority,
   type RegistrationIntentV1,
-  type RegistrationSignerSelection,
+  type RegistrationSignerPlan,
+  type RegistrationSignerSetSelection,
   type WalletAuthMethodRecord,
   type WalletAuthMethodTarget,
 } from './registrationIntent';
@@ -33,9 +37,46 @@ const appSessionVersion = unwrapDomainId(parseAppSessionVersion('app-session-v1'
 const namedNearAccountId = unwrapDomainId(parseNamedNearAccountId('alice.testnet'));
 const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 
+void ({
+  version: 'near_account_ownership_proof_v1',
+  message: {
+    version: 'near_account_ownership_proof_message_v1',
+    walletId: walletIdFromString('wallet_alice'),
+    nearAccountId: 'alice.testnet',
+    publicKey: 'ed25519:public-key',
+    nonceB64u: 'nonce',
+    issuedAtMs: 1,
+    expiresAtMs: 2,
+  },
+  signatureB64u: 'signature',
+} satisfies NearAccountOwnershipProofV1);
+
+void ({
+  version: 'near_account_ownership_proof_v1',
+  message: {
+    version: 'near_account_ownership_proof_message_v1',
+    walletId: walletIdFromString('wallet_alice'),
+    // @ts-expect-error NEAR account ownership proof messages do not carry passkey RP scope.
+    rpId: 'wallet.example.test',
+    nearAccountId: 'alice.testnet',
+    publicKey: 'ed25519:public-key',
+    nonceB64u: 'nonce',
+    issuedAtMs: 1,
+    expiresAtMs: 2,
+  },
+  signatureB64u: 'signature',
+} satisfies NearAccountOwnershipProofV1);
+
 const passkeyAuthMethod = {
   kind: 'passkey',
+  rpId: webAuthnRpId,
 } satisfies RegistrationAuthMethodInput;
+
+// @ts-expect-error passkey registration auth carries its RP scope in the passkey branch.
+const passkeyAuthMethodMissingRpId: RegistrationAuthMethodInput = {
+  kind: 'passkey',
+};
+void passkeyAuthMethodMissingRpId;
 
 const emailOtpAuthMethod = {
   kind: 'email_otp',
@@ -56,109 +97,271 @@ const googleSsoRegistrationAuthMethod = {
   googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
 } satisfies RegistrationAuthMethodInput;
 
-const ecdsaOnlySelection = {
-  mode: 'ecdsa_only',
-  ecdsa: {
-    chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
-    participantIds: [1, 2],
-  },
-} satisfies RegistrationSignerSelection;
+const ecdsaSignerSetSelection = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'evm_family_ecdsa',
+      chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+      participantIds: [1, 2],
+    },
+  ],
+} satisfies RegistrationSignerSetSelection;
 
-const ed25519OnlySelection = {
-  mode: 'ed25519_only',
-  ed25519: {
-    accountProvisioning: implicitNearAccountProvisioning(),
-    signerSlot: 1,
-    participantIds: [1, 2],
-    keyPurpose: 'near_tx',
-    keyVersion: 'threshold-ed25519-hss-v1',
-    derivationVersion: 1,
-  },
-} satisfies RegistrationSignerSelection;
+const ed25519SignerSetSelection = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+  ],
+} satisfies RegistrationSignerSetSelection;
 
-const sponsoredNamedEd25519OnlySelection = {
-  mode: 'ed25519_only',
-  ed25519: {
-    accountProvisioning: sponsoredNamedNearAccountProvisioning(namedNearAccountId),
-    signerSlot: 1,
-    participantIds: [1, 2],
-    keyPurpose: 'near_tx',
-    keyVersion: 'threshold-ed25519-hss-v1',
-    derivationVersion: 1,
-  },
-} satisfies RegistrationSignerSelection;
+const sponsoredNamedEd25519SignerSetSelection = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: sponsoredNamedNearAccountProvisioning(namedNearAccountId),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+  ],
+} satisfies RegistrationSignerSetSelection;
 
-const ed25519WithLegacyNearAccountId: RegistrationSignerSelection = {
-  mode: 'ed25519_only',
-  ed25519: {
-    // @ts-expect-error registration Ed25519 specs use accountProvisioning, not nearAccountId.
-    nearAccountId: 'alice.testnet',
-    signerSlot: 1,
-    participantIds: [1, 2],
-    keyPurpose: 'near_tx',
-    keyVersion: 'threshold-ed25519-hss-v1',
-    derivationVersion: 1,
-  },
-};
+void ({
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+    {
+      kind: 'evm_family_ecdsa',
+      participantIds: [1, 2],
+      chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+    },
+  ],
+} satisfies RegistrationSignerSetSelection);
+
+void ({
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      // @ts-expect-error signer-set NEAR Ed25519 requests do not carry protocol key fields.
+      keyPurpose: 'near_tx',
+      derivationVersion: 1,
+    },
+  ],
+} satisfies RegistrationSignerSetSelection);
+
+void ({
+  kind: 'signer_set',
+  signers: [
+    // @ts-expect-error EVM-family ECDSA signer requests cannot carry NEAR account provisioning.
+    {
+      kind: 'evm_family_ecdsa',
+      participantIds: [1, 2],
+      chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+      accountProvisioning: implicitNearAccountProvisioning(),
+    },
+  ],
+} satisfies RegistrationSignerSetSelection);
+
+void ({
+  kind: 'signer_set',
+  signers: [
+    // @ts-expect-error NEAR Ed25519 signer requests require account provisioning identity.
+    {
+      kind: 'near_ed25519',
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+  ],
+} satisfies RegistrationSignerSetSelection);
+
+void ({
+  kind: 'signer_set',
+  signers: [
+    // @ts-expect-error EVM-family ECDSA signer requests require chain target identity.
+    {
+      kind: 'evm_family_ecdsa',
+      participantIds: [1, 2],
+    },
+  ],
+} satisfies RegistrationSignerSetSelection);
+
+void ({
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+  ],
+  // @ts-expect-error signer-set selections do not carry legacy registration mode.
+  mode: 'legacy_mode',
+} satisfies RegistrationSignerSetSelection);
+
+void ({
+  kind: 'signer_set',
+  branches: [
+    // @ts-expect-error parsed signer plan branches require a stable branchKey.
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      keyPurpose: 'near_tx',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      derivationVersion: 1,
+    },
+  ],
+} satisfies RegistrationSignerPlan);
+
+const ed25519WithLegacyNearAccountId = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+      // @ts-expect-error signer-set NEAR Ed25519 requests use accountProvisioning, not nearAccountId.
+      nearAccountId: 'alice.testnet',
+    },
+  ],
+} satisfies RegistrationSignerSetSelection;
 void ed25519WithLegacyNearAccountId;
 
-const ed25519WithLegacyCreateBoolean: RegistrationSignerSelection = {
-  mode: 'ed25519_only',
-  ed25519: {
-    accountProvisioning: implicitNearAccountProvisioning(),
-    signerSlot: 1,
-    participantIds: [1, 2],
-    keyPurpose: 'near_tx',
-    keyVersion: 'threshold-ed25519-hss-v1',
-    derivationVersion: 1,
-    // @ts-expect-error registration Ed25519 specs cannot carry legacy createNearAccount.
-    createNearAccount: true,
-  },
-};
+const ed25519WithLegacyCreateBoolean = {
+  kind: 'signer_set',
+  signers: [
+    {
+      kind: 'near_ed25519',
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+      // @ts-expect-error signer-set NEAR Ed25519 requests cannot carry legacy createNearAccount.
+      createNearAccount: true,
+    },
+  ],
+} satisfies RegistrationSignerSetSelection;
 void ed25519WithLegacyCreateBoolean;
 
 void ({
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   authMethod: emailOtpAuthMethod,
-  signerSelection: ecdsaOnlySelection,
+  signerSelection: ecdsaSignerSetSelection,
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1);
 
 void ({
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   authMethod: googleSsoRegistrationAuthMethod,
-  signerSelection: ed25519OnlySelection,
+  signerSelection: ed25519SignerSetSelection,
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1);
 
 void ({
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   authMethod: passkeyAuthMethod,
-  signerSelection: ed25519OnlySelection,
+  signerSelection: ed25519SignerSetSelection,
+  nonceB64u: 'nonce',
+} satisfies RegistrationIntentV1);
+
+void ({
+  version: 'registration_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  authMethod: passkeyAuthMethod,
+  signerSelection: {
+    kind: 'signer_set',
+    signers: [
+      {
+        kind: 'near_ed25519',
+        accountProvisioning: implicitNearAccountProvisioning(),
+        signerSlot: 1,
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+      {
+        kind: 'evm_family_ecdsa',
+        participantIds: [1, 2],
+        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+      },
+    ],
+  },
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1);
 
 void ({
   version: 'registration_intent_v1',
   walletId: walletIdFromString('alice.testnet'),
-  rpId: 'wallet.example.test',
   authMethod: passkeyAuthMethod,
-  signerSelection: sponsoredNamedEd25519OnlySelection,
+  signerSelection: sponsoredNamedEd25519SignerSetSelection,
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1);
+
+void ({
+  version: 'registration_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  authMethod: passkeyAuthMethod,
+  signerSelection: ed25519SignerSetSelection,
+  nonceB64u: 'nonce',
+  // @ts-expect-error registration intents do not carry root passkey RP scope.
+  rpId: 'wallet.example.test',
+} satisfies RegistrationIntentV1);
+
+void ({
+  version: 'add_signer_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  signerSelection: {
+    mode: 'ecdsa',
+    ecdsa: {
+      chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+      participantIds: [1, 2],
+    },
+  },
+  nonceB64u: 'nonce',
+  // @ts-expect-error add-signer intents do not carry root passkey RP scope.
+  rpId: 'wallet.example.test',
+} satisfies AddSignerIntentV1);
+
+void ({
+  version: 'add_auth_method_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  authMethod: { kind: 'passkey', rpId: webAuthnRpId },
+  nonceB64u: 'nonce',
+  // @ts-expect-error add-auth-method intents keep RP scope inside the passkey branch.
+  rpId: 'wallet.example.test',
+} satisfies AddAuthMethodIntentV1);
 
 // @ts-expect-error registration intents require explicit authMethod.
 const missingAuthMethod: RegistrationIntentV1 = {
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
-  signerSelection: ed25519OnlySelection,
+  signerSelection: ed25519SignerSetSelection,
   nonceB64u: 'nonce',
 };
 void missingAuthMethod;
@@ -298,6 +501,7 @@ void emailOtpAuthMethodWithRpId;
 
 void ({
   kind: 'passkey',
+  rpId: webAuthnRpId,
   credentialIdB64u: 'credential',
 } satisfies WalletAuthMethodTarget);
 
@@ -309,6 +513,7 @@ void ({
 // @ts-expect-error passkey revoke target cannot carry Email OTP fields.
 const passkeyTargetWithEmail: WalletAuthMethodTarget = {
   kind: 'passkey',
+  rpId: webAuthnRpId,
   credentialIdB64u: 'credential',
   email: 'alice@example.test',
 };
@@ -322,8 +527,17 @@ const emailOtpTargetWithCredential: WalletAuthMethodTarget = {
 };
 void emailOtpTargetWithCredential;
 
+// @ts-expect-error Email OTP revoke target cannot carry passkey RP scope.
+const emailOtpTargetWithRpId: WalletAuthMethodTarget = {
+  kind: 'email_otp',
+  email: 'alice@example.test',
+  rpId: webAuthnRpId,
+};
+void emailOtpTargetWithRpId;
+
 void normalizeWalletAuthMethodTarget({
   kind: 'passkey',
+  rpId: webAuthnRpId,
   credentialIdB64u: 'credential',
 });
 

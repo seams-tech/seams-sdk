@@ -759,7 +759,7 @@ export type SeamsRegistrationConfigInput =
 export interface SeamsRelayerConfigInput {
   url?: string;
   /**
-   * Relative path on the relayer used for delegate action execution.
+   * Relative path on the Router API used for delegate action execution.
    * Defaults to '/signed-delegate'.
    */
   delegateActionRoute?: string;

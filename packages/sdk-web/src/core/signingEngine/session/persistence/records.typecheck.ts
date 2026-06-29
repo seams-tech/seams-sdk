@@ -1,79 +1,104 @@
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { parseRawThresholdEcdsaSessionRecord } from './records';
-import type {
-  getEmailOtpThresholdEcdsaKeyRefForSigning,
-  getEmailOtpThresholdEcdsaSessionRecordForSigning,
-  getPasskeyThresholdEcdsaKeyRefForSigning,
-  getPasskeyThresholdEcdsaSessionRecordForSigning,
-  RawThresholdEcdsaSessionRecord,
-  ThresholdEcdsaSessionRecord,
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildThresholdEd25519SessionRecordKey,
+  clearStoredThresholdEd25519SessionRecordForLaneKey,
+  serializeThresholdEd25519SessionLaneKey,
+  type ThresholdEd25519SessionRecordKey,
 } from './records';
+import { SigningSessionIds } from '../operationState/types';
+import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import { parseSignerSlot } from '@shared/utils/signerSlot';
 
-declare const walletId: WalletId;
-declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const rawEcdsaRecord: RawThresholdEcdsaSessionRecord;
+const walletId = toWalletId('frost-typecheck-k7p9m2');
+const nearAccountId = toAccountId('c'.repeat(64));
+const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId('ed25519ks_typecheck');
+const signingGrantId = SigningSessionIds.signingGrant('grant-typecheck');
+const thresholdSessionId = SigningSessionIds.thresholdEd25519Session('tsess-typecheck');
+const signerSlot = parseSignerSlot(1);
+if (!signerSlot) throw new Error('signerSlot fixture is invalid');
 
-type EmailOtpEcdsaSigningLookupArgs = Parameters<
-  typeof getEmailOtpThresholdEcdsaSessionRecordForSigning
->[1];
-type EmailOtpEcdsaKeyRefLookupArgs = Parameters<
-  typeof getEmailOtpThresholdEcdsaKeyRefForSigning
->[1];
-type PasskeyEcdsaSigningLookupArgs = Parameters<
-  typeof getPasskeyThresholdEcdsaSessionRecordForSigning
->[1];
-type PasskeyEcdsaKeyRefLookupArgs = Parameters<
-  typeof getPasskeyThresholdEcdsaKeyRefForSigning
->[1];
-
-const emailOtpLookupArgs: EmailOtpEcdsaSigningLookupArgs = {
+const exactLaneKey: ThresholdEd25519SessionRecordKey = {
   walletId,
-  chainTarget,
+  nearAccountId,
+  nearEd25519SigningKeyId,
+  authMethod: 'passkey',
+  signingGrantId,
+  thresholdSessionId,
+  signerSlot,
 };
-void emailOtpLookupArgs;
 
-const emailOtpKeyRefLookupArgs: EmailOtpEcdsaKeyRefLookupArgs = {
+clearStoredThresholdEd25519SessionRecordForLaneKey(exactLaneKey);
+serializeThresholdEd25519SessionLaneKey(exactLaneKey);
+
+// Boundary builders can normalize raw input into the exact lane-key type.
+clearStoredThresholdEd25519SessionRecordForLaneKey(
+  buildThresholdEd25519SessionRecordKey({
+    walletId: 'frost-typecheck-k7p9m2',
+    nearAccountId: 'c'.repeat(64),
+    nearEd25519SigningKeyId: 'ed25519ks_typecheck',
+    authMethod: 'passkey',
+    signingGrantId: 'grant-typecheck',
+    thresholdSessionId: 'tsess-typecheck',
+    signerSlot: 1,
+  }),
+);
+
+const rawLaneKeyBag = {
+  walletId: 'frost-typecheck-k7p9m2',
+  nearAccountId: 'c'.repeat(64),
+  nearEd25519SigningKeyId: 'ed25519ks_typecheck',
+  authMethod: 'passkey',
+  signingGrantId: 'grant-typecheck',
+  thresholdSessionId: 'tsess-typecheck',
+  signerSlot: 1,
+};
+
+// @ts-expect-error exact lane clearing rejects raw string bags.
+clearStoredThresholdEd25519SessionRecordForLaneKey(rawLaneKeyBag);
+
+const wrongGrantLaneKey: ThresholdEd25519SessionRecordKey = {
   walletId,
-  chainTarget,
+  nearAccountId,
+  nearEd25519SigningKeyId,
+  authMethod: 'passkey',
+  // @ts-expect-error signingGrantId cannot be a threshold Ed25519 session id.
+  signingGrantId: thresholdSessionId,
+  thresholdSessionId,
+  signerSlot,
 };
-void emailOtpKeyRefLookupArgs;
+void wrongGrantLaneKey;
 
-const passkeyLookupArgs: PasskeyEcdsaSigningLookupArgs = {
+const wrongSessionLaneKey: ThresholdEd25519SessionRecordKey = {
   walletId,
-  chainTarget,
-  source: 'login',
+  nearAccountId,
+  nearEd25519SigningKeyId,
+  authMethod: 'passkey',
+  signingGrantId,
+  // @ts-expect-error thresholdSessionId cannot be a signing grant id.
+  thresholdSessionId: signingGrantId,
+  signerSlot,
 };
-void passkeyLookupArgs;
+void wrongSessionLaneKey;
 
-const passkeyKeyRefLookupArgs: PasskeyEcdsaKeyRefLookupArgs = {
+const wrongSlotLaneKey: ThresholdEd25519SessionRecordKey = {
   walletId,
-  chainTarget,
-  source: 'login',
+  nearAccountId,
+  nearEd25519SigningKeyId,
+  authMethod: 'passkey',
+  signingGrantId,
+  thresholdSessionId,
+  // @ts-expect-error signerSlot must come from the positive signer-slot parser.
+  signerSlot: 1,
 };
-void passkeyKeyRefLookupArgs;
+void wrongSlotLaneKey;
 
-const invalidEmailOtpLookupArgs: EmailOtpEcdsaSigningLookupArgs = {
-  // @ts-expect-error ECDSA signing record lookup requires WalletId.
-  walletId: 'alice.testnet',
-  chainTarget,
-};
-void invalidEmailOtpLookupArgs;
+const weakAccountId: AccountId = 'c'.repeat(64);
 
-const invalidPasskeyLookupArgs: PasskeyEcdsaSigningLookupArgs = {
-  // @ts-expect-error ECDSA signing record lookup requires WalletId.
-  walletId: 'alice.testnet',
-  chainTarget,
-  source: 'login',
-};
-void invalidPasskeyLookupArgs;
+serializeThresholdEd25519SessionLaneKey({
+  ...exactLaneKey,
+  // @ts-expect-error lane-key serialization requires the strict account id brand.
+  nearAccountId: weakAccountId,
+});
 
-// @ts-expect-error raw ECDSA records must be parsed before core consumers receive them.
-const rawRecordAsNormalizedRecord: ThresholdEcdsaSessionRecord = rawEcdsaRecord;
-void rawRecordAsNormalizedRecord;
-
-const parsedRecord: ThresholdEcdsaSessionRecord =
-  parseRawThresholdEcdsaSessionRecord(rawEcdsaRecord);
-void parsedRecord;
+export {};

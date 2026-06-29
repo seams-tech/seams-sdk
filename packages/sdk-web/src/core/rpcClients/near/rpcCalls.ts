@@ -159,7 +159,7 @@ export async function waitForAccessKeyAbsent(
  *
  * Used to short-circuit UX flows (e.g. registration) before prompting the user.
  * Returns `false` on unknown/non-deterministic failures so that downstream flows
- * can rely on the relay/contract for final enforcement.
+ * can rely on the Router API/contract for final enforcement.
  */
 export async function checkNearAccountExistsBestEffort(
   nearClient: NearClient,
