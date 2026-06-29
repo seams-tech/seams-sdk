@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_policies (
+CREATE TABLE IF NOT EXISTS policies (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -20,20 +20,20 @@ CREATE TABLE IF NOT EXISTS console_policies (
   CHECK (json_valid(rules_json))
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_policies_namespace_id_uidx
-  ON console_policies (namespace, id);
+CREATE UNIQUE INDEX IF NOT EXISTS policies_namespace_id_uidx
+  ON policies (namespace, id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_policies_org_system_default_uidx
-  ON console_policies (namespace, org_id)
+CREATE UNIQUE INDEX IF NOT EXISTS policies_org_system_default_uidx
+  ON policies (namespace, org_id)
   WHERE is_system_default = 1;
 
-CREATE INDEX IF NOT EXISTS console_policies_org_updated_idx
-  ON console_policies (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS policies_org_updated_idx
+  ON policies (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_policies_org_status_idx
-  ON console_policies (namespace, org_id, status);
+CREATE INDEX IF NOT EXISTS policies_org_status_idx
+  ON policies (namespace, org_id, status);
 
-CREATE TABLE IF NOT EXISTS console_policy_versions (
+CREATE TABLE IF NOT EXISTS policy_versions (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   policy_id TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS console_policy_versions (
   actor_user_id TEXT NOT NULL,
   PRIMARY KEY (namespace, org_id, policy_id, version),
   FOREIGN KEY (namespace, org_id, policy_id)
-    REFERENCES console_policies(namespace, org_id, id)
+    REFERENCES policies(namespace, org_id, id)
     ON DELETE CASCADE,
   CHECK (kind IN ('TRANSACTION', 'GAS_SPONSORSHIP')),
   CHECK (status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
@@ -54,10 +54,10 @@ CREATE TABLE IF NOT EXISTS console_policy_versions (
   CHECK (json_valid(rules_json))
 );
 
-CREATE INDEX IF NOT EXISTS console_policy_versions_org_policy_created_idx
-  ON console_policy_versions (namespace, org_id, policy_id, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS policy_versions_org_policy_created_idx
+  ON policy_versions (namespace, org_id, policy_id, created_at_ms DESC);
 
-CREATE TABLE IF NOT EXISTS console_policy_assignments (
+CREATE TABLE IF NOT EXISTS policy_assignments (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -69,13 +69,13 @@ CREATE TABLE IF NOT EXISTS console_policy_assignments (
   PRIMARY KEY (namespace, org_id, id),
   UNIQUE (namespace, org_id, scope_type, scope_id),
   FOREIGN KEY (namespace, org_id, policy_id)
-    REFERENCES console_policies(namespace, org_id, id)
+    REFERENCES policies(namespace, org_id, id)
     ON DELETE CASCADE,
   CHECK (scope_type IN ('ORG', 'PROJECT', 'ENVIRONMENT', 'WALLET'))
 );
 
-CREATE INDEX IF NOT EXISTS console_policy_assignments_org_updated_idx
-  ON console_policy_assignments (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS policy_assignments_org_updated_idx
+  ON policy_assignments (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_policy_assignments_org_scope_idx
-  ON console_policy_assignments (namespace, org_id, scope_type, scope_id);
+CREATE INDEX IF NOT EXISTS policy_assignments_org_scope_idx
+  ON policy_assignments (namespace, org_id, scope_type, scope_id);

@@ -4,8 +4,15 @@ import {
   type ConsoleWebhookEventCategory,
 } from '@shared/console/webhookEventCategories';
 import type { NormalizedLogger } from '../../core/logger';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Integer as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  queryD1All as queryRows,
+  queryD1One as queryFirstRow,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleWebhookError } from './errors';
 import {
   appendConsoleWebhookObservabilitySignals,
@@ -53,7 +60,6 @@ import type {
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
 
-type D1Row = Record<string, unknown>;
 
 const WEBHOOK_SECRET_ENVELOPE_VERSION = 'console-webhook-secret:aes-gcm:v1';
 const WEBHOOK_SECRET_AAD_DOMAIN = 'seams/console-webhook-secret/aes-gcm/v1';
@@ -184,7 +190,7 @@ export interface D1ConsoleWebhookRetryDispatchResult {
 
 export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_webhook_endpoints (
+    CREATE TABLE IF NOT EXISTS webhook_endpoints (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -198,27 +204,39 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(id) > 0),
+      CHECK (url GLOB 'http://*' OR url GLOB 'https://*'),
       CHECK (status IN ('ACTIVE', 'DISABLED')),
       CHECK (length(signing_secret_ciphertext_b64u) > 0),
+      CHECK (signing_secret_ciphertext_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
       CHECK (length(signing_secret_key_id) > 0),
       CHECK (length(signing_secret_envelope_version) > 0),
-      CHECK (secret_version > 0)
+      CHECK (secret_version > 0),
+      CHECK (length(secret_preview) > 0),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms >= created_at_ms)
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_webhook_endpoint_categories (
+    CREATE TABLE IF NOT EXISTS webhook_endpoint_categories (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       endpoint_id TEXT NOT NULL,
       category TEXT NOT NULL,
       PRIMARY KEY (namespace, org_id, endpoint_id, category),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(endpoint_id) > 0),
+      CHECK (category IN ('wallet', 'policy', 'auth', 'tx', 'billing', 'session')),
       FOREIGN KEY (namespace, org_id, endpoint_id)
-        REFERENCES console_webhook_endpoints(namespace, org_id, id)
+        REFERENCES webhook_endpoints(namespace, org_id, id)
         ON DELETE CASCADE
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_webhook_deliveries (
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -244,12 +262,12 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       CHECK (replay_count >= 0),
       CHECK (json_valid(payload_json)),
       FOREIGN KEY (namespace, org_id, endpoint_id)
-        REFERENCES console_webhook_endpoints(namespace, org_id, id)
+        REFERENCES webhook_endpoints(namespace, org_id, id)
         ON DELETE CASCADE
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_webhook_attempts (
+    CREATE TABLE IF NOT EXISTS webhook_attempts (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -268,12 +286,12 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       CHECK (status IN ('SUCCEEDED', 'FAILED')),
       CHECK (is_replay IN (0, 1)),
       FOREIGN KEY (namespace, org_id, delivery_id)
-        REFERENCES console_webhook_deliveries(namespace, org_id, id)
+        REFERENCES webhook_deliveries(namespace, org_id, id)
         ON DELETE CASCADE
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_webhook_dead_letters (
+    CREATE TABLE IF NOT EXISTS webhook_dead_letters (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -292,29 +310,29 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       CHECK (failed_attempts > 0),
       CHECK (json_valid(payload_json)),
       FOREIGN KEY (namespace, org_id, delivery_id)
-        REFERENCES console_webhook_deliveries(namespace, org_id, id)
+        REFERENCES webhook_deliveries(namespace, org_id, id)
         ON DELETE CASCADE
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_endpoints_org_created_idx
-      ON console_webhook_endpoints (namespace, org_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS webhook_endpoints_org_created_idx
+      ON webhook_endpoints (namespace, org_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_endpoint_categories_lookup_idx
-      ON console_webhook_endpoint_categories (namespace, org_id, category, endpoint_id)
+    CREATE INDEX IF NOT EXISTS webhook_endpoint_categories_lookup_idx
+      ON webhook_endpoint_categories (namespace, org_id, category, endpoint_id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_deliveries_endpoint_page_idx
-      ON console_webhook_deliveries (namespace, org_id, endpoint_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS webhook_deliveries_endpoint_page_idx
+      ON webhook_deliveries (namespace, org_id, endpoint_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_deliveries_event_idx
-      ON console_webhook_deliveries (namespace, org_id, event_id)
+    CREATE INDEX IF NOT EXISTS webhook_deliveries_event_idx
+      ON webhook_deliveries (namespace, org_id, event_id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_deliveries_retry_claim_idx
-      ON console_webhook_deliveries (
+    CREATE INDEX IF NOT EXISTS webhook_deliveries_retry_claim_idx
+      ON webhook_deliveries (
         namespace,
         org_id,
         status,
@@ -325,20 +343,20 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_attempts_endpoint_page_idx
-      ON console_webhook_attempts (namespace, org_id, endpoint_id, attempted_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS webhook_attempts_endpoint_page_idx
+      ON webhook_attempts (namespace, org_id, endpoint_id, attempted_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_attempts_endpoint_delivery_page_idx
-      ON console_webhook_attempts (namespace, org_id, endpoint_id, delivery_id, attempted_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS webhook_attempts_endpoint_delivery_page_idx
+      ON webhook_attempts (namespace, org_id, endpoint_id, delivery_id, attempted_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_dead_letters_endpoint_page_idx
-      ON console_webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS webhook_dead_letters_endpoint_page_idx
+      ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_webhook_dead_letters_unresolved_endpoint_page_idx
-      ON console_webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS webhook_dead_letters_unresolved_endpoint_page_idx
+      ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
       WHERE resolved_at_ms IS NULL
   `,
 ] as const);
@@ -407,10 +425,6 @@ function toIso(ms: number | null): string | null {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -442,9 +456,6 @@ function normalizeWebhookRetryOrgIds(orgIds: readonly string[] | undefined): str
   return out;
 }
 
-function d1Changes(result: D1ResultLike): number {
-  return toNumber(result.meta?.changes);
-}
 
 function computeWebhookRetryBackoffMs(input: {
   readonly attemptCount: number;
@@ -822,23 +833,6 @@ class AesGcmConsoleWebhookSecretCipher implements ConsoleWebhookSecretCipher {
   }
 }
 
-async function queryRows(
-  database: D1DatabaseLike,
-  sql: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const out = await database.prepare(sql).bind(...values).all<D1Row>();
-  return out.results || [];
-}
-
-async function queryFirstRow(
-  database: D1DatabaseLike,
-  sql: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(sql).bind(...values).first<D1Row>();
-}
-
 async function countUnresolvedDeadLetters(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -848,7 +842,7 @@ async function countUnresolvedDeadLetters(input: {
   const row = await queryFirstRow(
     input.database,
     `SELECT COUNT(*) AS count
-       FROM console_webhook_dead_letters
+       FROM webhook_dead_letters
       WHERE namespace = ?
         AND org_id = ?
         AND endpoint_id = ?
@@ -867,7 +861,7 @@ async function listEndpointCategories(input: {
   const rows = await queryRows(
     input.database,
     `SELECT category
-       FROM console_webhook_endpoint_categories
+       FROM webhook_endpoint_categories
       WHERE namespace = ?
         AND org_id = ?
         AND endpoint_id = ?
@@ -905,7 +899,7 @@ async function findEndpoint(input: {
   const row = await queryFirstRow(
     input.database,
     `SELECT *
-       FROM console_webhook_endpoints
+       FROM webhook_endpoints
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?`,
@@ -929,7 +923,7 @@ async function findDelivery(input: {
   const row = await queryFirstRow(
     input.database,
     `SELECT *
-       FROM console_webhook_deliveries
+       FROM webhook_deliveries
       WHERE namespace = ?
         AND org_id = ?
         AND endpoint_id = ?
@@ -948,7 +942,7 @@ async function findLatestReplayableDelivery(input: {
   const row = await queryFirstRow(
     input.database,
     `SELECT *
-       FROM console_webhook_deliveries
+       FROM webhook_deliveries
       WHERE namespace = ?
         AND org_id = ?
         AND endpoint_id = ?
@@ -1049,7 +1043,7 @@ async function persistDeliveryAttempt(
       ? await queryFirstRow(
           state.database,
           `SELECT *
-             FROM console_webhook_dead_letters
+             FROM webhook_dead_letters
             WHERE namespace = ?
               AND org_id = ?
               AND delivery_id = ?`,
@@ -1060,7 +1054,7 @@ async function persistDeliveryAttempt(
   const statements = [
     state.database
       .prepare(
-        `INSERT INTO console_webhook_attempts
+        `INSERT INTO webhook_attempts
           (namespace, org_id, id, endpoint_id, delivery_id, attempt_no, status, response_status, response_body, error_message, attempted_at_ms, is_replay)
          VALUES
           (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1081,7 +1075,7 @@ async function persistDeliveryAttempt(
       ),
     state.database
       .prepare(
-        `UPDATE console_webhook_deliveries
+        `UPDATE webhook_deliveries
             SET status = ?,
                 attempt_count = attempt_count + 1,
                 replay_count = replay_count + ?,
@@ -1117,7 +1111,7 @@ async function persistDeliveryAttempt(
     statements.push(
       state.database
         .prepare(
-          `INSERT INTO console_webhook_dead_letters
+          `INSERT INTO webhook_dead_letters
             (namespace, org_id, id, endpoint_id, delivery_id, event_id, event_type,
              failed_attempts, last_response_status, last_error_message, payload_json, moved_to_dlq_at_ms, resolved_at_ms)
            VALUES
@@ -1150,7 +1144,7 @@ async function persistDeliveryAttempt(
     statements.push(
       state.database
         .prepare(
-          `UPDATE console_webhook_dead_letters
+          `UPDATE webhook_dead_letters
               SET resolved_at_ms = ?
             WHERE namespace = ?
               AND org_id = ?
@@ -1242,7 +1236,7 @@ async function listD1WebhookRetryEndpoints(input: {
   const rows = await queryRows(
     input.database,
     `SELECT *
-       FROM console_webhook_endpoints
+       FROM webhook_endpoints
       WHERE namespace = ?
         AND org_id = ?
         AND status = 'ACTIVE'`,
@@ -1271,7 +1265,7 @@ async function listD1WebhookRetryCandidates(input: {
   const rows = await queryRows(
     input.database,
     `SELECT *
-       FROM console_webhook_deliveries
+       FROM webhook_deliveries
       WHERE namespace = ?
         AND org_id = ?
         AND status = 'FAILED'
@@ -1299,7 +1293,7 @@ async function claimD1WebhookRetryDelivery(input: {
 }): Promise<StoredWebhookDelivery | null> {
   const result = await input.database
     .prepare(
-      `UPDATE console_webhook_deliveries
+      `UPDATE webhook_deliveries
           SET retry_claimed_by = ?,
               retry_claim_expires_at_ms = ?
         WHERE namespace = ?
@@ -1322,7 +1316,7 @@ async function claimD1WebhookRetryDelivery(input: {
       input.nowMs,
     )
     .run();
-  if (d1Changes(result) < 1) return null;
+  if (d1ChangedRows(result) < 1) return null;
   const claimed = await findDelivery({
     database: input.database,
     namespace: input.namespace,
@@ -1586,7 +1580,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const rows = await queryRows(
       this.state.database,
       `SELECT *
-         FROM console_webhook_endpoints
+         FROM webhook_endpoints
         WHERE namespace = ?
           AND org_id = ?
         ORDER BY created_at_ms DESC, id DESC`,
@@ -1624,7 +1618,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     await this.state.database.batch([
       this.state.database
         .prepare(
-          `INSERT INTO console_webhook_endpoints
+          `INSERT INTO webhook_endpoints
             (namespace, org_id, id, url, status, signing_secret_ciphertext_b64u,
              signing_secret_key_id, signing_secret_envelope_version, secret_version,
              secret_preview, created_at_ms, updated_at_ms)
@@ -1647,7 +1641,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
       ...eventCategories.map((category) =>
         this.state.database
           .prepare(
-            `INSERT INTO console_webhook_endpoint_categories
+            `INSERT INTO webhook_endpoint_categories
               (namespace, org_id, endpoint_id, category)
              VALUES
               (?, ?, ?, ?)`,
@@ -1690,7 +1684,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const statements = [
       this.state.database
         .prepare(
-          `UPDATE console_webhook_endpoints
+          `UPDATE webhook_endpoints
               SET url = ?,
                   status = ?,
                   updated_at_ms = ?
@@ -1701,7 +1695,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
         .bind(nextUrl, nextStatus, nowMs(now), this.state.namespace, ctx.orgId, endpointId),
       this.state.database
         .prepare(
-          `DELETE FROM console_webhook_endpoint_categories
+          `DELETE FROM webhook_endpoint_categories
             WHERE namespace = ?
               AND org_id = ?
               AND endpoint_id = ?`,
@@ -1710,7 +1704,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
       ...nextEventCategories.map((category) =>
         this.state.database
           .prepare(
-            `INSERT INTO console_webhook_endpoint_categories
+            `INSERT INTO webhook_endpoint_categories
               (namespace, org_id, endpoint_id, category)
              VALUES
               (?, ?, ?, ?)`,
@@ -1742,7 +1736,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     await this.state.database.batch([
       this.state.database
         .prepare(
-          `DELETE FROM console_webhook_endpoint_categories
+          `DELETE FROM webhook_endpoint_categories
             WHERE namespace = ?
               AND org_id = ?
               AND endpoint_id = ?`,
@@ -1750,7 +1744,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
         .bind(this.state.namespace, ctx.orgId, endpointId),
       this.state.database
         .prepare(
-          `DELETE FROM console_webhook_attempts
+          `DELETE FROM webhook_attempts
             WHERE namespace = ?
               AND org_id = ?
               AND endpoint_id = ?`,
@@ -1758,7 +1752,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
         .bind(this.state.namespace, ctx.orgId, endpointId),
       this.state.database
         .prepare(
-          `DELETE FROM console_webhook_dead_letters
+          `DELETE FROM webhook_dead_letters
             WHERE namespace = ?
               AND org_id = ?
               AND endpoint_id = ?`,
@@ -1766,7 +1760,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
         .bind(this.state.namespace, ctx.orgId, endpointId),
       this.state.database
         .prepare(
-          `DELETE FROM console_webhook_deliveries
+          `DELETE FROM webhook_deliveries
             WHERE namespace = ?
               AND org_id = ?
               AND endpoint_id = ?`,
@@ -1774,7 +1768,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
         .bind(this.state.namespace, ctx.orgId, endpointId),
       this.state.database
         .prepare(
-          `DELETE FROM console_webhook_endpoints
+          `DELETE FROM webhook_endpoints
             WHERE namespace = ?
               AND org_id = ?
               AND id = ?`,
@@ -1805,7 +1799,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const rows = await queryRows(
       this.state.database,
       `SELECT *
-         FROM console_webhook_deliveries
+         FROM webhook_deliveries
         WHERE namespace = ?
           AND org_id = ?
           AND endpoint_id = ?${cursorClause}
@@ -1865,7 +1859,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const rows = await queryRows(
       this.state.database,
       `SELECT *
-         FROM console_webhook_attempts
+         FROM webhook_attempts
         WHERE ${whereSql}
         ORDER BY attempted_at_ms DESC, id DESC
         LIMIT ?`,
@@ -1926,7 +1920,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const rows = await queryRows(
       this.state.database,
       `SELECT *
-         FROM console_webhook_dead_letters
+         FROM webhook_dead_letters
         WHERE ${whereSql}
         ORDER BY moved_to_dlq_at_ms DESC, id DESC
         LIMIT ?`,
@@ -2040,8 +2034,8 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const endpointRows = await queryRows(
       this.state.database,
       `SELECT e.*
-         FROM console_webhook_endpoints e
-         JOIN console_webhook_endpoint_categories c
+         FROM webhook_endpoints e
+         JOIN webhook_endpoint_categories c
            ON c.namespace = e.namespace
           AND c.org_id = e.org_id
           AND c.endpoint_id = e.id
@@ -2089,7 +2083,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
       };
       await this.state.database
         .prepare(
-          `INSERT INTO console_webhook_deliveries
+          `INSERT INTO webhook_deliveries
             (namespace, org_id, id, endpoint_id, event_id, event_type, status,
              attempt_count, replay_count, response_status, response_body, error_message,
              payload_json, delivered_at_ms, last_attempt_at_ms, created_at_ms, updated_at_ms)

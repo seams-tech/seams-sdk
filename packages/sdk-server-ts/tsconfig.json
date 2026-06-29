@@ -19,7 +19,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "baseUrl": ".",
-    "types": ["node", "pg"],
+    "types": ["node", "express"],
     "typeRoots": [
       "./node_modules/@types",
       "../node_modules/@types",
@@ -33,7 +33,7 @@
       "@shared/*": ["../shared-ts/src/*"],
       "@server": ["src/index.ts"],
       "@server/*": ["src/*"],
-      "pg": ["../../node_modules/@types/pg/index.d.ts", "../sdk-web/node_modules/@types/pg/index.d.ts"],
+      "express": ["./node_modules/@types/express/index.d.ts"],
       "*": ["./node_modules/*", "../node_modules/*", "../../node_modules/*"]
     }
   },

@@ -11,7 +11,7 @@ import type {
   ConsoleOnboardingTelemetrySnapshot,
 } from '../console/onboarding';
 import type { ConsoleWebhookDeadLetter, ConsoleWebhookService } from '../console/webhooks';
-import type { ConsoleAuthClaims } from './console';
+import type { ConsoleAuthClaims } from './consoleAuth';
 import type { NormalizedRouterLogger } from './logger';
 
 type ConsoleOpsCockpitSectionState = 'ok' | 'not_configured' | 'forbidden' | 'error';
@@ -401,4 +401,3 @@ export async function buildConsoleOpsCockpitSummary(
 
   return summary;
 }
-

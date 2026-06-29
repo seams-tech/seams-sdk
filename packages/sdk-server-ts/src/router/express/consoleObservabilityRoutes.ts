@@ -6,7 +6,7 @@ import {
   parseListConsoleObservabilityServicesRequest,
   type ConsoleObservabilityService,
 } from '../../console/observability';
-import type { ConsoleAuthClaims } from '../console';
+import type { ConsoleAuthClaims } from '../consoleAuth';
 
 export interface ExpressConsoleObservabilityRouteContext {
   observability: ConsoleObservabilityService | null;

@@ -1,8 +1,11 @@
 import type { NormalizedLogger } from './logger';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import {
+  formatD1ExecStatement,
+  parseD1JsonColumn,
+  resolveD1DatabaseFromConfig,
+} from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type RecoverySessionStatus =
   | 'prepared'
@@ -76,7 +79,7 @@ type D1RecoverySessionRow = {
 
 export const RECOVERY_SESSION_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_recovery_sessions (
+    CREATE TABLE IF NOT EXISTS recovery_sessions (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -88,17 +91,42 @@ export const RECOVERY_SESSION_STORE_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, project_id, env_id, session_id),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(project_id) > 0),
+      CHECK (length(env_id) > 0),
       CHECK (length(session_id) > 0),
       CHECK (length(near_account_id) > 0),
       CHECK (json_valid(record_json)),
       CHECK (expires_at_ms > 0),
       CHECK (created_at_ms > 0),
-      CHECK (updated_at_ms > 0)
+      CHECK (updated_at_ms >= created_at_ms),
+      CHECK (expires_at_ms > created_at_ms),
+      CHECK (COALESCE(json_extract(record_json, '$.version') = 'recovery_session_v1', 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.sessionId') = session_id, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.nearAccountId') = near_account_id, 0)),
+      CHECK (
+        COALESCE(
+          json_extract(record_json, '$.status') IN (
+            'prepared',
+            'verified',
+            'near_recovered',
+            'evm_recovering',
+            'completed',
+            'failed',
+            'cancelled'
+          ),
+          0
+        )
+      ),
+      CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_recovery_sessions_near_account_idx
-      ON signer_recovery_sessions (
+    CREATE INDEX IF NOT EXISTS recovery_sessions_near_account_idx
+      ON recovery_sessions (
         namespace,
         org_id,
         project_id,
@@ -108,8 +136,8 @@ export const RECOVERY_SESSION_STORE_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_recovery_sessions_expiry_idx
-      ON signer_recovery_sessions (
+    CREATE INDEX IF NOT EXISTS recovery_sessions_expiry_idx
+      ON recovery_sessions (
         namespace,
         org_id,
         project_id,
@@ -239,31 +267,6 @@ function defaultNow(): Date {
   return new Date();
 }
 
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
-}
-
 function requireD1ScopeString(input: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(input);
   if (!normalized) throw new Error(`${field} is required for D1 recovery session store`);
@@ -373,7 +376,7 @@ export class D1RecoverySessionStore implements RecoverySessionStore {
     if (!id) return null;
     const row = await this.bindScope(
       `SELECT record_json
-         FROM signer_recovery_sessions
+         FROM recovery_sessions
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -382,7 +385,7 @@ export class D1RecoverySessionStore implements RecoverySessionStore {
         LIMIT 1`,
       [id],
     ).first<D1RecoverySessionRow>();
-    const parsed = parseRecoverySessionRecord(parseD1RecordJson(row?.record_json));
+    const parsed = parseRecoverySessionRecord(parseD1JsonColumn(row?.record_json));
     if (!parsed) return null;
     if (this.now().getTime() > parsed.expiresAtMs) return null;
     return parsed;
@@ -393,7 +396,7 @@ export class D1RecoverySessionStore implements RecoverySessionStore {
     const parsed = parseRecoverySessionRecord(record);
     if (!parsed) throw new Error('Invalid recovery session record');
     await this.bindScope(
-      `INSERT INTO signer_recovery_sessions (
+      `INSERT INTO recovery_sessions (
         namespace,
         org_id,
         project_id,
@@ -429,7 +432,7 @@ export class D1RecoverySessionStore implements RecoverySessionStore {
     if (!accountId) return [];
     const result = await this.bindScope(
       `SELECT record_json
-         FROM signer_recovery_sessions
+         FROM recovery_sessions
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -439,89 +442,8 @@ export class D1RecoverySessionStore implements RecoverySessionStore {
       [accountId],
     ).all<D1RecoverySessionRow>();
     return (result.results || [])
-      .map((row) => parseRecoverySessionRecord(parseD1RecordJson(row.record_json)))
+      .map((row) => parseRecoverySessionRecord(parseD1JsonColumn(row.record_json)))
       .filter((record): record is RecoverySessionRecord => Boolean(record));
-  }
-}
-
-class PostgresRecoverySessionStore implements RecoverySessionStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async get(sessionId: string): Promise<RecoverySessionRecord | null> {
-    const id = toOptionalTrimmedString(sessionId);
-    if (!id) return null;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM recovery_sessions
-        WHERE namespace = $1 AND session_id = $2
-      `,
-      [this.namespace, id],
-    );
-    const parsed = parseRecoverySessionRecord((rows[0] as { record_json?: unknown } | undefined)?.record_json);
-    if (!parsed) return null;
-    if (Date.now() > parsed.expiresAtMs) return null;
-    return parsed;
-  }
-
-  async put(record: RecoverySessionRecord): Promise<void> {
-    const parsed = parseRecoverySessionRecord(record);
-    if (!parsed) throw new Error('Invalid recovery session record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO recovery_sessions (
-          namespace,
-          session_id,
-          near_account_id,
-          record_json,
-          expires_at_ms,
-          created_at_ms,
-          updated_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (namespace, session_id)
-        DO UPDATE SET
-          near_account_id = EXCLUDED.near_account_id,
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms,
-          updated_at_ms = EXCLUDED.updated_at_ms
-      `,
-      [
-        this.namespace,
-        parsed.sessionId,
-        parsed.nearAccountId,
-        parsed,
-        parsed.expiresAtMs,
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      ],
-    );
-  }
-
-  async listByNearAccountId(nearAccountId: string): Promise<RecoverySessionRecord[]> {
-    const accountId = toOptionalTrimmedString(nearAccountId);
-    if (!accountId) return [];
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM recovery_sessions
-        WHERE namespace = $1 AND near_account_id = $2
-        ORDER BY updated_at_ms DESC
-      `,
-      [this.namespace, accountId],
-    );
-    return rows
-      .map((row) => parseRecoverySessionRecord((row as { record_json?: unknown }).record_json))
-      .filter(Boolean) as RecoverySessionRecord[];
   }
 }
 
@@ -531,7 +453,6 @@ export function createRecoverySessionStore(input: {
   isNode: boolean;
 }): RecoverySessionStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const postgresUrl = getPostgresUrlFromConfig(config);
   const namespace =
     toOptionalTrimmedString(config.RECOVERY_SESSION_NAMESPACE) ||
     toOptionalTrimmedString(config.THRESHOLD_PREFIX) ||
@@ -552,15 +473,7 @@ export function createRecoverySessionStore(input: {
     });
   }
 
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[recovery-sessions] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[recovery-sessions] Using Postgres store for recovery sessions');
-    return new PostgresRecoverySessionStore({ postgresUrl, namespace });
-  }
+  if (kind) throw new Error(`[recovery-sessions] Unknown recovery session store kind: ${kind}`);
 
   input.logger.info('[recovery-sessions] Using in-memory store for recovery sessions');
   return new InMemoryRecoverySessionStore();

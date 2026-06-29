@@ -7,11 +7,7 @@ import {
   THRESHOLD_PREFIX_DEFAULT,
 } from './defaultConfigsServer';
 import type { NormalizedLogger } from './logger';
-import {
-  getPostgresPool,
-  getPostgresUrlFromConfig,
-  type PgQueryExecutor,
-} from '../storage/postgres';
+import { resolveD1DatabaseFromConfig } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
@@ -61,22 +57,6 @@ export function resolveWalletAuthMethodStoreNamespace(
   return `${toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`)}wallet-auth-method:`;
 }
 
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
-}
-
 function requireD1ScopeString(input: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(input);
   if (!normalized) throw new Error(`${field} is required for D1 wallet auth-method store`);
@@ -93,67 +73,6 @@ function d1ScopeFromConfig(input: {
     projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
     envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
   };
-}
-
-export async function putWalletAuthMethodWithExecutor(input: {
-  executor: PgQueryExecutor;
-  namespace: string;
-  record: WalletAuthMethodRecord;
-}): Promise<void> {
-  const { record } = input;
-  await input.executor.query(
-    `
-      INSERT INTO wallet_auth_methods
-        (
-          namespace,
-          wallet_id,
-          rp_id,
-          kind,
-          status,
-          wallet_auth_method_id,
-          auth_identifier_key,
-          credential_id_b64u,
-          credential_public_key_b64u,
-          signer_slot,
-          email_hash_hex,
-          challenge_id,
-          record_json,
-          created_at_ms,
-          updated_at_ms
-        )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, $11, $12::jsonb, $13, $14)
-      ON CONFLICT (namespace, wallet_auth_method_id) DO UPDATE SET
-        wallet_id = EXCLUDED.wallet_id,
-        rp_id = EXCLUDED.rp_id,
-        kind = EXCLUDED.kind,
-        status = EXCLUDED.status,
-        auth_identifier_key = EXCLUDED.auth_identifier_key,
-        credential_id_b64u = EXCLUDED.credential_id_b64u,
-        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
-        signer_slot = EXCLUDED.signer_slot,
-        email_hash_hex = EXCLUDED.email_hash_hex,
-        challenge_id = EXCLUDED.challenge_id,
-        record_json = EXCLUDED.record_json,
-        created_at_ms = LEAST(wallet_auth_methods.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(wallet_auth_methods.updated_at_ms, EXCLUDED.updated_at_ms)
-    `,
-    [
-      input.namespace,
-      record.walletId,
-      record.kind === 'passkey' ? record.rpId : null,
-      record.kind,
-      record.status,
-      walletAuthMethodId(record),
-      record.kind === 'passkey' ? record.credentialIdB64u : record.emailHashHex,
-      record.kind === 'passkey' ? record.credentialIdB64u : null,
-      record.kind === 'passkey' ? record.credentialPublicKeyB64u : null,
-      record.kind === 'email_otp' ? record.emailHashHex : null,
-      record.kind === 'email_otp' ? record.registrationAuthorityId : null,
-      JSON.stringify(record),
-      record.createdAtMs,
-      record.updatedAtMs,
-    ],
-  );
 }
 
 class InMemoryWalletAuthMethodStore implements WalletAuthMethodStore {
@@ -193,78 +112,6 @@ class InMemoryWalletAuthMethodStore implements WalletAuthMethodStore {
         record.walletId === input.walletId &&
         (record.kind === 'email_otp' || !input.rpId || record.rpId === input.rpId),
     );
-  }
-}
-
-class PostgresWalletAuthMethodStore implements WalletAuthMethodStore {
-  private readonly poolPromise: ReturnType<typeof getPostgresPool>;
-
-  constructor(private readonly input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-  }
-
-  async put(record: WalletAuthMethodRecord): Promise<void> {
-    const pool = await this.poolPromise;
-    await putWalletAuthMethodWithExecutor({
-      executor: pool,
-      namespace: this.input.namespace,
-      record,
-    });
-  }
-
-  async getPasskey(input: {
-    rpId: string;
-    credentialIdB64u: string;
-  }): Promise<WalletAuthMethodRecord | null> {
-    const pool = await this.poolPromise;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_auth_methods
-        WHERE namespace = $1 AND wallet_auth_method_id = $2
-        LIMIT 1
-      `,
-      [this.input.namespace, `passkey:${input.rpId}:${input.credentialIdB64u}`],
-    );
-    return normalizeWalletAuthMethod(result.rows[0]?.record_json);
-  }
-
-  async getEmailOtp(input: {
-    walletId: string;
-    emailHashHex: string;
-  }): Promise<WalletAuthMethodRecord | null> {
-    const pool = await this.poolPromise;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_auth_methods
-        WHERE namespace = $1 AND wallet_auth_method_id = $2
-        LIMIT 1
-      `,
-      [this.input.namespace, `email_otp:${input.walletId}:${input.emailHashHex}`],
-    );
-    return normalizeWalletAuthMethod(result.rows[0]?.record_json);
-  }
-
-  async listForWallet(input: {
-    walletId: string;
-    rpId?: string;
-  }): Promise<WalletAuthMethodRecord[]> {
-    const pool = await this.poolPromise;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_auth_methods
-        WHERE namespace = $1
-          AND wallet_id = $2
-          AND (kind = 'email_otp' OR $3::text IS NULL OR rp_id = $3)
-        ORDER BY created_at_ms ASC
-      `,
-      [this.input.namespace, input.walletId, input.rpId || null],
-    );
-    return result.rows
-      .map((row) => normalizeWalletAuthMethod(row.record_json))
-      .filter((record): record is WalletAuthMethodRecord => Boolean(record));
   }
 }
 
@@ -422,17 +269,7 @@ export function createWalletAuthMethodStore(input: {
       prefix: namespace,
     });
   }
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (kind === 'postgres' || postgresUrl) {
-    if (!input.isNode) {
-      throw new Error('[wallet-auth-method] Postgres store is not supported in this runtime');
-    }
-    if (!postgresUrl) {
-      throw new Error('[wallet-auth-method] postgres store enabled but POSTGRES_URL is not set');
-    }
-    input.logger.info('[wallet-auth-method] Using Postgres store');
-    return new PostgresWalletAuthMethodStore({ postgresUrl, namespace });
-  }
+  if (kind) throw new Error(`[wallet-auth-method] Unknown wallet auth-method store kind: ${kind}`);
   input.logger.info('[wallet-auth-method] Using in-memory store');
   return new InMemoryWalletAuthMethodStore(namespace);
 }

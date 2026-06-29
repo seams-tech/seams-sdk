@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_billing_accounts (
+CREATE TABLE IF NOT EXISTS billing_accounts (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   credit_balance_minor INTEGER NOT NULL DEFAULT 0,
@@ -6,10 +6,14 @@ CREATE TABLE IF NOT EXISTS console_billing_accounts (
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id),
-  CHECK (low_balance_threshold_minor >= 0)
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (low_balance_threshold_minor >= 0),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms)
 );
 
-CREATE TABLE IF NOT EXISTS console_billing_ledger_entries (
+CREATE TABLE IF NOT EXISTS billing_ledger_entries (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -28,26 +32,51 @@ CREATE TABLE IF NOT EXISTS console_billing_ledger_entries (
   idempotency_key TEXT,
   created_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id, id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(id) > 0),
   CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL')),
+  CHECK (amount_minor != 0),
+  CHECK (
+    (entry_type = 'CREDIT_PURCHASE' AND amount_minor > 0)
+    OR (entry_type IN ('USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT') AND amount_minor < 0)
+    OR (entry_type IN ('MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL') AND amount_minor != 0)
+  ),
   CHECK (currency = 'USD'),
-  CHECK (actor_type IN ('USER', 'SYSTEM', 'PROVIDER'))
+  CHECK (length(description) > 0),
+  CHECK (
+    month_utc IS NULL
+    OR (
+      month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
+      AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
+    )
+  ),
+  CHECK (related_invoice_id IS NULL OR length(related_invoice_id) > 0),
+  CHECK (related_purchase_id IS NULL OR length(related_purchase_id) > 0),
+  CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
+  CHECK (actor_type IN ('USER', 'SYSTEM', 'PROVIDER')),
+  CHECK (actor_user_id IS NULL OR length(actor_user_id) > 0),
+  CHECK (reason_code IS NULL OR length(reason_code) > 0),
+  CHECK (note IS NULL OR length(note) > 0),
+  CHECK (idempotency_key IS NULL OR length(idempotency_key) > 0),
+  CHECK (created_at_ms > 0)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_billing_ledger_entries_idempotency_uidx
-  ON console_billing_ledger_entries (namespace, org_id, idempotency_key)
+CREATE UNIQUE INDEX IF NOT EXISTS billing_ledger_entries_idempotency_uidx
+  ON billing_ledger_entries (namespace, org_id, idempotency_key)
   WHERE idempotency_key IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_billing_ledger_entries_type_source_uidx
-  ON console_billing_ledger_entries (namespace, org_id, entry_type, source_event_id)
+CREATE UNIQUE INDEX IF NOT EXISTS billing_ledger_entries_type_source_uidx
+  ON billing_ledger_entries (namespace, org_id, entry_type, source_event_id)
   WHERE source_event_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS console_billing_ledger_entries_org_created_idx
-  ON console_billing_ledger_entries (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS billing_ledger_entries_org_created_idx
+  ON billing_ledger_entries (namespace, org_id, created_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_billing_ledger_entries_org_month_idx
-  ON console_billing_ledger_entries (namespace, org_id, month_utc, entry_type);
+CREATE INDEX IF NOT EXISTS billing_ledger_entries_org_month_idx
+  ON billing_ledger_entries (namespace, org_id, month_utc, entry_type);
 
-CREATE TABLE IF NOT EXISTS console_billing_ledger_postings (
+CREATE TABLE IF NOT EXISTS billing_ledger_postings (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -58,50 +87,65 @@ CREATE TABLE IF NOT EXISTS console_billing_ledger_postings (
   created_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id, id),
   FOREIGN KEY (namespace, org_id, ledger_entry_id)
-    REFERENCES console_billing_ledger_entries(namespace, org_id, id)
+    REFERENCES billing_ledger_entries(namespace, org_id, id)
     ON DELETE CASCADE,
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(id) > 0),
+  CHECK (length(ledger_entry_id) > 0),
+  CHECK (length(account_code) > 0),
   CHECK (direction IN ('DEBIT', 'CREDIT')),
-  CHECK (amount_minor >= 0)
+  CHECK (amount_minor > 0),
+  CHECK (created_at_ms > 0)
 );
 
-CREATE INDEX IF NOT EXISTS console_billing_ledger_postings_entry_idx
-  ON console_billing_ledger_postings (namespace, org_id, ledger_entry_id);
+CREATE INDEX IF NOT EXISTS billing_ledger_postings_entry_idx
+  ON billing_ledger_postings (namespace, org_id, ledger_entry_id);
 
-CREATE TABLE IF NOT EXISTS console_billing_monthly_active_wallets (
+CREATE TABLE IF NOT EXISTS billing_monthly_active_wallets (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   month_utc TEXT NOT NULL,
   wallet_id TEXT NOT NULL,
   source_event_id TEXT,
   created_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, month_utc, wallet_id)
+  PRIMARY KEY (namespace, org_id, month_utc, wallet_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (
+    month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
+    AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
+  ),
+  CHECK (length(wallet_id) > 0),
+  CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
+  CHECK (created_at_ms > 0)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_billing_monthly_active_wallets_source_uidx
-  ON console_billing_monthly_active_wallets (namespace, org_id, source_event_id)
+CREATE UNIQUE INDEX IF NOT EXISTS billing_monthly_active_wallets_source_uidx
+  ON billing_monthly_active_wallets (namespace, org_id, source_event_id)
   WHERE source_event_id IS NOT NULL;
 
-CREATE TRIGGER IF NOT EXISTS console_billing_ledger_entries_account_apply
-AFTER INSERT ON console_billing_ledger_entries
+CREATE TRIGGER IF NOT EXISTS billing_ledger_entries_account_apply
+AFTER INSERT ON billing_ledger_entries
 BEGIN
-  INSERT INTO console_billing_accounts
+  INSERT INTO billing_accounts
     (namespace, org_id, credit_balance_minor, low_balance_threshold_minor, created_at_ms, updated_at_ms)
   VALUES
     (NEW.namespace, NEW.org_id, 0, 2000, NEW.created_at_ms, NEW.created_at_ms)
   ON CONFLICT(namespace, org_id) DO NOTHING;
 
-  UPDATE console_billing_accounts
+  UPDATE billing_accounts
      SET credit_balance_minor = credit_balance_minor + NEW.amount_minor,
          updated_at_ms = NEW.created_at_ms
    WHERE namespace = NEW.namespace
      AND org_id = NEW.org_id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS console_billing_ledger_entries_sponsored_postings
-AFTER INSERT ON console_billing_ledger_entries
+CREATE TRIGGER IF NOT EXISTS billing_ledger_entries_sponsored_postings
+AFTER INSERT ON billing_ledger_entries
 WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' AND ABS(NEW.amount_minor) > 0
 BEGIN
-  INSERT INTO console_billing_ledger_postings
+  INSERT INTO billing_ledger_postings
     (namespace, org_id, id, ledger_entry_id, account_code, direction, amount_minor, created_at_ms)
   VALUES
     (NEW.namespace, NEW.org_id, NEW.id || ':debit_prepaid_liability', NEW.id, 'org_prepaid_liability', 'DEBIT', ABS(NEW.amount_minor), NEW.created_at_ms),

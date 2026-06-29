@@ -344,7 +344,7 @@ function normalizeNamespace(input: string): string {
 function normalizeBootstrapGrantTokenTtlMs(input: number | undefined): number {
   const ttlMs = Number(input || DEFAULT_BOOTSTRAP_GRANT_TOKEN_TTL_MS);
   if (!Number.isSafeInteger(ttlMs) || ttlMs < 1_000) {
-    throw new Error('D1 relay bootstrapGrantTokenTtlMs must be at least 1000');
+    throw new Error('D1 Router API bootstrapGrantTokenTtlMs must be at least 1000');
   }
   return ttlMs;
 }
@@ -412,7 +412,7 @@ function createCloudflareD1SigningRootSecretShareStore(
   return new SigningRootSecretShareSourceBridge(store);
 }
 
-function createCloudflareD1SigningRootShareDecryptAdapter(
+export function createCloudflareD1SigningRootShareDecryptAdapter(
   kekProvider: SigningRootKekProvider,
 ): SigningRootShareDecryptAdapter {
   return new SigningRootKekProviderDecryptAdapter(kekProvider);

@@ -17,15 +17,6 @@ export type {
 export { createInMemoryConsoleBootstrapTokenService } from './service';
 
 export type {
-  PostgresConsoleBootstrapTokenSchemaOptions,
-  PostgresConsoleBootstrapTokenServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleBootstrapTokensPostgresSchema,
-  createPostgresConsoleBootstrapTokenService,
-} from './postgres';
-
-export type {
   ConsoleBootstrapTokensD1Runtime,
   ConsoleBootstrapTokensD1Service,
   D1ConsoleBootstrapTokenSchemaOptions,

@@ -1,6 +1,14 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Integer as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonObjectColumn,
+  queryD1All,
+  queryD1One,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsolePolicyError } from './errors';
 import {
   normalizePolicyScopeType as normalizeScopeType,
@@ -36,8 +44,6 @@ import type {
   UpdateConsolePolicyRequest,
 } from './types';
 
-type D1Row = Record<string, unknown>;
-
 const DEFAULT_POLICY_NAME = 'Default Policy';
 const DEFAULT_POLICY_DESCRIPTION = 'Default policy profile for this organization';
 
@@ -72,7 +78,7 @@ interface D1ConsolePolicyState {
 
 export const CONSOLE_POLICY_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_policies (
+    CREATE TABLE IF NOT EXISTS policies (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -95,24 +101,24 @@ export const CONSOLE_POLICY_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_policies_namespace_id_uidx
-      ON console_policies (namespace, id)
+    CREATE UNIQUE INDEX IF NOT EXISTS policies_namespace_id_uidx
+      ON policies (namespace, id)
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_policies_org_system_default_uidx
-      ON console_policies (namespace, org_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS policies_org_system_default_uidx
+      ON policies (namespace, org_id)
       WHERE is_system_default = 1
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_policies_org_updated_idx
-      ON console_policies (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS policies_org_updated_idx
+      ON policies (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_policies_org_status_idx
-      ON console_policies (namespace, org_id, status)
+    CREATE INDEX IF NOT EXISTS policies_org_status_idx
+      ON policies (namespace, org_id, status)
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_policy_versions (
+    CREATE TABLE IF NOT EXISTS policy_versions (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       policy_id TEXT NOT NULL,
@@ -125,7 +131,7 @@ export const CONSOLE_POLICY_D1_SCHEMA_SQL = Object.freeze([
       actor_user_id TEXT NOT NULL,
       PRIMARY KEY (namespace, org_id, policy_id, version),
       FOREIGN KEY (namespace, org_id, policy_id)
-        REFERENCES console_policies(namespace, org_id, id)
+        REFERENCES policies(namespace, org_id, id)
         ON DELETE CASCADE,
       CHECK (kind IN ('TRANSACTION', 'GAS_SPONSORSHIP')),
       CHECK (status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
@@ -134,11 +140,11 @@ export const CONSOLE_POLICY_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_policy_versions_org_policy_created_idx
-      ON console_policy_versions (namespace, org_id, policy_id, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS policy_versions_org_policy_created_idx
+      ON policy_versions (namespace, org_id, policy_id, created_at_ms DESC)
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_policy_assignments (
+    CREATE TABLE IF NOT EXISTS policy_assignments (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -150,18 +156,18 @@ export const CONSOLE_POLICY_D1_SCHEMA_SQL = Object.freeze([
       PRIMARY KEY (namespace, org_id, id),
       UNIQUE (namespace, org_id, scope_type, scope_id),
       FOREIGN KEY (namespace, org_id, policy_id)
-        REFERENCES console_policies(namespace, org_id, id)
+        REFERENCES policies(namespace, org_id, id)
         ON DELETE CASCADE,
       CHECK (scope_type IN ('ORG', 'PROJECT', 'ENVIRONMENT', 'WALLET'))
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_policy_assignments_org_updated_idx
-      ON console_policy_assignments (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS policy_assignments_org_updated_idx
+      ON policy_assignments (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_policy_assignments_org_scope_idx
-      ON console_policy_assignments (namespace, org_id, scope_type, scope_id)
+    CREATE INDEX IF NOT EXISTS policy_assignments_org_scope_idx
+      ON policy_assignments (namespace, org_id, scope_type, scope_id)
   `,
 ] as const);
 
@@ -203,10 +209,6 @@ function nullableIso(value: unknown): string | null {
   return parsed > 0 ? toIso(parsed) : null;
 }
 
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
 
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -217,10 +219,6 @@ function makeId(prefix: string, now: Date): string {
   return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function isD1ConstraintError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -279,19 +277,7 @@ function parseAssignmentScopeType(value: unknown): ConsolePolicyAssignmentScopeT
 }
 
 function parseRulesJson(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  if (typeof value !== 'string') return {};
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    return {};
-  }
-  return {};
+  return parseD1JsonObjectColumn(value);
 }
 
 function rulesJson(rules: ConsolePolicy['rules']): string {
@@ -342,28 +328,11 @@ function parseAssignmentRow(row: D1Row): ConsolePolicyAssignment {
   };
 }
 
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
-}
-
 async function policyIdExists(state: D1ConsolePolicyState, policyId: string): Promise<boolean> {
-  const row = await queryOne(
+  const row = await queryD1One(
     state.database,
     `SELECT id
-       FROM console_policies
+       FROM policies
       WHERE namespace = ?
         AND id = ?
       LIMIT 1`,
@@ -388,10 +357,10 @@ async function findPolicy(input: {
   orgId: string;
   policyId: string;
 }): Promise<ConsolePolicy | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_policies
+       FROM policies
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -405,10 +374,10 @@ async function findSystemDefaultPolicy(input: {
   state: D1ConsolePolicyState;
   orgId: string;
 }): Promise<ConsolePolicy | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_policies
+       FROM policies
       WHERE namespace = ?
         AND org_id = ?
         AND is_system_default = 1
@@ -424,10 +393,10 @@ async function findAssignmentById(input: {
   orgId: string;
   assignmentId: string;
 }): Promise<ConsolePolicyAssignment | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_policy_assignments
+       FROM policy_assignments
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -443,10 +412,10 @@ async function findAssignmentByScope(input: {
   scopeType: ConsolePolicyAssignmentScopeType;
   scopeId: string;
 }): Promise<ConsolePolicyAssignment | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_policy_assignments
+       FROM policy_assignments
       WHERE namespace = ?
         AND org_id = ?
         AND scope_type = ?
@@ -466,7 +435,7 @@ function defaultPolicyInsertStatement(input: {
 }) {
   return input.state.database
     .prepare(
-      `INSERT INTO console_policies
+      `INSERT INTO policies
         (namespace, org_id, id, kind, name, description, status, version, rules_json, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
        VALUES
         (?, ?, ?, 'TRANSACTION', ?, ?, 'PUBLISHED', 1, ?, ?, ?, ?, 1)`,
@@ -493,7 +462,7 @@ function defaultPolicyVersionInsertStatement(input: {
 }) {
   return input.state.database
     .prepare(
-      `INSERT INTO console_policy_versions
+      `INSERT INTO policy_versions
         (namespace, org_id, policy_id, kind, version, status, rules_json, published_at_ms, created_at_ms, actor_user_id)
        VALUES
         (?, ?, ?, 'TRANSACTION', 1, 'PUBLISHED', ?, ?, ?, 'system-bootstrap')
@@ -518,7 +487,7 @@ function defaultPolicyAssignmentInsertStatement(input: {
 }) {
   return input.state.database
     .prepare(
-      `INSERT INTO console_policy_assignments
+      `INSERT INTO policy_assignments
         (namespace, org_id, id, scope_type, scope_id, policy_id, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, ?, 'ORG', ?, ?, ?, ?)
@@ -579,7 +548,7 @@ function createPolicyInsertStatement(input: {
 }) {
   return input.state.database
     .prepare(
-      `INSERT INTO console_policies
+      `INSERT INTO policies
         (namespace, org_id, id, kind, name, description, status, version, rules_json, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
        VALUES
         (?, ?, ?, ?, ?, ?, 'DRAFT', 0, ?, ?, ?, NULL, 0)`,
@@ -608,7 +577,7 @@ function upsertAssignmentStatement(input: {
   const scopeId = String(input.request.scopeId || '').trim();
   return input.state.database
     .prepare(
-      `INSERT INTO console_policy_assignments
+      `INSERT INTO policy_assignments
         (namespace, org_id, id, scope_type, scope_id, policy_id, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, ?, ?, ?, ?, ?, ?)
@@ -721,7 +690,7 @@ async function publishPolicyInD1(input: {
   await input.state.database.batch([
     input.state.database
       .prepare(
-        `UPDATE console_policies
+        `UPDATE policies
             SET status = 'PUBLISHED',
                 version = version + 1,
                 updated_at_ms = ?,
@@ -739,7 +708,7 @@ async function publishPolicyInD1(input: {
       ),
     input.state.database
       .prepare(
-        `INSERT INTO console_policy_versions
+        `INSERT INTO policy_versions
           (namespace, org_id, policy_id, kind, version, status, rules_json, published_at_ms, created_at_ms, actor_user_id)
          SELECT namespace,
                 org_id,
@@ -751,7 +720,7 @@ async function publishPolicyInD1(input: {
                 published_at_ms,
                 ?,
                 ?
-           FROM console_policies
+           FROM policies
           WHERE namespace = ?
             AND org_id = ?
             AND id = ?
@@ -817,10 +786,10 @@ export async function createD1ConsolePolicyService(
           value: parsePolicyKind(request.kind),
         });
       }
-      const rows = await queryAll(
+      const rows = await queryD1All(
         state.database,
         `SELECT *
-           FROM console_policies
+           FROM policies
           WHERE ${clauses.join(' AND ')}
           ORDER BY updated_at_ms DESC, created_at_ms DESC`,
         values,
@@ -840,10 +809,10 @@ export async function createD1ConsolePolicyService(
       await ensureDefaultPolicy(state, ctx);
       const current = await findPolicy({ state, orgId: ctx.orgId, policyId });
       if (!current) return null;
-      const rows = await queryAll(
+      const rows = await queryD1All(
         state.database,
         `SELECT *
-           FROM console_policy_versions
+           FROM policy_versions
           WHERE namespace = ?
             AND org_id = ?
             AND policy_id = ?
@@ -881,7 +850,7 @@ export async function createD1ConsolePolicyService(
       const updatedAtMs = nowMs(state.now());
       await state.database
         .prepare(
-          `UPDATE console_policies
+          `UPDATE policies
               SET name = ?,
                   description = ?,
                   rules_json = ?,
@@ -948,7 +917,7 @@ export async function createD1ConsolePolicyService(
       await state.database.batch([
         state.database
           .prepare(
-            `DELETE FROM console_policy_assignments
+            `DELETE FROM policy_assignments
               WHERE namespace = ?
                 AND org_id = ?
                 AND policy_id = ?`,
@@ -956,7 +925,7 @@ export async function createD1ConsolePolicyService(
           .bind(state.namespace, ctx.orgId, policyId),
         state.database
           .prepare(
-            `DELETE FROM console_policy_versions
+            `DELETE FROM policy_versions
               WHERE namespace = ?
                 AND org_id = ?
                 AND policy_id = ?`,
@@ -964,7 +933,7 @@ export async function createD1ConsolePolicyService(
           .bind(state.namespace, ctx.orgId, policyId),
         state.database
           .prepare(
-            `DELETE FROM console_policies
+            `DELETE FROM policies
               WHERE namespace = ?
                 AND org_id = ?
                 AND id = ?`,
@@ -1019,10 +988,10 @@ export async function createD1ConsolePolicyService(
       if (scopeId) {
         appendListFilter({ clauses, values, clause: 'scope_id = ?', value: scopeId });
       }
-      const rows = await queryAll(
+      const rows = await queryD1All(
         state.database,
         `SELECT *
-           FROM console_policy_assignments
+           FROM policy_assignments
           WHERE ${clauses.join(' AND ')}
           ORDER BY updated_at_ms DESC, created_at_ms DESC`,
         values,
@@ -1062,14 +1031,14 @@ export async function createD1ConsolePolicyService(
       if (!current) return { removed: false, assignment: null };
       const result = await state.database
         .prepare(
-          `DELETE FROM console_policy_assignments
+          `DELETE FROM policy_assignments
             WHERE namespace = ?
               AND org_id = ?
               AND id = ?`,
         )
         .bind(state.namespace, ctx.orgId, assignmentId)
         .run();
-      return { removed: runChanges(result) > 0, assignment: current };
+      return { removed: d1ChangedRows(result) > 0, assignment: current };
     },
 
     async resolvePoliciesForWallets(
@@ -1077,11 +1046,11 @@ export async function createD1ConsolePolicyService(
       wallets: ConsolePolicyWalletScopeRef[],
     ): Promise<Record<string, string | null>> {
       await ensureDefaultPolicy(state, ctx);
-      const rows = await queryAll(
+      const rows = await queryD1All(
         state.database,
         `SELECT a.scope_type, a.scope_id, a.policy_id
-           FROM console_policy_assignments a
-           JOIN console_policies p
+           FROM policy_assignments a
+           JOIN policies p
              ON p.namespace = a.namespace
             AND p.org_id = a.org_id
             AND p.id = a.policy_id

@@ -15,9 +15,12 @@ import {
   redisGetJson,
   redisSetJson,
 } from './ThresholdService/kv';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import {
+  formatD1ExecStatement,
+  parseD1JsonColumn,
+  resolveD1DatabaseFromConfig,
+} from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type EmailRecoveryPreparedThresholdEd25519Record = {
   relayerKeyId: string;
@@ -98,7 +101,7 @@ type D1EmailRecoveryPreparationRow = {
 
 export const EMAIL_RECOVERY_PREPARATION_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_email_recovery_preparations (
+    CREATE TABLE IF NOT EXISTS email_recovery_preparations (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -111,18 +114,31 @@ export const EMAIL_RECOVERY_PREPARATION_STORE_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       expires_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, project_id, env_id, request_id),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(project_id) > 0),
+      CHECK (length(env_id) > 0),
       CHECK (length(request_id) > 0),
       CHECK (length(account_id) > 0),
       CHECK (length(wallet_id) > 0),
       CHECK (length(rp_id) > 0),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms > 0),
-      CHECK (expires_at_ms > created_at_ms)
+      CHECK (expires_at_ms > created_at_ms),
+      CHECK (
+        COALESCE(json_extract(record_json, '$.version') = 'email_recovery_preparation_v1', 0)
+      ),
+      CHECK (COALESCE(json_extract(record_json, '$.requestId') = request_id, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.accountId') = account_id, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.rpId') = rp_id, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.walletBinding.walletId') = wallet_id, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_email_recovery_preparations_expires_idx
-      ON signer_email_recovery_preparations (
+    CREATE INDEX IF NOT EXISTS email_recovery_preparations_expires_idx
+      ON email_recovery_preparations (
         namespace,
         org_id,
         project_id,
@@ -131,8 +147,8 @@ export const EMAIL_RECOVERY_PREPARATION_STORE_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_email_recovery_preparations_account_idx
-      ON signer_email_recovery_preparations (
+    CREATE INDEX IF NOT EXISTS email_recovery_preparations_account_idx
+      ON email_recovery_preparations (
         namespace,
         org_id,
         project_id,
@@ -405,31 +421,6 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
   };
 }
 
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
-}
-
 function requireD1ScopeString(input: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(input);
   if (!normalized) {
@@ -546,7 +537,7 @@ export class D1EmailRecoveryPreparationStore implements EmailRecoveryPreparation
     if (!id) return null;
     const row = await this.bindScope(
       `SELECT record_json
-         FROM signer_email_recovery_preparations
+         FROM email_recovery_preparations
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -556,7 +547,7 @@ export class D1EmailRecoveryPreparationStore implements EmailRecoveryPreparation
         LIMIT 1`,
       [id, this.now().getTime()],
     ).first<D1EmailRecoveryPreparationRow>();
-    return parseEmailRecoveryPreparationRecord(parseD1RecordJson(row?.record_json));
+    return parseEmailRecoveryPreparationRecord(parseD1JsonColumn(row?.record_json));
   }
 
   async put(record: EmailRecoveryPreparationRecord): Promise<void> {
@@ -564,7 +555,7 @@ export class D1EmailRecoveryPreparationStore implements EmailRecoveryPreparation
     const parsed = parseEmailRecoveryPreparationRecord(record);
     if (!parsed) throw new Error('Invalid email recovery preparation record');
     await this.bindScope(
-      `INSERT INTO signer_email_recovery_preparations (
+      `INSERT INTO email_recovery_preparations (
         namespace,
         org_id,
         project_id,
@@ -603,7 +594,7 @@ export class D1EmailRecoveryPreparationStore implements EmailRecoveryPreparation
     const id = toOptionalTrimmedString(requestId);
     if (!id) return;
     await this.bindScope(
-      `DELETE FROM signer_email_recovery_preparations
+      `DELETE FROM email_recovery_preparations
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -611,57 +602,6 @@ export class D1EmailRecoveryPreparationStore implements EmailRecoveryPreparation
           AND request_id = ?`,
       [id],
     ).run();
-  }
-}
-
-class PostgresEmailRecoveryPreparationStore implements EmailRecoveryPreparationStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async get(requestId: string): Promise<EmailRecoveryPreparationRecord | null> {
-    const id = toOptionalTrimmedString(requestId);
-    if (!id) return null;
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM email_recovery_preparations
-        WHERE namespace = $1 AND request_id = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, id, nowMs],
-    );
-    return parseEmailRecoveryPreparationRecord(rows[0]?.record_json);
-  }
-
-  async put(record: EmailRecoveryPreparationRecord): Promise<void> {
-    const parsed = parseEmailRecoveryPreparationRecord(record);
-    if (!parsed) throw new Error('Invalid email recovery preparation record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO email_recovery_preparations (namespace, request_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (namespace, request_id)
-        DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [this.namespace, parsed.requestId, parsed, parsed.expiresAtMs],
-    );
-  }
-
-  async del(requestId: string): Promise<void> {
-    const id = toOptionalTrimmedString(requestId);
-    if (!id) return;
-    const pool = await this.poolPromise;
-    await pool.query(
-      'DELETE FROM email_recovery_preparations WHERE namespace = $1 AND request_id = $2',
-      [this.namespace, id],
-    );
   }
 }
 
@@ -814,19 +754,7 @@ export function createEmailRecoveryPreparationStore(input: {
     input.logger.info('[email-recovery] Using redis-tcp preparation store');
     return new RedisTcpEmailRecoveryPreparationStore({ redisUrl, prefix: namespace });
   }
-  if (kind === 'postgres') {
-    if (!input.isNode)
-      throw new Error(
-        '[email-recovery] postgres preparation store is not supported in this runtime',
-      );
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[email-recovery] postgres preparation store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info('[email-recovery] Using Postgres preparation store');
-    return new PostgresEmailRecoveryPreparationStore({ postgresUrl, namespace });
-  }
+  if (kind) throw new Error(`[email-recovery] Unknown preparation store kind: ${kind}`);
 
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
@@ -859,16 +787,6 @@ export function createEmailRecoveryPreparationStore(input: {
     }
     input.logger.info('[email-recovery] Using redis-tcp preparation store');
     return new RedisTcpEmailRecoveryPreparationStore({ redisUrl, prefix: namespace });
-  }
-
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode)
-      throw new Error(
-        '[email-recovery] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    input.logger.info('[email-recovery] Using Postgres preparation store');
-    return new PostgresEmailRecoveryPreparationStore({ postgresUrl, namespace });
   }
 
   if (requirePersistent) {

@@ -1,10 +1,12 @@
-export const SIGNING_ROOT_SECRET_SHARE_WIRE_V1_LENGTH = 33;
+export const SIGNING_ROOT_SECRET_SHARE_WIRE_V1_LENGTH = 34;
 
 export type SigningRootSecretShareId = 1 | 2 | 3;
 
 export type SigningRootSecretShareWireV1 = Uint8Array & {
   readonly __signingRootSecretShareWireV1: 'SigningRootSecretShareWireV1';
 };
+
+export const MISSING_SIGNING_ROOT_KEK_CODE = 'missing_signing_root_kek' as const;
 
 export type SealedSigningRootSecretShare = {
   readonly signingRootId: string;
@@ -18,7 +20,8 @@ export type SealedSigningRootSecretShare = {
 export type SigningRootSecretShareWireErrorCode =
   | 'invalid_share_id'
   | 'invalid_share_wire'
-  | 'resolver_failed';
+  | 'resolver_failed'
+  | typeof MISSING_SIGNING_ROOT_KEK_CODE;
 
 export type SigningRootSecretShareWireResult<T> =
   | { ok: true; value: T }
@@ -49,6 +52,13 @@ export function normalizeSigningRootSecretShareId(input: unknown): SigningRootSe
   return input;
 }
 
+export function signingRootSecretShareWireV1ShareId(
+  input: Uint8Array,
+): SigningRootSecretShareId | null {
+  if (input.byteLength < 2) return null;
+  return normalizeSigningRootSecretShareId((input[0] << 8) | input[1]);
+}
+
 // Server SDK persistence boundary for existing sealed-share records.
 // This parser validates fixed width and share-id consistency only.
 export function parseSigningRootSecretShareWireV1(
@@ -64,9 +74,9 @@ export function parseSigningRootSecretShareWireV1(
     );
   }
 
-  const shareId = normalizeSigningRootSecretShareId(input[0]);
+  const shareId = signingRootSecretShareWireV1ShareId(input);
   if (!shareId) {
-    return err('invalid_share_id', 'SigningRootSecretShareWireV1 share id must be 1, 2, or 3');
+    return err('invalid_share_id', 'SigningRootSecretShareWireV1 share id must be u16 1, 2, or 3');
   }
 
   return ok(new Uint8Array(input) as SigningRootSecretShareWireV1);

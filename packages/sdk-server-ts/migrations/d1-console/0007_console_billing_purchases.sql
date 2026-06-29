@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_billing_credit_purchases (
+CREATE TABLE IF NOT EXISTS billing_credit_purchases (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -20,17 +20,17 @@ CREATE TABLE IF NOT EXISTS console_billing_credit_purchases (
   CHECK (provider = 'stripe')
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_billing_credit_purchases_checkout_uidx
-  ON console_billing_credit_purchases (namespace, org_id, provider_checkout_session_ref);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_credit_purchases_checkout_uidx
+  ON billing_credit_purchases (namespace, org_id, provider_checkout_session_ref);
 
-CREATE INDEX IF NOT EXISTS console_billing_credit_purchases_namespace_checkout_idx
-  ON console_billing_credit_purchases (namespace, provider_checkout_session_ref);
+CREATE INDEX IF NOT EXISTS billing_credit_purchases_namespace_checkout_idx
+  ON billing_credit_purchases (namespace, provider_checkout_session_ref);
 
-CREATE INDEX IF NOT EXISTS console_billing_credit_purchases_namespace_customer_idx
-  ON console_billing_credit_purchases (namespace, provider_customer_ref)
+CREATE INDEX IF NOT EXISTS billing_credit_purchases_namespace_customer_idx
+  ON billing_credit_purchases (namespace, provider_customer_ref)
   WHERE provider_customer_ref IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS console_invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -50,14 +50,14 @@ CREATE TABLE IF NOT EXISTS console_invoices (
   CHECK (amount_paid_minor >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS console_invoices_org_created_idx
-  ON console_invoices (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS invoices_org_created_idx
+  ON invoices (namespace, org_id, created_at_ms DESC, id DESC);
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_invoices_org_statement_month_uidx
-  ON console_invoices (namespace, org_id, document_type, period_month_utc)
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_org_statement_month_uidx
+  ON invoices (namespace, org_id, document_type, period_month_utc)
   WHERE document_type = 'USAGE_STATEMENT';
 
-CREATE TABLE IF NOT EXISTS console_invoice_line_items (
+CREATE TABLE IF NOT EXISTS invoice_line_items (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS console_invoice_line_items (
   created_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id, id),
   FOREIGN KEY (namespace, org_id, invoice_id)
-    REFERENCES console_invoices(namespace, org_id, id)
+    REFERENCES invoices(namespace, org_id, id)
     ON DELETE CASCADE,
   CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT')),
   CHECK (quantity > 0),
@@ -79,10 +79,10 @@ CREATE TABLE IF NOT EXISTS console_invoice_line_items (
   CHECK (amount_minor >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS console_invoice_line_items_invoice_idx
-  ON console_invoice_line_items (namespace, org_id, invoice_id);
+CREATE INDEX IF NOT EXISTS invoice_line_items_invoice_idx
+  ON invoice_line_items (namespace, org_id, invoice_id);
 
-CREATE TABLE IF NOT EXISTS console_stripe_webhook_events (
+CREATE TABLE IF NOT EXISTS stripe_webhook_events (
   namespace TEXT NOT NULL,
   event_id TEXT NOT NULL,
   provider_ref TEXT NOT NULL,
@@ -91,5 +91,5 @@ CREATE TABLE IF NOT EXISTS console_stripe_webhook_events (
   PRIMARY KEY (namespace, event_id)
 );
 
-CREATE INDEX IF NOT EXISTS console_stripe_webhook_events_org_idx
-  ON console_stripe_webhook_events (namespace, org_id, processed_at_ms DESC);
+CREATE INDEX IF NOT EXISTS stripe_webhook_events_org_idx
+  ON stripe_webhook_events (namespace, org_id, processed_at_ms DESC);

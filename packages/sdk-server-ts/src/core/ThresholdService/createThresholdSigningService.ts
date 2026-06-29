@@ -117,8 +117,6 @@ export function createThresholdSigningService(input: {
   const walletSessionStore = createEd25519WalletSessionStore({ config, logger, isNode });
   const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({ config, logger, isNode });
 
-  // ECDSA scaffolding uses the same store backends but keeps prefixes distinct so
-  // keys/sessions/auth records do not collide with Ed25519 state.
   const ecdsaKeyStore = createThresholdEcdsaKeyStore({ config, logger, isNode });
   const ecdsaSessionStore = createThresholdEcdsaSessionStore({ config, logger, isNode });
   const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({ config, logger, isNode });

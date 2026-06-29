@@ -35,11 +35,6 @@ type WebhookRetryDispatchRunner = (
 
 export interface CloudflareBillingMonthlyFinalizationCronOptions {
   /**
-   * Enable monthly billing finalization.
-   * Defaults to false.
-   */
-  enabled?: boolean;
-  /**
    * D1 database for console billing finalization.
    */
   database?: D1DatabaseLike;
@@ -76,11 +71,6 @@ export interface CloudflareBillingMonthlyFinalizationCronOptions {
 }
 
 export interface CloudflareRuntimeSnapshotOutboxCronOptions {
-  /**
-   * Enable runtime snapshot outbox dispatch.
-   * Defaults to false.
-   */
-  enabled?: boolean;
   /**
    * D1 database for runtime snapshot outbox dispatch.
    */
@@ -139,11 +129,6 @@ export interface CloudflareRuntimeSnapshotOutboxCronOptions {
 }
 
 export interface CloudflareWebhookRetryDispatchCronOptions {
-  /**
-   * Enable webhook retry dispatch.
-   * Defaults to false.
-   */
-  enabled?: boolean;
   /**
    * D1 database for Cloudflare webhook retry dispatch.
    */
@@ -214,11 +199,6 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
 
 export interface CloudflareCronOptions {
   /**
-   * When false, the handler is a no-op.
-   * Defaults to true.
-   */
-  enabled?: boolean;
-  /**
    * Optional logger; defaults to silent.
    */
   logger?: RouterLogger | null;
@@ -261,15 +241,11 @@ function shouldRunForCronTick(
   return cronExpressions.includes(tick);
 }
 
-export function createCloudflareCron(
-  _service: unknown,
-  opts: CloudflareCronOptions = {},
-): ScheduledHandler {
-  const enabled = opts.enabled !== false;
+export function createCloudflareCron(opts: CloudflareCronOptions = {}): ScheduledHandler {
   const verbose = Boolean(opts.verbose);
   const logger = coerceRouterLogger(opts.logger);
   const billingFinalization = opts.billingMonthlyFinalization;
-  const billingFinalizationEnabled = Boolean(billingFinalization?.enabled);
+  const billingFinalizationEnabled = Boolean(billingFinalization);
   const billingFinalizationOrgIds = Array.from(
     new Set(
       (Array.isArray(billingFinalization?.orgIds) ? billingFinalization?.orgIds : [])
@@ -281,7 +257,7 @@ export function createCloudflareCron(
     billingFinalization?.cronExpressions,
   );
   const runtimeSnapshotOutbox = opts.runtimeSnapshotOutbox;
-  const runtimeSnapshotOutboxEnabled = Boolean(runtimeSnapshotOutbox?.enabled);
+  const runtimeSnapshotOutboxEnabled = Boolean(runtimeSnapshotOutbox);
   const runtimeSnapshotOutboxOrgIds = Array.from(
     new Set(
       (Array.isArray(runtimeSnapshotOutbox?.orgIds) ? runtimeSnapshotOutbox?.orgIds : [])
@@ -293,7 +269,7 @@ export function createCloudflareCron(
     runtimeSnapshotOutbox?.cronExpressions,
   );
   const webhookRetryDispatch = opts.webhookRetryDispatch;
-  const webhookRetryDispatchEnabled = Boolean(webhookRetryDispatch?.enabled);
+  const webhookRetryDispatchEnabled = Boolean(webhookRetryDispatch);
   const webhookRetryDispatchOrgIds = Array.from(
     new Set(
       (Array.isArray(webhookRetryDispatch?.orgIds) ? webhookRetryDispatch?.orgIds : [])
@@ -305,8 +281,6 @@ export function createCloudflareCron(
     webhookRetryDispatch?.cronExpressions,
   );
   return async (event) => {
-    if (!enabled) return;
-
     if (verbose) {
       logger.info('[cron] tick', {
         scheduledTime: typeof event?.scheduledTime === 'number' ? event.scheduledTime : undefined,

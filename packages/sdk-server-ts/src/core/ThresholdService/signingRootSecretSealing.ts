@@ -4,7 +4,11 @@ import type {
   SigningRootSecretShareWireV1,
   SealedSigningRootSecretShare,
 } from './signingRootSecretShareWires';
-import { parseSigningRootSecretShareWireV1, zeroizeBytes } from './signingRootSecretShareWires';
+import {
+  parseSigningRootSecretShareWireV1,
+  signingRootSecretShareWireV1ShareId,
+  zeroizeBytes,
+} from './signingRootSecretShareWires';
 
 const AES_GCM_NONCE_LENGTH = 12;
 const AES_GCM_KEY_LENGTH_BITS = 256;
@@ -184,7 +188,7 @@ export async function sealSigningRootSecretShareWireV1(
   const metadata = normalizeResolutionInput(input);
   const parsed = parseSigningRootSecretShareWireV1(input.plaintextShareWire);
   if (!parsed.ok) throw new Error(parsed.message);
-  if (parsed.value[0] !== metadata.shareId) {
+  if (signingRootSecretShareWireV1ShareId(parsed.value) !== metadata.shareId) {
     zeroizeBytes(parsed.value);
     throw new Error('plaintext signing-root share id does not match seal metadata');
   }
@@ -245,7 +249,7 @@ export async function openSigningRootSecretShareWireV1(input: {
       throw new Error(parsed.message);
     }
     zeroizeBytes(parsed.value);
-    if (plaintext[0] !== input.record.shareId) {
+    if (signingRootSecretShareWireV1ShareId(plaintext) !== input.record.shareId) {
       zeroizeBytes(plaintext);
       throw new Error('decrypted signing-root share id does not match its record');
     }

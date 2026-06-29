@@ -1,4 +1,4 @@
-import { formatD1ExecStatement } from '../../storage/d1Sql';
+import { d1Integer as toNumber, formatD1ExecStatement, type D1Row } from '../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleWalletError } from './errors';
 import {
@@ -23,7 +23,6 @@ import type {
   SearchConsoleWalletsRequest,
 } from './types';
 
-type D1Row = Record<string, unknown>;
 
 interface D1ConsoleWalletState {
   readonly database: D1DatabaseLike;
@@ -94,7 +93,7 @@ export interface D1ConsoleWalletServiceOptions {
 
 export const CONSOLE_WALLETS_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_wallet_index (
+    CREATE TABLE IF NOT EXISTS wallet_index (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -119,32 +118,32 @@ export const CONSOLE_WALLETS_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_wallet_index_org_created_idx
-      ON console_wallet_index (namespace, org_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS wallet_index_org_created_idx
+      ON wallet_index (namespace, org_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_wallet_index_org_project_env_idx
-      ON console_wallet_index (namespace, org_id, project_id, environment_id)
+    CREATE INDEX IF NOT EXISTS wallet_index_org_project_env_idx
+      ON wallet_index (namespace, org_id, project_id, environment_id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_wallet_index_org_status_type_chain_idx
-      ON console_wallet_index (namespace, org_id, status, wallet_type, chain)
+    CREATE INDEX IF NOT EXISTS wallet_index_org_status_type_chain_idx
+      ON wallet_index (namespace, org_id, status, wallet_type, chain)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_wallet_index_org_balance_idx
-      ON console_wallet_index (namespace, org_id, balance_minor DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS wallet_index_org_balance_idx
+      ON wallet_index (namespace, org_id, balance_minor DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_wallet_index_org_last_activity_idx
-      ON console_wallet_index (namespace, org_id, COALESCE(last_activity_at_ms, 0) DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS wallet_index_org_last_activity_idx
+      ON wallet_index (namespace, org_id, COALESCE(last_activity_at_ms, 0) DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_wallet_index_org_user_idx
-      ON console_wallet_index (namespace, org_id, user_id)
+    CREATE INDEX IF NOT EXISTS wallet_index_org_user_idx
+      ON wallet_index (namespace, org_id, user_id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_wallet_index_org_external_ref_idx
-      ON console_wallet_index (namespace, org_id, external_ref_id)
+    CREATE INDEX IF NOT EXISTS wallet_index_org_external_ref_idx
+      ON wallet_index (namespace, org_id, external_ref_id)
   `,
 ] as const);
 
@@ -195,10 +194,6 @@ function toNullableString(raw: unknown): string | null {
   return value || null;
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function toIso(ms: number): string {
   return new Date(ms).toISOString();
@@ -605,7 +600,7 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
     const row = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_wallet_index
+           FROM wallet_index
           WHERE namespace = ?
             AND org_id = ?
             AND id = ?`,
@@ -623,7 +618,7 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
     try {
       await this.state.database
         .prepare(
-          `INSERT INTO console_wallet_index (
+          `INSERT INTO wallet_index (
              namespace,
              org_id,
              id,
@@ -655,8 +650,8 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
              policy_id = EXCLUDED.policy_id,
              balance_minor = EXCLUDED.balance_minor,
              last_activity_at_ms = EXCLUDED.last_activity_at_ms,
-             created_at_ms = MIN(console_wallet_index.created_at_ms, EXCLUDED.created_at_ms),
-             updated_at_ms = MAX(console_wallet_index.updated_at_ms, EXCLUDED.updated_at_ms)`,
+             created_at_ms = MIN(wallet_index.created_at_ms, EXCLUDED.created_at_ms),
+             updated_at_ms = MAX(wallet_index.updated_at_ms, EXCLUDED.updated_at_ms)`,
         )
         .bind(
           this.state.namespace,
@@ -708,7 +703,7 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
     const out = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_wallet_index
+           FROM wallet_index
           WHERE ${query.whereSql}
           ORDER BY ${query.orderBySql}
           LIMIT ?`,

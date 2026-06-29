@@ -1,5 +1,8 @@
 import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
+import type { OrgId } from '@shared/utils/domainIds';
+
+export type { OrgId } from '@shared/utils/domainIds';
 
 export type TenantStorageBackendFamily = 'cloudflare_d1_do' | 'postgres';
 export type CloudflareTenantTopology = 'shared' | 'dedicated_tenant';
@@ -10,7 +13,6 @@ export type PostgresMigrationReason =
   | 'logical_database_required';
 
 export type NamespaceId = string;
-export type OrgId = string;
 export type RouteVersion = number;
 export type D1BindingName = string;
 export type D1DatabaseName = string;
@@ -131,7 +133,7 @@ export type ResolveTenantStorageRouteInput = {
 };
 
 export interface TenantStorageRouteResolver {
-  resolveTenantStorageRoute(input: ResolveTenantStorageRouteInput): CloudflareTenantStorageRoute;
+  resolveTenantStorageRoute(input: ResolveTenantStorageRouteInput): TenantStorageRoute;
 }
 
 export interface StaticCloudflareTenantStorageRouteResolverInput {
@@ -178,6 +180,11 @@ function normalizeRequiredString(value: string, field: string): string {
     throw new Error(`${field} is required`);
   }
   return normalized;
+}
+
+function requireOrgId(value: OrgId): OrgId {
+  normalizeRequiredString(value, 'orgId');
+  return value;
 }
 
 function normalizeRouteVersion(value: RouteVersion): RouteVersion {
@@ -240,7 +247,7 @@ export function createCloudflareTenantStorageRoute(input: {
   return {
     kind: 'cloudflare_d1_do',
     namespace: normalizeRequiredString(input.namespace, 'namespace'),
-    orgId: normalizeRequiredString(input.orgId, 'orgId'),
+    orgId: requireOrgId(input.orgId),
     routeVersion: normalizeRouteVersion(input.routeVersion),
     topology: input.topology,
     jurisdiction: input.jurisdiction,

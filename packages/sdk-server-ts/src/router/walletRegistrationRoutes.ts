@@ -72,21 +72,24 @@ import {
   addSignerIntentGrantFromString,
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
+  findRegistrationSignerPlanEvmFamilyEcdsaBranch,
+  findRegistrationSignerPlanNearEd25519Branch,
   normalizeEmailOtpRegistrationProof,
   normalizeNearAccountOwnershipProofV1,
   normalizeRegistrationAuthMethodInput,
+  normalizeRegistrationSignerPlan,
   normalizeWalletAuthMethodTarget,
   registrationIntentGrantFromString,
+  registrationSignerSetSelectionFromPlan,
   walletIdFromString,
-  type RegistrationNearAccountProvisioning,
   type AddSignerIntentV1,
   type AddAuthMethodIntentV1,
   type AddSignerSelection,
   type RegistrationIntentV1,
-  type RegistrationSignerSelection,
+  type RegistrationSignerPlan,
+  type RegistrationSignerSetSelection,
   type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
-import { parseNamedNearAccountId } from '@shared/utils/near';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -109,6 +112,11 @@ type RouterApiWalletRegistrationPrepareServices = RouterApiWalletRegistrationSer
   registrationPrepareAuthService: WalletRegistrationPrepareAuthService;
 };
 
+type ParsedRegistrationSignerSet = {
+  readonly selection: RegistrationSignerSetSelection;
+  readonly plan: RegistrationSignerPlan;
+};
+
 type RouterApiWalletRegistrationInput = {
   body: unknown;
   headers: HeaderRecord;
@@ -120,7 +128,10 @@ type RouterApiWalletRegistrationInput = {
   sourceIp?: string;
 };
 
-type RouterApiWalletRegistrationPrepareInput = Omit<RouterApiWalletRegistrationInput, 'services'> & {
+type RouterApiWalletRegistrationPrepareInput = Omit<
+  RouterApiWalletRegistrationInput,
+  'services'
+> & {
   services: RouterApiWalletRegistrationPrepareServices;
 };
 
@@ -557,209 +568,25 @@ function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> 
   };
 }
 
-function parseRegistrationNearAccountProvisioning(
+function parseRegistrationSignerSet(
   raw: unknown,
-): ParseResult<RegistrationNearAccountProvisioning> {
-  if (!isPlainObject(raw)) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'registration Ed25519 accountProvisioning is required',
-    };
+): ParseResult<ParsedRegistrationSignerSet> {
+  const signerPlan = normalizeRegistrationSignerPlan(raw);
+  if (!signerPlan.ok) {
+    return { ok: false, code: 'invalid_body', message: signerPlan.message };
   }
-  const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
-  switch (kind) {
-    case 'implicit_account':
-      if (
-        Object.prototype.hasOwnProperty.call(raw, 'requestedAccountId') ||
-        Object.prototype.hasOwnProperty.call(raw, 'sponsor')
-      ) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'implicit account provisioning cannot include sponsored account fields',
-        };
-      }
-      return {
-        ok: true,
-        value: {
-          kind: 'implicit_account',
-          accountIdSource: 'ed25519_public_key',
-        },
-      };
-    case 'sponsored_named_account': {
-      if (Object.prototype.hasOwnProperty.call(raw, 'accountIdSource')) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'sponsored account provisioning cannot include implicit account fields',
-        };
-      }
-      const parsed = parseNamedNearAccountId(raw.requestedAccountId);
-      if (!parsed.ok) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: parsed.message,
-        };
-      }
-      return {
-        ok: true,
-        value: {
-          kind: 'sponsored_named_account',
-          requestedAccountId: parsed.value,
-          sponsor: 'relayer',
-        },
-      };
-    }
-    default:
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'registration Ed25519 accountProvisioning kind is unsupported',
-      };
-  }
-}
-
-function parseRegistrationSignerSelection(raw: unknown): ParseResult<RegistrationSignerSelection> {
-  if (!isPlainObject(raw)) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'registration signerSelection is required',
-    };
-  }
-  type RegistrationEd25519Spec = Extract<
-    RegistrationSignerSelection,
-    { mode: 'ed25519_only' }
-  >['ed25519'];
-  const parseEd25519 = (): ParseResult<RegistrationEd25519Spec> => {
-    const ed25519 = isPlainObject(raw.ed25519) ? raw.ed25519 : null;
-    if (!ed25519) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'registration Ed25519 spec is required',
-      };
-    }
-    if (
-      Object.prototype.hasOwnProperty.call(ed25519, 'nearAccountId') ||
-      Object.prototype.hasOwnProperty.call(ed25519, 'createNearAccount')
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'registration Ed25519 spec cannot include legacy account fields',
-      };
-    }
-    const accountProvisioning = parseRegistrationNearAccountProvisioning(
-      ed25519.accountProvisioning,
-    );
-    if (!accountProvisioning.ok) return accountProvisioning;
-    const signerSlot = Math.floor(Number(ed25519.signerSlot));
-    const keyPurpose = typeof ed25519.keyPurpose === 'string' ? ed25519.keyPurpose.trim() : '';
-    const keyVersion = typeof ed25519.keyVersion === 'string' ? ed25519.keyVersion.trim() : '';
-    const derivationVersion = Math.floor(Number(ed25519.derivationVersion));
-    const participantIds = parseParticipantIds(
-      ed25519.participantIds,
-      'registration Ed25519 participantIds',
-    );
-    if (!participantIds.ok) return participantIds;
-    if (
-      !Number.isFinite(signerSlot) ||
-      signerSlot < 1 ||
-      !keyPurpose ||
-      !keyVersion ||
-      !Number.isFinite(derivationVersion) ||
-      derivationVersion < 1
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'registration Ed25519 spec is invalid',
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        accountProvisioning: accountProvisioning.value,
-        signerSlot,
-        participantIds: participantIds.value,
-        keyPurpose,
-        keyVersion,
-        derivationVersion,
-      },
-    };
-  };
-
-  if (raw.mode === 'ed25519_only') {
-    const ed25519 = parseEd25519();
-    if (!ed25519.ok) return ed25519;
-    return {
-      ok: true,
-      value: {
-        mode: 'ed25519_only',
-        ed25519: ed25519.value,
-      },
-    };
-  }
-  if (raw.mode === 'ecdsa_only') {
-    const ecdsa = isPlainObject(raw.ecdsa) ? raw.ecdsa : null;
-    if (!ecdsa) {
-      return { ok: false, code: 'invalid_body', message: 'registration ECDSA spec is required' };
-    }
-    const chainTargets = parseChainTargets(ecdsa.chainTargets);
-    if (!chainTargets.ok) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'registration ECDSA chainTargets are invalid',
-      };
-    }
-    const participantIds = parseParticipantIds(
-      ecdsa.participantIds,
-      'registration ECDSA participantIds',
-    );
-    if (!participantIds.ok) return participantIds;
-    return {
-      ok: true,
-      value: {
-        mode: 'ecdsa_only',
-        ecdsa: {
-          chainTargets: chainTargets.value,
-          participantIds: participantIds.value,
-        },
-      },
-    };
-  }
-  if (raw.mode === 'ed25519_and_ecdsa') {
-    const ed25519 = parseEd25519();
-    if (!ed25519.ok) return ed25519;
-    const ecdsaSelection = parseRegistrationSignerSelection({
-      mode: 'ecdsa_only',
-      ecdsa: raw.ecdsa,
-    });
-    if (!ecdsaSelection.ok) return ecdsaSelection;
-    if (ecdsaSelection.value.mode !== 'ecdsa_only') {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'registration ECDSA selection is invalid',
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        mode: 'ed25519_and_ecdsa',
-        ed25519: ed25519.value,
-        ecdsa: ecdsaSelection.value.ecdsa,
-      },
-    };
+  const signerSelection = registrationSignerSetSelectionFromPlan(signerPlan.value, {
+    normalizeEcdsaChainTarget: thresholdEcdsaChainTargetFromValue,
+  });
+  if (!signerSelection.ok) {
+    return { ok: false, code: 'invalid_body', message: signerSelection.message };
   }
   return {
-    ok: false,
-    code: 'invalid_body',
-    message: 'registration signerSelection mode is unsupported',
+    ok: true,
+    value: {
+      selection: signerSelection.value,
+      plan: signerPlan.value,
+    },
   };
 }
 
@@ -768,15 +595,15 @@ function parseRegisterWalletInput(raw: unknown): ParseResult<RegisterWalletInput
     return { ok: false, code: 'invalid_body', message: 'wallet is required' };
   }
   const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
-  if (kind === 'server_generated') {
+  if (kind === 'server_allocated') {
     if (Object.prototype.hasOwnProperty.call(raw, 'walletId')) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'server-generated wallet input must not include walletId',
+        message: 'server-allocated wallet input must not include walletId',
       };
     }
-    return { ok: true, value: { kind: 'server_generated' } };
+    return { ok: true, value: { kind: 'server_allocated' } };
   }
   if (kind === 'provided') {
     const walletId = walletIdFromString(String(raw.walletId || '').trim());
@@ -803,14 +630,14 @@ function parseCreateRegistrationIntentRequest(
   if (!authMethod) {
     return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
   }
-  const signerSelection = parseRegistrationSignerSelection(body.signerSelection);
+  const signerSelection = parseRegistrationSignerSet(body.signerSelection);
   if (!signerSelection.ok) return signerSelection;
   return {
     ok: true,
     value: {
       wallet: wallet.value,
       authMethod,
-      signerSelection: signerSelection.value,
+      signerSelection: signerSelection.value.selection,
     },
   };
 }
@@ -1208,7 +1035,7 @@ async function parseWalletRegistrationStartBody(
   if (!authMethod) {
     return { ok: false, code: 'invalid_body', message: 'registration authMethod is invalid' };
   }
-  const signerSelection = parseRegistrationSignerSelection(intent.signerSelection);
+  const signerSelection = parseRegistrationSignerSet(intent.signerSelection);
   if (!signerSelection.ok) return signerSelection;
   const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
   if (!nonceB64u) {
@@ -1220,7 +1047,7 @@ async function parseWalletRegistrationStartBody(
     version: 'registration_intent_v1',
     walletId: walletIdFromString(walletId),
     authMethod,
-    signerSelection: signerSelection.value,
+    signerSelection: signerSelection.value.selection,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
     nonceB64u,
   };
@@ -1328,7 +1155,7 @@ async function parseWalletRegistrationPrepareBody(
   }
   const walletId = String(intent.walletId || '').trim();
   const authMethod = normalizeRegistrationAuthMethodInput(intent.authMethod);
-  const signerSelection = parseRegistrationSignerSelection(intent.signerSelection);
+  const signerSelection = parseRegistrationSignerSet(intent.signerSelection);
   if (!walletId) {
     return { ok: false, code: 'invalid_body', message: 'registration walletId is required' };
   }
@@ -1336,7 +1163,10 @@ async function parseWalletRegistrationPrepareBody(
     return { ok: false, code: 'invalid_body', message: 'registration authMethod is invalid' };
   }
   if (!signerSelection.ok) return signerSelection;
-  if (signerSelection.value.mode === 'ecdsa_only') {
+  const nearEd25519Branch = findRegistrationSignerPlanNearEd25519Branch(
+    signerSelection.value.plan,
+  );
+  if (!nearEd25519Branch) {
     return {
       ok: false,
       code: 'invalid_body',
@@ -1353,7 +1183,7 @@ async function parseWalletRegistrationPrepareBody(
     version: 'registration_intent_v1',
     walletId: walletIdFromString(walletId),
     authMethod,
-    signerSelection: signerSelection.value,
+    signerSelection: signerSelection.value.selection,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
     nonceB64u,
   };
@@ -1380,8 +1210,8 @@ async function parseWalletRegistrationPrepareBody(
     };
   }
   const work = isPlainObject(body.work) ? body.work : null;
-  const expectedKind =
-    signerSelection.value.mode === 'ed25519_and_ecdsa' ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss';
+  const ecdsaBranch = findRegistrationSignerPlanEvmFamilyEcdsaBranch(signerSelection.value.plan);
+  const expectedKind = ecdsaBranch ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss';
   if (!work || work.kind !== expectedKind) {
     return {
       ok: false,

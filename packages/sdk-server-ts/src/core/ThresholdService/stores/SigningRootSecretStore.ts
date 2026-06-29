@@ -1,8 +1,6 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { getPostgresPool } from '../../../storage/postgres';
 import type { CloudflareDurableObjectNamespaceLike } from '../../types';
-import { parseCurrentSigningRootSecretShareRecord } from '../postgresRecords';
 import {
   normalizeSigningRootSecretShareId,
   type SigningRootSecretShareId,
@@ -66,26 +64,6 @@ export class InMemorySigningRootSecretStore implements SigningRootSecretStore {
     }
   }
 }
-
-type SigningRootSecretShareRow = {
-  namespace?: unknown;
-  org_id?: unknown;
-  project_id?: unknown;
-  env_id?: unknown;
-  signing_root_id?: unknown;
-  signing_root_version?: unknown;
-  share_id?: unknown;
-  sealed_share_b64u?: unknown;
-  storage_id?: unknown;
-  kek_id?: unknown;
-  envelope_version?: unknown;
-  aad_digest_b64u?: unknown;
-  ciphertext_digest_b64u?: unknown;
-  rotation_state?: unknown;
-  last_audit_event_id?: unknown;
-  created_at_ms?: unknown;
-  updated_at_ms?: unknown;
-};
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 type DoOk<T> = { ok: true; value: T };
@@ -180,139 +158,6 @@ function normalizeCacheTtlMs(input: unknown): number {
   const value = Math.floor(Number(input));
   if (!Number.isFinite(value) || value <= 0) return 0;
   return value;
-}
-
-export class PostgresSigningRootSecretStore implements SigningRootSecretStore {
-  readonly adapterKind = 'postgres';
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-  private ensureTablePromise: Promise<void> | null = null;
-
-  constructor(input: { readonly postgresUrl: string; readonly namespace?: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = toOptionalTrimmedString(input.namespace) || '';
-  }
-
-  private async ensureTable(): Promise<void> {
-    if (!this.ensureTablePromise) {
-      this.ensureTablePromise = (async () => {
-        const pool = await this.poolPromise;
-        await pool.query(`
-          CREATE TABLE IF NOT EXISTS signing_root_secret_shares (
-            namespace TEXT NOT NULL,
-            signing_root_id TEXT NOT NULL,
-            signing_root_version TEXT NOT NULL,
-            share_id INTEGER NOT NULL,
-            sealed_share_b64u TEXT NOT NULL,
-            storage_id TEXT,
-            kek_id TEXT,
-            created_at_ms BIGINT NOT NULL,
-            updated_at_ms BIGINT NOT NULL,
-            PRIMARY KEY (namespace, signing_root_id, signing_root_version, share_id),
-            CHECK (share_id IN (1, 2, 3))
-          )
-        `);
-      })().catch((error) => {
-        this.ensureTablePromise = null;
-        throw error;
-      });
-    }
-    await this.ensureTablePromise;
-  }
-
-  async listSealedSigningRootSecretShares(
-    input: ResolveSigningRootSecretSharesInput,
-  ): Promise<readonly SealedSigningRootSecretShare[]> {
-    await this.ensureTable();
-    const signingRootId = requireSigningRootId(input.signingRootId);
-    const signingRootVersionKey = normalizeSigningRootVersionKey(input.signingRootVersion);
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT
-          signing_root_id,
-          signing_root_version,
-          share_id,
-          sealed_share_b64u,
-          storage_id,
-          kek_id,
-          created_at_ms,
-          updated_at_ms
-        FROM signing_root_secret_shares
-        WHERE namespace = $1 AND signing_root_id = $2 AND signing_root_version = $3
-        ORDER BY share_id ASC
-      `,
-      [this.namespace, signingRootId, signingRootVersionKey],
-    );
-    const parsedRows = (rows as SigningRootSecretShareRow[]).map((row) => {
-      const parsed = parseCurrentSigningRootSecretShareRecord(row);
-      if (!parsed) return null;
-      return cloneRecord(parsed);
-    });
-    if (parsedRows.some((row) => row === null)) {
-      await this.deleteSigningRootSecretShares({
-        signingRootId,
-        signingRootVersion: signingRootVersionFromKey(signingRootVersionKey),
-      });
-      return [];
-    }
-    return parsedRows.filter(
-      (row): row is SealedSigningRootSecretShare => row !== null,
-    );
-  }
-
-  async putSealedSigningRootSecretShare(input: PutSigningRootSecretShareInput): Promise<void> {
-    const normalized = normalizePutInput(input);
-    await this.ensureTable();
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    await pool.query(
-      `
-        INSERT INTO signing_root_secret_shares (
-          namespace,
-          signing_root_id,
-          signing_root_version,
-          share_id,
-          sealed_share_b64u,
-          storage_id,
-          kek_id,
-          created_at_ms,
-          updated_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
-        ON CONFLICT (namespace, signing_root_id, signing_root_version, share_id)
-        DO UPDATE SET
-          sealed_share_b64u = EXCLUDED.sealed_share_b64u,
-          storage_id = EXCLUDED.storage_id,
-          kek_id = EXCLUDED.kek_id,
-          updated_at_ms = EXCLUDED.updated_at_ms
-      `,
-      [
-        this.namespace,
-        normalized.signingRootId,
-        normalized.signingRootVersionKey,
-        normalized.shareId,
-        base64UrlEncode(normalized.sealedShare),
-        normalized.storageId || null,
-        normalized.kekId || null,
-        nowMs,
-      ],
-    );
-  }
-
-  async deleteSigningRootSecretShares(input: DeleteSigningRootSecretSharesInput): Promise<void> {
-    await this.ensureTable();
-    const signingRootId = requireSigningRootId(input.signingRootId);
-    const signingRootVersionKey = normalizeSigningRootVersionKey(input.signingRootVersion);
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        DELETE FROM signing_root_secret_shares
-        WHERE namespace = $1 AND signing_root_id = $2 AND signing_root_version = $3
-      `,
-      [this.namespace, signingRootId, signingRootVersionKey],
-    );
-  }
 }
 
 export class CloudflareDurableObjectSigningRootSecretStore implements SigningRootSecretStore {

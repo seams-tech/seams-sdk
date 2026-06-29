@@ -18,6 +18,8 @@ export function thresholdStatusCode(result: ThresholdRouteResult): number {
       return 503;
     case 'pool_empty':
       return 503;
+    case 'missing_signing_root_kek':
+      return 503;
     case 'stale_session_state':
       return 409;
     case 'runtime_snapshot_not_found':

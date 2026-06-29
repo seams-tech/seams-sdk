@@ -8,6 +8,7 @@ import type {
 } from '../storage/tenantRoute';
 import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
+import { parseOrgId, type OrgId } from '@shared/utils/domainIds';
 
 const preparedStatement: D1PreparedStatementLike = {
   bind(): D1PreparedStatementLike {
@@ -36,6 +37,14 @@ const database: D1DatabaseLike = {
   },
 };
 
+function orgIdFromString(input: string): OrgId {
+  const parsed = parseOrgId(input);
+  if (!parsed.ok) {
+    throw new Error(`invalid test org id ${input}`);
+  }
+  return parsed.value;
+}
+
 const thresholdStore: CloudflareDurableObjectNamespaceLike = {
   idFromName(name: string): unknown {
     return name;
@@ -58,7 +67,7 @@ const kekProvider: SigningRootKekProvider = {
 const route: CloudflareTenantStorageRoute = {
   kind: 'cloudflare_d1_do',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId: orgIdFromString('org_test'),
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',

@@ -15,9 +15,12 @@ import {
   redisGetdelJson,
   redisSetJson,
 } from './ThresholdService/kv';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import {
+  formatD1ExecStatement,
+  parseD1JsonColumn,
+  resolveD1DatabaseFromConfig,
+} from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type WebAuthnLoginChallengeRecord = {
   version: 'webauthn_login_challenge_v1';
@@ -74,7 +77,7 @@ const WEBAUTHN_LOGIN_CHALLENGE_KIND = 'login';
 
 export const WEBAUTHN_LOGIN_CHALLENGE_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_webauthn_challenges (
+    CREATE TABLE IF NOT EXISTS webauthn_challenges (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -93,8 +96,8 @@ export const WEBAUTHN_LOGIN_CHALLENGE_STORE_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_webauthn_challenges_expiry_idx
-      ON signer_webauthn_challenges (
+    CREATE INDEX IF NOT EXISTS webauthn_challenges_expiry_idx
+      ON webauthn_challenges (
         namespace,
         org_id,
         project_id,
@@ -160,31 +163,6 @@ function parseWebAuthnLoginChallengeRecord(raw: unknown): WebAuthnLoginChallenge
 
 function defaultNow(): Date {
   return new Date();
-}
-
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
 }
 
 function requireD1ScopeString(input: unknown, field: string): string {
@@ -288,7 +266,7 @@ export class D1WebAuthnLoginChallengeStore implements WebAuthnLoginChallengeStor
     if (!parsed) throw new Error('Invalid login challenge record');
     await this.database
       .prepare(
-        `INSERT INTO signer_webauthn_challenges (
+        `INSERT INTO webauthn_challenges (
           namespace,
           org_id,
           project_id,
@@ -327,7 +305,7 @@ export class D1WebAuthnLoginChallengeStore implements WebAuthnLoginChallengeStor
     if (!id) return null;
     const row = await this.database
       .prepare(
-        `DELETE FROM signer_webauthn_challenges
+        `DELETE FROM webauthn_challenges
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -347,7 +325,7 @@ export class D1WebAuthnLoginChallengeStore implements WebAuthnLoginChallengeStor
         this.now().getTime(),
       )
       .first<D1WebAuthnChallengeRow>();
-    return parseWebAuthnLoginChallengeRecord(parseD1RecordJson(row?.record_json));
+    return parseWebAuthnLoginChallengeRecord(parseD1JsonColumn(row?.record_json));
   }
 
   async del(challengeId: string): Promise<void> {
@@ -356,7 +334,7 @@ export class D1WebAuthnLoginChallengeStore implements WebAuthnLoginChallengeStor
     if (!id) return;
     await this.database
       .prepare(
-        `DELETE FROM signer_webauthn_challenges
+        `DELETE FROM webauthn_challenges
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -447,60 +425,6 @@ class RedisTcpWebAuthnLoginChallengeStore implements WebAuthnLoginChallengeStore
     const id = toOptionalTrimmedString(challengeId);
     if (!id) return;
     await redisDel(this.client, this.key(id));
-  }
-}
-
-class PostgresWebAuthnLoginChallengeStore implements WebAuthnLoginChallengeStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async put(record: WebAuthnLoginChallengeRecord): Promise<void> {
-    const parsed = parseWebAuthnLoginChallengeRecord(record);
-    if (!parsed) throw new Error('Invalid login challenge record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO webauthn_challenges (namespace, challenge_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (namespace, challenge_id)
-        DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [this.namespace, parsed.challengeId, parsed, parsed.expiresAtMs],
-    );
-  }
-
-  async consume(challengeId: string): Promise<WebAuthnLoginChallengeRecord | null> {
-    const id = toOptionalTrimmedString(challengeId);
-    if (!id) return null;
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        DELETE FROM webauthn_challenges
-        WHERE namespace = $1 AND challenge_id = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, id, nowMs],
-    );
-    const parsed = parseWebAuthnLoginChallengeRecord(rows[0]?.record_json);
-    if (!parsed) return null;
-    if (Date.now() > parsed.expiresAtMs) return null;
-    return parsed;
-  }
-
-  async del(challengeId: string): Promise<void> {
-    const id = toOptionalTrimmedString(challengeId);
-    if (!id) return;
-    const pool = await this.poolPromise;
-    await pool.query('DELETE FROM webauthn_challenges WHERE namespace = $1 AND challenge_id = $2', [
-      this.namespace,
-      id,
-    ]);
   }
 }
 
@@ -703,20 +627,9 @@ export function createWebAuthnLoginChallengeStore(input: {
     return new RedisTcpWebAuthnLoginChallengeStore({ redisUrl, prefix });
   }
 
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error('[webauthn] postgres login challenge store is not supported in this runtime');
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[webauthn] postgres login challenge store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info('[webauthn] Using Postgres login challenge store');
-    return new PostgresWebAuthnLoginChallengeStore({ postgresUrl, namespace: prefix });
-  }
+  if (kind) throw new Error(`[webauthn] Unknown login challenge store kind: ${kind}`);
 
-  // Env-shaped config: prefer Redis/Upstash for one-time challenges (TTL + lower Postgres churn).
+  // Env-shaped config: prefer Redis/Upstash for one-time challenges.
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
@@ -743,17 +656,6 @@ export function createWebAuthnLoginChallengeStore(input: {
     }
     input.logger.info('[webauthn] Using redis-tcp login challenge store');
     return new RedisTcpWebAuthnLoginChallengeStore({ redisUrl, prefix });
-  }
-
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[webauthn] Using Postgres login challenge store');
-    return new PostgresWebAuthnLoginChallengeStore({ postgresUrl, namespace: prefix });
   }
 
   input.logger.info('[webauthn] Using in-memory login challenge store (non-persistent)');

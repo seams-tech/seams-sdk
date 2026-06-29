@@ -1,6 +1,13 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Integer as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonArrayColumn as parseJsonArray,
+  parseD1JsonObjectColumn as parseJsonObject,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleKeyExportError } from './errors';
 import type { ConsoleKeyExportService, ConsoleKeyExportsContext } from './service';
 import type {
@@ -14,7 +21,6 @@ import type {
   ListConsoleKeyExportsRequest,
 } from './types';
 
-type D1Row = Record<string, unknown>;
 
 const MAX_CONDITIONAL_RETRIES = 3;
 
@@ -54,7 +60,7 @@ export interface D1ConsoleKeyExportServiceOptions {
 
 export const CONSOLE_KEY_EXPORTS_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_key_exports (
+    CREATE TABLE IF NOT EXISTS key_exports (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -78,16 +84,16 @@ export const CONSOLE_KEY_EXPORTS_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_key_exports_org_updated_idx
-      ON console_key_exports (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS key_exports_org_updated_idx
+      ON key_exports (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_key_exports_org_status_idx
-      ON console_key_exports (namespace, org_id, status, updated_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS key_exports_org_status_idx
+      ON key_exports (namespace, org_id, status, updated_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_key_exports_org_environment_idx
-      ON console_key_exports (namespace, org_id, environment_id, updated_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS key_exports_org_environment_idx
+      ON key_exports (namespace, org_id, environment_id, updated_at_ms DESC)
   `,
 ] as const);
 
@@ -137,10 +143,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function normalizeString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -159,33 +161,6 @@ function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
   const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
-}
-
-function parseJsonArray(raw: unknown): readonly unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== 'string') return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseJsonObject(raw: unknown): Record<string, unknown> {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...(raw as Record<string, unknown>) };
-  }
-  if (typeof raw !== 'string') return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ...(parsed as Record<string, unknown>) };
-    }
-  } catch {
-    return {};
-  }
-  return {};
 }
 
 function parseStringArray(raw: unknown): string[] {
@@ -295,10 +270,6 @@ function parseRecordRow(row: D1Row): ConsoleKeyExportRequestRecord {
   };
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function isD1ConstraintError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -386,7 +357,7 @@ class D1ConsoleKeyExportServiceImpl implements ConsoleKeyExportD1Service {
     const out = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_key_exports
+           FROM key_exports
           WHERE ${query.whereSql}
           ORDER BY updated_at_ms DESC, created_at_ms DESC`,
       )
@@ -414,7 +385,7 @@ class D1ConsoleKeyExportServiceImpl implements ConsoleKeyExportD1Service {
     try {
       await this.state.database
         .prepare(
-          `INSERT INTO console_key_exports
+          `INSERT INTO key_exports
             (namespace, org_id, id, environment_id, wallet_id, mode, status, reason, requested_by_user_id, required_approvals, approvals_json, constraints_json, created_at_ms, updated_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?, '[]', ?, ?, ?)`,
@@ -493,7 +464,7 @@ class D1ConsoleKeyExportServiceImpl implements ConsoleKeyExportD1Service {
     const row = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_key_exports
+           FROM key_exports
           WHERE namespace = ?
             AND org_id = ?
             AND id = ?`,
@@ -512,7 +483,7 @@ class D1ConsoleKeyExportServiceImpl implements ConsoleKeyExportD1Service {
     const currentApprovalsJson = JSON.stringify(input.current.approvals);
     const result = await this.state.database
       .prepare(
-        `UPDATE console_key_exports
+        `UPDATE key_exports
             SET approvals_json = ?,
                 status = ?,
                 updated_at_ms = ?
@@ -532,7 +503,7 @@ class D1ConsoleKeyExportServiceImpl implements ConsoleKeyExportD1Service {
         currentApprovalsJson,
       )
       .run();
-    if (runChanges(result) !== 1) return null;
+    if (d1ChangedRows(result) !== 1) return null;
     return await this.findKeyExport(input.current.orgId, input.current.id);
   }
 

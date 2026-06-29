@@ -33,7 +33,8 @@ import { CloudflareD1IdentityService } from './d1IdentityService';
 import { CloudflareD1OidcVerificationService } from './d1OidcVerificationService';
 import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
-import { CloudflareD1EcdsaCeremonyService } from './d1EcdsaCeremonyService';
+import { CloudflareD1WalletRegistrationService } from './d1WalletRegistrationService';
+import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
 import {
   normalizeD1RouterApiAuthOptions,
@@ -95,7 +96,8 @@ class CloudflareD1RouterApiAuthMetadataService {
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
   private readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
-  private readonly ecdsaCeremonies: CloudflareD1EcdsaCeremonyService;
+  private readonly walletRegistrations: CloudflareD1WalletRegistrationService;
+  private readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   private readonly registrationIntents: CloudflareD1RegistrationIntentService;
   private readonly thresholdSigning: CloudflareD1ThresholdSigningRuntime;
   private walletStore: WalletStore | null = null;
@@ -206,8 +208,14 @@ class CloudflareD1RouterApiAuthMetadataService {
       sha256Bytes: sha256BytesPortable,
       webAuthnStore: this.webAuthnStore,
     });
-    this.ecdsaCeremonies = new CloudflareD1EcdsaCeremonyService({
+    this.walletRegistrations = new CloudflareD1WalletRegistrationService({
       emailOtpRegistrationEnrollmentFinalizer: this.emailOtpRegistrationEnrollmentFinalizer,
+      getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
+      getThresholdSigningService: this.getThresholdSigningService.bind(this),
+      getWalletStore: this.getWalletStore.bind(this),
+      walletAuthMethods: this.walletAuthMethods,
+    });
+    this.walletAddSigners = new CloudflareD1WalletAddSignerService({
       getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
       getThresholdSigningService: this.getThresholdSigningService.bind(this),
       getWalletStore: this.getWalletStore.bind(this),
@@ -270,19 +278,25 @@ class CloudflareD1RouterApiAuthMetadataService {
   async startWalletRegistration(
     request: RouterApiInput<'startWalletRegistration'>,
   ): Promise<RouterApiResult<'startWalletRegistration'>> {
-    return await this.ecdsaCeremonies.startWalletRegistration(request);
+    return await this.walletRegistrations.startWalletRegistration(request);
+  }
+
+  async prepareWalletRegistration(
+    request: RouterApiInput<'prepareWalletRegistration'>,
+  ): Promise<RouterApiResult<'prepareWalletRegistration'>> {
+    return await this.walletRegistrations.prepareWalletRegistration(request);
   }
 
   async respondWalletRegistrationHss(
     request: RouterApiInput<'respondWalletRegistrationHss'>,
   ): Promise<RouterApiResult<'respondWalletRegistrationHss'>> {
-    return await this.ecdsaCeremonies.respondWalletRegistrationHss(request);
+    return await this.walletRegistrations.respondWalletRegistrationHss(request);
   }
 
   async finalizeWalletRegistration(
     request: RouterApiInput<'finalizeWalletRegistration'>,
   ): Promise<RouterApiResult<'finalizeWalletRegistration'>> {
-    return await this.ecdsaCeremonies.finalizeWalletRegistration(request);
+    return await this.walletRegistrations.finalizeWalletRegistration(request);
   }
 
   async createAddSignerIntent(
@@ -294,19 +308,19 @@ class CloudflareD1RouterApiAuthMetadataService {
   async startWalletAddSigner(
     request: RouterApiInput<'startWalletAddSigner'>,
   ): Promise<RouterApiResult<'startWalletAddSigner'>> {
-    return await this.ecdsaCeremonies.startWalletAddSigner(request);
+    return await this.walletAddSigners.startWalletAddSigner(request);
   }
 
   async respondWalletAddSignerHss(
     request: RouterApiInput<'respondWalletAddSignerHss'>,
   ): Promise<RouterApiResult<'respondWalletAddSignerHss'>> {
-    return await this.ecdsaCeremonies.respondWalletAddSignerHss(request);
+    return await this.walletAddSigners.respondWalletAddSignerHss(request);
   }
 
   async finalizeWalletAddSigner(
     request: RouterApiInput<'finalizeWalletAddSigner'>,
   ): Promise<RouterApiResult<'finalizeWalletAddSigner'>> {
-    return await this.ecdsaCeremonies.finalizeWalletAddSigner(request);
+    return await this.walletAddSigners.finalizeWalletAddSigner(request);
   }
 
   async createAddAuthMethodIntent(

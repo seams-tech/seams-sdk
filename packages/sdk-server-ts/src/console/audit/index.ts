@@ -21,15 +21,6 @@ export type {
 export { createInMemoryConsoleAuditService } from './service';
 
 export type {
-  PostgresConsoleAuditSchemaOptions,
-  PostgresConsoleAuditServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleAuditPostgresSchema,
-  createPostgresConsoleAuditService,
-} from './postgres';
-
-export type {
   ConsoleAuditD1Runtime,
   ConsoleAuditD1Service,
   D1ConsoleAuditSchemaOptions,

@@ -2,6 +2,7 @@ import { base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { NormalizedLogger } from '../logger';
 import type {
+  ThresholdEd25519AuthorityScope,
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
@@ -33,6 +34,13 @@ import { expectThresholdEd25519Round2SignWasmOutput } from './ed25519PresignRoun
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
+
+function authorityScopesMatch(
+  left: ThresholdEd25519AuthorityScope,
+  right: ThresholdEd25519AuthorityScope,
+): boolean {
+  return left.kind === right.kind && left.rpId === right.rpId;
+}
 
 function parseCommitments(input: unknown, label: string): ParseResult<ThresholdEd25519Commitments> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -305,7 +313,7 @@ export class ThresholdEd25519SigningHandlers {
           relayerKeyId: mpcSession.relayerKeyId,
           signingDigestB64u: mpcSession.signingDigestB64u,
           userId: mpcSession.userId,
-          rpId: mpcSession.rpId,
+          authorityScope: mpcSession.authorityScope,
           commitmentsById,
           relayerSigningShareB64u: cosignerShareB64u,
           relayerNoncesB64u: commit.relayerNoncesB64u,
@@ -427,7 +435,7 @@ export class ThresholdEd25519SigningHandlers {
           message: 'signingSessionId does not match coordinatorGrant scope',
         };
       }
-      if (sess.rpId !== mpcSession.rpId) {
+      if (!authorityScopesMatch(sess.authorityScope, mpcSession.authorityScope)) {
         await restoreOnMismatch();
         return {
           ok: false,

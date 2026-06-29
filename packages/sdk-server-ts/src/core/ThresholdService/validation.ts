@@ -1,5 +1,6 @@
 import type { AccessKeyList } from '../rpcClients/near/NearClient';
 import { base64UrlDecode } from '@shared/utils/encoders';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { ensureEd25519Prefix, toOptionalString, toTrimmedString } from '@shared/utils/validation';
 import {
   ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
@@ -17,8 +18,6 @@ import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope'
 import {
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-  THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
-  THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND,
 } from '@shared/utils/sessionTokens';
 import { parseWalletKeyIdOrNull } from '@shared/signing-lanes';
 import {
@@ -37,6 +36,7 @@ import type {
   EcdsaHssExportShareRequest,
   EcdsaHssPublicIdentity,
   EcdsaHssRoleLocalKeyRecord,
+  ThresholdEd25519AuthorityScope,
   WebAuthnAuthenticationCredential,
   WalletRegistrationEcdsaClientBootstrap,
 } from '../types';
@@ -129,7 +129,11 @@ function parseWebAuthnAuthenticationCredential(
       ? null
       : toOptionalString(value.response.userHandle);
   if (!clientDataJSON || !authenticatorData || !signature) return null;
-  if (value.response.userHandle !== undefined && value.response.userHandle !== null && !userHandle) {
+  if (
+    value.response.userHandle !== undefined &&
+    value.response.userHandle !== null &&
+    !userHandle
+  ) {
     return null;
   }
   return {
@@ -284,7 +288,7 @@ export type ParsedThresholdEd25519KeyRecord = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   publicKey: string;
   relayerSigningShareB64u: string;
   relayerVerifyingShareB64u: string;
@@ -299,17 +303,18 @@ export function parseThresholdEd25519KeyRecord(
   const walletId = toOptionalString(raw.walletId);
   const nearAccountId = toOptionalString(raw.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalString(raw.nearEd25519SigningKeyId);
-  const rpId = toOptionalString(raw.rpId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const publicKey = toOptionalString(raw.publicKey);
   const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
   const relayerVerifyingShareB64u = toOptionalString(raw.relayerVerifyingShareB64u);
   const keyVersion = toOptionalString(raw.keyVersion);
   const recoveryExportCapable = raw.recoveryExportCapable === true ? (true as const) : false;
   if (
+    Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
-    !rpId ||
+    !authorityScope ||
     !publicKey ||
     !relayerSigningShareB64u ||
     !relayerVerifyingShareB64u ||
@@ -321,7 +326,7 @@ export function parseThresholdEd25519KeyRecord(
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
-    rpId,
+    authorityScope,
     publicKey,
     relayerSigningShareB64u,
     relayerVerifyingShareB64u,
@@ -735,6 +740,24 @@ export function parseThresholdEd25519CommitmentsById(
   return Object.keys(out).length ? out : null;
 }
 
+export function parseThresholdEd25519AuthorityScope(
+  raw: unknown,
+): ThresholdEd25519AuthorityScope | null {
+  if (!isObject(raw)) return null;
+  const kind = toOptionalString(raw.kind);
+  if (kind !== 'passkey_rp') return null;
+  const rpId = parseWebAuthnRpId(raw.rpId);
+  if (!rpId.ok) return null;
+  return { kind, rpId: rpId.value };
+}
+
+export function thresholdEd25519AuthorityScopesMatch(
+  left: ThresholdEd25519AuthorityScope,
+  right: ThresholdEd25519AuthorityScope,
+): boolean {
+  return left.kind === right.kind && left.rpId === right.rpId;
+}
+
 export type ParsedThresholdEd25519MpcSessionRecord = {
   expiresAtMs: number;
   ecdsaThresholdKeyId?: string;
@@ -744,7 +767,7 @@ export type ParsedThresholdEd25519MpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   userId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
@@ -775,16 +798,25 @@ export function parseThresholdEd25519MpcSessionRecord(
   const intentDigestB64u = toOptionalString(raw.intentDigestB64u);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const userId = toOptionalString(raw.userId);
-  const rpId = toOptionalString(raw.rpId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
+  if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) return null;
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !purpose || !intentDigestB64u || !signingDigestB64u || !userId || !rpId)
+  if (
+    !relayerKeyId ||
+    !purpose ||
+    !intentDigestB64u ||
+    !signingDigestB64u ||
+    !userId ||
+    !authorityScope
+  ) {
     return null;
+  }
   return {
     expiresAtMs,
     ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
@@ -794,7 +826,7 @@ export function parseThresholdEd25519MpcSessionRecord(
     intentDigestB64u,
     signingDigestB64u,
     userId,
-    rpId,
+    authorityScope,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     participantIds,
     ...(signingRootMetadata.value ? signingRootMetadata.value : {}),
@@ -853,7 +885,7 @@ export type ParsedThresholdEd25519SigningSessionRecord = {
   relayerKeyId: string;
   signingDigestB64u: string;
   userId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   commitmentsById: ParsedThresholdEd25519CommitmentsById;
   relayerSigningShareB64u?: string;
   relayerNoncesB64u: string;
@@ -869,7 +901,7 @@ export function parseThresholdEd25519SigningSessionRecord(
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const userId = toOptionalString(raw.userId);
-  const rpId = toOptionalString(raw.rpId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const commitmentsById = parseThresholdEd25519CommitmentsById(raw.commitmentsById);
   const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
   const relayerNoncesB64u = toOptionalString(raw.relayerNoncesB64u);
@@ -877,12 +909,13 @@ export function parseThresholdEd25519SigningSessionRecord(
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   if (!isValidNumber(expiresAtMs)) return null;
+  if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) return null;
   if (
     !mpcSessionId ||
     !relayerKeyId ||
     !signingDigestB64u ||
     !userId ||
-    !rpId ||
+    !authorityScope ||
     !commitmentsById ||
     !relayerNoncesB64u
   ) {
@@ -894,7 +927,7 @@ export function parseThresholdEd25519SigningSessionRecord(
     relayerKeyId,
     signingDigestB64u,
     userId,
-    rpId,
+    authorityScope,
     commitmentsById,
     ...(relayerSigningShareB64u ? { relayerSigningShareB64u } : {}),
     relayerNoncesB64u,
@@ -925,7 +958,7 @@ export type ParsedThresholdEd25519CoordinatorSigningSessionRecord = {
   relayerKeyId: string;
   signingDigestB64u: string;
   userId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   commitmentsById: ParsedThresholdEd25519CommitmentsById;
   participantIds: number[];
   groupPublicKey: string;
@@ -944,7 +977,7 @@ export function parseThresholdEd25519CoordinatorSigningSessionRecord(
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const userId = toOptionalString(raw.userId);
-  const rpId = toOptionalString(raw.rpId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const commitmentsById = parseThresholdEd25519CommitmentsById(raw.commitmentsById);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -954,12 +987,13 @@ export function parseThresholdEd25519CoordinatorSigningSessionRecord(
   );
 
   if (!isValidNumber(expiresAtMs)) return null;
+  if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) return null;
   if (
     !mpcSessionId ||
     !relayerKeyId ||
     !signingDigestB64u ||
     !userId ||
-    !rpId ||
+    !authorityScope ||
     !commitmentsById ||
     !relayerVerifyingSharesById
   ) {
@@ -984,7 +1018,7 @@ export function parseThresholdEd25519CoordinatorSigningSessionRecord(
     relayerKeyId,
     signingDigestB64u,
     userId,
-    rpId,
+    authorityScope,
     commitmentsById,
     participantIds,
     groupPublicKey,
@@ -1002,7 +1036,7 @@ export type ParsedEd25519WalletSessionRecord = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   participantIds: number[];
   walletBudgetBinding?: {
     curve: 'ed25519' | 'ecdsa';
@@ -1030,16 +1064,25 @@ export function parseEd25519WalletSessionRecord(
   const walletId = toOptionalString(raw.walletId);
   const nearAccountId = toOptionalString(raw.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalString(raw.nearEd25519SigningKeyId);
-  const rpId = toOptionalString(raw.rpId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
   const walletBudgetBinding = parseWalletBudgetBinding(raw.walletBudgetBinding);
+  if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) return null;
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !userId || !walletId || !nearAccountId || !nearEd25519SigningKeyId || !rpId)
+  if (
+    !relayerKeyId ||
+    !userId ||
+    !walletId ||
+    !nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !authorityScope
+  ) {
     return null;
+  }
   return {
     expiresAtMs,
     relayerKeyId,
@@ -1047,7 +1090,7 @@ export function parseEd25519WalletSessionRecord(
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
-    rpId,
+    authorityScope,
     participantIds,
     ...(walletBudgetBinding ? { walletBudgetBinding } : {}),
     ...(signingRootMetadata.value ? signingRootMetadata.value : {}),
@@ -1062,9 +1105,7 @@ export type ParsedEcdsaWalletSessionRecord = {
   participantIds: number[];
 } & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
 
-export function parseEcdsaWalletSessionRecord(
-  raw: unknown,
-): ParsedEcdsaWalletSessionRecord | null {
+export function parseEcdsaWalletSessionRecord(raw: unknown): ParsedEcdsaWalletSessionRecord | null {
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
@@ -1092,9 +1133,7 @@ export type ParsedWalletSigningBudgetSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
-  budgetScope:
-    | { kind: 'passkey_rp'; rpId: string }
-    | { kind: 'wallet_key'; walletKeyId: string };
+  budgetScope: { kind: 'passkey_rp'; rpId: string } | { kind: 'wallet_key'; walletKeyId: string };
   binding: {
     curve: 'ed25519' | 'ecdsa';
     thresholdSessionId: string;
@@ -1313,9 +1352,7 @@ export function parseRouterAbEcdsaHssServerPresignatureShareRecord(
   return { relayerKeyId, presignatureId, bigRB64u, kShareB64u, sigmaShareB64u, createdAtMs };
 }
 
-type Ed25519WalletSessionClaimKind =
-  | typeof THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND
-  | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
+type Ed25519WalletSessionClaimKind = typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
 
 export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionClaimKind> = {
   sub: string;
@@ -1335,10 +1372,6 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   nbf?: number;
 };
 
-export type LegacyThresholdEd25519SessionClaims = Ed25519WalletSessionClaimsForKind<
-  typeof THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND
->;
-
 export type RouterAbEd25519WalletSessionClaims = Ed25519WalletSessionClaimsForKind<
   typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
 > & {
@@ -1346,9 +1379,7 @@ export type RouterAbEd25519WalletSessionClaims = Ed25519WalletSessionClaimsForKi
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
-export type ThresholdEd25519SessionClaims =
-  | LegacyThresholdEd25519SessionClaims
-  | RouterAbEd25519WalletSessionClaims;
+export type ThresholdEd25519SessionClaims = RouterAbEd25519WalletSessionClaims;
 
 function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
   try {
@@ -1445,16 +1476,6 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   return out;
 }
 
-export function parseThresholdEd25519SessionClaims(
-  raw: unknown,
-): LegacyThresholdEd25519SessionClaims | null {
-  // Legacy parser compatibility boundary: retained only for historical parser
-  // tests and non-signing migration reads. Active Router A/B route/service code
-  // must use parseRouterAbEd25519WalletSessionClaims; delete this parser when
-  // legacy threshold-session JWT fixture coverage is removed.
-  return parseEd25519WalletSessionClaimsForKind(raw, THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND);
-}
-
 export function parseRouterAbEd25519WalletSessionClaims(
   raw: unknown,
 ): RouterAbEd25519WalletSessionClaims | null {
@@ -1489,7 +1510,7 @@ export type ParsedRouterAbEd25519PresignRecord = {
   nearNetworkId: string;
   signerPublicKey: string;
   rpcPolicyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   runtimePolicyScope: RuntimePolicyScope;
   protocolVersion: 'ed25519_frost_2p_presign_v1';
   participantIds: number[];
@@ -1514,7 +1535,7 @@ export function parseRouterAbEd25519PresignRecord(
   const nearNetworkId = toOptionalString(raw.nearNetworkId);
   const signerPublicKey = toOptionalString(raw.signerPublicKey);
   const rpcPolicyId = toOptionalString(raw.rpcPolicyId);
-  const rpId = toOptionalString(raw.rpId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const runtimePolicyScope = parseRuntimePolicyScope(raw.runtimePolicyScope);
   const protocolVersion = toOptionalString(raw.protocolVersion);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
@@ -1526,6 +1547,7 @@ export function parseRouterAbEd25519PresignRecord(
   const relayerNoncesB64u = toOptionalString(raw.relayerNoncesB64u);
 
   if (
+    Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
     kind !== 'router_ab_ed25519_presign_record_v2' ||
     !isValidNumber(expiresAtMs) ||
     !thresholdSessionId ||
@@ -1535,7 +1557,7 @@ export function parseRouterAbEd25519PresignRecord(
     !nearNetworkId ||
     !signerPublicKey ||
     !rpcPolicyId ||
-    !rpId ||
+    !authorityScope ||
     !runtimePolicyScope ||
     protocolVersion !== 'ed25519_frost_2p_presign_v1' ||
     !participantIds ||
@@ -1560,7 +1582,7 @@ export function parseRouterAbEd25519PresignRecord(
     nearNetworkId,
     signerPublicKey,
     rpcPolicyId,
-    rpId,
+    authorityScope,
     runtimePolicyScope,
     protocolVersion,
     participantIds,
@@ -1678,9 +1700,7 @@ export function resolveAppSessionWalletIdForWalletScope(
   return undefined;
 }
 
-type EcdsaWalletSessionClaimKind =
-  | typeof THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND
-  | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
+type EcdsaWalletSessionClaimKind = typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
 
 export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind> = {
   sub: string;
@@ -1700,19 +1720,13 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   nbf?: number;
 };
 
-export type LegacyThresholdEcdsaSessionClaims = EcdsaWalletSessionClaimsForKind<
-  typeof THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND
->;
-
 export type RouterAbEcdsaHssWalletSessionClaims = EcdsaWalletSessionClaimsForKind<
   typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
 > & {
   routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 };
 
-export type ThresholdEcdsaSessionClaims =
-  | LegacyThresholdEcdsaSessionClaims
-  | RouterAbEcdsaHssWalletSessionClaims;
+export type ThresholdEcdsaSessionClaims = RouterAbEcdsaHssWalletSessionClaims;
 
 function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind>(
   raw: unknown,
@@ -1791,16 +1805,6 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   }
 
   return out;
-}
-
-export function parseThresholdEcdsaSessionClaims(
-  raw: unknown,
-): LegacyThresholdEcdsaSessionClaims | null {
-  // Legacy parser compatibility boundary: retained only for historical parser
-  // tests and non-signing migration reads. Active Router A/B route/service code
-  // must use parseRouterAbEcdsaHssWalletSessionClaims; delete this parser when
-  // legacy threshold-session JWT fixture coverage is removed.
-  return parseEcdsaWalletSessionClaimsForKind(raw, THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND);
 }
 
 export function parseRouterAbEcdsaHssWalletSessionClaims(

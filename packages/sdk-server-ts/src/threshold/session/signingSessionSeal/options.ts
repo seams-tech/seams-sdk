@@ -17,7 +17,6 @@ import {
 } from '../../../core/keyMaterialBrands';
 
 export type CreateSigningSessionSealOptionsInput = {
-  enabled?: unknown;
   keyVersion?: unknown;
   shamirPrimeB64u: string;
   serverEncryptExponentB64u: string;
@@ -25,19 +24,6 @@ export type CreateSigningSessionSealOptionsInput = {
   thresholdStoreConfig: ThresholdStoreConfigInput;
   isNode?: boolean;
 };
-
-function parseBooleanFlag(value: unknown, defaultValue: boolean): boolean {
-  const normalized = String(value ?? '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return defaultValue;
-  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on')
-    return true;
-  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
-    return false;
-  }
-  throw new Error('SIGNING_SESSION_SEAL_ENABLED must be a boolean flag when provided');
-}
 
 function createShamir3PassCipher(input: {
   signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
@@ -80,19 +66,12 @@ function buildIdempotencyOptions(thresholdStoreConfig: ThresholdStoreConfigInput
     upstashToken:
       toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) || null,
     redisUrl: toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL) || null,
-    postgresUrl:
-      toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL) || null,
-    postgresNamespace:
-      toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) || null,
     keyPrefix: toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) || undefined,
     ttlMs: toPositiveInt(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
   });
 }
 
 export function createSigningSessionSealOptions(input: CreateSigningSessionSealOptionsInput) {
-  const enabled = parseBooleanFlag(input.enabled, true);
-  if (!enabled) return null;
-
   const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(input.keyVersion);
   const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
   const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(

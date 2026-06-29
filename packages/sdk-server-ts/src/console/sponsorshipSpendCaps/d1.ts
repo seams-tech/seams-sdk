@@ -1,6 +1,6 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import { d1Integer as toNumber, d1ChangedRows, formatD1ExecStatement, queryD1One, type D1Row } from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleSponsorshipSpendCapError } from './errors';
 import {
   buildConsoleSponsorshipSpendCapWindowUsage,
@@ -23,8 +23,6 @@ import type {
   ConsoleSponsorshipSpendCapReservationStatus,
   ConsoleSponsorshipSpendCapWindowUsage,
 } from './types';
-
-type D1Row = Record<string, unknown>;
 
 interface D1ConsoleSponsorshipSpendCapState {
   readonly database: D1DatabaseLike;
@@ -72,7 +70,7 @@ export interface D1ConsoleSponsorshipSpendCapServiceOptions {
 
 export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_sponsorship_spend_cap_windows (
+    CREATE TABLE IF NOT EXISTS sponsorship_spend_cap_windows (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       environment_id TEXT NOT NULL,
@@ -109,7 +107,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_sponsorship_spend_cap_reservations (
+    CREATE TABLE IF NOT EXISTS sponsorship_spend_cap_reservations (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -142,19 +140,19 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_sponsorship_spend_cap_source_event_idx
-      ON console_sponsorship_spend_cap_reservations (namespace, org_id, source_event_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS sponsorship_spend_cap_source_event_idx
+      ON sponsorship_spend_cap_reservations (namespace, org_id, source_event_id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_sponsorship_spend_cap_windows_updated_idx
-      ON console_sponsorship_spend_cap_windows (namespace, org_id, updated_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS sponsorship_spend_cap_windows_updated_idx
+      ON sponsorship_spend_cap_windows (namespace, org_id, updated_at_ms DESC)
   `,
   `
-    CREATE TRIGGER IF NOT EXISTS console_sponsorship_spend_cap_reservations_reserve_insert
-    BEFORE INSERT ON console_sponsorship_spend_cap_reservations
+    CREATE TRIGGER IF NOT EXISTS sponsorship_spend_cap_reservations_reserve_insert
+    BEFORE INSERT ON sponsorship_spend_cap_reservations
     WHEN NEW.status = 'RESERVED'
     BEGIN
-      INSERT INTO console_sponsorship_spend_cap_windows (
+      INSERT INTO sponsorship_spend_cap_windows (
         namespace,
         org_id,
         environment_id,
@@ -203,7 +201,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
       SELECT CASE
         WHEN (
           SELECT reserved_minor + settled_minor
-            FROM console_sponsorship_spend_cap_windows
+            FROM sponsorship_spend_cap_windows
            WHERE namespace = NEW.namespace
              AND org_id = NEW.org_id
              AND environment_id = NEW.environment_id
@@ -217,7 +215,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
         THEN RAISE(ABORT, 'sponsorship_spend_cap_exceeded')
       END;
 
-      UPDATE console_sponsorship_spend_cap_windows
+      UPDATE sponsorship_spend_cap_windows
          SET window_end_ms = NEW.window_end_ms,
              cap_minor = NEW.cap_minor,
              reserved_minor = reserved_minor + NEW.requested_minor,
@@ -234,14 +232,14 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
     END
   `,
   `
-    CREATE TRIGGER IF NOT EXISTS console_sponsorship_spend_cap_reservations_settle_update
-    BEFORE UPDATE OF status ON console_sponsorship_spend_cap_reservations
+    CREATE TRIGGER IF NOT EXISTS sponsorship_spend_cap_reservations_settle_update
+    BEFORE UPDATE OF status ON sponsorship_spend_cap_reservations
     WHEN OLD.status = 'RESERVED' AND NEW.status = 'SETTLED'
     BEGIN
       SELECT CASE
         WHEN NOT EXISTS (
           SELECT 1
-            FROM console_sponsorship_spend_cap_windows
+            FROM sponsorship_spend_cap_windows
            WHERE namespace = OLD.namespace
              AND org_id = OLD.org_id
              AND environment_id = OLD.environment_id
@@ -258,7 +256,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
       SELECT CASE
         WHEN (
           SELECT reserved_minor
-            FROM console_sponsorship_spend_cap_windows
+            FROM sponsorship_spend_cap_windows
            WHERE namespace = OLD.namespace
              AND org_id = OLD.org_id
              AND environment_id = OLD.environment_id
@@ -275,7 +273,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
       SELECT CASE
         WHEN (
           SELECT reserved_minor + settled_minor - OLD.requested_minor + NEW.settled_minor
-            FROM console_sponsorship_spend_cap_windows
+            FROM sponsorship_spend_cap_windows
            WHERE namespace = OLD.namespace
              AND org_id = OLD.org_id
              AND environment_id = OLD.environment_id
@@ -287,7 +285,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
              AND window_start_ms = OLD.window_start_ms
         ) > (
           SELECT cap_minor
-            FROM console_sponsorship_spend_cap_windows
+            FROM sponsorship_spend_cap_windows
            WHERE namespace = OLD.namespace
              AND org_id = OLD.org_id
              AND environment_id = OLD.environment_id
@@ -301,7 +299,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
         THEN RAISE(ABORT, 'sponsorship_spend_cap_exceeded')
       END;
 
-      UPDATE console_sponsorship_spend_cap_windows
+      UPDATE sponsorship_spend_cap_windows
          SET reserved_minor = reserved_minor - OLD.requested_minor,
              settled_minor = settled_minor + NEW.settled_minor,
              updated_at_ms = NEW.updated_at_ms
@@ -317,14 +315,14 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
     END
   `,
   `
-    CREATE TRIGGER IF NOT EXISTS console_sponsorship_spend_cap_reservations_release_update
-    BEFORE UPDATE OF status ON console_sponsorship_spend_cap_reservations
+    CREATE TRIGGER IF NOT EXISTS sponsorship_spend_cap_reservations_release_update
+    BEFORE UPDATE OF status ON sponsorship_spend_cap_reservations
     WHEN OLD.status = 'RESERVED' AND NEW.status = 'RELEASED'
     BEGIN
       SELECT CASE
         WHEN NOT EXISTS (
           SELECT 1
-            FROM console_sponsorship_spend_cap_windows
+            FROM sponsorship_spend_cap_windows
            WHERE namespace = OLD.namespace
              AND org_id = OLD.org_id
              AND environment_id = OLD.environment_id
@@ -341,7 +339,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
       SELECT CASE
         WHEN (
           SELECT reserved_minor
-            FROM console_sponsorship_spend_cap_windows
+            FROM sponsorship_spend_cap_windows
            WHERE namespace = OLD.namespace
              AND org_id = OLD.org_id
              AND environment_id = OLD.environment_id
@@ -355,7 +353,7 @@ export const CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL = Object.freeze([
         THEN RAISE(ABORT, 'sponsorship_spend_cap_inconsistent')
       END;
 
-      UPDATE console_sponsorship_spend_cap_windows
+      UPDATE sponsorship_spend_cap_windows
          SET reserved_minor = reserved_minor - OLD.requested_minor,
              updated_at_ms = NEW.updated_at_ms
        WHERE namespace = OLD.namespace
@@ -421,10 +419,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
 
 function normalizeString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -437,10 +431,6 @@ function makeId(prefix: string, now: Date): string {
   return `${prefix}_${ts}_${rand}`;
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function parseMode(value: unknown): ConsoleSponsorshipSpendCapMode {
   const normalized = String(value || '').trim();
@@ -529,14 +519,6 @@ function bucketFromReservation(input: {
   };
 }
 
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
 async function loadReservationBySourceEventId(
   database: D1DatabaseLike,
   input: {
@@ -545,10 +527,10 @@ async function loadReservationBySourceEventId(
     readonly sourceEventId: string;
   },
 ): Promise<ConsoleSponsorshipSpendCapReservation | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     database,
     `SELECT *
-       FROM console_sponsorship_spend_cap_reservations
+       FROM sponsorship_spend_cap_reservations
       WHERE namespace = ?
         AND org_id = ?
         AND source_event_id = ?
@@ -562,10 +544,10 @@ async function loadUsageByBucket(
   database: D1DatabaseLike,
   bucket: SpendCapBucketKey,
 ): Promise<ConsoleSponsorshipSpendCapWindowUsage | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     database,
     `SELECT *
-       FROM console_sponsorship_spend_cap_windows
+       FROM sponsorship_spend_cap_windows
       WHERE namespace = ?
         AND org_id = ?
         AND environment_id = ?
@@ -770,7 +752,7 @@ class D1ConsoleSponsorshipSpendCapServiceImpl
     try {
       await this.state.database
         .prepare(
-          `INSERT INTO console_sponsorship_spend_cap_reservations (
+          `INSERT INTO sponsorship_spend_cap_reservations (
              namespace,
              org_id,
              id,
@@ -906,7 +888,7 @@ class D1ConsoleSponsorshipSpendCapServiceImpl
     try {
       const result = await this.state.database
         .prepare(
-          `UPDATE console_sponsorship_spend_cap_reservations
+          `UPDATE sponsorship_spend_cap_reservations
               SET settled_minor = ?,
                   released_minor = ?,
                   status = 'SETTLED',
@@ -925,7 +907,7 @@ class D1ConsoleSponsorshipSpendCapServiceImpl
           reservation.id,
         )
         .run();
-      if (runChanges(result) !== 1) {
+      if (d1ChangedRows(result) !== 1) {
         throw new Error(`Failed to update spend-cap reservation ${reservation.id}`);
       }
     } catch (error: unknown) {
@@ -985,7 +967,7 @@ class D1ConsoleSponsorshipSpendCapServiceImpl
     try {
       const result = await this.state.database
         .prepare(
-          `UPDATE console_sponsorship_spend_cap_reservations
+          `UPDATE sponsorship_spend_cap_reservations
               SET released_minor = requested_minor,
                   status = 'RELEASED',
                   updated_at_ms = ?
@@ -996,7 +978,7 @@ class D1ConsoleSponsorshipSpendCapServiceImpl
         )
         .bind(updatedAtMs, this.state.namespace, ctx.orgId, reservation.id)
         .run();
-      if (runChanges(result) !== 1) {
+      if (d1ChangedRows(result) !== 1) {
         throw new Error(`Failed to update spend-cap reservation ${reservation.id}`);
       }
     } catch (error: unknown) {

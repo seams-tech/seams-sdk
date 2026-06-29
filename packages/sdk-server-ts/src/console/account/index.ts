@@ -34,12 +34,6 @@ export {
   getConsoleAccountD1Runtime,
 } from './d1';
 
-export type {
-  PostgresConsoleAccountSchemaOptions,
-  PostgresConsoleAccountServiceOptions,
-} from './postgres';
-export { ensureConsoleAccountPostgresSchema, createPostgresConsoleAccountService } from './postgres';
-
 export {
   parsePatchConsoleAccountProfileRequest,
   parseCreateConsoleAccountOrganizationRequest,

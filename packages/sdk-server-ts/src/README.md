@@ -1,6 +1,6 @@
 # Server Package
 
-AuthService provides the server‑side pieces for account creation and WebAuthn verification. Session handling is optional and pluggable — pass a SessionService (or compatible adapter) into the routers. The SDK itself does not bundle a JWT library.
+AuthService provides the server-side pieces for account creation and WebAuthn verification. Session handling is optional and pluggable: pass a SessionService into the routers when sessions are required. The SDK itself does not bundle a JWT library.
 
 ## Quick Start (Express)
 
@@ -8,7 +8,7 @@ AuthService provides the server‑side pieces for account creation and WebAuthn 
 import express from 'express';
 import cors from 'cors';
 import { AuthService, SessionService } from '@seams/sdk-server';
-import { createRelayRouter } from '@seams/sdk-server/router/express';
+import { createRouterApiRouter } from '@seams/sdk-server/router/express';
 import jwt from 'jsonwebtoken';
 
 const service = new AuthService({
@@ -31,7 +31,7 @@ const session = new SessionService({
         typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
       return jwt.sign(payload as any, process.env.JWT_SECRET || 'dev-insecure', {
         algorithm: 'HS256',
-        issuer: process.env.JWT_ISSUER || 'relay',
+        issuer: process.env.JWT_ISSUER || 'router-api',
         audience: process.env.JWT_AUDIENCE || 'app',
         ...(hasExp ? {} : { expiresIn: Number(process.env.JWT_EXPIRES_SEC || 24 * 60 * 60) }),
       });
@@ -59,7 +59,7 @@ app.use(
 );
 app.use(
   '/',
-  createRelayRouter(service, {
+  createRouterApiRouter(service, {
     healthz: true,
     readyz: true,
     session,
@@ -136,7 +136,7 @@ export default {
   - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`
 - POST `/auth/passkey/verify` — WebAuthn verification only (contract-free). Body:
   - `{ challengeId, webauthn_authentication }`
-  - The relay verifies signatures using its private authenticator store and persists counters.
+  - The Router API verifies signatures using its private authenticator store and persists counters.
   - App-session issuance is handled by `POST /session/exchange` (OIDC/JWT exchange contract).
 - POST `/recover-email` — email-based account recovery (TEE/DKIM flow)
 - GET `/healthz` — basic server health + feature configuration hints (optional, enabled via router config)
@@ -151,7 +151,7 @@ export default {
 
 You have two integration styles:
 
-1. Provide a SessionService (hook‑first) or compatible adapter
+1. Provide a SessionService
 
 - Supply `signToken` and `verifyToken` using your preferred JWT library (e.g., jsonwebtoken).
 - Optionally provide cookie hooks to customize headers if using cookie mode.
@@ -207,12 +207,12 @@ For cookies, configure CORS with explicit origins and `credentials: true`.
 
 Default behavior
 
-- No session is minted by default. The client must opt‑in by calling `unlock(..., { session: { kind: 'jwt' | 'cookie', relayUrl?, route? }})`.
-- On the server, sessions are only active if you provide a SessionService (or compatible adapter) to the router options.
+- No session is minted by default. The client must opt-in by calling `unlock(..., { session: { kind: 'jwt' | 'cookie', relayUrl?, route? }})`.
+- On the server, sessions are only active when the router options include a SessionService.
 
 Configurable session endpoints
 
-- Express adaptor: `createRelayRouter(service, { session, sessionRoutes })` (defaults to `/session/state`).
+- Express adaptor: `createRouterApiRouter(service, { session, sessionRoutes })` (defaults to `/session/state`).
 - Cloudflare adaptor: `createCloudflareRouter(service, { session, sessionRoutes, corsOrigins })` (same defaults).
 
 Cloudflare CORS note
@@ -224,7 +224,7 @@ Cloudflare CORS note
 `signingSessionSeal` routes are opt-in and can be composed with helper builders:
 
 ```ts
-import { createRelayRouter } from '@seams/sdk-server/router/express';
+import { createRouterApiRouter } from '@seams/sdk-server/router/express';
 import {
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealPolicyFromWalletSessionStores,
@@ -267,7 +267,7 @@ const signingSessionSeal = createSigningSessionSealRoutesOptions({
   logger: console,
 });
 
-app.use('/', createRelayRouter(service, {
+app.use('/', createRouterApiRouter(service, {
   session,
   threshold,
   signingSessionSeal,
@@ -295,7 +295,7 @@ Optional session vars (examples use these):
 
 ```bash
 JWT_SECRET=change-me
-JWT_ISSUER=relay
+JWT_ISSUER=router-api
 JWT_AUDIENCE=your-app
 JWT_EXPIRES_SEC=86400
 SESSION_COOKIE_NAME=seams-jwt

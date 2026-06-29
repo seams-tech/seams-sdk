@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_api_keys (
+CREATE TABLE IF NOT EXISTS api_keys (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -49,14 +49,14 @@ CREATE TABLE IF NOT EXISTS console_api_keys (
   )
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_api_keys_namespace_id_uidx
-  ON console_api_keys (namespace, id);
+CREATE UNIQUE INDEX IF NOT EXISTS api_keys_namespace_id_uidx
+  ON api_keys (namespace, id);
 
-CREATE INDEX IF NOT EXISTS console_api_keys_org_updated_idx
-  ON console_api_keys (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS api_keys_org_updated_idx
+  ON api_keys (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_api_keys_org_status_idx
-  ON console_api_keys (namespace, org_id, status);
+CREATE INDEX IF NOT EXISTS api_keys_org_status_idx
+  ON api_keys (namespace, org_id, status);
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_api_keys_auth_lookup_uidx
-  ON console_api_keys (namespace, kind, key_prefix, secret_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS api_keys_auth_lookup_uidx
+  ON api_keys (namespace, kind, key_prefix, secret_hash);

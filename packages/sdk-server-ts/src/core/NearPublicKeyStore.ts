@@ -1,10 +1,20 @@
 import type { NormalizedLogger } from './logger';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  formatD1ExecStatement,
+  parseD1JsonColumn,
+  resolveD1DatabaseFromConfig,
+} from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type NearPublicKeyKind = 'threshold' | 'local' | 'backup' | 'ephemeral';
+
+export type NearPublicKeyAuthBinding = {
+  readonly kind: 'passkey';
+  readonly rpId: WebAuthnRpId;
+  readonly credentialIdB64u: string;
+};
 
 export type NearPublicKeyRecord = {
   version: 'near_public_key_v1';
@@ -12,8 +22,9 @@ export type NearPublicKeyRecord = {
   publicKey: string;
   kind: NearPublicKeyKind;
   signerSlot?: number;
-  credentialIdB64u?: string;
-  rpId?: string;
+  authBinding?: NearPublicKeyAuthBinding;
+  credentialIdB64u?: never;
+  rpId?: never;
   createdAtMs: number;
   updatedAtMs: number;
   addedTxHash?: string;
@@ -60,7 +71,7 @@ type D1NearPublicKeyRow = {
 
 export const NEAR_PUBLIC_KEY_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_near_public_keys (
+    CREATE TABLE IF NOT EXISTS near_public_keys (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -85,8 +96,8 @@ export const NEAR_PUBLIC_KEY_STORE_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_near_public_keys_user_idx
-      ON signer_near_public_keys (
+    CREATE INDEX IF NOT EXISTS near_public_keys_user_idx
+      ON near_public_keys (
         namespace,
         org_id,
         project_id,
@@ -116,6 +127,24 @@ function parseNearPublicKeyKind(input: unknown): NearPublicKeyKind | null {
   return null;
 }
 
+function parseNearPublicKeyAuthBinding(
+  raw: Record<string, unknown>,
+): NearPublicKeyAuthBinding | undefined | null {
+  if (
+    Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
+    Object.prototype.hasOwnProperty.call(raw, 'credentialIdB64u')
+  ) {
+    return null;
+  }
+  if (raw.authBinding === undefined) return undefined;
+  if (!isObject(raw.authBinding)) return null;
+  const kind = toOptionalTrimmedString(raw.authBinding.kind);
+  const rpId = parseWebAuthnRpId(raw.authBinding.rpId);
+  const credentialIdB64u = toOptionalTrimmedString(raw.authBinding.credentialIdB64u);
+  if (kind !== 'passkey' || !rpId.ok || !credentialIdB64u) return null;
+  return { kind: 'passkey', rpId: rpId.value, credentialIdB64u };
+}
+
 function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
   if (!isObject(raw)) return null;
   const version = toOptionalTrimmedString(raw.version);
@@ -136,8 +165,8 @@ function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
   const signerSlotRaw = raw.signerSlot;
   const signerSlot =
     typeof signerSlotRaw === 'number' ? signerSlotRaw : Number(signerSlotRaw);
-  const credentialIdB64u = toOptionalTrimmedString(raw.credentialIdB64u);
-  const rpId = toOptionalTrimmedString(raw.rpId);
+  const authBinding = parseNearPublicKeyAuthBinding(raw);
+  if (authBinding === null) return null;
   const addedTxHash = toOptionalTrimmedString(raw.addedTxHash);
   const removedAtMsRaw = raw.removedAtMs;
   const removedAtMs = typeof removedAtMsRaw === 'number' ? removedAtMsRaw : Number(removedAtMsRaw);
@@ -150,8 +179,7 @@ function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
     ...(Number.isFinite(signerSlot) && signerSlot >= 1
       ? { signerSlot: Math.floor(signerSlot) }
       : {}),
-    ...(credentialIdB64u ? { credentialIdB64u } : {}),
-    ...(rpId ? { rpId } : {}),
+    ...(authBinding ? { authBinding } : {}),
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
     ...(addedTxHash ? { addedTxHash } : {}),
@@ -159,31 +187,6 @@ function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
       ? { removedAtMs: Math.floor(removedAtMs) }
       : {}),
   };
-}
-
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
 }
 
 function requireD1ScopeString(input: unknown, field: string): string {
@@ -284,7 +287,7 @@ export class D1NearPublicKeyStore implements NearPublicKeyStore {
     const parsed = parseNearPublicKeyRecord(record);
     if (!parsed) throw new Error('Invalid near public key record');
     await this.bindScope(
-      `INSERT INTO signer_near_public_keys (
+      `INSERT INTO near_public_keys (
         namespace,
         org_id,
         project_id,
@@ -304,8 +307,8 @@ export class D1NearPublicKeyStore implements NearPublicKeyStore {
         kind = EXCLUDED.kind,
         signer_slot = EXCLUDED.signer_slot,
         record_json = EXCLUDED.record_json,
-        created_at_ms = MIN(signer_near_public_keys.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = MAX(signer_near_public_keys.updated_at_ms, EXCLUDED.updated_at_ms),
+        created_at_ms = MIN(near_public_keys.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = MAX(near_public_keys.updated_at_ms, EXCLUDED.updated_at_ms),
         removed_at_ms = EXCLUDED.removed_at_ms`,
       [
         parsed.userId,
@@ -326,7 +329,7 @@ export class D1NearPublicKeyStore implements NearPublicKeyStore {
     if (!uid) return [];
     const result = await this.bindScope(
       `SELECT record_json
-         FROM signer_near_public_keys
+         FROM near_public_keys
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -336,63 +339,8 @@ export class D1NearPublicKeyStore implements NearPublicKeyStore {
       [uid],
     ).all<D1NearPublicKeyRow>();
     return (result.results || [])
-      .map((row) => parseNearPublicKeyRecord(parseD1RecordJson(row.record_json)))
+      .map((row) => parseNearPublicKeyRecord(parseD1JsonColumn(row.record_json)))
       .filter((record): record is NearPublicKeyRecord => Boolean(record));
-  }
-}
-
-class PostgresNearPublicKeyStore implements NearPublicKeyStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async put(record: NearPublicKeyRecord): Promise<void> {
-    const parsed = parseNearPublicKeyRecord(record);
-    if (!parsed) throw new Error('Invalid near public key record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO near_public_keys (namespace, user_id, public_key, record_json, created_at_ms, updated_at_ms)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (namespace, user_id, public_key)
-        DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          updated_at_ms = EXCLUDED.updated_at_ms
-      `,
-      [
-        this.namespace,
-        parsed.userId,
-        parsed.publicKey,
-        parsed,
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      ],
-    );
-  }
-
-  async listByUserId(userId: string): Promise<NearPublicKeyRecord[]> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) return [];
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM near_public_keys
-        WHERE namespace = $1 AND user_id = $2
-      `,
-      [this.namespace, uid],
-    );
-    const out: NearPublicKeyRecord[] = [];
-    for (const r of rows || []) {
-      const parsed = isObject(r) ? parseNearPublicKeyRecord(r.record_json) : null;
-      if (parsed) out.push(parsed);
-    }
-    out.sort((a, b) => (a.signerSlot || 0) - (b.signerSlot || 0));
-    return out;
   }
 }
 
@@ -402,7 +350,6 @@ export function createNearPublicKeyStore(input: {
   isNode: boolean;
 }): NearPublicKeyStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const postgresUrl = getPostgresUrlFromConfig(config);
   const namespace =
     toOptionalTrimmedString(config.NEAR_PUBLIC_KEY_NAMESPACE) ||
     toOptionalTrimmedString(config.THRESHOLD_PREFIX) ||
@@ -423,15 +370,7 @@ export function createNearPublicKeyStore(input: {
     });
   }
 
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[near-public-keys] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[near-public-keys] Using Postgres store for NEAR public key metadata');
-    return new PostgresNearPublicKeyStore({ postgresUrl, namespace });
-  }
+  if (kind) throw new Error(`[near-public-keys] Unknown NEAR public key store kind: ${kind}`);
 
   input.logger.info('[near-public-keys] Using in-memory store for NEAR public key metadata');
   return new InMemoryNearPublicKeyStore();

@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS signer_signing_root_secret_shares (
+CREATE TABLE IF NOT EXISTS signing_root_secret_shares (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   project_id TEXT NOT NULL,
@@ -28,18 +28,32 @@ CREATE TABLE IF NOT EXISTS signer_signing_root_secret_shares (
     signing_root_version,
     share_id
   ),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(signing_root_id) > 0),
   CHECK (share_id IN (1, 2, 3)),
   CHECK (length(sealed_share_b64u) > 0),
+  CHECK (sealed_share_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
+  CHECK (storage_id IS NULL OR length(storage_id) > 0),
   CHECK (length(kek_id) > 0),
   CHECK (length(envelope_version) > 0),
-  CHECK (length(aad_digest_b64u) > 0),
-  CHECK (length(ciphertext_digest_b64u) > 0),
+  CHECK (length(aad_digest_b64u) = 43),
+  CHECK (aad_digest_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
+  CHECK (length(ciphertext_digest_b64u) = 43),
+  CHECK (ciphertext_digest_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
   CHECK (rotation_state IN ('active', 'rotation_pending', 'rotated', 'retired')),
-  CHECK (length(last_audit_event_id) > 0)
+  CHECK (rotated_from_kek_id IS NULL OR length(rotated_from_kek_id) > 0),
+  CHECK (rotated_at_ms IS NULL OR rotated_at_ms >= created_at_ms),
+  CHECK (retired_at_ms IS NULL OR retired_at_ms >= created_at_ms),
+  CHECK (length(last_audit_event_id) > 0),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms)
 );
 
-CREATE INDEX IF NOT EXISTS signer_signing_root_secret_shares_scope_idx
-  ON signer_signing_root_secret_shares (
+CREATE INDEX IF NOT EXISTS signing_root_secret_shares_scope_idx
+  ON signing_root_secret_shares (
     namespace,
     org_id,
     project_id,

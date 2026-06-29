@@ -33,15 +33,6 @@ export {
   getConsoleTeamRbacD1Runtime,
 } from './d1';
 
-export type {
-  PostgresConsoleTeamRbacSchemaOptions,
-  PostgresConsoleTeamRbacServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleTeamRbacPostgresSchema,
-  createPostgresConsoleTeamRbacService,
-} from './postgres';
-
 export {
   parseListConsoleTeamMembersRequest,
   parseInviteConsoleTeamMemberRequest,

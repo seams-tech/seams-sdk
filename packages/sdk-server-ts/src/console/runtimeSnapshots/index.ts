@@ -21,21 +21,6 @@ export {
 } from './service';
 
 export type {
-  PostgresConsoleRuntimeSnapshotSchemaOptions,
-  PostgresConsoleRuntimeSnapshotServiceOptions,
-  PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
-  PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
-  PostgresConsoleRuntimeSnapshotRetentionCleanupOptions,
-} from './postgres';
-export type { PostgresConsoleRuntimeSnapshotRetentionCleanupResult } from './retention';
-export {
-  ensureConsoleRuntimeSnapshotsPostgresSchema,
-  createPostgresConsoleRuntimeSnapshotService,
-  runPostgresConsoleRuntimeSnapshotOutboxDispatch,
-  runPostgresConsoleRuntimeSnapshotRetentionCleanup,
-} from './postgres';
-
-export type {
   ConsoleRuntimeSnapshotD1Runtime,
   ConsoleRuntimeSnapshotD1Service,
   D1ConsoleRuntimeSnapshotSchemaOptions,
@@ -62,7 +47,4 @@ export {
   parsePublishCurrentConsoleRuntimeSnapshotRequest,
 } from './requests';
 
-export {
-  ConsoleRuntimeSnapshotError,
-  isConsoleRuntimeSnapshotError,
-} from './errors';
+export { ConsoleRuntimeSnapshotError, isConsoleRuntimeSnapshotError } from './errors';

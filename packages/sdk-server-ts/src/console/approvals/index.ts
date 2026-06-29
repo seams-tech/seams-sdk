@@ -18,15 +18,6 @@ export type {
 export { createInMemoryConsoleApprovalService } from './service';
 
 export type {
-  PostgresConsoleApprovalSchemaOptions,
-  PostgresConsoleApprovalServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleApprovalsPostgresSchema,
-  createPostgresConsoleApprovalService,
-} from './postgres';
-
-export type {
   ConsoleApprovalsD1Runtime,
   ConsoleApprovalsD1Service,
   D1ConsoleApprovalSchemaOptions,

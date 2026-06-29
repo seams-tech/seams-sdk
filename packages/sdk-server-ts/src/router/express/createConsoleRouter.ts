@@ -228,7 +228,7 @@ export interface ExpressConsoleContext {
 
 const CONSOLE_CORS_ALLOW_HEADERS =
   'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
-const CONSOLE_AUTH_CLAIMS = Symbol('console-auth-claims');
+const consoleAuthClaimsByRequest = new WeakMap<Request, ConsoleAuthClaims>();
 
 function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Request): void {
   if (!opts?.corsOrigins) return;
@@ -268,13 +268,11 @@ function installConsoleCors(router: ExpressRouter, opts: ConsoleRouterOptions): 
 }
 
 function setRequestAuthClaims(req: Request, claims: ConsoleAuthClaims): void {
-  (req as Record<PropertyKey, unknown>)[CONSOLE_AUTH_CLAIMS] = claims;
+  consoleAuthClaimsByRequest.set(req, claims);
 }
 
 function getRequestAuthClaims(req: Request): ConsoleAuthClaims | null {
-  const raw = (req as Record<PropertyKey, unknown>)[CONSOLE_AUTH_CLAIMS];
-  if (!raw || typeof raw !== 'object') return null;
-  return raw as ConsoleAuthClaims;
+  return consoleAuthClaimsByRequest.get(req) ?? null;
 }
 
 function readOptionalExpressHeader(req: Request, header: string): string | undefined {

@@ -1,6 +1,12 @@
 import { normalizeCorsOrigin } from '../../core/SessionService';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Integer as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonArrayColumn as parseJsonArray,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { makeId } from '../apiKeys/secret';
 import {
   hashBootstrapToken,
@@ -22,7 +28,6 @@ import type {
   ConsoleBootstrapTokenService,
 } from './service';
 
-type D1Row = Record<string, unknown>;
 
 interface D1ConsoleBootstrapTokenState {
   readonly database: D1DatabaseLike;
@@ -62,7 +67,7 @@ export interface D1ConsoleBootstrapTokenServiceOptions {
 
 export const CONSOLE_BOOTSTRAP_TOKENS_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_bootstrap_tokens (
+    CREATE TABLE IF NOT EXISTS bootstrap_tokens (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -98,20 +103,20 @@ export const CONSOLE_BOOTSTRAP_TOKENS_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_bootstrap_tokens_namespace_id_uidx
-      ON console_bootstrap_tokens (namespace, id)
+    CREATE UNIQUE INDEX IF NOT EXISTS bootstrap_tokens_namespace_id_uidx
+      ON bootstrap_tokens (namespace, id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_bootstrap_tokens_org_publishable_idx
-      ON console_bootstrap_tokens (namespace, org_id, publishable_key_id, issued_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS bootstrap_tokens_org_publishable_idx
+      ON bootstrap_tokens (namespace, org_id, publishable_key_id, issued_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_bootstrap_tokens_org_status_idx
-      ON console_bootstrap_tokens (namespace, org_id, status, expires_at_ms)
+    CREATE INDEX IF NOT EXISTS bootstrap_tokens_org_status_idx
+      ON bootstrap_tokens (namespace, org_id, status, expires_at_ms)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_bootstrap_tokens_org_prefix_idx
-      ON console_bootstrap_tokens (namespace, org_id, token_prefix, id)
+    CREATE INDEX IF NOT EXISTS bootstrap_tokens_org_prefix_idx
+      ON bootstrap_tokens (namespace, org_id, token_prefix, id)
   `,
 ] as const);
 
@@ -171,10 +176,6 @@ function nullableIso(value: unknown): string | null {
   return parsed > 0 ? toIso(parsed) : null;
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
@@ -201,17 +202,6 @@ function normalizeAllowedPaths(paths: readonly string[] | undefined, fallbackPat
     : [];
   if (normalized.length > 0) return normalized;
   return [normalizePath(fallbackPath)];
-}
-
-function parseJsonArray(raw: unknown): readonly unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== 'string') return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 }
 
 function parseAllowedPathsJson(input: unknown, fallbackPath: string): string[] {
@@ -273,10 +263,6 @@ function cloneRecord(record: ConsoleBootstrapTokenRecord): ConsoleBootstrapToken
   };
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function invalidTokenResult(): RedeemConsoleBootstrapTokenResult {
   return {
@@ -387,7 +373,7 @@ class D1ConsoleBootstrapTokenServiceImpl implements ConsoleBootstrapTokenService
     const row = await this.state.database
       .prepare(
         `SELECT COUNT(*) AS count
-           FROM console_bootstrap_tokens
+           FROM bootstrap_tokens
           WHERE namespace = ?
             AND org_id = ?
             AND publishable_key_id = ?
@@ -494,7 +480,7 @@ class D1ConsoleBootstrapTokenServiceImpl implements ConsoleBootstrapTokenService
   private async insertRecord(record: ConsoleBootstrapTokenRecord): Promise<void> {
     await this.state.database
       .prepare(
-        `INSERT INTO console_bootstrap_tokens (
+        `INSERT INTO bootstrap_tokens (
            namespace, org_id, id, project_id, environment_id, publishable_key_id,
            new_account_id, rp_id, token_hash, token_prefix, method, path,
            allowed_paths_json, origin, request_hash_sha256, max_uses, used_count,
@@ -539,7 +525,7 @@ class D1ConsoleBootstrapTokenServiceImpl implements ConsoleBootstrapTokenService
     const row = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_bootstrap_tokens
+           FROM bootstrap_tokens
           WHERE namespace = ?
             AND org_id = ?
             AND id = ?`,
@@ -555,7 +541,7 @@ class D1ConsoleBootstrapTokenServiceImpl implements ConsoleBootstrapTokenService
   ): Promise<void> {
     await this.state.database
       .prepare(
-        `UPDATE console_bootstrap_tokens
+        `UPDATE bootstrap_tokens
             SET status = 'expired',
                 updated_at_ms = ?
           WHERE namespace = ?
@@ -591,7 +577,7 @@ class D1ConsoleBootstrapTokenServiceImpl implements ConsoleBootstrapTokenService
   ): Promise<ConsoleBootstrapTokenRecord | null> {
     const result = await this.state.database
       .prepare(
-        `UPDATE console_bootstrap_tokens
+        `UPDATE bootstrap_tokens
             SET used_count = used_count + 1,
                 status = CASE
                   WHEN used_count + 1 >= max_uses THEN 'redeemed'
@@ -607,7 +593,7 @@ class D1ConsoleBootstrapTokenServiceImpl implements ConsoleBootstrapTokenService
       )
       .bind(redeemedAtMs, redeemedAtMs, this.state.namespace, record.orgId, record.id)
       .run();
-    if (runChanges(result) < 1) return null;
+    if (d1ChangedRows(result) < 1) return null;
     return await this.findTokenRecord({ orgId: record.orgId, tokenId: record.id });
   }
 }

@@ -2,6 +2,7 @@ import {
   addAuthMethodIntentGrantFromString,
   nearEd25519SigningKeyIdFromWalletId,
   implicitNearAccountProvisioning,
+  registrationEd25519AuthorityScope,
   registrationIntentGrantFromString,
   walletIdFromString,
   type AddAuthMethodIntentV1,
@@ -47,21 +48,21 @@ function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
 
 const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 
+const intentNearEd25519Signer = {
+  kind: 'near_ed25519',
+  accountProvisioning: implicitNearAccountProvisioning(),
+  signerSlot: 1,
+  participantIds: [1, 2],
+  derivationVersion: 1,
+} as const;
+
 const intent = {
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
-  authMethod: { kind: 'passkey' },
+  authMethod: { kind: 'passkey', rpId: webAuthnRpId },
   signerSelection: {
-    mode: 'ed25519_only',
-    ed25519: {
-      accountProvisioning: implicitNearAccountProvisioning(),
-      signerSlot: 1,
-      participantIds: [1, 2],
-      keyPurpose: 'near_tx',
-      keyVersion: 'threshold-ed25519-hss-v1',
-      derivationVersion: 1,
-    },
+    kind: 'signer_set',
+    signers: [intentNearEd25519Signer],
   },
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
@@ -79,6 +80,26 @@ const passkeyAuthority = {
 const preparedSession = {
   contextBindingB64u: 'context',
   evaluatorDriverStateB64u: 'driver',
+};
+
+const preparedEd25519ServerState = {
+  context: {
+    applicationBindingDigestB64u: 'application-binding-digest',
+    participantIds: [1, 2],
+  },
+  preparedServerSession: {
+    evaluatorDriverStateB64u: 'evaluator-driver-state',
+    garblerDriverStateB64u: 'garbler-driver-state',
+  },
+  serverInputs: {
+    yRelayerB64u: 'y-relayer',
+    tauRelayerB64u: 'tau-relayer',
+  },
+};
+
+const respondedEd25519ServerState = {
+  context: preparedEd25519ServerState.context,
+  preparedServerSession: preparedEd25519ServerState.preparedServerSession,
 };
 
 const ecdsaChainTarget = {
@@ -100,8 +121,7 @@ void allocatedIntent;
 const addAuthMethodIntent = {
   version: 'add_auth_method_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
-  authMethod: { kind: 'passkey' },
+  authMethod: { kind: 'passkey', rpId: webAuthnRpId },
   nonceB64u: 'nonce',
 } satisfies AddAuthMethodIntentV1;
 
@@ -145,6 +165,7 @@ const preparedEd25519 = {
   ceremonyHandle: 'hss-handle',
   preparedSession,
   clientOtOfferMessageB64u: 'ot-offer',
+  serverState: preparedEd25519ServerState,
 } satisfies StoredEd25519RegistrationPrepared;
 
 const preparationBase = {
@@ -158,19 +179,18 @@ const preparationBase = {
   signingRootVersion: 'default',
   ed25519Scope: {
     walletId: String(intent.walletId),
-    rpId: intent.rpId,
+    authorityScope: registrationEd25519AuthorityScope(intent.authMethod),
     registrationIntentDigestB64u: allocatedIntent.digestB64u,
-    authMethodKind: intent.authMethod.kind,
     expectedOrigin: 'https://wallet.example.test',
     orgId: allocatedIntent.orgId,
     signingRootId: 'project:env',
     signingRootVersion: 'default',
     nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(intent.walletId),
-    signerSlot: intent.signerSelection.ed25519.signerSlot,
-    keyPurpose: intent.signerSelection.ed25519.keyPurpose,
-    keyVersion: intent.signerSelection.ed25519.keyVersion,
-    derivationVersion: intent.signerSelection.ed25519.derivationVersion,
-    participantIds: intent.signerSelection.ed25519.participantIds,
+    signerSlot: intentNearEd25519Signer.signerSlot,
+    keyPurpose: 'near_tx',
+    keyVersion: 'threshold-ed25519-hss-v1',
+    derivationVersion: intentNearEd25519Signer.derivationVersion,
+    participantIds: [...intentNearEd25519Signer.participantIds],
   },
   createdAtMs: 1,
   expiresAtMs: 2,
@@ -204,6 +224,7 @@ const respondedEd25519 = {
   ceremonyHandle: 'hss-handle',
   preparedSession,
   clientOtOfferMessageB64u: 'ot-offer',
+  serverState: respondedEd25519ServerState,
   responded: {
     contextBindingB64u: 'context',
     serverInputDeliveryB64u: 'server-delivery',
@@ -377,6 +398,7 @@ void ({
   expiresAtMs: 1,
   auth: {
     kind: 'webauthn_assertion',
+    rpId: webAuthnRpId,
     credentialIdB64u: 'credential',
   },
   authority: passkeyAuthority,
@@ -538,6 +560,7 @@ void ({
   expiresAtMs: 1,
   auth: {
     kind: 'webauthn_assertion',
+    rpId: webAuthnRpId,
     credentialIdB64u: 'credential',
   },
   // @ts-expect-error passkey add-auth-method ceremonies require a full authority branch

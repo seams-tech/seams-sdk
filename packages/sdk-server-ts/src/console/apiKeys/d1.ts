@@ -1,6 +1,13 @@
 import { normalizeCorsOrigin } from '../../core/SessionService';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Integer as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonArrayColumn as parseJsonArray,
+  parseD1JsonObjectColumn as parseJsonObject,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,
@@ -33,7 +40,6 @@ import type {
 } from './types';
 import type { ConsoleApiKeysContext, ConsoleApiKeyService } from './service';
 
-type D1Row = Record<string, unknown>;
 
 interface StoredApiKey extends ConsoleApiKey {
   readonly secretHash: string;
@@ -77,7 +83,7 @@ export interface D1ConsoleApiKeysServiceOptions {
 
 export const CONSOLE_API_KEYS_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_api_keys (
+    CREATE TABLE IF NOT EXISTS api_keys (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -129,20 +135,20 @@ export const CONSOLE_API_KEYS_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_api_keys_namespace_id_uidx
-      ON console_api_keys (namespace, id)
+    CREATE UNIQUE INDEX IF NOT EXISTS api_keys_namespace_id_uidx
+      ON api_keys (namespace, id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_api_keys_org_updated_idx
-      ON console_api_keys (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS api_keys_org_updated_idx
+      ON api_keys (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_api_keys_org_status_idx
-      ON console_api_keys (namespace, org_id, status)
+    CREATE INDEX IF NOT EXISTS api_keys_org_status_idx
+      ON api_keys (namespace, org_id, status)
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_api_keys_auth_lookup_uidx
-      ON console_api_keys (namespace, kind, key_prefix, secret_hash)
+    CREATE UNIQUE INDEX IF NOT EXISTS api_keys_auth_lookup_uidx
+      ON api_keys (namespace, kind, key_prefix, secret_hash)
   `,
 ] as const);
 
@@ -198,10 +204,6 @@ function toNullableIso(value: unknown): string | null {
   return parsed > 0 ? toIso(parsed) : null;
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function toNullableMs(value: string | null): number | null {
   if (!value) return null;
@@ -211,17 +213,6 @@ function toNullableMs(value: string | null): number | null {
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
-}
-
-function parseJsonArray(raw: unknown): readonly unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== 'string') return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 }
 
 function parseStringArray(raw: unknown): string[] {
@@ -279,22 +270,6 @@ function parseUsageCounts(raw: unknown): Record<string, number> {
     out[key] = Math.floor(value);
   }
   return out;
-}
-
-function parseJsonObject(raw: unknown): Record<string, unknown> {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...(raw as Record<string, unknown>) };
-  }
-  if (typeof raw !== 'string') return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ...(parsed as Record<string, unknown>) };
-    }
-  } catch {
-    return {};
-  }
-  return {};
 }
 
 function cloneJsonObject(input: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -549,10 +524,6 @@ function applyApiKeyUpdate(
   };
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
   readonly [CONSOLE_API_KEYS_D1_RUNTIME]: ConsoleApiKeysD1Runtime;
@@ -580,7 +551,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
     const out = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_api_keys
+           FROM api_keys
           WHERE namespace = ? AND org_id = ?
           ORDER BY updated_at_ms DESC, created_at_ms DESC`,
       )
@@ -624,7 +595,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
     const updatedAtMs = nowMs(this.state.now());
     await this.state.database
       .prepare(
-        `UPDATE console_api_keys
+        `UPDATE api_keys
             SET status = 'REVOKED',
                 revoked_reason = ?,
                 updated_at_ms = ?
@@ -658,13 +629,13 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
 
     const result = await this.state.database
       .prepare(
-        `DELETE FROM console_api_keys
+        `DELETE FROM api_keys
           WHERE namespace = ? AND org_id = ? AND id = ?`,
       )
       .bind(this.state.namespace, ctx.orgId, apiKeyId)
       .run();
     return {
-      deleted: runChanges(result) > 0,
+      deleted: d1ChangedRows(result) > 0,
       apiKey: toPublicApiKey(current),
     };
   }
@@ -982,7 +953,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
   private async insertApiKey(apiKey: StoredApiKey): Promise<void> {
     await this.state.database
       .prepare(
-        `INSERT INTO console_api_keys
+        `INSERT INTO api_keys
           (namespace, org_id, id, kind, name, environment_id, key_prefix,
            scopes_json, ip_allowlist_json, allowed_origins_json, rate_limit_bucket,
            quota_bucket, risk_policy_json, payment_policy_json, status, secret_hash,
@@ -1009,7 +980,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
   private async updateStoredApiKey(apiKey: StoredApiKey): Promise<void> {
     await this.state.database
       .prepare(
-        `UPDATE console_api_keys
+        `UPDATE api_keys
             SET name = ?,
                 environment_id = ?,
                 key_prefix = ?,
@@ -1045,7 +1016,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
     const row = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_api_keys
+           FROM api_keys
           WHERE namespace = ? AND org_id = ? AND id = ?`,
       )
       .bind(this.state.namespace, orgId, apiKeyId)
@@ -1059,7 +1030,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
     const row = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_api_keys
+           FROM api_keys
           WHERE namespace = ?
             AND kind = ?
             AND key_prefix = ?
@@ -1085,7 +1056,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
       : [...current.anomalyFlags, normalized];
     await this.state.database
       .prepare(
-        `UPDATE console_api_keys
+        `UPDATE api_keys
             SET anomaly_flags_json = ?,
                 updated_at_ms = ?
           WHERE namespace = ? AND org_id = ? AND id = ?`,
@@ -1118,7 +1089,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
     }
     await this.state.database
       .prepare(
-        `UPDATE console_api_keys
+        `UPDATE api_keys
             SET last_used_at_ms = ?,
                 endpoint_usage_counts_json = ?,
                 updated_at_ms = ?

@@ -3,7 +3,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { formatD1ExecStatement } from '../../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../../storage/tenantRoute';
-import { parseCurrentSigningRootSecretShareRecord } from '../postgresRecords';
+import { parseCurrentSigningRootSecretShareRecord } from '../persistedRecords';
 import type {
   SealedSigningRootSecretShare,
   SigningRootSecretShareId,
@@ -79,7 +79,7 @@ type D1SigningRootSecretShareScope = {
 
 export const SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_signing_root_secret_shares (
+    CREATE TABLE IF NOT EXISTS signing_root_secret_shares (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -109,19 +109,33 @@ export const SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL = Object.freeze([
         signing_root_version,
         share_id
       ),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(project_id) > 0),
+      CHECK (length(env_id) > 0),
+      CHECK (length(signing_root_id) > 0),
       CHECK (share_id IN (1, 2, 3)),
       CHECK (length(sealed_share_b64u) > 0),
+      CHECK (sealed_share_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
+      CHECK (storage_id IS NULL OR length(storage_id) > 0),
       CHECK (length(kek_id) > 0),
       CHECK (length(envelope_version) > 0),
-      CHECK (length(aad_digest_b64u) > 0),
-      CHECK (length(ciphertext_digest_b64u) > 0),
+      CHECK (length(aad_digest_b64u) = 43),
+      CHECK (aad_digest_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
+      CHECK (length(ciphertext_digest_b64u) = 43),
+      CHECK (ciphertext_digest_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
       CHECK (rotation_state IN ('active', 'rotation_pending', 'rotated', 'retired')),
-      CHECK (length(last_audit_event_id) > 0)
+      CHECK (rotated_from_kek_id IS NULL OR length(rotated_from_kek_id) > 0),
+      CHECK (rotated_at_ms IS NULL OR rotated_at_ms >= created_at_ms),
+      CHECK (retired_at_ms IS NULL OR retired_at_ms >= created_at_ms),
+      CHECK (length(last_audit_event_id) > 0),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms >= created_at_ms)
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_signing_root_secret_shares_scope_idx
-      ON signer_signing_root_secret_shares (
+    CREATE INDEX IF NOT EXISTS signing_root_secret_shares_scope_idx
+      ON signing_root_secret_shares (
         namespace,
         org_id,
         project_id,
@@ -313,7 +327,7 @@ export class D1SigningRootSecretStore implements SigningRootSecretStore {
            last_audit_event_id,
            created_at_ms,
            updated_at_ms
-         FROM signer_signing_root_secret_shares
+         FROM signing_root_secret_shares
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -369,7 +383,7 @@ export class D1SigningRootSecretStore implements SigningRootSecretStore {
     const ciphertextDigestB64u = await computeD1CiphertextDigestB64u(normalized.sealedShare);
     await this.database
       .prepare(
-        `INSERT INTO signer_signing_root_secret_shares (
+        `INSERT INTO signing_root_secret_shares (
           namespace,
           org_id,
           project_id,
@@ -444,7 +458,7 @@ export class D1SigningRootSecretStore implements SigningRootSecretStore {
     const signingRootVersionKey = normalizeSigningRootVersionKey(input.signingRootVersion);
     await this.database
       .prepare(
-        `DELETE FROM signer_signing_root_secret_shares
+        `DELETE FROM signing_root_secret_shares
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?

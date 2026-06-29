@@ -66,7 +66,6 @@ export {
 export {
   CloudflareDurableObjectSigningRootSecretStore,
   InMemorySigningRootSecretStore,
-  PostgresSigningRootSecretStore,
 } from './stores/SigningRootSecretStore';
 export {
   D1SigningRootSecretStore,

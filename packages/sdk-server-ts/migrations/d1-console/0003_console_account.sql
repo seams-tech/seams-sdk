@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_user_profiles (
+CREATE TABLE IF NOT EXISTS user_profiles (
   namespace TEXT NOT NULL,
   user_id TEXT NOT NULL,
   display_name TEXT,
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS console_user_profiles (
   PRIMARY KEY (namespace, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS console_user_backup_emails (
+CREATE TABLE IF NOT EXISTS user_backup_emails (
   namespace TEXT NOT NULL,
   user_id TEXT NOT NULL,
   email TEXT NOT NULL,
@@ -20,5 +20,5 @@ CREATE TABLE IF NOT EXISTS console_user_backup_emails (
   CHECK (status IN ('PENDING', 'VERIFIED'))
 );
 
-CREATE INDEX IF NOT EXISTS console_org_created_by_user_idx
-  ON console_organizations (namespace, created_by_user_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS org_created_by_user_idx
+  ON organizations (namespace, created_by_user_id, updated_at_ms DESC, created_at_ms DESC);

@@ -5,7 +5,7 @@ import {
   parseListConsoleObservabilityServicesRequest,
 } from '../../console/observability/requests';
 import type { ConsoleObservabilityService } from '../../console/observability/service';
-import type { ConsoleAuthClaims } from '../console';
+import type { ConsoleAuthClaims } from '../consoleAuth';
 
 export interface CloudflareConsoleObservabilityRouteContext {
   method: string;

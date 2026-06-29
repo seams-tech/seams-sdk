@@ -39,25 +39,8 @@ export type {
 } from './service';
 export { createInMemoryConsoleObservabilityService } from './service';
 
-export type {
-  PostgresConsoleObservabilityRetentionCleanupOptions,
-} from './postgres';
-export { runPostgresConsoleObservabilityRetentionCleanup } from './postgres';
-export type { PostgresConsoleObservabilityServiceOptions } from './queries';
-export { createPostgresConsoleObservabilityService } from './queries';
-export type {
-  ConsoleObservabilityIngestionService,
-} from './ingestionService';
-export type {
-  PostgresConsoleObservabilityIngestionServiceOptions,
-} from './incidentIngest';
-export { createPostgresConsoleObservabilityIngestionService } from './incidentIngest';
-export type { PostgresConsoleObservabilitySchemaOptions } from './schema';
-export {
-  ensureConsoleObservabilityPostgresSchema,
-  ensureConsoleObservabilityEventsPartition,
-  monthStartUtcMs,
-} from './schema';
+export type { ConsoleObservabilityIngestionService } from './ingestionService';
+
 export type {
   ConsoleObservabilityD1Runtime,
   ConsoleObservabilityD1Service,
@@ -76,8 +59,6 @@ export {
   getConsoleObservabilityD1Runtime,
   getConsoleObservabilityIngestionD1Runtime,
 } from './d1';
-
-export type { PostgresConsoleObservabilityRetentionCleanupResult } from './retention';
 
 export type { ConsoleObservabilityRedactionResult } from './redaction';
 export { redactConsoleObservabilityMetadata } from './redaction';

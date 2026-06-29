@@ -19,15 +19,6 @@ export type {
 export { createInMemoryConsoleSponsorshipSpendCapService } from './service';
 
 export type {
-  PostgresConsoleSponsorshipSpendCapSchemaOptions,
-  PostgresConsoleSponsorshipSpendCapServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleSponsorshipSpendCapPostgresSchema,
-  createPostgresConsoleSponsorshipSpendCapService,
-} from './postgres';
-
-export type {
   ConsoleSponsorshipSpendCapD1Runtime,
   ConsoleSponsorshipSpendCapD1Service,
   D1ConsoleSponsorshipSpendCapSchemaOptions,
@@ -41,7 +32,4 @@ export {
   createD1ConsoleSponsorshipSpendCapService,
 } from './d1';
 
-export {
-  ConsoleSponsorshipSpendCapError,
-  isConsoleSponsorshipSpendCapError,
-} from './errors';
+export { ConsoleSponsorshipSpendCapError, isConsoleSponsorshipSpendCapError } from './errors';

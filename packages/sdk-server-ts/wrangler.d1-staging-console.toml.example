@@ -1,0 +1,20 @@
+name = "seams-sdk-d1-console-staging"
+main = "src/router/cloudflare/d1ConsoleStagingWorker.ts"
+compatibility_date = "2026-04-17"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "CONSOLE_DB"
+database_name = "seams-console-staging"
+database_id = "<remote-console-d1-database-id>"
+migrations_dir = "migrations/d1-console"
+
+[vars]
+SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
+CONSOLE_SESSION_ISSUER = "seams-console-staging"
+CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
+
+[secrets]
+required = [
+  "CONSOLE_SESSION_HMAC_SECRET",
+]

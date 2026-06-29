@@ -38,7 +38,7 @@ import {
 import type { ConsoleBillingContext } from '../console/billing/service';
 import type { ConsoleBillingPrepaidReservationContext } from '../console/billingPrepaidReservations/service';
 import type { ConsoleSponsoredCallContext } from '../console/sponsoredCalls/service';
-import type { D1PreparedStatementLike } from '../storage/tenantRoute';
+import type { D1PreparedStatementLike, D1ResultLike } from '../storage/tenantRoute';
 import type { RouteResponse } from './routeExecutionContext';
 import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type {
@@ -101,6 +101,7 @@ interface FinalizedSponsoredPrepaidSettlementD1 {
   billingLedgerEntryId: string | null;
   settlement: FinalizedSponsoredPrepaidSettlement | null;
   statements: D1PreparedStatementLike[];
+  reservationTransition: D1ReservationTransition;
 }
 
 export interface SponsoredExecutionPrepaidSettlementInput {
@@ -214,7 +215,7 @@ export async function recordSponsoredExecution(
         ...(record.environmentId ? { environmentId: record.environmentId } : {}),
         ...(record.route ? { routeId: record.route } : {}),
         ...(record.billingLedgerEntryId ? { ledgerEntryId: record.billingLedgerEntryId } : {}),
-        ...(record.idempotencyKey ? { sourceEventId: record.idempotencyKey } : {}),
+        sourceEventId: record.idempotencyKey,
       },
     });
   }
@@ -287,10 +288,33 @@ interface D1ReleasedReservationInput extends D1PrepaidSettlementBuildInput {
   quote: SponsoredPrepaidSettlementQuote;
 }
 
+type D1ReservationTransition =
+  | {
+      readonly kind: 'none';
+    }
+  | {
+      readonly kind: 'required';
+      readonly action: 'settle' | 'release';
+      readonly statementIndex: number;
+      readonly sourceEventId: string;
+    };
+
+type D1PreviousStatementInsertGuard = {
+  readonly kind: 'previous_statement_changed_one';
+};
+
+const NO_D1_RESERVATION_TRANSITION: D1ReservationTransition = {
+  kind: 'none',
+};
+
+const D1_PREVIOUS_STATEMENT_CHANGED_ONE_INSERT_GUARD: D1PreviousStatementInsertGuard = {
+  kind: 'previous_statement_changed_one',
+};
+
 function normalizeRequiredSponsoredRecordIdempotencyKey(
-  request: { idempotencyKey?: string | null },
+  request: { idempotencyKey: string },
 ): string {
-  const idempotencyKey = String(request.idempotencyKey || '').trim();
+  const idempotencyKey = request.idempotencyKey.trim();
   if (!idempotencyKey) {
     throw new Error('Atomic D1 sponsored settlement requires a sponsored-call idempotency key');
   }
@@ -339,6 +363,66 @@ function isD1ConstraintError(error: unknown): boolean {
 
 function assertNeverReservationStatus(status: never): never {
   throw new Error(`Unhandled prepaid reservation status: ${status}`);
+}
+
+function assertNeverD1ReservationTransition(transition: never): never {
+  throw new Error(`Unhandled D1 reservation transition: ${JSON.stringify(transition)}`);
+}
+
+function d1ReservationTransitionInsertGuard(
+  transition: D1ReservationTransition,
+): D1PreviousStatementInsertGuard | undefined {
+  switch (transition.kind) {
+    case 'none':
+      return undefined;
+    case 'required':
+      return D1_PREVIOUS_STATEMENT_CHANGED_ONE_INSERT_GUARD;
+    default:
+      return assertNeverD1ReservationTransition(transition);
+  }
+}
+
+function d1BatchResultChanges(result: D1ResultLike<unknown> | undefined): number | null {
+  const changes = Number(result?.meta?.changes);
+  if (!Number.isFinite(changes)) return null;
+  return Math.max(0, Math.trunc(changes));
+}
+
+function d1ReservationTransitionFailed(input: {
+  transition: D1ReservationTransition;
+  batchResults: readonly D1ResultLike<unknown>[];
+}): boolean {
+  switch (input.transition.kind) {
+    case 'none':
+      return false;
+    case 'required': {
+      const changes = d1BatchResultChanges(input.batchResults[input.transition.statementIndex]);
+      return changes !== null && changes !== 1;
+    }
+    default:
+      return assertNeverD1ReservationTransition(input.transition);
+  }
+}
+
+function d1ReservationTransitionFailureError(
+  transition: D1ReservationTransition,
+): ConsoleBillingPrepaidReservationError {
+  switch (transition.kind) {
+    case 'none':
+      return new ConsoleBillingPrepaidReservationError(
+        'settlement_failed',
+        500,
+        'Failed to insert D1 sponsored-call settlement record',
+      );
+    case 'required':
+      return new ConsoleBillingPrepaidReservationError(
+        'invalid_state',
+        409,
+        `Prepaid reservation ${transition.sourceEventId} could not be ${transition.action === 'settle' ? 'settled' : 'released'} from RESERVED state`,
+      );
+    default:
+      return assertNeverD1ReservationTransition(transition);
+  }
 }
 
 async function loadExistingD1SponsoredRecordByIdempotency(input: {
@@ -402,10 +486,28 @@ async function recordSponsoredExecutionD1(
     recordId,
     request,
     createdAtMs,
+    insertGuard: d1ReservationTransitionInsertGuard(finalized.reservationTransition),
   });
 
   try {
-    await input.billingRuntime.database.batch([...finalized.statements, recordInsert]);
+    const batchResults = await input.billingRuntime.database.batch<D1ResultLike<unknown>>([
+      ...finalized.statements,
+      recordInsert,
+    ]);
+    if (
+      d1ReservationTransitionFailed({
+        transition: finalized.reservationTransition,
+        batchResults,
+      })
+    ) {
+      const duplicate = await loadExistingD1SponsoredRecordByIdempotency({
+        runtime: input.sponsoredCallsRuntime,
+        ctx: input.input.context,
+        idempotencyKey,
+      });
+      if (duplicate) return duplicate;
+      throw d1ReservationTransitionFailureError(finalized.reservationTransition);
+    }
   } catch (error: unknown) {
     if (!isD1ConstraintError(error)) throw error;
     const duplicate = await loadExistingD1SponsoredRecordByIdempotency({
@@ -423,7 +525,15 @@ async function recordSponsoredExecutionD1(
     orgId: input.input.context.orgId,
     recordId,
   });
-  if (!record) throw new Error('Failed to insert D1 sponsored-call settlement record');
+  if (!record) {
+    const duplicate = await loadExistingD1SponsoredRecordByIdempotency({
+      runtime: input.sponsoredCallsRuntime,
+      ctx: input.input.context,
+      idempotencyKey,
+    });
+    if (duplicate) return duplicate;
+    throw d1ReservationTransitionFailureError(finalized.reservationTransition);
+  }
   return record;
 }
 
@@ -432,7 +542,12 @@ async function finalizeSponsoredPrepaidSettlementD1(
 ): Promise<FinalizedSponsoredPrepaidSettlementD1> {
   const reservationHandle = input.prepaidSettlementInput.reservation;
   if (!reservationHandle) {
-    return { settlement: null, billingLedgerEntryId: null, statements: [] };
+    return {
+      settlement: null,
+      billingLedgerEntryId: null,
+      statements: [],
+      reservationTransition: NO_D1_RESERVATION_TRANSITION,
+    };
   }
   if (!input.prepaidSettlementInput.prepaidReservations) {
     throw new ConsoleBillingPrepaidReservationError(
@@ -443,7 +558,12 @@ async function finalizeSponsoredPrepaidSettlementD1(
   }
   const quote = await resolveSponsoredPrepaidSettlementQuote(input.prepaidSettlementInput);
   if (!quote) {
-    return { settlement: null, billingLedgerEntryId: null, statements: [] };
+    return {
+      settlement: null,
+      billingLedgerEntryId: null,
+      statements: [],
+      reservationTransition: NO_D1_RESERVATION_TRANSITION,
+    };
   }
   const reservation =
     await input.prepaidSettlementInput.prepaidReservations.getReservationBySourceEventId(
@@ -477,8 +597,10 @@ function buildReleasedD1PrepaidSettlement(
   input: D1ReleasedReservationInput,
 ): FinalizedSponsoredPrepaidSettlementD1 {
   const statements: D1PreparedStatementLike[] = [];
+  let reservationTransition: D1ReservationTransition = NO_D1_RESERVATION_TRANSITION;
   switch (input.reservation.status) {
-    case 'RESERVED':
+    case 'RESERVED': {
+      const statementIndex = statements.length;
       statements.push(
         createReleaseConsoleBillingPrepaidReservationD1Statement({
           runtime: input.prepaidRuntime,
@@ -487,10 +609,21 @@ function buildReleasedD1PrepaidSettlement(
           updatedAtMs: input.settledAtMs,
         }),
       );
+      reservationTransition = {
+        kind: 'required',
+        action: 'release',
+        statementIndex,
+        sourceEventId: input.reservation.sourceEventId,
+      };
       break;
+    }
     case 'RELEASED':
     case 'EXPIRED':
-      break;
+      throw new ConsoleBillingPrepaidReservationError(
+        'invalid_state',
+        409,
+        'Released or expired prepaid reservations cannot create a new sponsored execution record',
+      );
     case 'SETTLED':
       throw new ConsoleBillingPrepaidReservationError(
         'invalid_state',
@@ -514,6 +647,7 @@ function buildReleasedD1PrepaidSettlement(
     },
     billingLedgerEntryId: null,
     statements,
+    reservationTransition,
   };
 }
 
@@ -521,8 +655,10 @@ function buildSettledD1PrepaidSettlement(
   input: D1SettledReservationInput,
 ): FinalizedSponsoredPrepaidSettlementD1 {
   const statements: D1PreparedStatementLike[] = [];
+  let reservationTransition: D1ReservationTransition = NO_D1_RESERVATION_TRANSITION;
   switch (input.reservation.status) {
-    case 'RESERVED':
+    case 'RESERVED': {
+      const statementIndex = statements.length;
       statements.push(
         createSettleConsoleBillingPrepaidReservationD1Statement({
           runtime: input.prepaidRuntime,
@@ -534,16 +670,20 @@ function buildSettledD1PrepaidSettlement(
           updatedAtMs: input.settledAtMs,
         }),
       );
+      reservationTransition = {
+        kind: 'required',
+        action: 'settle',
+        statementIndex,
+        sourceEventId: input.reservation.sourceEventId,
+      };
       break;
+    }
     case 'SETTLED':
-      if (input.reservation.settledMinor !== input.quote.settledSpendMinor) {
-        throw new ConsoleBillingPrepaidReservationError(
-          'invalid_state',
-          409,
-          'Prepaid reservation is already settled with a different amount',
-        );
-      }
-      break;
+      throw new ConsoleBillingPrepaidReservationError(
+        'invalid_state',
+        409,
+        'Settled prepaid reservations cannot create a new sponsored execution record',
+      );
     case 'RELEASED':
     case 'EXPIRED':
       throw new ConsoleBillingPrepaidReservationError(
@@ -573,6 +713,7 @@ function buildSettledD1PrepaidSettlement(
         },
         entryId: billingLedgerEntryId,
         occurredAtMs,
+        insertGuard: D1_PREVIOUS_STATEMENT_CHANGED_ONE_INSERT_GUARD,
       }),
     );
   }
@@ -591,5 +732,6 @@ function buildSettledD1PrepaidSettlement(
     },
     billingLedgerEntryId,
     statements,
+    reservationTransition,
   };
 }

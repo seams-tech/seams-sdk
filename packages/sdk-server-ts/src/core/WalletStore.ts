@@ -10,13 +10,10 @@ import {
   THRESHOLD_DO_OBJECT_NAME_DEFAULT,
   THRESHOLD_PREFIX_DEFAULT,
 } from './defaultConfigsServer';
-import {
-  getPostgresPool,
-  getPostgresUrlFromConfig,
-  type PgQueryExecutor,
-} from '../storage/postgres';
+import { resolveD1DatabaseFromConfig } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseWalletId } from '@shared/utils/domainIds';
 import { D1WalletStore } from './d1WalletStore';
 import type { D1WalletStoreOptions } from './d1WalletStore';
 
@@ -31,7 +28,6 @@ export type { D1WalletStoreOptions, D1WalletStoreSchemaOptions } from './d1Walle
 export type WalletRecord = {
   version: 'wallet_v1';
   walletId: WalletId;
-  rpId: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -39,7 +35,6 @@ export type WalletRecord = {
 export type WalletEd25519SignerRecord = {
   version: 'wallet_signer_ed25519_v1';
   walletId: WalletId;
-  rpId: string;
   signerId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -118,10 +113,6 @@ function signerFamily(record: WalletSignerRecord): 'ed25519' | 'ecdsa' {
   return record.version === 'wallet_signer_ed25519_v1' ? 'ed25519' : 'ecdsa';
 }
 
-function recordChainTargetKey(record: WalletSignerRecord): string | null {
-  return record.version === 'wallet_signer_ecdsa_v1' ? record.chainTargetKey : null;
-}
-
 function normalizeTimestampMs(value: unknown): number | null {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue) || numberValue < 0) return null;
@@ -131,34 +122,16 @@ function normalizeTimestampMs(value: unknown): number | null {
 function parseWalletRecord(raw: unknown): WalletRecord | null {
   if (!isObject(raw)) return null;
   if (raw.version !== 'wallet_v1') return null;
-  const walletId = toOptionalTrimmedString(raw.walletId);
-  const rpId = toOptionalTrimmedString(raw.rpId);
+  const walletId = parseWalletId(raw.walletId);
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
-  if (!walletId || !rpId || createdAtMs == null || updatedAtMs == null) return null;
+  if (!walletId.ok || createdAtMs == null || updatedAtMs == null) return null;
   return {
     version: 'wallet_v1',
-    walletId: walletId as WalletId,
-    rpId,
+    walletId: walletId.value,
     createdAtMs,
     updatedAtMs,
   };
-}
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
 }
 
 function requireD1ScopeString(input: unknown, field: string): string {
@@ -186,73 +159,6 @@ export function buildWalletEd25519SignerId(input: {
   return `ed25519:${String(input.nearAccountId || '').trim()}:${Math.max(1, Math.floor(Number(input.signerSlot) || 1))}`;
 }
 
-export async function putWalletRecordWithExecutor(input: {
-  executor: PgQueryExecutor;
-  namespace: string;
-  record: WalletRecord;
-}): Promise<void> {
-  const { record } = input;
-  await input.executor.query(
-    `
-      INSERT INTO wallets
-        (namespace, wallet_id, rp_id, record_json, created_at_ms, updated_at_ms)
-      VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-      ON CONFLICT (namespace, wallet_id) DO UPDATE SET
-        rp_id = EXCLUDED.rp_id,
-        record_json = EXCLUDED.record_json,
-        created_at_ms = LEAST(wallets.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(wallets.updated_at_ms, EXCLUDED.updated_at_ms)
-    `,
-    [
-      input.namespace,
-      record.walletId,
-      record.rpId,
-      JSON.stringify(record),
-      record.createdAtMs,
-      record.updatedAtMs,
-    ],
-  );
-}
-
-export async function putWalletSignerRecordWithExecutor(input: {
-  executor: PgQueryExecutor;
-  namespace: string;
-  record: WalletSignerRecord;
-}): Promise<void> {
-  const { record } = input;
-  await input.executor.query(
-    `
-      INSERT INTO wallet_signers
-        (
-          namespace,
-          wallet_id,
-          signer_family,
-          signer_id,
-          chain_target_key,
-          record_json,
-          created_at_ms,
-          updated_at_ms
-        )
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-      ON CONFLICT (namespace, wallet_id, signer_family, signer_id) DO UPDATE SET
-        chain_target_key = EXCLUDED.chain_target_key,
-        record_json = EXCLUDED.record_json,
-        created_at_ms = LEAST(wallet_signers.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(wallet_signers.updated_at_ms, EXCLUDED.updated_at_ms)
-    `,
-    [
-      input.namespace,
-      record.walletId,
-      signerFamily(record),
-      record.signerId,
-      recordChainTargetKey(record),
-      JSON.stringify(record),
-      record.createdAtMs,
-      record.updatedAtMs,
-    ],
-  );
-}
-
 class InMemoryWalletStore implements WalletStore {
   private readonly subjects = new Map<string, WalletRecord>();
   private readonly signers = new Map<string, WalletSignerRecord>();
@@ -274,53 +180,6 @@ class InMemoryWalletStore implements WalletStore {
       `${this.prefix}${record.walletId}:${signerFamily(record)}:${record.signerId}`,
       record,
     );
-  }
-
-  async putSigners(records: readonly WalletSignerRecord[]): Promise<void> {
-    for (const record of records) {
-      await this.putSigner(record);
-    }
-  }
-}
-
-class PostgresWalletStore implements WalletStore {
-  private readonly poolPromise: ReturnType<typeof getPostgresPool>;
-
-  constructor(private readonly input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-  }
-
-  async getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null> {
-    const walletId = toOptionalTrimmedString(input.walletId);
-    if (!walletId) return null;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM wallets
-        WHERE namespace = $1 AND wallet_id = $2
-      `,
-      [this.input.namespace, walletId],
-    );
-    return parseWalletRecord(rows[0]?.record_json);
-  }
-
-  async putSubject(record: WalletRecord): Promise<void> {
-    const pool = await this.poolPromise;
-    await putWalletRecordWithExecutor({
-      executor: pool,
-      namespace: this.input.namespace,
-      record,
-    });
-  }
-
-  async putSigner(record: WalletSignerRecord): Promise<void> {
-    const pool = await this.poolPromise;
-    await putWalletSignerRecordWithExecutor({
-      executor: pool,
-      namespace: this.input.namespace,
-      record,
-    });
   }
 
   async putSigners(records: readonly WalletSignerRecord[]): Promise<void> {
@@ -421,17 +280,7 @@ export function createWalletStore(input: {
     input.logger.info('[wallet] Using Cloudflare Durable Object store');
     return new CloudflareDurableObjectWalletStore({ namespace, objectName, prefix });
   }
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (kind === 'postgres' || postgresUrl) {
-    if (!input.isNode) {
-      throw new Error('[wallet] Postgres store is not supported in this runtime');
-    }
-    if (!postgresUrl) {
-      throw new Error('[wallet] postgres store enabled but POSTGRES_URL is not set');
-    }
-    input.logger.info('[wallet] Using Postgres store');
-    return new PostgresWalletStore({ postgresUrl, namespace: prefix });
-  }
+  if (kind) throw new Error(`[wallet] Unknown wallet store kind: ${kind}`);
   input.logger.info('[wallet] Using in-memory store (non-persistent)');
   return new InMemoryWalletStore(prefix);
 }

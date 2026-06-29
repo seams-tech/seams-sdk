@@ -1,4 +1,4 @@
-import { hasConsoleRole, type ConsoleAuthClaims } from './console';
+import { hasConsoleRole, type ConsoleAuthClaims } from './consoleAuth';
 import type { RoutePolicyFailureCode } from './routeAuthPolicy';
 import {
   findRouteDefinitionForRequest,

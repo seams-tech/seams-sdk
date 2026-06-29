@@ -43,7 +43,7 @@ export async function emitRouterApiWebhookEvent(input: {
     resolveOrgIdFromClaims(input.claims || null, claimKeys) ||
     null;
   if (!orgId) {
-    input.logger.debug('[relay][webhooks] skipped event without org scope', {
+    input.logger.debug('[router-api][webhooks] skipped event without org scope', {
       eventType,
       eventId: input.eventId || null,
     });
@@ -71,7 +71,7 @@ export async function emitRouterApiWebhookEvent(input: {
       },
     );
   } catch (error: unknown) {
-    input.logger.warn('[relay][webhooks] failed to emit lifecycle event', {
+    input.logger.warn('[router-api][webhooks] failed to emit lifecycle event', {
       eventType,
       orgId,
       eventId: input.eventId || null,

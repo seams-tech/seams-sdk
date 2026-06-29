@@ -52,6 +52,14 @@ type DecimalRatio = {
   denominator: bigint;
 };
 
+function resolveSponsorshipPricingFetch(input?: typeof fetch): typeof fetch {
+  if (input) return input;
+  if (typeof globalThis.fetch !== 'function') {
+    throw new Error('fetch is not available for sponsored execution pricing');
+  }
+  return globalThis.fetch.bind(globalThis) as typeof fetch;
+}
+
 export interface StaticSponsoredExecutionPricingConfig {
   evmByChain: ReadonlyMap<number, StaticSponsoredEvmSpendPricingRule>;
   nearByChain: ReadonlyMap<number, StaticSponsoredNearSpendPricingRule>;
@@ -475,7 +483,7 @@ export function createCoinGeckoSponsoredExecutionPricingService(
     now?: () => number;
   },
 ): SponsorshipSpendPricingService {
-  const fetchImpl = options?.fetch || fetch;
+  const fetchImpl = resolveSponsorshipPricingFetch(options?.fetch);
   const now = options?.now || (() => Date.now());
   const marketPriceCache = new Map<string, CoinGeckoMarketPriceCacheEntry>();
 

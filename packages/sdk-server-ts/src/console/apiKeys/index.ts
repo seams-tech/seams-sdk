@@ -27,15 +27,6 @@ export type {
 export { createInMemoryConsoleApiKeyService } from './service';
 
 export type {
-  PostgresConsoleApiKeySchemaOptions,
-  PostgresConsoleApiKeyServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleApiKeysPostgresSchema,
-  createPostgresConsoleApiKeyService,
-} from './postgres';
-
-export type {
   ConsoleApiKeysD1Runtime,
   ConsoleApiKeysD1Service,
   D1ConsoleApiKeysSchemaOptions,

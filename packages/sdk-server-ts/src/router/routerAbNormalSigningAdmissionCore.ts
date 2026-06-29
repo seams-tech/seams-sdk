@@ -765,7 +765,7 @@ export function readOptionalFirstRow(rows: unknown[]): Record<string, unknown> |
   if (typeof row === 'object' && !Array.isArray(row)) {
     return row as Record<string, unknown>;
   }
-  throw new Error('Postgres row must be an object');
+  throw new Error('Storage row must be an object');
 }
 
 export function parseProjectPolicyDecision(

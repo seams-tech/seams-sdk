@@ -1,6 +1,26 @@
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 
 const DOMAIN = 'near_account_slug_v1';
+
+export type HostedHmacReadableRelayerWalletId = WalletId & {
+  readonly __hostedHmacReadableRelayerWalletIdBrand: 'HostedHmacReadableRelayerWalletId';
+};
+
+export type HostedHmacReadableRelayerWalletIdParseResult =
+  | {
+      readonly ok: true;
+      readonly value: HostedHmacReadableRelayerWalletId;
+    }
+  | {
+      readonly ok: false;
+      readonly code:
+        | 'invalid_wallet_id'
+        | 'invalid_relayer_account'
+        | 'not_near_account'
+        | 'not_relayer_subaccount'
+        | 'not_hmac_readable';
+    };
 
 const ADJECTIVES = [
   'amber',
@@ -158,6 +178,35 @@ function bytesToBase36(bytes: Uint8Array): string {
     value = (value << 8n) + BigInt(byte);
   }
   return value.toString(36);
+}
+
+export function parseHostedHmacReadableRelayerWalletId(input: {
+  readonly walletId: unknown;
+  readonly relayerAccount: unknown;
+}): HostedHmacReadableRelayerWalletIdParseResult {
+  const walletId = parseWalletId(input.walletId);
+  if (!walletId.ok) return { ok: false, code: 'invalid_wallet_id' };
+  const walletIdValue = String(walletId.value);
+  const relayerAccount = toOptionalTrimmedString(input.relayerAccount);
+  if (!relayerAccount || !isValidAccountId(relayerAccount)) {
+    return { ok: false, code: 'invalid_relayer_account' };
+  }
+  if (!isValidAccountId(walletIdValue)) return { ok: false, code: 'not_near_account' };
+  if (!walletIdValue.endsWith(`.${relayerAccount}`)) {
+    return { ok: false, code: 'not_relayer_subaccount' };
+  }
+  const slug = walletIdValue.slice(0, -(relayerAccount.length + 1));
+  if (!/^[a-z]+-[a-z]+-[a-z0-9]{10}$/.test(slug)) {
+    return { ok: false, code: 'not_hmac_readable' };
+  }
+  return { ok: true, value: walletId.value as HostedHmacReadableRelayerWalletId };
+}
+
+export function isHostedHmacReadableRelayerWalletId(input: {
+  readonly walletId: unknown;
+  readonly relayerAccount: unknown;
+}): boolean {
+  return parseHostedHmacReadableRelayerWalletId(input).ok;
 }
 
 async function hmacSha256(secret: string, context: string): Promise<Uint8Array> {

@@ -66,7 +66,7 @@ export class CloudflareD1EmailOtpRateLimitStore {
   }): Promise<EmailOtpRateLimitConsumeResult> {
     const resetAtMs = input.nowMs + input.policy.windowMs;
     const row = await this.prepare(
-      `INSERT INTO signer_email_otp_rate_limits (
+      `INSERT INTO email_otp_rate_limits (
         namespace,
         org_id,
         project_id,
@@ -80,18 +80,18 @@ export class CloudflareD1EmailOtpRateLimitStore {
       ON CONFLICT (namespace, org_id, project_id, env_id, rate_key)
       DO UPDATE SET
         consumed_count = CASE
-          WHEN signer_email_otp_rate_limits.reset_at_ms <= ?
+          WHEN email_otp_rate_limits.reset_at_ms <= ?
             THEN 1
-          ELSE signer_email_otp_rate_limits.consumed_count + 1
+          ELSE email_otp_rate_limits.consumed_count + 1
         END,
         reset_at_ms = CASE
-          WHEN signer_email_otp_rate_limits.reset_at_ms <= ?
+          WHEN email_otp_rate_limits.reset_at_ms <= ?
             THEN ?
-          ELSE signer_email_otp_rate_limits.reset_at_ms
+          ELSE email_otp_rate_limits.reset_at_ms
         END,
         updated_at_ms = ?
-      WHERE signer_email_otp_rate_limits.reset_at_ms <= ?
-         OR signer_email_otp_rate_limits.consumed_count < ?
+      WHERE email_otp_rate_limits.reset_at_ms <= ?
+         OR email_otp_rate_limits.consumed_count < ?
       RETURNING consumed_count, reset_at_ms`,
       [
         input.key,
@@ -108,7 +108,7 @@ export class CloudflareD1EmailOtpRateLimitStore {
     if (row) return { ok: true };
     const existing = await this.prepare(
       `SELECT consumed_count, reset_at_ms
-         FROM signer_email_otp_rate_limits
+         FROM email_otp_rate_limits
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?

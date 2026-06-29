@@ -173,8 +173,6 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL) ||
-    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL) ||
-    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS) ||
     c.signingRootShareResolver ||
@@ -187,12 +185,10 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.url) ||
     toOptionalTrimmedString(c.token) ||
     toOptionalTrimmedString(c.redisUrl) ||
-    toOptionalTrimmedString(c.postgresUrl) ||
     // Env-shaped store toggles
     toOptionalTrimmedString(c.UPSTASH_REDIS_REST_URL) ||
     toOptionalTrimmedString(c.UPSTASH_REDIS_REST_TOKEN) ||
-    toOptionalTrimmedString(c.REDIS_URL) ||
-    toOptionalTrimmedString(c.POSTGRES_URL),
+    toOptionalTrimmedString(c.REDIS_URL),
   );
   if (!anyProvided) return undefined;
 

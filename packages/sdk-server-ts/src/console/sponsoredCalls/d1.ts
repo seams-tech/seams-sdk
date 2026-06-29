@@ -1,5 +1,5 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
+import { d1Number as toNumber, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../storage/tenantRoute';
 import { ConsoleSponsoredCallError } from './errors';
 import type {
@@ -16,8 +16,6 @@ import type {
   ListConsoleSponsoredCallRecordsRequest,
 } from './types';
 import type { ConsoleSponsoredCallContext, ConsoleSponsoredCallService } from './service';
-
-type D1Row = Record<string, unknown>;
 
 export const CONSOLE_SPONSORED_CALL_D1_RUNTIME = Symbol('consoleSponsoredCallD1Runtime');
 
@@ -42,9 +40,13 @@ export interface D1ConsoleSponsoredCallSchemaOptions {
   database: D1DatabaseLike;
 }
 
+type D1SponsoredCallInsertGuard = {
+  readonly kind: 'previous_statement_changed_one';
+};
+
 export const CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_sponsored_call_records (
+    CREATE TABLE IF NOT EXISTS sponsored_call_records (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -77,7 +79,7 @@ export const CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL = Object.freeze([
       settled_at_iso TEXT,
       error_code TEXT,
       error_message TEXT,
-      idempotency_key TEXT,
+      idempotency_key TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
@@ -87,25 +89,34 @@ export const CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL = Object.freeze([
       CHECK (intent_kind IN ('evm_call', 'near_delegate')),
       CHECK (executor_kind IN ('evm_eoa', 'near_delegate')),
       CHECK (fee_unit IN ('wei', 'yocto_near')),
-      CHECK (charged IN (0, 1))
+      CHECK (charged IN (0, 1)),
+      CHECK (length(idempotency_key) > 0),
+      CHECK (json_valid(details_json)),
+      CHECK (estimated_spend_minor IS NULL OR estimated_spend_minor >= 0),
+      CHECK (settled_spend_minor IS NULL OR settled_spend_minor >= 0),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms > 0),
+      CHECK (updated_at_ms >= created_at_ms)
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_sponsored_call_idempotency_key_idx
-      ON console_sponsored_call_records (namespace, org_id, idempotency_key)
-      WHERE idempotency_key IS NOT NULL
+    DROP INDEX IF EXISTS sponsored_call_idempotency_key_idx
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_sponsored_call_org_created_idx
-      ON console_sponsored_call_records (namespace, org_id, created_at_ms DESC, id DESC)
+    CREATE UNIQUE INDEX IF NOT EXISTS sponsored_call_idempotency_key_idx
+      ON sponsored_call_records (namespace, org_id, idempotency_key)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_sponsored_call_org_environment_created_idx
-      ON console_sponsored_call_records (namespace, org_id, environment_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS sponsored_call_org_created_idx
+      ON sponsored_call_records (namespace, org_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_sponsored_call_org_policy_created_idx
-      ON console_sponsored_call_records (namespace, org_id, policy_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS sponsored_call_org_environment_created_idx
+      ON sponsored_call_records (namespace, org_id, environment_id, created_at_ms DESC, id DESC)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS sponsored_call_org_policy_created_idx
+      ON sponsored_call_records (namespace, org_id, policy_id, created_at_ms DESC, id DESC)
   `,
 ] as const);
 
@@ -160,10 +171,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function normalizeString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -172,6 +179,18 @@ function normalizeString(value: unknown): string | null {
 
 function normalizeRequiredString(value: unknown): string {
   return String(value || '').trim();
+}
+
+function normalizeRequiredIdempotencyKey(value: unknown): string {
+  const normalized = normalizeRequiredString(value);
+  if (!normalized) {
+    throw new ConsoleSponsoredCallError(
+      'invalid_request',
+      400,
+      'idempotencyKey is required',
+    );
+  }
+  return normalized;
 }
 
 function normalizeInteger(value: unknown): number | null {
@@ -296,7 +315,7 @@ function parseRecord(row: D1Row): ConsoleSponsoredCallRecord {
     settledAt: normalizeString(row.settled_at_iso),
     errorCode: normalizeString(row.error_code),
     errorMessage: normalizeString(row.error_message),
-    idempotencyKey: normalizeString(row.idempotency_key),
+    idempotencyKey: normalizeRequiredString(row.idempotency_key),
     createdAt: toIso(toNumber(row.created_at_ms)),
     updatedAt: toIso(toNumber(row.updated_at_ms)),
   };
@@ -356,33 +375,16 @@ function normalizeListRequest(
   };
 }
 
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
-}
-
 async function loadRecordByIdempotencyKey(input: {
   database: D1DatabaseLike;
   namespace: string;
   orgId: string;
   idempotencyKey: string;
 }): Promise<ConsoleSponsoredCallRecord | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_sponsored_call_records
+       FROM sponsored_call_records
       WHERE namespace = ?
         AND org_id = ?
         AND idempotency_key = ?
@@ -414,10 +416,10 @@ export async function loadD1ConsoleSponsoredCallRecordById(input: {
   orgId: string;
   recordId: string;
 }): Promise<ConsoleSponsoredCallRecord | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_sponsored_call_records
+       FROM sponsored_call_records
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -457,7 +459,7 @@ function buildRecordInsertValues(input: {
   ctx: ConsoleSponsoredCallContext;
   recordId: string;
   request: CreateConsoleSponsoredCallRecordRequest;
-  idempotencyKey: string | null;
+  idempotencyKey: string;
   createdAtMs: number;
 }): readonly unknown[] {
   return [
@@ -506,11 +508,13 @@ export function createD1ConsoleSponsoredCallRecordInsertStatement(input: {
   recordId: string;
   request: CreateConsoleSponsoredCallRecordRequest;
   createdAtMs: number;
+  insertGuard?: D1SponsoredCallInsertGuard;
 }): D1PreparedStatementLike {
-  const idempotencyKey = normalizeString(input.request.idempotencyKey);
+  const idempotencyKey = normalizeRequiredIdempotencyKey(input.request.idempotencyKey);
+  const sourceSql = d1SponsoredCallRecordInsertSourceSql(input.insertGuard);
   return input.database
     .prepare(
-      `INSERT INTO console_sponsored_call_records (
+      `INSERT INTO sponsored_call_records (
         namespace,
         org_id,
         id,
@@ -546,9 +550,7 @@ export function createD1ConsoleSponsoredCallRecordInsertStatement(input: {
         idempotency_key,
         created_at_ms,
         updated_at_ms
-      ) VALUES (
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-      )`,
+      ) ${sourceSql}`,
     )
     .bind(
       ...buildRecordInsertValues({
@@ -562,6 +564,15 @@ export function createD1ConsoleSponsoredCallRecordInsertStatement(input: {
     );
 }
 
+function d1SponsoredCallRecordInsertSourceSql(
+  insertGuard: D1SponsoredCallInsertGuard | undefined,
+): string {
+  const sourceSql =
+    'SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?';
+  if (!insertGuard) return sourceSql;
+  return `${sourceSql} WHERE changes() = 1`;
+}
+
 export async function createD1ConsoleSponsoredCallRecord(input: {
   database: D1DatabaseLike;
   namespace: string;
@@ -572,16 +583,14 @@ export async function createD1ConsoleSponsoredCallRecord(input: {
   const createdAt = input.now();
   const createdAtMs = nowMs(createdAt);
   const recordId = normalizeString(input.request.id) || makeId('scr', createdAt);
-  const idempotencyKey = normalizeString(input.request.idempotencyKey);
-  if (idempotencyKey) {
-    const existing = await loadRecordByIdempotencyKey({
-      database: input.database,
-      namespace: input.namespace,
-      orgId: input.ctx.orgId,
-      idempotencyKey,
-    });
-    if (existing) return existing;
-  }
+  const idempotencyKey = normalizeRequiredIdempotencyKey(input.request.idempotencyKey);
+  const existing = await loadRecordByIdempotencyKey({
+    database: input.database,
+    namespace: input.namespace,
+    orgId: input.ctx.orgId,
+    idempotencyKey,
+  });
+  if (existing) return existing;
   try {
     await createD1ConsoleSponsoredCallRecordInsertStatement({
       database: input.database,
@@ -592,7 +601,7 @@ export async function createD1ConsoleSponsoredCallRecord(input: {
       createdAtMs,
     }).run();
   } catch (error: unknown) {
-    if (!idempotencyKey || !isD1UniqueConstraintError(error)) throw error;
+    if (!isD1UniqueConstraintError(error)) throw error;
     const existing = await loadRecordByIdempotencyKey({
       database: input.database,
       namespace: input.namespace,
@@ -632,14 +641,14 @@ export async function createD1ConsoleSponsoredCallService(
       const currentNowMs = nowMs(now());
       const trailing30MinCreatedAtMs = currentNowMs - 30 * 24 * 60 * 60 * 1000;
       const trailing90MinCreatedAtMs = currentNowMs - 90 * 24 * 60 * 60 * 1000;
-      const row = await queryOne(
+      const row = await queryD1One(
         database,
         `SELECT
             COALESCE(SUM(CASE WHEN charged = 1 AND created_at_ms >= ? THEN 1 ELSE 0 END), 0) AS trailing_30_count,
             COALESCE(SUM(CASE WHEN charged = 1 AND created_at_ms >= ? THEN COALESCE(settled_spend_minor, 0) ELSE 0 END), 0) AS trailing_30_spend_minor,
             COALESCE(SUM(CASE WHEN charged = 1 AND created_at_ms >= ? THEN 1 ELSE 0 END), 0) AS trailing_90_count,
             COALESCE(SUM(CASE WHEN charged = 1 AND created_at_ms >= ? THEN COALESCE(settled_spend_minor, 0) ELSE 0 END), 0) AS trailing_90_spend_minor
-           FROM console_sponsored_call_records
+           FROM sponsored_call_records
           WHERE namespace = ?
             AND org_id = ?
             AND created_at_ms >= ?`,
@@ -715,10 +724,10 @@ export async function createD1ConsoleSponsoredCallService(
         whereClauses.push('(created_at_ms < ? OR (created_at_ms = ? AND id < ?))');
       }
       values.push(normalized.limit + 1);
-      const rows = await queryAll(
+      const rows = await queryD1All(
         database,
         `SELECT *
-           FROM console_sponsored_call_records
+           FROM sponsored_call_records
           WHERE ${whereClauses.join(' AND ')}
           ORDER BY created_at_ms DESC, id DESC
           LIMIT ?`,

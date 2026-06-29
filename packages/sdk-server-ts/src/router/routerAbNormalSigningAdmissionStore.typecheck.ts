@@ -5,6 +5,8 @@ import type {
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningQuotaDecision,
 } from './routerAbNormalSigningAdmissionStore';
+// @ts-expect-error Normal-signing admission no longer exposes a partial Postgres backend.
+import type { PostgresRouterAbNormalSigningAdmissionStoreOptions } from './routerAbNormalSigningAdmissionStore';
 
 declare const thresholdStore: CloudflareDurableObjectNamespaceLike;
 

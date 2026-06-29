@@ -1,9 +1,8 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
+import { d1Integer as toNumber, d1ChangedRows, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
-  D1ResultLike,
 } from '../../storage/tenantRoute';
 import {
   normalizeManualAdjustmentRequest,
@@ -55,7 +54,6 @@ import type {
   StripeWebhookEventResult,
 } from './types';
 
-type D1Row = Record<string, unknown>;
 type BillingLedgerPostingDirection = 'DEBIT' | 'CREDIT';
 
 const MAW_USAGE_DEBIT_MINOR = 300;
@@ -145,11 +143,16 @@ interface LedgerEntryInsertInput {
   note: string | null;
   idempotencyKey: string | null;
   createdAtMs: number;
+  insertGuard?: D1LedgerEntryInsertGuard;
 }
+
+type D1LedgerEntryInsertGuard = {
+  readonly kind: 'previous_statement_changed_one';
+};
 
 export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_billing_accounts (
+    CREATE TABLE IF NOT EXISTS billing_accounts (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       credit_balance_minor INTEGER NOT NULL DEFAULT 0,
@@ -157,11 +160,15 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id),
-      CHECK (low_balance_threshold_minor >= 0)
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (low_balance_threshold_minor >= 0),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms >= created_at_ms)
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_billing_ledger_entries (
+    CREATE TABLE IF NOT EXISTS billing_ledger_entries (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -180,31 +187,56 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
       idempotency_key TEXT,
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(id) > 0),
       CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL')),
+      CHECK (amount_minor != 0),
+      CHECK (
+        (entry_type = 'CREDIT_PURCHASE' AND amount_minor > 0)
+        OR (entry_type IN ('USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT') AND amount_minor < 0)
+        OR (entry_type IN ('MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL') AND amount_minor != 0)
+      ),
       CHECK (currency = 'USD'),
-      CHECK (actor_type IN ('USER', 'SYSTEM', 'PROVIDER'))
+      CHECK (length(description) > 0),
+      CHECK (
+        month_utc IS NULL
+        OR (
+          month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
+          AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
+        )
+      ),
+      CHECK (related_invoice_id IS NULL OR length(related_invoice_id) > 0),
+      CHECK (related_purchase_id IS NULL OR length(related_purchase_id) > 0),
+      CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
+      CHECK (actor_type IN ('USER', 'SYSTEM', 'PROVIDER')),
+      CHECK (actor_user_id IS NULL OR length(actor_user_id) > 0),
+      CHECK (reason_code IS NULL OR length(reason_code) > 0),
+      CHECK (note IS NULL OR length(note) > 0),
+      CHECK (idempotency_key IS NULL OR length(idempotency_key) > 0),
+      CHECK (created_at_ms > 0)
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_billing_ledger_entries_idempotency_uidx
-      ON console_billing_ledger_entries (namespace, org_id, idempotency_key)
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_ledger_entries_idempotency_uidx
+      ON billing_ledger_entries (namespace, org_id, idempotency_key)
       WHERE idempotency_key IS NOT NULL
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_billing_ledger_entries_type_source_uidx
-      ON console_billing_ledger_entries (namespace, org_id, entry_type, source_event_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_ledger_entries_type_source_uidx
+      ON billing_ledger_entries (namespace, org_id, entry_type, source_event_id)
       WHERE source_event_id IS NOT NULL
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_billing_ledger_entries_org_created_idx
-      ON console_billing_ledger_entries (namespace, org_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS billing_ledger_entries_org_created_idx
+      ON billing_ledger_entries (namespace, org_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_billing_ledger_entries_org_month_idx
-      ON console_billing_ledger_entries (namespace, org_id, month_utc, entry_type)
+    CREATE INDEX IF NOT EXISTS billing_ledger_entries_org_month_idx
+      ON billing_ledger_entries (namespace, org_id, month_utc, entry_type)
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_billing_ledger_postings (
+    CREATE TABLE IF NOT EXISTS billing_ledger_postings (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -215,34 +247,49 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
       FOREIGN KEY (namespace, org_id, ledger_entry_id)
-        REFERENCES console_billing_ledger_entries(namespace, org_id, id)
+        REFERENCES billing_ledger_entries(namespace, org_id, id)
         ON DELETE CASCADE,
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(id) > 0),
+      CHECK (length(ledger_entry_id) > 0),
+      CHECK (length(account_code) > 0),
       CHECK (direction IN ('DEBIT', 'CREDIT')),
-      CHECK (amount_minor >= 0)
+      CHECK (amount_minor > 0),
+      CHECK (created_at_ms > 0)
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_billing_ledger_postings_entry_idx
-      ON console_billing_ledger_postings (namespace, org_id, ledger_entry_id)
+    CREATE INDEX IF NOT EXISTS billing_ledger_postings_entry_idx
+      ON billing_ledger_postings (namespace, org_id, ledger_entry_id)
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_billing_monthly_active_wallets (
+    CREATE TABLE IF NOT EXISTS billing_monthly_active_wallets (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       month_utc TEXT NOT NULL,
       wallet_id TEXT NOT NULL,
       source_event_id TEXT,
       created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, month_utc, wallet_id)
+      PRIMARY KEY (namespace, org_id, month_utc, wallet_id),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (
+        month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
+        AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
+      ),
+      CHECK (length(wallet_id) > 0),
+      CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
+      CHECK (created_at_ms > 0)
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_billing_monthly_active_wallets_source_uidx
-      ON console_billing_monthly_active_wallets (namespace, org_id, source_event_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_monthly_active_wallets_source_uidx
+      ON billing_monthly_active_wallets (namespace, org_id, source_event_id)
       WHERE source_event_id IS NOT NULL
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_billing_credit_purchases (
+    CREATE TABLE IF NOT EXISTS billing_credit_purchases (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -265,20 +312,20 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_billing_credit_purchases_checkout_uidx
-      ON console_billing_credit_purchases (namespace, org_id, provider_checkout_session_ref)
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_credit_purchases_checkout_uidx
+      ON billing_credit_purchases (namespace, org_id, provider_checkout_session_ref)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_billing_credit_purchases_namespace_checkout_idx
-      ON console_billing_credit_purchases (namespace, provider_checkout_session_ref)
+    CREATE INDEX IF NOT EXISTS billing_credit_purchases_namespace_checkout_idx
+      ON billing_credit_purchases (namespace, provider_checkout_session_ref)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_billing_credit_purchases_namespace_customer_idx
-      ON console_billing_credit_purchases (namespace, provider_customer_ref)
+    CREATE INDEX IF NOT EXISTS billing_credit_purchases_namespace_customer_idx
+      ON billing_credit_purchases (namespace, provider_customer_ref)
       WHERE provider_customer_ref IS NOT NULL
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_invoices (
+    CREATE TABLE IF NOT EXISTS invoices (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -299,16 +346,16 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_invoices_org_created_idx
-      ON console_invoices (namespace, org_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS invoices_org_created_idx
+      ON invoices (namespace, org_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_invoices_org_statement_month_uidx
-      ON console_invoices (namespace, org_id, document_type, period_month_utc)
+    CREATE UNIQUE INDEX IF NOT EXISTS invoices_org_statement_month_uidx
+      ON invoices (namespace, org_id, document_type, period_month_utc)
       WHERE document_type = 'USAGE_STATEMENT'
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_invoice_line_items (
+    CREATE TABLE IF NOT EXISTS invoice_line_items (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -322,7 +369,7 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
       FOREIGN KEY (namespace, org_id, invoice_id)
-        REFERENCES console_invoices(namespace, org_id, id)
+        REFERENCES invoices(namespace, org_id, id)
         ON DELETE CASCADE,
       CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT')),
       CHECK (quantity > 0),
@@ -331,11 +378,11 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_invoice_line_items_invoice_idx
-      ON console_invoice_line_items (namespace, org_id, invoice_id)
+    CREATE INDEX IF NOT EXISTS invoice_line_items_invoice_idx
+      ON invoice_line_items (namespace, org_id, invoice_id)
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_stripe_webhook_events (
+    CREATE TABLE IF NOT EXISTS stripe_webhook_events (
       namespace TEXT NOT NULL,
       event_id TEXT NOT NULL,
       provider_ref TEXT NOT NULL,
@@ -345,20 +392,20 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_stripe_webhook_events_org_idx
-      ON console_stripe_webhook_events (namespace, org_id, processed_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS stripe_webhook_events_org_idx
+      ON stripe_webhook_events (namespace, org_id, processed_at_ms DESC)
   `,
   `
-    CREATE TRIGGER IF NOT EXISTS console_billing_ledger_entries_account_apply
-    AFTER INSERT ON console_billing_ledger_entries
+    CREATE TRIGGER IF NOT EXISTS billing_ledger_entries_account_apply
+    AFTER INSERT ON billing_ledger_entries
     BEGIN
-      INSERT INTO console_billing_accounts
+      INSERT INTO billing_accounts
         (namespace, org_id, credit_balance_minor, low_balance_threshold_minor, created_at_ms, updated_at_ms)
       VALUES
         (NEW.namespace, NEW.org_id, 0, 2000, NEW.created_at_ms, NEW.created_at_ms)
       ON CONFLICT(namespace, org_id) DO NOTHING;
 
-      UPDATE console_billing_accounts
+      UPDATE billing_accounts
          SET credit_balance_minor = credit_balance_minor + NEW.amount_minor,
              updated_at_ms = NEW.created_at_ms
        WHERE namespace = NEW.namespace
@@ -366,11 +413,11 @@ export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
     END
   `,
   `
-    CREATE TRIGGER IF NOT EXISTS console_billing_ledger_entries_sponsored_postings
-    AFTER INSERT ON console_billing_ledger_entries
+    CREATE TRIGGER IF NOT EXISTS billing_ledger_entries_sponsored_postings
+    AFTER INSERT ON billing_ledger_entries
     WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' AND ABS(NEW.amount_minor) > 0
     BEGIN
-      INSERT INTO console_billing_ledger_postings
+      INSERT INTO billing_ledger_postings
         (namespace, org_id, id, ledger_entry_id, account_code, direction, amount_minor, created_at_ms)
       VALUES
         (NEW.namespace, NEW.org_id, NEW.id || ':debit_prepaid_liability', NEW.id, 'org_prepaid_liability', 'DEBIT', ABS(NEW.amount_minor), NEW.created_at_ms),
@@ -411,10 +458,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
 
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -505,10 +548,6 @@ function isD1ConstraintError(error: unknown): boolean {
   return message.includes('UNIQUE constraint failed') || message.includes('constraint failed');
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function parseLedgerActorType(value: unknown): BillingLedgerEntry['actorType'] {
   const normalized = String(value || 'SYSTEM')
@@ -831,23 +870,6 @@ function buildInvoiceListSummary(invoices: readonly BillingInvoice[]): BillingIn
   };
 }
 
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
-}
-
 async function ensureBillingAccount(input: {
   database: D1DatabaseLike;
   namespace: string;
@@ -856,7 +878,7 @@ async function ensureBillingAccount(input: {
 }): Promise<BillingAccountRow> {
   await input.database
     .prepare(
-      `INSERT INTO console_billing_accounts
+      `INSERT INTO billing_accounts
         (namespace, org_id, credit_balance_minor, low_balance_threshold_minor, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, 0, ?, ?, ?)
@@ -879,10 +901,10 @@ async function loadBillingAccount(input: {
   orgId: string;
   createdAtMs: number;
 }): Promise<BillingAccountRow> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_billing_accounts
+       FROM billing_accounts
       WHERE namespace = ?
         AND org_id = ?
       LIMIT 1`,
@@ -899,10 +921,10 @@ async function loadLedgerEntryBySourceEventAndType(input: {
   sourceEventId: string;
   type: BillingLedgerEntry['type'];
 }): Promise<BillingLedgerEntry | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_billing_ledger_entries
+       FROM billing_ledger_entries
       WHERE namespace = ?
         AND org_id = ?
         AND entry_type = ?
@@ -919,10 +941,10 @@ async function loadLedgerEntryById(input: {
   orgId: string;
   ledgerEntryId: string;
 }): Promise<BillingLedgerEntry | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_billing_ledger_entries
+       FROM billing_ledger_entries
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -951,10 +973,10 @@ async function listLedgerEntries(input: {
     values.push(input.type);
   }
   values.push(input.limit);
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.database,
     `SELECT *
-       FROM console_billing_ledger_entries
+       FROM billing_ledger_entries
       WHERE ${clauses.join(' AND ')}
       ORDER BY created_at_ms DESC, id DESC
       LIMIT ?`,
@@ -968,10 +990,10 @@ async function listAllStatementLedgerEntries(input: {
   namespace: string;
   orgId: string;
 }): Promise<BillingLedgerEntry[]> {
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.database,
     `SELECT *
-       FROM console_billing_ledger_entries
+       FROM billing_ledger_entries
       WHERE namespace = ?
         AND org_id = ?
         AND month_utc IS NOT NULL
@@ -987,10 +1009,10 @@ async function countMonthlyActiveWallets(input: {
   orgId: string;
   monthUtcValue: string;
 }): Promise<number> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT COUNT(*) AS wallet_count
-       FROM console_billing_monthly_active_wallets
+       FROM billing_monthly_active_wallets
       WHERE namespace = ?
         AND org_id = ?
         AND month_utc = ?`,
@@ -1004,10 +1026,10 @@ async function listPersistedInvoices(input: {
   namespace: string;
   orgId: string;
 }): Promise<BillingInvoice[]> {
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.database,
     `SELECT *
-       FROM console_invoices
+       FROM invoices
       WHERE namespace = ?
         AND org_id = ?
       ORDER BY created_at_ms DESC, id DESC`,
@@ -1022,10 +1044,10 @@ async function loadPersistedInvoiceById(input: {
   orgId: string;
   invoiceId: string;
 }): Promise<BillingInvoice | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_invoices
+       FROM invoices
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -1041,10 +1063,10 @@ async function listPersistedInvoiceLineItems(input: {
   orgId: string;
   invoiceId: string;
 }): Promise<BillingInvoiceLineItem[]> {
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.database,
     `SELECT *
-       FROM console_invoice_line_items
+       FROM invoice_line_items
       WHERE namespace = ?
         AND org_id = ?
         AND invoice_id = ?
@@ -1060,10 +1082,10 @@ async function loadCreditPurchaseByCheckoutSession(input: {
   orgId: string;
   checkoutSessionId: string;
 }): Promise<BillingCreditPurchase | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_billing_credit_purchases
+       FROM billing_credit_purchases
       WHERE namespace = ?
         AND org_id = ?
         AND provider_checkout_session_ref = ?
@@ -1080,10 +1102,10 @@ async function loadCreditPurchaseById(input: {
   orgId: string;
   purchaseId: string;
 }): Promise<BillingCreditPurchase | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_billing_credit_purchases
+       FROM billing_credit_purchases
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -1111,10 +1133,10 @@ async function findCreditPurchaseForStripeEvent(input: {
     } else {
       return { orgId: input.orgId, purchase: null };
     }
-    const rows = await queryAll(
+    const rows = await queryD1All(
       input.database,
       `SELECT *
-         FROM console_billing_credit_purchases
+         FROM billing_credit_purchases
         WHERE ${clauses.join(' AND ')}
         ORDER BY created_at_ms DESC, id DESC
         LIMIT 1`,
@@ -1127,10 +1149,10 @@ async function findCreditPurchaseForStripeEvent(input: {
   }
 
   if (!input.checkoutSessionRef && !input.providerCustomerRef) return null;
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.database,
     `SELECT *
-       FROM console_billing_credit_purchases
+       FROM billing_credit_purchases
       WHERE namespace = ?
         AND (
           provider_checkout_session_ref = ?
@@ -1168,7 +1190,7 @@ function buildPurchaseReceiptStatements(input: {
   return [
     input.state.database
       .prepare(
-        `INSERT INTO console_invoices
+        `INSERT INTO invoices
           (namespace, org_id, id, document_type, status, currency, amount_due_minor, amount_paid_minor, period_month_utc, created_at_ms, due_at_ms)
          VALUES
           (?, ?, ?, 'PURCHASE_RECEIPT', 'PAID', 'USD', ?, ?, ?, ?, NULL)
@@ -1188,7 +1210,7 @@ function buildPurchaseReceiptStatements(input: {
       ),
     input.state.database
       .prepare(
-        `DELETE FROM console_invoice_line_items
+        `DELETE FROM invoice_line_items
           WHERE namespace = ?
             AND org_id = ?
             AND invoice_id = ?`,
@@ -1196,7 +1218,7 @@ function buildPurchaseReceiptStatements(input: {
       .bind(input.state.namespace, input.purchase.orgId, invoiceId),
     input.state.database
       .prepare(
-        `INSERT INTO console_invoice_line_items
+        `INSERT INTO invoice_line_items
           (namespace, org_id, id, invoice_id, period_month_utc, item_type, description, quantity, unit_amount_minor, amount_minor, created_at_ms)
          VALUES
           (?, ?, ?, ?, ?, 'CREDIT_TOP_UP', ?, 1, ?, ?, ?)`,
@@ -1261,7 +1283,7 @@ function buildUsageStatementLineItemStatements(input: {
   return input.lineItems.map((lineItem) =>
     input.state.database
       .prepare(
-        `INSERT INTO console_invoice_line_items
+        `INSERT INTO invoice_line_items
           (namespace, org_id, id, invoice_id, period_month_utc, item_type, description, quantity, unit_amount_minor, amount_minor, created_at_ms)
          VALUES
           (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1286,9 +1308,10 @@ export function createD1BillingLedgerEntryInsertStatement(
   database: D1DatabaseLike,
   input: LedgerEntryInsertInput,
 ): D1PreparedStatementLike {
+  const sourceSql = d1LedgerEntryInsertSourceSql(input.insertGuard);
   return database
     .prepare(
-      `INSERT INTO console_billing_ledger_entries
+      `INSERT INTO billing_ledger_entries
         (
           namespace,
           org_id,
@@ -1308,8 +1331,7 @@ export function createD1BillingLedgerEntryInsertStatement(
           idempotency_key,
           created_at_ms
         )
-       VALUES
-        (?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ${sourceSql}`,
     )
     .bind(
       input.namespace,
@@ -1331,12 +1353,22 @@ export function createD1BillingLedgerEntryInsertStatement(
     );
 }
 
+function d1LedgerEntryInsertSourceSql(
+  insertGuard: LedgerEntryInsertInput['insertGuard'],
+): string {
+  const sourceSql =
+    "SELECT ?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?";
+  if (!insertGuard) return sourceSql;
+  return `${sourceSql} WHERE changes() = 1`;
+}
+
 function buildSponsoredExecutionDebitInsert(input: {
   state: D1ConsoleBillingState;
   ctx: ConsoleBillingContext;
   request: BillingSponsoredExecutionDebitRequest;
   entryId: string;
   occurredAtMs: number;
+  insertGuard?: LedgerEntryInsertInput['insertGuard'];
 }): D1PreparedStatementLike {
   const eventMonthUtc = monthUtcFromMs(input.occurredAtMs);
   const sourceEventId = normalizeRequiredString(input.request.sourceEventId, 'sourceEventId');
@@ -1365,6 +1397,7 @@ function buildSponsoredExecutionDebitInsert(input: {
       `Sponsored execution debit recorded for ${input.request.walletId}`,
     idempotencyKey: `sponsored_execution_debit:${sourceEventId}`,
     createdAtMs: input.occurredAtMs,
+    insertGuard: input.insertGuard,
   });
 }
 
@@ -1477,6 +1510,7 @@ export function createSponsoredExecutionDebitD1InsertStatement(input: {
   request: BillingSponsoredExecutionDebitRequest;
   entryId: string;
   occurredAtMs: number;
+  insertGuard?: LedgerEntryInsertInput['insertGuard'];
 }): D1PreparedStatementLike {
   return buildSponsoredExecutionDebitInsert({
     state: {
@@ -1488,6 +1522,7 @@ export function createSponsoredExecutionDebitD1InsertStatement(input: {
     request: input.request,
     entryId: input.entryId,
     occurredAtMs: input.occurredAtMs,
+    insertGuard: input.insertGuard,
   });
 }
 
@@ -1500,12 +1535,12 @@ async function getUsageStatementTotals(input: {
   sponsoredExecutionDebitMinor: number;
   amountDueMinor: number;
 }> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT
         COALESCE(SUM(CASE WHEN entry_type = 'USAGE_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0) AS usage_debit_minor,
         COALESCE(SUM(CASE WHEN entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0) AS sponsored_execution_debit_minor
-       FROM console_billing_ledger_entries
+       FROM billing_ledger_entries
       WHERE namespace = ?
         AND org_id = ?
         AND entry_type IN ('USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT')
@@ -1605,7 +1640,7 @@ async function syncUsageStatementD1(input: {
   await input.state.database.batch([
     input.state.database
       .prepare(
-        `INSERT INTO console_invoices
+        `INSERT INTO invoices
           (namespace, org_id, id, document_type, status, currency, amount_due_minor, amount_paid_minor, period_month_utc, created_at_ms, due_at_ms)
          VALUES
           (?, ?, ?, 'USAGE_STATEMENT', 'PAID', 'USD', ?, ?, ?, ?, NULL)
@@ -1626,7 +1661,7 @@ async function syncUsageStatementD1(input: {
       ),
     input.state.database
       .prepare(
-        `DELETE FROM console_invoice_line_items
+        `DELETE FROM invoice_line_items
           WHERE namespace = ?
             AND org_id = ?
             AND invoice_id = ?`,
@@ -1768,7 +1803,7 @@ async function settleCreditPurchaseD1(input: {
     }
     await input.state.database
       .prepare(
-        `UPDATE console_billing_credit_purchases
+        `UPDATE billing_credit_purchases
             SET related_invoice_id = ?,
                 settled_at_ms = COALESCE(settled_at_ms, ?),
                 updated_at_ms = ?
@@ -1835,7 +1870,7 @@ async function settleCreditPurchaseD1(input: {
     }),
     input.state.database
       .prepare(
-        `UPDATE console_billing_credit_purchases
+        `UPDATE billing_credit_purchases
             SET status = 'SETTLED',
                 provider_customer_ref = COALESCE(provider_customer_ref, ?),
                 related_invoice_id = ?,
@@ -1918,7 +1953,7 @@ async function processStripeWebhookEventD1(input: {
   const providerRef = checkoutSessionRef || providerCustomerRef || eventType || 'stripe_event';
   const insertResult = await input.state.database
     .prepare(
-      `INSERT INTO console_stripe_webhook_events
+      `INSERT INTO stripe_webhook_events
         (namespace, event_id, provider_ref, org_id, processed_at_ms)
        VALUES
         (?, ?, ?, ?, ?)
@@ -1935,7 +1970,7 @@ async function processStripeWebhookEventD1(input: {
         invoiceId: existingPurchase.relatedInvoiceId,
       })
     : null;
-  if (runChanges(insertResult) === 0) {
+  if (d1ChangedRows(insertResult) === 0) {
     return {
       accepted: false,
       purchase: existingPurchase,
@@ -2034,10 +2069,10 @@ export async function createD1ConsoleBillingService(
       );
       if (ids.length === 0) return [];
       const placeholders = ids.map(() => '?').join(', ');
-      const rows = await queryAll(
+      const rows = await queryD1All(
         state.database,
         `SELECT *
-           FROM console_billing_ledger_entries
+           FROM billing_ledger_entries
           WHERE namespace = ?
             AND org_id = ?
             AND entry_type = 'SPONSORED_EXECUTION_DEBIT'
@@ -2274,7 +2309,7 @@ export async function createD1ConsoleBillingService(
       );
       await state.database
         .prepare(
-          `INSERT INTO console_billing_credit_purchases
+          `INSERT INTO billing_credit_purchases
             (namespace, org_id, id, credit_pack_id, status, amount_minor, currency, provider, provider_checkout_session_ref, provider_customer_ref, related_invoice_id, settled_at_ms, created_at_ms, updated_at_ms)
            VALUES
             (?, ?, ?, ?, 'PENDING', ?, 'USD', 'stripe', ?, ?, NULL, NULL, ?, ?)`,
@@ -2456,10 +2491,10 @@ export async function runD1ConsoleBillingMonthlyFinalization(
 }
 
 async function countStatementMonths(state: D1ConsoleBillingState, orgId: string): Promise<number> {
-  const row = await queryOne(
+  const row = await queryD1One(
     state.database,
     `SELECT COUNT(DISTINCT month_utc) AS statement_count
-       FROM console_billing_ledger_entries
+       FROM billing_ledger_entries
       WHERE namespace = ?
         AND org_id = ?
         AND month_utc IS NOT NULL`,
@@ -2469,10 +2504,10 @@ async function countStatementMonths(state: D1ConsoleBillingState, orgId: string)
 }
 
 async function countPersistedInvoices(state: D1ConsoleBillingState, orgId: string): Promise<number> {
-  const row = await queryOne(
+  const row = await queryD1One(
     state.database,
     `SELECT COUNT(*) AS invoice_count
-       FROM console_invoices
+       FROM invoices
       WHERE namespace = ?
         AND org_id = ?`,
     [state.namespace, orgId],
@@ -2545,10 +2580,10 @@ async function recordUsageEventD1(input: {
   let debitAppliedMinor = 0;
   if (counted) {
     const sourceEventId = normalizeOptionalString(input.request.sourceEventId);
-    const existingWallet = await queryOne(
+    const existingWallet = await queryD1One(
       input.state.database,
       `SELECT wallet_id
-         FROM console_billing_monthly_active_wallets
+         FROM billing_monthly_active_wallets
         WHERE namespace = ?
           AND org_id = ?
           AND month_utc = ?
@@ -2561,7 +2596,7 @@ async function recordUsageEventD1(input: {
       await input.state.database.batch([
         input.state.database
           .prepare(
-            `INSERT INTO console_billing_monthly_active_wallets
+            `INSERT INTO billing_monthly_active_wallets
               (namespace, org_id, month_utc, wallet_id, source_event_id, created_at_ms)
              VALUES
               (?, ?, ?, ?, ?, ?)`,
@@ -2631,10 +2666,10 @@ async function appendManualAdjustmentD1(input: {
 }): Promise<BillingManualAdjustmentResult> {
   const currentNow = input.state.now();
   const idempotencyKey = normalizeRequiredString(input.request.idempotencyKey, 'idempotencyKey');
-  const existing = await queryOne(
+  const existing = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_billing_ledger_entries
+       FROM billing_ledger_entries
       WHERE namespace = ?
         AND org_id = ?
         AND idempotency_key = ?

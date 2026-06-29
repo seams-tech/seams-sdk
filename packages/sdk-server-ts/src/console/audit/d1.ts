@@ -1,5 +1,11 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
+import {
+  d1Integer as toNumber,
+  formatD1ExecStatement,
+  parseD1JsonArrayColumn as parseJsonArray,
+  parseD1JsonObjectColumn as parseJsonObject,
+  type D1Row,
+} from '../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleAuditError } from './errors';
 import type { ConsoleAuditContext, ConsoleAuditService } from './service';
@@ -18,7 +24,6 @@ import type {
   ListConsoleAuditEvidenceRequest,
 } from './types';
 
-type D1Row = Record<string, unknown>;
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -88,7 +93,7 @@ export interface D1ConsoleAuditServiceOptions {
 
 export const CONSOLE_AUDIT_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_audit_events (
+    CREATE TABLE IF NOT EXISTS audit_events (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -110,19 +115,19 @@ export const CONSOLE_AUDIT_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_audit_events_org_created_idx
-      ON console_audit_events (namespace, org_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS audit_events_org_created_idx
+      ON audit_events (namespace, org_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_audit_events_org_category_idx
-      ON console_audit_events (namespace, org_id, category, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS audit_events_org_category_idx
+      ON audit_events (namespace, org_id, category, created_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_audit_events_org_outcome_idx
-      ON console_audit_events (namespace, org_id, outcome, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS audit_events_org_outcome_idx
+      ON audit_events (namespace, org_id, outcome, created_at_ms DESC)
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_audit_evidence (
+    CREATE TABLE IF NOT EXISTS audit_evidence (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -141,12 +146,12 @@ export const CONSOLE_AUDIT_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_audit_evidence_org_created_idx
-      ON console_audit_evidence (namespace, org_id, created_at_ms DESC, id DESC)
+    CREATE INDEX IF NOT EXISTS audit_evidence_org_created_idx
+      ON audit_evidence (namespace, org_id, created_at_ms DESC, id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_audit_evidence_org_domain_idx
-      ON console_audit_evidence (namespace, org_id, domain, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS audit_evidence_org_domain_idx
+      ON audit_evidence (namespace, org_id, domain, created_at_ms DESC)
   `,
 ] as const);
 
@@ -200,10 +205,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function normalizeString(raw: unknown): string {
   return String(raw || '').trim();
@@ -212,33 +213,6 @@ function normalizeString(raw: unknown): string {
 function toNullableString(raw: unknown): string | null {
   const value = normalizeString(raw);
   return value || null;
-}
-
-function parseJsonArray(raw: unknown): readonly unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== 'string') return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseJsonObject(raw: unknown): Record<string, unknown> {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...(raw as Record<string, unknown>) };
-  }
-  if (typeof raw !== 'string') return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ...(parsed as Record<string, unknown>) };
-    }
-  } catch {
-    return {};
-  }
-  return {};
 }
 
 function parseActorType(raw: unknown): ConsoleAuditActorType {
@@ -550,7 +524,7 @@ class D1ConsoleAuditServiceImpl implements ConsoleAuditService {
     const out = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_audit_events
+           FROM audit_events
           WHERE ${query.whereSql}
           ORDER BY created_at_ms DESC, id DESC
           LIMIT ?`,
@@ -568,7 +542,7 @@ class D1ConsoleAuditServiceImpl implements ConsoleAuditService {
     const out = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_audit_evidence
+           FROM audit_evidence
           WHERE ${query.whereSql}
           ORDER BY created_at_ms DESC, id DESC
           LIMIT ?`,
@@ -589,7 +563,7 @@ class D1ConsoleAuditServiceImpl implements ConsoleAuditService {
     try {
       await this.state.database
         .prepare(
-          `INSERT INTO console_audit_events
+          `INSERT INTO audit_events
             (namespace, org_id, id, project_id, environment_id, actor_user_id, actor_type, category, action, outcome, summary, metadata_json, created_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -634,7 +608,7 @@ class D1ConsoleAuditServiceImpl implements ConsoleAuditService {
     try {
       await this.state.database
         .prepare(
-          `INSERT INTO console_audit_evidence
+          `INSERT INTO audit_evidence
             (namespace, org_id, id, project_id, environment_id, domain, title, summary, event_ids_json, references_json, created_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

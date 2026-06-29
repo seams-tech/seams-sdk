@@ -85,6 +85,13 @@ export type RouterAbSigningWorkerJsonResult =
     };
 type RouterAbSigningWorkerJsonError = Extract<RouterAbSigningWorkerJsonResult, { ok: false }>;
 
+function resolveRouterAbSigningWorkerFetch(input?: typeof fetch): typeof fetch | null {
+  if (input) return input;
+  return typeof globalThis.fetch === 'function'
+    ? (globalThis.fetch.bind(globalThis) as typeof fetch)
+    : null;
+}
+
 export type RouterAbEd25519NormalSigningRoutePhase =
   | 'prepare'
   | 'presign-pool-prepare'
@@ -1567,8 +1574,8 @@ export async function postRouterAbSigningWorkerJson(input: {
   body: unknown;
   fetchImpl?: typeof fetch;
 }): Promise<RouterAbSigningWorkerJsonResult> {
-  const fetchImpl = input.fetchImpl || fetch;
-  if (typeof fetchImpl !== 'function') {
+  const fetchImpl = resolveRouterAbSigningWorkerFetch(input.fetchImpl);
+  if (!fetchImpl) {
     return routerAbSigningError(500, 'internal', 'fetch is not available in this runtime');
   }
 

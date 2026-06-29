@@ -12,7 +12,6 @@ import wasmSignerServerDefault, {
 } from '../../../../../wasm/near_signer/pkg-server/wasm_signer_worker.js';
 import * as wasmSignerServerModule from '../../../../../wasm/near_signer/pkg-server/wasm_signer_worker.js';
 import type { InitInput } from '../../../../../wasm/near_signer/pkg-server/wasm_signer_worker.js';
-import { createWasmLoader, isNodeEnvironment } from '../wasm-loader';
 import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientRequestEnvelope,
@@ -50,6 +49,10 @@ const NATIVE_MANIFEST_PATH_CANDIDATES = [
   '../../../../../crates/ed25519-hss/Cargo.toml',
   '../../../../../../crates/ed25519-hss/Cargo.toml',
 ];
+
+type ThresholdEd25519HssWasmModuleImport = {
+  readonly default?: WebAssembly.Module;
+};
 
 const threshold_ed25519_hss_prepare_server_session_server = (
   wasmSignerServerModule as Record<string, unknown>
@@ -142,6 +145,7 @@ function getSignerWasmUrls(): URL[] {
   const resolved: URL[] = [];
   for (const path of SIGNER_WASM_PATH_CANDIDATES) {
     try {
+      if (!baseUrl) throw new Error('import.meta.url is undefined');
       resolved.push(new URL(path, baseUrl));
     } catch {
       // ignore invalid candidate
@@ -179,6 +183,20 @@ function getNativeManifestUrls(): URL[] {
 let thresholdEd25519HssWasmInitPromise: Promise<void> | null = null;
 let thresholdEd25519HssWasmReady = false;
 let thresholdEd25519HssNativeDriverPathPromise: Promise<string | null> | null = null;
+const capturedFetch =
+  typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null;
+
+function isNodeEnvironment(): boolean {
+  const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } })
+    .process;
+  const isNode = Boolean(processObj?.versions?.node);
+  const webSocketPair = (globalThis as unknown as { WebSocketPair?: unknown }).WebSocketPair;
+  const nav = (globalThis as unknown as { navigator?: { userAgent?: unknown } }).navigator;
+  const isCloudflareWorker =
+    typeof webSocketPair !== 'undefined' ||
+    (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
+  return isNode && !isCloudflareWorker;
+}
 
 function isThresholdEd25519HssNativeDriverDisabled(): boolean {
   if (!isNodeEnvironment()) return true;
@@ -194,6 +212,89 @@ async function initThresholdEd25519HssSignerWasm(input: {
   await wasmSignerServerDefault(input);
   init_worker_server();
   thresholdEd25519HssWasmReady = true;
+}
+
+async function loadBundledThresholdEd25519HssWasmModule(): Promise<WebAssembly.Module | null> {
+  try {
+    const imported = (await import(
+      '../../../../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm'
+    )) as ThresholdEd25519HssWasmModuleImport;
+    return imported.default instanceof WebAssembly.Module ? imported.default : null;
+  } catch {
+    return null;
+  }
+}
+
+async function compileThresholdEd25519HssWasmFromUrl(url: URL): Promise<WebAssembly.Module> {
+  const fetchFn =
+    capturedFetch ??
+    (typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null);
+  if (!fetchFn) {
+    throw new Error('[threshold-ed25519-hss] fetch is not available to load signer WASM');
+  }
+  const response = await fetchFn(url.toString());
+  if (!response || typeof (response as { arrayBuffer?: unknown }).arrayBuffer !== 'function') {
+    throw new Error('[threshold-ed25519-hss] signer WASM fetch returned a non-Response object');
+  }
+  const status =
+    typeof (response as { status?: unknown }).status === 'number'
+      ? (response as { status: number }).status
+      : 0;
+  const ok =
+    typeof (response as { ok?: unknown }).ok === 'boolean'
+      ? (response as { ok: boolean }).ok
+      : status === 0 || (status >= 200 && status < 300);
+  if (!ok) {
+    throw new Error(`[threshold-ed25519-hss] signer WASM fetch failed with status ${status}`);
+  }
+  return await WebAssembly.compile(await response.arrayBuffer());
+}
+
+async function initThresholdEd25519HssFromCompiledModule(
+  module: WebAssembly.Module,
+): Promise<void> {
+  await initThresholdEd25519HssSignerWasm({ module_or_path: module as unknown as InitInput });
+}
+
+async function initThresholdEd25519HssFromNodeFilesystem(urls: readonly URL[]): Promise<boolean> {
+  const { fileURLToPath } = await import('node:url');
+  const { readFile } = await import('node:fs/promises');
+  for (const url of urls) {
+    try {
+      const bytes = await readFile(fileURLToPath(url));
+      const ab = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(ab).set(bytes);
+      await initThresholdEd25519HssFromCompiledModule(await WebAssembly.compile(ab));
+      return true;
+    } catch {
+      // try next candidate
+    }
+  }
+  return false;
+}
+
+async function initThresholdEd25519HssFromBundledModule(): Promise<boolean> {
+  const module = await loadBundledThresholdEd25519HssWasmModule();
+  if (!module) return false;
+  await initThresholdEd25519HssFromCompiledModule(module);
+  return true;
+}
+
+async function initThresholdEd25519HssFromUrls(urls: readonly URL[]): Promise<void> {
+  let lastError: unknown = null;
+  for (const url of urls) {
+    try {
+      await initThresholdEd25519HssFromCompiledModule(
+        await compileThresholdEd25519HssWasmFromUrl(url),
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('[threshold-ed25519-hss] Failed to initialize signer WASM');
 }
 
 function getNativeDriverExecutableName(): string {
@@ -438,12 +539,19 @@ async function prepareThresholdEd25519HssServerCeremonyNative(input: {
 
 export async function ensureThresholdEd25519HssWasm(): Promise<void> {
   if (thresholdEd25519HssWasmInitPromise) return thresholdEd25519HssWasmInitPromise;
-  const loader = createWasmLoader(initThresholdEd25519HssSignerWasm, {
-    logPrefix: 'threshold-ed25519-hss',
-    baseUrl: import.meta.url,
-    fallbackUrls: getSignerWasmUrls(),
-  });
-  thresholdEd25519HssWasmInitPromise = loader.load();
+  thresholdEd25519HssWasmInitPromise = (async () => {
+    const urls = getSignerWasmUrls();
+    if (isNodeEnvironment()) {
+      const loaded = await initThresholdEd25519HssFromNodeFilesystem(urls);
+      if (loaded) return;
+      throw new Error(
+        `[threshold-ed25519-hss] Failed to initialize signer WASM from filesystem candidates: ${urls.map((url) => url.toString()).join(', ')}`,
+      );
+    }
+
+    if (await initThresholdEd25519HssFromBundledModule()) return;
+    await initThresholdEd25519HssFromUrls(urls);
+  })();
   return thresholdEd25519HssWasmInitPromise;
 }
 

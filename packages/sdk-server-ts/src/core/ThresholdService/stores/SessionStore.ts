@@ -1,5 +1,9 @@
 import type { NormalizedLogger } from '../../logger';
-import type { ThresholdEcdsaSigningRootMetadata, ThresholdStoreConfigInput } from '../../types';
+import type {
+  ThresholdEd25519AuthorityScope,
+  ThresholdEcdsaSigningRootMetadata,
+  ThresholdStoreConfigInput,
+} from '../../types';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -10,13 +14,6 @@ import {
   redisSetJson,
 } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
-import {
-  parseCurrentThresholdEd25519CoordinatorSigningSessionRecord,
-  parseCurrentThresholdEd25519MpcSessionRecord,
-  parseCurrentThresholdEd25519SigningSessionRecord,
-  parseCurrentThresholdEd25519StoreSessionRow,
-} from '../postgresRecords';
 import {
   toThresholdEcdsaPrefixFromBase,
   toThresholdEcdsaSessionPrefix,
@@ -34,6 +31,7 @@ import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
+import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
 
 export type ThresholdEd25519Commitments = { hiding: string; binding: string };
 
@@ -48,7 +46,7 @@ export type ThresholdEd25519MpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   userId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
@@ -95,7 +93,7 @@ export type ThresholdEd25519SigningSessionRecord = {
   relayerKeyId: string;
   signingDigestB64u: string;
   userId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   commitmentsById: ThresholdEd25519CommitmentsById;
   /**
    * Optional relayer signing share material for internal flows (e.g. relayer-fleet cosigners).
@@ -113,7 +111,7 @@ export type ThresholdEd25519CoordinatorSigningSessionRecord = {
   relayerKeyId: string;
   signingDigestB64u: string;
   userId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   commitmentsById: ThresholdEd25519CommitmentsById;
   participantIds: number[];
   groupPublicKey: string;
@@ -133,7 +131,7 @@ export type RouterAbEd25519PresignExpectedScope = {
   nearNetworkId: string;
   signerPublicKey: string;
   rpcPolicyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   runtimePolicyScope: RouterAbEd25519PresignRecord['runtimePolicyScope'];
   participantIds: readonly number[];
   groupPublicKey: string;
@@ -165,6 +163,8 @@ export type RouterAbEd25519PresignRefillRateLimitPolicy = {
   windowMs: number;
   maxCost: number;
 };
+
+type ThresholdSessionStoreConfigRecord = Record<string, unknown>;
 
 export type RouterAbEd25519ConsumePresignRefillRateLimitResult =
   | { ok: true }
@@ -234,6 +234,13 @@ function participantIdsMatch(left: readonly number[], right: readonly number[]):
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
+function authorityScopesMatch(
+  left: ThresholdEd25519AuthorityScope,
+  right: ThresholdEd25519AuthorityScope,
+): boolean {
+  return left.kind === right.kind && left.rpId === right.rpId;
+}
+
 function presignRecordMatchesExpectedScope(
   record: RouterAbEd25519PresignRecord,
   expected: RouterAbEd25519PresignExpectedScope,
@@ -246,7 +253,7 @@ function presignRecordMatchesExpectedScope(
     record.nearNetworkId === expected.nearNetworkId &&
     record.signerPublicKey === expected.signerPublicKey &&
     record.rpcPolicyId === expected.rpcPolicyId &&
-    record.rpId === expected.rpId &&
+    authorityScopesMatch(record.authorityScope, expected.authorityScope) &&
     record.groupPublicKey === expected.groupPublicKey &&
     runtimePolicyScopesMatch(record.runtimePolicyScope, expected.runtimePolicyScope) &&
     participantIdsMatch(record.participantIds, expected.participantIds)
@@ -1178,460 +1185,6 @@ class RedisTcpThresholdEd25519SessionStore<
   }
 }
 
-class PostgresThresholdEd25519SessionStore<
-  TMpcRecord extends ThresholdMpcSessionRecord = ThresholdEd25519MpcSessionRecord,
-> {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-  private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
-
-  constructor(input: {
-    postgresUrl: string;
-    namespace: string;
-    parseMpcSessionRecord?: ThresholdMpcSessionRecordParser<TMpcRecord>;
-  }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-    this.parseMpcSessionRecord =
-      input.parseMpcSessionRecord ||
-      (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
-  }
-
-  private async insertOrUpdate(input: {
-    kind: 'mpc' | 'signing' | 'coordinator' | 'presign' | 'presign_rate';
-    sessionId: string;
-    record: unknown;
-    expiresAtMs: number;
-  }): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO threshold_ed25519_sessions (namespace, kind, session_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (namespace, kind, session_id)
-        DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [this.namespace, input.kind, input.sessionId, input.record, Math.floor(input.expiresAtMs)],
-    );
-  }
-
-  private async takeRow(
-    kind: 'mpc' | 'signing' | 'coordinator',
-    sessionId: string,
-  ): Promise<{ record_json?: unknown; expires_at_ms?: unknown } | null> {
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        DELETE FROM threshold_ed25519_sessions
-        WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
-        RETURNING record_json, expires_at_ms
-      `,
-      [this.namespace, kind, sessionId, nowMs],
-    );
-    return rows[0] ?? null;
-  }
-
-  private async connectForPresignTransaction(): Promise<{
-    query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
-    release: () => void;
-  }> {
-    const pool = await this.poolPromise;
-    if (typeof pool.connect !== 'function') {
-      throw new Error('Postgres threshold Ed25519 presign store requires transaction support');
-    }
-    return await pool.connect();
-  }
-
-  async putMpcSession(
-    id: string,
-    record: TMpcRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing mpcSessionId');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const parsed = this.parseMpcSessionRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 mpc session record');
-    const storedRecord = this.parseMpcSessionRecord({ ...parsed, expiresAtMs });
-    if (!storedRecord) throw new Error('Invalid threshold mpc session record');
-    await this.insertOrUpdate({ kind: 'mpc', sessionId: k, record: storedRecord, expiresAtMs });
-  }
-
-  async readMpcSession(id: string): Promise<ThresholdReadMpcSessionResult<TMpcRecord> | null> {
-    const k = id;
-    if (!k) return null;
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        SELECT record_json, record_json::text AS version, expires_at_ms
-        FROM threshold_ed25519_sessions
-        WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
-        LIMIT 1
-      `,
-      [this.namespace, 'mpc', k, nowMs],
-    );
-    const row = rows[0] as
-      | { record_json?: unknown; version?: unknown; expires_at_ms?: unknown }
-      | undefined;
-    const parsed = row
-      ? this.parseMpcSessionRecord({
-          ...(isObject(row.record_json) ? row.record_json : {}),
-          expiresAtMs: row.expires_at_ms,
-        })
-      : null;
-    const version = typeof row?.version === 'string' ? row.version : null;
-    return parsed && version ? { record: parsed, version } : null;
-  }
-
-  async claimMpcSession(
-    id: string,
-    version: string,
-  ): Promise<ThresholdClaimMpcSessionResult<TMpcRecord>> {
-    const k = id;
-    if (!k) return { ok: false, code: 'not_found' };
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        DELETE FROM threshold_ed25519_sessions
-        WHERE namespace = $1
-          AND kind = $2
-          AND session_id = $3
-          AND expires_at_ms > $4
-          AND record_json::text = $5
-        RETURNING record_json, expires_at_ms
-      `,
-      [this.namespace, 'mpc', k, nowMs, version],
-    );
-    const row = rows[0] as { record_json?: unknown; expires_at_ms?: unknown } | undefined;
-    if (!row) {
-      const current = await this.readMpcSession(k);
-      return current ? { ok: false, code: 'version_mismatch' } : { ok: false, code: 'not_found' };
-    }
-    const parsed = this.parseMpcSessionRecord({
-      ...(isObject(row.record_json) ? row.record_json : {}),
-      expiresAtMs: row.expires_at_ms,
-    });
-    return parsed
-      ? { ok: true, record: parsed }
-      : { ok: false, code: 'invalid_record' };
-  }
-
-  async takeMpcSession(id: string): Promise<TMpcRecord | null> {
-    const k = id;
-    if (!k) return null;
-    const row = await this.takeRow('mpc', k);
-    return row
-      ? this.parseMpcSessionRecord({
-          ...(isObject(row.record_json) ? row.record_json : {}),
-          expiresAtMs: row.expires_at_ms,
-        })
-      : null;
-  }
-
-  async putSigningSession(
-    id: string,
-    record: ThresholdEd25519SigningSessionRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing signingSessionId');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const parsed = parseCurrentThresholdEd25519SigningSessionRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 signing session record');
-    const storedRecord = { ...parsed, expiresAtMs } satisfies ThresholdEd25519SigningSessionRecord;
-    await this.insertOrUpdate({ kind: 'signing', sessionId: k, record: storedRecord, expiresAtMs });
-  }
-
-  async takeSigningSession(id: string): Promise<ThresholdEd25519SigningSessionRecord | null> {
-    const k = id;
-    if (!k) return null;
-    const row = await this.takeRow('signing', k);
-    const parsed = row
-      ? parseCurrentThresholdEd25519StoreSessionRow({
-          kind: 'signing',
-          recordJson: row.record_json,
-          expiresAtMs: row.expires_at_ms,
-        })
-      : null;
-    return parsed?.kind === 'signing' ? parsed.record : null;
-  }
-
-  async putCoordinatorSigningSession(
-    id: string,
-    record: ThresholdEd25519CoordinatorSigningSessionRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing coordinator signingSessionId');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const parsed = parseCurrentThresholdEd25519CoordinatorSigningSessionRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 coordinator signing session record');
-    const storedRecord = {
-      ...parsed,
-      expiresAtMs,
-    } satisfies ThresholdEd25519CoordinatorSigningSessionRecord;
-    await this.insertOrUpdate({
-      kind: 'coordinator',
-      sessionId: k,
-      record: storedRecord,
-      expiresAtMs,
-    });
-  }
-
-  async takeCoordinatorSigningSession(
-    id: string,
-  ): Promise<ThresholdEd25519CoordinatorSigningSessionRecord | null> {
-    const k = id;
-    if (!k) return null;
-    const row = await this.takeRow('coordinator', k);
-    const parsed = row
-      ? parseCurrentThresholdEd25519StoreSessionRow({
-          kind: 'coordinator',
-          recordJson: row.record_json,
-          expiresAtMs: row.expires_at_ms,
-        })
-      : null;
-    return parsed?.kind === 'coordinator' ? parsed.record : null;
-  }
-
-  async putPresign(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing presignId');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const parsed = parseStoredPresignRecord({ ...record, expiresAtMs });
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    await this.insertOrUpdate({ kind: 'presign', sessionId: k, record: parsed, expiresAtMs });
-  }
-
-  async putPresignWithCapacity(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
-    const k = id;
-    if (!k) throw new Error('Missing presignId');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const parsed = parseStoredPresignRecord({ ...record, expiresAtMs });
-    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const client = await this.connectForPresignTransaction();
-    try {
-      await client.query('BEGIN');
-      await client.query('LOCK TABLE threshold_ed25519_sessions IN SHARE ROW EXCLUSIVE MODE');
-      const nowMs = Date.now();
-      await client.query(
-        'DELETE FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms <= $3',
-        [this.namespace, 'presign', nowMs],
-      );
-      const globalRows = await client.query(
-        'SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3',
-        [this.namespace, 'presign', nowMs],
-      );
-      const walletRows = await client.query(
-        "SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3 AND record_json->>'signingGrantId' = $4",
-        [this.namespace, 'presign', nowMs, parsed.signingGrantId],
-      );
-      const globalCount = Number(globalRows.rows[0]?.count);
-      const walletCount = Number(walletRows.rows[0]?.count);
-      if (
-        !Number.isFinite(globalCount) ||
-        !Number.isFinite(walletCount) ||
-        globalCount >= globalMax ||
-        walletCount >= walletMax
-      ) {
-        await client.query('COMMIT');
-        return { ok: false, code: 'capacity_exceeded' };
-      }
-      await client.query(
-        `
-          INSERT INTO threshold_ed25519_sessions (namespace, kind, session_id, record_json, expires_at_ms)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (namespace, kind, session_id)
-          DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
-        `,
-        [this.namespace, 'presign', k, parsed, Math.floor(expiresAtMs)],
-      );
-      await client.query('COMMIT');
-      return { ok: true };
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async checkPresignCapacity(
-    signingGrantId: string,
-    capacity: RouterAbEd25519PresignCapacity,
-  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(signingGrantId);
-    if (!walletId) return { ok: false, code: 'capacity_exceeded' };
-    const walletMax = positiveIntegerCapacity(
-      capacity.signingGrantMax,
-      'signingGrantMax',
-    );
-    const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const nowMs = Date.now();
-    const pool = await this.poolPromise;
-    const globalRows = await pool.query(
-      'SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3',
-      [this.namespace, 'presign', nowMs],
-    );
-    const walletRows = await pool.query(
-      "SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3 AND record_json->>'signingGrantId' = $4",
-      [this.namespace, 'presign', nowMs, walletId],
-    );
-    const globalCount = Number(globalRows.rows[0]?.count);
-    const walletCount = Number(walletRows.rows[0]?.count);
-    return !Number.isFinite(globalCount) ||
-      !Number.isFinite(walletCount) ||
-      globalCount >= globalMax ||
-      walletCount >= walletMax
-      ? { ok: false, code: 'capacity_exceeded' }
-      : { ok: true };
-  }
-
-  async consumePresignRefillRateLimit(
-    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
-    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
-    cost: number,
-  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
-    const nowMs = Date.now();
-    const costInt = positiveIntegerLimit(cost, 'cost');
-    const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
-    const windowMs = positiveIntegerLimit(policy.windowMs, 'windowMs');
-    const sessionId = presignRateLimitWindowKey({
-      prefix: '',
-      bucket,
-      policy,
-      nowMs,
-    });
-    const client = await this.connectForPresignTransaction();
-    try {
-      await client.query('BEGIN');
-      const expiresAtMs = nowMs + windowMs;
-      const { rows } = await client.query(
-        `
-          SELECT record_json, expires_at_ms
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'presign_rate', sessionId],
-      );
-      const rawCount = Number(rows[0]?.record_json?.count);
-      const rawExpiresAtMs = Number(rows[0]?.expires_at_ms);
-      const current =
-        Number.isFinite(rawCount) && Number.isFinite(rawExpiresAtMs) && rawExpiresAtMs > nowMs
-          ? rawCount
-          : 0;
-      const next = current + costInt;
-      if (next > maxCost) {
-        await client.query('COMMIT');
-        return { ok: false, code: 'rate_limited' };
-      }
-      await client.query(
-        `
-          INSERT INTO threshold_ed25519_sessions (namespace, kind, session_id, record_json, expires_at_ms)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (namespace, kind, session_id)
-          DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
-        `,
-        [
-          this.namespace,
-          'presign_rate',
-          sessionId,
-          { kind: 'router_ab_ed25519_presign_refill_rate_limit_v2', count: next },
-          Math.floor(expiresAtMs),
-        ],
-      );
-      await client.query('COMMIT');
-      return { ok: true };
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async takePresignForFinalize(
-    id: string,
-    expectedScope: RouterAbEd25519PresignExpectedScope,
-  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
-    const k = id;
-    if (!k) return { ok: false, code: 'not_found' };
-    const client = await this.connectForPresignTransaction();
-    try {
-      await client.query('BEGIN');
-      const nowMs = Date.now();
-      const { rows } = await client.query(
-        `
-          SELECT record_json, expires_at_ms
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'presign', k],
-      );
-      const row = rows[0] ?? null;
-      if (!row) {
-        await client.query('COMMIT');
-        return { ok: false, code: 'not_found' };
-      }
-      const expiresAtMs = Number(row.expires_at_ms);
-      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-        await client.query(
-          'DELETE FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND session_id = $3',
-          [this.namespace, 'presign', k],
-        );
-        await client.query('COMMIT');
-        return { ok: false, code: 'expired' };
-      }
-      const parsed = parseStoredPresignRecord({
-        ...(isObject(row.record_json) ? row.record_json : {}),
-        expiresAtMs,
-      });
-      if (!parsed) {
-        await client.query(
-          'DELETE FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND session_id = $3',
-          [this.namespace, 'presign', k],
-        );
-        await client.query('COMMIT');
-        return { ok: false, code: 'invalid_record' };
-      }
-      if (!presignRecordMatchesExpectedScope(parsed, expectedScope)) {
-        await client.query('COMMIT');
-        return { ok: false, code: 'scope_mismatch' };
-      }
-      await client.query(
-        'DELETE FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND session_id = $3',
-        [this.namespace, 'presign', k],
-      );
-      await client.query('COMMIT');
-      return { ok: true, record: parsed };
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-}
-
 export function createThresholdEd25519SessionStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
@@ -1643,7 +1196,7 @@ export function createThresholdEd25519SessionStore(input: {
   });
   if (doStores) return doStores.sessionStore;
 
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config = (isObject(input.config) ? input.config : {}) as ThresholdSessionStoreConfigRecord;
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
@@ -1653,7 +1206,7 @@ export function createThresholdEd25519SessionStore(input: {
     '';
 
   // Explicit config object
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-ed25519');
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
@@ -1691,27 +1244,7 @@ export function createThresholdEd25519SessionStore(input: {
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ed25519] postgres session store is not supported in this runtime',
-      );
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[threshold-ed25519] postgres session store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info(
-      '[threshold-ed25519] Using Postgres session store for signing session persistence',
-    );
-    return new PostgresThresholdEd25519SessionStore({
-      postgresUrl,
-      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-    });
-  }
-
-  // Env-shaped config: prefer Redis/Upstash for session storage (TTL + lower Postgres churn).
+  // Env-shaped config: prefer Redis/Upstash for session storage (TTL + lower churn).
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
@@ -1752,19 +1285,6 @@ export function createThresholdEd25519SessionStore(input: {
     });
   }
 
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info(
-      '[threshold-ed25519] Using Postgres session store for signing session persistence',
-    );
-    return new PostgresThresholdEd25519SessionStore({ postgresUrl, namespace: envPrefix || '' });
-  }
-
   if (requirePersistent) {
     throw new Error(
       '[threshold-ed25519] Threshold signing sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
@@ -1787,7 +1307,7 @@ export function createThresholdEcdsaSessionStore(input: {
   });
   if (doStores) return doStores.sessionStore;
 
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config = (isObject(input.config) ? input.config : {}) as ThresholdSessionStoreConfigRecord;
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
@@ -1797,7 +1317,7 @@ export function createThresholdEcdsaSessionStore(input: {
   );
 
   // Explicit config object
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-ecdsa');
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
@@ -1843,26 +1363,7 @@ export function createThresholdEcdsaSessionStore(input: {
       parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
     });
   }
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error('[threshold-ecdsa] postgres session store is not supported in this runtime');
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[threshold-ecdsa] postgres session store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info(
-      '[threshold-ecdsa] Using Postgres session store for signing session persistence',
-    );
-    return new PostgresThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
-      postgresUrl,
-      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
-    });
-  }
-
-  // Env-shaped config: prefer Redis/Upstash for session storage (TTL + lower Postgres churn).
+  // Env-shaped config: prefer Redis/Upstash for session storage (TTL + lower churn).
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
@@ -1904,23 +1405,6 @@ export function createThresholdEcdsaSessionStore(input: {
     return new RedisTcpThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
       redisUrl,
       keyPrefix: envPrefix,
-      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
-    });
-  }
-
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info(
-      '[threshold-ecdsa] Using Postgres session store for signing session persistence',
-    );
-    return new PostgresThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
-      postgresUrl,
-      namespace: envPrefix,
       parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
     });
   }

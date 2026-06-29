@@ -34,7 +34,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
   async cleanupExpired(nowMs: number): Promise<number> {
     return d1MutationChanges(
       await this.prepare(
-        `DELETE FROM signer_email_otp_registration_attempts
+        `DELETE FROM email_otp_registration_attempts
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -95,7 +95,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
     await this.cleanupExpired(nowMs);
     const row = await this.prepare(
       `SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
-         FROM signer_email_otp_registration_attempts
+         FROM email_otp_registration_attempts
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -152,7 +152,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
   }): Promise<void> {
     const result = await this.prepare(
       `SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
-         FROM signer_email_otp_registration_attempts
+         FROM email_otp_registration_attempts
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -187,7 +187,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
   }): Promise<boolean> {
     const row = await this.prepare(
       `SELECT 1 AS found
-         FROM signer_email_otp_registration_attempts
+         FROM email_otp_registration_attempts
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -211,7 +211,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
   async read(attemptId: string): Promise<GoogleEmailOtpRegistrationAttemptRecord | null> {
     const row = await this.prepare(
       `SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
-         FROM signer_email_otp_registration_attempts
+         FROM email_otp_registration_attempts
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -228,7 +228,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
       throw new Error('Google Email OTP registration attempt org scope mismatch');
     }
     await this.prepare(
-      `INSERT INTO signer_email_otp_registration_attempts (
+      `INSERT INTO email_otp_registration_attempts (
         namespace,
         org_id,
         project_id,
@@ -282,7 +282,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
 
   async delete(attemptId: string): Promise<void> {
     await this.prepare(
-      `DELETE FROM signer_email_otp_registration_attempts
+      `DELETE FROM email_otp_registration_attempts
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?

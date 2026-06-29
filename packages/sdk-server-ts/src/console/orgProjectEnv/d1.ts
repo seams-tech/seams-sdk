@@ -1,9 +1,8 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
+import { d1Number as toNumber, d1ChangedRows, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
-  D1ResultLike,
 } from '../../storage/tenantRoute';
 import { ConsoleOrgProjectEnvError } from './errors';
 import { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
@@ -25,7 +24,6 @@ import type {
 } from './types';
 import type { ConsoleOrgProjectEnvContext, ConsoleOrgProjectEnvService } from './service';
 
-type D1Row = Record<string, unknown>;
 type ConsoleEnvironmentKey = ConsoleEnvironment['key'];
 
 const DEFAULT_ENVIRONMENT_KEYS: readonly ConsoleEnvironmentKey[] = ['dev', 'staging', 'prod'];
@@ -55,7 +53,7 @@ export interface D1ConsoleOrgProjectEnvSchemaOptions {
 
 export const CONSOLE_ORG_PROJECT_ENV_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_organizations (
+    CREATE TABLE IF NOT EXISTS organizations (
       namespace TEXT NOT NULL,
       id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -69,7 +67,7 @@ export const CONSOLE_ORG_PROJECT_ENV_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_projects (
+    CREATE TABLE IF NOT EXISTS projects (
       namespace TEXT NOT NULL,
       id TEXT NOT NULL,
       org_id TEXT NOT NULL,
@@ -81,20 +79,20 @@ export const CONSOLE_ORG_PROJECT_ENV_D1_SCHEMA_SQL = Object.freeze([
       PRIMARY KEY (namespace, id),
       CHECK (status IN ('ACTIVE', 'ARCHIVED')),
       FOREIGN KEY (namespace, org_id)
-        REFERENCES console_organizations(namespace, id)
+        REFERENCES organizations(namespace, id)
         ON DELETE CASCADE
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_projects_org_updated_idx
-      ON console_projects (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS projects_org_updated_idx
+      ON projects (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_projects_namespace_id_org_unique_idx
-      ON console_projects (namespace, id, org_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS projects_namespace_id_org_unique_idx
+      ON projects (namespace, id, org_id)
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_environments (
+    CREATE TABLE IF NOT EXISTS environments (
       namespace TEXT NOT NULL,
       id TEXT NOT NULL,
       org_id TEXT NOT NULL,
@@ -110,17 +108,17 @@ export const CONSOLE_ORG_PROJECT_ENV_D1_SCHEMA_SQL = Object.freeze([
       CHECK (env_key IN ('dev', 'staging', 'prod')),
       UNIQUE (namespace, project_id, env_key),
       FOREIGN KEY (namespace, project_id, org_id)
-        REFERENCES console_projects(namespace, id, org_id)
+        REFERENCES projects(namespace, id, org_id)
         ON DELETE CASCADE
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_environments_org_project_updated_idx
-      ON console_environments (namespace, org_id, project_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS environments_org_project_updated_idx
+      ON environments (namespace, org_id, project_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_environments_namespace_id_project_org_unique_idx
-      ON console_environments (namespace, id, project_id, org_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS environments_namespace_id_project_org_unique_idx
+      ON environments (namespace, id, project_id, org_id)
   `,
 ] as const);
 
@@ -160,10 +158,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -366,31 +360,10 @@ function sortEnvironments(items: readonly ConsoleEnvironment[]): ConsoleEnvironm
   });
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function isD1ConstraintError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
   return message.includes('UNIQUE constraint failed') || message.includes('constraint failed');
-}
-
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
 }
 
 async function loadOrganization(input: {
@@ -398,10 +371,10 @@ async function loadOrganization(input: {
   namespace: string;
   orgId: string;
 }): Promise<ConsoleOrganization | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_organizations
+       FROM organizations
       WHERE namespace = ?
         AND id = ?
       LIMIT 1`,
@@ -416,10 +389,10 @@ async function loadProjectRow(input: {
   orgId: string;
   projectId: string;
 }): Promise<D1Row | null> {
-  return await queryOne(
+  return await queryD1One(
     input.database,
     `SELECT *
-       FROM console_projects
+       FROM projects
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -434,17 +407,17 @@ async function loadProjectWithEnvironmentCount(input: {
   orgId: string;
   projectId: string;
 }): Promise<ConsoleProject | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT p.*,
             (
               SELECT COUNT(*)
-                FROM console_environments e
+                FROM environments e
                WHERE e.namespace = p.namespace
                  AND e.org_id = p.org_id
                  AND e.project_id = p.id
             ) AS environment_count
-       FROM console_projects p
+       FROM projects p
       WHERE p.namespace = ?
         AND p.org_id = ?
         AND p.id = ?
@@ -460,10 +433,10 @@ async function loadEnvironmentRow(input: {
   orgId: string;
   environmentId: string;
 }): Promise<D1Row | null> {
-  return await queryOne(
+  return await queryD1One(
     input.database,
     `SELECT *
-       FROM console_environments
+       FROM environments
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -487,10 +460,10 @@ async function findExistingProjectId(input: {
   namespace: string;
   projectId: string;
 }): Promise<string | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT id
-       FROM console_projects
+       FROM projects
       WHERE namespace = ?
         AND id = ?
       LIMIT 1`,
@@ -504,10 +477,10 @@ async function findExistingDefaultEnvironmentId(input: {
   namespace: string;
   projectId: string;
 }): Promise<string | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT id
-       FROM console_environments
+       FROM environments
       WHERE namespace = ?
         AND id IN (?, ?, ?)
       LIMIT 1`,
@@ -526,10 +499,10 @@ async function findEnvironmentId(input: {
   namespace: string;
   environmentId: string;
 }): Promise<string | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT id
-       FROM console_environments
+       FROM environments
       WHERE namespace = ?
         AND id = ?
       LIMIT 1`,
@@ -551,7 +524,7 @@ function buildDefaultEnvironmentInserts(input: {
     statements.push(
       input.database
         .prepare(
-          `INSERT INTO console_environments
+          `INSERT INTO environments
             (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -585,7 +558,7 @@ async function insertProjectWithDefaultEnvironments(input: {
   const statements = [
     input.database
       .prepare(
-        `INSERT INTO console_projects
+        `INSERT INTO projects
           (namespace, id, org_id, name, slug, status, created_at_ms, updated_at_ms)
          VALUES
           (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)`,
@@ -717,10 +690,10 @@ export async function createD1ConsoleOrgProjectEnvService(
     },
 
     async findDefaultOrganization(): Promise<ConsoleOrganization | null> {
-      const rows = await queryAll(
+      const rows = await queryD1All(
         database,
         `SELECT *
-           FROM console_organizations
+           FROM organizations
           WHERE namespace = ?
             AND status = 'ACTIVE'
           ORDER BY created_at_ms ASC, id ASC
@@ -739,10 +712,10 @@ export async function createD1ConsoleOrgProjectEnvService(
       const limit =
         Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(1, Math.floor(rawLimit)) : 10;
       if (!query) {
-        const rows = await queryAll(
+        const rows = await queryD1All(
           database,
           `SELECT *
-             FROM console_organizations
+             FROM organizations
             WHERE namespace = ?
             ORDER BY created_at_ms DESC, id ASC
             LIMIT ?`,
@@ -751,10 +724,10 @@ export async function createD1ConsoleOrgProjectEnvService(
         return rows.map(parseOrgRow);
       }
       const candidateLimit = Math.max(limit * 5, 25);
-      const rows = await queryAll(
+      const rows = await queryD1All(
         database,
         `SELECT *
-           FROM console_organizations
+           FROM organizations
           WHERE namespace = ?
             AND (
               LOWER(name) LIKE ?
@@ -777,11 +750,11 @@ export async function createD1ConsoleOrgProjectEnvService(
           values.push(projectId);
           projectFilter = ' AND e.project_id = ?';
         }
-        const environmentRow = await queryOne(
+        const environmentRow = await queryD1One(
           database,
           `SELECT o.*
-             FROM console_environments e
-             JOIN console_organizations o
+             FROM environments e
+             JOIN organizations o
                ON o.namespace = e.namespace
               AND o.id = e.org_id
             WHERE e.namespace = ?
@@ -793,11 +766,11 @@ export async function createD1ConsoleOrgProjectEnvService(
       }
 
       if (!projectId) return null;
-      const projectRow = await queryOne(
+      const projectRow = await queryD1One(
         database,
         `SELECT o.*
-           FROM console_projects p
-           JOIN console_organizations o
+           FROM projects p
+           JOIN organizations o
              ON o.namespace = p.namespace
             AND o.id = p.org_id
           WHERE p.namespace = ?
@@ -820,7 +793,7 @@ export async function createD1ConsoleOrgProjectEnvService(
 
       await database
         .prepare(
-          `INSERT INTO console_organizations
+          `INSERT INTO organizations
             (namespace, id, name, slug, created_by_user_id, status, created_at_ms, updated_at_ms)
            VALUES
             (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
@@ -854,7 +827,7 @@ export async function createD1ConsoleOrgProjectEnvService(
       const nextSlug = slugify(String(request.slug || '').trim() || base.slug || nextName);
       await database
         .prepare(
-          `UPDATE console_organizations
+          `UPDATE organizations
               SET name = ?,
                   slug = ?,
                   updated_at_ms = ?
@@ -891,21 +864,21 @@ export async function createD1ConsoleOrgProjectEnvService(
       await database.batch([
         database
           .prepare(
-            `DELETE FROM console_environments
+            `DELETE FROM environments
               WHERE namespace = ?
                 AND org_id = ?`,
           )
           .bind(namespace, ctx.orgId),
         database
           .prepare(
-            `DELETE FROM console_projects
+            `DELETE FROM projects
               WHERE namespace = ?
                 AND org_id = ?`,
           )
           .bind(namespace, ctx.orgId),
         database
           .prepare(
-            `DELETE FROM console_organizations
+            `DELETE FROM organizations
               WHERE namespace = ?
                 AND id = ?`,
           )
@@ -921,17 +894,17 @@ export async function createD1ConsoleOrgProjectEnvService(
         values.push(request.status);
         statusFilter = ' AND p.status = ?';
       }
-      const rows = await queryAll(
+      const rows = await queryD1All(
         database,
         `SELECT p.*,
                 (
                   SELECT COUNT(*)
-                    FROM console_environments e
+                    FROM environments e
                    WHERE e.namespace = p.namespace
                      AND e.org_id = p.org_id
                      AND e.project_id = p.id
                 ) AS environment_count
-           FROM console_projects p
+           FROM projects p
           WHERE p.namespace = ?
             AND p.org_id = ?${statusFilter}
           ORDER BY p.updated_at_ms DESC, p.created_at_ms DESC`,
@@ -964,7 +937,7 @@ export async function createD1ConsoleOrgProjectEnvService(
       const nextName = request.name || String(current.name || '');
       await database
         .prepare(
-          `UPDATE console_projects
+          `UPDATE projects
               SET name = ?,
                   slug = ?,
                   updated_at_ms = ?
@@ -989,7 +962,7 @@ export async function createD1ConsoleOrgProjectEnvService(
       await database.batch([
         database
           .prepare(
-            `UPDATE console_projects
+            `UPDATE projects
                 SET status = 'ARCHIVED',
                     updated_at_ms = ?
               WHERE namespace = ?
@@ -999,7 +972,7 @@ export async function createD1ConsoleOrgProjectEnvService(
           .bind(currentNowMs, namespace, ctx.orgId, projectId),
         database
           .prepare(
-            `UPDATE console_environments
+            `UPDATE environments
                 SET status = 'ARCHIVED',
                     updated_at_ms = ?
               WHERE namespace = ?
@@ -1031,10 +1004,10 @@ export async function createD1ConsoleOrgProjectEnvService(
         values.push(request.status);
         statusFilter = ' AND status = ?';
       }
-      const rows = await queryAll(
+      const rows = await queryD1All(
         database,
         `SELECT *
-           FROM console_environments
+           FROM environments
           WHERE namespace = ?
             AND org_id = ?${projectFilter}${statusFilter}
           ORDER BY updated_at_ms DESC, created_at_ms DESC`,
@@ -1069,10 +1042,10 @@ export async function createD1ConsoleOrgProjectEnvService(
         );
       }
 
-      const duplicateKey = await queryOne(
+      const duplicateKey = await queryD1One(
         database,
         `SELECT id
-           FROM console_environments
+           FROM environments
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -1107,7 +1080,7 @@ export async function createD1ConsoleOrgProjectEnvService(
       try {
         await database
           .prepare(
-            `INSERT INTO console_environments
+            `INSERT INTO environments
               (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
              VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1182,7 +1155,7 @@ export async function createD1ConsoleOrgProjectEnvService(
             );
       await database
         .prepare(
-          `UPDATE console_environments
+          `UPDATE environments
               SET name = ?,
                   signing_root_version = ?,
                   updated_at_ms = ?
@@ -1198,7 +1171,7 @@ export async function createD1ConsoleOrgProjectEnvService(
     async archiveEnvironment(ctx, environmentId: string): Promise<ConsoleEnvironment | null> {
       const result = await database
         .prepare(
-          `UPDATE console_environments
+          `UPDATE environments
               SET status = 'ARCHIVED',
                   updated_at_ms = ?
             WHERE namespace = ?
@@ -1207,7 +1180,7 @@ export async function createD1ConsoleOrgProjectEnvService(
         )
         .bind(nowMs(now()), namespace, ctx.orgId, environmentId)
         .run();
-      if (runChanges(result) !== 1) return null;
+      if (d1ChangedRows(result) !== 1) return null;
       return await loadEnvironment({ database, namespace, orgId: ctx.orgId, environmentId });
     },
 

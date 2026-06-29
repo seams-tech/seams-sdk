@@ -170,7 +170,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
 
 export function requireD1RouterApiAuthScopeString(input: unknown, field: string): string {
   const value = toOptionalTrimmedString(input);
-  if (!value) throw new Error(`${field} is required for Cloudflare D1 relay auth service`);
+  if (!value) throw new Error(`${field} is required for Cloudflare D1 Router API auth service`);
   return value;
 }
 

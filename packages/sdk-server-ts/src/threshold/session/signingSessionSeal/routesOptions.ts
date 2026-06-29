@@ -23,7 +23,6 @@ import type { CreateSigningSessionSealAuditLoggerOptions } from './observability
 import type { CreateSigningSessionSealRateLimitGuardOptions } from './guards';
 
 export interface CreateSigningSessionSealRoutesOptionsInput {
-  enabled?: boolean;
   basePath?: string;
   sessionPolicy: SigningSessionSealThresholdSessionPolicy;
   cipher: SigningSessionSealCipherAdapter;
@@ -136,9 +135,6 @@ export function createSigningSessionSealRoutesOptions(
     service: createSigningSessionSealService(serviceOptions),
     sessionPolicy: input.sessionPolicy,
   };
-  if (input.enabled !== undefined) {
-    options.enabled = input.enabled;
-  }
   if (input.basePath) {
     options.basePath = input.basePath;
   }

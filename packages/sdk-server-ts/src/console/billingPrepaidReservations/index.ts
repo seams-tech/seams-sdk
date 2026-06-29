@@ -19,15 +19,6 @@ export type {
 export { createInMemoryConsoleBillingPrepaidReservationService } from './service';
 
 export type {
-  PostgresConsoleBillingPrepaidReservationSchemaOptions,
-  PostgresConsoleBillingPrepaidReservationServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleBillingPrepaidReservationPostgresSchema,
-  createPostgresConsoleBillingPrepaidReservationService,
-} from './postgres';
-
-export type {
   ConsoleBillingPrepaidReservationD1Runtime,
   ConsoleBillingPrepaidReservationD1Service,
   D1ConsoleBillingPrepaidReservationSchemaOptions,
@@ -43,7 +34,4 @@ export {
   getConsoleBillingPrepaidReservationD1Runtime,
 } from './d1';
 
-export {
-  ConsoleBillingPrepaidReservationError,
-  isConsoleBillingPrepaidReservationError,
-} from './errors';
+export { ConsoleBillingPrepaidReservationError, isConsoleBillingPrepaidReservationError } from './errors';

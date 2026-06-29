@@ -6,6 +6,7 @@ import type {
   CreateConsoleSponsoredCallRecordRequest,
   ListConsoleSponsoredCallRecordsRequest,
 } from './types';
+import { ConsoleSponsoredCallError } from './errors';
 
 export interface ConsoleSponsoredCallContext {
   orgId: string;
@@ -52,6 +53,18 @@ function normalizeString(value: unknown): string | null {
 
 function normalizeRequiredString(value: unknown): string {
   return String(value || '').trim();
+}
+
+function normalizeRequiredIdempotencyKey(value: unknown): string {
+  const normalized = normalizeRequiredString(value);
+  if (!normalized) {
+    throw new ConsoleSponsoredCallError(
+      'invalid_request',
+      400,
+      'idempotencyKey is required',
+    );
+  }
+  return normalized;
 }
 
 function normalizeInteger(value: unknown): number | null {
@@ -205,11 +218,9 @@ export function createInMemoryConsoleSponsoredCallService(
       const createdAt = now();
       const iso = toIso(createdAt);
       const store = requireOrgStore(ctx.orgId);
-      const idempotencyKey = normalizeString(request.idempotencyKey);
-      if (idempotencyKey) {
-        for (const record of store.values()) {
-          if (record.idempotencyKey === idempotencyKey) return cloneRecord(record);
-        }
+      const idempotencyKey = normalizeRequiredIdempotencyKey(request.idempotencyKey);
+      for (const record of store.values()) {
+        if (record.idempotencyKey === idempotencyKey) return cloneRecord(record);
       }
       const record: ConsoleSponsoredCallRecord = {
         id: normalizeString(request.id) || makeId('scr', createdAt),

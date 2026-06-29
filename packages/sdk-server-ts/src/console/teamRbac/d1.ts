@@ -1,6 +1,14 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Number as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonArrayColumn,
+  queryD1All,
+  queryD1One,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleTeamRbacError } from './errors';
 import type { ConsoleTeamRbacContext, ConsoleTeamRbacService } from './service';
 import {
@@ -13,8 +21,6 @@ import {
   type ListConsoleTeamMembersRequest,
   type UpdateConsoleTeamMemberRolesRequest,
 } from './types';
-
-type D1Row = Record<string, unknown>;
 
 const ORG_ROLE_SET = new Set<string>(CONSOLE_ORG_SCOPED_TEAM_ROLES);
 
@@ -49,7 +55,7 @@ interface D1TeamRbacState {
 
 export const CONSOLE_TEAM_RBAC_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_team_members (
+    CREATE TABLE IF NOT EXISTS team_members (
       namespace TEXT NOT NULL,
       id TEXT NOT NULL,
       org_id TEXT NOT NULL,
@@ -70,20 +76,20 @@ export const CONSOLE_TEAM_RBAC_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_team_members_org_email_uidx
-      ON console_team_members (namespace, org_id, email_normalized)
+    CREATE UNIQUE INDEX IF NOT EXISTS team_members_org_email_uidx
+      ON team_members (namespace, org_id, email_normalized)
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_team_members_org_user_uidx
-      ON console_team_members (namespace, org_id, user_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS team_members_org_user_uidx
+      ON team_members (namespace, org_id, user_id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_team_members_org_updated_idx
-      ON console_team_members (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS team_members_org_updated_idx
+      ON team_members (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_team_members_org_status_idx
-      ON console_team_members (namespace, org_id, status)
+    CREATE INDEX IF NOT EXISTS team_members_org_status_idx
+      ON team_members (namespace, org_id, status)
   `,
 ] as const);
 
@@ -121,10 +127,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
@@ -138,10 +140,6 @@ function makeId(prefix: string, now: Date): string {
   return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function normalizeRole(raw: unknown): ConsoleTeamRole | null {
   const role = normalizeLower(raw);
@@ -150,21 +148,9 @@ function normalizeRole(raw: unknown): ConsoleTeamRole | null {
 }
 
 function parseRoleAssignments(raw: unknown): ConsoleTeamRoleAssignment[] {
-  let source: unknown[] = [];
-  if (Array.isArray(raw)) {
-    source = raw;
-  } else if (typeof raw === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) source = parsed;
-    } catch {
-      source = [];
-    }
-  }
-
   const out: ConsoleTeamRoleAssignment[] = [];
   const seen = new Set<string>();
-  for (const entryRaw of source) {
+  for (const entryRaw of parseD1JsonArrayColumn(raw)) {
     if (!entryRaw || typeof entryRaw !== 'object' || Array.isArray(entryRaw)) continue;
     const entry = entryRaw as Record<string, unknown>;
     const role = normalizeRole(entry.role);
@@ -263,32 +249,15 @@ function resolveActorDisplayName(ctx: ConsoleTeamRbacContext): string {
   return normalizeString(ctx.actorUserId);
 }
 
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
-}
-
 async function findMemberById(input: {
   state: D1TeamRbacState;
   orgId: string;
   memberId: string;
 }): Promise<ConsoleTeamMember | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_team_members
+       FROM team_members
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -303,10 +272,10 @@ async function findMemberByUserId(input: {
   orgId: string;
   userId: string;
 }): Promise<ConsoleTeamMember | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_team_members
+       FROM team_members
       WHERE namespace = ?
         AND org_id = ?
         AND user_id = ?
@@ -321,10 +290,10 @@ async function findMemberByEmail(input: {
   orgId: string;
   email: string;
 }): Promise<ConsoleTeamMember | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.state.database,
     `SELECT *
-       FROM console_team_members
+       FROM team_members
       WHERE namespace = ?
         AND org_id = ?
         AND email_normalized = ?
@@ -345,10 +314,10 @@ async function listMembersForOrg(input: {
     values.push(input.status);
     statusFilter = ' AND status = ?';
   }
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.state.database,
     `SELECT *
-       FROM console_team_members
+       FROM team_members
       WHERE namespace = ?
         AND org_id = ?${statusFilter}
       ORDER BY updated_at_ms DESC, created_at_ms DESC`,
@@ -384,7 +353,7 @@ async function insertActorMembership(input: {
 }): Promise<void> {
   await input.state.database
     .prepare(
-      `INSERT INTO console_team_members
+      `INSERT INTO team_members
         (namespace, id, org_id, user_id, email, email_normalized, display_name, status, roles_json, invited_by_user_id, invited_at_ms, last_status_changed_at_ms, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?)`,
@@ -433,7 +402,7 @@ async function updateActorMembership(input: {
       : input.existing.displayName || null;
   await input.state.database
     .prepare(
-      `UPDATE console_team_members
+      `UPDATE team_members
           SET status = 'ACTIVE',
               roles_json = ?,
               email = ?,
@@ -532,7 +501,7 @@ async function updateMemberRolesJson(input: {
 }): Promise<ConsoleTeamMember | null> {
   const result = await input.state.database
     .prepare(
-      `UPDATE console_team_members
+      `UPDATE team_members
           SET roles_json = ?,
               updated_at_ms = ?
         WHERE namespace = ?
@@ -547,7 +516,7 @@ async function updateMemberRolesJson(input: {
       input.memberId,
     )
     .run();
-  if (runChanges(result) !== 1) return null;
+  if (d1ChangedRows(result) !== 1) return null;
   return await findMemberById({
     state: input.state,
     orgId: input.orgId,
@@ -567,7 +536,7 @@ async function restoreRemovedMember(input: {
 }): Promise<ConsoleTeamMember> {
   await input.state.database
     .prepare(
-      `UPDATE console_team_members
+      `UPDATE team_members
           SET user_id = ?,
               email = ?,
               email_normalized = ?,
@@ -625,7 +594,7 @@ async function insertMember(input: {
   const ts = nowMs(input.now);
   await input.state.database
     .prepare(
-      `INSERT INTO console_team_members
+      `INSERT INTO team_members
         (namespace, id, org_id, user_id, email, email_normalized, display_name, status, roles_json, invited_by_user_id, invited_at_ms, last_status_changed_at_ms, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'ACTIVE', ?, ?, ?, ?, ?, ?)`,
@@ -683,7 +652,7 @@ export async function createD1ConsoleTeamRbacService(
       if (hasOwnerRole(actor)) {
         await state.database
           .prepare(
-            `UPDATE console_team_members
+            `UPDATE team_members
                 SET status = 'ACTIVE',
                     updated_at_ms = ?,
                     last_status_changed_at_ms = CASE
@@ -751,7 +720,7 @@ export async function createD1ConsoleTeamRbacService(
     async purgeOrganization(ctx): Promise<void> {
       await state.database
         .prepare(
-          `DELETE FROM console_team_members
+          `DELETE FROM team_members
             WHERE namespace = ?
               AND org_id = ?`,
         )
@@ -811,7 +780,7 @@ export async function createD1ConsoleTeamRbacService(
       await state.database.batch([
         state.database
           .prepare(
-            `UPDATE console_team_members
+            `UPDATE team_members
                 SET roles_json = ?,
                     updated_at_ms = ?
               WHERE namespace = ?
@@ -821,7 +790,7 @@ export async function createD1ConsoleTeamRbacService(
           .bind(rolesJson(nextTargetRoles), ts, state.namespace, ctx.orgId, target.id),
         state.database
           .prepare(
-            `UPDATE console_team_members
+            `UPDATE team_members
                 SET roles_json = ?,
                     updated_at_ms = ?
               WHERE namespace = ?
@@ -982,7 +951,7 @@ export async function createD1ConsoleTeamRbacService(
           : member.displayName || null;
       const result = await state.database
         .prepare(
-          `UPDATE console_team_members
+          `UPDATE team_members
               SET roles_json = ?,
                   email = ?,
                   email_normalized = ?,
@@ -1003,7 +972,7 @@ export async function createD1ConsoleTeamRbacService(
           memberId,
         )
         .run();
-      if (runChanges(result) !== 1) return null;
+      if (d1ChangedRows(result) !== 1) return null;
       return await findMemberById({ state, orgId: ctx.orgId, memberId });
     },
 
@@ -1030,7 +999,7 @@ export async function createD1ConsoleTeamRbacService(
       const ts = nowMs(state.now());
       const result = await state.database
         .prepare(
-          `UPDATE console_team_members
+          `UPDATE team_members
               SET status = 'REMOVED',
                   roles_json = '[]',
                   updated_at_ms = ?,
@@ -1041,7 +1010,7 @@ export async function createD1ConsoleTeamRbacService(
         )
         .bind(ts, ts, state.namespace, ctx.orgId, memberId)
         .run();
-      if (runChanges(result) !== 1) return { removed: false, member: null };
+      if (d1ChangedRows(result) !== 1) return { removed: false, member: null };
       return {
         removed: true,
         member: await findMemberById({ state, orgId: ctx.orgId, memberId }),

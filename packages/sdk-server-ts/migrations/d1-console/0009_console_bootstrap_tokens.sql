@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_bootstrap_tokens (
+CREATE TABLE IF NOT EXISTS bootstrap_tokens (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -33,14 +33,14 @@ CREATE TABLE IF NOT EXISTS console_bootstrap_tokens (
   CHECK (used_count <= max_uses)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_bootstrap_tokens_namespace_id_uidx
-  ON console_bootstrap_tokens (namespace, id);
+CREATE UNIQUE INDEX IF NOT EXISTS bootstrap_tokens_namespace_id_uidx
+  ON bootstrap_tokens (namespace, id);
 
-CREATE INDEX IF NOT EXISTS console_bootstrap_tokens_org_publishable_idx
-  ON console_bootstrap_tokens (namespace, org_id, publishable_key_id, issued_at_ms DESC);
+CREATE INDEX IF NOT EXISTS bootstrap_tokens_org_publishable_idx
+  ON bootstrap_tokens (namespace, org_id, publishable_key_id, issued_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_bootstrap_tokens_org_status_idx
-  ON console_bootstrap_tokens (namespace, org_id, status, expires_at_ms);
+CREATE INDEX IF NOT EXISTS bootstrap_tokens_org_status_idx
+  ON bootstrap_tokens (namespace, org_id, status, expires_at_ms);
 
-CREATE INDEX IF NOT EXISTS console_bootstrap_tokens_org_prefix_idx
-  ON console_bootstrap_tokens (namespace, org_id, token_prefix, id);
+CREATE INDEX IF NOT EXISTS bootstrap_tokens_org_prefix_idx
+  ON bootstrap_tokens (namespace, org_id, token_prefix, id);

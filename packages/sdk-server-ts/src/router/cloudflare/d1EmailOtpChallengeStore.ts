@@ -50,7 +50,7 @@ export class CloudflareD1EmailOtpChallengeStore {
 
   async pruneExpired(nowMs: number): Promise<string[]> {
     const result = await this.prepare(
-      `DELETE FROM signer_email_otp_challenges
+      `DELETE FROM email_otp_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -70,7 +70,7 @@ export class CloudflareD1EmailOtpChallengeStore {
   async read(challengeId: string): Promise<EmailOtpChallengeRecord | null> {
     const row = await this.prepare(
       `SELECT record_json, expires_at_ms
-         FROM signer_email_otp_challenges
+         FROM email_otp_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -87,7 +87,7 @@ export class CloudflareD1EmailOtpChallengeStore {
   ): Promise<EmailOtpChallengeRecord | null> {
     const row = await this.prepare(
       `SELECT record_json, expires_at_ms
-         FROM signer_email_otp_challenges
+         FROM email_otp_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -126,7 +126,7 @@ export class CloudflareD1EmailOtpChallengeStore {
 
   async put(record: EmailOtpChallengeRecord): Promise<void> {
     await this.prepare(
-      `INSERT INTO signer_email_otp_challenges (
+      `INSERT INTO email_otp_challenges (
         namespace,
         org_id,
         project_id,
@@ -167,7 +167,7 @@ export class CloudflareD1EmailOtpChallengeStore {
   async updateAttemptCount(record: EmailOtpChallengeRecord, attemptCount: number): Promise<void> {
     const next = emailOtpChallengeWithAttemptCount(record, attemptCount);
     await this.prepare(
-      `UPDATE signer_email_otp_challenges
+      `UPDATE email_otp_challenges
           SET record_json = ?,
               otp_code = ?,
               expires_at_ms = ?
@@ -182,7 +182,7 @@ export class CloudflareD1EmailOtpChallengeStore {
 
   async delete(challengeId: string): Promise<void> {
     await this.prepare(
-      `DELETE FROM signer_email_otp_challenges
+      `DELETE FROM email_otp_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -194,7 +194,7 @@ export class CloudflareD1EmailOtpChallengeStore {
 
   async consume(challengeId: string): Promise<EmailOtpChallengeRecord | null> {
     const row = await this.prepare(
-      `DELETE FROM signer_email_otp_challenges
+      `DELETE FROM email_otp_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -208,7 +208,7 @@ export class CloudflareD1EmailOtpChallengeStore {
 
   async putUnlock(record: EmailOtpUnlockChallengeRecord): Promise<void> {
     await this.prepare(
-      `INSERT INTO signer_email_otp_unlock_challenges (
+      `INSERT INTO email_otp_unlock_challenges (
         namespace,
         org_id,
         project_id,
@@ -236,7 +236,7 @@ export class CloudflareD1EmailOtpChallengeStore {
 
   async consumeUnlock(challengeId: string): Promise<EmailOtpUnlockChallengeRecord | null> {
     const row = await this.prepare(
-      `DELETE FROM signer_email_otp_unlock_challenges
+      `DELETE FROM email_otp_unlock_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -251,7 +251,7 @@ export class CloudflareD1EmailOtpChallengeStore {
   private async countActive(input: EmailOtpChallengeContextInput): Promise<number> {
     const row = await this.prepare(
       `SELECT COUNT(*) AS subject_count
-         FROM signer_email_otp_challenges
+         FROM email_otp_challenges
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -275,14 +275,14 @@ export class CloudflareD1EmailOtpChallengeStore {
   ): Promise<EmailOtpChallengeRecord | null> {
     const row = await this.database
       .prepare(
-        `DELETE FROM signer_email_otp_challenges
+        `DELETE FROM email_otp_challenges
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
             AND env_id = ?
             AND challenge_id = (
               SELECT challenge_id
-                FROM signer_email_otp_challenges
+                FROM email_otp_challenges
                WHERE namespace = ?
                  AND org_id = ?
                  AND project_id = ?

@@ -9,6 +9,7 @@ import {
   computeSigningRootContextHashB64u,
   parseSigningRootRecord,
   signingRootRecordFromMigrationBundle,
+  type SigningRootAuthorityScope,
   type SigningRootRecord,
   type SigningRootRecordResult,
 } from '../../../core/ThresholdService/signingRootRecords';
@@ -142,9 +143,8 @@ type AuthEntry = {
   record: {
     expiresAtMs: number;
     relayerKeyId: string;
-    userId: string;
-    rpId: string;
-    participantIds: number[];
+    authorityScope?: unknown;
+    participantIds?: number[];
   };
   remainingUses: number;
   expiresAtMs: number;
@@ -226,7 +226,7 @@ type SigningRootStatus = {
   envId: string;
   signingRootId: string;
   walletOrigin: string;
-  rpId: string;
+  authorityScope: SigningRootAuthorityScope;
   signingRootVersion: string;
   rootShareEpoch: number;
   shareThreshold: 2;
@@ -326,7 +326,7 @@ function toSigningRootWireRecord(record: SigningRootRecord): SigningRootWireReco
     envId: record.envId,
     signingRootId: record.signingRootId,
     walletOrigin: record.walletOrigin,
-    rpId: record.rpId,
+    authorityScope: record.authorityScope,
     signingRootVersion: record.signingRootVersion,
     rootShareEpoch: record.rootShareEpoch,
     shareThreshold: record.shareThreshold,
@@ -352,7 +352,7 @@ async function signingRootStatus(record: SigningRootRecord): Promise<SigningRoot
     envId: record.envId,
     signingRootId: record.signingRootId,
     walletOrigin: record.walletOrigin,
-    rpId: record.rpId,
+    authorityScope: record.authorityScope,
     signingRootVersion: record.signingRootVersion,
     rootShareEpoch: record.rootShareEpoch,
     shareThreshold: record.shareThreshold,
@@ -438,14 +438,9 @@ function parseAuthEntry(raw: unknown): AuthEntry | null {
   if (typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
   // Minimal record shape check (full validation happens on the service layer).
   const rec = record as Record<string, unknown>;
-  if (
-    typeof rec.userId !== 'string' ||
-    typeof rec.rpId !== 'string' ||
-    typeof rec.relayerKeyId !== 'string'
-  )
-    return null;
+  if (typeof rec.relayerKeyId !== 'string') return null;
   if (typeof rec.expiresAtMs !== 'number' || !Number.isFinite(rec.expiresAtMs)) return null;
-  if (!Array.isArray(rec.participantIds)) return null;
+  if (rec.participantIds !== undefined && !Array.isArray(rec.participantIds)) return null;
   return raw as AuthEntry;
 }
 
@@ -771,6 +766,14 @@ function scopeRuntimePolicyMatches(left: unknown, right: unknown): boolean {
   );
 }
 
+function scopeAuthorityMatches(left: unknown, right: unknown): boolean {
+  if (!isPlainObject(left) || !isPlainObject(right)) return false;
+  return (
+    scopeString(left.kind) === scopeString(right.kind) &&
+    scopeString(left.rpId) === scopeString(right.rpId)
+  );
+}
+
 function ed25519PresignRecordMatchesExpectedScope(record: unknown, expected: unknown): boolean {
   if (!isPlainObject(record) || !isPlainObject(expected)) return false;
   return (
@@ -781,7 +784,7 @@ function ed25519PresignRecordMatchesExpectedScope(record: unknown, expected: unk
     scopeString(record.nearNetworkId) === scopeString(expected.nearNetworkId) &&
     scopeString(record.signerPublicKey) === scopeString(expected.signerPublicKey) &&
     scopeString(record.rpcPolicyId) === scopeString(expected.rpcPolicyId) &&
-    scopeString(record.rpId) === scopeString(expected.rpId) &&
+    scopeAuthorityMatches(record.authorityScope, expected.authorityScope) &&
     scopeString(record.groupPublicKey) === scopeString(expected.groupPublicKey) &&
     scopeRuntimePolicyMatches(record.runtimePolicyScope, expected.runtimePolicyScope) &&
     scopeParticipantIdsMatch(record.participantIds, expected.participantIds)

@@ -1,9 +1,8 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
+import { d1ChangedRows, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
-  D1ResultLike,
 } from '../../storage/tenantRoute';
 import { ConsoleBillingPrepaidReservationError } from './errors';
 import {
@@ -28,8 +27,6 @@ import type {
   ConsoleBillingPrepaidReservationContext,
   ConsoleBillingPrepaidReservationService,
 } from './service';
-
-type D1Row = Record<string, unknown>;
 
 const DEFAULT_RESERVATION_TTL_MS = 5 * 60_000;
 const D1_EXPIRE_BATCH_SIZE = 80;
@@ -64,7 +61,7 @@ export interface D1ConsoleBillingPrepaidReservationSchemaOptions {
 
 export const CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_billing_prepaid_reservation_summaries (
+    CREATE TABLE IF NOT EXISTS billing_prepaid_reservation_summaries (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       reserved_minor INTEGER NOT NULL DEFAULT 0,
@@ -72,12 +69,16 @@ export const CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
       CHECK (reserved_minor >= 0),
-      CHECK (active_reservation_count >= 0)
+      CHECK (active_reservation_count >= 0),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms >= created_at_ms)
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_billing_prepaid_reservations (
+    CREATE TABLE IF NOT EXISTS billing_prepaid_reservations (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -95,35 +96,48 @@ export const CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
-      CHECK (requested_minor >= 0),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(id) > 0),
+      CHECK (length(environment_id) > 0),
+      CHECK (length(source_event_id) > 0),
+      CHECK (requested_minor > 0),
       CHECK (posted_balance_minor >= 0),
       CHECK (settled_minor >= 0),
       CHECK (released_minor >= 0),
-      CHECK (status IN ('RESERVED', 'SETTLED', 'RELEASED', 'EXPIRED'))
+      CHECK (status IN ('RESERVED', 'SETTLED', 'RELEASED', 'EXPIRED')),
+      CHECK (expires_at_ms > created_at_ms),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms >= created_at_ms),
+      CHECK (
+        (status = 'RESERVED' AND settled_minor = 0 AND released_minor = 0 AND tx_or_execution_ref IS NULL AND pricing_version IS NULL)
+        OR (status = 'SETTLED' AND released_minor = CASE WHEN requested_minor > settled_minor THEN requested_minor - settled_minor ELSE 0 END)
+        OR (status IN ('RELEASED', 'EXPIRED') AND settled_minor = 0 AND released_minor = requested_minor)
+      )
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_billing_prepaid_reservations_source_event_idx
-      ON console_billing_prepaid_reservations (namespace, org_id, source_event_id)
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_prepaid_reservations_source_event_idx
+      ON billing_prepaid_reservations (namespace, org_id, source_event_id)
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS console_billing_prepaid_reservations_namespace_id_idx
-      ON console_billing_prepaid_reservations (namespace, id)
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_prepaid_reservations_namespace_id_idx
+      ON billing_prepaid_reservations (namespace, id)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_billing_prepaid_reservations_org_status_idx
-      ON console_billing_prepaid_reservations (namespace, org_id, status, expires_at_ms ASC)
+    CREATE INDEX IF NOT EXISTS billing_prepaid_reservations_org_status_idx
+      ON billing_prepaid_reservations (namespace, org_id, status, expires_at_ms ASC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_billing_prepaid_reservations_status_idx
-      ON console_billing_prepaid_reservations (namespace, status, expires_at_ms ASC)
+    CREATE INDEX IF NOT EXISTS billing_prepaid_reservations_status_idx
+      ON billing_prepaid_reservations (namespace, status, expires_at_ms ASC)
   `,
   `
-    CREATE TRIGGER IF NOT EXISTS console_billing_prepaid_reservations_reserve_insert
-    BEFORE INSERT ON console_billing_prepaid_reservations
+    CREATE TRIGGER IF NOT EXISTS billing_prepaid_reservations_reserve_insert
+    BEFORE INSERT ON billing_prepaid_reservations
     WHEN NEW.status = 'RESERVED'
     BEGIN
-      INSERT INTO console_billing_prepaid_reservation_summaries
+      INSERT INTO billing_prepaid_reservation_summaries
         (namespace, org_id, reserved_minor, active_reservation_count, created_at_ms, updated_at_ms)
       VALUES
         (NEW.namespace, NEW.org_id, 0, 0, NEW.created_at_ms, NEW.created_at_ms)
@@ -132,13 +146,13 @@ export const CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL = Object.freeze([
       SELECT CASE
         WHEN (
           SELECT reserved_minor
-          FROM console_billing_prepaid_reservation_summaries
+          FROM billing_prepaid_reservation_summaries
           WHERE namespace = NEW.namespace AND org_id = NEW.org_id
         ) + NEW.requested_minor > NEW.posted_balance_minor
         THEN RAISE(ABORT, 'prepaid_balance_insufficient')
       END;
 
-      UPDATE console_billing_prepaid_reservation_summaries
+      UPDATE billing_prepaid_reservation_summaries
          SET reserved_minor = reserved_minor + NEW.requested_minor,
              active_reservation_count = active_reservation_count + 1,
              updated_at_ms = NEW.created_at_ms
@@ -146,11 +160,11 @@ export const CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL = Object.freeze([
     END
   `,
   `
-    CREATE TRIGGER IF NOT EXISTS console_billing_prepaid_reservations_reserved_exit_update
-    AFTER UPDATE OF status ON console_billing_prepaid_reservations
+    CREATE TRIGGER IF NOT EXISTS billing_prepaid_reservations_reserved_exit_update
+    AFTER UPDATE OF status ON billing_prepaid_reservations
     WHEN OLD.status = 'RESERVED' AND NEW.status IN ('SETTLED', 'RELEASED', 'EXPIRED')
     BEGIN
-      UPDATE console_billing_prepaid_reservation_summaries
+      UPDATE billing_prepaid_reservation_summaries
          SET reserved_minor = MAX(0, reserved_minor - OLD.requested_minor),
              active_reservation_count = MAX(0, active_reservation_count - 1),
              updated_at_ms = NEW.updated_at_ms
@@ -190,7 +204,7 @@ export function createSettleConsoleBillingPrepaidReservationD1Statement(input: {
   const releasedMinor = Math.max(input.reservation.requestedMinor - input.settledSpendMinor, 0);
   return input.runtime.database
     .prepare(
-      `UPDATE console_billing_prepaid_reservations
+      `UPDATE billing_prepaid_reservations
           SET status = 'SETTLED',
               settled_minor = ?,
               tx_or_execution_ref = ?,
@@ -222,7 +236,7 @@ export function createReleaseConsoleBillingPrepaidReservationD1Statement(input: 
 }): D1PreparedStatementLike {
   return input.runtime.database
     .prepare(
-      `UPDATE console_billing_prepaid_reservations
+      `UPDATE billing_prepaid_reservations
           SET status = 'RELEASED',
               released_minor = requested_minor,
               updated_at_ms = ?
@@ -252,10 +266,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function normalizeString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -276,11 +286,6 @@ function rowId(row: D1Row): string {
   return String(row.id || '').trim();
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
-
 function parseStatus(value: unknown): ConsoleBillingPrepaidReservation['status'] {
   const normalized = String(value || '').trim();
   switch (normalized) {
@@ -294,50 +299,146 @@ function parseStatus(value: unknown): ConsoleBillingPrepaidReservation['status']
   }
 }
 
+function parseRequiredString(row: D1Row, columnName: string): string {
+  const normalized = String(row[columnName] || '').trim();
+  if (!normalized) {
+    throw new Error(`Invalid prepaid reservation row: ${columnName} is empty`);
+  }
+  return normalized;
+}
+
+function parseInteger(row: D1Row, columnName: string): number {
+  const parsed = typeof row[columnName] === 'number' ? row[columnName] : Number(row[columnName]);
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`Invalid prepaid reservation row: ${columnName} is not an integer`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeInteger(row: D1Row, columnName: string): number {
+  const parsed = parseInteger(row, columnName);
+  if (parsed < 0) {
+    throw new Error(`Invalid prepaid reservation row: ${columnName} is negative`);
+  }
+  return parsed;
+}
+
+function parsePositiveInteger(row: D1Row, columnName: string): number {
+  const parsed = parseInteger(row, columnName);
+  if (parsed <= 0) {
+    throw new Error(`Invalid prepaid reservation row: ${columnName} must be positive`);
+  }
+  return parsed;
+}
+
+function assertNeverPrepaidReservationStatus(status: never): never {
+  throw new Error(`Unhandled prepaid reservation status: ${String(status)}`);
+}
+
+function expectedReleasedMinor(input: {
+  status: ConsoleBillingPrepaidReservation['status'];
+  requestedMinor: number;
+  settledMinor: number;
+}): number {
+  switch (input.status) {
+    case 'RESERVED':
+      return 0;
+    case 'SETTLED':
+      return Math.max(input.requestedMinor - input.settledMinor, 0);
+    case 'RELEASED':
+    case 'EXPIRED':
+      return input.requestedMinor;
+    default:
+      return assertNeverPrepaidReservationStatus(input.status);
+  }
+}
+
+function validateReservationLifecycle(input: {
+  status: ConsoleBillingPrepaidReservation['status'];
+  requestedMinor: number;
+  settledMinor: number;
+  releasedMinor: number;
+  txOrExecutionRef: string | null;
+  pricingVersion: string | null;
+}): void {
+  if (input.releasedMinor !== expectedReleasedMinor(input)) {
+    throw new Error('Invalid prepaid reservation row: released_minor does not match status');
+  }
+  if (input.status !== 'SETTLED' && input.settledMinor !== 0) {
+    throw new Error('Invalid prepaid reservation row: unsettled status has settled_minor');
+  }
+  if (
+    input.status === 'RESERVED' &&
+    (input.txOrExecutionRef !== null || input.pricingVersion !== null)
+  ) {
+    throw new Error('Invalid prepaid reservation row: reserved status has settlement metadata');
+  }
+}
+
+function validateReservationTimestamps(input: {
+  expiresAtMs: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+}): void {
+  if (input.expiresAtMs <= input.createdAtMs) {
+    throw new Error('Invalid prepaid reservation row: expires_at_ms must be after created_at_ms');
+  }
+  if (input.updatedAtMs < input.createdAtMs) {
+    throw new Error('Invalid prepaid reservation row: updated_at_ms regressed');
+  }
+}
+
 function parseReservation(row: D1Row): ConsoleBillingPrepaidReservation {
+  const status = parseStatus(row.status);
+  const requestedMinor = parsePositiveInteger(row, 'requested_minor');
+  const settledMinor = parseNonNegativeInteger(row, 'settled_minor');
+  const releasedMinor = parseNonNegativeInteger(row, 'released_minor');
+  const txOrExecutionRef = normalizeString(row.tx_or_execution_ref);
+  const pricingVersion = normalizeString(row.pricing_version);
+  const expiresAtMs = parsePositiveInteger(row, 'expires_at_ms');
+  const createdAtMs = parsePositiveInteger(row, 'created_at_ms');
+  const updatedAtMs = parsePositiveInteger(row, 'updated_at_ms');
+  parseNonNegativeInteger(row, 'posted_balance_minor');
+  validateReservationLifecycle({
+    status,
+    requestedMinor,
+    settledMinor,
+    releasedMinor,
+    txOrExecutionRef,
+    pricingVersion,
+  });
+  validateReservationTimestamps({ expiresAtMs, createdAtMs, updatedAtMs });
   return {
-    id: String(row.id || ''),
-    orgId: String(row.org_id || ''),
-    environmentId: String(row.environment_id || ''),
+    id: parseRequiredString(row, 'id'),
+    orgId: parseRequiredString(row, 'org_id'),
+    environmentId: parseRequiredString(row, 'environment_id'),
     policyId: normalizeString(row.policy_id),
-    sourceEventId: String(row.source_event_id || ''),
-    requestedMinor: Math.max(0, toNumber(row.requested_minor)),
-    settledMinor: Math.max(0, toNumber(row.settled_minor)),
-    releasedMinor: Math.max(0, toNumber(row.released_minor)),
-    status: parseStatus(row.status),
-    txOrExecutionRef: normalizeString(row.tx_or_execution_ref),
-    pricingVersion: normalizeString(row.pricing_version),
-    expiresAt: toIso(toNumber(row.expires_at_ms)),
-    createdAt: toIso(toNumber(row.created_at_ms)),
-    updatedAt: toIso(toNumber(row.updated_at_ms)),
+    sourceEventId: parseRequiredString(row, 'source_event_id'),
+    requestedMinor,
+    settledMinor,
+    releasedMinor,
+    status,
+    txOrExecutionRef,
+    pricingVersion,
+    expiresAt: toIso(expiresAtMs),
+    createdAt: toIso(createdAtMs),
+    updatedAt: toIso(updatedAtMs),
   };
 }
 
 function parseSummary(row: D1Row): ConsoleBillingPrepaidReservationSummary {
+  const createdAtMs = parsePositiveInteger(row, 'created_at_ms');
+  const updatedAtMs = parsePositiveInteger(row, 'updated_at_ms');
+  if (updatedAtMs < createdAtMs) {
+    throw new Error('Invalid prepaid reservation summary row: updated_at_ms regressed');
+  }
   return {
-    orgId: String(row.org_id || ''),
-    reservedMinor: Math.max(0, toNumber(row.reserved_minor)),
-    activeReservationCount: Math.max(0, toNumber(row.active_reservation_count)),
-    createdAt: toIso(toNumber(row.created_at_ms)),
-    updatedAt: toIso(toNumber(row.updated_at_ms)),
+    orgId: parseRequiredString(row, 'org_id'),
+    reservedMinor: parseNonNegativeInteger(row, 'reserved_minor'),
+    activeReservationCount: parseNonNegativeInteger(row, 'active_reservation_count'),
+    createdAt: toIso(createdAtMs),
+    updatedAt: toIso(updatedAtMs),
   };
-}
-
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
 }
 
 async function ensureSummaryRow(
@@ -350,17 +451,17 @@ async function ensureSummaryRow(
 ): Promise<ConsoleBillingPrepaidReservationSummary> {
   await database
     .prepare(
-      `INSERT INTO console_billing_prepaid_reservation_summaries
+      `INSERT INTO billing_prepaid_reservation_summaries
         (namespace, org_id, reserved_minor, active_reservation_count, created_at_ms, updated_at_ms)
        VALUES (?, ?, 0, 0, ?, ?)
        ON CONFLICT(namespace, org_id) DO NOTHING`,
     )
     .bind(input.namespace, input.orgId, input.createdAtMs, input.createdAtMs)
     .run();
-  const row = await queryOne(
+  const row = await queryD1One(
     database,
     `SELECT *
-       FROM console_billing_prepaid_reservation_summaries
+       FROM billing_prepaid_reservation_summaries
       WHERE namespace = ? AND org_id = ?`,
     [input.namespace, input.orgId],
   );
@@ -376,10 +477,10 @@ async function loadReservationBySourceEventId(
     sourceEventId: string;
   },
 ): Promise<ConsoleBillingPrepaidReservation | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     database,
     `SELECT *
-       FROM console_billing_prepaid_reservations
+       FROM billing_prepaid_reservations
       WHERE namespace = ?
         AND org_id = ?
         AND source_event_id = ?
@@ -397,10 +498,10 @@ async function loadReservationById(
     id: string;
   },
 ): Promise<ConsoleBillingPrepaidReservation | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     database,
     `SELECT *
-       FROM console_billing_prepaid_reservations
+       FROM billing_prepaid_reservations
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
@@ -446,10 +547,10 @@ async function expireReservedForOrg(input: {
   limit: number;
 }): Promise<readonly string[]> {
   if (input.limit <= 0) return [];
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.database,
     `SELECT id
-       FROM console_billing_prepaid_reservations
+       FROM billing_prepaid_reservations
       WHERE namespace = ?
         AND org_id = ?
         AND status = 'RESERVED'
@@ -463,7 +564,7 @@ async function expireReservedForOrg(input: {
   const placeholders = ids.map(placeholder).join(', ');
   await input.database
     .prepare(
-      `UPDATE console_billing_prepaid_reservations
+      `UPDATE billing_prepaid_reservations
           SET status = 'EXPIRED',
               released_minor = requested_minor,
               updated_at_ms = ?
@@ -484,10 +585,10 @@ async function expireReservedAcrossNamespace(input: {
 }): Promise<readonly string[]> {
   const expiredIds: string[] = [];
   while (expiredIds.length < input.limit) {
-    const rows = await queryAll(
+    const rows = await queryD1All(
       input.database,
       `SELECT org_id
-         FROM console_billing_prepaid_reservations
+         FROM billing_prepaid_reservations
         WHERE namespace = ?
           AND status = 'RESERVED'
           AND expires_at_ms <= ?
@@ -526,7 +627,7 @@ async function reserveWithD1(input: {
 }): Promise<void> {
   await input.database
     .prepare(
-      `INSERT INTO console_billing_prepaid_reservations
+      `INSERT INTO billing_prepaid_reservations
         (namespace, org_id, id, environment_id, policy_id, source_event_id, requested_minor, posted_balance_minor, settled_minor, released_minor, status, tx_or_execution_ref, pricing_version, expires_at_ms, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'RESERVED', NULL, NULL, ?, ?, ?)`,
@@ -560,7 +661,7 @@ async function settleReservedReservation(input: {
   const releasedMinor = Math.max(input.reservation.requestedMinor - input.settledSpendMinor, 0);
   const result = await input.database
     .prepare(
-      `UPDATE console_billing_prepaid_reservations
+      `UPDATE billing_prepaid_reservations
           SET status = 'SETTLED',
               settled_minor = ?,
               tx_or_execution_ref = ?,
@@ -583,7 +684,7 @@ async function settleReservedReservation(input: {
       input.reservation.id,
     )
     .run();
-  if (runChanges(result) !== 1) return null;
+  if (d1ChangedRows(result) !== 1) return null;
   return loadReservationById(input.database, {
     namespace: input.namespace,
     orgId: input.ctx.orgId,
@@ -600,7 +701,7 @@ async function releaseReservedReservation(input: {
 }): Promise<ConsoleBillingPrepaidReservation | null> {
   const result = await input.database
     .prepare(
-      `UPDATE console_billing_prepaid_reservations
+      `UPDATE billing_prepaid_reservations
           SET status = 'RELEASED',
               released_minor = requested_minor,
               updated_at_ms = ?
@@ -611,7 +712,7 @@ async function releaseReservedReservation(input: {
     )
     .bind(input.updatedAtMs, input.namespace, input.ctx.orgId, input.reservation.id)
     .run();
-  if (runChanges(result) !== 1) return null;
+  if (d1ChangedRows(result) !== 1) return null;
   return loadReservationById(input.database, {
     namespace: input.namespace,
     orgId: input.ctx.orgId,

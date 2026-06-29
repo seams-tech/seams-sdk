@@ -17,15 +17,6 @@ export type {
 export { createInMemoryConsoleKeyExportService } from './service';
 
 export type {
-  PostgresConsoleKeyExportSchemaOptions,
-  PostgresConsoleKeyExportServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleKeyExportsPostgresSchema,
-  createPostgresConsoleKeyExportService,
-} from './postgres';
-
-export type {
   ConsoleKeyExportsD1Runtime,
   ConsoleKeyExportD1Service,
   D1ConsoleKeyExportSchemaOptions,

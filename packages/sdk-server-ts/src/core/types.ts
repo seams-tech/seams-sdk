@@ -28,7 +28,7 @@ import type {
   ResolvedRegistrationNearAccount,
   RegistrationIntentGrant,
   RegistrationIntentV1,
-  RegistrationSignerSelection,
+  RegistrationSignerSetSelection,
   NearEd25519SigningKeyId,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
@@ -181,6 +181,27 @@ export interface ThresholdEd25519HssStoredPreparedServerSession {
   preparedSessionHandle?: string;
   evaluatorDriverStateBytes: Uint8Array;
   garblerDriverStateBytes: Uint8Array;
+}
+
+export interface ThresholdEd25519HssPersistedPreparedServerSession {
+  evaluatorDriverStateB64u: string;
+  garblerDriverStateB64u: string;
+}
+
+export interface ThresholdEd25519HssPersistedServerInputs {
+  yRelayerB64u: string;
+  tauRelayerB64u: string;
+}
+
+export interface ThresholdEd25519HssRegistrationPreparedServerState {
+  context: ThresholdEd25519HssCanonicalContext;
+  preparedServerSession: ThresholdEd25519HssPersistedPreparedServerSession;
+  serverInputs: ThresholdEd25519HssPersistedServerInputs;
+}
+
+export interface ThresholdEd25519HssRegistrationRespondedServerState {
+  context: ThresholdEd25519HssCanonicalContext;
+  preparedServerSession: ThresholdEd25519HssPersistedPreparedServerSession;
 }
 
 export interface ThresholdEd25519HssClientRequestEnvelope {
@@ -361,7 +382,7 @@ export type {
   RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
-  RegistrationSignerSelection,
+  RegistrationSignerSetSelection,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
   WalletId,
@@ -369,9 +390,8 @@ export type {
 
 export type CreateRegistrationIntentRequest = {
   wallet: RegisterWalletInput;
-  rpId: string;
   authMethod: RegistrationAuthMethodInput;
-  signerSelection: RegistrationSignerSelection;
+  signerSelection: RegistrationSignerSetSelection;
 };
 
 export type CreateRegistrationIntentResponse =
@@ -390,7 +410,6 @@ export type CreateRegistrationIntentResponse =
 
 export type CreateAddSignerIntentRequest = {
   walletId: WalletId;
-  rpId: string;
   signerSelection: AddSignerSelection;
 };
 
@@ -410,7 +429,6 @@ export type CreateAddSignerIntentResponse =
 
 export type CreateAddAuthMethodIntentRequest = {
   walletId: WalletId;
-  rpId: string;
   authMethod: AddAuthMethodInput;
 };
 
@@ -439,6 +457,7 @@ export type AddAuthMethodAppSessionPolicy = {
 export type AddAuthMethodExistingAuth =
   | {
       kind: 'webauthn_assertion';
+      rpId: WebAuthnRpId;
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
@@ -488,7 +507,7 @@ export type WalletAddAuthMethodFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       authMethod: {
         kind: 'passkey' | 'email_otp';
         status: 'active' | 'revoked';
@@ -511,6 +530,7 @@ export type RevokeAuthMethodAppSessionPolicy = {
 export type RevokeAuthMethodExistingAuth =
   | {
       kind: 'webauthn_assertion';
+      rpId: WebAuthnRpId;
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
@@ -521,7 +541,6 @@ export type RevokeAuthMethodExistingAuth =
 
 export type WalletRevokeAuthMethodRequest = {
   walletId: WalletId;
-  rpId: string;
   auth: RevokeAuthMethodExistingAuth;
   target: WalletAuthMethodTarget;
 };
@@ -530,11 +549,20 @@ export type WalletRevokeAuthMethodResponse =
   | {
       ok: true;
       walletId: WalletId;
-      rpId: string;
       authMethod: {
-        kind: 'passkey' | 'email_otp';
+        kind: 'passkey';
         status: 'revoked';
       };
+      rpId: string;
+    }
+  | {
+      ok: true;
+      walletId: WalletId;
+      authMethod: {
+        kind: 'email_otp';
+        status: 'revoked';
+      };
+      rpId?: never;
     }
   | {
       ok: false;
@@ -553,6 +581,7 @@ export type AddSignerAppSessionPolicy = {
 export type AddSignerAuth =
   | {
       kind: 'webauthn_assertion';
+      rpId: WebAuthnRpId;
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
@@ -631,7 +660,7 @@ export type WalletAddSignerFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       ed25519?: {
         nearAccountId: string;
         nearEd25519SigningKeyId: string;
@@ -953,7 +982,7 @@ export type WalletRegistrationFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       authMethod: WalletRegistrationFinalizeAuthMethod;
       accountProvisioning: RegistrationNearAccountProvisioning;
       resolvedAccount: ResolvedRegistrationNearAccount;
@@ -977,7 +1006,7 @@ export type WalletRegistrationFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       authMethod: WalletRegistrationFinalizeAuthMethod;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ecdsa: {
@@ -991,7 +1020,7 @@ export type WalletRegistrationFinalizeResponse =
       ok: true;
       kind: 'already_finalized_restore_required';
       walletId: WalletId;
-      rpId: string;
+      rpId?: string;
       reason: 'replay_without_session_material';
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       authMethod?: never;
@@ -1048,6 +1077,8 @@ export interface ThresholdEd25519HssRespondForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
   wallet_key_id: NearEd25519SigningKeyId;
   ceremonyHandle: string;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  serverState: ThresholdEd25519HssRegistrationPreparedServerState;
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
 
@@ -1073,6 +1104,7 @@ export type ThresholdEd25519HssPrepareForRegistrationResponse =
       ceremonyHandle: string;
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
       clientOtOfferMessageB64u: string;
+      serverState: ThresholdEd25519HssRegistrationPreparedServerState;
       serverInputDeriveMs: number;
       serverSessionPrepareTotalMs: number;
       serverSessionTimings: ThresholdEd25519HssPrepareServerSessionTimings;
@@ -1141,6 +1173,8 @@ export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   wallet_key_id: NearEd25519SigningKeyId;
   rpId: WebAuthnRpId;
   ceremonyHandle: string;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  serverState: ThresholdEd25519HssRegistrationRespondedServerState;
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
   accountResolution: ThresholdEd25519HssFinalizeAccountResolution;
 }
@@ -1205,12 +1239,11 @@ export type ThresholdStoreConfig =
   | { kind: 'in-memory' }
   | { kind: 'upstash-redis-rest'; url: string; token: string; keyPrefix?: string }
   | { kind: 'redis-tcp'; redisUrl: string; keyPrefix?: string }
-  | { kind: 'postgres'; postgresUrl: string; keyPrefix?: string }
   | {
       kind: 'cloudflare-do';
       /**
        * Durable Object namespace binding (e.g. `env.THRESHOLD_STORE`).
-       * Must point to a DO class compatible with the SDK's threshold store protocol.
+       * Must point to a DO class implementing the SDK's threshold store protocol.
        */
       namespace: CloudflareDurableObjectNamespaceLike;
       /**
@@ -1229,8 +1262,6 @@ export type ThresholdStoreEnvInput = {
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
   REDIS_URL?: string;
-  /** Node-only Postgres connection string for durable storage. */
-  POSTGRES_URL?: string;
   /**
    * Optional global base prefix for all threshold keyspaces.
    *
@@ -1352,8 +1383,6 @@ export type ThresholdStoreEnvInput = {
   SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL?: string;
-  SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL?: string;
-  SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS?: string;
   /**
@@ -1475,7 +1504,7 @@ export type AuthServiceConfigInput = Omit<
   oidcExchange?: OidcExchangeConfigInput;
 };
 
-// Account creation and registration types (imported from relay-server types)
+// Account creation and registration types shared by Router API flows.
 export interface AccountCreationRequest {
   accountId: string;
   publicKey: string;
@@ -1587,12 +1616,17 @@ export type ThresholdRuntimeSnapshotExpectation = {
 
 export type ThresholdEd25519Purpose = 'near_tx' | 'nep461_delegate' | 'nep413' | string;
 
+export type ThresholdEd25519AuthorityScope = {
+  kind: 'passkey_rp';
+  rpId: WebAuthnRpId;
+};
+
 export type Ed25519SessionPolicy = {
   version: 'threshold_session_v1';
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   relayerKeyId: string;
   thresholdSessionId: string;
   signingGrantId?: string;

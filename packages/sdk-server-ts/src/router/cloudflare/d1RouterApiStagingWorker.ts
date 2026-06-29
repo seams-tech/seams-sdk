@@ -65,24 +65,23 @@ type RouterApiReadyRow = {
   readonly table_count?: unknown;
 };
 
-const relayHandlers = new WeakMap<CloudflareD1RouterApiStagingEnv, Promise<FetchHandler>>();
 const RELAY_CONSOLE_READY_TABLES = Object.freeze([
-  'console_organizations',
-  'console_projects',
-  'console_environments',
-  'console_api_keys',
-  'console_billing_accounts',
-  'console_billing_prepaid_reservations',
-  'console_sponsorship_spend_cap_reservations',
-  'console_sponsored_call_records',
+  'organizations',
+  'projects',
+  'environments',
+  'api_keys',
+  'billing_accounts',
+  'billing_prepaid_reservations',
+  'sponsorship_spend_cap_reservations',
+  'sponsored_call_records',
 ]);
 const RELAY_SIGNER_READY_TABLES = Object.freeze([
-  'signer_wallets',
-  'signer_wallet_auth_methods',
-  'signer_app_session_versions',
-  'signer_email_otp_challenges',
-  'signer_email_otp_grants',
-  'signer_signing_root_secret_shares',
+  'wallets',
+  'wallet_auth_methods',
+  'app_session_versions',
+  'email_otp_challenges',
+  'email_otp_grants',
+  'signing_root_secret_shares',
 ]);
 
 async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
@@ -165,16 +164,13 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     readyCheck: createRouterApiReadyCheck(env),
+    ed25519RegistrationPrepare: { authService: service },
     ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
   });
 }
 
-function relayHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
-  const existing = relayHandlers.get(env);
-  if (existing) return existing;
-  const created = createRouterApiHandler(env);
-  relayHandlers.set(env, created);
-  return created;
+function routerApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
+  return createRouterApiHandler(env);
 }
 
 function createRouterApiReadyCheck(env: CloudflareD1RouterApiStagingEnv): () => Promise<void> {
@@ -352,7 +348,7 @@ async function fetch(
   env: CloudflareD1RouterApiStagingEnv,
   ctx: CfExecutionContext,
 ): Promise<Response> {
-  const handler = await relayHandler(env);
+  const handler = await routerApiHandler(env);
   return await handler(request, env, ctx);
 }
 

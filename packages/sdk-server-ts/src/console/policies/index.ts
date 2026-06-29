@@ -68,15 +68,6 @@ export type {
 export { createInMemoryConsolePolicyService } from './service';
 
 export type {
-  PostgresConsolePolicySchemaOptions,
-  PostgresConsolePolicyServiceOptions,
-} from './postgres';
-export {
-  ensureConsolePoliciesPostgresSchema,
-  createPostgresConsolePolicyService,
-} from './postgres';
-
-export type {
   D1ConsolePolicySchemaOptions,
   D1ConsolePolicyServiceOptions,
   ConsolePolicyD1Runtime,

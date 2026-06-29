@@ -20,9 +20,9 @@ import {
   encodeEip1559SignedTxFromSignature65,
 } from '../core/ThresholdService/ethSignerWasm';
 import type { SponsorshipSpendPricingService } from './spendCaps';
-import { createRelayPublishableKeyAuthAdapter } from '../router/relayApiKeyAuth';
+import { createRouterApiPublishableKeyAuthAdapter } from '../router/routerApiKeyAuth';
 import { coerceRouterLogger, type RouterLogger } from '../router/logger';
-import { handleRelaySponsoredEvmCall } from '../router/relaySponsoredEvmCall';
+import { handleRouterApiSponsoredEvmCall } from '../router/routerApiSponsoredEvmCall';
 import type { RouteDefinition } from '../router/routeDefinitions';
 import { sendExpressRouteResponse } from '../router/routeResponses';
 import {
@@ -56,7 +56,7 @@ export type RegisterSponsoredEvmCallRouteArgs = {
   webhooks?: ConsoleWebhookService | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   corsOrigins: string[];
-  config: SponsoredEvmCallExecutorConfig | null;
+  config: SponsoredEvmCallExecutorConfig;
   route?: string;
   logger?: RouterLogger;
 };
@@ -323,27 +323,24 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
       originBinding: 'required',
     },
     metering: { kind: 'gas', ledger: 'evm' },
-    requiredServices: ['relaySponsoredEvmCall'],
+    requiredServices: ['routerApiSponsoredEvmCall'],
     summary: 'Execute a sponsored EVM call',
   };
-  const publishableKeyAuth =
-    typeof args.apiKeys.authenticatePublishableKey === 'function'
-      ? createRelayPublishableKeyAuthAdapter(args.apiKeys)
-      : null;
+  const publishableKeyAuth = createRouterApiPublishableKeyAuthAdapter(args.apiKeys);
 
   args.router.options(route.path, (_req: Request, res: Response) => {
     res.status(204).send();
   });
 
   args.router.post(route.path, async (req: Request, res: Response) => {
-    const response = await handleRelaySponsoredEvmCall({
+    const response = await handleRouterApiSponsoredEvmCall({
       body: req.body,
       headers: (req.headers || {}) as Record<string, string | string[] | undefined>,
       logger,
       origin: String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined,
       route,
       services: {
-        relaySponsoredEvmCall: {
+        routerApiSponsoredEvmCall: {
           billing: args.billing,
           config: args.config,
           corsOrigins: args.corsOrigins,

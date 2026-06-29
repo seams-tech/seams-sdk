@@ -1,5 +1,9 @@
 import type { NormalizedLogger } from '../../logger';
-import type { EcdsaHssRoleLocalKeyRecord, ThresholdStoreConfigInput } from '../../types';
+import type {
+  EcdsaHssRoleLocalKeyRecord,
+  ThresholdEd25519AuthorityScope,
+  ThresholdStoreConfigInput,
+} from '../../types';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -9,8 +13,6 @@ import {
 } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
-import { parseCurrentThresholdEd25519KeyRecord } from '../postgresRecords';
 import {
   isObject,
   toThresholdEcdsaKeyPrefix,
@@ -24,6 +26,7 @@ import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
+import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
 
 type ThresholdEcdsaSharedIdentityGuard = {
   contextKey: string;
@@ -34,14 +37,14 @@ type ThresholdEcdsaStoredKeyRecordWithHandle = ThresholdEcdsaStoredKeyRecord & {
   keyHandle: string;
 };
 
+type ThresholdKeyStoreConfigRecord = Record<string, unknown>;
+
 const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
   '[threshold-ecdsa] EVM-family key identity already exists for wallet/rp/signing root';
 const ECDSA_KEY_HANDLE_CONFLICT_MESSAGE =
   '[threshold-ecdsa] ECDSA key handle already exists in this namespace';
 const ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE =
   '[threshold-ecdsa] ECDSA key handle does not match threshold key identity';
-const ECDSA_PUBLIC_FACTS_INTEGRITY_MESSAGE =
-  '[threshold-ecdsa] ECDSA key public facts do not match persisted indexed identity';
 
 const REDIS_ECDSA_SHARED_IDENTITY_PUT_SCRIPT = `
 local existing = redis.call("GET", KEYS[2])
@@ -106,46 +109,6 @@ async function parseStoredEcdsaHssRoleLocalKeyRecord(
 ): Promise<(EcdsaHssRoleLocalKeyRecord & { keyHandle: string }) | null> {
   const parsed = parseEcdsaHssRoleLocalKeyRecord(raw);
   return parsed ? await withEcdsaHssRoleLocalRecordKeyHandle(parsed) : null;
-}
-
-type ThresholdEcdsaIndexedIdentityRow = {
-  relayer_key_id?: string | null;
-  key_handle?: string | null;
-  threshold_key_id?: string | null;
-  wallet_id?: string | null;
-  rp_id?: string | null;
-  signing_root_id?: string | null;
-  signing_root_version?: string | null;
-  owner_address?: string | null;
-  public_key_b64u?: string | null;
-};
-
-function thresholdEcdsaIndexedIdentityMatchesRecord(args: {
-  row: ThresholdEcdsaIndexedIdentityRow;
-  record: ThresholdEcdsaStoredKeyRecordWithHandle;
-}): boolean {
-  const rowKeyHandle = toOptionalTrimmedString(args.row.key_handle);
-  const rowThresholdKeyId = toOptionalTrimmedString(args.row.threshold_key_id);
-  const rowWalletId = toOptionalTrimmedString(args.row.wallet_id);
-  const rowWalletKeyId = toOptionalTrimmedString(args.row.rp_id);
-  const rowSigningRootId = toOptionalTrimmedString(args.row.signing_root_id);
-  const rowSigningRootVersion = toOptionalTrimmedString(args.row.signing_root_version) || 'default';
-  const rowOwnerAddress = toOptionalTrimmedString(args.row.owner_address);
-  const rowPublicKey = toOptionalTrimmedString(args.row.public_key_b64u);
-  return !(
-    rowKeyHandle !== args.record.keyHandle ||
-    rowThresholdKeyId !== args.record.ecdsaThresholdKeyId ||
-    rowWalletId !== args.record.walletId ||
-    rowWalletKeyId !== args.record.walletKeyId ||
-    rowSigningRootId !== args.record.signingRootId ||
-    rowSigningRootVersion !== ecdsaSigningRootVersion(args.record) ||
-    rowOwnerAddress !== args.record.ethereumAddress ||
-    rowPublicKey !== thresholdEcdsaRecordPublicKeyB64u(args.record)
-  );
-}
-
-function thresholdEcdsaRecordPublicKeyB64u(record: ThresholdEcdsaStoredKeyRecord): string {
-  return record.groupPublicKey33B64u;
 }
 
 function thresholdEcdsaSharedIdentityGuard(
@@ -297,7 +260,7 @@ export type ThresholdEd25519KeyRecord = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   publicKey: string;
   relayerSigningShareB64u: string;
   relayerVerifyingShareB64u: string;
@@ -408,56 +371,6 @@ class RedisTcpThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
     const id = relayerKeyId;
     if (!id) return;
     await redisDel(this.client, this.key(id));
-  }
-}
-
-class PostgresThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async get(relayerKeyId: string): Promise<ThresholdEd25519KeyRecord | null> {
-    const id = relayerKeyId;
-    if (!id) return null;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      'SELECT record_json FROM threshold_ed25519_keys WHERE namespace = $1 AND relayer_key_id = $2 LIMIT 1',
-      [this.namespace, id],
-    );
-    const parsed = parseCurrentThresholdEd25519KeyRecord(rows[0]?.record_json);
-    if (!parsed && rows[0]) await this.del(id);
-    return parsed;
-  }
-
-  async put(relayerKeyId: string, record: ThresholdEd25519KeyRecord): Promise<void> {
-    const id = relayerKeyId;
-    if (!id) throw new Error('Missing relayerKeyId');
-    const parsed = parseCurrentThresholdEd25519KeyRecord(record);
-    if (!parsed) throw new Error('Invalid threshold key record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO threshold_ed25519_keys (namespace, relayer_key_id, record_json)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (namespace, relayer_key_id)
-        DO UPDATE SET record_json = EXCLUDED.record_json
-      `,
-      [this.namespace, id, parsed],
-    );
-  }
-
-  async del(relayerKeyId: string): Promise<void> {
-    const id = relayerKeyId;
-    if (!id) return;
-    const pool = await this.poolPromise;
-    await pool.query(
-      'DELETE FROM threshold_ed25519_keys WHERE namespace = $1 AND relayer_key_id = $2',
-      [this.namespace, id],
-    );
   }
 }
 
@@ -677,309 +590,6 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
   }
 }
 
-class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegratedKeyStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-  private ensureTablePromise: Promise<void> | null = null;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  private async ensureTable(): Promise<void> {
-    if (!this.ensureTablePromise) {
-      this.ensureTablePromise = (async () => {
-        const pool = await this.poolPromise;
-        await pool.query(`
-          CREATE TABLE IF NOT EXISTS threshold_ecdsa_keys (
-            namespace TEXT NOT NULL,
-            relayer_key_id TEXT NOT NULL,
-            key_handle TEXT,
-            threshold_key_id TEXT,
-            wallet_id TEXT,
-            rp_id TEXT,
-            signing_root_id TEXT,
-            signing_root_version TEXT,
-            owner_address TEXT,
-            public_key_b64u TEXT,
-            record_json JSONB NOT NULL,
-            PRIMARY KEY (namespace, relayer_key_id)
-          )
-        `);
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS key_handle TEXT',
-        );
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS threshold_key_id TEXT',
-        );
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_id TEXT',
-        );
-        await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS rp_id TEXT');
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_id TEXT',
-        );
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_version TEXT',
-        );
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS owner_address TEXT',
-        );
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS public_key_b64u TEXT',
-        );
-        await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
-        await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_idx');
-        await pool.query(`
-          CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_key_handle_uidx
-          ON threshold_ecdsa_keys (namespace, key_handle)
-          WHERE key_handle IS NOT NULL
-        `);
-        await pool.query(`
-          CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_threshold_identity_uidx
-          ON threshold_ecdsa_keys (namespace, threshold_key_id, signing_root_id, signing_root_version)
-          WHERE
-            threshold_key_id IS NOT NULL AND
-            signing_root_id IS NOT NULL AND
-            signing_root_version IS NOT NULL
-        `);
-        await pool.query(`
-          CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_owner_address_idx
-          ON threshold_ecdsa_keys (namespace, owner_address)
-          WHERE owner_address IS NOT NULL
-        `);
-        await pool.query(`
-          CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx
-          ON threshold_ecdsa_keys (
-            namespace,
-            wallet_id,
-            rp_id,
-            signing_root_id,
-            signing_root_version
-          )
-          WHERE
-            wallet_id IS NOT NULL AND
-            rp_id IS NOT NULL AND
-            signing_root_id IS NOT NULL AND
-            signing_root_version IS NOT NULL
-        `);
-      })().catch((error) => {
-        this.ensureTablePromise = null;
-        throw error;
-      });
-    }
-    await this.ensureTablePromise;
-  }
-
-  private async repairIndexedIdentity(args: {
-    row: ThresholdEcdsaIndexedIdentityRow;
-    record: ThresholdEcdsaStoredKeyRecordWithHandle;
-  }): Promise<void> {
-    const relayerKeyId = toOptionalTrimmedString(args.row.relayer_key_id);
-    if (!relayerKeyId) {
-      throw new Error(ECDSA_PUBLIC_FACTS_INTEGRITY_MESSAGE);
-    }
-    const pool = await this.poolPromise;
-    try {
-      await pool.query(
-        `
-          UPDATE threshold_ecdsa_keys
-          SET
-            key_handle = $3,
-            threshold_key_id = $4,
-            wallet_id = $5,
-            rp_id = $6,
-            signing_root_id = $7,
-            signing_root_version = $8,
-            owner_address = $9,
-            public_key_b64u = $10
-          WHERE namespace = $1 AND relayer_key_id = $2
-        `,
-        [
-          this.namespace,
-          relayerKeyId,
-          args.record.keyHandle,
-          args.record.ecdsaThresholdKeyId,
-          args.record.walletId,
-          args.record.walletKeyId,
-          args.record.signingRootId,
-          ecdsaSigningRootVersion(args.record),
-          args.record.ethereumAddress,
-          thresholdEcdsaRecordPublicKeyB64u(args.record),
-        ],
-      );
-    } catch (error) {
-      if (String(error).includes('threshold_ecdsa_keys_key_handle_uidx')) {
-        throw new Error(ECDSA_KEY_HANDLE_CONFLICT_MESSAGE);
-      }
-      if (String(error).includes('threshold_ecdsa_keys_threshold_identity_uidx')) {
-        throw new Error(ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE);
-      }
-      if (String(error).includes('threshold_ecdsa_keys_shared_identity_uidx')) {
-        throw new Error(ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
-      }
-      throw error;
-    }
-  }
-
-  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
-    const handle = toOptionalTrimmedString(keyHandle);
-    if (!handle) return null;
-    await this.ensureTable();
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT
-          relayer_key_id,
-          key_handle,
-          threshold_key_id,
-          wallet_id,
-          rp_id,
-          signing_root_id,
-          signing_root_version,
-          owner_address,
-          public_key_b64u,
-          record_json
-        FROM threshold_ecdsa_keys
-        WHERE namespace = $1 AND key_handle = $2
-        LIMIT 1
-      `,
-      [this.namespace, handle],
-    );
-    const parsed = await parseStoredEcdsaHssRoleLocalKeyRecord(rows[0]?.record_json);
-    if (!parsed && rows[0]) {
-      await pool.query(
-        'DELETE FROM threshold_ecdsa_keys WHERE namespace = $1 AND key_handle = $2',
-        [this.namespace, handle],
-      );
-      return null;
-    }
-    if (parsed && parsed.keyHandle !== handle) {
-      throw new Error(ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE);
-    }
-    if (parsed && rows[0]) {
-      const row = rows[0] as ThresholdEcdsaIndexedIdentityRow;
-      if (!thresholdEcdsaIndexedIdentityMatchesRecord({ row, record: parsed })) {
-        await this.repairIndexedIdentity({ row, record: parsed });
-      }
-    }
-    return parsed;
-  }
-
-  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
-    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
-    await this.ensureTable();
-    const pool = await this.poolPromise;
-    const id = parsed.ecdsaThresholdKeyId;
-    const keyHandleConflict = await pool.query(
-      `
-        SELECT relayer_key_id
-        FROM threshold_ecdsa_keys
-        WHERE namespace = $1
-          AND relayer_key_id <> $2
-          AND key_handle = $3
-        LIMIT 1
-      `,
-      [this.namespace, id, parsed.keyHandle],
-    );
-    if (keyHandleConflict.rows[0]) {
-      throw new Error(ECDSA_KEY_HANDLE_CONFLICT_MESSAGE);
-    }
-    const { rows } = await pool.query(
-      `
-        SELECT relayer_key_id, record_json
-        FROM threshold_ecdsa_keys
-        WHERE namespace = $1
-          AND relayer_key_id <> $2
-          AND wallet_id = $3
-          AND rp_id = $4
-          AND signing_root_id = $5
-          AND signing_root_version = $6
-        LIMIT 1
-      `,
-      [
-        this.namespace,
-        id,
-        parsed.walletId,
-        parsed.walletKeyId,
-        parsed.signingRootId,
-        ecdsaSigningRootVersion(parsed),
-      ],
-    );
-    const conflicting = await parseStoredEcdsaHssRoleLocalKeyRecord(rows[0]?.record_json);
-    if (conflicting) {
-      assertNoThresholdEcdsaSharedIdentityConflict(parsed, conflicting);
-    }
-    try {
-      await pool.query(
-        `
-          INSERT INTO threshold_ecdsa_keys (
-            namespace,
-            relayer_key_id,
-            key_handle,
-            threshold_key_id,
-            wallet_id,
-            rp_id,
-            signing_root_id,
-            signing_root_version,
-            owner_address,
-            public_key_b64u,
-            record_json
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          ON CONFLICT (namespace, relayer_key_id)
-          DO UPDATE SET
-            key_handle = EXCLUDED.key_handle,
-            threshold_key_id = EXCLUDED.threshold_key_id,
-            wallet_id = EXCLUDED.wallet_id,
-            rp_id = EXCLUDED.rp_id,
-            signing_root_id = EXCLUDED.signing_root_id,
-            signing_root_version = EXCLUDED.signing_root_version,
-            owner_address = EXCLUDED.owner_address,
-            public_key_b64u = EXCLUDED.public_key_b64u,
-            record_json = EXCLUDED.record_json
-        `,
-        [
-          this.namespace,
-          id,
-          parsed.keyHandle,
-          parsed.ecdsaThresholdKeyId,
-          parsed.walletId,
-          parsed.walletKeyId,
-          parsed.signingRootId,
-          ecdsaSigningRootVersion(parsed),
-          parsed.ethereumAddress,
-          parsed.groupPublicKey33B64u,
-          parsed,
-        ],
-      );
-    } catch (error) {
-      if (String(error).includes('threshold_ecdsa_keys_key_handle_uidx')) {
-        throw new Error(ECDSA_KEY_HANDLE_CONFLICT_MESSAGE);
-      }
-      if (String(error).includes('threshold_ecdsa_keys_threshold_identity_uidx')) {
-        throw new Error(ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE);
-      }
-      if (String(error).includes('threshold_ecdsa_keys_shared_identity_uidx')) {
-        throw new Error(ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
-      }
-      throw error;
-    }
-  }
-
-  async deleteByKeyHandle(keyHandle: string): Promise<void> {
-    const handle = toOptionalTrimmedString(keyHandle);
-    if (!handle) return;
-    await this.ensureTable();
-    const pool = await this.poolPromise;
-    await pool.query('DELETE FROM threshold_ecdsa_keys WHERE namespace = $1 AND key_handle = $2', [
-      this.namespace,
-      handle,
-    ]);
-  }
-}
-
 export function createThresholdEd25519KeyStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
@@ -991,7 +601,7 @@ export function createThresholdEd25519KeyStore(input: {
   });
   if (doStores) return doStores.keyStore;
 
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config = (isObject(input.config) ? input.config : {}) as ThresholdKeyStoreConfigRecord;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const envPrefix =
     toOptionalTrimmedString(config.THRESHOLD_ED25519_KEYSTORE_PREFIX) ||
@@ -999,7 +609,7 @@ export function createThresholdEd25519KeyStore(input: {
     '';
 
   // Explicit config object
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-ed25519');
   if (kind === 'in-memory') return new InMemoryThresholdEd25519KeyStore();
   if (kind === 'upstash-redis-rest') {
     return new UpstashRedisRestThresholdEd25519KeyStore({
@@ -1024,35 +634,6 @@ export function createThresholdEd25519KeyStore(input: {
         toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
-  }
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error('[threshold-ed25519] postgres key store is not supported in this runtime');
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error('[threshold-ed25519] postgres key store enabled but POSTGRES_URL is not set');
-    input.logger.info(
-      '[threshold-ed25519] Using Postgres key store for relayer signing share persistence',
-    );
-    return new PostgresThresholdEd25519KeyStore({
-      postgresUrl,
-      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-    });
-  }
-
-  // Env-shaped config
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info(
-      '[threshold-ed25519] Using Postgres key store for relayer signing share persistence',
-    );
-    return new PostgresThresholdEd25519KeyStore({ postgresUrl, namespace: envPrefix || '' });
   }
 
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
@@ -1104,7 +685,7 @@ export function createThresholdEcdsaKeyStore(input: {
   });
   if (doStores) return doStores.keyStore;
 
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config = (isObject(input.config) ? input.config : {}) as ThresholdKeyStoreConfigRecord;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const envPrefix = toThresholdEcdsaKeyPrefix(
     toOptionalTrimmedString(config.THRESHOLD_ECDSA_KEYSTORE_PREFIX) ||
@@ -1112,7 +693,7 @@ export function createThresholdEcdsaKeyStore(input: {
   );
 
   // Explicit config object
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-ecdsa');
   if (kind === 'in-memory') {
     return new InMemoryThresholdEcdsaIntegratedKeyStore({
       namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
@@ -1143,31 +724,6 @@ export function createThresholdEcdsaKeyStore(input: {
         toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
-  }
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error('[threshold-ecdsa] postgres key store is not supported in this runtime');
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error('[threshold-ecdsa] postgres key store enabled but POSTGRES_URL is not set');
-    input.logger.info('[threshold-ecdsa] Using Postgres key store for integrated key persistence');
-    return new PostgresThresholdEcdsaIntegratedKeyStore({
-      postgresUrl,
-      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-    });
-  }
-
-  // Env-shaped config
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[threshold-ecdsa] Using Postgres key store for integrated key persistence');
-    return new PostgresThresholdEcdsaIntegratedKeyStore({ postgresUrl, namespace: envPrefix });
   }
 
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);

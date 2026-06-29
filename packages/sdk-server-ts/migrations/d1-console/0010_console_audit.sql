@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_audit_events (
+CREATE TABLE IF NOT EXISTS audit_events (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -19,16 +19,16 @@ CREATE TABLE IF NOT EXISTS console_audit_events (
   CHECK (json_valid(metadata_json))
 );
 
-CREATE INDEX IF NOT EXISTS console_audit_events_org_created_idx
-  ON console_audit_events (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS audit_events_org_created_idx
+  ON audit_events (namespace, org_id, created_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_audit_events_org_category_idx
-  ON console_audit_events (namespace, org_id, category, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS audit_events_org_category_idx
+  ON audit_events (namespace, org_id, category, created_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_audit_events_org_outcome_idx
-  ON console_audit_events (namespace, org_id, outcome, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS audit_events_org_outcome_idx
+  ON audit_events (namespace, org_id, outcome, created_at_ms DESC);
 
-CREATE TABLE IF NOT EXISTS console_audit_evidence (
+CREATE TABLE IF NOT EXISTS audit_evidence (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS console_audit_evidence (
   CHECK (json_valid(references_json))
 );
 
-CREATE INDEX IF NOT EXISTS console_audit_evidence_org_created_idx
-  ON console_audit_evidence (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS audit_evidence_org_created_idx
+  ON audit_evidence (namespace, org_id, created_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_audit_evidence_org_domain_idx
-  ON console_audit_evidence (namespace, org_id, domain, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS audit_evidence_org_domain_idx
+  ON audit_evidence (namespace, org_id, domain, created_at_ms DESC);

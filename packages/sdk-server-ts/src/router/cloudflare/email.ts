@@ -1,4 +1,4 @@
-import type { CloudflareEmailAuthService } from '../authServicePort';
+import type { EmailRecoveryService } from '../../email-recovery';
 import { parseRecoverEmailRequest } from '../../email-recovery/emailParsers';
 import type { RouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -93,8 +93,12 @@ export interface CloudflareEmailHandlerOptions {
   logger?: RouterLogger | null;
 }
 
+export interface CloudflareEmailRecoveryService {
+  emailRecovery: EmailRecoveryService | null;
+}
+
 export function createCloudflareEmailHandler(
-  service: CloudflareEmailAuthService,
+  service: CloudflareEmailRecoveryService,
   opts: CloudflareEmailHandlerOptions = {},
 ): EmailHandler {
   const logger = coerceRouterLogger(opts.logger);

@@ -2,25 +2,35 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
   addAuthMethodIntentGrantFromString,
   addSignerIntentGrantFromString,
+  createServerAllocatedWalletId,
   normalizeAddAuthMethodInput,
   normalizeAddSignerSelection,
   normalizeRegistrationAuthMethodInput,
-  normalizeRegistrationSignerSelection,
-  requireGeneratedImplicitWalletId,
+  normalizeRegistrationSignerPlan,
+  requireServerAllocatedWalletId,
+  registrationEvmFamilyEcdsaBranchKey,
   registrationIntentGrantFromString,
+  registrationNearEd25519BranchKey,
+  registrationSignerBranchKeyFromString,
+  registrationSignerSetSelectionFromPlan,
   walletIdFromString,
   type AddAuthMethodInput,
   type AddAuthMethodIntentV1,
   type AddSignerIntentV1,
   type AddSignerSelection,
-  type GeneratedImplicitWalletId,
+  type ServerAllocatedWalletId,
   type RegistrationAuthority,
   type RegistrationAuthMethodInput,
   type RegistrationIntentV1,
-  type RegistrationSignerSelection,
+  type RegistrationNearAccountProvisioning,
+  type ResolvedRegistrationNearAccount,
+  type RegistrationSignerSetSelection,
+  type RegistrationSignerBranchKey,
   type RuntimePolicyScopeLike,
   type WalletId,
+  nearEd25519SigningKeyIdFromString,
 } from '@shared/utils/registrationIntent';
+import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import {
   parseAppSessionVersion,
   parseChallengeSubjectId,
@@ -31,19 +41,38 @@ import {
 } from '@shared/utils/domainIds';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { base64UrlDecode } from '@shared/utils/encoders';
+import { registrationPreparationIdFromString } from '../../core/types';
 import type {
   EcdsaHssClientBootstrapRequest,
   EcdsaHssServerBootstrapResponse,
+  ThresholdEd25519HssCanonicalContext,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+  ThresholdEd25519HssPersistedPreparedServerSession,
+  ThresholdEd25519HssPersistedServerInputs,
+  ThresholdEd25519HssRegistrationPreparedServerState,
+  ThresholdEd25519HssRegistrationRespondedServerState,
+  ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
 } from '../../core/types';
-import type {
+import {
+  parseStoredWalletRegistrationHssPreparation,
+  type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch,
+  type StoredWalletRegistrationNearEd25519PreparedBranch,
+  type StoredWalletRegistrationNearEd25519RespondedBranch,
+  type StoredWalletRegistrationSignerBranch,
+  type StoredWalletRegistrationSignerSetState,
+  type StoredEd25519RegistrationPrepared,
+  type StoredEd25519RegistrationResponded,
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
   StoredRegistrationIntent,
+  type StoredWalletRegistrationHssPreparation,
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
   StoredWalletRegistrationCeremony,
@@ -64,11 +93,24 @@ import { toRecordValue } from './d1RouterApiAuthBoundary';
 type D1EcdsaPublicIdentity = EcdsaHssServerBootstrapResponse['publicIdentity'];
 type D1EcdsaClientSharePublicKey = D1EcdsaPublicIdentity['hssClientSharePublicKey33B64u'];
 type D1EcdsaRelayerPublicKey = D1EcdsaPublicIdentity['relayerPublicKey33B64u'];
+type D1WalletRegistrationFinalizeSuccess = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true }
+>;
+type D1WalletRegistrationEd25519FinalizeSuccess = Extract<
+  D1WalletRegistrationFinalizeSuccess,
+  { ed25519: object }
+>;
+type D1WalletRegistrationFinalizeEcdsaPayload = {
+  readonly walletKeys: WalletRegistrationEcdsaWalletKey[];
+};
+type D1StoredEd25519RegistrationStartPayload = Pick<
+  StoredEd25519RegistrationPrepared,
+  'ceremonyHandle' | 'preparedSession' | 'clientOtOfferMessageB64u'
+>;
 
-export function createD1GeneratedWalletId(): GeneratedImplicitWalletId {
-  const bytes = new Uint8Array(3);
-  crypto.getRandomValues(bytes);
-  return requireGeneratedImplicitWalletId(`seams-wallet-${generatedWalletIdHex(bytes)}`);
+export function createD1ServerAllocatedWalletId(): ServerAllocatedWalletId {
+  return createServerAllocatedWalletId();
 }
 
 export function inferRuntimePolicyScopeFromSigningRoot(input: {
@@ -92,7 +134,7 @@ export function inferRuntimePolicyScopeFromSigningRoot(input: {
 export function buildRegistrationIntent(input: {
   readonly walletId: WalletId;
   readonly authMethod: RegistrationAuthMethodInput;
-  readonly signerSelection: RegistrationSignerSelection;
+  readonly signerSelection: RegistrationSignerSetSelection;
   readonly runtimePolicyScope?: RuntimePolicyScope;
 }): RegistrationIntentV1 {
   const nonceB64u = secureRandomBase64Url(32);
@@ -223,12 +265,23 @@ export function parseD1StoredRegistrationIntent(raw: unknown): StoredRegistratio
   };
 }
 
+export function parseD1StoredWalletRegistrationHssPreparation(
+  raw: unknown,
+): StoredWalletRegistrationHssPreparation | null {
+  return parseStoredWalletRegistrationHssPreparation(raw);
+}
+
 export function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | null {
   const record = toRecordValue(raw);
   if (!record || record.version !== 'registration_intent_v1') return null;
   const walletId = parseWalletIdForIntent(record.walletId);
   const authMethod = normalizeRegistrationAuthMethodInput(record.authMethod);
-  const signerSelection = normalizeRegistrationSignerSelection(record.signerSelection);
+  const signerPlan = normalizeRegistrationSignerPlan(record.signerSelection);
+  const signerSelection = signerPlan.ok
+    ? registrationSignerSetSelectionFromPlan(signerPlan.value, {
+        normalizeEcdsaChainTarget: thresholdEcdsaChainTargetFromValue,
+      })
+    : signerPlan;
   const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
   const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
   if (!walletId || !authMethod || !signerSelection.ok || !nonceB64u) return null;
@@ -326,28 +379,98 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
 
 function parseD1WalletRegistrationFinalizeReplayResponse(
   raw: unknown,
-): Extract<WalletRegistrationFinalizeResponse, { ok: true }> | null {
+): D1WalletRegistrationFinalizeSuccess | null {
   const record = toRecordValue(raw);
   if (!record || record.ok !== true || record.kind !== undefined) return null;
-  if (
-    record.ed25519 !== undefined ||
-    record.accountProvisioning !== undefined ||
-    record.resolvedAccount !== undefined
-  ) {
-    return null;
-  }
   const walletId = parseWalletIdForIntent(record.walletId);
-  const rpId = toOptionalTrimmedString(record.rpId);
   const authMethod = parseD1WalletRegistrationFinalizeAuthMethod(record.authMethod);
-  const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
-  if (!walletId || !authMethod || !ecdsa) return null;
-  return {
+  if (!walletId || !authMethod) return null;
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const base = {
     ok: true,
     walletId,
     ...(rpId ? { rpId } : {}),
     authMethod,
+  } as const;
+  const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
+  const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
+  if (ed25519) {
+    const accountProvisioning = parseD1RegistrationNearAccountProvisioning(
+      record.accountProvisioning,
+    );
+    const resolvedAccount = parseD1ResolvedRegistrationNearAccount(record.resolvedAccount);
+    if (!accountProvisioning || !resolvedAccount) return null;
+    return {
+      ...base,
+      accountProvisioning,
+      resolvedAccount,
+      ed25519,
+      ...(ecdsa ? { ecdsa } : {}),
+    };
+  }
+  if (!ecdsa) return null;
+  return {
+    ...base,
     ecdsa,
   };
+}
+
+function parseD1RegistrationNearAccountProvisioning(
+  raw: unknown,
+): RegistrationNearAccountProvisioning | null {
+  const record = toRecordValue(raw);
+  const kind = toOptionalTrimmedString(record?.kind);
+  if (kind === 'implicit_account') {
+    return record?.accountIdSource === 'ed25519_public_key'
+      ? {
+          kind: 'implicit_account',
+          accountIdSource: 'ed25519_public_key',
+        }
+      : null;
+  }
+  if (kind === 'sponsored_named_account') {
+    const requestedAccountId = parseNamedNearAccountId(record?.requestedAccountId);
+    if (!requestedAccountId.ok || record?.sponsor !== 'relayer') return null;
+    return {
+      kind: 'sponsored_named_account',
+      requestedAccountId: requestedAccountId.value,
+      sponsor: 'relayer',
+    };
+  }
+  return null;
+}
+
+function parseD1ResolvedRegistrationNearAccount(
+  raw: unknown,
+): ResolvedRegistrationNearAccount | null {
+  const record = toRecordValue(raw);
+  const kind = toOptionalTrimmedString(record?.kind);
+  const nearEd25519SigningKeyIdRaw = toOptionalTrimmedString(record?.nearEd25519SigningKeyId);
+  if (!nearEd25519SigningKeyIdRaw) return null;
+  const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(nearEd25519SigningKeyIdRaw);
+  if (kind === 'implicit_account') {
+    const nearAccountId = parseImplicitNearAccountId(record?.nearAccountId);
+    return nearAccountId.ok
+      ? {
+          kind: 'implicit_account',
+          nearAccountId: nearAccountId.value,
+          nearEd25519SigningKeyId,
+        }
+      : null;
+  }
+  if (kind === 'sponsored_named_account') {
+    const nearAccountId = parseNamedNearAccountId(record?.nearAccountId);
+    const transactionHash = toOptionalTrimmedString(record?.transactionHash);
+    return nearAccountId.ok && transactionHash
+      ? {
+          kind: 'sponsored_named_account',
+          nearAccountId: nearAccountId.value,
+          nearEd25519SigningKeyId,
+          transactionHash,
+        }
+      : null;
+  }
+  return null;
 }
 
 function parseD1WalletRegistrationFinalizeAuthMethod(
@@ -379,7 +502,7 @@ function parseD1WalletRegistrationFinalizeAuthMethod(
 
 function parseD1WalletRegistrationFinalizeEcdsa(
   raw: unknown,
-): { readonly walletKeys: WalletRegistrationEcdsaWalletKey[] } | null {
+): D1WalletRegistrationFinalizeEcdsaPayload | null {
   const record = toRecordValue(raw);
   if (!record || !Array.isArray(record.walletKeys) || record.walletKeys.length === 0) {
     return null;
@@ -391,6 +514,37 @@ function parseD1WalletRegistrationFinalizeEcdsa(
     walletKeys.push(parsed);
   }
   return { walletKeys };
+}
+
+function parseD1WalletRegistrationFinalizeEd25519(
+  raw: unknown,
+): D1WalletRegistrationEd25519FinalizeSuccess['ed25519'] | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
+  const nearEd25519SigningKeyId = toOptionalTrimmedString(record.nearEd25519SigningKeyId);
+  const publicKey = toOptionalTrimmedString(record.publicKey);
+  const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
+  const keyVersion = toOptionalTrimmedString(record.keyVersion);
+  if (!nearAccountId || !nearEd25519SigningKeyId || !publicKey || !relayerKeyId || !keyVersion) {
+    return null;
+  }
+  const response: D1WalletRegistrationEd25519FinalizeSuccess['ed25519'] = {
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    publicKey,
+    relayerKeyId,
+    keyVersion,
+    recoveryExportCapable: true,
+  };
+  const clientParticipantId = safeInteger(record.clientParticipantId);
+  const relayerParticipantId = safeInteger(record.relayerParticipantId);
+  const participantIds = parseD1PositiveIntegerArray(record.participantIds);
+  if (clientParticipantId !== null) response.clientParticipantId = clientParticipantId;
+  if (relayerParticipantId !== null) response.relayerParticipantId = relayerParticipantId;
+  if (participantIds) response.participantIds = participantIds;
+  if (record.session !== undefined) response.session = record.session as any;
+  return response;
 }
 
 function parseD1WalletRegistrationEcdsaWalletKey(
@@ -405,9 +559,7 @@ function parseD1WalletRegistrationEcdsaWalletKey(
   const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
   const signingRootId = toOptionalTrimmedString(record.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
-    record.thresholdEcdsaPublicKeyB64u,
-  );
+  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(record.thresholdEcdsaPublicKeyB64u);
   const thresholdOwnerAddress = toOptionalTrimmedString(record.thresholdOwnerAddress);
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const relayerVerifyingShareB64u = toOptionalTrimmedString(record.relayerVerifyingShareB64u);
@@ -451,9 +603,321 @@ function parseD1StoredWalletRegistrationSignerState(
   const record = toRecordValue(raw);
   if (!record) return null;
   const kind = toOptionalTrimmedString(record.kind);
+  if (kind === 'ed25519_prepared') return parseD1StoredEd25519RegistrationPrepared(record);
+  if (kind === 'ed25519_responded') return parseD1StoredEd25519RegistrationResponded(record);
+  if (kind === 'signer_set_registration') return parseD1StoredSignerSetRegistrationState(record);
   if (kind === 'ecdsa_prepared') return parseD1StoredEcdsaRegistrationPrepared(record);
   if (kind === 'ecdsa_responded') return parseD1StoredEcdsaRegistrationResponded(record);
   return null;
+}
+
+function parseD1StoredSignerSetRegistrationState(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationSignerSetState | null {
+  if (!Array.isArray(record.branches) || record.branches.length === 0) return null;
+  const branches: StoredWalletRegistrationSignerBranch[] = [];
+  for (const rawBranch of record.branches) {
+    const branch = parseD1StoredSignerSetRegistrationBranch(rawBranch);
+    if (!branch) return null;
+    branches.push(branch);
+  }
+  return {
+    kind: 'signer_set_registration',
+    branches,
+  };
+}
+
+function parseD1StoredSignerSetRegistrationBranch(
+  raw: unknown,
+): StoredWalletRegistrationSignerBranch | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const kind = toOptionalTrimmedString(record.kind);
+  switch (kind) {
+    case 'near_ed25519_prepared':
+      return parseD1StoredNearEd25519PreparedBranch(record);
+    case 'near_ed25519_responded':
+      return parseD1StoredNearEd25519RespondedBranch(record);
+    case 'evm_family_ecdsa_prepared':
+      return parseD1StoredEvmFamilyEcdsaPreparedBranch(record);
+    case 'evm_family_ecdsa_responded':
+      return parseD1StoredEvmFamilyEcdsaRespondedBranch(record);
+    default:
+      return null;
+  }
+}
+
+function parseD1StoredNearEd25519PreparedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationNearEd25519PreparedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEd25519RegistrationPrepared({
+    kind: 'ed25519_prepared',
+    ceremonyHandle: record.ceremonyHandle,
+    preparedSession: record.preparedSession,
+    clientOtOfferMessageB64u: record.clientOtOfferMessageB64u,
+    serverState: record.serverState,
+  });
+  if (!branchKey || !prepared) return null;
+  return {
+    kind: 'near_ed25519_prepared',
+    branchKey,
+    ceremonyHandle: prepared.ceremonyHandle,
+    preparedSession: prepared.preparedSession,
+    clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
+    serverState: prepared.serverState,
+  };
+}
+
+function parseD1StoredNearEd25519RespondedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationNearEd25519RespondedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const startPayload = parseD1StoredEd25519RegistrationStartPayload({
+    ceremonyHandle: record.ceremonyHandle,
+    preparedSession: record.preparedSession,
+    clientOtOfferMessageB64u: record.clientOtOfferMessageB64u,
+  });
+  const responded = toRecordValue(record.responded);
+  const contextBindingB64u = toOptionalTrimmedString(responded?.contextBindingB64u);
+  const serverInputDeliveryB64u = toOptionalTrimmedString(responded?.serverInputDeliveryB64u);
+  const serverState = parseD1ThresholdEd25519HssRespondedServerState(record.serverState);
+  if (
+    !branchKey ||
+    !startPayload ||
+    !serverState ||
+    !contextBindingB64u ||
+    !serverInputDeliveryB64u
+  ) {
+    return null;
+  }
+  return {
+    kind: 'near_ed25519_responded',
+    branchKey,
+    ceremonyHandle: startPayload.ceremonyHandle,
+    preparedSession: startPayload.preparedSession,
+    clientOtOfferMessageB64u: startPayload.clientOtOfferMessageB64u,
+    serverState,
+    responded: {
+      contextBindingB64u,
+      serverInputDeliveryB64u,
+    },
+  };
+}
+
+function parseD1StoredEvmFamilyEcdsaPreparedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationPrepared({
+    kind: 'ecdsa_prepared',
+    hssKind: record.hssKind,
+    chainTargets: record.chainTargets,
+    prepare: record.prepare,
+  });
+  if (!branchKey || !prepared) return null;
+  return {
+    kind: 'evm_family_ecdsa_prepared',
+    branchKey,
+    hssKind: prepared.hssKind,
+    chainTargets: prepared.chainTargets,
+    prepare: prepared.prepare,
+  };
+}
+
+function parseD1StoredEvmFamilyEcdsaRespondedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const responded = parseD1StoredEcdsaRegistrationResponded({
+    kind: 'ecdsa_responded',
+    hssKind: record.hssKind,
+    chainTargets: record.chainTargets,
+    prepare: record.prepare,
+    responded: record.responded,
+  });
+  if (!branchKey || !responded) return null;
+  return {
+    kind: 'evm_family_ecdsa_responded',
+    branchKey,
+    hssKind: responded.hssKind,
+    chainTargets: responded.chainTargets,
+    prepare: responded.prepare,
+    responded: responded.responded,
+  };
+}
+
+function parseD1RegistrationSignerBranchKey(raw: unknown): RegistrationSignerBranchKey | null {
+  const value = toOptionalTrimmedString(raw);
+  if (!value) return null;
+  try {
+    return registrationSignerBranchKeyFromString(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseD1StoredEd25519RegistrationPrepared(
+  record: Record<string, unknown>,
+): StoredEd25519RegistrationPrepared | null {
+  const startPayload = parseD1StoredEd25519RegistrationStartPayload(record);
+  const serverState = parseD1ThresholdEd25519HssPreparedServerState(record.serverState);
+  if (!startPayload || !serverState) return null;
+  return {
+    kind: 'ed25519_prepared',
+    ceremonyHandle: startPayload.ceremonyHandle,
+    preparedSession: startPayload.preparedSession,
+    clientOtOfferMessageB64u: startPayload.clientOtOfferMessageB64u,
+    serverState,
+  };
+}
+
+function parseD1StoredEd25519RegistrationResponded(
+  record: Record<string, unknown>,
+): StoredEd25519RegistrationResponded | null {
+  const startPayload = parseD1StoredEd25519RegistrationStartPayload(record);
+  const responded = toRecordValue(record.responded);
+  const contextBindingB64u = toOptionalTrimmedString(responded?.contextBindingB64u);
+  const serverInputDeliveryB64u = toOptionalTrimmedString(responded?.serverInputDeliveryB64u);
+  const serverState = parseD1ThresholdEd25519HssRespondedServerState(record.serverState);
+  if (!startPayload || !contextBindingB64u || !serverInputDeliveryB64u || !serverState) return null;
+  return {
+    kind: 'ed25519_responded',
+    ceremonyHandle: startPayload.ceremonyHandle,
+    preparedSession: startPayload.preparedSession,
+    clientOtOfferMessageB64u: startPayload.clientOtOfferMessageB64u,
+    serverState,
+    responded: {
+      contextBindingB64u,
+      serverInputDeliveryB64u,
+    },
+  };
+}
+
+function parseD1StoredEd25519RegistrationStartPayload(
+  record: Record<string, unknown>,
+): D1StoredEd25519RegistrationStartPayload | null {
+  const ceremonyHandle = toOptionalTrimmedString(record.ceremonyHandle);
+  const preparedSession = parseD1ThresholdEd25519PreparedSession(record.preparedSession);
+  const clientOtOfferMessageB64u = toOptionalTrimmedString(record.clientOtOfferMessageB64u);
+  if (!ceremonyHandle || !preparedSession || !clientOtOfferMessageB64u) return null;
+  return {
+    ceremonyHandle,
+    preparedSession,
+    clientOtOfferMessageB64u,
+  };
+}
+
+function parseD1Base64Url(raw: unknown): string {
+  const value = toOptionalTrimmedString(raw);
+  if (!value) return '';
+  try {
+    base64UrlDecode(value);
+    return value;
+  } catch {
+    return '';
+  }
+}
+
+function parseD1ThresholdEd25519ParticipantIds(raw: unknown): number[] | null {
+  if (!Array.isArray(raw) || raw.length < 2) return null;
+  const participantIds: number[] = [];
+  for (const item of raw) {
+    const participantId = safeInteger(item);
+    if (participantId === null || participantId <= 0) return null;
+    participantIds.push(participantId);
+  }
+  return participantIds;
+}
+
+function parseD1ThresholdEd25519HssCanonicalContext(
+  raw: unknown,
+): ThresholdEd25519HssCanonicalContext | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const applicationBindingDigestB64u = parseD1Base64Url(record.applicationBindingDigestB64u);
+  const participantIds = parseD1ThresholdEd25519ParticipantIds(record.participantIds);
+  if (!applicationBindingDigestB64u || !participantIds) return null;
+  if (base64UrlDecode(applicationBindingDigestB64u).byteLength !== 32) return null;
+  return {
+    applicationBindingDigestB64u,
+    participantIds,
+  };
+}
+
+function parseD1ThresholdEd25519HssPreparedServerSession(
+  raw: unknown,
+): ThresholdEd25519HssPersistedPreparedServerSession | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const evaluatorDriverStateB64u = parseD1Base64Url(record.evaluatorDriverStateB64u);
+  const garblerDriverStateB64u = parseD1Base64Url(record.garblerDriverStateB64u);
+  if (!evaluatorDriverStateB64u || !garblerDriverStateB64u) return null;
+  return {
+    evaluatorDriverStateB64u,
+    garblerDriverStateB64u,
+  };
+}
+
+function parseD1ThresholdEd25519HssServerInputs(
+  raw: unknown,
+): ThresholdEd25519HssPersistedServerInputs | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const yRelayerB64u = parseD1Base64Url(record.yRelayerB64u);
+  const tauRelayerB64u = parseD1Base64Url(record.tauRelayerB64u);
+  if (!yRelayerB64u || !tauRelayerB64u) return null;
+  return {
+    yRelayerB64u,
+    tauRelayerB64u,
+  };
+}
+
+function parseD1ThresholdEd25519HssPreparedServerState(
+  raw: unknown,
+): ThresholdEd25519HssRegistrationPreparedServerState | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  const context = parseD1ThresholdEd25519HssCanonicalContext(record.context);
+  const preparedServerSession = parseD1ThresholdEd25519HssPreparedServerSession(
+    record.preparedServerSession,
+  );
+  const serverInputs = parseD1ThresholdEd25519HssServerInputs(record.serverInputs);
+  if (!context || !preparedServerSession || !serverInputs) return null;
+  return {
+    context,
+    preparedServerSession,
+    serverInputs,
+  };
+}
+
+function parseD1ThresholdEd25519HssRespondedServerState(
+  raw: unknown,
+): ThresholdEd25519HssRegistrationRespondedServerState | null {
+  const record = toRecordValue(raw);
+  if (!record || Object.prototype.hasOwnProperty.call(record, 'serverInputs')) return null;
+  const context = parseD1ThresholdEd25519HssCanonicalContext(record.context);
+  const preparedServerSession = parseD1ThresholdEd25519HssPreparedServerSession(
+    record.preparedServerSession,
+  );
+  if (!context || !preparedServerSession) return null;
+  return {
+    context,
+    preparedServerSession,
+  };
+}
+
+function parseD1ThresholdEd25519PreparedSession(
+  raw: unknown,
+): ThresholdEd25519HssPreparedSessionEnvelope | null {
+  const record = toRecordValue(raw);
+  const contextBindingB64u = toOptionalTrimmedString(record?.contextBindingB64u);
+  const evaluatorDriverStateB64u = toOptionalTrimmedString(record?.evaluatorDriverStateB64u);
+  if (!contextBindingB64u || !evaluatorDriverStateB64u) return null;
+  return {
+    contextBindingB64u,
+    evaluatorDriverStateB64u,
+  };
 }
 
 function parseD1StoredEcdsaRegistrationPrepared(
@@ -584,18 +1048,14 @@ export function parseD1StoredWalletAddSignerCeremony(
   return ceremony;
 }
 
-function parseD1StoredAddSignerAuth(
-  raw: unknown,
-): StoredWalletAddSignerCeremony['auth'] | null {
+function parseD1StoredAddSignerAuth(raw: unknown): StoredWalletAddSignerCeremony['auth'] | null {
   const record = toRecordValue(raw);
   const kind = toOptionalTrimmedString(record?.kind);
   if (kind === 'app_session') return { kind: 'app_session' };
   if (kind === 'webauthn_assertion') {
     const rpId = toOptionalTrimmedString(record?.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);
-    return rpId && credentialIdB64u
-      ? { kind: 'webauthn_assertion', rpId, credentialIdB64u }
-      : null;
+    return rpId && credentialIdB64u ? { kind: 'webauthn_assertion', rpId, credentialIdB64u } : null;
   }
   return null;
 }
@@ -668,7 +1128,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
   const record = toRecordValue(raw);
   if (!record || record.formatVersion !== 'ecdsa-hss-role-local') return null;
   if (record.keyScope !== 'evm-family') return null;
-  if (record.registrationPreparationId !== undefined) return null;
+  const registrationPreparationId = toOptionalTrimmedString(record.registrationPreparationId);
   const walletId = toOptionalTrimmedString(record.walletId);
   const walletKeyId = toOptionalTrimmedString(record.walletKeyId);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
@@ -708,6 +1168,11 @@ function parseD1WalletRegistrationEcdsaPrepare(
     signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId,
+    ...(registrationPreparationId
+      ? {
+          registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
+        }
+      : {}),
     requestId,
     thresholdSessionId,
     signingGrantId,
@@ -727,22 +1192,16 @@ function parseD1EcdsaHssServerBootstrapResponse(
   const walletKeyId = toOptionalTrimmedString(record.walletKeyId);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
-  const applicationBindingDigestB64u = toOptionalTrimmedString(
-    record.applicationBindingDigestB64u,
-  );
+  const applicationBindingDigestB64u = toOptionalTrimmedString(record.applicationBindingDigestB64u);
   const contextBinding32B64u = toOptionalTrimmedString(record.contextBinding32B64u);
   const publicIdentity = parseD1EcdsaHssPublicIdentity(record.publicIdentity);
   const clientShareRetryCounter = safeInteger(record.clientShareRetryCounter);
   const relayerShareRetryCounter = safeInteger(record.relayerShareRetryCounter);
-  const publicTranscriptDigest32B64u = toOptionalTrimmedString(
-    record.publicTranscriptDigest32B64u,
-  );
+  const publicTranscriptDigest32B64u = toOptionalTrimmedString(record.publicTranscriptDigest32B64u);
   const keyHandle = toOptionalTrimmedString(record.keyHandle);
   const signingRootId = toOptionalTrimmedString(record.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
-    record.thresholdEcdsaPublicKeyB64u,
-  );
+  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(record.thresholdEcdsaPublicKeyB64u);
   const ethereumAddress = toOptionalTrimmedString(record.ethereumAddress);
   const relayerVerifyingShareB64u = toOptionalTrimmedString(record.relayerVerifyingShareB64u);
   const participantIds = parseD1PositiveIntegerArray(record.participantIds);
@@ -931,39 +1390,6 @@ export function toD1EcdsaHssClientBootstrapRequest(
       ? { runtimePolicyScope: clientBootstrap.runtimePolicyScope }
       : {}),
   };
-}
-
-export function buildD1EcdsaRegistrationRespondedCeremony(input: {
-  readonly ceremony: StoredWalletRegistrationCeremony;
-  readonly bootstrap: EcdsaHssServerBootstrapResponse;
-}): StoredWalletRegistrationCeremony {
-  const state = input.ceremony.signerState;
-  if (state.kind !== 'ecdsa_prepared') {
-    throw new Error('ECDSA registration ceremony must be prepared before respond');
-  }
-  const ceremony: StoredWalletRegistrationCeremony = {
-    registrationCeremonyId: input.ceremony.registrationCeremonyId,
-    intent: input.ceremony.intent,
-    digestB64u: input.ceremony.digestB64u,
-    orgId: input.ceremony.orgId,
-    expiresAtMs: input.ceremony.expiresAtMs,
-    authority: input.ceremony.authority,
-    signerState: {
-      kind: 'ecdsa_responded',
-      hssKind: state.hssKind,
-      chainTargets: state.chainTargets,
-      prepare: state.prepare,
-      responded: {
-        bootstrap: input.bootstrap,
-      },
-    },
-  };
-  if (input.ceremony.signingRootId) ceremony.signingRootId = input.ceremony.signingRootId;
-  if (input.ceremony.signingRootVersion) {
-    ceremony.signingRootVersion = input.ceremony.signingRootVersion;
-  }
-  if (input.ceremony.expectedOrigin) ceremony.expectedOrigin = input.ceremony.expectedOrigin;
-  return ceremony;
 }
 
 export function buildD1EcdsaAddSignerRespondedCeremony(input: {
@@ -1222,9 +1648,7 @@ export function parseD1PositiveIntegerArray(raw: unknown): number[] | null {
   return values;
 }
 
-export function parseD1StoredAddAuthMethodIntent(
-  raw: unknown,
-): StoredAddAuthMethodIntent | null {
+export function parseD1StoredAddAuthMethodIntent(raw: unknown): StoredAddAuthMethodIntent | null {
   const record = toRecordValue(raw);
   if (!record || record.kind !== 'add_auth_method_intent_allocated') return null;
   const grant = addAuthMethodIntentGrantFromString(toOptionalTrimmedString(record.grant) || '');
@@ -1333,9 +1757,7 @@ function parseD1StoredAddAuthMethodAuth(
   if (kind === 'webauthn_assertion') {
     const rpId = toOptionalTrimmedString(record?.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);
-    return rpId && credentialIdB64u
-      ? { kind: 'webauthn_assertion', rpId, credentialIdB64u }
-      : null;
+    return rpId && credentialIdB64u ? { kind: 'webauthn_assertion', rpId, credentialIdB64u } : null;
   }
   return null;
 }
@@ -1357,9 +1779,7 @@ function parseD1PasskeyRegistrationAuthority(
   const credentialIdB64u = toOptionalTrimmedString(record.credentialIdB64u);
   const credentialPublicKeyB64u = toOptionalTrimmedString(record.credentialPublicKeyB64u);
   const counter = safeInteger(record.counter);
-  const registrationIntentDigestB64u = toOptionalTrimmedString(
-    record.registrationIntentDigestB64u,
-  );
+  const registrationIntentDigestB64u = toOptionalTrimmedString(record.registrationIntentDigestB64u);
   if (
     !walletId ||
     !rpId.ok ||
@@ -1397,9 +1817,7 @@ function parseD1EmailOtpRegistrationAuthority(
   const orgId = parseOrgId(record.orgId);
   const appSessionVersion = parseAppSessionVersion(record.appSessionVersion);
   const challengePurpose = toOptionalTrimmedString(record.challengePurpose);
-  const registrationIntentDigestB64u = toOptionalTrimmedString(
-    record.registrationIntentDigestB64u,
-  );
+  const registrationIntentDigestB64u = toOptionalTrimmedString(record.registrationIntentDigestB64u);
   if (
     !walletId ||
     !providerSubject.ok ||
@@ -1487,12 +1905,6 @@ function addSignerEd25519SelectionsMatch(
     leftEd25519.derivationVersion === rightEd25519.derivationVersion &&
     positiveIntegerArraysEqual(leftEd25519.participantIds, rightEd25519.participantIds)
   );
-}
-
-function generatedWalletIdHex(bytes: Uint8Array): string {
-  let hex = '';
-  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
-  return hex;
 }
 
 function unreachableAddAuthMethodInput(value: never): never {

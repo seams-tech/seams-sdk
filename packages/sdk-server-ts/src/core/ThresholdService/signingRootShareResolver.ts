@@ -13,9 +13,12 @@ import type {
   ThresholdEd25519HssServerInputs,
 } from '../types';
 import {
+  MISSING_SIGNING_ROOT_KEK_CODE,
   zeroizeBytes,
+  type SigningRootSecretShareWireErrorCode,
   type SigningRootSecretShareWireResult,
 } from './signingRootSecretShareWires';
+import { isMissingSigningRootKekError } from './signingRootKekProvider';
 
 export const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
 
@@ -101,12 +104,22 @@ export type DeriveEd25519HssServerInputsFromSigningRootShareResolverInput = {
   readonly context: ThresholdEd25519HssCanonicalContext;
 };
 
-function err<T>(message: string): SigningRootSecretShareWireResult<T> {
-  return { ok: false, code: 'resolver_failed', message };
+function err<T>(
+  code: SigningRootSecretShareWireErrorCode,
+  message: string,
+): SigningRootSecretShareWireResult<T> {
+  return { ok: false, code, message };
 }
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function errorResult<T>(error: unknown, fallback: string): SigningRootSecretShareWireResult<T> {
+  if (isMissingSigningRootKekError(error)) {
+    return err(MISSING_SIGNING_ROOT_KEK_CODE, errorMessage(error, fallback));
+  }
+  return err('resolver_failed', errorMessage(error, fallback));
 }
 
 function requireSigningRootId(signingRootId: unknown): string {
@@ -287,14 +300,14 @@ function selectSealedShareRecords(input: {
 
 async function decryptSigningRootShareSet(input: {
   readonly records: readonly SealedSigningRootShare[];
-  readonly decryptShare: SigningRootShareDecryptAdapter['decryptSigningRootShare'];
+  readonly decryptAdapter: SigningRootShareDecryptAdapter;
 }): Promise<SigningRootShareSet> {
   const shares: SigningRootShareWire[] = [];
   try {
     for (const record of input.records) {
       let decrypted: Uint8Array | null = null;
       try {
-        decrypted = await input.decryptShare(record);
+        decrypted = await input.decryptAdapter.decryptSigningRootShare(record);
         const parsed = parseSigningRootShareWire(decrypted);
         if (shareWireShareId(parsed) !== record.shareId) {
           parsed.fill(0);
@@ -352,7 +365,7 @@ export function createHostedSigningRootShareResolver(
       });
       return decryptSigningRootShareSet({
         records: selected,
-        decryptShare: input.decryptAdapter.decryptSigningRootShare,
+        decryptAdapter: input.decryptAdapter,
       });
     },
   };
@@ -424,7 +437,7 @@ export async function deriveEcdsaHssYRelayerFromSigningRootShareResolver(
     });
     return { ok: true, value: yRelayer };
   } catch (error) {
-    return err(errorMessage(error, 'failed to derive ecdsa-hss y_relayer'));
+    return errorResult(error, 'failed to derive ecdsa-hss y_relayer');
   } finally {
     if (shareSet) zeroizeSigningRootShareSet(shareSet);
   }
@@ -467,7 +480,7 @@ export async function deriveEd25519HssServerInputsFromSigningRootShareResolver(
       zeroizeBytes(serverInputBytes.tauRelayer);
     }
   } catch (error) {
-    return err(errorMessage(error, 'failed to derive ed25519-hss server inputs'));
+    return errorResult(error, 'failed to derive ed25519-hss server inputs');
   } finally {
     if (shareSet) zeroizeSigningRootShareSet(shareSet);
   }

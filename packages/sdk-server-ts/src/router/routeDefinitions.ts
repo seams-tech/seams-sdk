@@ -1673,7 +1673,7 @@ export function createRouterApiRouteDefinitions(
       'router_ab_ed25519_hss_prepare',
       'POST',
       ROUTER_AB_ED25519_HSS_PREPARE_PATH,
-      'Prepare Router A/B Ed25519 HSS relay ceremony step',
+      'Prepare Router A/B Ed25519 HSS Router API ceremony step',
       'ed25519',
       ['threshold', 'session'],
     ),

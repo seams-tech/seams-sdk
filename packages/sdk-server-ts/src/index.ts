@@ -132,7 +132,6 @@ export {
   createWalletAuthMethodStore,
   ensureWalletAuthMethodStoreD1Schema,
   normalizeWalletAuthMethod,
-  putWalletAuthMethodWithExecutor,
   resolveWalletAuthMethodStoreNamespace,
   WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL,
   type D1WalletAuthMethodStoreOptions,
@@ -147,8 +146,6 @@ export {
   buildWalletEd25519SignerId,
   createWalletStore,
   ensureWalletStoreD1Schema,
-  putWalletRecordWithExecutor,
-  putWalletSignerRecordWithExecutor,
   resolveWalletStoreNamespace,
   type D1WalletStoreOptions,
   type D1WalletStoreSchemaOptions,
@@ -163,7 +160,6 @@ export {
   WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL,
   createWebAuthnAuthenticatorStore,
   ensureWebAuthnAuthenticatorStoreD1Schema,
-  putWebAuthnAuthenticatorRecordWithExecutor,
   resolveWebAuthnAuthenticatorStoreNamespace,
   type D1WebAuthnAuthenticatorStoreOptions,
   type D1WebAuthnAuthenticatorStoreSchemaOptions,
@@ -175,7 +171,6 @@ export {
   WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL,
   createWebAuthnCredentialBindingStore,
   ensureWebAuthnCredentialBindingStoreD1Schema,
-  putWebAuthnCredentialBindingRecordWithExecutor,
   resolveWebAuthnCredentialBindingStoreNamespace,
   type D1WebAuthnCredentialBindingStoreOptions,
   type D1WebAuthnCredentialBindingStoreSchemaOptions,
@@ -207,7 +202,6 @@ export {
   IDENTITY_STORE_D1_SCHEMA_SQL,
   createIdentityStore,
   ensureIdentityStoreD1Schema,
-  linkIdentitySubjectToUserIdWithExecutor,
   resolveIdentityStoreNamespace,
   type AppSessionVersionRecord,
   type D1IdentityStoreOptions,
@@ -230,26 +224,14 @@ export {
   type NearPublicKeyStore,
 } from './core/NearPublicKeyStore';
 export {
-  NEAR_EMAIL_RECOVERY_ACTION,
-  markTrackedRecoverySessionVerified,
-  recordTrackedNearRecoveryExecution,
-  resolveTrackedNearRecoveryExecution,
-  transitionTrackedRecoverySession,
-  type TrackedNearRecoveryExecution,
-} from './router/recoveryExecutionTracking';
-export {
   CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  PostgresRouterAbNormalSigningAdmissionStore,
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
-  createPostgresRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-  ensurePostgresRouterAbNormalSigningAdmissionStoreSchema,
   type CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
   type InMemoryRouterAbNormalSigningAdmissionStoreOptions,
-  type PostgresRouterAbNormalSigningAdmissionStoreOptions,
   type RouterAbNormalSigningAbuseDecision,
   type RouterAbNormalSigningAbuseProvider,
   type RouterAbNormalSigningAdmissionStore,
@@ -261,18 +243,18 @@ export {
 export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';
 export type {
-  RelayRouterModule,
-  RelayRouterModuleKind,
-  RelayRouterModuleOptions,
+  RouterApiModule,
+  RouterApiModuleKind,
+  RouterApiModuleOptions,
 } from './router/modules';
-export { createRelayRouterModule } from './router/modules';
+export { createRouterApiModule } from './router/modules';
 export type {
-  RelayCloudflareRouteExtension,
-  RelayCloudflareRouteExtensionInput,
-  RelayExpressRouteExtension,
-  RelayExpressRouteExtensionInput,
-  RelayRouteExtension,
-  RelayRouteExtensionTransport,
+  RouterApiCloudflareRouteExtension,
+  RouterApiCloudflareRouteExtensionInput,
+  RouterApiExpressRouteExtension,
+  RouterApiExpressRouteExtensionInput,
+  RouterApiRouteExtension,
+  RouterApiRouteExtensionTransport,
 } from './router/routeExtensions';
 export * from './router/ror';
 export * from './storage/tenantRoute';

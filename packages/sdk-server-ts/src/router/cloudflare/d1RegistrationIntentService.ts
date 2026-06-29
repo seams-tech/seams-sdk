@@ -4,12 +4,14 @@ import {
   computeAddAuthMethodIntentDigestB64u,
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
+  findRegistrationSignerPlanNearEd25519Branch,
   normalizeAddAuthMethodInput,
   normalizeAddSignerSelection,
   normalizeRegistrationAuthMethodInput,
-  normalizeRegistrationSignerSelection,
+  normalizeRegistrationSignerPlan,
   registrationIntentGrantFromString,
-  type RegistrationSignerSelection,
+  registrationSignerSetSelectionFromPlan,
+  type RegistrationSignerPlan,
   type RegisterWalletInput,
   type WalletId,
 } from '@shared/utils/registrationIntent';
@@ -30,7 +32,7 @@ import {
   buildAddAuthMethodIntent,
   buildAddSignerIntent,
   buildRegistrationIntent,
-  createD1GeneratedWalletId,
+  createD1ServerAllocatedWalletId,
   inferRuntimePolicyScopeFromSigningRoot,
   intentScopeMetadata,
   parseWalletIdForIntent,
@@ -88,7 +90,11 @@ export class CloudflareD1RegistrationIntentService {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
 
-      const signerSelection = normalizeRegistrationSignerSelection(input.request?.signerSelection);
+      const signerPlan = normalizeRegistrationSignerPlan(input.request?.signerSelection);
+      if (!signerPlan.ok) return signerPlan;
+      const signerSelection = registrationSignerSetSelectionFromPlan(signerPlan.value, {
+        normalizeEcdsaChainTarget: thresholdEcdsaChainTargetFromValue,
+      });
       if (!signerSelection.ok) return signerSelection;
       const authMethod = normalizeRegistrationAuthMethodInput(input.request?.authMethod);
       if (!authMethod) {
@@ -99,7 +105,7 @@ export class CloudflareD1RegistrationIntentService {
       const wallet = await this.resolveRegistrationIntentWalletId({
         store,
         wallet: input.request?.wallet,
-        signerSelection: signerSelection.value,
+        signerPlan: signerPlan.value,
         expiresAtMs,
       });
       if (!wallet.ok) return wallet;
@@ -240,15 +246,15 @@ export class CloudflareD1RegistrationIntentService {
     }
   }
 
-  private async createAvailableGeneratedWalletId(input: {
+  private async createAvailableServerAllocatedWalletId(input: {
     readonly store: CloudflareD1RegistrationCeremonyIntentStore;
     readonly expiresAtMs: number;
   }): Promise<RegistrationIntentWalletResolution> {
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const walletId = createD1GeneratedWalletId();
+      const walletId = createD1ServerAllocatedWalletId();
       const existing = await this.signerWallets.signerWalletExists(walletId);
       if (existing) continue;
-      const reserved = await input.store.reserveGeneratedWalletId({
+      const reserved = await input.store.reserveServerAllocatedWalletId({
         walletId,
         expiresAtMs: input.expiresAtMs,
       });
@@ -257,7 +263,7 @@ export class CloudflareD1RegistrationIntentService {
     return {
       ok: false,
       code: 'wallet_id_collision',
-      message: 'Unable to allocate an unused generated walletId',
+      message: 'Unable to allocate an unused server-allocated walletId',
     };
   }
 
@@ -266,8 +272,8 @@ export class CloudflareD1RegistrationIntentService {
     readonly wallet: RegisterWalletInput | undefined;
     readonly expiresAtMs: number;
   }): Promise<RegistrationIntentWalletResolution> {
-    if (!input.wallet || input.wallet.kind === 'server_generated') {
-      return await this.createAvailableGeneratedWalletId(input);
+    if (!input.wallet || input.wallet.kind === 'server_allocated') {
+      return await this.createAvailableServerAllocatedWalletId(input);
     }
     if (input.wallet.kind === 'provided') {
       const walletId = parseWalletIdForIntent(input.wallet.walletId);
@@ -280,23 +286,24 @@ export class CloudflareD1RegistrationIntentService {
   private async resolveRegistrationIntentWalletId(input: {
     readonly store: CloudflareD1RegistrationCeremonyIntentStore;
     readonly wallet: RegisterWalletInput | undefined;
-    readonly signerSelection: RegistrationSignerSelection;
+    readonly signerPlan: RegistrationSignerPlan;
     readonly expiresAtMs: number;
   }): Promise<RegistrationIntentWalletResolution> {
-    if (input.signerSelection.mode === 'ecdsa_only') {
+    const nearEd25519 = findRegistrationSignerPlanNearEd25519Branch(input.signerPlan);
+    if (!nearEd25519) {
       return await this.resolveGenericRegistrationWalletId(input);
     }
-    const provisioning = input.signerSelection.ed25519.accountProvisioning;
+    const provisioning = nearEd25519.accountProvisioning;
     switch (provisioning.kind) {
       case 'implicit_account':
         if (input.wallet?.kind === 'provided') {
           return {
             ok: false,
             code: 'invalid_body',
-            message: 'implicit account registration requires server_generated wallet allocation',
+            message: 'implicit account registration requires server_allocated wallet allocation',
           };
         }
-        return await this.createAvailableGeneratedWalletId(input);
+        return await this.createAvailableServerAllocatedWalletId(input);
       case 'sponsored_named_account': {
         if (input.wallet?.kind !== 'provided') {
           return {

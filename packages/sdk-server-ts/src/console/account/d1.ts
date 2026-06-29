@@ -1,5 +1,5 @@
 import { generateConsoleOrganizationId } from '@shared/console/organizationIdentity';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
+import { d1Number as toNumber, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import type { ConsoleOnboardingService } from '../onboarding';
 import type { ConsoleOrgProjectEnvService } from '../orgProjectEnv';
@@ -16,8 +16,6 @@ import type {
   SwitchConsoleAccountOrganizationContextResult,
   TransferConsoleAccountOrganizationOwnerResult,
 } from './types';
-
-type D1Row = Record<string, unknown>;
 
 export const CONSOLE_ACCOUNT_D1_RUNTIME = Symbol('consoleAccountD1Runtime');
 
@@ -67,7 +65,7 @@ interface AccountOrganizationRow {
 
 export const CONSOLE_ACCOUNT_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_user_profiles (
+    CREATE TABLE IF NOT EXISTS user_profiles (
       namespace TEXT NOT NULL,
       user_id TEXT NOT NULL,
       display_name TEXT,
@@ -78,7 +76,7 @@ export const CONSOLE_ACCOUNT_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_user_backup_emails (
+    CREATE TABLE IF NOT EXISTS user_backup_emails (
       namespace TEXT NOT NULL,
       user_id TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -91,8 +89,8 @@ export const CONSOLE_ACCOUNT_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_org_created_by_user_idx
-      ON console_organizations (namespace, created_by_user_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS org_created_by_user_idx
+      ON organizations (namespace, created_by_user_id, updated_at_ms DESC, created_at_ms DESC)
   `,
 ] as const);
 
@@ -130,10 +128,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
@@ -186,23 +180,6 @@ function toTeamRbacContext(ctx: ConsoleAccountContext, orgId: string) {
   };
 }
 
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
-}
-
 function parseOrganizationRow(row: D1Row): AccountOrganizationRow {
   const createdAtMs = toNumber(row.created_at_ms);
   const updatedAtMs = toNumber(row.updated_at_ms);
@@ -232,10 +209,10 @@ async function getOrganizationById(
   state: D1ConsoleAccountServiceState,
   orgId: string,
 ): Promise<AccountOrganizationRow | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     state.database,
     `SELECT id, name, slug, status, created_at_ms, updated_at_ms
-       FROM console_organizations
+       FROM organizations
       WHERE namespace = ?
         AND id = ?
       LIMIT 1`,
@@ -439,19 +416,19 @@ async function getProfile(
   state: D1ConsoleAccountServiceState,
   ctx: ConsoleAccountContext,
 ): Promise<ConsoleAccountProfile> {
-  const profileRow = await queryOne(
+  const profileRow = await queryD1One(
     state.database,
     `SELECT *
-       FROM console_user_profiles
+       FROM user_profiles
       WHERE namespace = ?
         AND user_id = ?
       LIMIT 1`,
     [state.namespace, ctx.userId],
   );
-  const emailRows = await queryAll(
+  const emailRows = await queryD1All(
     state.database,
     `SELECT *
-       FROM console_user_backup_emails
+       FROM user_backup_emails
       WHERE namespace = ?
         AND user_id = ?
       ORDER BY email_normalized ASC`,
@@ -482,14 +459,14 @@ async function upsertProfile(input: {
 }): Promise<void> {
   await input.state.database
     .prepare(
-      `INSERT INTO console_user_profiles
+      `INSERT INTO user_profiles
         (namespace, user_id, display_name, primary_email, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, ?, ?, ?, ?)
        ON CONFLICT(namespace, user_id)
        DO UPDATE SET
-         display_name = COALESCE(excluded.display_name, console_user_profiles.display_name),
-         primary_email = COALESCE(excluded.primary_email, console_user_profiles.primary_email),
+         display_name = COALESCE(excluded.display_name, user_profiles.display_name),
+         primary_email = COALESCE(excluded.primary_email, user_profiles.primary_email),
          updated_at_ms = excluded.updated_at_ms`,
     )
     .bind(
@@ -511,7 +488,7 @@ async function upsertBackupEmail(input: {
 }): Promise<void> {
   await input.state.database
     .prepare(
-      `INSERT INTO console_user_backup_emails
+      `INSERT INTO user_backup_emails
         (namespace, user_id, email, email_normalized, status, created_at_ms, updated_at_ms)
        VALUES
         (?, ?, ?, ?, 'PENDING', ?, ?)
@@ -538,7 +515,7 @@ async function removeBackupEmail(input: {
 }): Promise<void> {
   await input.state.database
     .prepare(
-      `DELETE FROM console_user_backup_emails
+      `DELETE FROM user_backup_emails
         WHERE namespace = ?
           AND user_id = ?
           AND email_normalized = ?`,
@@ -610,10 +587,10 @@ export async function createD1ConsoleAccountService(
     },
 
     async listOrganizations(ctx): Promise<ConsoleAccountOrganization[]> {
-      const rows = await queryAll(
+      const rows = await queryD1All(
         state.database,
         `SELECT id, name, slug, status, created_at_ms, updated_at_ms
-           FROM console_organizations
+           FROM organizations
           WHERE namespace = ?
             AND created_by_user_id = ?
           ORDER BY updated_at_ms DESC, created_at_ms DESC`,

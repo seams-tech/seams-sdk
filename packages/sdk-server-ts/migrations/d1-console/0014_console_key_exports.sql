@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_key_exports (
+CREATE TABLE IF NOT EXISTS key_exports (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -21,11 +21,11 @@ CREATE TABLE IF NOT EXISTS console_key_exports (
   CHECK (json_valid(constraints_json))
 );
 
-CREATE INDEX IF NOT EXISTS console_key_exports_org_updated_idx
-  ON console_key_exports (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS key_exports_org_updated_idx
+  ON key_exports (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_key_exports_org_status_idx
-  ON console_key_exports (namespace, org_id, status, updated_at_ms DESC);
+CREATE INDEX IF NOT EXISTS key_exports_org_status_idx
+  ON key_exports (namespace, org_id, status, updated_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_key_exports_org_environment_idx
-  ON console_key_exports (namespace, org_id, environment_id, updated_at_ms DESC);
+CREATE INDEX IF NOT EXISTS key_exports_org_environment_idx
+  ON key_exports (namespace, org_id, environment_id, updated_at_ms DESC);

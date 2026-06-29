@@ -105,7 +105,7 @@ export async function handleRouterApiBootstrapGrant(
       ...parsedBody,
     });
     if (!result.ok) {
-      input.logger.warn('[relay][bootstrap-grants] denied', {
+      input.logger.warn('[router-api][bootstrap-grants] denied', {
         code: result.code,
         status: result.status,
         environmentId: parsedBody.environmentId,
@@ -118,7 +118,7 @@ export async function handleRouterApiBootstrapGrant(
       });
     }
 
-    input.logger.info('[relay][bootstrap-grants] issued', {
+    input.logger.info('[router-api][bootstrap-grants] issued', {
       environmentId: parsedBody.environmentId,
       mode: result.grant.mode,
     });

@@ -502,7 +502,7 @@ export interface RouterApiOptions {
   // Optional observability ingestion adapter used by sponsorship runtime signals.
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   /**
-   * Optional relay API-key authentication adapter for gas-costing routes.
+   * Optional Router API key authentication adapter for gas-costing routes.
    *
    * When omitted, runtime routes do not enforce API key auth.
    */
@@ -513,7 +513,7 @@ export interface RouterApiOptions {
    */
   publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
   /**
-   * Optional relay usage-meter adapter used to emit runtime events for
+   * Optional Router API usage-meter adapter used to emit runtime events for
    * billing linkage.
    */
   apiKeyUsageMeter?: RouterApiUsageMeterAdapter | null;

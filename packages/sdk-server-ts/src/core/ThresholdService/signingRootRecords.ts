@@ -1,4 +1,5 @@
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
@@ -19,13 +20,19 @@ export type SigningRootRecordSource =
   | 'customer-generated'
   | 'dev';
 
+export type SigningRootAuthorityScope = {
+  readonly kind: 'passkey_rp';
+  readonly rpId: WebAuthnRpId;
+};
+
 export type SigningRootRecord = {
   readonly version: typeof SIGNING_ROOT_RECORD_VERSION_V1;
   readonly projectId: string;
   readonly envId: string;
   readonly signingRootId: string;
   readonly walletOrigin: string;
-  readonly rpId: string;
+  readonly authorityScope: SigningRootAuthorityScope;
+  readonly rpId?: never;
   readonly signingRootVersion: string;
   readonly rootShareEpoch: number;
   readonly shareThreshold: 2;
@@ -46,7 +53,8 @@ export type SigningRootMigrationBundleShareV1 = {
 
 export type SigningRootMigrationWalletInventoryEntryV1 = {
   readonly userId: string;
-  readonly rpId: string;
+  readonly authorityScope: SigningRootAuthorityScope;
+  readonly rpId?: never;
   readonly walletKeyVersion: string;
   readonly signingRootVersion: string;
   readonly ecdsaThresholdKeyId?: string;
@@ -61,7 +69,8 @@ export type SigningRootMigrationBundleV1 = {
   readonly envId: string;
   readonly signingRootId: string;
   readonly walletOrigin: string;
-  readonly rpId: string;
+  readonly authorityScope: SigningRootAuthorityScope;
+  readonly rpId?: never;
   readonly signingRootVersion: string;
   readonly rootShareEpoch: number;
   readonly shareThreshold: 2;
@@ -141,6 +150,14 @@ function parseSigningRootRecordSource(input: unknown): SigningRootRecordSource |
   }
 }
 
+function parseSigningRootAuthorityScope(raw: unknown): SigningRootAuthorityScope | null {
+  if (!isObject(raw)) return null;
+  const kind = toOptionalTrimmedString(raw.kind);
+  const rpId = parseWebAuthnRpId(raw.rpId);
+  if (kind !== 'passkey_rp' || !rpId.ok) return null;
+  return { kind: 'passkey_rp', rpId: rpId.value };
+}
+
 function parseSigningRootSecretShareRecords(input: {
   readonly signingRootId: string;
   readonly signingRootVersion: string;
@@ -218,7 +235,8 @@ function validateMigrationBundleExtras(
       return err('invalid_migration_bundle', 'walletInventory entry is invalid');
     if (
       !toOptionalTrimmedString(entry.userId) ||
-      !toOptionalTrimmedString(entry.rpId) ||
+      !parseSigningRootAuthorityScope(entry.authorityScope) ||
+      Object.prototype.hasOwnProperty.call(entry, 'rpId') ||
       !toOptionalTrimmedString(entry.walletKeyVersion) ||
       !toOptionalTrimmedString(entry.signingRootVersion)
     ) {
@@ -240,16 +258,22 @@ export function createSigningRootMigrationWalletInventory(
       return err('invalid_migration_bundle', 'walletInventory entry is invalid');
     }
     const userId = toOptionalTrimmedString(entry.userId);
-    const rpId = toOptionalTrimmedString(entry.rpId);
+    const authorityScope = parseSigningRootAuthorityScope(entry.authorityScope);
     const walletKeyVersion = toOptionalTrimmedString(entry.walletKeyVersion);
     const signingRootVersion = toOptionalTrimmedString(entry.signingRootVersion);
-    if (!userId || !rpId || !walletKeyVersion || !signingRootVersion) {
+    if (
+      !userId ||
+      !authorityScope ||
+      Object.prototype.hasOwnProperty.call(entry, 'rpId') ||
+      !walletKeyVersion ||
+      !signingRootVersion
+    ) {
       return err('invalid_migration_bundle', 'walletInventory entry metadata is invalid');
     }
     const status = entry.status === 'retired' ? 'retired' : 'active';
     out.push({
       userId,
-      rpId,
+      authorityScope,
       walletKeyVersion,
       signingRootVersion,
       ...(toOptionalTrimmedString(entry.ecdsaThresholdKeyId)
@@ -268,8 +292,8 @@ export function createSigningRootMigrationWalletInventory(
   }
   return ok(
     out.sort((a, b) =>
-      `${a.userId}\0${a.rpId}\0${a.walletKeyVersion}`.localeCompare(
-        `${b.userId}\0${b.rpId}\0${b.walletKeyVersion}`,
+      `${a.userId}\0${a.authorityScope.rpId}\0${a.walletKeyVersion}`.localeCompare(
+        `${b.userId}\0${b.authorityScope.rpId}\0${b.walletKeyVersion}`,
       ),
     ),
   );
@@ -302,7 +326,7 @@ function parseSigningRootRecordBase(input: {
     toOptionalTrimmedString(input.raw.signingRootId) ||
     (projectId && envId ? deriveSigningRootId({ projectId, envId }) : '');
   const walletOrigin = normalizeWalletOrigin(input.raw.walletOrigin);
-  const rpId = toOptionalTrimmedString(input.raw.rpId);
+  const authorityScope = parseSigningRootAuthorityScope(input.raw.authorityScope);
   const signingRootVersion = toOptionalTrimmedString(input.raw.signingRootVersion);
   const rootShareEpoch = validPositiveInteger(input.raw.rootShareEpoch);
   const derivationVersion = validPositiveInteger(input.raw.derivationVersion);
@@ -317,7 +341,8 @@ function parseSigningRootRecordBase(input: {
     !envId ||
     !signingRootId ||
     !walletOrigin ||
-    !rpId ||
+    !authorityScope ||
+    Object.prototype.hasOwnProperty.call(input.raw, 'rpId') ||
     !signingRootVersion ||
     !rootShareEpoch ||
     !derivationVersion ||
@@ -346,7 +371,7 @@ function parseSigningRootRecordBase(input: {
     envId,
     signingRootId,
     walletOrigin,
-    rpId,
+    authorityScope,
     signingRootVersion,
     rootShareEpoch,
     shareThreshold,
@@ -398,7 +423,7 @@ export function signingRootRecordToMigrationBundle(
     envId: record.envId,
     signingRootId: record.signingRootId,
     walletOrigin: record.walletOrigin,
-    rpId: record.rpId,
+    authorityScope: record.authorityScope,
     signingRootVersion: record.signingRootVersion,
     rootShareEpoch: record.rootShareEpoch,
     shareThreshold: record.shareThreshold,
@@ -428,7 +453,7 @@ export async function computeSigningRootContextHashB64u(
       envId: record.envId,
       signingRootId: record.signingRootId,
       walletOrigin: record.walletOrigin,
-      rpId: record.rpId,
+      authorityScope: record.authorityScope,
       signingRootVersion: record.signingRootVersion,
       rootShareEpoch: record.rootShareEpoch,
       shareThreshold: record.shareThreshold,

@@ -19,15 +19,6 @@ export type {
 export { createInMemoryConsoleWalletService } from './service';
 
 export type {
-  PostgresConsoleWalletSchemaOptions,
-  PostgresConsoleWalletServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleWalletsPostgresSchema,
-  createPostgresConsoleWalletService,
-} from './postgres';
-
-export type {
   ConsoleWalletsD1Runtime,
   ConsoleWalletsD1Service,
   D1ConsoleWalletSchemaOptions,
@@ -41,6 +32,9 @@ export {
   createD1ConsoleWalletService,
 } from './d1';
 
-export { parseListConsoleWalletsRequest, parseSearchConsoleWalletsRequest } from './requests';
+export {
+  parseListConsoleWalletsRequest,
+  parseSearchConsoleWalletsRequest,
+} from './requests';
 
 export { ConsoleWalletError, isConsoleWalletError } from './errors';

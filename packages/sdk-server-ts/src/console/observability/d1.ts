@@ -1,5 +1,13 @@
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Number as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonObjectColumn as parseJsonObject,
+  queryD1All as queryRows,
+  queryD1One as queryFirstRow,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleObservabilityError } from './errors';
 import { CONSOLE_OBSERVABILITY_SOURCE_SET, CONSOLE_OBSERVABILITY_SOURCES_SQL } from './policy';
 import { redactConsoleObservabilityMetadata } from './redaction';
@@ -35,8 +43,6 @@ import type {
   ListConsoleObservabilityEventsRequest,
   ListConsoleObservabilityServicesRequest,
 } from './types';
-
-type D1Row = Record<string, unknown>;
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -119,6 +125,10 @@ export type ConsoleObservabilityD1Service = ConsoleObservabilityService & {
 
 export type ConsoleObservabilityIngestionD1Service = ConsoleObservabilityIngestionService & {
   readonly [CONSOLE_OBSERVABILITY_INGESTION_D1_RUNTIME]: ConsoleObservabilityD1Runtime;
+  observeRequestMetric(
+    ctx: ConsoleObservabilityIngestionContext,
+    metric: ConsoleObservabilityRequestMetricInput,
+  ): Promise<void>;
 };
 
 export interface D1ConsoleObservabilitySchemaOptions {
@@ -145,7 +155,7 @@ export interface D1ConsoleObservabilityIngestionServiceOptions
 
 export const CONSOLE_OBSERVABILITY_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_observability_events (
+    CREATE TABLE IF NOT EXISTS observability_events (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       event_id TEXT NOT NULL,
@@ -176,7 +186,7 @@ export const CONSOLE_OBSERVABILITY_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_observability_event_dedup (
+    CREATE TABLE IF NOT EXISTS observability_event_dedup (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       event_id TEXT NOT NULL,
@@ -185,7 +195,7 @@ export const CONSOLE_OBSERVABILITY_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_observability_ingest_windows (
+    CREATE TABLE IF NOT EXISTS observability_ingest_windows (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       window_start_ms INTEGER NOT NULL,
@@ -196,7 +206,7 @@ export const CONSOLE_OBSERVABILITY_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_observability_request_rollups_minute (
+    CREATE TABLE IF NOT EXISTS observability_request_rollups_minute (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       window_start_ms INTEGER NOT NULL,
@@ -236,40 +246,40 @@ export const CONSOLE_OBSERVABILITY_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_events_org_created_idx
-      ON console_observability_events (namespace, org_id, created_at_ms DESC, event_id DESC)
+    CREATE INDEX IF NOT EXISTS observability_events_org_created_idx
+      ON observability_events (namespace, org_id, created_at_ms DESC, event_id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_events_org_service_created_idx
-      ON console_observability_events (namespace, org_id, service, created_at_ms DESC, event_id DESC)
+    CREATE INDEX IF NOT EXISTS observability_events_org_service_created_idx
+      ON observability_events (namespace, org_id, service, created_at_ms DESC, event_id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_events_org_level_created_idx
-      ON console_observability_events (namespace, org_id, level, created_at_ms DESC, event_id DESC)
+    CREATE INDEX IF NOT EXISTS observability_events_org_level_created_idx
+      ON observability_events (namespace, org_id, level, created_at_ms DESC, event_id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_events_org_timestamp_idx
-      ON console_observability_events (namespace, org_id, timestamp_ms DESC, event_id DESC)
+    CREATE INDEX IF NOT EXISTS observability_events_org_timestamp_idx
+      ON observability_events (namespace, org_id, timestamp_ms DESC, event_id DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_event_dedup_created_idx
-      ON console_observability_event_dedup (namespace, org_id, created_at_ms)
+    CREATE INDEX IF NOT EXISTS observability_event_dedup_created_idx
+      ON observability_event_dedup (namespace, org_id, created_at_ms)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_ingest_windows_window_idx
-      ON console_observability_ingest_windows (namespace, org_id, window_start_ms)
+    CREATE INDEX IF NOT EXISTS observability_ingest_windows_window_idx
+      ON observability_ingest_windows (namespace, org_id, window_start_ms)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_window_idx
-      ON console_observability_request_rollups_minute (namespace, org_id, window_start_ms DESC)
+    CREATE INDEX IF NOT EXISTS observability_request_rollups_org_window_idx
+      ON observability_request_rollups_minute (namespace, org_id, window_start_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_service_window_idx
-      ON console_observability_request_rollups_minute (namespace, org_id, service, window_start_ms DESC)
+    CREATE INDEX IF NOT EXISTS observability_request_rollups_org_service_window_idx
+      ON observability_request_rollups_minute (namespace, org_id, service, window_start_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_route_window_idx
-      ON console_observability_request_rollups_minute (namespace, org_id, route_family, window_start_ms DESC)
+    CREATE INDEX IF NOT EXISTS observability_request_rollups_org_route_window_idx
+      ON observability_request_rollups_minute (namespace, org_id, route_family, window_start_ms DESC)
   `,
 ] as const);
 
@@ -408,22 +418,6 @@ function ensureLevel(raw: unknown): ConsoleObservabilityLevel {
   return value;
 }
 
-function parseJsonObject(raw: unknown): Record<string, unknown> {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...(raw as Record<string, unknown>) };
-  }
-  if (typeof raw !== 'string') return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ...(parsed as Record<string, unknown>) };
-    }
-  } catch {
-    return {};
-  }
-  return {};
-}
-
 function ensureMetadataObject(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   return { ...(raw as Record<string, unknown>) };
@@ -453,16 +447,7 @@ function toIso(rawMs: unknown): string {
   return new Date(value).toISOString();
 }
 
-function toNumber(raw: unknown, fallback = 0): number {
-  const value = Number(raw);
-  if (!Number.isFinite(value)) return fallback;
-  return value;
-}
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function encodeEventsCursor(sortMs: number, eventId: string): string {
   if (!Number.isFinite(sortMs) || !Number.isSafeInteger(Math.floor(sortMs)) || sortMs < 0) {
@@ -628,23 +613,6 @@ function toServiceHealthStatus(
   return 'HEALTHY';
 }
 
-async function queryRows(
-  database: D1DatabaseLike,
-  sql: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const out = await database.prepare(sql).bind(...values).all<D1Row>();
-  return out.results || [];
-}
-
-async function queryFirstRow(
-  database: D1DatabaseLike,
-  sql: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(sql).bind(...values).first<D1Row>();
-}
-
 function buildProjectEnvironmentWhere(input: {
   readonly initialClauses: readonly string[];
   readonly initialValues: readonly unknown[];
@@ -726,16 +694,16 @@ async function reserveIngestBudget(input: {
   const windowStartMs = input.nowValueMs - (input.nowValueMs % INGEST_WINDOW_MS);
   const result = await input.database
     .prepare(
-      `INSERT INTO console_observability_ingest_windows
+      `INSERT INTO observability_ingest_windows
         (namespace, org_id, window_start_ms, accepted_count, updated_at_ms)
        VALUES
         (?, ?, ?, ?, ?)
        ON CONFLICT (namespace, org_id, window_start_ms)
        DO UPDATE SET
-        accepted_count = console_observability_ingest_windows.accepted_count + excluded.accepted_count,
+        accepted_count = observability_ingest_windows.accepted_count + excluded.accepted_count,
         updated_at_ms = excluded.updated_at_ms
        WHERE
-        console_observability_ingest_windows.accepted_count + excluded.accepted_count <= ?`,
+        observability_ingest_windows.accepted_count + excluded.accepted_count <= ?`,
     )
     .bind(
       input.namespace,
@@ -746,7 +714,7 @@ async function reserveIngestBudget(input: {
       input.maxEventsPerMinute,
     )
     .run();
-  if (runChanges(result) <= 0) {
+  if (d1ChangedRows(result) <= 0) {
     throw new ConsoleObservabilityError(
       'rate_limited',
       429,
@@ -755,7 +723,7 @@ async function reserveIngestBudget(input: {
   }
   await input.database
     .prepare(
-      `DELETE FROM console_observability_ingest_windows
+      `DELETE FROM observability_ingest_windows
         WHERE namespace = ?
           AND org_id = ?
           AND window_start_ms < ?`,
@@ -776,7 +744,7 @@ async function observeRequestMetric(input: {
   const [b50, b100, b250, b500, b1000, b2000, b5000] = normalized.histogramCounts;
   await input.database
     .prepare(
-      `INSERT INTO console_observability_request_rollups_minute
+      `INSERT INTO observability_request_rollups_minute
         (namespace, org_id, window_start_ms, project_id, environment_id, service, route_family, method, status_class,
          request_count, error_count, latency_sum_ms, latency_max_ms,
          latency_bucket_le_50, latency_bucket_le_100, latency_bucket_le_250, latency_bucket_le_500,
@@ -787,30 +755,30 @@ async function observeRequestMetric(input: {
          namespace, org_id, window_start_ms, project_id, environment_id, service, route_family, method, status_class
        )
        DO UPDATE SET
-         request_count = console_observability_request_rollups_minute.request_count + excluded.request_count,
-         error_count = console_observability_request_rollups_minute.error_count + excluded.error_count,
-         latency_sum_ms = console_observability_request_rollups_minute.latency_sum_ms + excluded.latency_sum_ms,
-         latency_max_ms = MAX(console_observability_request_rollups_minute.latency_max_ms, excluded.latency_max_ms),
+         request_count = observability_request_rollups_minute.request_count + excluded.request_count,
+         error_count = observability_request_rollups_minute.error_count + excluded.error_count,
+         latency_sum_ms = observability_request_rollups_minute.latency_sum_ms + excluded.latency_sum_ms,
+         latency_max_ms = MAX(observability_request_rollups_minute.latency_max_ms, excluded.latency_max_ms),
          latency_bucket_le_50 =
-           console_observability_request_rollups_minute.latency_bucket_le_50
+           observability_request_rollups_minute.latency_bucket_le_50
            + excluded.latency_bucket_le_50,
          latency_bucket_le_100 =
-           console_observability_request_rollups_minute.latency_bucket_le_100
+           observability_request_rollups_minute.latency_bucket_le_100
            + excluded.latency_bucket_le_100,
          latency_bucket_le_250 =
-           console_observability_request_rollups_minute.latency_bucket_le_250
+           observability_request_rollups_minute.latency_bucket_le_250
            + excluded.latency_bucket_le_250,
          latency_bucket_le_500 =
-           console_observability_request_rollups_minute.latency_bucket_le_500
+           observability_request_rollups_minute.latency_bucket_le_500
            + excluded.latency_bucket_le_500,
          latency_bucket_le_1000 =
-           console_observability_request_rollups_minute.latency_bucket_le_1000
+           observability_request_rollups_minute.latency_bucket_le_1000
            + excluded.latency_bucket_le_1000,
          latency_bucket_le_2000 =
-           console_observability_request_rollups_minute.latency_bucket_le_2000
+           observability_request_rollups_minute.latency_bucket_le_2000
            + excluded.latency_bucket_le_2000,
          latency_bucket_le_5000 =
-           console_observability_request_rollups_minute.latency_bucket_le_5000
+           observability_request_rollups_minute.latency_bucket_le_5000
            + excluded.latency_bucket_le_5000`,
     )
     .bind(
@@ -909,20 +877,20 @@ class D1ConsoleObservabilityIngestionServiceImpl
     for (const normalized of normalizedEvents) {
       const dedupe = await this.state.database
         .prepare(
-          `INSERT OR IGNORE INTO console_observability_event_dedup
+          `INSERT OR IGNORE INTO observability_event_dedup
             (namespace, org_id, event_id, created_at_ms)
            VALUES
             (?, ?, ?, ?)`,
         )
         .bind(this.state.namespace, orgId, normalized.eventId, normalized.ingestedAtMs)
         .run();
-      if (runChanges(dedupe) <= 0) {
+      if (d1ChangedRows(dedupe) <= 0) {
         deduplicated += 1;
         continue;
       }
       const out = await this.state.database
         .prepare(
-          `INSERT OR IGNORE INTO console_observability_events
+          `INSERT OR IGNORE INTO observability_events
             (namespace, org_id, event_id, schema_version, source, ingested_at_ms, timestamp_ms,
              project_id, environment_id, service, component, level, event_type, message,
              request_id, trace_id, metadata_json, redaction_version, redaction_applied, created_at_ms)
@@ -952,7 +920,7 @@ class D1ConsoleObservabilityIngestionServiceImpl
           normalized.ingestedAtMs,
         )
         .run();
-      if (runChanges(out) > 0) accepted += 1;
+      if (d1ChangedRows(out) > 0) accepted += 1;
       else deduplicated += 1;
     }
     return { accepted, deduplicated };
@@ -1028,7 +996,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
          COALESCE(SUM(latency_bucket_le_1000), 0) AS latency_bucket_le_1000,
          COALESCE(SUM(latency_bucket_le_2000), 0) AS latency_bucket_le_2000,
          COALESCE(SUM(latency_bucket_le_5000), 0) AS latency_bucket_le_5000
-         FROM console_observability_request_rollups_minute
+         FROM observability_request_rollups_minute
         WHERE ${rollupWhere.whereSql}`,
       rollupWhere.values,
     );
@@ -1041,7 +1009,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
     const deadLetterRow = await queryFirstRow(
       this.state.database,
       `SELECT COUNT(*) AS dead_letter_count
-         FROM console_observability_events
+         FROM observability_events
         WHERE ${eventWhere.whereSql}
           AND event_type = 'webhook.delivery.dead_letter'`,
       eventWhere.values,
@@ -1049,7 +1017,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
     const requestFailureRows = await queryRows(
       this.state.database,
       `SELECT DISTINCT service
-         FROM console_observability_request_rollups_minute
+         FROM observability_request_rollups_minute
         WHERE ${rollupWhere.whereSql}
           AND error_count > 0`,
       rollupWhere.values,
@@ -1057,7 +1025,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
     const incidentFailureRows = await queryRows(
       this.state.database,
       `SELECT DISTINCT service
-         FROM console_observability_events
+         FROM observability_events
         WHERE ${eventWhere.whereSql}
           AND level IN ('ERROR', 'FATAL')`,
       eventWhere.values,
@@ -1135,7 +1103,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
     const countRow = await queryFirstRow(
       this.state.database,
       `SELECT COUNT(*) AS total_count
-         FROM console_observability_events
+         FROM observability_events
         WHERE ${whereSql}`,
       countValues,
     );
@@ -1144,7 +1112,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
     const rows = await queryRows(
       this.state.database,
       `SELECT *
-         FROM console_observability_events
+         FROM observability_events
         WHERE ${whereSql}${cursorClause}
         ORDER BY created_at_ms DESC, event_id DESC
         LIMIT ?`,
@@ -1189,7 +1157,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
     const rows = await queryRows(
       this.state.database,
       `SELECT *
-         FROM console_observability_request_rollups_minute
+         FROM observability_request_rollups_minute
         WHERE ${clauses.join(' AND ')}
         ORDER BY window_start_ms ASC`,
       values,
@@ -1266,7 +1234,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
          service,
          COALESCE(SUM(error_count), 0) AS recent_failure_count,
          MAX(CASE WHEN error_count > 0 THEN window_start_ms ELSE NULL END) AS latest_incident_ms
-         FROM console_observability_request_rollups_minute
+         FROM observability_request_rollups_minute
         WHERE ${rollupWhere.whereSql}
         GROUP BY service
         ORDER BY recent_failure_count DESC, latest_incident_ms DESC, service ASC
@@ -1279,7 +1247,7 @@ class D1ConsoleObservabilityServiceImpl implements ConsoleObservabilityD1Service
          service,
          COUNT(CASE WHEN level IN ('ERROR', 'FATAL') THEN 1 ELSE NULL END) AS recent_failure_count,
          MAX(CASE WHEN level IN ('ERROR', 'FATAL') THEN created_at_ms ELSE NULL END) AS latest_incident_ms
-         FROM console_observability_events
+         FROM observability_events
         WHERE ${eventWhere.whereSql}
         GROUP BY service
         ORDER BY recent_failure_count DESC, latest_incident_ms DESC, service ASC

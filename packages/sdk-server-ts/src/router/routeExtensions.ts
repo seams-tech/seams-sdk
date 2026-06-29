@@ -91,7 +91,9 @@ export function getRouterApiRouteExtensionRoutes(
     extension.routes.map((route) => {
       const normalized = defineRoute(route);
       if (normalized.surface !== 'relay') {
-        throw new Error(`Router API route extension ${extensionId} route ${normalized.id} must use relay surface`);
+        throw new Error(
+          `Router API route extension ${extensionId} route ${normalized.id} must use Router API surface`,
+        );
       }
       return normalized;
     }),

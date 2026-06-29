@@ -1,6 +1,6 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { NormalizedLogger } from '../../../../core/logger';
-import type { SessionAdapter } from '../../../../router/relay';
+import type { SessionAdapter } from '../../../../router/routerApi';
 import {
   buildSigningSessionSealApplyPath,
   buildSigningSessionSealRemovePath,
@@ -28,9 +28,8 @@ export function registerSigningSessionSealRoutes(
   ctx: ExpressSigningSessionSealContext,
 ): void {
   const options = ctx.options;
-  const enabled = Boolean(options && options.enabled !== false);
-  ctx.logger.info('[threshold-signing-session-seal] routes', { enabled });
-  if (!options || options.enabled === false) return;
+  ctx.logger.info('[threshold-signing-session-seal] routes', { enabled: Boolean(options) });
+  if (!options) return;
 
   const basePath = resolveSigningSessionSealBasePath(options.basePath);
   const applyPath = buildSigningSessionSealApplyPath(basePath);

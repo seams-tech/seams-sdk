@@ -21,9 +21,7 @@ export type {
   ConsoleOrgProjectEnvService,
   InMemoryConsoleOrgProjectEnvServiceOptions,
 } from './service';
-export {
-  createInMemoryConsoleOrgProjectEnvService,
-} from './service';
+export { createInMemoryConsoleOrgProjectEnvService } from './service';
 
 export type {
   D1ConsoleOrgProjectEnvSchemaOptions,
@@ -39,15 +37,6 @@ export {
   getConsoleOrgProjectEnvD1Runtime,
 } from './d1';
 
-export type {
-  PostgresConsoleOrgProjectEnvSchemaOptions,
-  PostgresConsoleOrgProjectEnvServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleOrgProjectEnvPostgresSchema,
-  createPostgresConsoleOrgProjectEnvService,
-} from './postgres';
-
 export {
   parseListConsoleProjectsRequest,
   parseListConsoleEnvironmentsRequest,
@@ -57,7 +46,4 @@ export {
   parseUpdateConsoleEnvironmentRequest,
 } from './requests';
 
-export {
-  ConsoleOrgProjectEnvError,
-  isConsoleOrgProjectEnvError,
-} from './errors';
+export { ConsoleOrgProjectEnvError, isConsoleOrgProjectEnvError } from './errors';

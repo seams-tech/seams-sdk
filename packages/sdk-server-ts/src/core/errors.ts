@@ -58,7 +58,7 @@ export function parseContractExecutionError(
             typeof executionError === 'string' &&
             executionError.includes('missing field `source`')
           ) {
-            return 'Contract input JSON is missing required field `source` (Outlayer `request_execution` expects `source`, not legacy `code_source`).';
+            return 'Contract input JSON is missing required field `source` (Outlayer `request_execution` accepts `source`; `code_source` is not supported).';
           }
 
           return `Account creation failed: ${JSON.stringify(actionKind)}`;

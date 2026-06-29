@@ -30,7 +30,7 @@ import {
   requireBodyObject,
   requireQueryObject,
 } from '../console/shared/requestParse';
-import type { ConsoleAuthClaims } from './console';
+import type { ConsoleAuthClaims } from './consoleAuth';
 
 function createParseError(code: string, status: number, message: string): ConsoleBillingError {
   return new ConsoleBillingError(code, status, message);

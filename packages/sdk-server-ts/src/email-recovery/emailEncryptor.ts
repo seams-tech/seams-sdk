@@ -46,7 +46,7 @@ export interface EncryptEmailForOutlayerResult {
 //
 // The contract serializes `args` with serde_json, which orders keys
 // lexicographically, so we must mirror that here. Changing this logic or
-// adding/removing keys requires updating the Outlayer compat tests and
+// adding/removing keys requires updating the Outlayer interoperability tests and
 // verifying decryption end-to-end.
 //
 // Canonical form (alphabetical by key):

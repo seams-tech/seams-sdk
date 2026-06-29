@@ -87,7 +87,6 @@ export interface SigningSessionSealService {
 }
 
 export interface SigningSessionSealRoutesOptions {
-  enabled?: boolean;
   basePath?: string;
   service: SigningSessionSealService;
   sessionPolicy?: SigningSessionSealThresholdSessionPolicy;

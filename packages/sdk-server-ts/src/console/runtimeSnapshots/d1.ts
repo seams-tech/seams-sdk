@@ -1,7 +1,15 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { normalizeLogger, type Logger, type NormalizedLogger } from '../../core/logger';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Number as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonObjectColumn as parseJsonObject,
+  queryD1All,
+  queryD1One,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   computeConsoleRuntimeSnapshotChecksum,
   type ConsoleRuntimeSnapshotContext,
@@ -16,8 +24,6 @@ import type {
   ListConsoleRuntimeSnapshotsRequest,
   PublishConsoleRuntimeSnapshotRequest,
 } from './types';
-
-type D1Row = Record<string, unknown>;
 
 const DEFAULT_RETENTION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const DEFAULT_RETENTION_PRUNE_INTERVAL_MS = 1000 * 60 * 5;
@@ -122,7 +128,7 @@ interface D1OutboxDispatchState {
 
 export const CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_runtime_snapshots (
+    CREATE TABLE IF NOT EXISTS runtime_snapshots (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL DEFAULT '',
@@ -136,13 +142,22 @@ export const CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL = Object.freeze([
       created_by TEXT NOT NULL,
       PRIMARY KEY (namespace, org_id, snapshot_id),
       UNIQUE (namespace, org_id, project_id, environment_id, version),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(environment_id) > 0),
+      CHECK (length(snapshot_id) > 0),
       CHECK (version >= 1),
-      CHECK (length(payload_json) > 0)
+      CHECK (effective_at_ms > 0),
+      CHECK (length(checksum) > 0),
+      CHECK (length(payload_json) > 0),
+      CHECK (json_valid(payload_json)),
+      CHECK (created_at_ms > 0),
+      CHECK (length(created_by) > 0)
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_runtime_snapshots_scope_version_idx
-      ON console_runtime_snapshots (
+    CREATE INDEX IF NOT EXISTS runtime_snapshots_scope_version_idx
+      ON runtime_snapshots (
         namespace,
         org_id,
         project_id,
@@ -152,8 +167,8 @@ export const CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_runtime_snapshots_env_version_idx
-      ON console_runtime_snapshots (
+    CREATE INDEX IF NOT EXISTS runtime_snapshots_env_version_idx
+      ON runtime_snapshots (
         namespace,
         org_id,
         environment_id,
@@ -162,7 +177,7 @@ export const CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE TABLE IF NOT EXISTS console_runtime_snapshot_outbox (
+    CREATE TABLE IF NOT EXISTS runtime_snapshot_outbox (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL DEFAULT '',
@@ -183,16 +198,59 @@ export const CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL = Object.freeze([
       dispatched_at_ms INTEGER,
       PRIMARY KEY (namespace, org_id, event_id),
       UNIQUE (namespace, org_id, snapshot_id, snapshot_version, event_type),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(environment_id) > 0),
+      CHECK (length(event_id) > 0),
       CHECK (event_type IN ('RUNTIME_SNAPSHOT_PUBLISHED_V1')),
+      CHECK (length(snapshot_id) > 0),
       CHECK (status IN ('PENDING', 'DISPATCHED', 'DEAD_LETTER')),
       CHECK (snapshot_version >= 1),
+      CHECK (json_valid(payload_json)),
       CHECK (attempt_count >= 0),
-      CHECK (length(payload_json) > 0)
+      CHECK (available_at_ms > 0),
+      CHECK (created_at_ms > 0),
+      CHECK (updated_at_ms >= created_at_ms),
+      CHECK (dispatched_at_ms IS NULL OR dispatched_at_ms >= created_at_ms),
+      CHECK (last_error IS NULL OR length(last_error) > 0),
+      CHECK (
+        (claimed_by IS NULL AND claim_expires_at_ms IS NULL)
+        OR
+        (
+          claimed_by IS NOT NULL
+          AND length(claimed_by) > 0
+          AND COALESCE(claim_expires_at_ms > updated_at_ms, 0)
+        )
+      ),
+      CHECK (
+        (
+          status = 'PENDING'
+          AND dispatched_at_ms IS NULL
+        )
+        OR
+        (
+          status = 'DISPATCHED'
+          AND claimed_by IS NULL
+          AND claim_expires_at_ms IS NULL
+          AND dispatched_at_ms IS NOT NULL
+          AND last_error IS NULL
+          AND attempt_count >= 1
+        )
+        OR
+        (
+          status = 'DEAD_LETTER'
+          AND claimed_by IS NULL
+          AND claim_expires_at_ms IS NULL
+          AND dispatched_at_ms IS NULL
+          AND last_error IS NOT NULL
+          AND attempt_count >= 1
+        )
+      )
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_runtime_snapshot_outbox_visible_idx
-      ON console_runtime_snapshot_outbox (
+    CREATE INDEX IF NOT EXISTS runtime_snapshot_outbox_visible_idx
+      ON runtime_snapshot_outbox (
         namespace,
         org_id,
         status,
@@ -202,8 +260,8 @@ export const CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_runtime_snapshot_outbox_claim_idx
-      ON console_runtime_snapshot_outbox (
+    CREATE INDEX IF NOT EXISTS runtime_snapshot_outbox_claim_idx
+      ON runtime_snapshot_outbox (
         namespace,
         org_id,
         claimed_by,
@@ -243,10 +301,6 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 
 function normalizeNamespace(namespace: string | undefined): string {
   const normalized = String(namespace || 'default').trim();
@@ -282,28 +336,6 @@ function normalizeOrgIds(orgIds: readonly string[]): string[] {
   return Array.from(
     new Set(orgIds.map((orgId) => String(orgId || '').trim()).filter(Boolean)),
   );
-}
-
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
-
-function parseJsonObject(raw: unknown): Record<string, unknown> {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return raw as Record<string, unknown>;
-  }
-  if (typeof raw === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      return {};
-    }
-  }
-  return {};
 }
 
 function cloneObject(input: Record<string, unknown>): Record<string, unknown> {
@@ -417,23 +449,6 @@ function buildOutboxPayload(snapshot: ConsoleRuntimeSnapshot): Record<string, un
   };
 }
 
-async function queryOne(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<D1Row | null> {
-  return await database.prepare(text).bind(...values).first<D1Row>();
-}
-
-async function queryAll(
-  database: D1DatabaseLike,
-  text: string,
-  values: readonly unknown[],
-): Promise<readonly D1Row[]> {
-  const result = await database.prepare(text).bind(...values).all<D1Row>();
-  return result.results || [];
-}
-
 async function readNextSnapshotVersion(input: {
   database: D1DatabaseLike;
   namespace: string;
@@ -441,10 +456,10 @@ async function readNextSnapshotVersion(input: {
   projectId: string;
   environmentId: string;
 }): Promise<number> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
-       FROM console_runtime_snapshots
+       FROM runtime_snapshots
       WHERE namespace = ?
         AND org_id = ?
         AND project_id = ?
@@ -460,10 +475,10 @@ async function loadSnapshotById(input: {
   orgId: string;
   snapshotId: string;
 }): Promise<ConsoleRuntimeSnapshot | null> {
-  const row = await queryOne(
+  const row = await queryD1One(
     input.database,
     `SELECT *
-       FROM console_runtime_snapshots
+       FROM runtime_snapshots
       WHERE namespace = ?
         AND org_id = ?
         AND snapshot_id = ?
@@ -483,7 +498,7 @@ async function listD1RuntimeSnapshots(
   const limit = normalizePositiveInteger(request.limit, 20, MAX_LIST_LIMIT);
   const values: unknown[] = [state.namespace, ctx.orgId, environmentId];
   let sql = `SELECT *
-       FROM console_runtime_snapshots
+       FROM runtime_snapshots
       WHERE namespace = ?
         AND org_id = ?
         AND environment_id = ?`;
@@ -496,7 +511,7 @@ async function listD1RuntimeSnapshots(
   sql += `
       ORDER BY version DESC, created_at_ms DESC
       LIMIT ?`;
-  const rows = await queryAll(state.database, sql, values);
+  const rows = await queryD1All(state.database, sql, values);
   return rows.map(parseSnapshotRow);
 }
 
@@ -558,7 +573,7 @@ async function insertD1RuntimeSnapshotOnce(input: {
   await input.state.database.batch([
     input.state.database
       .prepare(
-        `INSERT INTO console_runtime_snapshots
+        `INSERT INTO runtime_snapshots
           (
             namespace,
             org_id,
@@ -589,7 +604,7 @@ async function insertD1RuntimeSnapshotOnce(input: {
       ),
     input.state.database
       .prepare(
-        `INSERT INTO console_runtime_snapshot_outbox
+        `INSERT INTO runtime_snapshot_outbox
           (
             namespace,
             org_id,
@@ -715,12 +730,12 @@ async function pruneD1ConsoleRuntimeSnapshotRetentionForTenant(input: {
   const batchSize = normalizePositiveInteger(input.batchSize, DEFAULT_RETENTION_BATCH_SIZE);
   const deleteOutbox = await input.database
     .prepare(
-      `DELETE FROM console_runtime_snapshot_outbox
+      `DELETE FROM runtime_snapshot_outbox
         WHERE namespace = ?
           AND org_id = ?
           AND event_id IN (
             SELECT event_id
-              FROM console_runtime_snapshot_outbox
+              FROM runtime_snapshot_outbox
              WHERE namespace = ?
                AND org_id = ?
                AND created_at_ms < ?
@@ -732,18 +747,18 @@ async function pruneD1ConsoleRuntimeSnapshotRetentionForTenant(input: {
     .run();
   const deleteSnapshots = await input.database
     .prepare(
-      `DELETE FROM console_runtime_snapshots
+      `DELETE FROM runtime_snapshots
         WHERE namespace = ?
           AND org_id = ?
           AND snapshot_id IN (
             SELECT snapshot.snapshot_id
-              FROM console_runtime_snapshots snapshot
+              FROM runtime_snapshots snapshot
              WHERE snapshot.namespace = ?
                AND snapshot.org_id = ?
                AND snapshot.created_at_ms < ?
                AND EXISTS (
                  SELECT 1
-                   FROM console_runtime_snapshots newer
+                   FROM runtime_snapshots newer
                   WHERE newer.namespace = snapshot.namespace
                     AND newer.org_id = snapshot.org_id
                     AND newer.project_id = snapshot.project_id
@@ -758,8 +773,8 @@ async function pruneD1ConsoleRuntimeSnapshotRetentionForTenant(input: {
     .run();
   return {
     cutoffMs: input.cutoffMs,
-    deletedOutbox: runChanges(deleteOutbox),
-    deletedSnapshots: runChanges(deleteSnapshots),
+    deletedOutbox: d1ChangedRows(deleteOutbox),
+    deletedSnapshots: d1ChangedRows(deleteSnapshots),
   };
 }
 
@@ -772,10 +787,10 @@ async function claimD1OutboxEventsForOrg(input: {
 }): Promise<D1ClaimedOutboxEvent[]> {
   if (input.remaining <= 0) return [];
   const claimExpiresAtMs = input.nowValueMs + input.state.claimTtlMs;
-  const rows = await queryAll(
+  const rows = await queryD1All(
     input.state.database,
     `SELECT event_id
-       FROM console_runtime_snapshot_outbox
+       FROM runtime_snapshot_outbox
       WHERE namespace = ?
         AND org_id = ?
         AND status = 'PENDING'
@@ -791,7 +806,7 @@ async function claimD1OutboxEventsForOrg(input: {
     if (!eventId) continue;
     const update = await input.state.database
       .prepare(
-        `UPDATE console_runtime_snapshot_outbox
+        `UPDATE runtime_snapshot_outbox
             SET claimed_by = ?,
                 claim_expires_at_ms = ?,
                 attempt_count = attempt_count + 1,
@@ -814,11 +829,11 @@ async function claimD1OutboxEventsForOrg(input: {
         input.nowValueMs,
       )
       .run();
-    if (runChanges(update) !== 1) continue;
-    const claimedRow = await queryOne(
+    if (d1ChangedRows(update) !== 1) continue;
+    const claimedRow = await queryD1One(
       input.state.database,
       `SELECT *
-         FROM console_runtime_snapshot_outbox
+         FROM runtime_snapshot_outbox
         WHERE namespace = ?
           AND org_id = ?
           AND event_id = ?
@@ -842,7 +857,7 @@ async function markD1OutboxDispatched(input: {
 }): Promise<boolean> {
   const update = await input.state.database
     .prepare(
-      `UPDATE console_runtime_snapshot_outbox
+      `UPDATE runtime_snapshot_outbox
           SET status = 'DISPATCHED',
               dispatched_at_ms = ?,
               claimed_by = NULL,
@@ -864,7 +879,7 @@ async function markD1OutboxDispatched(input: {
       input.claimToken,
     )
     .run();
-  return runChanges(update) === 1;
+  return d1ChangedRows(update) === 1;
 }
 
 async function markD1OutboxDispatchFailure(input: {
@@ -879,7 +894,7 @@ async function markD1OutboxDispatchFailure(input: {
     nextStatus === 'PENDING' ? input.nowValueMs + input.state.retryBackoffMs : input.nowValueMs;
   await input.state.database
     .prepare(
-      `UPDATE console_runtime_snapshot_outbox
+      `UPDATE runtime_snapshot_outbox
           SET status = ?,
               available_at_ms = ?,
               claimed_by = NULL,

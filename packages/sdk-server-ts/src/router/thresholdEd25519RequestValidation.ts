@@ -3,8 +3,10 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   Ed25519SessionPolicy,
+  ThresholdEd25519AuthorityScope,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519HssFinalizeWithSessionRequest,
@@ -58,7 +60,7 @@ const SESSION_POLICY_KEYS = [
   'walletId',
   'nearAccountId',
   'nearEd25519SigningKeyId',
-  'rpId',
+  'authorityScope',
   'relayerKeyId',
   'thresholdSessionId',
   'signingGrantId',
@@ -95,6 +97,30 @@ function optionalStringField(record: Record<string, unknown>, field: string): st
   return optionalRouteTrimmedString(record, field);
 }
 
+function parseEd25519AuthorityScope(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<ThresholdEd25519AuthorityScope> {
+  if (!isPlainObject(raw)) {
+    return invalidThresholdEd25519Body('sessionPolicy.authorityScope is required');
+  }
+  const unsupported = findUnexpectedRouteKey(raw, ['kind', 'rpId'] as const);
+  if (unsupported) {
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 authorityScope field: ${unsupported}`,
+    );
+  }
+  if (raw.kind !== 'passkey_rp') {
+    return invalidThresholdEd25519Body(
+      'sessionPolicy.authorityScope.kind must be passkey_rp',
+    );
+  }
+  const rpId = parseWebAuthnRpId(raw.rpId);
+  if (!rpId.ok) {
+    return invalidThresholdEd25519Body('sessionPolicy.authorityScope.rpId is required');
+  }
+  return { ok: true, request: { kind: 'passkey_rp', rpId: rpId.value } };
+}
+
 function optionalWebAuthnAuthentication(
   record: Record<string, unknown>,
 ): WebAuthnAuthenticationCredential | undefined {
@@ -128,6 +154,11 @@ function isHssSessionOperation(value: unknown): value is ThresholdEd25519HssSess
 
 function parseEd25519SessionPolicy(raw: unknown): ThresholdEd25519RouteParseResult<Ed25519SessionPolicy> {
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('sessionPolicy is required');
+  if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) {
+    return invalidThresholdEd25519Body(
+      'sessionPolicy.rpId belongs in sessionPolicy.authorityScope',
+    );
+  }
   const unsupported = findUnexpectedRouteKey(raw, SESSION_POLICY_KEYS);
   if (unsupported) {
     return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 sessionPolicy field: ${unsupported}`);
@@ -141,8 +172,8 @@ function parseEd25519SessionPolicy(raw: unknown): ThresholdEd25519RouteParseResu
   if (!nearAccountId.ok) return nearAccountId;
   const nearEd25519SigningKeyId = requiredStringField(raw, 'nearEd25519SigningKeyId');
   if (!nearEd25519SigningKeyId.ok) return nearEd25519SigningKeyId;
-  const rpId = requiredStringField(raw, 'rpId');
-  if (!rpId.ok) return rpId;
+  const authorityScope = parseEd25519AuthorityScope(raw.authorityScope);
+  if (!authorityScope.ok) return authorityScope;
   const relayerKeyId = requiredStringField(raw, 'relayerKeyId');
   if (!relayerKeyId.ok) return relayerKeyId;
   const thresholdSessionId = requiredStringField(raw, 'thresholdSessionId');
@@ -176,7 +207,7 @@ function parseEd25519SessionPolicy(raw: unknown): ThresholdEd25519RouteParseResu
       walletId: walletId.request,
       nearAccountId: nearAccountId.request,
       nearEd25519SigningKeyId: nearEd25519SigningKeyId.request,
-      rpId: rpId.request,
+      authorityScope: authorityScope.request,
       relayerKeyId: relayerKeyId.request,
       thresholdSessionId: thresholdSessionId.request,
       ...(optionalStringField(raw, 'signingGrantId')

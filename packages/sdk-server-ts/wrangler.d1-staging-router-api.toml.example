@@ -1,0 +1,50 @@
+name = "seams-sdk-d1-router-api-staging"
+main = "src/router/cloudflare/d1RouterApiStagingWorker.ts"
+compatibility_date = "2026-04-17"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "CONSOLE_DB"
+database_name = "seams-console-staging"
+database_id = "<remote-console-d1-database-id>"
+migrations_dir = "migrations/d1-console"
+
+[[d1_databases]]
+binding = "SIGNER_DB"
+database_name = "seams-signer-staging"
+database_id = "<remote-signer-d1-database-id>"
+migrations_dir = "migrations/d1-signer"
+
+[[durable_objects.bindings]]
+name = "THRESHOLD_STORE"
+class_name = "ThresholdStoreDurableObject"
+
+[[migrations]]
+tag = "threshold-store-sqlite-v1"
+new_sqlite_classes = ["ThresholdStoreDurableObject"]
+
+[[secrets_store_secrets]]
+binding = "SIGNING_ROOT_KEK_STAGING_R1"
+store_id = "<cloudflare-secrets-store-id>"
+secret_name = "signing-root-kek-staging-r1"
+
+[vars]
+SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
+SEAMS_STAGING_ORG_ID = "org_staging"
+SEAMS_STAGING_PROJECT_ID = "project_staging"
+SEAMS_STAGING_ENV_ID = "staging"
+ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "seams-d1-router-api-staging"
+RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
+RELAYER_PUBLIC_KEY = "ed25519:<staging-relayer-public-key>"
+RELAY_SESSION_ISSUER = "seams-router-api-staging"
+RELAY_SESSION_AUDIENCE = "seams-wallet-session"
+SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
+SIGNING_ROOT_KEK_ENCODING = "base64url"
+SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
+
+[secrets]
+required = [
+  "RELAY_SESSION_HMAC_SECRET",
+  "ACCOUNT_ID_DERIVATION_SECRET",
+  "SPONSORED_EVM_EXECUTORS_JSON",
+]

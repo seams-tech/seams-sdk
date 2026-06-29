@@ -4,7 +4,7 @@ import {
   buildBillingStripeWebhookFailureObservabilityEvent,
 } from '../console/observability/adapters';
 import type { ConsoleObservabilityIngestionService } from '../console/observability/ingestionService';
-import type { ConsoleAuthClaims } from './console';
+import type { ConsoleAuthClaims } from './consoleAuth';
 import type { NormalizedRouterLogger } from './logger';
 
 type ConsoleObservabilityIngestContext = Parameters<

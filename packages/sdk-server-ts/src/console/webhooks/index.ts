@@ -26,17 +26,7 @@ export type {
   ConsoleWebhookService,
 } from './service';
 export { createInMemoryConsoleWebhookService } from './service';
-export type {
-  PostgresConsoleWebhookSchemaOptions,
-  PostgresConsoleWebhookServiceOptions,
-  PostgresConsoleWebhookRetryDispatchOptions,
-  PostgresConsoleWebhookRetryDispatchResult,
-} from './postgres';
-export {
-  ensureConsoleWebhooksPostgresSchema,
-  createPostgresConsoleWebhookService,
-  runPostgresConsoleWebhookRetryDispatch,
-} from './postgres';
+
 export type {
   AesGcmConsoleWebhookSecretCipherOptions,
   ConsoleWebhookD1Service,

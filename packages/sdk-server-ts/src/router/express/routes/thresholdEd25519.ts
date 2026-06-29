@@ -154,8 +154,6 @@ export function registerThresholdEd25519Routes(
     enabled: Boolean(ctx.opts.threshold),
   });
 
-  // Threshold Ed25519 (2-party) routes (scaffolding).
-  // These routes establish the relayer as a co-signer and will eventually run a 2-round FROST flow.
   router.get(ROUTER_AB_ED25519_HEALTH_PATH, async (req: Request, res: Response) => {
     await handle(ctx, req, res, ROUTER_AB_ED25519_HEALTH_PATH, {}, async () => {
       const resolved = resolveThresholdScheme(

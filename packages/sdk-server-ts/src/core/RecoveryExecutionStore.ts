@@ -1,8 +1,11 @@
 import type { NormalizedLogger } from './logger';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import {
+  formatD1ExecStatement,
+  parseD1JsonColumn,
+  resolveD1DatabaseFromConfig,
+} from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type RecoveryExecutionStatus =
   | 'pending'
@@ -80,7 +83,7 @@ type D1RecoveryExecutionRow = {
 
 export const RECOVERY_EXECUTION_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_recovery_executions (
+    CREATE TABLE IF NOT EXISTS recovery_executions (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -103,6 +106,10 @@ export const RECOVERY_EXECUTION_STORE_D1_SCHEMA_SQL = Object.freeze([
         account_address,
         action
       ),
+      CHECK (length(namespace) > 0),
+      CHECK (length(org_id) > 0),
+      CHECK (length(project_id) > 0),
+      CHECK (length(env_id) > 0),
       CHECK (length(session_id) > 0),
       CHECK (length(chain_id_key) > 0),
       CHECK (length(account_address) > 0),
@@ -110,12 +117,20 @@ export const RECOVERY_EXECUTION_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (status IN ('pending', 'submitted', 'confirmed', 'failed', 'skipped')),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms > 0),
-      CHECK (updated_at_ms > 0)
+      CHECK (updated_at_ms >= created_at_ms),
+      CHECK (COALESCE(json_extract(record_json, '$.version') = 'recovery_execution_v1', 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.sessionId') = session_id, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.chainIdKey') = chain_id_key, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.accountAddress') = account_address, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.action') = action, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.status') = status, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0))
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_recovery_executions_session_idx
-      ON signer_recovery_executions (
+    CREATE INDEX IF NOT EXISTS recovery_executions_session_idx
+      ON recovery_executions (
         namespace,
         org_id,
         project_id,
@@ -127,8 +142,8 @@ export const RECOVERY_EXECUTION_STORE_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_recovery_executions_status_idx
-      ON signer_recovery_executions (
+    CREATE INDEX IF NOT EXISTS recovery_executions_status_idx
+      ON recovery_executions (
         namespace,
         org_id,
         project_id,
@@ -219,31 +234,6 @@ function parseRecoveryExecutionRecord(raw: unknown): RecoveryExecutionRecord | n
     ...(errorMessage ? { errorMessage } : {}),
     ...(metadata ? { metadata } : {}),
   };
-}
-
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
 }
 
 function requireD1ScopeString(input: unknown, field: string): string {
@@ -418,7 +408,7 @@ export class D1RecoveryExecutionStore implements RecoveryExecutionStore {
     if (!sessionId || !chainIdKey || !accountAddress || !action) return null;
     const row = await this.bindScope(
       `SELECT record_json
-         FROM signer_recovery_executions
+         FROM recovery_executions
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -430,7 +420,7 @@ export class D1RecoveryExecutionStore implements RecoveryExecutionStore {
         LIMIT 1`,
       [sessionId, chainIdKey, accountAddress, action],
     ).first<D1RecoveryExecutionRow>();
-    return parseRecoveryExecutionRecord(parseD1RecordJson(row?.record_json));
+    return parseRecoveryExecutionRecord(parseD1JsonColumn(row?.record_json));
   }
 
   async put(record: RecoveryExecutionRecord): Promise<void> {
@@ -438,7 +428,7 @@ export class D1RecoveryExecutionStore implements RecoveryExecutionStore {
     const parsed = parseRecoveryExecutionRecord(record);
     if (!parsed) throw new Error('Invalid recovery execution record');
     await this.bindScope(
-      `INSERT INTO signer_recovery_executions (
+      `INSERT INTO recovery_executions (
         namespace,
         org_id,
         project_id,
@@ -486,7 +476,7 @@ export class D1RecoveryExecutionStore implements RecoveryExecutionStore {
     if (!normalized) return [];
     const result = await this.bindScope(
       `SELECT record_json
-         FROM signer_recovery_executions
+         FROM recovery_executions
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -496,7 +486,7 @@ export class D1RecoveryExecutionStore implements RecoveryExecutionStore {
       [normalized],
     ).all<D1RecoveryExecutionRow>();
     return (result.results || [])
-      .map((row) => parseRecoveryExecutionRecord(parseD1RecordJson(row.record_json)))
+      .map((row) => parseRecoveryExecutionRecord(parseD1JsonColumn(row.record_json)))
       .filter((record): record is RecoveryExecutionRecord => Boolean(record));
   }
 
@@ -519,7 +509,7 @@ export class D1RecoveryExecutionStore implements RecoveryExecutionStore {
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : 100;
     const result = await this.bindScope(
       `SELECT record_json
-         FROM signer_recovery_executions
+         FROM recovery_executions
         WHERE namespace = ?
           AND org_id = ?
           AND project_id = ?
@@ -532,135 +522,8 @@ export class D1RecoveryExecutionStore implements RecoveryExecutionStore {
       [status, action || '', action || '', updatedBeforeMs, updatedBeforeMs, limit],
     ).all<D1RecoveryExecutionRow>();
     return (result.results || [])
-      .map((row) => parseRecoveryExecutionRecord(parseD1RecordJson(row.record_json)))
+      .map((row) => parseRecoveryExecutionRecord(parseD1JsonColumn(row.record_json)))
       .filter((record): record is RecoveryExecutionRecord => Boolean(record));
-  }
-}
-
-class PostgresRecoveryExecutionStore implements RecoveryExecutionStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async get(input: {
-    sessionId: string;
-    chainIdKey: string;
-    accountAddress: string;
-    action: string;
-  }): Promise<RecoveryExecutionRecord | null> {
-    const sessionId = toOptionalTrimmedString(input.sessionId);
-    const chainIdKey = toOptionalTrimmedString(input.chainIdKey)?.toLowerCase() || '';
-    const accountAddress = normalizeAccountAddress(
-      toOptionalTrimmedString(input.accountAddress) || '',
-    );
-    const action = toOptionalTrimmedString(input.action);
-    if (!sessionId || !chainIdKey || !accountAddress || !action) return null;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM recovery_executions
-        WHERE namespace = $1
-          AND session_id = $2
-          AND chain_id_key = $3
-          AND account_address = $4
-          AND action = $5
-      `,
-      [this.namespace, sessionId, chainIdKey, accountAddress, action],
-    );
-    return parseRecoveryExecutionRecord((rows[0] as { record_json?: unknown } | undefined)?.record_json);
-  }
-
-  async put(record: RecoveryExecutionRecord): Promise<void> {
-    const parsed = parseRecoveryExecutionRecord(record);
-    if (!parsed) throw new Error('Invalid recovery execution record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO recovery_executions (
-          namespace,
-          session_id,
-          chain_id_key,
-          account_address,
-          action,
-          record_json,
-          created_at_ms,
-          updated_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (namespace, session_id, chain_id_key, account_address, action)
-        DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          updated_at_ms = EXCLUDED.updated_at_ms
-      `,
-      [
-        this.namespace,
-        parsed.sessionId,
-        parsed.chainIdKey,
-        parsed.accountAddress,
-        parsed.action,
-        parsed,
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      ],
-    );
-  }
-
-  async listBySessionId(sessionId: string): Promise<RecoveryExecutionRecord[]> {
-    const normalized = toOptionalTrimmedString(sessionId);
-    if (!normalized) return [];
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM recovery_executions
-        WHERE namespace = $1 AND session_id = $2
-        ORDER BY chain_id_key ASC, account_address ASC, action ASC
-      `,
-      [this.namespace, normalized],
-    );
-    return rows
-      .map((row) => parseRecoveryExecutionRecord((row as { record_json?: unknown }).record_json))
-      .filter(Boolean) as RecoveryExecutionRecord[];
-  }
-
-  async listByStatus(input: {
-    status: RecoveryExecutionStatus;
-    action?: string;
-    updatedBeforeMs?: number;
-    limit?: number;
-  }): Promise<RecoveryExecutionRecord[]> {
-    const status = normalizeRecoveryExecutionStatus(input.status);
-    if (!status) return [];
-    const action = toOptionalTrimmedString(input.action);
-    const updatedBeforeMsRaw = Number(input.updatedBeforeMs);
-    const updatedBeforeMs =
-      Number.isFinite(updatedBeforeMsRaw) && updatedBeforeMsRaw > 0
-        ? Math.floor(updatedBeforeMsRaw)
-        : null;
-    const limitRaw = Number(input.limit);
-    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : null;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM recovery_executions
-        WHERE namespace = $1
-          AND record_json->>'status' = $2
-          AND ($3::text = '' OR action = $3)
-          AND ($4::bigint IS NULL OR updated_at_ms <= $4)
-        ORDER BY updated_at_ms ASC, created_at_ms ASC, session_id ASC, chain_id_key ASC, account_address ASC, action ASC
-        LIMIT $5
-      `,
-      [this.namespace, status, action || '', updatedBeforeMs, limit ?? 100],
-    );
-    return rows
-      .map((row) => parseRecoveryExecutionRecord((row as { record_json?: unknown }).record_json))
-      .filter(Boolean) as RecoveryExecutionRecord[];
   }
 }
 
@@ -670,7 +533,6 @@ export function createRecoveryExecutionStore(input: {
   isNode: boolean;
 }): RecoveryExecutionStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const postgresUrl = getPostgresUrlFromConfig(config);
   const namespace =
     toOptionalTrimmedString(config.RECOVERY_EXECUTION_NAMESPACE) ||
     toOptionalTrimmedString(config.THRESHOLD_PREFIX) ||
@@ -691,15 +553,7 @@ export function createRecoveryExecutionStore(input: {
     });
   }
 
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[recovery-executions] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[recovery-executions] Using Postgres store for recovery execution state');
-    return new PostgresRecoveryExecutionStore({ postgresUrl, namespace });
-  }
+  if (kind) throw new Error(`[recovery-executions] Unknown recovery execution store kind: ${kind}`);
 
   input.logger.info('[recovery-executions] Using in-memory store for recovery execution state');
   return new InMemoryRecoveryExecutionStore();

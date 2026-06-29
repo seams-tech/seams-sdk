@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_approvals (
+CREATE TABLE IF NOT EXISTS approvals (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -26,11 +26,11 @@ CREATE TABLE IF NOT EXISTS console_approvals (
   CHECK (json_valid(decisions_json))
 );
 
-CREATE INDEX IF NOT EXISTS console_approvals_org_updated_idx
-  ON console_approvals (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS approvals_org_updated_idx
+  ON approvals (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_approvals_org_status_idx
-  ON console_approvals (namespace, org_id, status, updated_at_ms DESC);
+CREATE INDEX IF NOT EXISTS approvals_org_status_idx
+  ON approvals (namespace, org_id, status, updated_at_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_approvals_org_operation_idx
-  ON console_approvals (namespace, org_id, operation_type, updated_at_ms DESC);
+CREATE INDEX IF NOT EXISTS approvals_org_operation_idx
+  ON approvals (namespace, org_id, operation_type, updated_at_ms DESC);

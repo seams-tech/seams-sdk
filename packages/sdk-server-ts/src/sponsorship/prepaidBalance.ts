@@ -60,6 +60,14 @@ export interface SponsoredPrepaidSettlementQuote {
   released: boolean;
 }
 
+function assertNeverReceiptStatus(status: never): never {
+  throw new SponsorshipPrepaidBalanceEnforcementError(
+    'sponsorship_prepaid_balance_invalid',
+    500,
+    `Unhandled sponsored-call receipt status: ${status}`,
+  );
+}
+
 function toNonNegativeInteger(value: unknown, label: string): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
@@ -90,6 +98,23 @@ function mapPrepaidReservationError(error: unknown): never {
 
 function shouldUseEstimatedFallback(receiptStatus: ConsoleSponsoredCallReceiptStatus): boolean {
   return receiptStatus === 'success' || receiptStatus === 'reverted';
+}
+
+function shouldReleaseWithoutFinalizedSpend(input: {
+  receiptStatus: ConsoleSponsoredCallReceiptStatus;
+  txOrExecutionRef: string | null;
+}): boolean {
+  switch (input.receiptStatus) {
+    case 'rpc_rejected':
+      return true;
+    case 'broadcast_failed':
+      return !input.txOrExecutionRef;
+    case 'success':
+    case 'reverted':
+      return false;
+    default:
+      return assertNeverReceiptStatus(input.receiptStatus);
+  }
 }
 
 function quoteToReservationHandle(input: {
@@ -197,6 +222,19 @@ export async function resolveSponsoredPrepaidSettlementQuote(input: {
       503,
       'Sponsored spend pricing is not configured on this server',
     );
+  }
+  if (
+    shouldReleaseWithoutFinalizedSpend({
+      receiptStatus: input.receiptStatus,
+      txOrExecutionRef: input.txOrExecutionRef,
+    })
+  ) {
+    return {
+      settledSpendMinor: 0,
+      pricingVersion: input.reservation.estimatedPricingVersion,
+      usedEstimatedFallback: false,
+      released: true,
+    };
   }
 
   let settledSpendMinor = input.reservation.estimatedSpendMinor;

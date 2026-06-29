@@ -16,12 +16,7 @@ import {
   redisGetJson,
   redisSetJson,
 } from './ThresholdService/kv';
-import {
-  getPostgresPool,
-  getPostgresUrlFromConfig,
-  type PgQueryExecutor,
-} from '../storage/postgres';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import { formatD1ExecStatement, resolveD1DatabaseFromConfig } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 
 export type WebAuthnAuthenticatorRecord = {
@@ -84,7 +79,7 @@ type D1WebAuthnAuthenticatorRow = {
 
 export const WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_webauthn_authenticators (
+    CREATE TABLE IF NOT EXISTS webauthn_authenticators (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -105,8 +100,8 @@ export const WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_webauthn_authenticators_user_idx
-      ON signer_webauthn_authenticators (
+    CREATE INDEX IF NOT EXISTS webauthn_authenticators_user_idx
+      ON webauthn_authenticators (
         namespace,
         org_id,
         project_id,
@@ -171,22 +166,6 @@ function parseWebAuthnAuthenticatorRecord(raw: unknown): WebAuthnAuthenticatorRe
   };
 }
 
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
-}
-
 function requireD1ScopeString(input: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(input);
   if (!normalized) throw new Error(`${field} is required for D1 WebAuthn authenticator store`);
@@ -230,41 +209,6 @@ function parseD1WebAuthnAuthenticatorRow(
     createdAtMs: row.created_at_ms,
     updatedAtMs: row.updated_at_ms,
   });
-}
-
-export async function putWebAuthnAuthenticatorRecordWithExecutor(input: {
-  executor: PgQueryExecutor;
-  namespace: string;
-  userId: string;
-  record: WebAuthnAuthenticatorRecord;
-}): Promise<void> {
-  const uid = toOptionalTrimmedString(input.userId);
-  if (!uid) throw new Error('Missing userId');
-  const parsed = parseWebAuthnAuthenticatorRecord(input.record);
-  if (!parsed) throw new Error('Invalid authenticator record');
-  await input.executor.query(
-    `
-      INSERT INTO webauthn_authenticators (
-        namespace, user_id, credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (namespace, user_id, credential_id_b64u)
-      DO UPDATE SET
-        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
-        counter = GREATEST(webauthn_authenticators.counter, EXCLUDED.counter),
-        created_at_ms = LEAST(webauthn_authenticators.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)
-    `,
-    [
-      input.namespace,
-      uid,
-      parsed.credentialIdB64u,
-      parsed.credentialPublicKeyB64u,
-      parsed.counter,
-      parsed.createdAtMs,
-      parsed.updatedAtMs,
-    ],
-  );
 }
 
 class InMemoryWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
@@ -349,7 +293,7 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
     const row = await this.database
       .prepare(
         `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-           FROM signer_webauthn_authenticators
+           FROM webauthn_authenticators
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -371,7 +315,7 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
     if (!parsed) throw new Error('Invalid authenticator record');
     await this.database
       .prepare(
-        `INSERT INTO signer_webauthn_authenticators (
+        `INSERT INTO webauthn_authenticators (
           namespace,
           org_id,
           project_id,
@@ -387,13 +331,13 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
         ON CONFLICT (namespace, org_id, project_id, env_id, user_id, credential_id_b64u)
         DO UPDATE SET
           credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
-          counter = MAX(signer_webauthn_authenticators.counter, EXCLUDED.counter),
+          counter = MAX(webauthn_authenticators.counter, EXCLUDED.counter),
           created_at_ms = MIN(
-            signer_webauthn_authenticators.created_at_ms,
+            webauthn_authenticators.created_at_ms,
             EXCLUDED.created_at_ms
           ),
           updated_at_ms = MAX(
-            signer_webauthn_authenticators.updated_at_ms,
+            webauthn_authenticators.updated_at_ms,
             EXCLUDED.updated_at_ms
           )`,
       )
@@ -419,7 +363,7 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
     if (!uid || !cid) return;
     await this.database
       .prepare(
-        `DELETE FROM signer_webauthn_authenticators
+        `DELETE FROM webauthn_authenticators
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -438,7 +382,7 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
     const result = await this.database
       .prepare(
         `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-           FROM signer_webauthn_authenticators
+           FROM webauthn_authenticators
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -650,96 +594,6 @@ class CloudflareDurableObjectWebAuthnAuthenticatorStore implements WebAuthnAuthe
   }
 }
 
-class PostgresWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async get(userId: string, credentialIdB64u: string): Promise<WebAuthnAuthenticatorRecord | null> {
-    const uid = toOptionalTrimmedString(userId);
-    const cid = toOptionalTrimmedString(credentialIdB64u);
-    if (!uid || !cid) return null;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-        FROM webauthn_authenticators
-        WHERE namespace = $1 AND user_id = $2 AND credential_id_b64u = $3
-        LIMIT 1
-      `,
-      [this.namespace, uid, cid],
-    );
-    const row = rows[0];
-    if (!row) return null;
-    const record = {
-      version: 'webauthn_authenticator_v1' as const,
-      credentialIdB64u: cid,
-      credentialPublicKeyB64u: String(row.credential_public_key_b64u ?? ''),
-      counter: typeof row.counter === 'number' ? row.counter : Number(row.counter),
-      createdAtMs:
-        typeof row.created_at_ms === 'number' ? row.created_at_ms : Number(row.created_at_ms),
-      updatedAtMs:
-        typeof row.updated_at_ms === 'number' ? row.updated_at_ms : Number(row.updated_at_ms),
-    };
-    return parseWebAuthnAuthenticatorRecord(record);
-  }
-
-  async put(userId: string, record: WebAuthnAuthenticatorRecord): Promise<void> {
-    const pool = await this.poolPromise;
-    await putWebAuthnAuthenticatorRecordWithExecutor({
-      executor: pool,
-      namespace: this.namespace,
-      userId,
-      record,
-    });
-  }
-
-  async del(userId: string, credentialIdB64u: string): Promise<void> {
-    const uid = toOptionalTrimmedString(userId);
-    const cid = toOptionalTrimmedString(credentialIdB64u);
-    if (!uid || !cid) return;
-    const pool = await this.poolPromise;
-    await pool.query(
-      'DELETE FROM webauthn_authenticators WHERE namespace = $1 AND user_id = $2 AND credential_id_b64u = $3',
-      [this.namespace, uid, cid],
-    );
-  }
-
-  async list(userId: string): Promise<WebAuthnAuthenticatorRecord[]> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) return [];
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-        FROM webauthn_authenticators
-        WHERE namespace = $1 AND user_id = $2
-        ORDER BY created_at_ms ASC
-      `,
-      [this.namespace, uid],
-    );
-    const out: WebAuthnAuthenticatorRecord[] = [];
-    for (const row of rows || []) {
-      const record = parseWebAuthnAuthenticatorRecord({
-        version: 'webauthn_authenticator_v1',
-        credentialIdB64u: String(row?.credential_id_b64u ?? ''),
-        credentialPublicKeyB64u: String(row?.credential_public_key_b64u ?? ''),
-        counter: typeof row?.counter === 'number' ? row.counter : Number(row?.counter),
-        createdAtMs:
-          typeof row?.created_at_ms === 'number' ? row.created_at_ms : Number(row?.created_at_ms),
-        updatedAtMs:
-          typeof row?.updated_at_ms === 'number' ? row.updated_at_ms : Number(row?.updated_at_ms),
-      });
-      if (record) out.push(record);
-    }
-    return out;
-  }
-}
-
 export function createWebAuthnAuthenticatorStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
@@ -811,29 +665,7 @@ export function createWebAuthnAuthenticatorStore(input: {
     return new RedisTcpWebAuthnAuthenticatorStore({ redisUrl, prefix });
   }
 
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error('[webauthn] postgres authenticator store is not supported in this runtime');
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[webauthn] postgres authenticator store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info('[webauthn] Using Postgres authenticator store');
-    return new PostgresWebAuthnAuthenticatorStore({ postgresUrl, namespace: prefix });
-  }
-
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[webauthn] Using Postgres authenticator store');
-    return new PostgresWebAuthnAuthenticatorStore({ postgresUrl, namespace: prefix });
-  }
+  if (kind) throw new Error(`[webauthn] Unknown authenticator store kind: ${kind}`);
 
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);

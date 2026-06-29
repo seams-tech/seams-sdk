@@ -44,7 +44,7 @@ export interface ConsoleSponsoredCallRecord {
   settledAt: string | null;
   errorCode: string | null;
   errorMessage: string | null;
-  idempotencyKey: string | null;
+  idempotencyKey: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -136,5 +136,5 @@ export interface CreateConsoleSponsoredCallRecordRequest {
   settledAt?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
-  idempotencyKey?: string | null;
+  idempotencyKey: string;
 }

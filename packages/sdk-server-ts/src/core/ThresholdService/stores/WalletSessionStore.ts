@@ -1,12 +1,11 @@
 import type { NormalizedLogger } from '../../logger';
-import type { ThresholdEcdsaSigningRootMetadata, ThresholdStoreConfigInput } from '../../types';
+import type {
+  ThresholdEd25519AuthorityScope,
+  ThresholdEcdsaSigningRootMetadata,
+  ThresholdStoreConfigInput,
+} from '../../types';
 import { RedisTcpClient, UpstashRedisRestClient, redisGetJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import {
-  getPostgresPool,
-  getPostgresUrlFromConfig,
-  parsePostgresRow,
-} from '../../../storage/postgres';
 import {
   isObject,
   toThresholdEcdsaWalletSessionPrefix,
@@ -22,6 +21,7 @@ import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
+import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
 import { secureRandomIdFragment } from '../secureRandomId';
 
 export type WalletSigningBudgetBinding = {
@@ -36,7 +36,7 @@ export type Ed25519WalletSessionRecord = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   participantIds: number[];
   walletBudgetBinding?: WalletSigningBudgetBinding;
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
@@ -161,13 +161,7 @@ const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
 const EXPORT_REPLAY_GUARD_MIN_RETENTION_MS = 24 * 60 * 60_000;
 const DEFAULT_WALLET_SIGNING_BUDGET_SESSION_PREFIX = 'w3a:threshold-wallet-budget:sess:';
 
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
+type WalletSessionStoreConfigRecord = Record<string, unknown>;
 
 export interface WalletSessionStore<TRecord extends WalletSessionRecord> {
   putSession(
@@ -1103,24 +1097,6 @@ function parseWalletSigningBudgetReservation(
     reservationId,
     expiresAtMs: Math.floor(expiresAtMs),
   };
-}
-
-function parsePostgresBudgetReservation(
-  signingGrantId: string,
-  row: Record<string, unknown>,
-): WalletSigningBudgetReservation | null {
-  return parseWalletSigningBudgetReservation({
-    kind: 'wallet_signing_budget_reservation_v1',
-    signingGrantId,
-    curve: row.curve,
-    thresholdSessionId: row.threshold_session_id,
-    signingWorkerId: row.signing_worker_id,
-    operationId: row.operation_id,
-    requestDigest: row.request_digest,
-    reservationId: row.reservation_id,
-    signatureUses: row.signature_uses,
-    expiresAtMs: row.expires_at_ms,
-  });
 }
 
 const CONSUME_ONCE_EXISTS_LUA = `
@@ -2186,928 +2162,6 @@ class RedisTcpWalletSessionStore<TRecord extends WalletSessionRecord> implements
   }
 }
 
-class PostgresWalletSessionStore<TRecord extends WalletSessionRecord> implements WalletSessionStore<TRecord> {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-  private readonly parseRecord: WalletSessionRecordParser<TRecord>;
-
-  constructor(input: {
-    postgresUrl: string;
-    namespace: string;
-    parseRecord?: WalletSessionRecordParser<TRecord>;
-  }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-    this.parseRecord =
-      input.parseRecord || (parseEd25519WalletSessionRecord as WalletSessionRecordParser<TRecord>);
-  }
-
-  private async deleteSessionRow(id: string): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        DELETE FROM threshold_ed25519_sessions
-        WHERE namespace = $1 AND kind = $2 AND session_id = $3
-      `,
-      [this.namespace, 'wallet_session', id],
-    );
-  }
-
-  private async cleanupExpiredBudgetReservations(
-    client: { query: (text: string, values?: unknown[]) => Promise<{ rows: any[] }> },
-    id: string,
-    nowMs: number,
-  ): Promise<void> {
-    await client.query(
-      `
-        DELETE FROM threshold_wallet_session_budget_reservations
-        WHERE namespace = $1 AND session_id = $2 AND status = $3 AND expires_at_ms <= $4
-      `,
-      [this.namespace, id, 'reserved', nowMs],
-    );
-  }
-
-  private async activeReservedUses(
-    client: { query: (text: string, values?: unknown[]) => Promise<{ rows: any[] }> },
-    id: string,
-    nowMs: number,
-  ): Promise<number> {
-    await this.cleanupExpiredBudgetReservations(client, id, nowMs);
-    const { rows } = await client.query(
-      `
-        SELECT COALESCE(SUM(signature_uses), 0) AS reserved_uses
-        FROM threshold_wallet_session_budget_reservations
-        WHERE namespace = $1 AND session_id = $2 AND status = $3 AND expires_at_ms > $4
-      `,
-      [this.namespace, id, 'reserved', nowMs],
-    );
-    const reservedUses = Number(rows[0]?.reserved_uses ?? 0);
-    return Number.isFinite(reservedUses) ? Math.max(0, Math.floor(reservedUses)) : 0;
-  }
-
-  private parsePostgresSessionStatusRow(row: {
-    record_json?: unknown;
-    expires_at_ms?: unknown;
-    remaining_uses?: unknown;
-  }): { record: TRecord; expiresAtMs: number; remainingUses: number } | null {
-    const rawRecord =
-      typeof row.record_json === 'string' ? safeJsonParse(row.record_json) : row.record_json;
-    const expiresAtMs = Number(row.expires_at_ms);
-    const remainingUses = Number(row.remaining_uses);
-    if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) return null;
-    if (!Number.isSafeInteger(remainingUses) || remainingUses < 0) return null;
-    const record = this.parseRecord({
-      ...(isObject(rawRecord) ? rawRecord : {}),
-      expiresAtMs,
-    });
-    if (!record) return null;
-    return { record, expiresAtMs, remainingUses };
-  }
-
-  async putSession(
-    id: string,
-    record: TRecord,
-    opts: { ttlMs: number; remainingUses: number },
-  ): Promise<void> {
-    const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
-    const expiresAtMs = Date.now() + ttlMs;
-    const remainingUses = Math.max(0, Number(opts.remainingUses) || 0);
-    const storedRecord = { ...record, expiresAtMs };
-    const parsed = this.parseRecord(storedRecord);
-    if (!parsed) throw new Error('Invalid Wallet Session record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO threshold_ed25519_sessions (namespace, kind, session_id, record_json, expires_at_ms, remaining_uses)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (namespace, kind, session_id)
-        DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms, remaining_uses = EXCLUDED.remaining_uses
-      `,
-      [this.namespace, 'wallet_session', id, parsed, expiresAtMs, remainingUses],
-    );
-  }
-
-  async getSession(id: string): Promise<TRecord | null> {
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        SELECT record_json, expires_at_ms, remaining_uses
-        FROM threshold_ed25519_sessions
-        WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
-        LIMIT 1
-      `,
-      [this.namespace, 'wallet_session', id, nowMs],
-    );
-    const parsed = parsePostgresRow({
-      row: rows[0],
-      parser: (row) => this.parsePostgresSessionStatusRow(row),
-    });
-    if (parsed.kind === 'missing') {
-      return null;
-    }
-    if (parsed.kind === 'malformed') {
-      await this.deleteSessionRow(id);
-      return null;
-    }
-    return parsed.value.record;
-  }
-
-  async getSessionStatus(id: string): Promise<WalletSessionStatus<TRecord> | null> {
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        SELECT record_json, expires_at_ms, remaining_uses
-        FROM threshold_ed25519_sessions
-        WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
-        LIMIT 1
-      `,
-      [this.namespace, 'wallet_session', id, nowMs],
-    );
-    const parsed = parsePostgresRow({
-      row: rows[0],
-      parser: (row) => this.parsePostgresSessionStatusRow(row),
-    });
-    if (parsed.kind === 'missing') {
-      return null;
-    }
-    if (parsed.kind === 'malformed') {
-      await this.deleteSessionRow(id);
-      return null;
-    }
-    const reservedUses = await this.activeReservedUses(pool, id, nowMs);
-    return {
-      ...parsed.value,
-      committedRemainingUses: parsed.value.remainingUses,
-      reservedUses,
-      availableUses: Math.max(0, parsed.value.remainingUses - reservedUses),
-      remainingUses: Math.max(0, parsed.value.remainingUses - reservedUses),
-    };
-  }
-
-  private async explainMissing(
-    id: string,
-    nowMs: number,
-  ): Promise<{ code: string; message: string }> {
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT expires_at_ms, remaining_uses
-        FROM threshold_ed25519_sessions
-        WHERE namespace = $1 AND kind = $2 AND session_id = $3
-        LIMIT 1
-      `,
-      [this.namespace, 'wallet_session', id],
-    );
-    const row = rows[0];
-    if (!row) return { code: 'unauthorized', message: 'threshold session expired or invalid' };
-    const expiresAtMs =
-      typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
-    const remainingUses =
-      typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs)
-      return { code: 'unauthorized', message: 'threshold session expired' };
-    if (Number.isFinite(remainingUses) && remainingUses <= 0)
-      return { code: 'unauthorized', message: 'threshold session exhausted' };
-    return { code: 'unauthorized', message: 'threshold session expired or invalid' };
-  }
-
-  async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
-    try {
-      const pool = await this.poolPromise;
-      const nowMs = Date.now();
-      const { rows } = await pool.query(
-        `
-          UPDATE threshold_ed25519_sessions
-          SET remaining_uses = remaining_uses - 1
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4 AND remaining_uses > 0
-          RETURNING remaining_uses
-        `,
-        [this.namespace, 'wallet_session', id, nowMs],
-      );
-      const row = rows[0];
-      if (!row) {
-        const reason = await this.explainMissing(id, nowMs);
-        return { ok: false, code: reason.code, message: reason.message };
-      }
-      const remainingUses =
-        typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
-      if (!Number.isFinite(remainingUses))
-        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
-      return { ok: true, remainingUses };
-    } catch (e: unknown) {
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Failed to consume threshold session',
-      );
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async consumeUseCountOnce(
-    id: string,
-    idempotencyKey: string,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
-    if (!consumeKey) return await this.consumeUseCount(id);
-    const pool = await this.poolPromise;
-    const client =
-      typeof pool.connect === 'function'
-        ? await pool.connect()
-        : {
-            query: pool.query.bind(pool),
-            release: () => undefined,
-          };
-    const nowMs = Date.now();
-    try {
-      await client.query('BEGIN');
-      const { rows } = await client.query(
-        `
-          SELECT expires_at_ms, remaining_uses
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'wallet_session', id],
-      );
-      const row = rows[0];
-      if (!row) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-      }
-      const expiresAtMs =
-        typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
-      const remainingUses =
-        typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
-      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
-      }
-      if (!Number.isFinite(remainingUses)) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
-      }
-
-      const existing = await client.query(
-        `
-          SELECT 1
-          FROM threshold_wallet_session_consumptions
-          WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms > $4
-          LIMIT 1
-        `,
-        [this.namespace, id, consumeKey, nowMs],
-      );
-      if (existing.rows[0]) {
-        await client.query('COMMIT');
-        return { ok: true, remainingUses };
-      }
-      if (remainingUses <= 0) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
-      }
-      const updatedRemainingUses = remainingUses - 1;
-      await client.query(
-        `
-          UPDATE threshold_ed25519_sessions
-          SET remaining_uses = $5
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
-        `,
-        [this.namespace, 'wallet_session', id, nowMs, updatedRemainingUses],
-      );
-      await client.query(
-        `
-          INSERT INTO threshold_wallet_session_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
-          VALUES ($1, $2, $3, $4)
-          ON CONFLICT (namespace, session_id, idempotency_key) DO NOTHING
-        `,
-        [this.namespace, id, consumeKey, expiresAtMs],
-      );
-      await client.query('COMMIT');
-      return { ok: true, remainingUses: updatedRemainingUses };
-    } catch (e: unknown) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Failed to consume threshold session',
-      );
-      return { ok: false, code: 'internal', message: msg };
-    } finally {
-      client.release();
-    }
-  }
-
-  async reserveUseCountOnce(
-    input: WalletSessionBudgetReserveUseCountInput,
-  ): Promise<WalletSessionBudgetReservationResult> {
-    const pool = await this.poolPromise;
-    const client =
-      typeof pool.connect === 'function'
-        ? await pool.connect()
-        : {
-            query: pool.query.bind(pool),
-            release: () => undefined,
-          };
-    const nowMs = Date.now();
-    try {
-      await client.query('BEGIN');
-      const { rows } = await client.query(
-        `
-          SELECT expires_at_ms, remaining_uses
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'wallet_session', input.signingGrantId],
-      );
-      const session = rows[0];
-      if (!session) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-      }
-      const expiresAtMs = Number(session.expires_at_ms);
-      const committedRemainingUses = Number(session.remaining_uses);
-      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
-      }
-      if (!Number.isFinite(committedRemainingUses)) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
-      }
-      const parsed = parseBudgetReservationInput(input, expiresAtMs, nowMs);
-      if (!parsed.ok) {
-        await client.query('ROLLBACK');
-        return parsed;
-      }
-      await this.cleanupExpiredBudgetReservations(client, parsed.value.signingGrantId, nowMs);
-      const existing = await client.query(
-        `
-          SELECT reservation_id, operation_id, request_digest, curve, threshold_session_id,
-                 signing_worker_id,
-                 signature_uses, expires_at_ms, status, remaining_uses_after_commit
-          FROM threshold_wallet_session_budget_reservations
-          WHERE namespace = $1 AND session_id = $2 AND signing_worker_id = $3
-            AND operation_id = $4 AND request_digest = $5
-          FOR UPDATE
-        `,
-        [
-          this.namespace,
-          parsed.value.signingGrantId,
-          parsed.value.signingWorkerId,
-          parsed.value.operationId,
-          parsed.value.requestDigest,
-        ],
-      );
-      const existingRow = existing.rows[0];
-      if (existingRow && existingRow.status === 'reserved') {
-        const reservation = parsePostgresBudgetReservation(
-          parsed.value.signingGrantId,
-          existingRow,
-        );
-        if (!reservation) {
-          await client.query('ROLLBACK');
-          return { ok: false, code: 'internal', message: 'Postgres returned invalid reservation' };
-        }
-        const reservedUses = await this.activeReservedUses(
-          client,
-          parsed.value.signingGrantId,
-          nowMs,
-        );
-        await client.query('COMMIT');
-        return {
-          ok: true,
-          reservation,
-          remainingUses: committedRemainingUses,
-          reservedUses,
-          availableUses: Math.max(0, committedRemainingUses - reservedUses),
-        };
-      }
-      if (existingRow) {
-        await client.query('ROLLBACK');
-        return {
-          ok: false,
-          code: 'wallet_budget_reservation_mismatch',
-          message: 'wallet signing budget operation was already committed',
-        };
-      }
-      const reservedUses = await this.activeReservedUses(
-        client,
-        parsed.value.signingGrantId,
-        nowMs,
-      );
-      const availableUses = Math.max(0, committedRemainingUses - reservedUses);
-      if (availableUses < parsed.value.signatureUses) {
-        await client.query('ROLLBACK');
-        return inMemoryBudgetReservationUnavailable({
-          committedRemainingUses,
-          reservedUses,
-          signatureUses: parsed.value.signatureUses,
-        });
-      }
-      const reservation: WalletSigningBudgetReservation = {
-        kind: 'wallet_signing_budget_reservation_v1',
-        signingGrantId: parsed.value.signingGrantId,
-        curve: parsed.value.curve,
-        thresholdSessionId: parsed.value.thresholdSessionId,
-        signingWorkerId: parsed.value.signingWorkerId,
-        operationId: parsed.value.operationId,
-        requestDigest: parsed.value.requestDigest,
-        signatureUses: parsed.value.signatureUses,
-        reservationId: createBudgetReservationId(),
-        expiresAtMs: parsed.value.expiresAtMs,
-      };
-      await client.query(
-        `
-          INSERT INTO threshold_wallet_session_budget_reservations
-            (namespace, session_id, reservation_id, operation_id, request_digest, curve,
-             threshold_session_id, signing_worker_id, signature_uses, expires_at_ms, status,
-             created_at_ms, updated_at_ms)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
-        `,
-        [
-          this.namespace,
-          reservation.signingGrantId,
-          reservation.reservationId,
-          reservation.operationId,
-          reservation.requestDigest,
-          reservation.curve,
-          reservation.thresholdSessionId,
-          reservation.signingWorkerId,
-          reservation.signatureUses,
-          reservation.expiresAtMs,
-          'reserved',
-          nowMs,
-        ],
-      );
-      await client.query('COMMIT');
-      const nextReservedUses = reservedUses + reservation.signatureUses;
-      return {
-        ok: true,
-        reservation,
-        remainingUses: committedRemainingUses,
-        reservedUses: nextReservedUses,
-        availableUses: Math.max(0, committedRemainingUses - nextReservedUses),
-      };
-    } catch (e: unknown) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      const msg = errorMessage(e) || 'Failed to reserve threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    } finally {
-      client.release();
-    }
-  }
-
-  async commitReservedUseCountOnce(
-    input: WalletSessionBudgetCommitReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    const pool = await this.poolPromise;
-    const client =
-      typeof pool.connect === 'function'
-        ? await pool.connect()
-        : {
-            query: pool.query.bind(pool),
-            release: () => undefined,
-          };
-    const nowMs = Date.now();
-    try {
-      await client.query('BEGIN');
-      const sessionRows = await client.query(
-        `
-          SELECT expires_at_ms, remaining_uses
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'wallet_session', parsed.value.signingGrantId],
-      );
-      const session = sessionRows.rows[0];
-      if (!session) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-      }
-      const sessionExpiresAtMs = Number(session.expires_at_ms);
-      const committedRemainingUses = Number(session.remaining_uses);
-      if (!Number.isFinite(sessionExpiresAtMs) || sessionExpiresAtMs <= nowMs) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
-      }
-      if (!Number.isFinite(committedRemainingUses)) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
-      }
-      const reservationRows = await client.query(
-        `
-          SELECT reservation_id, operation_id, request_digest, curve, threshold_session_id,
-                 signing_worker_id,
-                 signature_uses, expires_at_ms, status, remaining_uses_after_commit
-          FROM threshold_wallet_session_budget_reservations
-          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, parsed.value.signingGrantId, parsed.value.reservationId],
-      );
-      const reservation = reservationRows.rows[0];
-      if (!reservation) {
-        await client.query('ROLLBACK');
-        return budgetReservationExpired();
-      }
-      if (
-        reservation.operation_id !== parsed.value.operationId ||
-        reservation.signing_worker_id !== parsed.value.signingWorkerId ||
-        reservation.request_digest !== parsed.value.requestDigest
-      ) {
-        await client.query('ROLLBACK');
-        return budgetReservationMismatch();
-      }
-      if (reservation.status === 'committed') {
-        const remainingUses = Number(reservation.remaining_uses_after_commit);
-        await client.query('COMMIT');
-        return Number.isFinite(remainingUses)
-          ? { ok: true, remainingUses }
-          : { ok: false, code: 'internal', message: 'Postgres returned invalid committed budget' };
-      }
-      const reservationExpiresAtMs = Number(reservation.expires_at_ms);
-      if (!Number.isFinite(reservationExpiresAtMs) || reservationExpiresAtMs <= nowMs) {
-        await client.query(
-          `
-            DELETE FROM threshold_wallet_session_budget_reservations
-            WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
-          `,
-          [this.namespace, parsed.value.signingGrantId, parsed.value.reservationId],
-        );
-        await client.query('COMMIT');
-        return budgetReservationExpired();
-      }
-      const signatureUses = Number(reservation.signature_uses);
-      if (!Number.isFinite(signatureUses) || signatureUses <= 0) {
-        await client.query('ROLLBACK');
-        return {
-          ok: false,
-          code: 'internal',
-          message: 'Postgres returned invalid reservation uses',
-        };
-      }
-      if (committedRemainingUses < signatureUses) {
-        await client.query('ROLLBACK');
-        return budgetExhausted();
-      }
-      const nextRemainingUses = committedRemainingUses - signatureUses;
-      await client.query(
-        `
-          UPDATE threshold_ed25519_sessions
-          SET remaining_uses = $5
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
-        `,
-        [this.namespace, 'wallet_session', parsed.value.signingGrantId, nowMs, nextRemainingUses],
-      );
-      await client.query(
-        `
-          UPDATE threshold_wallet_session_budget_reservations
-          SET status = $5, remaining_uses_after_commit = $6, updated_at_ms = $7
-          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3 AND status = $4
-        `,
-        [
-          this.namespace,
-          parsed.value.signingGrantId,
-          parsed.value.reservationId,
-          'reserved',
-          'committed',
-          nextRemainingUses,
-          nowMs,
-        ],
-      );
-      await client.query('COMMIT');
-      return { ok: true, remainingUses: nextRemainingUses };
-    } catch (e: unknown) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      const msg = errorMessage(e) || 'Failed to commit threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    } finally {
-      client.release();
-    }
-  }
-
-  async validateReservedUseCount(
-    input: WalletSessionBudgetValidateReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    const pool = await this.poolPromise;
-    const client =
-      typeof pool.connect === 'function'
-        ? await pool.connect()
-        : {
-            query: pool.query.bind(pool),
-            release: () => undefined,
-          };
-    const nowMs = Date.now();
-    try {
-      await client.query('BEGIN');
-      const sessionRows = await client.query(
-        `
-          SELECT expires_at_ms, remaining_uses
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'wallet_session', parsed.value.signingGrantId],
-      );
-      const session = sessionRows.rows[0];
-      if (!session) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-      }
-      const sessionExpiresAtMs = Number(session.expires_at_ms);
-      const committedRemainingUses = Number(session.remaining_uses);
-      if (!Number.isFinite(sessionExpiresAtMs) || sessionExpiresAtMs <= nowMs) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
-      }
-      if (!Number.isFinite(committedRemainingUses)) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
-      }
-      const reservationRows = await client.query(
-        `
-          SELECT reservation_id, operation_id, request_digest, signing_worker_id,
-                 signature_uses, expires_at_ms, status, remaining_uses_after_commit
-          FROM threshold_wallet_session_budget_reservations
-          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, parsed.value.signingGrantId, parsed.value.reservationId],
-      );
-      const reservation = reservationRows.rows[0];
-      if (!reservation) {
-        await client.query('ROLLBACK');
-        return budgetReservationExpired();
-      }
-      if (
-        reservation.operation_id !== parsed.value.operationId ||
-        reservation.signing_worker_id !== parsed.value.signingWorkerId ||
-        reservation.request_digest !== parsed.value.requestDigest
-      ) {
-        await client.query('ROLLBACK');
-        return budgetReservationMismatch();
-      }
-      if (reservation.status === 'committed') {
-        const remainingUses = Number(reservation.remaining_uses_after_commit);
-        await client.query('COMMIT');
-        return Number.isFinite(remainingUses)
-          ? { ok: true, remainingUses }
-          : { ok: false, code: 'internal', message: 'Postgres returned invalid committed budget' };
-      }
-      const reservationExpiresAtMs = Number(reservation.expires_at_ms);
-      if (!Number.isFinite(reservationExpiresAtMs) || reservationExpiresAtMs <= nowMs) {
-        await client.query(
-          `
-            DELETE FROM threshold_wallet_session_budget_reservations
-            WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
-          `,
-          [this.namespace, parsed.value.signingGrantId, parsed.value.reservationId],
-        );
-        await client.query('COMMIT');
-        return budgetReservationExpired();
-      }
-      const signatureUses = Number(reservation.signature_uses);
-      if (!Number.isFinite(signatureUses) || signatureUses <= 0) {
-        await client.query('ROLLBACK');
-        return {
-          ok: false,
-          code: 'internal',
-          message: 'Postgres returned invalid reservation uses',
-        };
-      }
-      if (committedRemainingUses < signatureUses) {
-        await client.query('ROLLBACK');
-        return budgetExhausted();
-      }
-      await client.query('COMMIT');
-      return { ok: true, remainingUses: committedRemainingUses };
-    } catch (e: unknown) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      const msg = errorMessage(e) || 'Failed to validate threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    } finally {
-      client.release();
-    }
-  }
-
-  async releaseReservedUseCount(
-    input: WalletSessionBudgetReleaseReservedUseCountInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const signingGrantId = normalizeBudgetField(input.signingGrantId);
-    const reservationId = normalizeBudgetField(input.reservationId);
-    if (!signingGrantId || !reservationId) {
-      return {
-        ok: false,
-        code: 'invalid_budget_request',
-        message: 'budget release requires signing grant and reservation',
-      };
-    }
-    const pool = await this.poolPromise;
-    const client =
-      typeof pool.connect === 'function'
-        ? await pool.connect()
-        : {
-            query: pool.query.bind(pool),
-            release: () => undefined,
-          };
-    const nowMs = Date.now();
-    try {
-      await client.query('BEGIN');
-      const sessionRows = await client.query(
-        `
-          SELECT expires_at_ms, remaining_uses
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'wallet_session', signingGrantId],
-      );
-      const session = sessionRows.rows[0];
-      if (!session) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-      }
-      const committedRemainingUses = Number(session.remaining_uses);
-      if (!Number.isFinite(committedRemainingUses)) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
-      }
-      const deleted = await client.query(
-        `
-          DELETE FROM threshold_wallet_session_budget_reservations
-          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3 AND status = $4
-          RETURNING 1
-        `,
-        [this.namespace, signingGrantId, reservationId, 'reserved'],
-      );
-      const reservedUses = await this.activeReservedUses(client, signingGrantId, nowMs);
-      await client.query('COMMIT');
-      return {
-        ok: true,
-        released: !!deleted.rows[0],
-        remainingUses: committedRemainingUses,
-        reservedUses,
-        availableUses: Math.max(0, committedRemainingUses - reservedUses),
-      };
-    } catch (e: unknown) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      const msg = errorMessage(e) || 'Failed to release threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    } finally {
-      client.release();
-    }
-  }
-
-  async releaseReservedUseCountForIdentity(
-    input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    const pool = await this.poolPromise;
-    const client =
-      typeof pool.connect === 'function'
-        ? await pool.connect()
-        : {
-            query: pool.query.bind(pool),
-            release: () => undefined,
-          };
-    const nowMs = Date.now();
-    try {
-      await client.query('BEGIN');
-      const sessionRows = await client.query(
-        `
-          SELECT expires_at_ms, remaining_uses
-          FROM threshold_ed25519_sessions
-          WHERE namespace = $1 AND kind = $2 AND session_id = $3
-          FOR UPDATE
-        `,
-        [this.namespace, 'wallet_session', parsed.value.signingGrantId],
-      );
-      const session = sessionRows.rows[0];
-      if (!session) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-      }
-      const committedRemainingUses = Number(session.remaining_uses);
-      if (!Number.isFinite(committedRemainingUses)) {
-        await client.query('ROLLBACK');
-        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
-      }
-      const deleted = await client.query(
-        `
-          DELETE FROM threshold_wallet_session_budget_reservations
-          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
-            AND operation_id = $4 AND request_digest = $5 AND signing_worker_id = $6
-            AND status = $7
-          RETURNING 1
-        `,
-        [
-          this.namespace,
-          parsed.value.signingGrantId,
-          parsed.value.reservationId,
-          parsed.value.operationId,
-          parsed.value.requestDigest,
-          parsed.value.signingWorkerId,
-          'reserved',
-        ],
-      );
-      const reservedUses = await this.activeReservedUses(client, parsed.value.signingGrantId, nowMs);
-      await client.query('COMMIT');
-      return {
-        ok: true,
-        released: !!deleted.rows[0],
-        remainingUses: committedRemainingUses,
-        reservedUses,
-        availableUses: Math.max(0, committedRemainingUses - reservedUses),
-      };
-    } catch (e: unknown) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      const msg = errorMessage(e) || 'Failed to release threshold session budget by identity';
-      return { ok: false, code: 'internal', message: msg };
-    } finally {
-      client.release();
-    }
-  }
-
-  async hasConsumedUseCountOnce(
-    id: string,
-    idempotencyKey: string,
-  ): Promise<WalletSessionConsumedUseResult> {
-    const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
-    if (!consumeKey) return { ok: true, consumed: false };
-    const nowMs = Date.now();
-    try {
-      const pool = await this.poolPromise;
-      const { rows } = await pool.query(
-        `
-          SELECT 1
-          FROM threshold_wallet_session_consumptions
-          WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms > $4
-          LIMIT 1
-        `,
-        [this.namespace, id, consumeKey, nowMs],
-      );
-      return { ok: true, consumed: !!rows[0] };
-    } catch (e: unknown) {
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Failed to check consumed threshold session operation',
-      );
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async reserveReplayGuard(
-    scopeId: string,
-    replayKey: string,
-    expiresAtMs: number,
-  ): Promise<WalletSessionReplayGuardResult> {
-    const scopeKey = normalizeConsumeOnceKey(scopeId);
-    const consumeKey = normalizeConsumeOnceKey(replayKey);
-    if (!scopeKey || !consumeKey) return replayGuardInvalid();
-    const nowMs = Date.now();
-    const ttlMs = replayGuardTtlMs(expiresAtMs, nowMs);
-    if (ttlMs <= 0) return replayGuardExpired();
-    try {
-      const pool = await this.poolPromise;
-      await pool.query(
-        `
-          DELETE FROM threshold_wallet_session_consumptions
-          WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms <= $4
-        `,
-        [this.namespace, scopeKey, consumeKey, nowMs],
-      );
-      const { rows } = await pool.query(
-        `
-          INSERT INTO threshold_wallet_session_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
-          VALUES ($1, $2, $3, $4)
-          ON CONFLICT (namespace, session_id, idempotency_key) DO NOTHING
-          RETURNING 1
-        `,
-        [this.namespace, scopeKey, consumeKey, Math.floor(nowMs + ttlMs)],
-      );
-      if (!rows[0]) return replayGuardDuplicate();
-      return { ok: true };
-    } catch (e: unknown) {
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Failed to reserve replay guard',
-      );
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-}
-
 export function createEd25519WalletSessionStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
@@ -3119,7 +2173,7 @@ export function createEd25519WalletSessionStore(input: {
   });
   if (doStores) return doStores.walletSessionStore;
 
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config = (isObject(input.config) ? input.config : {}) as WalletSessionStoreConfigRecord;
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
@@ -3128,7 +2182,7 @@ export function createEd25519WalletSessionStore(input: {
     toThresholdEd25519PrefixFromBase(basePrefix, 'wallet-session') ||
     '';
 
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-ed25519');
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
@@ -3168,26 +2222,7 @@ export function createEd25519WalletSessionStore(input: {
       parseRecord: parseEd25519WalletSessionRecord,
     });
   }
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ed25519] postgres wallet session store is not supported in this runtime',
-      );
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[threshold-ed25519] postgres wallet session store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info('[threshold-ed25519] Using Postgres store for Wallet Session records');
-    return new PostgresWalletSessionStore<Ed25519WalletSessionRecord>({
-      postgresUrl,
-      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-      parseRecord: parseEd25519WalletSessionRecord,
-    });
-  }
-
-  // Env-shaped config: prefer Redis/Upstash for wallet session storage (TTL + counters) to avoid Postgres churn.
+  // Env-shaped config: prefer Redis/Upstash for wallet session storage (TTL + counters).
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
@@ -3221,17 +2256,6 @@ export function createEd25519WalletSessionStore(input: {
     return new RedisTcpWalletSessionStore<Ed25519WalletSessionRecord>({ redisUrl, keyPrefix: envPrefix || undefined });
   }
 
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[threshold-ed25519] Using Postgres store for Wallet Session records');
-    return new PostgresWalletSessionStore<Ed25519WalletSessionRecord>({ postgresUrl, namespace: envPrefix || '' });
-  }
-
   if (requirePersistent) {
     throw new Error(
       '[threshold-ed25519] Wallet Session records require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
@@ -3252,7 +2276,7 @@ export function createEcdsaWalletSessionStore(input: {
   });
   if (doStores) return doStores.walletSessionStore;
 
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config = (isObject(input.config) ? input.config : {}) as WalletSessionStoreConfigRecord;
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
@@ -3261,7 +2285,7 @@ export function createEcdsaWalletSessionStore(input: {
       toThresholdEcdsaPrefixFromBase(basePrefix, 'wallet-session'),
   );
 
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-ecdsa');
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
@@ -3301,26 +2325,7 @@ export function createEcdsaWalletSessionStore(input: {
       parseRecord: parseEcdsaWalletSessionRecord,
     });
   }
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ecdsa] postgres wallet session store is not supported in this runtime',
-      );
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[threshold-ecdsa] postgres wallet session store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info('[threshold-ecdsa] Using Postgres store for Wallet Session records');
-    return new PostgresWalletSessionStore<EcdsaWalletSessionRecord>({
-      postgresUrl,
-      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-      parseRecord: parseEcdsaWalletSessionRecord,
-    });
-  }
-
-  // Env-shaped config: prefer Redis/Upstash for wallet session storage (TTL + counters) to avoid Postgres churn.
+  // Env-shaped config: prefer Redis/Upstash for wallet session storage (TTL + counters).
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
@@ -3359,21 +2364,6 @@ export function createEcdsaWalletSessionStore(input: {
     });
   }
 
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[threshold-ecdsa] Using Postgres store for Wallet Session records');
-    return new PostgresWalletSessionStore<EcdsaWalletSessionRecord>({
-      postgresUrl,
-      namespace: envPrefix,
-      parseRecord: parseEcdsaWalletSessionRecord,
-    });
-  }
-
   if (requirePersistent) {
     throw new Error(
       '[threshold-ecdsa] Wallet Session records require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
@@ -3394,7 +2384,7 @@ export function createWalletSigningBudgetSessionStore(input: {
   });
   if (doStores) return doStores.walletSessionStore;
 
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config = (isObject(input.config) ? input.config : {}) as WalletSessionStoreConfigRecord;
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
@@ -3403,7 +2393,7 @@ export function createWalletSigningBudgetSessionStore(input: {
     toOptionalTrimmedString(config.THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX) ||
     (baseBudgetPrefix ? `${baseBudgetPrefix}budget:` : DEFAULT_WALLET_SIGNING_BUDGET_SESSION_PREFIX);
 
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-budget');
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
@@ -3447,25 +2437,6 @@ export function createWalletSigningBudgetSessionStore(input: {
       parseRecord: parseWalletSigningBudgetSessionRecord,
     });
   }
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-budget] postgres wallet budget session store is not supported in this runtime',
-      );
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[threshold-budget] postgres wallet budget session store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info('[threshold-budget] Using Postgres store for Wallet Budget Session records');
-    return new PostgresWalletSessionStore<WalletSigningBudgetSessionRecord>({
-      postgresUrl,
-      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-      parseRecord: parseWalletSigningBudgetSessionRecord,
-    });
-  }
-
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
@@ -3502,21 +2473,6 @@ export function createWalletSigningBudgetSessionStore(input: {
     return new RedisTcpWalletSessionStore<WalletSigningBudgetSessionRecord>({
       redisUrl,
       keyPrefix: envPrefix,
-      parseRecord: parseWalletSigningBudgetSessionRecord,
-    });
-  }
-
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-budget] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[threshold-budget] Using Postgres store for Wallet Budget Session records');
-    return new PostgresWalletSessionStore<WalletSigningBudgetSessionRecord>({
-      postgresUrl,
-      namespace: envPrefix,
       parseRecord: parseWalletSigningBudgetSessionRecord,
     });
   }

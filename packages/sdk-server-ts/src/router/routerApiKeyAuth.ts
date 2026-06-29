@@ -81,7 +81,7 @@ export function createRouterApiPublishableKeyAuthAdapter(
   const authenticatePublishableKey = apiKeys.authenticatePublishableKey;
   if (typeof authenticatePublishableKey !== 'function') {
     throw new Error(
-      'ConsoleApiKeyService.authenticatePublishableKey is required for relay publishable key auth',
+      'ConsoleApiKeyService.authenticatePublishableKey is required for Router API publishable key auth',
     );
   }
   return {

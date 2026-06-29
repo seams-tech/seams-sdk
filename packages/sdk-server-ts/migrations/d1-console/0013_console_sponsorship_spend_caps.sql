@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_sponsorship_spend_cap_windows (
+CREATE TABLE IF NOT EXISTS sponsorship_spend_cap_windows (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   environment_id TEXT NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS console_sponsorship_spend_cap_windows (
   CHECK (settled_minor >= 0)
 );
 
-CREATE TABLE IF NOT EXISTS console_sponsorship_spend_cap_reservations (
+CREATE TABLE IF NOT EXISTS sponsorship_spend_cap_reservations (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -66,17 +66,17 @@ CREATE TABLE IF NOT EXISTS console_sponsorship_spend_cap_reservations (
   CHECK (released_minor >= 0)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS console_sponsorship_spend_cap_source_event_idx
-  ON console_sponsorship_spend_cap_reservations (namespace, org_id, source_event_id);
+CREATE UNIQUE INDEX IF NOT EXISTS sponsorship_spend_cap_source_event_idx
+  ON sponsorship_spend_cap_reservations (namespace, org_id, source_event_id);
 
-CREATE INDEX IF NOT EXISTS console_sponsorship_spend_cap_windows_updated_idx
-  ON console_sponsorship_spend_cap_windows (namespace, org_id, updated_at_ms DESC);
+CREATE INDEX IF NOT EXISTS sponsorship_spend_cap_windows_updated_idx
+  ON sponsorship_spend_cap_windows (namespace, org_id, updated_at_ms DESC);
 
-CREATE TRIGGER IF NOT EXISTS console_sponsorship_spend_cap_reservations_reserve_insert
-BEFORE INSERT ON console_sponsorship_spend_cap_reservations
+CREATE TRIGGER IF NOT EXISTS sponsorship_spend_cap_reservations_reserve_insert
+BEFORE INSERT ON sponsorship_spend_cap_reservations
 WHEN NEW.status = 'RESERVED'
 BEGIN
-  INSERT INTO console_sponsorship_spend_cap_windows (
+  INSERT INTO sponsorship_spend_cap_windows (
     namespace,
     org_id,
     environment_id,
@@ -125,7 +125,7 @@ BEGIN
   SELECT CASE
     WHEN (
       SELECT reserved_minor + settled_minor
-        FROM console_sponsorship_spend_cap_windows
+        FROM sponsorship_spend_cap_windows
        WHERE namespace = NEW.namespace
          AND org_id = NEW.org_id
          AND environment_id = NEW.environment_id
@@ -139,7 +139,7 @@ BEGIN
     THEN RAISE(ABORT, 'sponsorship_spend_cap_exceeded')
   END;
 
-  UPDATE console_sponsorship_spend_cap_windows
+  UPDATE sponsorship_spend_cap_windows
      SET window_end_ms = NEW.window_end_ms,
          cap_minor = NEW.cap_minor,
          reserved_minor = reserved_minor + NEW.requested_minor,
@@ -155,14 +155,14 @@ BEGIN
      AND window_start_ms = NEW.window_start_ms;
 END;
 
-CREATE TRIGGER IF NOT EXISTS console_sponsorship_spend_cap_reservations_settle_update
-BEFORE UPDATE OF status ON console_sponsorship_spend_cap_reservations
+CREATE TRIGGER IF NOT EXISTS sponsorship_spend_cap_reservations_settle_update
+BEFORE UPDATE OF status ON sponsorship_spend_cap_reservations
 WHEN OLD.status = 'RESERVED' AND NEW.status = 'SETTLED'
 BEGIN
   SELECT CASE
     WHEN NOT EXISTS (
       SELECT 1
-        FROM console_sponsorship_spend_cap_windows
+        FROM sponsorship_spend_cap_windows
        WHERE namespace = OLD.namespace
          AND org_id = OLD.org_id
          AND environment_id = OLD.environment_id
@@ -179,7 +179,7 @@ BEGIN
   SELECT CASE
     WHEN (
       SELECT reserved_minor
-        FROM console_sponsorship_spend_cap_windows
+        FROM sponsorship_spend_cap_windows
        WHERE namespace = OLD.namespace
          AND org_id = OLD.org_id
          AND environment_id = OLD.environment_id
@@ -196,7 +196,7 @@ BEGIN
   SELECT CASE
     WHEN (
       SELECT reserved_minor + settled_minor - OLD.requested_minor + NEW.settled_minor
-        FROM console_sponsorship_spend_cap_windows
+        FROM sponsorship_spend_cap_windows
        WHERE namespace = OLD.namespace
          AND org_id = OLD.org_id
          AND environment_id = OLD.environment_id
@@ -208,7 +208,7 @@ BEGIN
          AND window_start_ms = OLD.window_start_ms
     ) > (
       SELECT cap_minor
-        FROM console_sponsorship_spend_cap_windows
+        FROM sponsorship_spend_cap_windows
        WHERE namespace = OLD.namespace
          AND org_id = OLD.org_id
          AND environment_id = OLD.environment_id
@@ -222,7 +222,7 @@ BEGIN
     THEN RAISE(ABORT, 'sponsorship_spend_cap_exceeded')
   END;
 
-  UPDATE console_sponsorship_spend_cap_windows
+  UPDATE sponsorship_spend_cap_windows
      SET reserved_minor = reserved_minor - OLD.requested_minor,
          settled_minor = settled_minor + NEW.settled_minor,
          updated_at_ms = NEW.updated_at_ms
@@ -237,14 +237,14 @@ BEGIN
      AND window_start_ms = OLD.window_start_ms;
 END;
 
-CREATE TRIGGER IF NOT EXISTS console_sponsorship_spend_cap_reservations_release_update
-BEFORE UPDATE OF status ON console_sponsorship_spend_cap_reservations
+CREATE TRIGGER IF NOT EXISTS sponsorship_spend_cap_reservations_release_update
+BEFORE UPDATE OF status ON sponsorship_spend_cap_reservations
 WHEN OLD.status = 'RESERVED' AND NEW.status = 'RELEASED'
 BEGIN
   SELECT CASE
     WHEN NOT EXISTS (
       SELECT 1
-        FROM console_sponsorship_spend_cap_windows
+        FROM sponsorship_spend_cap_windows
        WHERE namespace = OLD.namespace
          AND org_id = OLD.org_id
          AND environment_id = OLD.environment_id
@@ -261,7 +261,7 @@ BEGIN
   SELECT CASE
     WHEN (
       SELECT reserved_minor
-        FROM console_sponsorship_spend_cap_windows
+        FROM sponsorship_spend_cap_windows
        WHERE namespace = OLD.namespace
          AND org_id = OLD.org_id
          AND environment_id = OLD.environment_id
@@ -275,7 +275,7 @@ BEGIN
     THEN RAISE(ABORT, 'sponsorship_spend_cap_inconsistent')
   END;
 
-  UPDATE console_sponsorship_spend_cap_windows
+  UPDATE sponsorship_spend_cap_windows
      SET reserved_minor = reserved_minor - OLD.requested_minor,
          updated_at_ms = NEW.updated_at_ms
    WHERE namespace = OLD.namespace

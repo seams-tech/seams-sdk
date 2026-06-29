@@ -1,5 +1,6 @@
 import { base64Decode, base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { MISSING_SIGNING_ROOT_KEK_CODE } from './signingRootSecretShareWires';
 import type {
   SigningRootSecretShareKekResolutionInput,
   SigningRootSecretShareKekResolver,
@@ -10,6 +11,21 @@ export type SigningRootEncodedKekMaterialEncoding = 'base64url' | 'base64' | 'he
 export type CloudflareSecretsStoreSecretBinding = {
   get(): Promise<string | null>;
 };
+
+export class MissingSigningRootKekError extends Error {
+  readonly code = MISSING_SIGNING_ROOT_KEK_CODE;
+
+  constructor(kekId: string, source: string) {
+    super(`${source} missing signing-root KEK for kekId=${kekId}`);
+    this.name = 'MissingSigningRootKekError';
+  }
+}
+
+export function isMissingSigningRootKekError(error: unknown): error is MissingSigningRootKekError {
+  if (error instanceof MissingSigningRootKekError) return true;
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  return error.code === MISSING_SIGNING_ROOT_KEK_CODE;
+}
 
 export type SigningRootExternalKmsKekResolutionResult =
   | {
@@ -107,10 +123,12 @@ async function resolveCloudflareSecretsStoreKek(
   const kekId = requireKekId(input.kekId);
   const binding = provider.secretsByKekId[kekId];
   if (!binding) {
-    throw new Error(`No Cloudflare Secrets Store binding configured for kekId=${kekId}`);
+    throw new MissingSigningRootKekError(kekId, 'Cloudflare Secrets Store binding');
   }
   const encoded = toOptionalTrimmedString(await binding.get());
-  if (!encoded) throw new Error(`Cloudflare Secrets Store returned empty KEK for kekId=${kekId}`);
+  if (!encoded) {
+    throw new MissingSigningRootKekError(kekId, 'Cloudflare Secrets Store secret');
+  }
   return decodeEncodedKekMaterial(encoded, provider.encoding);
 }
 
@@ -120,7 +138,7 @@ function resolveWorkerSecretKek(
 ): Uint8Array {
   const kekId = requireKekId(input.kekId);
   const encoded = toOptionalTrimmedString(provider.workerSecretsByKekId[kekId]);
-  if (!encoded) throw new Error(`No Worker secret configured for kekId=${kekId}`);
+  if (!encoded) throw new MissingSigningRootKekError(kekId, 'Worker secret');
   return decodeEncodedKekMaterial(encoded, provider.encoding);
 }
 

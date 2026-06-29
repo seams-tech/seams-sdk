@@ -1,4 +1,5 @@
 import type {
+  CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
   CreateRegistrationIntentRequest,
   WalletAddAuthMethodStartRequest,
@@ -13,24 +14,33 @@ import {
   type EmailOtpRegistrationProof,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+
+function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid type fixture domain id');
+  return result.value;
+}
+
+const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 
 const registrationIntent = {
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   authMethod: {
     kind: 'passkey',
+    rpId: webAuthnRpId,
   },
   signerSelection: {
-    mode: 'ed25519_only',
-    ed25519: {
-      accountProvisioning: implicitNearAccountProvisioning(),
-      signerSlot: 1,
-      participantIds: [1, 2],
-      keyPurpose: 'near_tx',
-      keyVersion: 'threshold-ed25519-hss-v1',
-      derivationVersion: 1,
-    },
+    kind: 'signer_set',
+    signers: [
+      {
+        kind: 'near_ed25519',
+        accountProvisioning: implicitNearAccountProvisioning(),
+        signerSlot: 1,
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+    ],
   },
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
@@ -38,9 +48,9 @@ const registrationIntent = {
 const addAuthMethodIntent = {
   version: 'add_auth_method_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   authMethod: {
     kind: 'passkey',
+    rpId: webAuthnRpId,
   },
   nonceB64u: 'nonce',
 } satisfies AddAuthMethodIntentV1;
@@ -71,7 +81,8 @@ const rawRegistrationIntentBody = {
     kind: 'passkey' as const,
   },
   signerSelection: {
-    mode: 'ed25519_only' as const,
+    kind: 'signer_set' as const,
+    signers: [] as const,
   },
 };
 
@@ -79,7 +90,15 @@ const rawAddSignerIntentBody = {
   walletId: 'wallet_alice',
   rpId: 'wallet.example.test',
   signerSelection: {
-    mode: 'ed25519_only' as const,
+    mode: 'ed25519' as const,
+  },
+};
+
+const rawAddAuthMethodIntentBody = {
+  walletId: 'wallet_alice',
+  rpId: 'wallet.example.test',
+  authMethod: {
+    kind: 'passkey' as const,
   },
 };
 
@@ -114,7 +133,7 @@ const invalidAddAuthMethodStart: WalletAddAuthMethodStartRequest = {
     policy: {
       permission: 'wallet_auth_method_provision',
       walletId: walletIdFromString('wallet_alice'),
-      authMethod: { kind: 'passkey' },
+      authMethod: { kind: 'passkey', rpId: webAuthnRpId },
       expiresAtMs: 1,
     },
   },
@@ -131,5 +150,10 @@ void invalidCreateRegistrationIntentRequest;
 // @ts-expect-error raw route bodies must be normalized before createAddSignerIntent.
 const invalidCreateAddSignerIntentRequest: CreateAddSignerIntentRequest = rawAddSignerIntentBody;
 void invalidCreateAddSignerIntentRequest;
+
+// @ts-expect-error raw route bodies must be normalized before createAddAuthMethodIntent.
+const invalidCreateAddAuthMethodIntentRequest: CreateAddAuthMethodIntentRequest =
+  rawAddAuthMethodIntentBody;
+void invalidCreateAddAuthMethodIntentRequest;
 
 export {};

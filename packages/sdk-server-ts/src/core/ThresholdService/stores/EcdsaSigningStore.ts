@@ -7,16 +7,6 @@ import type {
 import { RedisTcpClient, UpstashRedisRestClient, redisGetdelJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  getPostgresPool,
-  getPostgresUrlFromConfig,
-  parsePostgresRow,
-} from '../../../storage/postgres';
-import {
-  parseCurrentRouterAbEcdsaHssPoolFillSessionRecord,
-  parseCurrentRouterAbEcdsaHssPoolFillSessionRow,
-  parseCurrentRouterAbEcdsaHssServerPresignatureRecord,
-} from '../postgresRecords';
-import {
   isObject,
   parseRouterAbEcdsaHssPoolFillSessionRecord,
   parseRouterAbEcdsaHssServerPresignatureShareRecord,
@@ -24,6 +14,7 @@ import {
   toThresholdEcdsaPrefixFromBase,
 } from '../validation';
 import { createCloudflareDurableObjectThresholdEcdsaStores } from './CloudflareDurableObjectStore';
+import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
 import { secureRandomIdFragment } from '../secureRandomId';
 
 export type RouterAbEcdsaHssServerPresignatureShareRecord = {
@@ -102,6 +93,8 @@ export interface RouterAbEcdsaHssPresignaturePool {
   discard(relayerKeyId: string, presignatureId: string): Promise<void>;
   put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void>;
 }
+
+type ThresholdEcdsaSigningStoreConfigRecord = Record<string, unknown>;
 
 export class InMemoryRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPoolFillSessionStore {
   private readonly map = new Map<
@@ -511,203 +504,6 @@ class RedisTcpRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPo
     if (!key) return;
     const resp = await this.client.send(['DEL', this.key(key)]);
     if (resp.type === 'error') throw new Error(`Redis DEL error: ${resp.value}`);
-  }
-}
-
-class PostgresRouterAbEcdsaHssPoolFillSessionStore implements RouterAbEcdsaHssPoolFillSessionStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  private async deleteMalformedSession(id: string): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        DELETE FROM threshold_ecdsa_presign_sessions
-        WHERE namespace = $1 AND presign_session_id = $2
-      `,
-      [this.namespace, id],
-    );
-  }
-
-  async createSession(
-    id: string,
-    record: RouterAbEcdsaHssPoolFillSessionRecord,
-    ttlMs: number,
-  ): Promise<{ ok: true } | { ok: false; code: 'exists' }> {
-    const key = toOptionalTrimmedString(id);
-    if (!key) throw new Error('Missing presignSessionId');
-    const parsed = parseCurrentRouterAbEcdsaHssPoolFillSessionRecord(record);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
-    const ttl = Math.max(0, Number(ttlMs) || 0);
-    const nowMs = Date.now();
-    const expiresAtMs = nowMs + ttl;
-    const storedRecord = {
-      ...parsed,
-      expiresAtMs,
-      updatedAtMs: nowMs,
-    } satisfies RouterAbEcdsaHssPoolFillSessionRecord;
-    const pool = await this.poolPromise;
-    const result = await pool.query(
-      `
-        INSERT INTO threshold_ecdsa_presign_sessions (
-          namespace,
-          presign_session_id,
-          record_json,
-          stage,
-          version,
-          expires_at_ms,
-          updated_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (namespace, presign_session_id) DO NOTHING
-        RETURNING presign_session_id
-      `,
-      [
-        this.namespace,
-        key,
-        storedRecord,
-        storedRecord.stage,
-        storedRecord.version,
-        expiresAtMs,
-        storedRecord.updatedAtMs,
-      ],
-    );
-    if (Array.isArray(result.rows) && result.rows.length > 0) {
-      return { ok: true };
-    }
-    return { ok: false, code: 'exists' };
-  }
-
-  async getSession(id: string): Promise<RouterAbEcdsaHssPoolFillSessionRecord | null> {
-    const key = toOptionalTrimmedString(id);
-    if (!key) return null;
-    const nowMs = Date.now();
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json, expires_at_ms
-        FROM threshold_ecdsa_presign_sessions
-        WHERE namespace = $1 AND presign_session_id = $2
-      `,
-      [this.namespace, key],
-    );
-    const parsedRow = parsePostgresRow({
-      row: rows[0],
-      parser: (row) =>
-        parseCurrentRouterAbEcdsaHssPoolFillSessionRow({
-          recordJson: row.record_json,
-          expiresAtMs: row.expires_at_ms,
-        }),
-    });
-    if (parsedRow.kind === 'missing') {
-      return null;
-    }
-    if (parsedRow.kind === 'malformed') {
-      await this.deleteMalformedSession(key);
-      return null;
-    }
-    if (parsedRow.value.expiresAtMs <= nowMs) return null;
-    return parsedRow.value.record;
-  }
-
-  async advanceSessionCas(input: {
-    id: string;
-    expectedVersion: number;
-    nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
-    ttlMs: number;
-  }): Promise<RouterAbEcdsaHssPoolFillSessionCasResult> {
-    const key = toOptionalTrimmedString(input.id);
-    if (!key) return { ok: false, code: 'not_found' };
-    const expectedVersion = Math.floor(Number(input.expectedVersion));
-    if (!Number.isFinite(expectedVersion) || expectedVersion < 1) {
-      return { ok: false, code: 'version_mismatch' };
-    }
-    const parsed = parseCurrentRouterAbEcdsaHssPoolFillSessionRecord(input.nextRecord);
-    if (!parsed) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record');
-
-    const ttl = Math.max(0, Number(input.ttlMs) || 0);
-    const nowMs = Date.now();
-    const expiresAtMs = nowMs + ttl;
-    const storedRecord = {
-      ...parsed,
-      expiresAtMs,
-      updatedAtMs: nowMs,
-    } satisfies RouterAbEcdsaHssPoolFillSessionRecord;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        UPDATE threshold_ecdsa_presign_sessions
-        SET
-          record_json = $4,
-          stage = $5,
-          version = $6,
-          expires_at_ms = $7,
-          updated_at_ms = $8
-        WHERE namespace = $1
-          AND presign_session_id = $2
-          AND version = $3
-          AND expires_at_ms > $8
-        RETURNING record_json, expires_at_ms
-      `,
-      [
-        this.namespace,
-        key,
-        expectedVersion,
-        storedRecord,
-        storedRecord.stage,
-        storedRecord.version,
-        expiresAtMs,
-        nowMs,
-      ],
-    );
-    const row = rows[0] as { record_json?: unknown; expires_at_ms?: unknown } | undefined;
-    if (row) {
-      const updated = parseCurrentRouterAbEcdsaHssPoolFillSessionRow({
-        recordJson: row.record_json,
-        expiresAtMs: row.expires_at_ms,
-      });
-      if (!updated) throw new Error('Invalid Router A/B ECDSA-HSS pool-fill session record after CAS');
-      return { ok: true, record: updated.record };
-    }
-
-    const existing = await pool.query(
-      `
-        SELECT version, expires_at_ms
-        FROM threshold_ecdsa_presign_sessions
-        WHERE namespace = $1 AND presign_session_id = $2
-      `,
-      [this.namespace, key],
-    );
-    const existingRow = existing.rows[0] as
-      | { version?: unknown; expires_at_ms?: unknown }
-      | undefined;
-    if (!existingRow) return { ok: false, code: 'not_found' };
-    const existingExpiresAtMs =
-      typeof existingRow.expires_at_ms === 'number'
-        ? existingRow.expires_at_ms
-        : Number(existingRow.expires_at_ms);
-    if (!Number.isFinite(existingExpiresAtMs) || existingExpiresAtMs <= nowMs) {
-      return { ok: false, code: 'expired' };
-    }
-    return { ok: false, code: 'version_mismatch' };
-  }
-
-  async deleteSession(id: string): Promise<void> {
-    const key = toOptionalTrimmedString(id);
-    if (!key) return;
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        DELETE FROM threshold_ecdsa_presign_sessions
-        WHERE namespace = $1 AND presign_session_id = $2
-      `,
-      [this.namespace, key],
-    );
   }
 }
 
@@ -1135,199 +931,6 @@ class RedisTcpRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresig
   }
 }
 
-class PostgresRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresignaturePool {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-  private readonly reservationTtlMs: number;
-
-  constructor(input: { postgresUrl: string; namespace: string; reservationTtlMs?: number }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-    this.reservationTtlMs = Math.max(1, Math.floor(Number(input.reservationTtlMs) || 120_000));
-  }
-
-  private async deleteMalformedPresignature(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        DELETE FROM threshold_ecdsa_presignatures
-        WHERE namespace = $1 AND relayer_key_id = $2 AND presignature_id = $3
-      `,
-      [this.namespace, relayerKeyId, presignatureId],
-    );
-  }
-
-  async put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void> {
-    const parsed = parseCurrentRouterAbEcdsaHssServerPresignatureRecord(record);
-    if (!parsed) throw new Error('Invalid threshold-ecdsa presignature record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO threshold_ecdsa_presignatures (
-          namespace,
-          relayer_key_id,
-          presignature_id,
-          state,
-          record_json,
-          created_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (namespace, relayer_key_id, presignature_id) DO NOTHING
-      `,
-      [
-        this.namespace,
-        parsed.relayerKeyId,
-        parsed.presignatureId,
-        'available',
-        parsed,
-        parsed.createdAtMs,
-      ],
-    );
-  }
-
-  async reserve(
-    relayerKeyId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
-    const relayer = toOptionalTrimmedString(relayerKeyId);
-    if (!relayer) return null;
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const reserveExpiresAtMs = nowMs + this.reservationTtlMs;
-    const { rows } = await pool.query(
-      `
-        WITH expired AS (
-          DELETE FROM threshold_ecdsa_presignatures
-          WHERE namespace = $1 AND relayer_key_id = $2 AND state = 'reserved' AND reserve_expires_at_ms < $3
-        ),
-        picked AS (
-          SELECT presignature_id
-          FROM threshold_ecdsa_presignatures
-          WHERE namespace = $1 AND relayer_key_id = $2 AND state = 'available'
-          ORDER BY created_at_ms ASC
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        )
-        UPDATE threshold_ecdsa_presignatures p
-        SET state = 'reserved', reserved_at_ms = $3, reserve_expires_at_ms = $4
-        FROM picked
-        WHERE p.namespace = $1 AND p.relayer_key_id = $2 AND p.presignature_id = picked.presignature_id
-        RETURNING p.record_json, p.presignature_id
-      `,
-      [this.namespace, relayer, nowMs, reserveExpiresAtMs],
-    );
-    const parsed = parsePostgresRow({
-      row: rows[0],
-      parser: (row) => parseCurrentRouterAbEcdsaHssServerPresignatureRecord(row.record_json),
-    });
-    if (parsed.kind === 'missing') {
-      return null;
-    }
-    if (parsed.kind === 'malformed') {
-      const presignatureId = toOptionalTrimmedString(
-        (rows[0] as { presignature_id?: unknown } | undefined)?.presignature_id,
-      );
-      if (presignatureId) {
-        await this.deleteMalformedPresignature(relayer, presignatureId);
-      }
-      return null;
-    }
-    return parsed.value;
-  }
-
-  async reserveById(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
-    const relayer = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!relayer || !id) return null;
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const reserveExpiresAtMs = nowMs + this.reservationTtlMs;
-    const { rows } = await pool.query(
-      `
-        WITH expired AS (
-          DELETE FROM threshold_ecdsa_presignatures
-          WHERE namespace = $1 AND relayer_key_id = $2 AND state = 'reserved' AND reserve_expires_at_ms < $4
-        ),
-        picked AS (
-          SELECT presignature_id
-          FROM threshold_ecdsa_presignatures
-          WHERE namespace = $1 AND relayer_key_id = $2 AND state = 'available' AND presignature_id = $3
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        )
-        UPDATE threshold_ecdsa_presignatures p
-        SET state = 'reserved', reserved_at_ms = $4, reserve_expires_at_ms = $5
-        FROM picked
-        WHERE p.namespace = $1 AND p.relayer_key_id = $2 AND p.presignature_id = picked.presignature_id
-        RETURNING p.record_json, p.presignature_id
-      `,
-      [this.namespace, relayer, id, nowMs, reserveExpiresAtMs],
-    );
-    const parsed = parsePostgresRow({
-      row: rows[0],
-      parser: (row) => parseCurrentRouterAbEcdsaHssServerPresignatureRecord(row.record_json),
-    });
-    if (parsed.kind === 'missing') {
-      return null;
-    }
-    if (parsed.kind === 'malformed') {
-      const presignatureId = toOptionalTrimmedString(
-        (rows[0] as { presignature_id?: unknown } | undefined)?.presignature_id,
-      );
-      if (presignatureId) {
-        await this.deleteMalformedPresignature(relayer, presignatureId);
-      }
-      return null;
-    }
-    return parsed.value;
-  }
-
-  async consume(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaHssServerPresignatureShareRecord | null> {
-    const relayer = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!relayer || !id) return null;
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        DELETE FROM threshold_ecdsa_presignatures
-        WHERE namespace = $1 AND relayer_key_id = $2 AND presignature_id = $3 AND state = 'reserved'
-        RETURNING record_json, reserve_expires_at_ms
-      `,
-      [this.namespace, relayer, id],
-    );
-    const row = rows[0] as { record_json?: unknown; reserve_expires_at_ms?: unknown } | undefined;
-    const reserveExpiresAtMs =
-      typeof row?.reserve_expires_at_ms === 'number'
-        ? row.reserve_expires_at_ms
-        : Number(row?.reserve_expires_at_ms);
-    if (Number.isFinite(reserveExpiresAtMs) && reserveExpiresAtMs < nowMs) return null;
-    return parseCurrentRouterAbEcdsaHssServerPresignatureRecord(row?.record_json);
-  }
-
-  async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
-    const relayer = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!relayer || !id) return;
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        DELETE FROM threshold_ecdsa_presignatures
-        WHERE namespace = $1 AND relayer_key_id = $2 AND presignature_id = $3 AND state = 'reserved'
-      `,
-      [this.namespace, relayer, id],
-    );
-  }
-}
-
 export function createThresholdEcdsaSigningStores(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
@@ -1356,11 +959,11 @@ export function createThresholdEcdsaSigningStores(input: {
       toThresholdEcdsaPrefixFromBase(basePrefix, 'presign'),
   );
 
-  const kind = toOptionalTrimmedString(config.kind);
+  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-ecdsa');
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
-        '[threshold-ecdsa] In-memory presign stores are not supported in this runtime; configure Redis/Postgres or Durable Objects',
+        '[threshold-ecdsa] In-memory presign stores are not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
       );
     }
     return {
@@ -1425,30 +1028,6 @@ export function createThresholdEcdsaSigningStores(input: {
     };
   }
 
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ecdsa] postgres presign stores are not supported in this runtime',
-      );
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error('[threshold-ecdsa] postgres selected but POSTGRES_URL is not set');
-    input.logger.warn(
-      '[threshold-ecdsa] Using Postgres for presign hot path; for lower presign p95/p99, prefer Upstash/Redis (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN or REDIS_URL)',
-    );
-    return {
-      presignaturePool: new PostgresRouterAbEcdsaHssPresignaturePool({
-        postgresUrl,
-        namespace: presignPrefix,
-      }),
-      poolFillSessionStore: new PostgresRouterAbEcdsaHssPoolFillSessionStore({
-        postgresUrl,
-        namespace: presignPrefix,
-      }),
-    };
-  }
-
   // Env-shaped config: prefer Redis/Upstash for presign pools because records churn heavily.
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
@@ -1498,29 +1077,6 @@ export function createThresholdEcdsaSigningStores(input: {
       poolFillSessionStore: new RedisTcpRouterAbEcdsaHssPoolFillSessionStore({
         redisUrl,
         keyPrefix: presignPrefix,
-      }),
-    };
-  }
-
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[threshold-ecdsa] Using Postgres for presign pool');
-    input.logger.warn(
-      '[threshold-ecdsa] Postgres hot-path selected for threshold-ecdsa presign; for lower tail latency, prefer Upstash/Redis for these stores',
-    );
-    return {
-      presignaturePool: new PostgresRouterAbEcdsaHssPresignaturePool({
-        postgresUrl,
-        namespace: presignPrefix,
-      }),
-      poolFillSessionStore: new PostgresRouterAbEcdsaHssPoolFillSessionStore({
-        postgresUrl,
-        namespace: presignPrefix,
       }),
     };
   }

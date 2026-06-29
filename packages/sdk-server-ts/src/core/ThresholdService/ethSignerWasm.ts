@@ -20,6 +20,10 @@ const ETH_SIGNER_WASM_PATH_CANDIDATES = [
   '../../../../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
 ];
 
+type EthSignerWasmModuleImport = {
+  readonly default?: WebAssembly.Module;
+};
+
 let ethSignerWasmInitPromise: Promise<void> | null = null;
 let ethSignerWasmReady = false;
 
@@ -49,6 +53,23 @@ function getEthSignerWasmUrls(): URL[] {
   return resolved;
 }
 
+async function loadBundledEthSignerWasmModule(): Promise<WebAssembly.Module | null> {
+  try {
+    const imported = (await import(
+      '../../../../../wasm/eth_signer/pkg/eth_signer_bg.wasm'
+    )) as EthSignerWasmModuleImport;
+    return imported.default instanceof WebAssembly.Module ? imported.default : null;
+  } catch {
+    return null;
+  }
+}
+
+async function initEthSignerFromCompiledModule(module: WebAssembly.Module): Promise<void> {
+  await initEthSignerWasm({ module_or_path: module as unknown as InitInput });
+  init_eth_signer();
+  ethSignerWasmReady = true;
+}
+
 export async function ensureEthSignerWasm(): Promise<void> {
   if (ethSignerWasmInitPromise) return ethSignerWasmInitPromise;
   ethSignerWasmInitPromise = (async () => {
@@ -63,9 +84,7 @@ export async function ensureEthSignerWasm(): Promise<void> {
           const ab = new ArrayBuffer(bytes.byteLength);
           new Uint8Array(ab).set(bytes);
           const module = await WebAssembly.compile(ab);
-          await initEthSignerWasm({ module_or_path: module as unknown as InitInput });
-          init_eth_signer();
-          ethSignerWasmReady = true;
+          await initEthSignerFromCompiledModule(module);
           return;
         } catch {
           // try next
@@ -77,6 +96,15 @@ export async function ensureEthSignerWasm(): Promise<void> {
     }
 
     let lastErr: unknown = null;
+    const bundledModule = await loadBundledEthSignerWasmModule();
+    if (bundledModule) {
+      try {
+        await initEthSignerFromCompiledModule(bundledModule);
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
     for (const url of urls) {
       try {
         await initEthSignerWasm({ module_or_path: url as unknown as InitInput });

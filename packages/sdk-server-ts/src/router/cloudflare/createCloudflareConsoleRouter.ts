@@ -132,8 +132,13 @@ import {
 import type { ConsoleObservabilityIngestionService } from '../../console/observability/ingestionService';
 import type { ConsoleObservabilityService } from '../../console/observability/service';
 import { isConsoleObservabilityError } from '../../console/observability/errors';
-import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
-import { authenticateConsoleRequest, hasConsoleRole } from '../console';
+import type { ConsoleRouterOptions } from '../console';
+import {
+  authenticateConsoleRequest,
+  hasConsoleRole,
+  type ConsoleAuthClaims,
+  type ConsoleAuthResult,
+} from '../consoleAuth';
 import {
   emitConsoleApprovalFailureObservabilityEvent,
   emitConsoleBillingFailureObservabilityEvent,
@@ -188,15 +193,11 @@ import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types
 import { headersToRecord, json, readJson } from './http';
 import {
   type CloudflareTenantStorageRoute,
+  type TenantStorageRouteDiagnostic,
   type TenantStorageRouteResolver,
+  tenantStorageRouteDiagnostic,
 } from '../../storage/tenantRoute';
-
-type CloudflareConsoleTenantStorageRouteDiagnostic = {
-  readonly backendFamily: 'cloudflare_d1_do';
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly routeVersion: number;
-};
+import { parseOrgId } from '@shared/utils/domainIds';
 
 export interface CloudflareConsoleContext {
   request: Request;
@@ -231,7 +232,7 @@ export interface CloudflareConsoleContext {
   tenantStorageRouteResolver: TenantStorageRouteResolver | null;
   tenantStorageNamespace: string | null;
   tenantStorageRoute?: CloudflareTenantStorageRoute;
-  tenantStorageRouteDiagnostic?: CloudflareConsoleTenantStorageRouteDiagnostic;
+  tenantStorageRouteDiagnostic?: TenantStorageRouteDiagnostic;
   authClaims?: ConsoleAuthClaims;
 }
 
@@ -806,17 +807,34 @@ function resolveTenantStorageRouteForConsoleRequest(
       { status: 500 },
     );
   }
+  const orgId = parseOrgId(claims.orgId);
+  if (!orgId.ok) {
+    return json(
+      {
+        ok: false,
+        code: 'tenant_storage_org_id_invalid',
+        message: orgId.error.message,
+      },
+      { status: 500 },
+    );
+  }
   const route = ctx.tenantStorageRouteResolver.resolveTenantStorageRoute({
     namespace: ctx.tenantStorageNamespace,
-    orgId: claims.orgId,
+    orgId: orgId.value,
   });
+  ctx.tenantStorageRouteDiagnostic = tenantStorageRouteDiagnostic(route);
+  if (route.kind !== 'cloudflare_d1_do') {
+    return json(
+      {
+        ok: false,
+        code: 'tenant_storage_backend_not_supported_in_cloudflare_runtime',
+        message: 'Cloudflare console runtime only accepts cloudflare_d1_do tenant routes',
+        route: ctx.tenantStorageRouteDiagnostic,
+      },
+      { status: 500 },
+    );
+  }
   ctx.tenantStorageRoute = route;
-  ctx.tenantStorageRouteDiagnostic = {
-    backendFamily: 'cloudflare_d1_do',
-    namespace: route.namespace,
-    orgId: route.orgId,
-    routeVersion: route.routeVersion,
-  };
   return null;
 }
 

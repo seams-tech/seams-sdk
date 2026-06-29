@@ -55,7 +55,7 @@ export function createCloudflareDurableObjectThresholdSigningService(input: {
     logger,
   });
   if (!ed25519Stores || !walletBudgetStores || !ecdsaStores) {
-    throw new Error('Cloudflare D1 relay thresholdStore must use kind: "cloudflare-do"');
+    throw new Error('Cloudflare D1 Router API thresholdStore must use kind: "cloudflare-do"');
   }
   const ensureReady = async (): Promise<void> => {
     await input.auth.getRelayerAccount();

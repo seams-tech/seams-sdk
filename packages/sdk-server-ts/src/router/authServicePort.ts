@@ -34,6 +34,7 @@ export type CloudflareRouterApiAuthServiceMethod =
   | 'listWalletEcdsaKeyFactsInventory'
   | 'listWebAuthnAuthenticatorsForUser'
   | 'markEmailOtpStrongAuthSatisfied'
+  | 'prepareWalletRegistration'
   | 'readActiveEmailOtpEnrollment'
   | 'readEmailOtpEnrollment'
   | 'readEmailOtpOutboxEntry'

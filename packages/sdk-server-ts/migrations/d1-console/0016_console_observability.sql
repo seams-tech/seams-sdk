@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_observability_events (
+CREATE TABLE IF NOT EXISTS observability_events (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS console_observability_events (
   CHECK (redaction_applied IN (0, 1))
 );
 
-CREATE TABLE IF NOT EXISTS console_observability_event_dedup (
+CREATE TABLE IF NOT EXISTS observability_event_dedup (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS console_observability_event_dedup (
   PRIMARY KEY (namespace, org_id, event_id)
 );
 
-CREATE TABLE IF NOT EXISTS console_observability_ingest_windows (
+CREATE TABLE IF NOT EXISTS observability_ingest_windows (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   window_start_ms INTEGER NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS console_observability_ingest_windows (
   CHECK (accepted_count >= 0)
 );
 
-CREATE TABLE IF NOT EXISTS console_observability_request_rollups_minute (
+CREATE TABLE IF NOT EXISTS observability_request_rollups_minute (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   window_start_ms INTEGER NOT NULL,
@@ -85,29 +85,29 @@ CREATE TABLE IF NOT EXISTS console_observability_request_rollups_minute (
   CHECK (error_count <= request_count)
 );
 
-CREATE INDEX IF NOT EXISTS console_observability_events_org_created_idx
-  ON console_observability_events (namespace, org_id, created_at_ms DESC, event_id DESC);
+CREATE INDEX IF NOT EXISTS observability_events_org_created_idx
+  ON observability_events (namespace, org_id, created_at_ms DESC, event_id DESC);
 
-CREATE INDEX IF NOT EXISTS console_observability_events_org_service_created_idx
-  ON console_observability_events (namespace, org_id, service, created_at_ms DESC, event_id DESC);
+CREATE INDEX IF NOT EXISTS observability_events_org_service_created_idx
+  ON observability_events (namespace, org_id, service, created_at_ms DESC, event_id DESC);
 
-CREATE INDEX IF NOT EXISTS console_observability_events_org_level_created_idx
-  ON console_observability_events (namespace, org_id, level, created_at_ms DESC, event_id DESC);
+CREATE INDEX IF NOT EXISTS observability_events_org_level_created_idx
+  ON observability_events (namespace, org_id, level, created_at_ms DESC, event_id DESC);
 
-CREATE INDEX IF NOT EXISTS console_observability_events_org_timestamp_idx
-  ON console_observability_events (namespace, org_id, timestamp_ms DESC, event_id DESC);
+CREATE INDEX IF NOT EXISTS observability_events_org_timestamp_idx
+  ON observability_events (namespace, org_id, timestamp_ms DESC, event_id DESC);
 
-CREATE INDEX IF NOT EXISTS console_observability_event_dedup_created_idx
-  ON console_observability_event_dedup (namespace, org_id, created_at_ms);
+CREATE INDEX IF NOT EXISTS observability_event_dedup_created_idx
+  ON observability_event_dedup (namespace, org_id, created_at_ms);
 
-CREATE INDEX IF NOT EXISTS console_observability_ingest_windows_window_idx
-  ON console_observability_ingest_windows (namespace, org_id, window_start_ms);
+CREATE INDEX IF NOT EXISTS observability_ingest_windows_window_idx
+  ON observability_ingest_windows (namespace, org_id, window_start_ms);
 
-CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_window_idx
-  ON console_observability_request_rollups_minute (namespace, org_id, window_start_ms DESC);
+CREATE INDEX IF NOT EXISTS observability_request_rollups_org_window_idx
+  ON observability_request_rollups_minute (namespace, org_id, window_start_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_service_window_idx
-  ON console_observability_request_rollups_minute (namespace, org_id, service, window_start_ms DESC);
+CREATE INDEX IF NOT EXISTS observability_request_rollups_org_service_window_idx
+  ON observability_request_rollups_minute (namespace, org_id, service, window_start_ms DESC);
 
-CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_route_window_idx
-  ON console_observability_request_rollups_minute (namespace, org_id, route_family, window_start_ms DESC);
+CREATE INDEX IF NOT EXISTS observability_request_rollups_org_route_window_idx
+  ON observability_request_rollups_minute (namespace, org_id, route_family, window_start_ms DESC);

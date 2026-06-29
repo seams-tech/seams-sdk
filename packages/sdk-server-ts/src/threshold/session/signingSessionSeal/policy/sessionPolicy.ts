@@ -81,7 +81,10 @@ function normalizeSessionRecord(
     case 'ed25519': {
       if (!('userId' in raw)) return null;
       const userId = String(raw.userId || '').trim();
-      const rpId = String(raw.rpId || '').trim();
+      const rpId =
+        raw.authorityScope.kind === 'passkey_rp'
+          ? String(raw.authorityScope.rpId || '').trim()
+          : '';
       if (!userId || !rpId) return null;
       return {
         ...base,

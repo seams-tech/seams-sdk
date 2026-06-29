@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS console_webhook_endpoints (
+CREATE TABLE IF NOT EXISTS webhook_endpoints (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -12,25 +12,37 @@ CREATE TABLE IF NOT EXISTS console_webhook_endpoints (
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id, id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(id) > 0),
+  CHECK (url GLOB 'http://*' OR url GLOB 'https://*'),
   CHECK (status IN ('ACTIVE', 'DISABLED')),
   CHECK (length(signing_secret_ciphertext_b64u) > 0),
+  CHECK (signing_secret_ciphertext_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
   CHECK (length(signing_secret_key_id) > 0),
   CHECK (length(signing_secret_envelope_version) > 0),
-  CHECK (secret_version > 0)
+  CHECK (secret_version > 0),
+  CHECK (length(secret_preview) > 0),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms)
 );
 
-CREATE TABLE IF NOT EXISTS console_webhook_endpoint_categories (
+CREATE TABLE IF NOT EXISTS webhook_endpoint_categories (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   endpoint_id TEXT NOT NULL,
   category TEXT NOT NULL,
   PRIMARY KEY (namespace, org_id, endpoint_id, category),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(endpoint_id) > 0),
+  CHECK (category IN ('wallet', 'policy', 'auth', 'tx', 'billing', 'session')),
   FOREIGN KEY (namespace, org_id, endpoint_id)
-    REFERENCES console_webhook_endpoints(namespace, org_id, id)
+    REFERENCES webhook_endpoints(namespace, org_id, id)
     ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS console_webhook_deliveries (
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -54,11 +66,11 @@ CREATE TABLE IF NOT EXISTS console_webhook_deliveries (
   CHECK (replay_count >= 0),
   CHECK (json_valid(payload_json)),
   FOREIGN KEY (namespace, org_id, endpoint_id)
-    REFERENCES console_webhook_endpoints(namespace, org_id, id)
+    REFERENCES webhook_endpoints(namespace, org_id, id)
     ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS console_webhook_attempts (
+CREATE TABLE IF NOT EXISTS webhook_attempts (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -77,11 +89,11 @@ CREATE TABLE IF NOT EXISTS console_webhook_attempts (
   CHECK (status IN ('SUCCEEDED', 'FAILED')),
   CHECK (is_replay IN (0, 1)),
   FOREIGN KEY (namespace, org_id, delivery_id)
-    REFERENCES console_webhook_deliveries(namespace, org_id, id)
+    REFERENCES webhook_deliveries(namespace, org_id, id)
     ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS console_webhook_dead_letters (
+CREATE TABLE IF NOT EXISTS webhook_dead_letters (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -100,31 +112,31 @@ CREATE TABLE IF NOT EXISTS console_webhook_dead_letters (
   CHECK (failed_attempts > 0),
   CHECK (json_valid(payload_json)),
   FOREIGN KEY (namespace, org_id, delivery_id)
-    REFERENCES console_webhook_deliveries(namespace, org_id, id)
+    REFERENCES webhook_deliveries(namespace, org_id, id)
     ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS console_webhook_endpoints_org_created_idx
-  ON console_webhook_endpoints (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS webhook_endpoints_org_created_idx
+  ON webhook_endpoints (namespace, org_id, created_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_webhook_endpoint_categories_lookup_idx
-  ON console_webhook_endpoint_categories (namespace, org_id, category, endpoint_id);
+CREATE INDEX IF NOT EXISTS webhook_endpoint_categories_lookup_idx
+  ON webhook_endpoint_categories (namespace, org_id, category, endpoint_id);
 
-CREATE INDEX IF NOT EXISTS console_webhook_deliveries_endpoint_page_idx
-  ON console_webhook_deliveries (namespace, org_id, endpoint_id, created_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS webhook_deliveries_endpoint_page_idx
+  ON webhook_deliveries (namespace, org_id, endpoint_id, created_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_webhook_deliveries_event_idx
-  ON console_webhook_deliveries (namespace, org_id, event_id);
+CREATE INDEX IF NOT EXISTS webhook_deliveries_event_idx
+  ON webhook_deliveries (namespace, org_id, event_id);
 
-CREATE INDEX IF NOT EXISTS console_webhook_attempts_endpoint_page_idx
-  ON console_webhook_attempts (namespace, org_id, endpoint_id, attempted_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS webhook_attempts_endpoint_page_idx
+  ON webhook_attempts (namespace, org_id, endpoint_id, attempted_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_webhook_attempts_endpoint_delivery_page_idx
-  ON console_webhook_attempts (namespace, org_id, endpoint_id, delivery_id, attempted_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS webhook_attempts_endpoint_delivery_page_idx
+  ON webhook_attempts (namespace, org_id, endpoint_id, delivery_id, attempted_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_webhook_dead_letters_endpoint_page_idx
-  ON console_webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS webhook_dead_letters_endpoint_page_idx
+  ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS console_webhook_dead_letters_unresolved_endpoint_page_idx
-  ON console_webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
+CREATE INDEX IF NOT EXISTS webhook_dead_letters_unresolved_endpoint_page_idx
+  ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
   WHERE resolved_at_ms IS NULL;

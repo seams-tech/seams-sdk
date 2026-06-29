@@ -29,7 +29,6 @@ const external = [
   '@simplewebauthn/server',
   'bs58',
   'express',
-  'pg',
   'tslib',
   /\.wasm$/,
 ];
@@ -97,19 +96,6 @@ export default [
       dir: 'dist/esm',
       format: 'esm',
       entryFileNames: 'router/ror.js',
-      sourcemap: true,
-    },
-    external,
-    resolve: {
-      alias: aliasConfig,
-    },
-  },
-  {
-    input: 'src/storage/postgres.ts',
-    output: {
-      dir: 'dist/esm',
-      format: 'esm',
-      entryFileNames: 'storage/postgres.js',
       sourcemap: true,
     },
     external,

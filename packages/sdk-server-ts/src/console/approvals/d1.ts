@@ -1,6 +1,13 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import {
+  d1Integer as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  parseD1JsonArrayColumn as parseJsonArray,
+  parseD1JsonObjectColumn as parseJsonObject,
+  type D1Row,
+} from '../../storage/d1Sql';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleApprovalsError } from './errors';
 import type { ConsoleApprovalService, ConsoleApprovalsContext } from './service';
 import type {
@@ -15,7 +22,6 @@ import type {
   RejectConsoleApprovalRequest,
 } from './types';
 
-type D1Row = Record<string, unknown>;
 
 const OPERATION_DEFAULTS: Record<
   ConsoleApprovalOperationType,
@@ -80,7 +86,7 @@ export interface D1ConsoleApprovalServiceOptions {
 
 export const CONSOLE_APPROVALS_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS console_approvals (
+    CREATE TABLE IF NOT EXISTS approvals (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -109,16 +115,16 @@ export const CONSOLE_APPROVALS_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_approvals_org_updated_idx
-      ON console_approvals (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS approvals_org_updated_idx
+      ON approvals (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_approvals_org_status_idx
-      ON console_approvals (namespace, org_id, status, updated_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS approvals_org_status_idx
+      ON approvals (namespace, org_id, status, updated_at_ms DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS console_approvals_org_operation_idx
-      ON console_approvals (namespace, org_id, operation_type, updated_at_ms DESC)
+    CREATE INDEX IF NOT EXISTS approvals_org_operation_idx
+      ON approvals (namespace, org_id, operation_type, updated_at_ms DESC)
   `,
 ] as const);
 
@@ -174,10 +180,6 @@ function toNullableIso(value: unknown): string | null {
   return Number.isFinite(parsed) ? toIso(parsed) : null;
 }
 
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function normalizeString(raw: unknown): string {
   return String(raw || '').trim();
@@ -190,33 +192,6 @@ function toNullableString(raw: unknown): string | null {
 
 function makeId(prefix: string, now: Date): string {
   return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
-}
-
-function parseJsonArray(raw: unknown): readonly unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== 'string') return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseJsonObject(raw: unknown): Record<string, unknown> {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...(raw as Record<string, unknown>) };
-  }
-  if (typeof raw !== 'string') return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ...(parsed as Record<string, unknown>) };
-    }
-  } catch {
-    return {};
-  }
-  return {};
 }
 
 function parseDecision(raw: unknown): ConsoleApprovalDecisionRecord | null {
@@ -302,10 +277,6 @@ function ensureMetadataObject(raw: unknown): Record<string, unknown> {
   return { ...(raw as Record<string, unknown>) };
 }
 
-function runChanges(result: D1ResultLike): number {
-  const changes = Number(result.meta?.changes);
-  return Number.isFinite(changes) ? Math.max(0, Math.trunc(changes)) : 0;
-}
 
 function isD1ConstraintError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -448,7 +419,7 @@ class D1ConsoleApprovalServiceImpl implements ConsoleApprovalService {
     const out = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_approvals
+           FROM approvals
           WHERE ${query.whereSql}
           ORDER BY updated_at_ms DESC, created_at_ms DESC`,
       )
@@ -481,7 +452,7 @@ class D1ConsoleApprovalServiceImpl implements ConsoleApprovalService {
     try {
       await this.state.database
         .prepare(
-          `INSERT INTO console_approvals
+          `INSERT INTO approvals
             (namespace, org_id, id, operation_type, status, reason, requested_by_user_id, required_approvals, require_mfa, project_id, environment_id, resource_type, resource_id, metadata_json, decisions_json, created_at_ms, updated_at_ms, resolved_at_ms)
            VALUES
             (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL)`,
@@ -587,7 +558,7 @@ class D1ConsoleApprovalServiceImpl implements ConsoleApprovalService {
     const row = await this.state.database
       .prepare(
         `SELECT *
-           FROM console_approvals
+           FROM approvals
           WHERE namespace = ?
             AND org_id = ?
             AND id = ?`,
@@ -606,7 +577,7 @@ class D1ConsoleApprovalServiceImpl implements ConsoleApprovalService {
     const nextDecisions = [...input.current.decisions, input.transition.decision];
     const result = await this.state.database
       .prepare(
-        `UPDATE console_approvals
+        `UPDATE approvals
             SET decisions_json = ?,
                 status = ?,
                 updated_at_ms = ?,
@@ -628,7 +599,7 @@ class D1ConsoleApprovalServiceImpl implements ConsoleApprovalService {
         currentDecisionsJson,
       )
       .run();
-    if (runChanges(result) < 1) return null;
+    if (d1ChangedRows(result) < 1) return null;
     return await this.findApproval(input.current.orgId, input.current.id);
   }
 

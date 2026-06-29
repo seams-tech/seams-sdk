@@ -14,15 +14,23 @@ import type {
   WalletRegistrationFinalizeResponse,
   WalletRegistrationStartResponse,
   WalletId,
+  ThresholdEd25519HssCanonicalContext,
+  ThresholdEd25519HssPersistedPreparedServerSession,
+  ThresholdEd25519HssPersistedServerInputs,
+  ThresholdEd25519HssRegistrationPreparedServerState,
+  ThresholdEd25519HssRegistrationRespondedServerState,
 } from './types';
 import type {
-  GeneratedImplicitWalletId,
+  ServerAllocatedWalletId,
   RegistrationAuthority,
+  RegistrationEd25519AuthorityScope,
+  RegistrationSignerBranchKey,
 } from '@shared/utils/registrationIntent';
 import {
   addAuthMethodIntentGrantFromString,
+  createServerAllocatedWalletId,
   normalizeAddAuthMethodInput,
-  requireGeneratedImplicitWalletId,
+  requireServerAllocatedWalletId,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import {
@@ -34,9 +42,9 @@ import {
   parseWalletId,
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
+import { base64UrlDecode } from '@shared/utils/encoders';
 
 export type StoredRegistrationIntent = {
   kind: 'intent_allocated';
@@ -135,14 +143,14 @@ type WalletAddSignerEcdsaStartPayload = NonNullable<
 
 export type StoredEd25519RegistrationPrepared = WalletRegistrationEd25519StartPayload & {
   kind: 'ed25519_prepared';
+  serverState: ThresholdEd25519HssRegistrationPreparedServerState;
   responded?: never;
 };
 
 export type StoredEd25519RegistrationPrepareScope = {
   walletId: string;
-  rpId: string;
   registrationIntentDigestB64u: string;
-  authMethodKind: RegistrationIntentV1['authMethod']['kind'];
+  authorityScope: RegistrationEd25519AuthorityScope;
   expectedOrigin: string;
   orgId: string;
   signingRootId: string;
@@ -237,6 +245,15 @@ export function buildStoredWalletRegistrationHssPreparationFailed(
   };
 }
 
+export function storedThresholdEd25519HssRespondedServerState(
+  input: ThresholdEd25519HssRegistrationPreparedServerState,
+): ThresholdEd25519HssRegistrationRespondedServerState {
+  return {
+    context: input.context,
+    preparedServerSession: input.preparedServerSession,
+  };
+}
+
 function assertNever(value: never): never {
   throw new Error(`Unexpected registration ceremony store branch: ${String(value)}`);
 }
@@ -276,9 +293,8 @@ export function storedEd25519RegistrationPrepareScopesMatch(
 ): boolean {
   return (
     left.walletId === right.walletId &&
-    left.rpId === right.rpId &&
     left.registrationIntentDigestB64u === right.registrationIntentDigestB64u &&
-    left.authMethodKind === right.authMethodKind &&
+    registrationEd25519AuthorityScopesMatch(left.authorityScope, right.authorityScope) &&
     left.expectedOrigin === right.expectedOrigin &&
     left.orgId === right.orgId &&
     left.signingRootId === right.signingRootId &&
@@ -291,6 +307,44 @@ export function storedEd25519RegistrationPrepareScopesMatch(
     left.participantIds.length === right.participantIds.length &&
     left.participantIds.every((id, index) => id === right.participantIds[index])
   );
+}
+
+function registrationEd25519AuthorityScopesMatch(
+  left: RegistrationEd25519AuthorityScope,
+  right: RegistrationEd25519AuthorityScope,
+): boolean {
+  switch (left.kind) {
+    case 'passkey':
+      return right.kind === 'passkey' && left.rpId === right.rpId;
+    case 'email_otp':
+      if (right.kind !== 'email_otp' || left.proofKind !== right.proofKind) return false;
+      switch (left.proofKind) {
+        case 'otp_challenge':
+          return (
+            right.proofKind === 'otp_challenge' &&
+            left.email === right.email &&
+            (left.challengeId || '') === (right.challengeId || '')
+          );
+        case 'google_sso_registration':
+          return (
+            right.proofKind === 'google_sso_registration' &&
+            left.email === right.email &&
+            left.googleEmailOtpRegistrationAttemptId ===
+              right.googleEmailOtpRegistrationAttemptId &&
+            left.googleEmailOtpRegistrationOfferId === right.googleEmailOtpRegistrationOfferId &&
+            left.googleEmailOtpRegistrationCandidateId ===
+              right.googleEmailOtpRegistrationCandidateId
+          );
+        default: {
+          const exhaustive: never = left;
+          return exhaustive;
+        }
+      }
+    default: {
+      const exhaustive: never = left;
+      return exhaustive;
+    }
+  }
 }
 
 export type ConsumeRegistrationIntentForPreparationInput = {
@@ -324,6 +378,7 @@ function registrationPreparationMatchesIntentConsume(
 }
 export type StoredEd25519RegistrationResponded = WalletRegistrationEd25519StartPayload & {
   kind: 'ed25519_responded';
+  serverState: ThresholdEd25519HssRegistrationRespondedServerState;
   responded: {
     contextBindingB64u: string;
     serverInputDeliveryB64u: string;
@@ -332,12 +387,14 @@ export type StoredEd25519RegistrationResponded = WalletRegistrationEd25519StartP
 
 export type StoredEd25519RegistrationFinalizing = WalletRegistrationEd25519StartPayload & {
   kind: 'ed25519_finalizing';
+  serverState: ThresholdEd25519HssRegistrationRespondedServerState;
   responded: StoredEd25519RegistrationResponded['responded'];
   finalizingAtMs: number;
 };
 
 export type StoredEd25519RegistrationCompleted = WalletRegistrationEd25519StartPayload & {
   kind: 'ed25519_completed';
+  serverState: ThresholdEd25519HssRegistrationRespondedServerState;
   responded: StoredEd25519RegistrationResponded['responded'];
   completedAtMs: number;
   walletId: WalletId;
@@ -369,11 +426,129 @@ export type StoredEcdsaRegistrationCompleted = StoredEcdsaRegistrationBase & {
   walletKeys: WalletRegistrationEcdsaWalletKey[];
 };
 
-export type StoredCombinedRegistrationState = {
-  kind: 'combined_registration';
-  ed25519: StoredEd25519RegistrationPrepared | StoredEd25519RegistrationResponded;
-  ecdsa: StoredEcdsaRegistrationPrepared | StoredEcdsaRegistrationResponded;
+export type StoredWalletRegistrationNearEd25519PreparedBranch = Omit<
+  StoredEd25519RegistrationPrepared,
+  'kind'
+> & {
+  kind: 'near_ed25519_prepared';
+  branchKey: RegistrationSignerBranchKey;
 };
+
+export type StoredWalletRegistrationNearEd25519RespondedBranch = Omit<
+  StoredEd25519RegistrationResponded,
+  'kind'
+> & {
+  kind: 'near_ed25519_responded';
+  branchKey: RegistrationSignerBranchKey;
+};
+
+export type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch = Omit<
+  StoredEcdsaRegistrationPrepared,
+  'kind'
+> & {
+  kind: 'evm_family_ecdsa_prepared';
+  branchKey: RegistrationSignerBranchKey;
+};
+
+export type StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch = Omit<
+  StoredEcdsaRegistrationResponded,
+  'kind'
+> & {
+  kind: 'evm_family_ecdsa_responded';
+  branchKey: RegistrationSignerBranchKey;
+};
+
+export type StoredWalletRegistrationSignerBranch =
+  | StoredWalletRegistrationNearEd25519PreparedBranch
+  | StoredWalletRegistrationNearEd25519RespondedBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch;
+
+export type StoredWalletRegistrationSignerSetState = {
+  kind: 'signer_set_registration';
+  branches: readonly StoredWalletRegistrationSignerBranch[];
+};
+
+export type StoredWalletRegistrationNearEd25519Branch =
+  | StoredWalletRegistrationNearEd25519PreparedBranch
+  | StoredWalletRegistrationNearEd25519RespondedBranch;
+
+export type StoredWalletRegistrationEvmFamilyEcdsaBranch =
+  | StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch;
+
+export function buildStoredWalletRegistrationNearEd25519PreparedBranch(input: {
+  readonly branchKey: RegistrationSignerBranchKey;
+  readonly prepared: {
+    readonly ceremonyHandle: string;
+    readonly preparedSession: StoredWalletRegistrationNearEd25519PreparedBranch['preparedSession'];
+    readonly clientOtOfferMessageB64u: string;
+    readonly serverState: ThresholdEd25519HssRegistrationPreparedServerState;
+  };
+}): StoredWalletRegistrationNearEd25519PreparedBranch {
+  return {
+    kind: 'near_ed25519_prepared',
+    branchKey: input.branchKey,
+    ceremonyHandle: input.prepared.ceremonyHandle,
+    preparedSession: input.prepared.preparedSession,
+    clientOtOfferMessageB64u: input.prepared.clientOtOfferMessageB64u,
+    serverState: input.prepared.serverState,
+  };
+}
+
+export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input: {
+  readonly branchKey: RegistrationSignerBranchKey;
+  readonly ecdsa: {
+    readonly kind: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['hssKind'];
+    readonly chainTargets: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['chainTargets'];
+    readonly prepare: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['prepare'];
+  };
+}): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch {
+  return {
+    kind: 'evm_family_ecdsa_prepared',
+    branchKey: input.branchKey,
+    hssKind: input.ecdsa.kind,
+    chainTargets: input.ecdsa.chainTargets,
+    prepare: input.ecdsa.prepare,
+  };
+}
+
+export function findStoredWalletRegistrationNearEd25519Branch(
+  state: StoredWalletRegistrationSignerSetState,
+): StoredWalletRegistrationNearEd25519Branch | null {
+  for (const branch of state.branches) {
+    if (branch.kind === 'near_ed25519_prepared' || branch.kind === 'near_ed25519_responded') {
+      return branch;
+    }
+  }
+  return null;
+}
+
+export function findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+  state: StoredWalletRegistrationSignerSetState,
+): StoredWalletRegistrationEvmFamilyEcdsaBranch | null {
+  for (const branch of state.branches) {
+    if (
+      branch.kind === 'evm_family_ecdsa_prepared' ||
+      branch.kind === 'evm_family_ecdsa_responded'
+    ) {
+      return branch;
+    }
+  }
+  return null;
+}
+
+export function replaceStoredWalletRegistrationSignerBranch(input: {
+  readonly state: StoredWalletRegistrationSignerSetState;
+  readonly replacement: StoredWalletRegistrationSignerBranch;
+}): StoredWalletRegistrationSignerSetState {
+  return {
+    kind: 'signer_set_registration',
+    branches: input.state.branches.map((branch) =>
+      branch.branchKey === input.replacement.branchKey ? input.replacement : branch,
+    ),
+  };
+}
 
 export type StoredWalletRegistrationFailed = {
   kind: 'registration_failed';
@@ -399,7 +574,7 @@ export type StoredWalletRegistrationSignerState =
   | StoredEcdsaRegistrationPrepared
   | StoredEcdsaRegistrationResponded
   | StoredEcdsaRegistrationCompleted
-  | StoredCombinedRegistrationState
+  | StoredWalletRegistrationSignerSetState
   | StoredWalletRegistrationFailed;
 
 type StoredWalletRegistrationCeremonyBase = {
@@ -429,11 +604,13 @@ export type StoredWalletRegistrationFinalizeReplay = {
 
 export type StoredEd25519AddSignerPrepared = WalletAddSignerEd25519StartPayload & {
   kind: 'ed25519_add_signer_prepared';
+  serverState: ThresholdEd25519HssRegistrationPreparedServerState;
   responded?: never;
 };
 
 export type StoredEd25519AddSignerResponded = WalletAddSignerEd25519StartPayload & {
   kind: 'ed25519_add_signer_responded';
+  serverState: ThresholdEd25519HssRegistrationRespondedServerState;
   responded: {
     contextBindingB64u: string;
     serverInputDeliveryB64u: string;
@@ -484,6 +661,7 @@ export type StoredWalletAddSignerCeremony = {
   auth:
     | {
         kind: 'webauthn_assertion';
+        rpId: string;
         credentialIdB64u: string;
       }
     | {
@@ -502,6 +680,7 @@ export type StoredWalletAddAuthMethodCeremony = {
   auth:
     | {
         kind: 'webauthn_assertion';
+        rpId: string;
         credentialIdB64u: string;
       }
     | {
@@ -511,9 +690,8 @@ export type StoredWalletAddAuthMethodCeremony = {
 };
 
 export interface RegistrationCeremonyStore {
-  reserveGeneratedWalletId(input: {
-    rpId: string;
-    walletId: GeneratedImplicitWalletId;
+  reserveServerAllocatedWalletId(input: {
+    walletId: ServerAllocatedWalletId;
     expiresAtMs: number;
   }): Promise<boolean>;
   putIntent(intent: StoredRegistrationIntent): Promise<void>;
@@ -564,7 +742,7 @@ export interface RegistrationCeremonyStore {
 }
 
 export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStore {
-  private readonly generatedWalletReservations = new Map<string, number>();
+  private readonly serverAllocatedWalletReservations = new Map<string, number>();
   private readonly intents = new Map<string, StoredRegistrationIntent>();
   private readonly preparations = new Map<string, StoredWalletRegistrationHssPreparation>();
   private readonly addAuthMethodIntents = new Map<string, StoredAddAuthMethodIntent>();
@@ -574,19 +752,18 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
   private readonly addAuthMethodCeremonies = new Map<string, StoredWalletAddAuthMethodCeremony>();
   private readonly addSignerCeremonies = new Map<string, StoredWalletAddSignerCeremony>();
 
-  async reserveGeneratedWalletId(input: {
-    rpId: string;
-    walletId: GeneratedImplicitWalletId;
+  async reserveServerAllocatedWalletId(input: {
+    walletId: ServerAllocatedWalletId;
     expiresAtMs: number;
   }): Promise<boolean> {
     this.pruneExpired();
-    const reservationId = generatedWalletReservationKey(input);
+    const reservationId = serverAllocatedWalletReservationKey(input);
     const expiresAtMs = Number(input.expiresAtMs);
     if (!reservationId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
       return false;
     }
-    if (this.generatedWalletReservations.has(reservationId)) return false;
-    this.generatedWalletReservations.set(reservationId, expiresAtMs);
+    if (this.serverAllocatedWalletReservations.has(reservationId)) return false;
+    this.serverAllocatedWalletReservations.set(reservationId, expiresAtMs);
     return true;
   }
 
@@ -878,8 +1055,8 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     for (const [key, ceremony] of this.addSignerCeremonies) {
       if (ceremony.expiresAtMs <= now) this.addSignerCeremonies.delete(key);
     }
-    for (const [key, expiresAtMs] of this.generatedWalletReservations) {
-      if (expiresAtMs <= now) this.generatedWalletReservations.delete(key);
+    for (const [key, expiresAtMs] of this.serverAllocatedWalletReservations) {
+      if (expiresAtMs <= now) this.serverAllocatedWalletReservations.delete(key);
     }
   }
 }
@@ -892,14 +1069,10 @@ function trimString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function generatedWalletReservationKey(input: {
-  rpId: string;
-  walletId: GeneratedImplicitWalletId;
-}): string {
-  const rpId = trimString(input.rpId);
+function serverAllocatedWalletReservationKey(input: { walletId: ServerAllocatedWalletId }): string {
   const walletId = trimString(input.walletId);
-  if (!rpId || !walletId) return '';
-  return `${encodeURIComponent(rpId)}:${walletId}`;
+  if (!walletId) return '';
+  return walletId;
 }
 
 function finalizeReplayKey(input: {
@@ -952,7 +1125,7 @@ function parseFinalizeReplayResponse(
   if (!isRecord(value) || value.ok !== true) return null;
   const walletIdRaw = trimString(value.walletId);
   const rpId = trimString(value.rpId);
-  if (!walletIdRaw || !rpId) return null;
+  if (!walletIdRaw) return null;
   const walletId = walletIdFromString(walletIdRaw);
   if (value.kind === 'already_finalized_restore_required') {
     if (value.reason !== 'replay_without_session_material') return null;
@@ -960,7 +1133,7 @@ function parseFinalizeReplayResponse(
       ok: true,
       kind: 'already_finalized_restore_required',
       walletId,
-      rpId,
+      ...(rpId ? { rpId } : {}),
       reason: 'replay_without_session_material',
     };
   }
@@ -1026,7 +1199,7 @@ function parseFinalizeReplayResponse(
     return {
       ok: true,
       walletId,
-      rpId,
+      ...(rpId ? { rpId } : {}),
       authMethod,
       accountProvisioning: accountProvisioning!,
       resolvedAccount: resolvedAccount!,
@@ -1038,7 +1211,7 @@ function parseFinalizeReplayResponse(
     return {
       ok: true,
       walletId,
-      rpId,
+      ...(rpId ? { rpId } : {}),
       authMethod,
       ecdsa,
     };
@@ -1089,15 +1262,111 @@ function parseStoredRegistrationIntent(value: unknown): StoredRegistrationIntent
   return value as StoredRegistrationIntent;
 }
 
+function parseStoredBase64Url(value: unknown): string {
+  const parsed = trimString(value);
+  if (!parsed) return '';
+  try {
+    base64UrlDecode(parsed);
+    return parsed;
+  } catch {
+    return '';
+  }
+}
+
+function parseStoredThresholdEd25519ParticipantIds(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const participantIds: number[] = [];
+  for (const item of value) {
+    const participantId = Number(item);
+    if (!Number.isSafeInteger(participantId) || participantId <= 0) return null;
+    participantIds.push(participantId);
+  }
+  return participantIds;
+}
+
+function parseStoredThresholdEd25519HssCanonicalContext(
+  value: unknown,
+): ThresholdEd25519HssCanonicalContext | null {
+  if (!isRecord(value)) return null;
+  const applicationBindingDigestB64u = parseStoredBase64Url(value.applicationBindingDigestB64u);
+  const participantIds = parseStoredThresholdEd25519ParticipantIds(value.participantIds);
+  if (!applicationBindingDigestB64u || !participantIds) return null;
+  if (base64UrlDecode(applicationBindingDigestB64u).byteLength !== 32) return null;
+  return {
+    applicationBindingDigestB64u,
+    participantIds,
+  };
+}
+
+function parseStoredThresholdEd25519HssPreparedServerSession(
+  value: unknown,
+): ThresholdEd25519HssPersistedPreparedServerSession | null {
+  if (!isRecord(value)) return null;
+  const evaluatorDriverStateB64u = parseStoredBase64Url(value.evaluatorDriverStateB64u);
+  const garblerDriverStateB64u = parseStoredBase64Url(value.garblerDriverStateB64u);
+  if (!evaluatorDriverStateB64u || !garblerDriverStateB64u) return null;
+  return {
+    evaluatorDriverStateB64u,
+    garblerDriverStateB64u,
+  };
+}
+
+function parseStoredThresholdEd25519HssServerInputs(
+  value: unknown,
+): ThresholdEd25519HssPersistedServerInputs | null {
+  if (!isRecord(value)) return null;
+  const yRelayerB64u = parseStoredBase64Url(value.yRelayerB64u);
+  const tauRelayerB64u = parseStoredBase64Url(value.tauRelayerB64u);
+  if (!yRelayerB64u || !tauRelayerB64u) return null;
+  return {
+    yRelayerB64u,
+    tauRelayerB64u,
+  };
+}
+
+function parseStoredThresholdEd25519HssPreparedServerState(
+  value: unknown,
+): ThresholdEd25519HssRegistrationPreparedServerState | null {
+  if (!isRecord(value)) return null;
+  const context = parseStoredThresholdEd25519HssCanonicalContext(value.context);
+  const preparedServerSession = parseStoredThresholdEd25519HssPreparedServerSession(
+    value.preparedServerSession,
+  );
+  const serverInputs = parseStoredThresholdEd25519HssServerInputs(value.serverInputs);
+  if (!context || !preparedServerSession || !serverInputs) return null;
+  return {
+    context,
+    preparedServerSession,
+    serverInputs,
+  };
+}
+
+function parseStoredThresholdEd25519HssRespondedServerState(
+  value: unknown,
+): ThresholdEd25519HssRegistrationRespondedServerState | null {
+  if (!isRecord(value)) return null;
+  const context = parseStoredThresholdEd25519HssCanonicalContext(value.context);
+  const preparedServerSession = parseStoredThresholdEd25519HssPreparedServerSession(
+    value.preparedServerSession,
+  );
+  if (!context || !preparedServerSession || hasDefinedField(value, 'serverInputs')) return null;
+  return {
+    context,
+    preparedServerSession,
+  };
+}
+
 function parseStoredEd25519RegistrationPrepared(
   value: unknown,
 ): StoredEd25519RegistrationPrepared | null {
   if (!isRecord(value) || value.kind !== 'ed25519_prepared') return null;
   const ceremonyHandle = trimString(value.ceremonyHandle);
   const clientOtOfferMessageB64u = trimString(value.clientOtOfferMessageB64u);
+  const serverState = parseStoredThresholdEd25519HssPreparedServerState(value.serverState);
   if (!ceremonyHandle || !clientOtOfferMessageB64u || !isRecord(value.preparedSession)) {
     return null;
   }
+  if (!serverState) return null;
   const contextBindingB64u = trimString(value.preparedSession.contextBindingB64u);
   const evaluatorDriverStateB64u = trimString(value.preparedSession.evaluatorDriverStateB64u);
   if (!contextBindingB64u || !evaluatorDriverStateB64u) return null;
@@ -1109,7 +1378,67 @@ function parseStoredEd25519RegistrationPrepared(
       evaluatorDriverStateB64u,
     },
     clientOtOfferMessageB64u,
+    serverState,
   };
+}
+
+function parseRegistrationEd25519AuthorityScope(
+  value: unknown,
+): RegistrationEd25519AuthorityScope | null {
+  if (!isRecord(value)) return null;
+  const kind = trimString(value.kind);
+  switch (kind) {
+    case 'passkey': {
+      const rpId = parseWebAuthnRpId(value.rpId);
+      return rpId.ok ? { kind: 'passkey', rpId: rpId.value } : null;
+    }
+    case 'email_otp': {
+      const proofKind = trimString(value.proofKind);
+      const email = trimString(value.email);
+      if (!email) return null;
+      switch (proofKind) {
+        case 'otp_challenge': {
+          const challengeId = trimString(value.challengeId);
+          return {
+            kind: 'email_otp',
+            proofKind: 'otp_challenge',
+            email,
+            ...(challengeId ? { challengeId } : {}),
+          };
+        }
+        case 'google_sso_registration': {
+          const googleEmailOtpRegistrationAttemptId = trimString(
+            value.googleEmailOtpRegistrationAttemptId,
+          );
+          const googleEmailOtpRegistrationOfferId = trimString(
+            value.googleEmailOtpRegistrationOfferId,
+          );
+          const googleEmailOtpRegistrationCandidateId = trimString(
+            value.googleEmailOtpRegistrationCandidateId,
+          );
+          if (
+            !googleEmailOtpRegistrationAttemptId ||
+            !googleEmailOtpRegistrationOfferId ||
+            !googleEmailOtpRegistrationCandidateId
+          ) {
+            return null;
+          }
+          return {
+            kind: 'email_otp',
+            proofKind: 'google_sso_registration',
+            email,
+            googleEmailOtpRegistrationAttemptId,
+            googleEmailOtpRegistrationOfferId,
+            googleEmailOtpRegistrationCandidateId,
+          };
+        }
+        default:
+          return null;
+      }
+    }
+    default:
+      return null;
+  }
 }
 
 function parseStoredEd25519RegistrationPrepareScope(
@@ -1117,9 +1446,8 @@ function parseStoredEd25519RegistrationPrepareScope(
 ): StoredEd25519RegistrationPrepareScope | null {
   if (!isRecord(value)) return null;
   const walletId = trimString(value.walletId);
-  const rpId = trimString(value.rpId);
+  const authorityScope = parseRegistrationEd25519AuthorityScope(value.authorityScope);
   const registrationIntentDigestB64u = trimString(value.registrationIntentDigestB64u);
-  const authMethodKind = trimString(value.authMethodKind);
   const expectedOrigin = trimString(value.expectedOrigin);
   const orgId = typeof value.orgId === 'string' ? value.orgId : null;
   const signingRootId = trimString(value.signingRootId);
@@ -1134,9 +1462,8 @@ function parseStoredEd25519RegistrationPrepareScope(
     : [];
   if (
     !walletId ||
-    !rpId ||
+    !authorityScope ||
     !registrationIntentDigestB64u ||
-    (authMethodKind !== 'passkey' && authMethodKind !== 'email_otp') ||
     orgId === null ||
     !signingRootVersion ||
     !nearEd25519SigningKeyId ||
@@ -1152,9 +1479,8 @@ function parseStoredEd25519RegistrationPrepareScope(
   }
   return {
     walletId,
-    rpId,
+    authorityScope,
     registrationIntentDigestB64u,
-    authMethodKind: authMethodKind as RegistrationIntentV1['authMethod']['kind'],
     expectedOrigin,
     orgId,
     signingRootId,
@@ -1233,7 +1559,7 @@ function parseStoredWalletRegistrationHssPreparationFailure(
   return { code, message };
 }
 
-function parseStoredWalletRegistrationHssPreparation(
+export function parseStoredWalletRegistrationHssPreparation(
   value: unknown,
 ): StoredWalletRegistrationHssPreparation | null {
   value = parseJsonValue(value);
@@ -1302,16 +1628,14 @@ function parseStoredAddAuthMethodIntent(value: unknown): StoredAddAuthMethodInte
   if (!intent) return null;
   const version = trimString(intent.version);
   const walletId = walletIdFromString(trimString(intent.walletId));
-  const rpId = trimString(intent.rpId);
   const authMethod = normalizeAddAuthMethodInput(intent.authMethod);
   const nonceB64u = trimString(intent.nonceB64u);
-  if (version !== 'add_auth_method_intent_v1' || !walletId || !rpId || !authMethod || !nonceB64u) {
+  if (version !== 'add_auth_method_intent_v1' || !walletId || !authMethod || !nonceB64u) {
     return null;
   }
   const parsedIntent: AddAuthMethodIntentV1 = {
     version: 'add_auth_method_intent_v1',
     walletId,
-    rpId,
     authMethod,
     nonceB64u,
   };
@@ -1363,16 +1687,13 @@ function parseRuntimePolicyScopeLike(
 function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAuthority | null {
   value = parseJsonValue(value);
   if (!isRecord(value)) return null;
-  const walletId =
-    typeof value.walletId === 'string' && value.walletId.trim()
-      ? (value.walletId as WalletId)
-      : null;
+  const walletId = parseWalletId(value.walletId);
   const registrationIntentDigestB64u =
     typeof value.registrationIntentDigestB64u === 'string' &&
     value.registrationIntentDigestB64u.trim()
       ? value.registrationIntentDigestB64u
       : null;
-  if (!walletId || !registrationIntentDigestB64u) return null;
+  if (!walletId.ok || !registrationIntentDigestB64u) return null;
 
   switch (value.kind) {
     case 'passkey': {
@@ -1395,7 +1716,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
       }
       return {
         kind: 'passkey',
-        walletId,
+        walletId: walletId.value,
         rpId: rpId.value,
         credentialIdB64u,
         credentialPublicKeyB64u,
@@ -1463,7 +1784,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         return {
           kind: 'email_otp',
           proofKind: 'otp_challenge',
-          walletId,
+          walletId: walletId.value,
           providerSubject: parsedProviderSubject.value,
           challengeSubjectId: challengeSubjectId.value,
           email,
@@ -1508,7 +1829,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         return {
           kind: 'email_otp',
           proofKind: 'google_sso_registration',
-          walletId,
+          walletId: walletId.value,
           providerSubject: parsedProviderSubject.value,
           email,
           emailHashHex,
@@ -1570,10 +1891,12 @@ function parseAddAuthMethodCeremonyAuth(
     return { kind: 'app_session' };
   }
   if (value.kind !== 'webauthn_assertion') return null;
+  const rpId = trimString(value.rpId);
   const credentialIdB64u = trimString(value.credentialIdB64u);
-  if (!credentialIdB64u) return null;
+  if (!rpId || !credentialIdB64u) return null;
   return {
     kind: 'webauthn_assertion',
+    rpId,
     credentialIdB64u,
   };
 }
@@ -1613,657 +1936,6 @@ function parseStoredWalletAddAuthMethodCeremony(
       ? { expectedOrigin: trimString(value.expectedOrigin) }
       : {}),
   };
-}
-
-function parseJsonRecord<T>(row: unknown, parser: (value: unknown) => T | null): T | null {
-  if (!isRecord(row)) return null;
-  return parser(row.record_json);
-}
-
-class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  private replayRecordId(input: {
-    registrationCeremonyId: string;
-    idempotencyKey: string;
-  }): string {
-    return `finalize-replay:${finalizeReplayKey(input)}`;
-  }
-
-  private generatedWalletReservationId(input: {
-    rpId: string;
-    walletId: GeneratedImplicitWalletId;
-  }): string {
-    return `generated-wallet-reservation:${generatedWalletReservationKey(input)}`;
-  }
-
-  async reserveGeneratedWalletId(input: {
-    rpId: string;
-    walletId: GeneratedImplicitWalletId;
-    expiresAtMs: number;
-  }): Promise<boolean> {
-    const walletId = trimString(input.walletId);
-    const rpId = trimString(input.rpId);
-    const expiresAtMs = Math.floor(Number(input.expiresAtMs));
-    if (!walletId || !rpId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-      return false;
-    }
-    const pool = await this.poolPromise;
-    const reservationId = this.generatedWalletReservationId(input);
-    await pool.query(
-      `
-        DELETE FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms <= $3
-      `,
-      [this.namespace, reservationId, Date.now()],
-    );
-    const result = await pool.query(
-      `
-        INSERT INTO wallet_registration_ceremonies
-          (namespace, registration_ceremony_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, registration_ceremony_id) DO NOTHING
-        RETURNING registration_ceremony_id
-      `,
-      [
-        this.namespace,
-        reservationId,
-        JSON.stringify({
-          kind: 'generated_wallet_id_reservation_v1',
-          rpId,
-          walletId,
-          expiresAtMs,
-        }),
-        expiresAtMs,
-      ],
-    );
-    return result.rowCount === 1;
-  }
-
-  async putIntent(intent: StoredRegistrationIntent): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_intents
-          (namespace, intent_grant, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, intent_grant) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [this.namespace, intent.grant, JSON.stringify(intent), intent.expiresAtMs],
-    );
-  }
-
-  async getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null> {
-    const pool = await this.poolPromise;
-    const key = String(grant || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_intents
-        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredRegistrationIntent);
-  }
-
-  async takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null> {
-    const pool = await this.poolPromise;
-    const key = String(grant || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_intents
-        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    const intent = parseJsonRecord(result.rows[0], parseStoredRegistrationIntent);
-    if (!intent) return null;
-    return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
-  }
-
-  async consumeRegistrationIntentForPreparation(
-    input: ConsumeRegistrationIntentForPreparationInput,
-  ): Promise<ConsumeRegistrationIntentForPreparationResult> {
-    const pool = await this.poolPromise;
-    const grantKey = String(input.registrationIntentGrant || '').trim();
-    const preparationKey = String(input.registrationPreparationId || '').trim();
-    const now = Date.now();
-    if (!grantKey || !preparationKey) {
-      return {
-        ok: false,
-        code: 'invalid_grant',
-        message: 'registration intent grant expired',
-      };
-    }
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_intents AS intent
-        WHERE intent.namespace = $1
-          AND intent.intent_grant = $2
-          AND intent.expires_at_ms > $3
-          AND intent.record_json->>'digestB64u' = $4
-          AND EXISTS (
-            SELECT 1
-            FROM wallet_registration_ceremonies AS preparation
-            WHERE preparation.namespace = $1
-              AND preparation.registration_ceremony_id = $5
-              AND preparation.expires_at_ms > $3
-              AND preparation.record_json->>'kind' = 'hss_prepare_prepared'
-              AND preparation.record_json->>'registrationIntentGrant' = $2
-              AND preparation.record_json->>'registrationIntentDigestB64u' = $4
-              AND preparation.record_json #>> '{ed25519Scope,walletId}' = $6
-              AND preparation.record_json #>> '{ed25519Scope,rpId}' = $7
-              AND preparation.record_json #>> '{ed25519Scope,registrationIntentDigestB64u}' = $8
-              AND preparation.record_json #>> '{ed25519Scope,authMethodKind}' = $9
-              AND preparation.record_json #>> '{ed25519Scope,expectedOrigin}' = $10
-              AND preparation.record_json #>> '{ed25519Scope,orgId}' = $11
-              AND preparation.record_json #>> '{ed25519Scope,signingRootId}' = $12
-              AND preparation.record_json #>> '{ed25519Scope,signingRootVersion}' = $13
-              AND preparation.record_json #>> '{ed25519Scope,nearEd25519SigningKeyId}' = $14
-              AND (preparation.record_json #>> '{ed25519Scope,signerSlot}')::integer = $15
-              AND preparation.record_json #>> '{ed25519Scope,keyPurpose}' = $16
-              AND preparation.record_json #>> '{ed25519Scope,keyVersion}' = $17
-              AND (preparation.record_json #>> '{ed25519Scope,derivationVersion}')::integer = $18
-              AND preparation.record_json #> '{ed25519Scope,participantIds}' = $19::jsonb
-          )
-        RETURNING intent.record_json
-      `,
-      [
-        this.namespace,
-        grantKey,
-        now,
-        input.registrationIntentDigestB64u,
-        preparationKey,
-        input.ed25519Scope.walletId,
-        input.ed25519Scope.rpId,
-        input.ed25519Scope.registrationIntentDigestB64u,
-        input.ed25519Scope.authMethodKind,
-        input.ed25519Scope.expectedOrigin,
-        input.ed25519Scope.orgId,
-        input.ed25519Scope.signingRootId,
-        input.ed25519Scope.signingRootVersion,
-        input.ed25519Scope.nearEd25519SigningKeyId,
-        input.ed25519Scope.signerSlot,
-        input.ed25519Scope.keyPurpose,
-        input.ed25519Scope.keyVersion,
-        input.ed25519Scope.derivationVersion,
-        JSON.stringify(input.ed25519Scope.participantIds),
-      ],
-    );
-    const intent = parseJsonRecord(result.rows[0], parseStoredRegistrationIntent);
-    if (intent) {
-      return {
-        ok: true,
-        intent: { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() },
-      };
-    }
-    const grantResult = await pool.query(
-      `
-        SELECT 1
-        FROM wallet_registration_intents
-        WHERE namespace = $1
-          AND intent_grant = $2
-          AND expires_at_ms > $3
-          AND record_json->>'digestB64u' = $4
-      `,
-      [this.namespace, grantKey, Date.now(), input.registrationIntentDigestB64u],
-    );
-    if (grantResult.rows[0]) {
-      return {
-        ok: false,
-        code: 'scope_mismatch',
-        message: 'registration preparation scope does not match verified intent',
-      };
-    }
-    return {
-      ok: false,
-      code: 'invalid_grant',
-      message: 'registration intent grant expired',
-    };
-  }
-
-  async putPreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
-    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
-    if (!parsed) throw new Error('Invalid wallet registration preparation record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_ceremonies
-          (namespace, registration_ceremony_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [
-        this.namespace,
-        parsed.registrationPreparationId,
-        JSON.stringify(parsed),
-        parsed.expiresAtMs,
-      ],
-    );
-  }
-
-  async getPreparation(
-    registrationPreparationId: RegistrationPreparationId,
-  ): Promise<StoredWalletRegistrationHssPreparation | null> {
-    const pool = await this.poolPromise;
-    const key = String(registrationPreparationId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationHssPreparation);
-  }
-
-  async updatePreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
-    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
-    if (!parsed) throw new Error('Invalid wallet registration preparation record');
-    if (parsed.expiresAtMs <= Date.now()) return;
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        UPDATE wallet_registration_ceremonies
-        SET record_json = $3::jsonb, expires_at_ms = $4
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $5
-      `,
-      [
-        this.namespace,
-        parsed.registrationPreparationId,
-        JSON.stringify(parsed),
-        parsed.expiresAtMs,
-        Date.now(),
-      ],
-    );
-  }
-
-  async takePreparation(
-    registrationPreparationId: RegistrationPreparationId,
-  ): Promise<StoredWalletRegistrationHssPreparation | null> {
-    const pool = await this.poolPromise;
-    const key = String(registrationPreparationId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationHssPreparation);
-  }
-
-  async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_intents
-          (namespace, intent_grant, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, intent_grant) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [this.namespace, intent.grant, JSON.stringify(intent), intent.expiresAtMs],
-    );
-  }
-
-  async getAddAuthMethodIntent(
-    grant: AddAuthMethodIntentGrant,
-  ): Promise<StoredAddAuthMethodIntent | null> {
-    const pool = await this.poolPromise;
-    const key = String(grant || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_intents
-        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredAddAuthMethodIntent);
-  }
-
-  async takeAddAuthMethodIntent(
-    grant: AddAuthMethodIntentGrant,
-  ): Promise<ConsumedAddAuthMethodIntent | null> {
-    const pool = await this.poolPromise;
-    const key = String(grant || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_intents
-        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    const intent = parseJsonRecord(result.rows[0], parseStoredAddAuthMethodIntent);
-    if (!intent) return null;
-    return { ...intent, kind: 'add_auth_method_intent_consumed', consumedAtMs: Date.now() };
-  }
-
-  async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_intents
-          (namespace, intent_grant, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, intent_grant) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [this.namespace, intent.grant, JSON.stringify(intent), intent.expiresAtMs],
-    );
-  }
-
-  async getAddSignerIntent(grant: AddSignerIntentGrant): Promise<StoredAddSignerIntent | null> {
-    const pool = await this.poolPromise;
-    const key = String(grant || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_intents
-        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredAddSignerIntent);
-  }
-
-  async takeAddSignerIntent(grant: AddSignerIntentGrant): Promise<ConsumedAddSignerIntent | null> {
-    const pool = await this.poolPromise;
-    const key = String(grant || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_intents
-        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    const intent = parseJsonRecord(result.rows[0], parseStoredAddSignerIntent);
-    if (!intent) return null;
-    return { ...intent, kind: 'add_signer_intent_consumed', consumedAtMs: Date.now() };
-  }
-
-  async putCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_ceremonies
-          (namespace, registration_ceremony_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [
-        this.namespace,
-        ceremony.registrationCeremonyId,
-        JSON.stringify(ceremony),
-        ceremony.expiresAtMs,
-      ],
-    );
-  }
-
-  async getCeremony(
-    registrationCeremonyId: string,
-  ): Promise<StoredWalletRegistrationCeremony | null> {
-    const pool = await this.poolPromise;
-    const key = String(registrationCeremonyId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationCeremony);
-  }
-
-  async updateCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void> {
-    const pool = await this.poolPromise;
-    if (ceremony.expiresAtMs <= Date.now()) return;
-    await pool.query(
-      `
-        UPDATE wallet_registration_ceremonies
-        SET record_json = $3::jsonb, expires_at_ms = $4
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $5
-      `,
-      [
-        this.namespace,
-        ceremony.registrationCeremonyId,
-        JSON.stringify(ceremony),
-        ceremony.expiresAtMs,
-        Date.now(),
-      ],
-    );
-  }
-
-  async takeCeremony(
-    registrationCeremonyId: string,
-  ): Promise<StoredWalletRegistrationCeremony | null> {
-    const pool = await this.poolPromise;
-    const key = String(registrationCeremonyId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationCeremony);
-  }
-
-  async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
-    const parsed = parseStoredWalletRegistrationFinalizeReplay(replay);
-    if (!parsed) throw new Error('Invalid wallet registration finalize replay record');
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_ceremonies
-          (namespace, registration_ceremony_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [this.namespace, this.replayRecordId(parsed), JSON.stringify(parsed), parsed.expiresAtMs],
-    );
-  }
-
-  async getFinalizeReplay(input: {
-    registrationCeremonyId: string;
-    idempotencyKey: string;
-  }): Promise<StoredWalletRegistrationFinalizeReplay | null> {
-    const pool = await this.poolPromise;
-    const key = this.replayRecordId(input);
-    if (!trimString(input.registrationCeremonyId) || !trimString(input.idempotencyKey)) {
-      return null;
-    }
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationFinalizeReplay);
-  }
-
-  async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_ceremonies
-          (namespace, registration_ceremony_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [
-        this.namespace,
-        ceremony.addAuthMethodCeremonyId,
-        JSON.stringify(ceremony),
-        ceremony.expiresAtMs,
-      ],
-    );
-  }
-
-  async getAddAuthMethodCeremony(
-    addAuthMethodCeremonyId: string,
-  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
-    const pool = await this.poolPromise;
-    const key = String(addAuthMethodCeremonyId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletAddAuthMethodCeremony);
-  }
-
-  async updateAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
-    const pool = await this.poolPromise;
-    if (ceremony.expiresAtMs <= Date.now()) return;
-    await pool.query(
-      `
-        UPDATE wallet_registration_ceremonies
-        SET record_json = $3::jsonb, expires_at_ms = $4
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $5
-      `,
-      [
-        this.namespace,
-        ceremony.addAuthMethodCeremonyId,
-        JSON.stringify(ceremony),
-        ceremony.expiresAtMs,
-        Date.now(),
-      ],
-    );
-  }
-
-  async takeAddAuthMethodCeremony(
-    addAuthMethodCeremonyId: string,
-  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
-    const pool = await this.poolPromise;
-    const key = String(addAuthMethodCeremonyId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletAddAuthMethodCeremony);
-  }
-
-  async putAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void> {
-    const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO wallet_registration_ceremonies
-          (namespace, registration_ceremony_id, record_json, expires_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
-        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          expires_at_ms = EXCLUDED.expires_at_ms
-      `,
-      [
-        this.namespace,
-        ceremony.addSignerCeremonyId,
-        JSON.stringify(ceremony),
-        ceremony.expiresAtMs,
-      ],
-    );
-  }
-
-  async getAddSignerCeremony(
-    addSignerCeremonyId: string,
-  ): Promise<StoredWalletAddSignerCeremony | null> {
-    const pool = await this.poolPromise;
-    const key = String(addSignerCeremonyId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        SELECT record_json
-        FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletAddSignerCeremony);
-  }
-
-  async updateAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void> {
-    const pool = await this.poolPromise;
-    if (ceremony.expiresAtMs <= Date.now()) return;
-    await pool.query(
-      `
-        UPDATE wallet_registration_ceremonies
-        SET record_json = $3::jsonb, expires_at_ms = $4
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $5
-      `,
-      [
-        this.namespace,
-        ceremony.addSignerCeremonyId,
-        JSON.stringify(ceremony),
-        ceremony.expiresAtMs,
-        Date.now(),
-      ],
-    );
-  }
-
-  async takeAddSignerCeremony(
-    addSignerCeremonyId: string,
-  ): Promise<StoredWalletAddSignerCeremony | null> {
-    const pool = await this.poolPromise;
-    const key = String(addSignerCeremonyId || '').trim();
-    if (!key) return null;
-    const result = await pool.query(
-      `
-        DELETE FROM wallet_registration_ceremonies
-        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, key, Date.now()],
-    );
-    return parseJsonRecord(result.rows[0], parseStoredWalletAddSignerCeremony);
-  }
 }
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
@@ -2382,7 +2054,7 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
       | 'add-signer-intent'
       | 'ceremony'
       | 'finalize-replay'
-      | 'generated-wallet-reservation'
+      | 'server-allocated-wallet-reservation'
       | 'add-auth-method'
       | 'add-signer',
     id: string,
@@ -2390,20 +2062,21 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
     return `${this.prefix}${scope}:${id}`;
   }
 
-  async reserveGeneratedWalletId(input: {
-    rpId: string;
-    walletId: GeneratedImplicitWalletId;
+  async reserveServerAllocatedWalletId(input: {
+    walletId: ServerAllocatedWalletId;
     expiresAtMs: number;
   }): Promise<boolean> {
     const walletId = trimString(input.walletId);
-    const rpId = trimString(input.rpId);
     const expiresAtMs = Math.floor(Number(input.expiresAtMs));
-    if (!walletId || !rpId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    if (!walletId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
       return false;
     }
     const response = await callDo<{ reserved: true }>(this.stub, {
       op: 'authReserveReplayGuard',
-      key: this.key('generated-wallet-reservation', generatedWalletReservationKey(input)),
+      key: this.key(
+        'server-allocated-wallet-reservation',
+        serverAllocatedWalletReservationKey(input),
+      ),
       expiresAtMs,
     });
     return response.ok;
@@ -2845,14 +2518,6 @@ function resolveRegistrationDoPrefix(config: Record<string, unknown>): string {
   return base.endsWith(':') ? `${base}wallet-registration:` : `${base}:wallet-registration:`;
 }
 
-export function resolveRegistrationCeremonyPostgresNamespace(
-  config: Record<string, unknown>,
-): string {
-  return typeof config.keyPrefix === 'string' && config.keyPrefix.trim()
-    ? config.keyPrefix.trim()
-    : '';
-}
-
 export function createRegistrationCeremonyStore(
   input: {
     config?: unknown;
@@ -2880,97 +2545,15 @@ export function createRegistrationCeremonyStore(
       prefix: resolveRegistrationDoPrefix(config),
     });
   }
-  if (kind === 'postgres' || (!kind && input.isNode)) {
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (postgresUrl) {
-      const namespace = resolveRegistrationCeremonyPostgresNamespace(config);
-      return new PostgresRegistrationCeremonyStore({ postgresUrl, namespace });
-    }
-    if (kind === 'postgres') {
-      throw new Error('Postgres registration ceremony store selected but POSTGRES_URL is not set');
-    }
+  if (kind && kind !== 'memory' && kind !== 'in-memory') {
+    throw new Error(`[wallet-registration] Unknown registration ceremony store kind: ${kind}`);
   }
   input.logger?.warn?.(
-    '[wallet-registration] Using in-memory registration ceremony store; configure Postgres for durable registration ceremonies',
+    '[wallet-registration] Using in-memory registration ceremony store; configure Cloudflare Durable Object storage for durable registration ceremonies',
   );
   return new MemoryRegistrationCeremonyStore();
 }
 
-export function createWalletId(): GeneratedImplicitWalletId {
-  const walletId = [
-    randomWalletWord(GENERATED_WALLET_ADJECTIVES),
-    randomWalletWord(GENERATED_WALLET_NOUNS),
-    randomWalletSuffix(6),
-  ].join('-');
-  return requireGeneratedImplicitWalletId(walletId);
-}
-
-const GENERATED_WALLET_ADJECTIVES = [
-  'amber',
-  'brisk',
-  'cedar',
-  'cobalt',
-  'crimson',
-  'frost',
-  'golden',
-  'harbor',
-  'indigo',
-  'jade',
-  'lunar',
-  'maple',
-  'opal',
-  'polar',
-  'silver',
-  'verdant',
-  'violet',
-  'willow',
-] as const;
-
-const GENERATED_WALLET_NOUNS = [
-  'atlas',
-  'bloom',
-  'canyon',
-  'ember',
-  'fjord',
-  'grove',
-  'harvest',
-  'lantern',
-  'meadow',
-  'orchid',
-  'quartz',
-  'raven',
-  'solstice',
-  'summit',
-  'tempo',
-  'vermillion',
-  'voyage',
-  'zenith',
-] as const;
-
-const GENERATED_WALLET_SUFFIX_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz';
-
-function secureRandomIndex(maxExclusive: number): number {
-  if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0 || maxExclusive > 256) {
-    throw new Error('Invalid generated wallet random bound');
-  }
-  const limit = 256 - (256 % maxExclusive);
-  const byte = new Uint8Array(1);
-  for (;;) {
-    crypto.getRandomValues(byte);
-    if (byte[0] < limit) return byte[0] % maxExclusive;
-  }
-}
-
-function randomWalletWord(words: readonly string[]): string {
-  return words[secureRandomIndex(words.length)]!;
-}
-
-function randomWalletSuffix(length: number): string {
-  let suffix = '';
-  for (let index = 0; index < length; index += 1) {
-    suffix += GENERATED_WALLET_SUFFIX_ALPHABET[
-      secureRandomIndex(GENERATED_WALLET_SUFFIX_ALPHABET.length)
-    ];
-  }
-  return suffix;
+export function createWalletId(): ServerAllocatedWalletId {
+  return createServerAllocatedWalletId();
 }

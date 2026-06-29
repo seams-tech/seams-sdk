@@ -1,5 +1,5 @@
 import type { NormalizedLogger } from '../../../../core/logger';
-import type { SessionAdapter } from '../../../../router/relay';
+import type { SessionAdapter } from '../../../../router/routerApi';
 import {
   buildSigningSessionSealApplyPath,
   buildSigningSessionSealRemovePath,
@@ -52,7 +52,7 @@ export async function handleSigningSessionSealRoutes(
   ctx: CloudflareSigningSessionSealContext,
 ): Promise<Response | null> {
   const options = ctx.options;
-  if (!options || options.enabled === false) return null;
+  if (!options) return null;
 
   const basePath = resolveSigningSessionSealBasePath(options.basePath);
   const applyPath = buildSigningSessionSealApplyPath(basePath);

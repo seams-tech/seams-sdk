@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS signer_near_public_keys (
+CREATE TABLE IF NOT EXISTS near_public_keys (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   project_id TEXT NOT NULL,
@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS signer_near_public_keys (
   CHECK (removed_at_ms IS NULL OR removed_at_ms > 0)
 );
 
-CREATE INDEX IF NOT EXISTS signer_near_public_keys_user_idx
-  ON signer_near_public_keys (
+CREATE INDEX IF NOT EXISTS near_public_keys_user_idx
+  ON near_public_keys (
     namespace,
     org_id,
     project_id,

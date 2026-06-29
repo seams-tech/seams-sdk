@@ -9,14 +9,24 @@ import type {
   SignerD1DoStorageTarget,
   SignerPostgresStorageTarget,
   TenantStorageRoute,
+  TenantStorageRouteResolver,
 } from './tenantRoute';
 import {
   createCloudflareTenantStorageRoute,
   createStaticCloudflareTenantStorageRouteResolver,
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
 } from './tenantRoute';
+import { parseOrgId, type OrgId } from '@shared/utils/domainIds';
 import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
+
+function orgIdFromString(input: string): OrgId {
+  const parsed = parseOrgId(input);
+  if (!parsed.ok) {
+    throw new Error(`invalid test org id ${input}`);
+  }
+  return parsed.value;
+}
 
 const preparedStatement: D1PreparedStatementLike = {
   bind(): D1PreparedStatementLike {
@@ -85,6 +95,8 @@ const hyperdrive: HyperdriveBindingLike = {
   connectionString: 'postgres://example.invalid/seams',
 };
 
+const orgId = orgIdFromString('org_test');
+
 const consolePostgresTarget: ConsolePostgresStorageTarget = {
   kind: 'postgres',
   hyperdriveBindingName: 'SEAMS_POSTGRES',
@@ -102,7 +114,7 @@ const signerPostgresTarget: SignerPostgresStorageTarget = {
 
 const cloudflareRoute: TenantStorageRoute = createCloudflareTenantStorageRoute({
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
@@ -113,7 +125,7 @@ const cloudflareRoute: TenantStorageRoute = createCloudflareTenantStorageRoute({
 const postgresRoute: TenantStorageRoute = {
   kind: 'postgres',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 2,
   migrationReason: 'd1_size_limit',
   postgresRegion: 'wnam',
@@ -131,7 +143,7 @@ const resolver = createStaticCloudflareTenantStorageRouteResolver({
 });
 const resolvedRoute = resolver.resolveTenantStorageRoute({
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
 });
 const resolvedRouteKind: 'cloudflare_d1_do' = resolvedRoute.kind;
 
@@ -151,14 +163,26 @@ const resolverFromBindings = createStaticCloudflareTenantStorageRouteResolverFro
 });
 const resolvedFromBindings = resolverFromBindings.resolveTenantStorageRoute({
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
 });
 const resolvedFromBindingsKind: 'cloudflare_d1_do' = resolvedFromBindings.kind;
+
+const postgresResolver: TenantStorageRouteResolver = {
+  resolveTenantStorageRoute(): TenantStorageRoute {
+    return postgresRoute;
+  },
+};
+const resolvedPostgresRoute = postgresResolver.resolveTenantStorageRoute({
+  namespace: 'seams',
+  orgId,
+});
+const resolvedPostgresRouteKind: 'postgres' =
+  resolvedPostgresRoute.kind === 'postgres' ? resolvedPostgresRoute.kind : postgresRoute.kind;
 
 const invalidCloudflareConsoleTarget: CloudflareTenantStorageRoute = {
   kind: 'cloudflare_d1_do',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
@@ -170,7 +194,7 @@ const invalidCloudflareConsoleTarget: CloudflareTenantStorageRoute = {
 const invalidCloudflareSignerTarget: CloudflareTenantStorageRoute = {
   kind: 'cloudflare_d1_do',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
@@ -182,7 +206,7 @@ const invalidCloudflareSignerTarget: CloudflareTenantStorageRoute = {
 const invalidCloudflareMigrationReason: CloudflareTenantStorageRoute = {
   kind: 'cloudflare_d1_do',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
@@ -195,7 +219,7 @@ const invalidCloudflareMigrationReason: CloudflareTenantStorageRoute = {
 const invalidPostgresConsoleTarget: PostgresTenantStorageRoute = {
   kind: 'postgres',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 2,
   migrationReason: 'd1_size_limit',
   postgresRegion: 'wnam',
@@ -208,7 +232,7 @@ const invalidPostgresConsoleTarget: PostgresTenantStorageRoute = {
 const invalidPostgresSignerTarget: PostgresTenantStorageRoute = {
   kind: 'postgres',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 2,
   migrationReason: 'd1_size_limit',
   postgresRegion: 'wnam',
@@ -221,7 +245,7 @@ const invalidPostgresSignerTarget: PostgresTenantStorageRoute = {
 const invalidPostgresTopology: PostgresTenantStorageRoute = {
   kind: 'postgres',
   namespace: 'seams',
-  orgId: 'org_test',
+  orgId,
   routeVersion: 2,
   migrationReason: 'd1_size_limit',
   postgresRegion: 'wnam',
@@ -236,6 +260,7 @@ void cloudflareRoute;
 void postgresRoute;
 void resolvedRouteKind;
 void resolvedFromBindingsKind;
+void resolvedPostgresRouteKind;
 void invalidCloudflareConsoleTarget;
 void invalidCloudflareSignerTarget;
 void invalidCloudflareMigrationReason;

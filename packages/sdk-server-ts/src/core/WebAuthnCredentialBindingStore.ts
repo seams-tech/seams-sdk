@@ -18,11 +18,10 @@ import {
   redisSetJson,
 } from './ThresholdService/kv';
 import {
-  getPostgresPool,
-  getPostgresUrlFromConfig,
-  type PgQueryExecutor,
-} from '../storage/postgres';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+  formatD1ExecStatement,
+  parseD1JsonColumn,
+  resolveD1DatabaseFromConfig,
+} from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 
 export type WebAuthnCredentialBindingRecord = {
@@ -99,7 +98,7 @@ type D1WebAuthnCredentialBindingRow = {
 
 export const WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_webauthn_credential_bindings (
+    CREATE TABLE IF NOT EXISTS webauthn_credential_bindings (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -122,8 +121,8 @@ export const WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL = Object.freeze([
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_webauthn_credential_bindings_user_idx
-      ON signer_webauthn_credential_bindings (
+    CREATE INDEX IF NOT EXISTS webauthn_credential_bindings_user_idx
+      ON webauthn_credential_bindings (
         namespace,
         org_id,
         project_id,
@@ -249,31 +248,6 @@ function parseWebAuthnCredentialBindingRecord(
   };
 }
 
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
-
-function resolveD1DatabaseFromConfig(config: Record<string, unknown>): D1DatabaseLike | null {
-  if (isD1DatabaseLike(config.database)) return config.database;
-  if (isD1DatabaseLike(config.metadataDatabase)) return config.metadataDatabase;
-  if (isD1DatabaseLike(config.SIGNER_DB)) return config.SIGNER_DB;
-  return null;
-}
-
 function requireD1ScopeString(input: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(input);
   if (!normalized) throw new Error(`${field} is required for D1 WebAuthn credential store`);
@@ -303,36 +277,6 @@ function d1ScopeFromConfig(input: {
     projectId: requireD1ScopeString(input.config.projectId || input.config.PROJECT_ID, 'projectId'),
     envId: requireD1ScopeString(input.config.envId || input.config.ENV_ID, 'envId'),
   };
-}
-
-export async function putWebAuthnCredentialBindingRecordWithExecutor(input: {
-  executor: PgQueryExecutor;
-  namespace: string;
-  record: WebAuthnCredentialBindingRecord;
-}): Promise<void> {
-  const parsed = parseWebAuthnCredentialBindingRecord(input.record);
-  if (!parsed) throw new Error('Invalid credential binding record');
-  await input.executor.query(
-    `
-      INSERT INTO webauthn_credential_bindings (
-        namespace, rp_id, credential_id_b64u, record_json, created_at_ms, updated_at_ms
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (namespace, rp_id, credential_id_b64u)
-      DO UPDATE SET
-        record_json = EXCLUDED.record_json,
-        created_at_ms = LEAST(webauthn_credential_bindings.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(webauthn_credential_bindings.updated_at_ms, EXCLUDED.updated_at_ms)
-    `,
-    [
-      input.namespace,
-      parsed.rpId,
-      parsed.credentialIdB64u,
-      parsed,
-      parsed.createdAtMs,
-      parsed.updatedAtMs,
-    ],
-  );
 }
 
 class InMemoryWebAuthnCredentialBindingStore implements WebAuthnCredentialBindingStore {
@@ -426,7 +370,7 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
     const row = await this.database
       .prepare(
         `SELECT record_json
-           FROM signer_webauthn_credential_bindings
+           FROM webauthn_credential_bindings
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -437,7 +381,7 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
       )
       .bind(this.scope.namespace, this.scope.orgId, this.scope.projectId, this.scope.envId, r, c)
       .first<D1WebAuthnCredentialBindingRow>();
-    return parseWebAuthnCredentialBindingRecord(parseD1RecordJson(row?.record_json));
+    return parseWebAuthnCredentialBindingRecord(parseD1JsonColumn(row?.record_json));
   }
 
   async put(record: WebAuthnCredentialBindingRecord): Promise<void> {
@@ -446,7 +390,7 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
     if (!parsed) throw new Error('Invalid credential binding record');
     await this.database
       .prepare(
-        `INSERT INTO signer_webauthn_credential_bindings (
+        `INSERT INTO webauthn_credential_bindings (
           namespace,
           org_id,
           project_id,
@@ -466,11 +410,11 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
           signer_slot = EXCLUDED.signer_slot,
           record_json = EXCLUDED.record_json,
           created_at_ms = MIN(
-            signer_webauthn_credential_bindings.created_at_ms,
+            webauthn_credential_bindings.created_at_ms,
             EXCLUDED.created_at_ms
           ),
           updated_at_ms = MAX(
-            signer_webauthn_credential_bindings.updated_at_ms,
+            webauthn_credential_bindings.updated_at_ms,
             EXCLUDED.updated_at_ms
           )`,
       )
@@ -497,7 +441,7 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
     if (!r || !c) return;
     await this.database
       .prepare(
-        `DELETE FROM signer_webauthn_credential_bindings
+        `DELETE FROM webauthn_credential_bindings
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -535,7 +479,7 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
     const row = await this.database
       .prepare(
         `SELECT MAX(signer_slot) AS max_signer_slot
-           FROM signer_webauthn_credential_bindings
+           FROM webauthn_credential_bindings
           WHERE ${clauses.join(' AND ')}`,
       )
       .bind(...values)
@@ -575,7 +519,7 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
     const result = await this.database
       .prepare(
         `SELECT record_json
-           FROM signer_webauthn_credential_bindings
+           FROM webauthn_credential_bindings
           WHERE ${clauses.join(' AND ')}
           ORDER BY signer_slot ASC`,
       )
@@ -583,7 +527,7 @@ export class D1WebAuthnCredentialBindingStore implements WebAuthnCredentialBindi
       .all<D1WebAuthnCredentialBindingRow>();
     const records: WebAuthnCredentialBindingRecord[] = [];
     for (const row of result.results || []) {
-      const parsed = parseWebAuthnCredentialBindingRecord(parseD1RecordJson(row.record_json));
+      const parsed = parseWebAuthnCredentialBindingRecord(parseD1JsonColumn(row.record_json));
       if (parsed) records.push(parsed);
     }
     return records;
@@ -663,108 +607,6 @@ class RedisTcpWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
     const c = toOptionalTrimmedString(credentialIdB64u);
     if (!r || !c) return;
     await redisDel(this.client, this.key(r, c));
-  }
-}
-
-class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindingStore {
-  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
-  private readonly namespace: string;
-
-  constructor(input: { postgresUrl: string; namespace: string }) {
-    this.poolPromise = getPostgresPool(input.postgresUrl);
-    this.namespace = input.namespace;
-  }
-
-  async get(
-    rpId: string,
-    credentialIdB64u: string,
-  ): Promise<WebAuthnCredentialBindingRecord | null> {
-    const r = toOptionalTrimmedString(rpId);
-    const c = toOptionalTrimmedString(credentialIdB64u);
-    if (!r || !c) return null;
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT record_json
-        FROM webauthn_credential_bindings
-        WHERE namespace = $1 AND rp_id = $2 AND credential_id_b64u = $3
-        LIMIT 1
-      `,
-      [this.namespace, r, c],
-    );
-    return parseWebAuthnCredentialBindingRecord(rows[0]?.record_json);
-  }
-
-  async put(record: WebAuthnCredentialBindingRecord): Promise<void> {
-    const pool = await this.poolPromise;
-    await putWebAuthnCredentialBindingRecordWithExecutor({
-      executor: pool,
-      namespace: this.namespace,
-      record,
-    });
-  }
-
-  async del(rpId: string, credentialIdB64u: string): Promise<void> {
-    const r = toOptionalTrimmedString(rpId);
-    const c = toOptionalTrimmedString(credentialIdB64u);
-    if (!r || !c) return;
-    const pool = await this.poolPromise;
-    await pool.query(
-      'DELETE FROM webauthn_credential_bindings WHERE namespace = $1 AND rp_id = $2 AND credential_id_b64u = $3',
-      [this.namespace, r, c],
-    );
-  }
-
-  async getMaxSignerSlot(input: { userId: string; rpId?: string }): Promise<number | null> {
-    const userId = toOptionalTrimmedString(input.userId);
-    if (!userId) return null;
-    const rpId = toOptionalTrimmedString(input.rpId);
-    const pool = await this.poolPromise;
-    const { rows } = await pool.query(
-      `
-        SELECT MAX((record_json->>'signerSlot')::int) AS max_signer_slot
-        FROM webauthn_credential_bindings
-        WHERE namespace = $1
-        ${rpId ? 'AND rp_id = $2' : ''}
-        AND (record_json->>'userId') = $${rpId ? 3 : 2}
-      `,
-      rpId ? [this.namespace, rpId, userId] : [this.namespace, userId],
-    );
-    const raw = rows[0]?.max_signer_slot;
-    const n = typeof raw === 'number' ? raw : Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
-  }
-
-  async listByUserId(input: {
-    userId: string;
-    rpId?: string;
-  }): Promise<WebAuthnCredentialBindingRecord[]> {
-    const userId = toOptionalTrimmedString(input.userId);
-    const rpId = toOptionalTrimmedString(input.rpId);
-    if (!userId) return [];
-    const pool = await this.poolPromise;
-    const query = rpId
-      ? `
-          SELECT record_json
-          FROM webauthn_credential_bindings
-          WHERE namespace = $1 AND rp_id = $2 AND record_json->>'userId' = $3
-          ORDER BY (record_json->>'signerSlot')::int ASC
-        `
-      : `
-          SELECT record_json
-          FROM webauthn_credential_bindings
-          WHERE namespace = $1 AND record_json->>'userId' = $2
-          ORDER BY (record_json->>'signerSlot')::int ASC
-        `;
-    const values = rpId ? [this.namespace, rpId, userId] : [this.namespace, userId];
-    const { rows } = await pool.query(query, values);
-    const out: WebAuthnCredentialBindingRecord[] = [];
-    for (const row of rows || []) {
-      const parsed = parseWebAuthnCredentialBindingRecord(row?.record_json);
-      if (parsed) out.push(parsed);
-    }
-    out.sort((a, b) => a.signerSlot - b.signerSlot);
-    return out;
   }
 }
 
@@ -961,31 +803,7 @@ export function createWebAuthnCredentialBindingStore(input: {
     return new RedisTcpWebAuthnCredentialBindingStore({ redisUrl, prefix });
   }
 
-  if (kind === 'postgres') {
-    if (!input.isNode) {
-      throw new Error(
-        '[webauthn] postgres credential binding store is not supported in this runtime',
-      );
-    }
-    const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl)
-      throw new Error(
-        '[webauthn] postgres credential binding store enabled but POSTGRES_URL is not set',
-      );
-    input.logger.info('[webauthn] Using Postgres credential binding store');
-    return new PostgresWebAuthnCredentialBindingStore({ postgresUrl, namespace: prefix });
-  }
-
-  const postgresUrl = getPostgresUrlFromConfig(config);
-  if (postgresUrl) {
-    if (!input.isNode) {
-      throw new Error(
-        '[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime',
-      );
-    }
-    input.logger.info('[webauthn] Using Postgres credential binding store');
-    return new PostgresWebAuthnCredentialBindingStore({ postgresUrl, namespace: prefix });
-  }
+  if (kind) throw new Error(`[webauthn] Unknown credential binding store kind: ${kind}`);
 
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);

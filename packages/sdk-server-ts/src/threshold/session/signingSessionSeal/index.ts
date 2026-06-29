@@ -54,7 +54,6 @@ export type {
   CreateUpstashSigningSessionSealRateLimiterOptions,
 } from './guards/backends';
 export type {
-  CreatePostgresSigningSessionSealIdempotencyStoreOptions,
   CreateSigningSessionSealIdempotencyFromEnvInput,
   CreateRedisTcpSigningSessionSealIdempotencyStoreOptions,
   CreateUpstashSigningSessionSealIdempotencyStoreOptions,
@@ -90,7 +89,6 @@ export {
   resolveSigningSessionSealRateLimitFromEnv,
 } from './guards/backends';
 export {
-  createPostgresSigningSessionSealIdempotencyStore,
   createRedisTcpSigningSessionSealIdempotencyStore,
   createUpstashSigningSessionSealIdempotencyStore,
   resolveSigningSessionSealIdempotencyFromEnv,

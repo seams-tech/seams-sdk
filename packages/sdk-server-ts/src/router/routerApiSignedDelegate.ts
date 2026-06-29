@@ -783,7 +783,7 @@ export async function handleRouterApiSignedDelegate(
       if (spendCapReservation) {
         logSponsorshipSpendCapReserved({
           logger: input.logger,
-          routeTag: 'relay][signed-delegate',
+          routeTag: 'router-api][signed-delegate',
           environmentId: sponsorshipRuntime.principal.principal.environmentId,
           policyId: matched.policy.policyId,
           idempotencyKey,
@@ -800,7 +800,7 @@ export async function handleRouterApiSignedDelegate(
       if (isSponsorshipSpendCapEnforcementError(error)) {
         logSponsorshipSpendCapRejected({
           logger: input.logger,
-          routeTag: 'relay][signed-delegate',
+          routeTag: 'router-api][signed-delegate',
           environmentId: sponsorshipRuntime.principal.principal.environmentId,
           policyId: matched.policy.policyId,
           idempotencyKey,
@@ -854,7 +854,7 @@ export async function handleRouterApiSignedDelegate(
             ctx: sponsorshipRuntime.sponsorshipCtx,
           });
         } catch (releaseError: unknown) {
-          input.logger.warn('[relay][signed-delegate] spend-cap release after prepaid failure failed', {
+          input.logger.warn('[router-api][signed-delegate] spend-cap release after prepaid failure failed', {
             route: input.route.id,
             policyId: matched.policy.policyId,
             idempotencyKey,
@@ -956,7 +956,7 @@ export async function handleRouterApiSignedDelegate(
             };
             logSponsorshipSpendCapSettled({
               logger: input.logger,
-              routeTag: 'relay][signed-delegate',
+              routeTag: 'router-api][signed-delegate',
               environmentId: sponsorshipRuntime.principal.principal.environmentId,
               policyId: matched.policy.policyId,
               idempotencyKey,
@@ -973,7 +973,7 @@ export async function handleRouterApiSignedDelegate(
             });
           }
         } catch (error: unknown) {
-          input.logger.warn('[relay][signed-delegate] spend-cap settlement failed', {
+          input.logger.warn('[router-api][signed-delegate] spend-cap settlement failed', {
             route: input.route.id,
             policyId: matched.policy.policyId,
             txHash: assessment.txOrExecutionRef,
@@ -1008,7 +1008,7 @@ export async function handleRouterApiSignedDelegate(
             };
           }
         } catch (error: unknown) {
-          input.logger.warn('[relay][signed-delegate] prepaid settlement failed', {
+          input.logger.warn('[router-api][signed-delegate] prepaid settlement failed', {
             route: input.route.id,
             policyId: matched.policy.policyId,
             txHash: assessment.txOrExecutionRef,
@@ -1034,7 +1034,7 @@ export async function handleRouterApiSignedDelegate(
             ...(spendCapSettlement ? { spendCapSettlement } : {}),
           });
         } catch (error: unknown) {
-          input.logger.warn('[relay][signed-delegate] metering failed', {
+          input.logger.warn('[router-api][signed-delegate] metering failed', {
             route: input.route.id,
             txHash: assessment.txOrExecutionRef,
             error: error instanceof Error ? error.message : String(error),
@@ -1100,7 +1100,7 @@ export async function handleRouterApiSignedDelegate(
           if (settled && spendCapReservation) {
             logSponsorshipSpendCapSettled({
               logger: input.logger,
-              routeTag: 'relay][signed-delegate',
+              routeTag: 'router-api][signed-delegate',
               environmentId: sponsorshipRuntime.principal.principal.environmentId,
               policyId: matched.policy.policyId,
               idempotencyKey,
@@ -1117,7 +1117,7 @@ export async function handleRouterApiSignedDelegate(
             });
           }
         } catch (settleError: unknown) {
-          input.logger.warn('[relay][signed-delegate] spend-cap settlement failed', {
+          input.logger.warn('[router-api][signed-delegate] spend-cap settlement failed', {
             route: input.route.id,
             policyId: matched.policy.policyId,
             txHash: assessment.txOrExecutionRef,
@@ -1152,7 +1152,7 @@ export async function handleRouterApiSignedDelegate(
             };
           }
         } catch (settleError: unknown) {
-          input.logger.warn('[relay][signed-delegate] prepaid settlement failed', {
+          input.logger.warn('[router-api][signed-delegate] prepaid settlement failed', {
             route: input.route.id,
             policyId: matched.policy.policyId,
             txHash: assessment.txOrExecutionRef,
@@ -1184,7 +1184,7 @@ export async function handleRouterApiSignedDelegate(
             ...(prepaidSettlement ? { prepaidSettlement } : {}),
           });
         } catch (meterError: unknown) {
-          input.logger.warn('[relay][signed-delegate] metering failed', {
+          input.logger.warn('[router-api][signed-delegate] metering failed', {
             route: input.route.id,
             txHash: assessment.txOrExecutionRef,
             error: meterError instanceof Error ? meterError.message : String(meterError),

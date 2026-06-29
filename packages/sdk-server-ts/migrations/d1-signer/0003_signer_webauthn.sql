@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS signer_webauthn_authenticators (
+CREATE TABLE IF NOT EXISTS webauthn_authenticators (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   project_id TEXT NOT NULL,
@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS signer_webauthn_authenticators (
   CHECK (updated_at_ms > 0)
 );
 
-CREATE INDEX IF NOT EXISTS signer_webauthn_authenticators_user_idx
-  ON signer_webauthn_authenticators (
+CREATE INDEX IF NOT EXISTS webauthn_authenticators_user_idx
+  ON webauthn_authenticators (
     namespace,
     org_id,
     project_id,
@@ -28,7 +28,7 @@ CREATE INDEX IF NOT EXISTS signer_webauthn_authenticators_user_idx
     created_at_ms
   );
 
-CREATE TABLE IF NOT EXISTS signer_webauthn_credential_bindings (
+CREATE TABLE IF NOT EXISTS webauthn_credential_bindings (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   project_id TEXT NOT NULL,
@@ -50,8 +50,8 @@ CREATE TABLE IF NOT EXISTS signer_webauthn_credential_bindings (
   CHECK (updated_at_ms > 0)
 );
 
-CREATE INDEX IF NOT EXISTS signer_webauthn_credential_bindings_user_idx
-  ON signer_webauthn_credential_bindings (
+CREATE INDEX IF NOT EXISTS webauthn_credential_bindings_user_idx
+  ON webauthn_credential_bindings (
     namespace,
     org_id,
     project_id,
@@ -61,7 +61,7 @@ CREATE INDEX IF NOT EXISTS signer_webauthn_credential_bindings_user_idx
     signer_slot
   );
 
-CREATE TABLE IF NOT EXISTS signer_webauthn_challenges (
+CREATE TABLE IF NOT EXISTS webauthn_challenges (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
   project_id TEXT NOT NULL,
@@ -79,8 +79,8 @@ CREATE TABLE IF NOT EXISTS signer_webauthn_challenges (
   CHECK (expires_at_ms > created_at_ms)
 );
 
-CREATE INDEX IF NOT EXISTS signer_webauthn_challenges_expiry_idx
-  ON signer_webauthn_challenges (
+CREATE INDEX IF NOT EXISTS webauthn_challenges_expiry_idx
+  ON webauthn_challenges (
     namespace,
     org_id,
     project_id,

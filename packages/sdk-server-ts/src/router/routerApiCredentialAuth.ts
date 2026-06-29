@@ -62,6 +62,21 @@ function extractSponsoredRequestedAccountId(
   return readTrimmedString(accountProvisioning, 'requestedAccountId');
 }
 
+function extractProvidedWalletId(body: Record<string, unknown>): string {
+  const wallet = asRecord(body.wallet);
+  if (!wallet || readTrimmedString(wallet, 'kind') !== 'provided') return '';
+  return readTrimmedString(wallet, 'walletId');
+}
+
+function extractRegistrationBootstrapRequestedRpId(body: Record<string, unknown>): string {
+  const authMethod = asRecord(body.authMethod);
+  return (
+    readTrimmedString(body, 'rp_id') ||
+    readTrimmedString(body, 'rpId') ||
+    (authMethod ? readTrimmedString(authMethod, 'rpId') : '')
+  );
+}
+
 function extractRegistrationBootstrapRequestedAccountId(body: unknown): string {
   const bodyRecord = asRecord(body);
   if (!bodyRecord) return '';
@@ -71,6 +86,7 @@ function extractRegistrationBootstrapRequestedAccountId(body: unknown): string {
     : '';
   if (sponsoredRequestedAccountId) return sponsoredRequestedAccountId;
   return (
+    extractProvidedWalletId(bodyRecord) ||
     readTrimmedString(bodyRecord, 'newAccountId') ||
     readTrimmedString(bodyRecord, 'new_account_id') ||
     readTrimmedString(bodyRecord, 'walletId')
@@ -323,7 +339,7 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
     }
     const bodyRecord = asRecord(input.body) || {};
     const requestedAccountId = extractRegistrationBootstrapRequestedAccountId(bodyRecord);
-    const requestedRpId = String(bodyRecord.rp_id || bodyRecord.rpId || '').trim();
+    const requestedRpId = extractRegistrationBootstrapRequestedRpId(bodyRecord);
     if (
       (redeemResult.record.newAccountId &&
         redeemResult.record.newAccountId !== requestedAccountId) ||

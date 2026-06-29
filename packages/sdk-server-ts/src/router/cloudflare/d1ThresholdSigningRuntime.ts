@@ -175,11 +175,11 @@ export class CloudflareD1ThresholdSigningRuntime {
 }
 
 async function unsupportedCloudflareD1NearAccessKeyList(): Promise<never> {
-  throw new Error('Cloudflare D1 relay auth service does not support NEAR access-key reads');
+  throw new Error('Cloudflare D1 Router API auth service does not support NEAR access-key reads');
 }
 
 async function unsupportedCloudflareD1NearTransactionDispatch(): Promise<never> {
-  throw new Error('Cloudflare D1 relay auth service does not support NEAR transaction dispatch');
+  throw new Error('Cloudflare D1 Router API auth service does not support NEAR transaction dispatch');
 }
 
 function optionalTrimmedString(input: unknown): string {

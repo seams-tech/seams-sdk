@@ -4,7 +4,7 @@ import {
   type WalletAuthMethodRecord as SharedWalletAuthMethodRecord,
 } from '@shared/utils/registrationIntent';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import { formatD1ExecStatement, parseD1JsonColumn } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 
 export type WalletAuthMethodRecord = SharedWalletAuthMethodRecord;
@@ -60,7 +60,7 @@ type D1WalletAuthMethodRow = {
 
 export const WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_wallet_auth_methods (
+    CREATE TABLE IF NOT EXISTS wallet_auth_methods (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -86,12 +86,39 @@ export const WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(auth_identifier_key) > 0),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms >= 0),
-      CHECK (updated_at_ms >= created_at_ms)
+      CHECK (updated_at_ms >= created_at_ms),
+      CHECK (
+        (
+          kind = 'passkey'
+          AND length(rp_id) > 0
+          AND credential_id_b64u IS NOT NULL
+          AND length(credential_id_b64u) > 0
+          AND credential_public_key_b64u IS NOT NULL
+          AND length(credential_public_key_b64u) > 0
+          AND email_hash_hex IS NULL
+          AND registration_authority_id IS NULL
+          AND auth_identifier_key = credential_id_b64u
+          AND wallet_auth_method_id = 'passkey:' || rp_id || ':' || credential_id_b64u
+        )
+        OR
+        (
+          kind = 'email_otp'
+          AND rp_id = ''
+          AND credential_id_b64u IS NULL
+          AND credential_public_key_b64u IS NULL
+          AND email_hash_hex IS NOT NULL
+          AND length(email_hash_hex) > 0
+          AND registration_authority_id IS NOT NULL
+          AND length(registration_authority_id) > 0
+          AND auth_identifier_key = email_hash_hex
+          AND wallet_auth_method_id = 'email_otp:' || wallet_id || ':' || email_hash_hex
+        )
+      )
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_wallet_auth_methods_wallet_idx
-      ON signer_wallet_auth_methods (
+    CREATE INDEX IF NOT EXISTS wallet_auth_methods_wallet_idx
+      ON wallet_auth_methods (
         namespace,
         org_id,
         project_id,
@@ -102,8 +129,8 @@ export const WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_wallet_auth_methods_identifier_idx
-      ON signer_wallet_auth_methods (
+    CREATE INDEX IF NOT EXISTS wallet_auth_methods_identifier_idx
+      ON wallet_auth_methods (
         namespace,
         org_id,
         project_id,
@@ -113,8 +140,8 @@ export const WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS signer_wallet_auth_methods_passkey_uidx
-      ON signer_wallet_auth_methods (
+    CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_methods_passkey_uidx
+      ON wallet_auth_methods (
         namespace,
         org_id,
         project_id,
@@ -125,8 +152,8 @@ export const WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL = Object.freeze([
       WHERE kind = 'passkey' AND credential_id_b64u IS NOT NULL
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS signer_wallet_auth_methods_email_uidx
-      ON signer_wallet_auth_methods (
+    CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_methods_email_uidx
+      ON wallet_auth_methods (
         namespace,
         org_id,
         project_id,
@@ -217,15 +244,6 @@ export function normalizeWalletAuthMethod(raw: unknown): WalletAuthMethodRecord 
   };
 }
 
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function requireD1ScopeString(input: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(input);
   if (!normalized) throw new Error(`${field} is required for D1 wallet auth-method store`);
@@ -313,7 +331,7 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
     const identity = bindWalletAuthMethodIdentity(parsed);
     await this.database
       .prepare(
-        `INSERT INTO signer_wallet_auth_methods (
+        `INSERT INTO wallet_auth_methods (
           namespace,
           org_id,
           project_id,
@@ -346,11 +364,11 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
           registration_authority_id = EXCLUDED.registration_authority_id,
           record_json = EXCLUDED.record_json,
           created_at_ms = MIN(
-            signer_wallet_auth_methods.created_at_ms,
+            wallet_auth_methods.created_at_ms,
             EXCLUDED.created_at_ms
           ),
           updated_at_ms = MAX(
-            signer_wallet_auth_methods.updated_at_ms,
+            wallet_auth_methods.updated_at_ms,
             EXCLUDED.updated_at_ms
           )`,
       )
@@ -387,7 +405,7 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
     const row = await this.database
       .prepare(
         `SELECT record_json
-           FROM signer_wallet_auth_methods
+           FROM wallet_auth_methods
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -403,7 +421,7 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
         `passkey:${rpId}:${credentialIdB64u}`,
       )
       .first<D1WalletAuthMethodRow>();
-    return normalizeWalletAuthMethod(parseD1RecordJson(row?.record_json));
+    return normalizeWalletAuthMethod(parseD1JsonColumn(row?.record_json));
   }
 
   async getEmailOtp(input: {
@@ -417,7 +435,7 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
     const row = await this.database
       .prepare(
         `SELECT record_json
-           FROM signer_wallet_auth_methods
+           FROM wallet_auth_methods
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -433,7 +451,7 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
         `email_otp:${walletId}:${emailHashHex}`,
       )
       .first<D1WalletAuthMethodRow>();
-    return normalizeWalletAuthMethod(parseD1RecordJson(row?.record_json));
+    return normalizeWalletAuthMethod(parseD1JsonColumn(row?.record_json));
   }
 
   async listForWallet(input: {
@@ -447,7 +465,7 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
     const result = await this.database
       .prepare(
         `SELECT record_json
-           FROM signer_wallet_auth_methods
+           FROM wallet_auth_methods
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -468,7 +486,7 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
       .all<D1WalletAuthMethodRow>();
     const records: WalletAuthMethodRecord[] = [];
     for (const row of result.results || []) {
-      const parsed = normalizeWalletAuthMethod(parseD1RecordJson(row.record_json));
+      const parsed = normalizeWalletAuthMethod(parseD1JsonColumn(row.record_json));
       if (parsed) records.push(parsed);
     }
     return records;

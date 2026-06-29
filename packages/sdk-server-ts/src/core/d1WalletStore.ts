@@ -1,5 +1,6 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { formatD1ExecStatement } from '../storage/d1Sql';
+import { parseWalletId } from '@shared/utils/domainIds';
+import { formatD1ExecStatement, parseD1JsonColumn } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 import type { WalletId, WalletRegistrationEcdsaWalletKey } from './types';
 import { thresholdEcdsaChainTargetKey } from './thresholdEcdsaChainTarget';
@@ -52,30 +53,26 @@ type D1WalletRow = {
 
 export const WALLET_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
-    CREATE TABLE IF NOT EXISTS signer_wallets (
+    CREATE TABLE IF NOT EXISTS wallets (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
       env_id TEXT NOT NULL,
       wallet_id TEXT NOT NULL,
-      rp_id TEXT NOT NULL,
       record_json TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, project_id, env_id, wallet_id),
       CHECK (length(wallet_id) > 0),
-      CHECK (length(rp_id) > 0),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms >= 0),
-      CHECK (updated_at_ms >= created_at_ms)
+      CHECK (updated_at_ms >= created_at_ms),
+      CHECK (COALESCE(json_extract(record_json, '$.version') = 'wallet_v1', 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0))
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_wallets_rp_idx
-      ON signer_wallets (namespace, org_id, project_id, env_id, rp_id, created_at_ms)
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS signer_wallet_signers (
+    CREATE TABLE IF NOT EXISTS wallet_signers (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -101,16 +98,41 @@ export const WALLET_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(signer_id) > 0),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms >= 0),
-      CHECK (updated_at_ms >= created_at_ms)
+      CHECK (updated_at_ms >= created_at_ms),
+      CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0)),
+      CHECK (COALESCE(json_extract(record_json, '$.signerId') = signer_id, 0)),
+      CHECK (
+        (
+          signer_family = 'ed25519'
+          AND chain_target_key IS NULL
+          AND substr(signer_id, 1, 8) = 'ed25519:'
+          AND COALESCE(
+            json_extract(record_json, '$.version') = 'wallet_signer_ed25519_v1',
+            0
+          )
+        )
+        OR
+        (
+          signer_family = 'ecdsa'
+          AND chain_target_key IS NOT NULL
+          AND length(chain_target_key) > 0
+          AND signer_id = 'ecdsa:' || chain_target_key
+          AND COALESCE(
+            json_extract(record_json, '$.version') = 'wallet_signer_ecdsa_v1',
+            0
+          )
+          AND COALESCE(json_extract(record_json, '$.chainTargetKey') = chain_target_key, 0)
+        )
+      )
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_wallet_signers_wallet_idx
-      ON signer_wallet_signers (namespace, org_id, project_id, env_id, wallet_id, signer_family)
+    CREATE INDEX IF NOT EXISTS wallet_signers_wallet_idx
+      ON wallet_signers (namespace, org_id, project_id, env_id, wallet_id, signer_family)
   `,
   `
-    CREATE INDEX IF NOT EXISTS signer_wallet_signers_chain_target_idx
-      ON signer_wallet_signers (
+    CREATE INDEX IF NOT EXISTS wallet_signers_chain_target_idx
+      ON wallet_signers (
         namespace,
         org_id,
         project_id,
@@ -139,27 +161,16 @@ function normalizeTimestampMs(value: unknown): number | null {
   return Math.floor(numberValue);
 }
 
-function parseD1RecordJson(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function parseWalletRecord(raw: unknown): WalletRecord | null {
   if (!isObject(raw)) return null;
   if (raw.version !== 'wallet_v1') return null;
-  const walletId = toOptionalTrimmedString(raw.walletId);
-  const rpId = toOptionalTrimmedString(raw.rpId);
+  const walletId = parseWalletId(raw.walletId);
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
-  if (!walletId || !rpId || createdAtMs == null || updatedAtMs == null) return null;
+  if (!walletId.ok || createdAtMs == null || updatedAtMs == null) return null;
   return {
     version: 'wallet_v1',
-    walletId: walletId as WalletId,
-    rpId,
+    walletId: walletId.value,
     createdAtMs,
     updatedAtMs,
   };
@@ -260,7 +271,7 @@ export class D1WalletStore implements WalletStore {
     const row = await this.database
       .prepare(
         `SELECT record_json
-           FROM signer_wallets
+           FROM wallets
           WHERE namespace = ?
             AND org_id = ?
             AND project_id = ?
@@ -276,7 +287,7 @@ export class D1WalletStore implements WalletStore {
         walletId,
       )
       .first<D1WalletRow>();
-    return parseWalletRecord(parseD1RecordJson(row?.record_json));
+    return parseWalletRecord(parseD1JsonColumn(row?.record_json));
   }
 
   async putSubject(record: WalletRecord): Promise<void> {
@@ -285,24 +296,22 @@ export class D1WalletStore implements WalletStore {
     if (!parsed) throw new Error('Invalid wallet record');
     await this.database
       .prepare(
-        `INSERT INTO signer_wallets (
+        `INSERT INTO wallets (
           namespace,
           org_id,
           project_id,
           env_id,
           wallet_id,
-          rp_id,
           record_json,
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (namespace, org_id, project_id, env_id, wallet_id)
         DO UPDATE SET
-          rp_id = EXCLUDED.rp_id,
           record_json = EXCLUDED.record_json,
-          created_at_ms = MIN(signer_wallets.created_at_ms, EXCLUDED.created_at_ms),
-          updated_at_ms = MAX(signer_wallets.updated_at_ms, EXCLUDED.updated_at_ms)`,
+          created_at_ms = MIN(wallets.created_at_ms, EXCLUDED.created_at_ms),
+          updated_at_ms = MAX(wallets.updated_at_ms, EXCLUDED.updated_at_ms)`,
       )
       .bind(
         this.scope.namespace,
@@ -310,7 +319,6 @@ export class D1WalletStore implements WalletStore {
         this.scope.projectId,
         this.scope.envId,
         parsed.walletId,
-        parsed.rpId,
         JSON.stringify(parsed),
         parsed.createdAtMs,
         parsed.updatedAtMs,
@@ -323,7 +331,7 @@ export class D1WalletStore implements WalletStore {
     const parsed = ensureWalletSignerRecord(record);
     await this.database
       .prepare(
-        `INSERT INTO signer_wallet_signers (
+        `INSERT INTO wallet_signers (
           namespace,
           org_id,
           project_id,
@@ -349,8 +357,8 @@ export class D1WalletStore implements WalletStore {
         DO UPDATE SET
           chain_target_key = EXCLUDED.chain_target_key,
           record_json = EXCLUDED.record_json,
-          created_at_ms = MIN(signer_wallet_signers.created_at_ms, EXCLUDED.created_at_ms),
-          updated_at_ms = MAX(signer_wallet_signers.updated_at_ms, EXCLUDED.updated_at_ms)`,
+          created_at_ms = MIN(wallet_signers.created_at_ms, EXCLUDED.created_at_ms),
+          updated_at_ms = MAX(wallet_signers.updated_at_ms, EXCLUDED.updated_at_ms)`,
       )
       .bind(
         this.scope.namespace,
