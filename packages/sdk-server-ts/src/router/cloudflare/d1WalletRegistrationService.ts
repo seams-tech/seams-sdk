@@ -111,16 +111,14 @@ function normalizeD1ThresholdRuntimePolicyScope(raw: unknown) {
   }
 }
 
+type D1InvalidBodyResult = { ok: false; code: 'invalid_body'; message: string };
 type D1Ed25519SessionPolicyBuildResult =
   | { ok: true; value: Ed25519SessionPolicy }
-  | { ok: false; code: 'invalid_body'; message: string };
+  | D1InvalidBodyResult;
 
 function parseD1ThresholdEd25519SessionPolicyRouterAbNormalSigning(
   requestedSessionPolicy: Record<string, unknown>,
-): D1Ed25519SessionPolicyBuildResult | {
-  ok: true;
-  value: Ed25519SessionPolicy['routerAbNormalSigning'];
-} {
+): { ok: true; value: Ed25519SessionPolicy['routerAbNormalSigning'] } | D1InvalidBodyResult {
   if (!Object.prototype.hasOwnProperty.call(requestedSessionPolicy, 'routerAbNormalSigning')) {
     return { ok: true, value: undefined };
   }
@@ -149,7 +147,7 @@ function parseD1ThresholdEd25519SessionPolicyRouterAbNormalSigning(
 
 function parseD1ThresholdEd25519SessionPolicyParticipantIds(
   requestedSessionPolicy: Record<string, unknown>,
-): D1Ed25519SessionPolicyBuildResult | { ok: true; value: number[] | undefined } {
+): { ok: true; value: number[] | undefined } | D1InvalidBodyResult {
   if (!Object.prototype.hasOwnProperty.call(requestedSessionPolicy, 'participantIds')) {
     return { ok: true, value: undefined };
   }
