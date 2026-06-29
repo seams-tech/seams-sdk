@@ -59,6 +59,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   linkDeviceOptions,
   header,
   defaultMode,
+  registrationAccountInput,
   style,
   className,
   socialLogin,
@@ -89,6 +90,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       onSyncAccount: onSyncWithSDKEvents,
       emailOtpAuthPolicy,
       defaultMode,
+      registrationAccountInput,
       headings,
       linkDeviceOptions,
       socialLogin,
@@ -483,23 +485,31 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
           </div>
         ) : (
           <>
-            <PasskeyInput
-              value={controller.currentValue}
-              onChange={controller.onInputChange}
-              placeholder={
-                controller.mode === AuthMenuMode.Register
-                  ? 'Pick a username'
-                  : 'Enter your username'
-              }
-              postfixText={controller.postfixText}
-              isUsingExistingAccount={controller.isUsingExistingAccount}
-              accountExists={runtime.accountExists}
-              accountOptions={controller.passkeyAccountOptions}
-              onProceed={controller.onProceed}
-              mode={controller.mode}
-              secure={controller.secure}
-              waiting={controller.waiting}
-            />
+            {controller.showAccountInput ? (
+              <PasskeyInput
+                value={controller.currentValue}
+                onChange={controller.onInputChange}
+                placeholder={
+                  controller.mode === AuthMenuMode.Register
+                    ? controller.accountInputReadOnly
+                      ? 'Wallet name'
+                      : 'Pick a username'
+                    : 'Enter your username'
+                }
+                postfixText={controller.postfixText}
+                isUsingExistingAccount={controller.isUsingExistingAccount}
+                targetExists={controller.targetExists}
+                accountOptions={controller.passkeyAccountOptions}
+                onProceed={controller.onProceed}
+                mode={controller.mode}
+                secure={controller.secure}
+                waiting={controller.waiting}
+                readOnly={controller.accountInputReadOnly}
+                onRerollValue={controller.onAccountInputReroll}
+                rerollValueLabel={controller.accountInputRerollLabel}
+                rerollValueDisabled={controller.accountInputRerollDisabled}
+              />
+            ) : null}
 
             <SegmentedControl
               items={[

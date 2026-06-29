@@ -262,6 +262,18 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(sources[0].source).not.toContain("'/v1/hss/sign'");
     expect(sources[1].source).not.toContain('walletSessionCredentialFromWalletSessionState');
     expect(sources[1].source).toContain('requireRouterAbEd25519NormalSigningReadyState');
+    expect(sources[1].source).toContain('requireRouterAbNormalSigningPrepareMatchesRequest');
+    expect(sources[1].source).not.toContain('Math.random');
+    expect(sources[1].source).toContain(
+      'secure randomness is unavailable for Router A/B client presign id',
+    );
+    expect(
+      sourceRangeBetween(
+        sources[1].source,
+        'const prepareResponse = await prepareRouterAbNormalSigningV2({',
+        'const clientShare =',
+      ),
+    ).toContain('requireRouterAbNormalSigningPrepareMatchesRequest({');
     expect(sources[2].source).toContain('RouterAbWalletSessionCredential');
     expect(sources[2].source).toContain('requireRouterAbEd25519NormalSigningReadyState');
     expect(sources[2].source).toContain('walletSessionJwt');

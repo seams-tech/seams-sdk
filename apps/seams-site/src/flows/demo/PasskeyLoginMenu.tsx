@@ -7,6 +7,7 @@ import {
   UnlockEventPhase,
   type EmailOtpAuthPolicy,
   type AccountSyncFlowEvent,
+  type PasskeyRegistrationOptions,
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
@@ -252,7 +253,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   );
 
   const {
-    accountInputState: { targetAccountId, accountExists },
+    accountInputState: { targetWalletId, accountExists },
     unlock,
     registerPasskey,
     seams,
@@ -284,8 +285,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     };
   }, [relayerBaseUrl]);
 
-  const onRegister = async () => {
+  const onRegister = async (options?: PasskeyRegistrationOptions) => {
     const result = await registerPasskey({
+      ...options,
       onEvent: handleRegistrationEvent,
     });
 
@@ -299,10 +301,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
   };
 
-  const loginWithSession = async (accountId: string) => {
-    const loginTarget = String(accountId || '').trim();
+  const loginWithSession = async (walletId: string) => {
+    const loginTarget = String(walletId || '').trim();
     if (!loginTarget) {
-      throw new Error('Missing accountId for login');
+      throw new Error('Missing walletId for login');
     }
 
     const result = await unlock(loginTarget, {
@@ -329,7 +331,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   };
 
   const onLogin = async () => {
-    return await loginWithSession(targetAccountId);
+    return await loginWithSession(targetWalletId);
   };
 
   const onGoogleSsoEmailOtp = async (args: {
@@ -386,7 +388,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
   const onSyncAccount = async () => {
     const result = await seams.recovery.syncAccount({
-      ...(targetAccountId ? { accountId: targetAccountId } : {}),
+      ...(targetWalletId ? { walletId: targetWalletId } : {}),
       options: {
         onEvent: handleAccountSyncEvent,
       } as any,
@@ -408,7 +410,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
 
     toast.success(`Synced account ${syncedAccountId}. Logging in...`, { id: 'sync' });
-    await loginWithSession(syncedAccountId);
+    await loginWithSession(targetWalletId || syncedAccountId);
     return result;
   };
 

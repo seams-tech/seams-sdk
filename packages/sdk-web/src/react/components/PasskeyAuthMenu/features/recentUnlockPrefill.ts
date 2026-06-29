@@ -6,7 +6,7 @@ export interface RecentUnlockPrefillResult {
 }
 
 /**
- * Best-effort: fetch the most-recently used account and return its username prefix.
+ * Best-effort: fetch the most-recently used wallet and return its display name.
  * Intended to be called from a lazily imported "feature island".
  */
 export async function getRecentUnlockPrefill(
@@ -15,7 +15,7 @@ export async function getRecentUnlockPrefill(
   try {
     await awaitWalletIframeReady(seamsWeb).catch(() => false);
     const { lastUsedAccount } = await seamsWeb.auth.getRecentUnlocks();
-    const username = (lastUsedAccount?.nearAccountId ?? '').split('.')[0] || '';
+    const username = String(lastUsedAccount?.displayName || lastUsedAccount?.walletId || '').trim();
     if (!username) return null;
     return { username };
   } catch {

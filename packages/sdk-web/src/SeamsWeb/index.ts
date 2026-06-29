@@ -44,6 +44,7 @@ export type {
   FinalizedEvmTxPayloadVerification,
   KeyExportCapability,
   NearSignerCapability,
+  PasskeyRegistrationOptions,
   PreferencesCapability,
   RegistrationCapability,
   RecoveryCapability,

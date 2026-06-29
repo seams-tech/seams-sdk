@@ -5,6 +5,7 @@ import type {
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthRegistrationFlow,
   GoogleEmailOtpWalletAuthResolvedMode,
+  PasskeyRegistrationOptions,
 } from '@/SeamsWeb';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import {
@@ -139,15 +140,21 @@ export type PasskeyAuthMenuSocialLoginHandler = (args: {
   emailOtpAuthPolicy: EmailOtpAuthPolicy;
 }) => void | PasskeyAuthMenuSocialLoginResult | Promise<void | PasskeyAuthMenuSocialLoginResult>;
 
+export type PasskeyAuthMenuRegistrationAccountInput =
+  | 'implicit_wallet'
+  | 'sponsored_named_near_account';
+
 export interface PasskeyAuthMenuProps {
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onLogin?: () => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
-  onRegister?: () => void | Promise<unknown>;
+  onRegister?: (options?: PasskeyRegistrationOptions) => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onSyncAccount?: () => void | Promise<unknown>;
   /** App-selected Email OTP signing-session policy exposed through the auth menu. */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  /** Registration wallet/account input policy. Defaults to implicit wallet registration. */
+  registrationAccountInput?: PasskeyAuthMenuRegistrationAccountInput;
   /** Display SDK progress event messages under the waiting screen. */
   showSDKEvents?: boolean;
   /**

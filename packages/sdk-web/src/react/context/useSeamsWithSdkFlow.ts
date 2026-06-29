@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { SeamsWeb } from '@/SeamsWeb';
+import type { PasskeyRegistrationOptions, SeamsWeb } from '@/SeamsWeb';
 import type { AuthCapability, RecoveryCapability, RegistrationCapability } from '@/SeamsWeb';
 import {
   type LoginHooksOptions,
@@ -76,10 +76,10 @@ export function useSeamsWithSdkFlow(args: {
     };
 
     const registerPasskeyWithSdkFlow: RegisterPasskeyFn = async (
-      options?: RegistrationHooksOptions,
+      options?: PasskeyRegistrationOptions,
     ) => {
       const seq = beginSdkFlow('register');
-      const wrappedOptions: RegistrationHooksOptions = {
+      const wrappedOptions: PasskeyRegistrationOptions = {
         ...options,
         onEvent: (event: RegistrationFlowEvent) => {
           appendSdkEventMessage(seq, event.message);

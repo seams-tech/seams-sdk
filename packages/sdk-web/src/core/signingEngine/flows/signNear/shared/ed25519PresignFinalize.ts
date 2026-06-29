@@ -74,7 +74,10 @@ import {
   type RouterAbNormalSigningPrepareRequestV2BuildResult,
   type RouterAbNormalSigningScopeV1Wire,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import { requireRouterAbNormalSigningResponseMatchesRequest } from '@/core/rpcClients/relayer/routerAbNormalSigningValidation';
+import {
+  requireRouterAbNormalSigningPrepareMatchesRequest,
+  requireRouterAbNormalSigningResponseMatchesRequest,
+} from '@/core/rpcClients/relayer/routerAbNormalSigningValidation';
 import type {
   SigningOperationFingerprint,
   SigningOperationId,
@@ -676,7 +679,7 @@ function createClientPresignId(): string {
     cryptoApi.getRandomValues(bytes);
     return `client-presign-${[...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
   }
-  return `client-presign-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+  throw new Error('secure randomness is unavailable for Router A/B client presign id');
 }
 
 async function burnRouterAbEd25519PresignOffers(
@@ -753,6 +756,11 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
     relayServerUrl: args.walletSessionState.relayerUrl,
     credential: routerAbReadyState.credential,
     request: args.prepare.request,
+  });
+  requireRouterAbNormalSigningPrepareMatchesRequest({
+    request: args.prepare.request,
+    signingPayloadDigest: args.prepare.admissionMaterial.signingPayloadDigest,
+    response: prepareResponse,
   });
   const clientShare =
     await createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleNearSignerWasm(

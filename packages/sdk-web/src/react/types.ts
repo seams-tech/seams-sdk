@@ -10,6 +10,7 @@ import type {
   SignNEP413MessageResult,
   RegistrationCapability,
   DevicesCapability,
+  PasskeyRegistrationOptions,
 } from '../SeamsWeb';
 import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
 import type {
@@ -42,6 +43,8 @@ import type {
   WalletSessionRef,
 } from '../core/signingEngine/interfaces/ecdsaChainTarget';
 
+export type { PasskeyRegistrationOptions };
+
 // === React states types ===
 
 export type LoginState =
@@ -67,30 +70,36 @@ export type LoginState =
     };
 
 export interface StoredAccountOption {
-  nearAccountId: string;
+  walletId: string;
+  displayName: string;
+  nearAccountId?: string | null;
   signerSlot?: number;
   authMethod?: WalletAuthMethod | null;
 }
 
 // UI input state - tracks user input and form state
 export interface AccountInputState {
-  // The username portion being typed by the user (e.g., "alice")
+  // The wallet/display name being typed by the user.
   inputUsername: string;
-  // The username from the last logged-in account
+  // The display name from the last logged-in wallet.
   lastLoggedInUsername: string;
-  // The domain from the last logged-in account (e.g., ".testnet")
+  // The domain from the last logged-in sponsored named NEAR account, when applicable.
   lastLoggedInDomain: string;
-  // The complete account ID for input operations (e.g., "alice.testnet")
+  // Sponsored named NEAR account target used only by named-account registration.
   targetAccountId: string;
-  // The domain postfix to display in the UI (e.g., ".testnet")
+  // The wallet identity used for login/session operations.
+  targetWalletId: string;
+  // The sponsored named NEAR account postfix to display, when applicable.
   displayPostfix: string;
-  // Whether the current input was resolved from a locally saved account match
+  // Whether the current input was resolved from a locally saved wallet match.
   isUsingExistingAccount: boolean;
-  // Whether the target account currently exists on-chain
+  // Whether the sponsored named NEAR account target currently exists on-chain.
   accountExists: boolean;
-  // All account IDs stored in IndexDB
+  // Whether the target wallet has a local passkey credential for passkey login
+  passkeyCredentialExists: boolean;
+  // NEAR account IDs stored in IndexedDB, used for sponsored named-account checks.
   indexDBAccounts: string[];
-  // Stored accounts with signer auth method metadata, used by account picker UIs.
+  // Stored wallets with signer auth method metadata, used by account picker UIs.
   indexDBAccountOptions: StoredAccountOption[];
 }
 
@@ -177,7 +186,7 @@ export interface SeamsContextType {
   // Registration and wallet unlock functions
   addWalletSigner: RegistrationCapability['addWalletSigner'];
   registerWallet: RegistrationCapability['registerWallet'];
-  registerPasskey: (options?: RegistrationHooksOptions) => Promise<RegistrationResult>;
+  registerPasskey: RegistrationCapability['registerPasskey'];
   unlock: (
     walletId: string,
     options?: LoginHooksOptions,

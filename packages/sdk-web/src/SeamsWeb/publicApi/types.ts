@@ -204,7 +204,7 @@ export type SignTempoArgs = {
 export type RegisterNearImplicitWalletArgs = {
   accountProvisioning?: Extract<RegistrationNearAccountProvisioning, { kind: 'implicit_account' }>;
   nearAccountId?: never;
-  wallet?: never;
+  wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>;
   authMethod?: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
@@ -223,6 +223,10 @@ export type RegisterNearSponsoredWalletArgs = {
 export type RegisterNearWalletArgs =
   | RegisterNearImplicitWalletArgs
   | RegisterNearSponsoredWalletArgs;
+
+export type PasskeyRegistrationOptions = RegistrationHooksOptions & {
+  wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>;
+};
 
 export type RegisterEvmWalletArgs = {
   chainTargets: readonly ThresholdEcdsaChainTarget[];
@@ -643,7 +647,7 @@ export interface RegistrationCapability {
     signerSelection: RegistrationSignerSetSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
-  registerPasskey(options?: RegistrationHooksOptions): Promise<RegistrationResult>;
+  registerPasskey(options?: PasskeyRegistrationOptions): Promise<RegistrationResult>;
   createPasskeyRegistrationActivationSurface(
     args: CreatePasskeyRegistrationActivationSurfaceArgs,
   ): WalletIframeRegistrationActivationSurface;

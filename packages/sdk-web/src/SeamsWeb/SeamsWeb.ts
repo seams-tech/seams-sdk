@@ -29,7 +29,6 @@ import type {
   CreateUnlockFlowEventInput,
   KeyExportHooksOptions,
   LoginHooksOptions,
-  RegistrationHooksOptions,
   RegistrationFlowEvent,
   UnlockFlowEvent,
 } from '@/core/types/sdkSentEvents';
@@ -855,27 +854,28 @@ export class SeamsWeb {
   }
 
   private async registerPasskeyDomain(
-    options: RegistrationHooksOptions = {},
+    options: Parameters<RegistrationCapability['registerPasskey']>[0] = {},
   ): Promise<RegistrationResult> {
     if (typeof options === 'string') {
       throw new Error(
         '[SeamsWeb] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
       );
     }
+    const { wallet, ...registrationOptions } = options || {};
     const rpId = requireSeamsWebRegistrationRpId(this.signingEngine.getRpId());
     if (!rpId) {
       throw new Error('Missing rpId for Router API registration');
     }
     return await this.registerWalletDomain({
-      wallet: {
+      wallet: wallet || {
         kind: 'server_allocated',
       },
       authMethod: { kind: 'passkey', rpId },
       signerSelection: buildNearWalletRegistrationSignerSetSelection({
         configs: this.configs,
-        options,
+        options: registrationOptions,
       }),
-      options,
+      options: registrationOptions,
     });
   }
 

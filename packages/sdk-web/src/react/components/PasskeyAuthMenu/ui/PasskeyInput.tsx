@@ -10,7 +10,7 @@ export interface PasskeyInputProps {
   placeholder: string;
   postfixText?: string;
   isUsingExistingAccount?: boolean;
-  accountExists?: boolean;
+  targetExists?: boolean;
   accountOptions?: StoredAccountOption[];
   onProceed: () => void;
   /** Current signup mode for status badge */
@@ -19,6 +19,10 @@ export interface PasskeyInputProps {
   secure?: boolean;
   /** Whether the parent flow is waiting on passkey resolution */
   waiting?: boolean;
+  readOnly?: boolean;
+  onRerollValue?: () => void;
+  rerollValueLabel?: string;
+  rerollValueDisabled?: boolean;
 }
 
 type AccountOptionGroup = {
@@ -37,21 +41,43 @@ const AccountDropdownArrow: React.FC = () => (
   </svg>
 );
 
+const RerollValueIcon: React.FC = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    className="w3a-input-action-icon lucide lucide-refresh-cw-icon lucide-refresh-cw"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+    <path d="M21 3v5h-5" />
+    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+    <path d="M8 16H3v5" />
+  </svg>
+);
+
 function groupAccountOptions(accountOptions?: StoredAccountOption[]): AccountOptionGroup[] {
   const uniqueAccounts = new Map<string, StoredAccountOption>();
   for (const option of accountOptions ?? []) {
-    const nearAccountId = String(option.nearAccountId || '').trim();
-    if (!nearAccountId) continue;
+    const walletId = String(option.walletId || '').trim();
+    if (!walletId) continue;
+    const displayName = String(option.displayName || walletId).trim() || walletId;
     const authMethodKey = option.authMethod || 'passkey';
-    uniqueAccounts.set(`${nearAccountId}:${authMethodKey}`, {
-      nearAccountId,
+    uniqueAccounts.set(`${walletId}:${authMethodKey}:${displayName}`, {
+      walletId,
+      displayName,
       ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
       ...(option.authMethod ? { authMethod: option.authMethod } : {}),
     });
   }
 
   const sortedAccounts = [...uniqueAccounts.values()].sort((a, b) =>
-    a.nearAccountId.localeCompare(b.nearAccountId),
+    a.displayName.localeCompare(b.displayName),
   );
   const passkeyAccounts = sortedAccounts.filter((option) => option.authMethod !== 'email_otp');
   const emailOtpAccounts = sortedAccounts.filter((option) => option.authMethod === 'email_otp');
@@ -62,25 +88,60 @@ function groupAccountOptions(accountOptions?: StoredAccountOption[]): AccountOpt
   return groups.filter((group) => group.accounts.length > 0);
 }
 
+function findSelectedAccountOption(input: {
+  value: string;
+  accountOptions?: StoredAccountOption[];
+}): StoredAccountOption | null {
+  const value = String(input.value || '').trim().toLowerCase();
+  if (!value) return null;
+  for (const option of input.accountOptions ?? []) {
+    const candidates = [option.walletId, option.displayName];
+    for (const candidate of candidates) {
+      if (String(candidate || '').trim().toLowerCase() === value) return option;
+    }
+  }
+  return null;
+}
+
+function accountOptionSelected(account: StoredAccountOption, value: string): boolean {
+  const normalizedValue = String(value || '').trim().toLowerCase();
+  if (!normalizedValue) return false;
+  const candidates = [account.walletId, account.displayName];
+  for (const candidate of candidates) {
+    if (String(candidate || '').trim().toLowerCase() === normalizedValue) return true;
+  }
+  return false;
+}
+
 export const PasskeyInput: React.FC<PasskeyInputProps> = ({
   value,
   onChange,
   placeholder,
   postfixText,
   isUsingExistingAccount,
-  accountExists,
+  targetExists,
   accountOptions,
   onProceed,
   mode,
   secure,
   waiting = false,
+  readOnly = false,
+  onRerollValue,
+  rerollValueLabel = 'Generate another name',
+  rerollValueDisabled = false,
 }: PasskeyInputProps) => {
   const statusId = React.useId();
   const inputId = React.useId();
   const menuId = React.useId();
-  const { bindInput, bindPostfix } = usePostfixPosition({ inputValue: value, gap: 1 });
   const showAccountOptions = mode === AuthMenuMode.Login && !!accountOptions?.length;
   const accountGroups = React.useMemo(() => groupAccountOptions(accountOptions), [accountOptions]);
+  const selectedAccount = React.useMemo(
+    () => findSelectedAccountOption({ value, accountOptions }),
+    [value, accountOptions],
+  );
+  const renderedValue =
+    mode === AuthMenuMode.Login && selectedAccount ? selectedAccount.displayName : value;
+  const { bindInput, bindPostfix } = usePostfixPosition({ inputValue: renderedValue, gap: 1 });
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
 
   // Keep a stable ref to the input so we can manage focus across transitions
@@ -165,8 +226,9 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
             type="text"
             id={inputId}
             name="passkey"
-            value={value}
+            value={renderedValue}
             onChange={(e) => {
+              if (readOnly) return;
               onChange(e.target.value);
             }}
             onKeyDown={onEnter}
@@ -177,8 +239,9 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
             autoCorrect="off"
             spellCheck={false}
             inputMode="text"
+            readOnly={readOnly}
           />
-          {postfixText && value.length > 0 && (
+          {postfixText && renderedValue.length > 0 && (
             <span
               title={isUsingExistingAccount ? 'Using saved account domain' : 'New account domain'}
               className={`w3a-postfix${isUsingExistingAccount ? ' is-existing' : ''}`}
@@ -189,12 +252,23 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
           )}
           <AccountExistsBadge
             id={statusId}
-            accountExists={accountExists}
+            targetExists={targetExists}
             mode={mode}
             secure={secure}
           />
         </div>
-        {showAccountOptions ? (
+        {onRerollValue ? (
+          <button
+            type="button"
+            className="w3a-input-action-trigger"
+            aria-label={rerollValueLabel}
+            title={rerollValueLabel}
+            onClick={onRerollValue}
+            disabled={waiting || rerollValueDisabled}
+          >
+            <RerollValueIcon />
+          </button>
+        ) : showAccountOptions ? (
           <div
             ref={accountMenuRef}
             className={`w3a-account-menu${accountMenuOpen ? ' is-open' : ''}`}
@@ -217,22 +291,22 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
                   <div key={group.label} className="w3a-account-menu-group">
                     <div className="w3a-account-menu-group-label">{group.label}</div>
                     {group.accounts.map((account) => {
-                      const selected = account.nearAccountId.toLowerCase() === value.toLowerCase();
+                      const selected = accountOptionSelected(account, value);
                       return (
                         <button
-                          key={`${account.nearAccountId}:${account.authMethod || 'passkey'}`}
+                          key={`${account.walletId}:${account.authMethod || 'passkey'}:${account.displayName}`}
                           type="button"
                           role="option"
                           aria-selected={selected}
                           className={`w3a-account-menu-option${selected ? ' is-selected' : ''}`}
-                          title={account.nearAccountId}
+                          title={account.displayName}
                           onClick={() => {
-                            onChange(account.nearAccountId);
+                            onChange(account.walletId);
                             setAccountMenuOpen(false);
                           }}
                         >
                           <span className="w3a-account-menu-check" aria-hidden="true" />
-                          <span className="w3a-account-menu-account">{account.nearAccountId}</span>
+                          <span className="w3a-account-menu-account">{account.displayName}</span>
                         </button>
                       );
                     })}

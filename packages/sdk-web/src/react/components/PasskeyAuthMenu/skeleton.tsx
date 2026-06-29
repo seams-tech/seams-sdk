@@ -7,7 +7,11 @@ import { ArrowRightAnim } from '../ArrowRightAnim';
 import { PasskeyAuthMenuThemeScope } from './themeScope';
 import { useTheme } from '../theme';
 import { getModeTitle, resolveDefaultMode } from './controller/mode';
-import { AuthMenuMode, type AuthMenuHeadings } from './types';
+import {
+  AuthMenuMode,
+  type AuthMenuHeadings,
+  type PasskeyAuthMenuRegistrationAccountInput,
+} from './types';
 import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
 
 export interface PasskeyAuthMenuSkeletonProps {
@@ -19,17 +23,38 @@ export interface PasskeyAuthMenuSkeletonProps {
   headings?: AuthMenuHeadings;
   /** Best-effort to match the hydrated UI Email OTP signing-session policy. */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  /** Best-effort to match the hydrated UI registration input policy. */
+  registrationAccountInput?: PasskeyAuthMenuRegistrationAccountInput;
 }
 
 export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
   HTMLDivElement,
   PasskeyAuthMenuSkeletonProps
->(({ className, style, defaultMode, headings, emailOtpAuthPolicy }, ref) => {
+>(
+  (
+    {
+      className,
+      style,
+      defaultMode,
+      headings,
+      emailOtpAuthPolicy,
+      registrationAccountInput = 'implicit_wallet',
+    },
+    ref,
+  ) => {
   const mode = resolveDefaultMode(false, defaultMode);
   const resolvedEmailOtpAuthPolicy: EmailOtpAuthPolicy = emailOtpAuthPolicy || 'session';
   const title = getModeTitle(mode, headings ?? null);
+  const showAccountInput =
+    mode === AuthMenuMode.Login ||
+    registrationAccountInput === 'sponsored_named_near_account' ||
+    registrationAccountInput === 'implicit_wallet';
   const placeholder =
-    mode === AuthMenuMode.Register ? 'Pick a username' : 'Enter your username';
+    mode === AuthMenuMode.Register
+      ? registrationAccountInput === 'implicit_wallet'
+        ? 'Wallet name'
+        : 'Pick a username'
+      : 'Enter your username';
   const segActiveWidth = 'calc((100% - 14px) / 2)';
   const segActiveX =
     mode === AuthMenuMode.Login
@@ -60,25 +85,27 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                 </div>
               </div>
 
-              <div className="w3a-passkey-row">
-                <div className="w3a-input-pill">
-                  <div className="w3a-input-wrap">
-                    <input
-                      type="text"
-                      name="passkey"
-                      disabled
-                      placeholder={placeholder}
-                      className="w3a-input"
-                      aria-disabled="true"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      inputMode="text"
-                      style={{ pointerEvents: 'none' }}
-                    />
+              {showAccountInput ? (
+                <div className="w3a-passkey-row">
+                  <div className="w3a-input-pill">
+                    <div className="w3a-input-wrap">
+                      <input
+                        type="text"
+                        name="passkey"
+                        disabled
+                        placeholder={placeholder}
+                        className="w3a-input"
+                        aria-disabled="true"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        inputMode="text"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
 
               <div className="w3a-seg">
                 <div
@@ -186,7 +213,8 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
       </div>
     </div>
   );
-});
+  },
+);
 PasskeyAuthMenuSkeletonInner.displayName = 'PasskeyAuthMenuSkeletonInner';
 
 export const PasskeyAuthMenuSkeleton: React.FC<PasskeyAuthMenuSkeletonProps> = (props) => {

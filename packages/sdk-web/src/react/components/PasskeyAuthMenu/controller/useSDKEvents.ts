@@ -7,23 +7,23 @@ import type { SDKFlowRuntime } from '@/react/types';
  */
 
 type FlowKind = Exclude<SDKFlowRuntime['kind'], null>;
-type Handler = (() => void | Promise<unknown>) | undefined;
+type Handler = ((...args: any[]) => void | Promise<unknown>) | undefined;
 
 export function useSDKEvents(args: { sdkFlow: SDKFlowRuntime }): {
   withSdkEventsHandler: (
     kind: FlowKind,
     handler: Handler,
     timeoutMs: number,
-  ) => (() => Promise<void>) | undefined;
+  ) => ((...args: any[]) => Promise<void>) | undefined;
 } {
   const { sdkFlow } = args;
 
   const withSdkEventsHandler = React.useCallback(
     (kind: FlowKind, handler: Handler, timeoutMs: number) => {
       if (!handler) return undefined;
-      return async () => {
+      return async (...handlerArgs: any[]) => {
         const seqBefore = sdkFlow.seq;
-        const res = handler();
+        const res = handler(...handlerArgs);
         if (res && typeof res.then === 'function') {
           await res;
         }

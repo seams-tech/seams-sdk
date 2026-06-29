@@ -5,6 +5,7 @@ const IMPORT_PATHS = {
   provider: '/sdk/esm/react/context/SeamsWebProvider.js',
   reactIndex: '/sdk/esm/react/index.js',
   passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/public.js',
+  passkeyAuthMenuClient: '/sdk/esm/react/components/PasskeyAuthMenu/client.js',
   passkeyAuthMenuController:
     '/sdk/esm/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.js',
   seamsContextValue: '/sdk/esm/react/context/useSeamsContextValue.js',
@@ -42,10 +43,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.passkeyAuthMenuClient);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
 
         const config = {
           nearNetwork: 'testnet',
@@ -72,7 +73,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const mount = page.locator('#pam2-test-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
     await expect(mount.locator('.w3a-seg')).toHaveCount(1);
-    await expect(mount.locator('.w3a-passkey-row button')).toHaveCount(0);
+    await expect(mount.locator('.w3a-passkey-row button')).toHaveCount(1);
 
     const root = mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)');
     const sentinel = await root.evaluate((el) =>
@@ -97,10 +98,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.passkeyAuthMenuClient);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
 
         const config = (window as any).__w3a_pam2_config__ || {
           nearNetwork: 'testnet',
@@ -160,11 +161,11 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.passkeyAuthMenuClient);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -240,11 +241,11 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
         const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const menuMod: any = await import(paths.passkeyAuthMenuClient);
         const typesMod: any = await import(paths.authMenuTypes);
 
         const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
         const config = {
@@ -316,7 +317,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         const mount = document.createElement('div');
@@ -339,11 +341,14 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                 },
               },
               accountExists: true,
+              passkeyCredentialExists: false,
               inputUsername,
+              targetWalletId: 'alice',
               targetAccountId: 'alice.testnet',
               accountOptions: [
                 {
-                  nearAccountId: 'alice.testnet',
+                  walletId: 'alice',
+                  displayName: 'alice',
                   authMethod: 'email_otp',
                 },
               ],
@@ -408,7 +413,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       });
   });
 
-  test('account dropdown groups accounts from auth method metadata', async ({ page }) => {
+  test('account dropdown renders auth labels instead of implicit NEAR account IDs', async ({
+    page,
+  }) => {
     await page.evaluate(
       async ({ paths }) => {
         await new Promise<void>((resolve, reject) => {
@@ -436,7 +443,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const { AuthMenuMode } = typesMod;
 
         function Harness() {
-          const [value, setValue] = React.useState('sage-shore-3scqvgt7hl.w3a-relayer.testnet');
+          const [value, setValue] = React.useState('jade-orchid-2caqh9');
           return React.createElement(PasskeyInput, {
             value,
             onChange: setValue,
@@ -445,22 +452,26 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             onProceed: () => undefined,
             accountOptions: [
               {
-                nearAccountId: 'gorp12.w3a-relayer.testnet',
+                walletId: 'jade-orchid-2caqh9',
+                displayName: 'jade-orchid-2caqh9',
+                nearAccountId:
+                  '13f209913f2d5d9cd8d7ec99a9a93f8c7b00c53326c4dd978a32b9f3b8d25b9b',
                 signerSlot: 1,
                 authMethod: 'passkey',
               },
               {
-                nearAccountId: 'gorp13.w3a-relayer.testnet',
+                walletId: 'frost-violet-8n1lfz',
+                displayName: 'frost-violet-8n1lfz',
+                nearAccountId:
+                  '654d84f7bf7475554e18f970148c744842288a79aaf7d82010d50d9a3b40d1a2',
                 signerSlot: 1,
                 authMethod: 'passkey',
               },
               {
-                nearAccountId: 'sage-shore-3scqvgt7hl.w3a-relayer.testnet',
-                signerSlot: 1,
-                authMethod: 'email_otp',
-              },
-              {
-                nearAccountId: 'n6378056-gmail-com-1776502017920.w3a-relayer.testnet',
+                walletId: 'cedar-harvest-r9a4kp',
+                displayName: 'n6378056@gmail.com',
+                nearAccountId:
+                  '82c97f62d2ea8b7033fc24a4b525b3bb3240298f9ed220bd1b7427f2b0229978',
                 signerSlot: 1,
                 authMethod: 'email_otp',
               },
@@ -482,12 +493,14 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const passkeyGroup = mount.locator('.w3a-account-menu-group').filter({ hasText: 'PASSKEY' });
     const emailOtpGroup = mount.locator('.w3a-account-menu-group').filter({ hasText: 'EMAIL OTP' });
 
-    await expect(passkeyGroup).toContainText('gorp12.w3a-relayer.testnet');
-    await expect(passkeyGroup).toContainText('gorp13.w3a-relayer.testnet');
-    await expect(passkeyGroup).not.toContainText('sage-shore-3scqvgt7hl.w3a-relayer.testnet');
-    await expect(emailOtpGroup).toContainText('sage-shore-3scqvgt7hl.w3a-relayer.testnet');
-    await expect(emailOtpGroup).toContainText(
-      'n6378056-gmail-com-1776502017920.w3a-relayer.testnet',
+    await expect(passkeyGroup).toContainText('jade-orchid-2caqh9');
+    await expect(passkeyGroup).toContainText('frost-violet-8n1lfz');
+    await expect(passkeyGroup).not.toContainText(
+      '13f209913f2d5d9cd8d7ec99a9a93f8c7b00c53326c4dd978a32b9f3b8d25b9b',
+    );
+    await expect(emailOtpGroup).toContainText('n6378056@gmail.com');
+    await expect(emailOtpGroup).not.toContainText(
+      '82c97f62d2ea8b7033fc24a4b525b3bb3240298f9ed220bd1b7427f2b0229978',
     );
   });
 
@@ -953,7 +966,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         (window as any).__otpRefreshCalls = [];
@@ -1080,7 +1094,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         (window as any).__headlessRefreshCalls = [];
@@ -1240,7 +1255,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function registrationFlow(walletId: string) {
@@ -1373,7 +1389,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function Harness() {
@@ -1551,64 +1568,189 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toEqual(['login', 'register']);
   });
 
-  test('Passkey register button stays enabled before username input', async ({ page }) => {
+  test('Passkey implicit registration shows generated wallet input', async ({ page }) => {
     await page.evaluate(
       async ({ paths }) => {
-        await new Promise<void>((resolve, reject) => {
-          const link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = paths.reactStyles;
-          link.addEventListener('load', () => resolve());
-          link.addEventListener('error', () =>
-            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
-          );
-          document.head.appendChild(link);
-        });
-
         const mount = document.createElement('div');
-        mount.id = 'pam2-passkey-register-enabled-mount';
+        mount.id = 'pam2-passkey-register-controller-mount';
         document.body.appendChild(mount);
 
         const React = await import('react');
         const ReactDOMClient = await import('react-dom/client');
         const ReactDOM = await import('react-dom');
-        const providerMod: any = await import(paths.provider);
-        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.SeamsWebProvider || providerMod.default;
-        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
-        const config = {
-          nearNetwork: 'testnet',
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'https://router-api.localhost' },
-          iframeWallet: { walletOrigin: '' },
-        };
-
         (window as any).__pamPasskeyRegisterCalls = 0;
-        const root = ReactDOMClient.createRoot(mount);
-        ReactDOM.flushSync(() => {
-          root.render(
+        (window as any).__pamPasskeyRegisterWallets = [];
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              passkeyCredentialExists: false,
+              inputUsername,
+              targetWalletId: '',
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+            }),
+            [inputUsername],
+          );
+          const controller = usePasskeyAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Register,
+              onRegister: (options?: any) => {
+                (window as any).__pamPasskeyRegisterCalls += 1;
+                (window as any).__pamPasskeyRegisterWallets.push(
+                  String(options?.wallet?.walletId || ''),
+                );
+              },
+            },
+            runtime,
+          );
+          return React.createElement(
+            'div',
+            null,
+            React.createElement('div', { id: 'implicit-show-input' }, String(controller.showAccountInput)),
+            React.createElement('div', { id: 'implicit-readonly' }, String(controller.accountInputReadOnly)),
+            React.createElement('div', { id: 'implicit-wallet-id' }, String(controller.currentValue || '')),
+            React.createElement('div', { id: 'implicit-can-submit' }, String(controller.canSubmit)),
             React.createElement(
-              Provider,
-              { config },
-              React.createElement(PasskeyAuthMenu, {
-                defaultMode: AuthMenuMode.Register,
-                onRegister: () => {
-                  (window as any).__pamPasskeyRegisterCalls += 1;
-                },
-              }),
+              'button',
+              {
+                type: 'button',
+                disabled: controller.accountInputRerollDisabled,
+                onClick: controller.onAccountInputReroll,
+              },
+              'Generate another wallet name',
+            ),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                disabled: !controller.canSubmit,
+                onClick: controller.onProceed,
+              },
+              'Create with Passkey',
             ),
           );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
         });
       },
       { paths: IMPORT_PATHS },
     );
 
-    const mount = page.locator('#pam2-passkey-register-enabled-mount');
-    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    const mount = page.locator('#pam2-passkey-register-controller-mount');
+    await expect(mount.locator('#implicit-show-input')).toHaveText('true');
+    await expect(mount.locator('#implicit-readonly')).toHaveText('true');
+    await expect(mount.locator('#implicit-wallet-id')).toHaveText(/^[a-z]+-[a-z]+-[a-z0-9]{6}$/);
+    await expect(mount.locator('#implicit-can-submit')).toHaveText('true');
+    const initialWalletId = await mount.locator('#implicit-wallet-id').textContent();
+    await mount.getByRole('button', { name: 'Generate another wallet name' }).click();
+    await expect(mount.locator('#implicit-wallet-id')).not.toHaveText(initialWalletId || '');
+    const generatedWalletId = await mount.locator('#implicit-wallet-id').textContent();
+    const button = mount.getByRole('button', { name: 'Create with Passkey' });
+    await expect(button).toBeEnabled();
+    await button.click();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterCalls))
+      .toBe(1);
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterWallets))
+      .toEqual([generatedWalletId]);
+  });
+
+  test('Passkey sponsored named registration keeps username input required', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-sponsored-passkey-register-controller-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        (window as any).__pamSponsoredPasskeyRegisterCalls = 0;
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              passkeyCredentialExists: false,
+              inputUsername,
+              targetWalletId: '',
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+            }),
+            [inputUsername],
+          );
+          const controller = usePasskeyAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Register,
+              registrationAccountInput: 'sponsored_named_near_account',
+              onRegister: () => {
+                (window as any).__pamSponsoredPasskeyRegisterCalls += 1;
+              },
+            },
+            runtime,
+          );
+          return React.createElement(
+            'div',
+            null,
+            React.createElement('div', { id: 'sponsored-show-input' }, String(controller.showAccountInput)),
+            React.createElement('div', { id: 'sponsored-can-submit' }, String(controller.canSubmit)),
+            controller.methodError
+              ? React.createElement('div', { role: 'alert' }, controller.methodError)
+              : null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: controller.onProceed,
+              },
+              'Create with Passkey',
+            ),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-sponsored-passkey-register-controller-mount');
+    await expect(mount.locator('#sponsored-show-input')).toHaveText('true');
+    await expect(mount.locator('#sponsored-can-submit')).toHaveText('false');
     const button = mount.getByRole('button', { name: 'Create with Passkey' });
     await expect(button).toBeEnabled();
     await button.click();
@@ -1616,7 +1758,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       'Pick a username to create a passkey account.',
     );
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterCalls))
+      .poll(async () => await page.evaluate(() => (window as any).__pamSponsoredPasskeyRegisterCalls))
       .toBe(0);
   });
 
@@ -1635,7 +1777,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function Harness() {
@@ -1715,7 +1858,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const controllerMod: any = await import(paths.passkeyAuthMenuController);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const usePasskeyAuthMenuController =
+          controllerMod.usePasskeyAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
 
         function Harness() {
@@ -1806,11 +1950,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         (window as any).__pamUnlockInputWrites = [];
         (window as any).__pamUnlockRefreshAccountCalls = 0;
 
-        const readySessionFor = (nearAccountId: string) => ({
+        const readySessionFor = (walletId: string) => ({
           authMethod: 'passkey',
           login: {
             isLoggedIn: true,
-            nearAccountId,
+            walletId,
+            nearAccountId: `${walletId}.w3a-relayer.testnet`,
             publicKey: 'ed25519:pub',
             authMethod: 'passkey',
             thresholdEcdsaEthereumAddress: null,
@@ -1826,6 +1971,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           authMethod: null,
           login: {
             isLoggedIn: false,
+            walletId: null,
             nearAccountId: null,
             publicKey: null,
             authMethod: null,
@@ -1857,23 +2003,30 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           const seams = React.useMemo(
             () => ({
               auth: {
-                unlock: async (nearAccountId: string, options?: any) => {
+                unlock: async (walletId: string, options?: any) => {
                   await options?.onEvent?.({
                     flow: 'unlock',
                     phase: 'unlock.completed',
                     status: 'succeeded',
                     message: 'Wallet unlocked',
-                    nearAccountId,
+                    walletId,
                   });
                   return { success: true };
                 },
                 lock: async () => undefined,
-                getWalletSession: async (nearAccountId?: string) =>
-                  nearAccountId ? readySessionFor(nearAccountId) : emptySession,
+                getWalletSession: async (walletId?: string) =>
+                  walletId ? readySessionFor(walletId) : emptySession,
                 hasPasskeyCredential: async () => true,
                 getRecentUnlocks: async () => ({
+                  walletIds: ['gorp80'],
                   accountIds: ['gorp80.w3a-relayer.testnet'],
-                  lastUsedAccount: { nearAccountId: 'gorp80.w3a-relayer.testnet' },
+                  lastUsedAccount: {
+                    walletId: 'gorp80',
+                    displayName: 'gorp80',
+                    nearAccountId: 'gorp80.w3a-relayer.testnet',
+                    signerSlot: 1,
+                    authMethod: 'passkey',
+                  },
                 }),
               },
               registration: {
@@ -1934,8 +2087,14 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
               displayPostfix: inputUsername ? '.w3a-relayer.testnet' : '',
               isUsingExistingAccount: true,
               accountExists: true,
-              indexDBAccounts: ['gorp80.w3a-relayer.testnet'],
-              indexDBAccountOptions: [{ nearAccountId: 'gorp80.w3a-relayer.testnet' }],
+              indexDBAccounts: ['gorp80'],
+              indexDBAccountOptions: [
+                {
+                  walletId: 'gorp80',
+                  displayName: 'gorp80',
+                  nearAccountId: 'gorp80.w3a-relayer.testnet',
+                },
+              ],
             },
             setInputUsername,
             refreshAccountData: async () => {
@@ -1955,7 +2114,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             'button',
             {
               type: 'button',
-              onClick: () => contextValue.unlock('gorp80.w3a-relayer.testnet'),
+              onClick: () => contextValue.unlock('gorp80'),
             },
             'Unlock gorp80',
           );

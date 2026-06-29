@@ -74,6 +74,7 @@ export type {
   LoginState,
   LoginResult,
   RegistrationResult,
+  PasskeyRegistrationOptions,
   // Re-exported from SeamsWeb types
   RegistrationHooksOptions,
   LoginHooksOptions,

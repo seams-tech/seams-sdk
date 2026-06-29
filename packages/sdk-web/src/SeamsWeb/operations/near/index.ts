@@ -45,7 +45,7 @@ export function buildNearWalletRegistrationArgs(
   let wallet: RegisterWalletInput;
   switch (accountProvisioning.kind) {
     case 'implicit_account':
-      wallet = { kind: 'server_allocated' };
+      wallet = args.wallet || { kind: 'server_allocated' };
       break;
     case 'sponsored_named_account':
       if (!args.wallet) {

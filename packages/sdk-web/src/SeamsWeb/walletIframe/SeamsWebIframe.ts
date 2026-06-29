@@ -56,7 +56,6 @@ import type {
   DelegateRelayHooksOptions,
   KeyExportHooksOptions,
   LoginHooksOptions,
-  RegistrationHooksOptions,
   SendTransactionHooksOptions,
   SignAndSendDelegateActionHooksOptions,
   SignAndSendTransactionHooksOptions,
@@ -278,7 +277,7 @@ export class SeamsWebIframe {
         let wallet: RegisterWalletInput;
         switch (accountProvisioning.kind) {
           case 'implicit_account':
-            wallet = { kind: 'server_allocated' };
+            wallet = args.wallet || { kind: 'server_allocated' };
             break;
           case 'sponsored_named_account':
             if (!args.wallet) {
@@ -535,14 +534,18 @@ export class SeamsWebIframe {
   }
 
   private async registerPasskeyDomain(
-    options: RegistrationHooksOptions = {},
+    options: Parameters<RegistrationCapability['registerPasskey']>[0] = {},
   ): Promise<RegistrationResult> {
     if (typeof options === 'string') {
       throw new Error(
         '[SeamsWebIframe] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
       );
     }
-    return await this.near.registerNearWallet({ options });
+    const { wallet, ...registrationOptions } = options || {};
+    return await this.near.registerNearWallet({
+      ...(wallet ? { wallet } : {}),
+      options: registrationOptions,
+    });
   }
 
   private async registerWalletDomain(
@@ -1029,7 +1032,7 @@ export class SeamsWebIframe {
     // In wallet-iframe mode, do not fall back to app-origin persistence.
     return await this.requireRouterReady()
       .then(() => this.router.getRecentUnlocks())
-      .catch(() => ({ accountIds: [], lastUsedAccount: null }));
+      .catch(() => ({ walletIds: [], accountIds: [], lastUsedAccount: null }));
   }
 
   private async hasPasskeyCredentialDomain(walletId: string): Promise<boolean> {

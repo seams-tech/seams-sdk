@@ -3,8 +3,10 @@ import { AuthMenuMode } from '../types';
 export interface ProceedEligibilityArgs {
   mode: AuthMenuMode;
   currentValue: string;
-  accountExists: boolean;
+  targetExists: boolean;
   secure: boolean;
+  registrationRequiresAccountInput: boolean;
+  canRestoreSyncedPasskey: boolean;
 }
 
 export interface ProceedEligibilityResult {
@@ -15,20 +17,28 @@ export interface ProceedEligibilityResult {
 export function getProceedEligibility({
   mode,
   currentValue,
-  accountExists,
+  targetExists,
   secure,
+  registrationRequiresAccountInput,
+  canRestoreSyncedPasskey,
 }: ProceedEligibilityArgs): ProceedEligibilityResult {
   const hasInput = currentValue.length > 0;
   if (mode === AuthMenuMode.Register) {
+    if (!registrationRequiresAccountInput) {
+      return {
+        canShowContinue: true,
+        canSubmit: hasInput && secure,
+      };
+    }
     return {
-      canShowContinue: hasInput && !accountExists,
-      canSubmit: hasInput && secure && !accountExists,
+      canShowContinue: hasInput && !targetExists,
+      canSubmit: hasInput && secure && !targetExists,
     };
   }
   if (mode === AuthMenuMode.Login) {
     return {
-      canShowContinue: hasInput && accountExists,
-      canSubmit: hasInput && accountExists,
+      canShowContinue: hasInput && (targetExists || canRestoreSyncedPasskey),
+      canSubmit: hasInput && (targetExists || canRestoreSyncedPasskey),
     };
   }
   return { canShowContinue: true, canSubmit: true };

@@ -5,8 +5,9 @@ import { type SDKFlowRuntime, type StoredAccountOption } from '@/react/types';
 export interface PasskeyAuthMenuRuntime {
   seamsWeb: SeamsWeb;
   accountExists: boolean;
+  passkeyCredentialExists: boolean;
   inputUsername: string;
-  targetAccountId: string;
+  targetWalletId: string;
   accountOptions?: StoredAccountOption[];
   setInputUsername: (v: string) => void;
   refreshLoginState: (walletId?: string) => Promise<void>;
@@ -19,14 +20,14 @@ export interface PasskeyAuthMenuRuntime {
 export function usePasskeyAuthMenuRuntime(): PasskeyAuthMenuRuntime {
   const ctx = useSeams();
   const accountExists = !!ctx.accountInputState?.accountExists;
+  const passkeyCredentialExists = !!ctx.accountInputState?.passkeyCredentialExists;
   return {
     seamsWeb: ctx.seams,
     accountExists,
+    passkeyCredentialExists,
     inputUsername: ctx.accountInputState?.inputUsername ?? '',
-    targetAccountId: ctx.accountInputState?.targetAccountId ?? '',
-    accountOptions:
-      ctx.accountInputState?.indexDBAccountOptions ??
-      (ctx.accountInputState?.indexDBAccounts ?? []).map((nearAccountId) => ({ nearAccountId })),
+    targetWalletId: ctx.accountInputState?.targetWalletId ?? '',
+    accountOptions: ctx.accountInputState?.indexDBAccountOptions ?? [],
     setInputUsername: ctx.setInputUsername,
     refreshLoginState: ctx.refreshLoginState,
     sdkFlow: ctx.sdkFlow,

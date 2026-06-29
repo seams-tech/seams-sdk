@@ -2,8 +2,7 @@ import React from 'react';
 import { AuthMenuMode } from '../authMenuTypes';
 
 export interface AccountExistsBadgeProps {
-  /** Whether the current target account exists on-chain */
-  accountExists?: boolean;
+  targetExists?: boolean;
   /** Current signup mode */
   mode?: AuthMenuMode;
   /** Whether the current context is secure (HTTPS) */
@@ -18,7 +17,7 @@ export interface AccountExistsBadgeProps {
  * AccountExistsBadge renders a small inline status message with tone classes.
  */
 export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
-  accountExists = false,
+  targetExists = false,
   mode = AuthMenuMode.Register,
   secure = true,
   className,
@@ -28,12 +27,12 @@ export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
   const getStatus = (): { message: string; tone: Tone } => {
     if (mode === AuthMenuMode.Register) {
       if (!secure) return { message: 'HTTPS required', tone: 'error' };
-      if (accountExists) return { message: 'name taken', tone: 'error' };
+      if (targetExists) return { message: 'name taken', tone: 'error' };
       return { message: '', tone: 'neutral' };
     }
     if (mode === AuthMenuMode.Login) {
-      if (accountExists) return { message: '', tone: 'success' };
-      return { message: 'Account not found', tone: 'error' };
+      if (targetExists) return { message: '', tone: 'success' };
+      return { message: 'Wallet not found', tone: 'error' };
     }
     return { message: '', tone: 'neutral' };
   };
