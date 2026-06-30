@@ -1406,6 +1406,99 @@ Validation:
 - [x] `pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/thresholdEd25519.signingRootResolver.script.unit.test.ts --reporter=line`
 - [ ] Fresh passkey registration browser evidence showing HSS finalize and keygen material lookup agree on RP ID and NEAR Ed25519 signing-key ID.
 
+### 11. Brand Planned EVM-Family Wallet Key Identity
+
+Triggering regression:
+
+```text
+ecdsa_key_mismatch: ecdsaThresholdKeyId mismatch
+```
+
+The SDK had two incompatible ECDSA key identities that were both typed as `WalletKeyId`:
+
+- Stable EVM-family signing-key slot namespace:
+  `wallet-key:evm-family:<walletId>:<signingRootId>:<signingRootVersion>`
+- Facts-derived identity built from wallet id, ECDSA threshold key id, signing root, participants, and owner address.
+
+The server bootstrap verifier expects the stable slot namespace. Some recovery, inventory, and role-local paths could persist or return the facts-derived value, then a later ECDSA bootstrap request sent that value back to the server. The server recomputed a different ECDSA threshold key binding, which surfaced as the mismatch above.
+
+Target model:
+
+```ts
+export type EvmFamilySigningKeySlotId = string & {
+  readonly __brand: 'EvmFamilySigningKeySlotId';
+};
+```
+
+Rules:
+
+- `EvmFamilySigningKeySlotId` is the only slot type accepted by EVM-family ECDSA session, bootstrap, role-local, recovery, export, and worker-boundary core code.
+- The only valid EVM-family signing-key slot format is: `wallet-key:evm-family:<walletId>:<signingRootId>:<signingRootVersion>`.
+- ECDSA key facts, public facts, owner addresses, participant sets, and threshold key ids must not derive a replacement signing-key slot id.
+- Role-local public facts may be compared against the canonical session record slot id, but they must not be used as the authority source.
+- Raw `walletKeyId` remains allowed only where an existing wire/storage schema already uses that field name. Boundary parsers must immediately normalize it into `EvmFamilySigningKeySlotId`.
+- New internal/domain fields must use `evmFamilySigningKeySlotId`, not `walletKeyId`, so a temporary EVM signing-key slot cannot be confused with a canonical wallet key or facts-derived ECDSA key identity.
+- Legacy tests and helpers that collapse `walletId`, `accountId`, `nearAccountId`, `walletKeyId`, or RP ID into one identity are deleted rather than patched.
+
+Tasks:
+
+- [x] Add shared `EvmFamilySigningKeySlotId` branding and parser in `packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts`.
+- [x] Move EVM-family signing-key slot derivation into shared code as `deriveEvmFamilySigningKeySlotId`.
+- [x] Remove the facts-derived wallet-key production helper.
+- [x] Change EVM-family exact identity, session policy, provisioning, role-local records, and HSS server-planned context to require `EvmFamilySigningKeySlotId`.
+- [x] Parse persisted canonical ECDSA session records with `parseEvmFamilySigningKeySlotId`.
+- [x] Require passkey ECDSA sealed restore metadata to carry `walletKeyId`, so restore does not invent it from public facts.
+- [x] Use canonical session record slot id for passkey and Email OTP ECDSA export requests.
+- [x] Validate role-local `publicFacts.walletKeyId` against the canonical record value before use.
+- [x] Update Email OTP worker ECDSA wallet-key reads to use the EVM-family parser at worker boundaries.
+- [x] Add type fixtures proving generic `WalletKeyId` cannot satisfy EVM-family provisioning, worker handles, session policy, and HSS context.
+- [x] Add source guard coverage preventing facts-derived wallet-key derivation and generic ECDSA wallet-key parsing from returning.
+- [x] Rename internal/domain ECDSA slot fields from `walletKeyId` to `evmFamilySigningKeySlotId`; keep old `walletKeyId` spelling only at explicit wire/storage boundaries.
+- [x] Make `EvmFamilySigningKeySlotId` independent from generic `WalletKeyId`, so assignability requires a boundary parser or slot derivation helper.
+- [x] Delete legacy E2E/helper tests that encode collapsed wallet/account/key identities instead of translating them to the new model.
+
+Primary files:
+
+- `packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts`
+- `packages/shared-ts/src/signing-lanes/index.ts`
+- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
+- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
+- `packages/sdk-web/src/core/platform/ecdsaRoleLocalRecords.ts`
+- `packages/sdk-web/src/core/platform/secretSources.ts`
+- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsa.ts`
+- `packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts`
+- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- `packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
+- `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`
+- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts`
+- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
+- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+- `packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
+- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts`
+- `packages/sdk-server-ts/src/core/AuthService.ts`
+- `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`
+- `tests/unit/refactor76BrandedKeys.guard.unit.test.ts`
+
+Acceptance:
+
+- Generic `WalletKeyId` cannot be passed to EVM-family provisioning or worker-session handle builders.
+- Facts-derived ECDSA key facts cannot create a new signing-key slot id.
+- Sealed passkey ECDSA restore records must carry a persisted signing-key slot id.
+- ECDSA bootstrap, export, warm restore, and Email OTP worker paths agree on the stable signing-key slot namespace.
+- Public facts remain a consistency check, not an authority source.
+
+Validation:
+
+- [x] `pnpm -C packages/shared-ts exec tsc -p tsconfig.json --noEmit`
+- [x] `pnpm -C packages/sdk-server-ts exec tsc --noEmit --pretty false`
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/refactor76BrandedKeys.guard.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/evmFamilyEcdsaIdentity.unit.test.ts ./unit/ecdsaRoleLocalRecords.unit.test.ts ./unit/provisionEcdsaUseCase.unit.test.ts ./unit/ecdsaBootstrapWarmPersistence.unit.test.ts --reporter=line`
+- [ ] `pnpm -C packages/sdk-web -s type-check`
+  - Current blocker: missing Express declaration files from `../sdk-server-ts/src/router/express/**` imports. No EVM-family wallet-key type errors remain in the reported output.
+- [ ] Fresh browser registration evidence showing Tempo/Arc signing consumes the post-registration warm ECDSA session without `ecdsaThresholdKeyId mismatch`.
+
 ## Source Guard Inventory
 
 Add or update:
@@ -1430,6 +1523,10 @@ Guard requirements:
 - No core Ed25519 scope type exposes `walletKeyId` as an alias for `nearEd25519SigningKeyId`.
 - No core passkey/WebAuthn code accepts raw `rpId: string` after Phase 10.
 - No Email OTP auth-method binding accepts or persists `rpId`.
+- No EVM-family ECDSA core path derives `walletKeyId` from ECDSA key facts, public facts, owner address, participant ids, or threshold key id.
+- No EVM-family ECDSA session/provision/worker path accepts generic `WalletKeyId` where `EvmFamilySigningKeySlotId` is required.
+- No Email OTP ECDSA worker boundary reads `walletKeyId` with a plain string parser.
+- No canonical ECDSA session record parser uses a generic wallet-key parser for `walletKeyId`.
 
 ## Validation Matrix
 
@@ -1444,6 +1541,7 @@ Run narrow checks by phase:
 - Phase 8: source guards for branded key versions, lifecycle helpers, and shared-grant registration paths.
 - Phase 9: source guards for opaque handle/ref/digest/verifier/relayer brands.
 - Phase 10: SDK/server type fixtures for `WebAuthnRpId` vs `NearEd25519SigningKeyId`, Ed25519 HSS registration finalize/keygen tests, and fresh passkey-registration browser evidence.
+- Phase 11: SDK/server type fixtures for `WalletKeyId` vs `EvmFamilySigningKeySlotId`, ECDSA worker-boundary source guard, ECDSA sealed-restore tests, and fresh Tempo/Arc signing evidence after registration.
 
 Full SDK/server type-check is required before the branch is called done because this refactor changes shared types and core signing/session surfaces.
 

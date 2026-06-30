@@ -4,14 +4,14 @@ Date created: June 28, 2026
 
 Status: planning.
 
-Companion doc: [Implementation plan](./refactor-83-modular-auth-capabilities-plan.md).
+Companion doc: [Implementation plan](./refactor-85-modular-auth-capabilities-plan.md).
 
 ## Goal
 
 Split the current signing-session architecture into a small shared auth/session
 core plus optional protected capability modules.
 
-The shared layer should gate sensitive operations for multiple capabilities:
+The shared layer should gate capability operations for multiple capabilities:
 
 - vault access;
 - NEAR Ed25519 MPC signing;
@@ -22,22 +22,24 @@ loading MPC signer material, signer WASM, HSS export logic, wallet UI, or
 threshold-session setup.
 
 Auth methods should be modular. Passkeys, Email OTP, Slack OTP, recovery codes,
-Better Auth, and future SSO providers can all feed normalized auth evidence into
+Better Auth, and future SSO providers can all feed normalized session evidence into
 Seams. Capabilities sit downstream from auth and bind operation-level policies
-to normalized auth factor kinds.
+to normalized session evidence and assurance levels.
 
 Build Seams authorization as first-party security infrastructure. `seams-auth`
 is the first-party auth provider. Better Auth can also be used through a
-session-provider adapter. The system of record for step-up, sensitive-operation
-grants, capability policies, and audit envelopes lives inside Seams.
+session-provider adapter. The system of record for grant evidence,
+capability grants, capability grant policies, and audit envelopes lives
+inside Seams.
 
 `seams-auth` must store authentication data in the customer's configured
 database by default. This preserves data residency, compliance control, pricing
 predictability, and deployer ownership of auth records.
 
 `seams-auth` must support multi-tenant organizations, multiple active sessions
-per user across devices, and enterprise SSO through OIDC and SAML providers
-such as Okta, Google Workspace, Microsoft Entra ID, OneLogin, and JumpCloud.
+per user across devices, and enterprise SSO through OIDC providers such as Okta,
+Google Workspace, Microsoft Entra ID, OneLogin, and JumpCloud. SAML can be added
+later when enterprise demand justifies the extra protocol surface.
 
 `seams-auth` must also support identity-provider mode for applications that want
 Seams to be the login authority. In this mode, Seams authenticates the principal
@@ -48,35 +50,35 @@ and issues identity assertions to configured relying-party applications.
 Split auth into two layers:
 
 1. Auth providers prove identity, session state, and auth factors.
-2. Seams authorization evaluates capability policy and mints exact
-   sensitive-operation grants.
+2. Seams authorization evaluates capability grant policy and mints exact
+   capability grants.
 
 `seams-auth` is the built-in auth provider. Better Auth is a supported upstream
 provider through `betterAuthSessionProvider(auth)`.
 
 Rename the parent concept from `signing-session` to `SeamsSession`.
 
-`SeamsSession` owns identity, auth factors, session state, step-up
-authorization, operation grants, budgets, and audit envelopes. MPC signing is a
-capability that uses this shared layer. Vault access is another capability that
-uses the same shared layer.
+`SeamsSession` owns identity, auth factors, and session state. Seams
+authorization owns grant evidence, capability grants, budgets, and audit envelopes.
+MPC signing is a capability that uses this shared layer. Vault access is another
+capability that uses the same shared layer.
 
 ```text
 Auth account
   -> auth provider
   -> normalized auth factors
   -> SeamsSession
-  -> StepUpAuthorization
-  -> SensitiveOperationGrant
+  -> GrantEvidence
+  -> CapabilityGrant
 
-Protected capabilities
+Capability instances
   -> vault_access
   -> near_ed25519_mpc_signing
   -> evm_ecdsa_mpc_signing
 ```
 
-Auth providers define mechanisms. Capabilities define resources. Operation
-policies bind mechanisms to resources.
+Auth providers define mechanisms. Capabilities define resources. Capability
+grant policies bind grant evidence to capability operations.
 
 ## Current Incompatibilities And Refactor Moves
 
@@ -148,8 +150,11 @@ wallet constraints.
 Refactor move:
 
 - create a shared `authFactorDomain` with `AuthFactorKind`;
-- move passkey, Email OTP, Slack OTP, wallet login, recovery code, and SSO
-  evidence names into auth vocabulary;
+- keep passkey, Email OTP, Slack OTP, wallet login, and recovery code as local
+  auth factor kinds;
+- create `SessionEvidenceKind` for session evidence and provider assurance;
+- create `GrantEvidenceKind` for evidence that can satisfy capability grant
+  policies;
 - keep `SignerAuthMethod` and `WalletAuthMethod` inside signer and wallet
   capability vocabulary;
 - delete `export type AuthMethod = SignerAuthMethod`;
@@ -165,52 +170,71 @@ type AuthFactorKind =
   | "wallet_login"
   | "recovery_code";
 
+type SessionEvidenceKind =
+  | AuthFactorKind
+  | "oidc_session"
+  | "provider_mfa"
+  | "provider_phishing_resistant"
+  | "provider_device_trust";
+
+type GrantEvidenceKind =
+  | "seams_session"
+  | "passkey_assertion"
+  | "email_otp"
+  | "slack_otp"
+  | "wallet_login"
+  | "mpc_signer_proof"
+  | "service_account_api_key"
+  | "approval_decision";
+
 type MpcCapabilityAuthFactorKind = Extract<
   AuthFactorKind,
   "passkey" | "email_otp" | "wallet_login"
 >;
 ```
 
-### Signing-Centered Step-Up UI
+### Signing-Centered Grant-Evidence UI
 
 `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` currently
 uses `SigningAuthPlan`, `WalletAuthIntent`, `WalletAuthCurve`,
-`thresholdSessionId`, and `signingGrantId`. That makes the browser step-up
+`thresholdSessionId`, and `signingGrantId`. That makes the browser confirmation
 system hard to reuse for vault access and IdP high-risk scope issuance.
 
 Refactor move:
 
-- rename shared client step-up concepts to `SensitiveOperationAuthPlan` and
-  `SensitiveOperationChallenge`;
-- keep `thresholdSessionId` only inside MPC capability lanes and MPC UI
+- rename shared client confirmation concepts to `CapabilityGrantPlan` and
+  `CapabilityGrantChallenge`;
+- keep `thresholdSessionId` only inside MPC capability operation lanes and MPC UI
   adapters;
 - replace `signingGrantId` in shared UI payloads with
-  `sensitiveOperationGrantId`;
+  `capabilityGrantId`;
 - move wallet-specific display data behind a capability display adapter;
 - let vault, IdP, and MPC modules provide operation-specific prompt metadata.
 
 Target UI shape:
 
 ```ts
-type SensitiveOperationAuthPlan =
+type CapabilityGrantPlan =
   | {
-      kind: "active_session";
+      kind: "active_grant";
       tenantId: TenantId;
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
       capabilityId: CapabilityId;
-      operationKind: SensitiveOperationKind;
-      grantId: SensitiveOperationGrantId;
+      operationKind: CapabilityOperationKind;
+      grantId: CapabilityGrantId;
       expiresAtMs: number;
       remainingUses: PositiveInt;
     }
   | {
-      kind: "step_up";
+      kind: "grant_evidence_required";
       tenantId: TenantId;
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
-      operationDigest: DigestB64u;
+      evidenceKinds: NonEmptyArray<GrantEvidenceKind>;
+      laneDigest: DigestB64u;
+      intentDigest: DigestB64u;
+      displayDigest: DigestB64u;
     };
 ```
 
@@ -229,14 +253,16 @@ Existing module decision:
 `packages/sdk-server-ts/src/router/modules.ts` already defines `RouterApiModule`
 and route-extension resolution. Evolve that mechanism instead of creating a
 parallel plugin registry. The current module shape is extension-only; the target
-module shape should own route definitions, runtime handlers, required service
-ports, capability metadata, and import-guard expectations.
+module manifest should own route definitions, required service ports, capability
+metadata, and import-guard expectations. Runtime-specific module wrappers should
+own handler factories.
 
 Refactor move:
 
 - extend `RouterApiModule` from route-extension wrapper into the canonical route
-  module contract;
-- replace the static handler array with `RouterApiModule` instances;
+  manifest contract;
+- replace the static handler array with runtime-specific
+  `RuntimeRouterApiModule` instances;
 - let app assembly choose enabled modules from tenant capability config;
 - mount IdP routes only when IdP mode is enabled;
 - mount vault routes only when `vault_access` is enabled;
@@ -247,19 +273,27 @@ Refactor move:
 Target module shape:
 
 ```ts
-type RouterApiModule =
+type RouterApiModuleManifest =
   | {
-      kind: "router_api_module";
+      kind: "router_api_module_manifest";
       moduleId: RouterApiModuleId;
-      capabilityKind: ProtectedCapabilityKind | "seams_auth" | "seams_session" | "management";
+      capabilityKind: CapabilityKind | "seams_auth" | "seams_session" | "management";
       routeDefinitions: readonly RouterApiRouteDefinition[];
-      cloudflareHandlers: readonly CloudflareRouteHandler[];
-      expressHandlers: readonly ExpressRouteHandler[];
       requiredServices: readonly RouteServiceKey[];
       importGuard: RouterModuleImportGuard;
     };
+
+type RuntimeRouterApiModule<TRuntime extends RouteRuntimeKind> =
+  | {
+      kind: "runtime_router_api_module";
+      manifest: RouterApiModuleManifest;
+      runtime: TRuntime;
+      loadHandlers: RuntimeHandlerFactory<TRuntime>;
+    };
 ```
 
+The manifest must be runtime-neutral. Cloudflare and Express handler factories
+live in runtime-specific files so Worker bundles do not import Node-only code.
 The module builder should reject duplicate module IDs, duplicate route IDs,
 route definitions without handlers for enabled runtimes, and handlers that
 request services outside `requiredServices`.
@@ -270,12 +304,12 @@ Target assembly shape:
 const router = createCloudflareRouter({
   services,
   modules: [
-    seamsAuthRoutes(),
-    seamsSessionRoutes(),
-    ...(idpEnabled ? [seamsIdpRoutes()] : []),
-    ...(vaultEnabled ? [vaultCapabilityRoutes()] : []),
-    ...(nearMpcEnabled ? [nearEd25519MpcRoutes()] : []),
-    ...(evmMpcEnabled ? [evmEcdsaMpcRoutes()] : []),
+    seamsAuthCloudflareRoutes(),
+    seamsSessionCloudflareRoutes(),
+    ...(idpEnabled ? [seamsIdpCloudflareRoutes()] : []),
+    ...(vaultEnabled ? [vaultCapabilityCloudflareRoutes()] : []),
+    ...(nearMpcEnabled ? [nearEd25519MpcCloudflareRoutes()] : []),
+    ...(evmMpcEnabled ? [evmEcdsaMpcCloudflareRoutes()] : []),
   ],
 });
 ```
@@ -287,12 +321,20 @@ Express router stays only as a thin adapter over the same route modules. Do not
 maintain duplicated Express route behavior or separate Express-only route
 definitions.
 
+Capability modularity has two levels:
+
+- **deployment-level modularity:** separate Worker entrypoints or deploy bundles
+  can omit vault, MPC, IdP, or other capability handler factories entirely;
+- **tenant-level modularity:** one multi-tenant Worker can enable or disable a
+  capability per tenant, but any capability present in that Worker entrypoint is
+  still part of the deployed bundle.
+
 Decision:
 
 - route definitions, auth policy, service-port requirements, and capability
   metadata are runtime-neutral;
-- Cloudflare and Express adapters register handlers from the same
-  `RouterApiModule` list;
+- Cloudflare and Express adapters share manifests and load runtime-specific
+  handler factories from separate modules;
 - Cloudflare is the release gate for Centaur/cloud deployment;
 - Express parity means same route table, same route policy, same request parser,
   and same response envelope through an Express adapter;
@@ -309,8 +351,8 @@ deployment-critical checks.
 `packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has
 `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`
 planes. The target route policy should distinguish management access, normal
-session access, and exact sensitive-operation grants. Threshold-session details
-belong to MPC routes and lanes.
+session access, and exact capability grants. Threshold-session details belong to
+MPC routes and capability operation lanes.
 
 Management-plane decision:
 
@@ -324,8 +366,8 @@ Management-plane decision:
   key management, audit views, and IdP configuration;
 - use `management_api_key` for programmatic administration and automation;
 - use `seams_session` for product routes that need an authenticated principal
-  without an exact sensitive operation;
-- use `sensitive_operation` for vault reveal/export/proxy-use, MPC signing, key
+  without an exact capability operation;
+- use `capability_grant` for vault reveal/export/proxy-use, MPC signing, key
   export, break-glass reveal, and IdP high-risk scope issuance;
 - keep `public` only for bootstrap, challenge, callback, and health routes that
   verify their own request-bound artifact.
@@ -333,9 +375,9 @@ Management-plane decision:
 Management planes can create policies, approvals, capabilities, vault metadata,
 and principals according to RBAC and scopes. They cannot reveal secrets, inject
 secrets, export keys, sign transactions, or issue high-risk IdP scopes unless
-the route also requires a `sensitive_operation` grant. API keys resolve to
+the route also requires `capability_grant` context. API keys resolve to
 service-account principals by default, and their scopes are management scopes,
-not operation grants.
+not capability grants.
 
 ### API Credential Scope Taxonomy
 
@@ -351,8 +393,8 @@ Scope decisions:
   keys, sign transactions, or issue high-risk IdP scopes by themselves;
 - API credentials resolve to service-account principals and inherit tenant,
   project, and environment scope from the credential record;
-- sensitive operation access for service accounts or agents still flows through
-  `SensitiveOperationGrant` and capability policy;
+- capability operation access for service accounts or agents still flows through
+  `CapabilityGrant` and capability grant policy;
 - scope parsing happens at the request boundary, then core code receives a typed
   `ManagementApiKeyPrincipal`;
 - old wallet-only scope names are removed once route definitions move to the new
@@ -395,22 +437,58 @@ mpc.key_export
 idp.high_risk_scope.issue
 ```
 
-Those belong to sensitive-operation kinds and stay outside management API-key
+Those belong to capability operation kinds and stay outside management API-key
 scopes.
+
+### Grant Evidence For Automation
+
+Management API keys can configure capabilities and policies. They cannot perform
+runtime use by themselves. Service accounts, CI jobs, rotations, vault proxy
+use, and signing bots must present grant evidence, satisfy policy, and receive a
+short-lived `CapabilityGrant`.
+
+Universal capability grant shape:
+
+```text
+principal
+  + grant evidence
+  + capability binding
+  + operation envelope
+  + capability grant policy
+  -> CapabilityGrant
+```
+
+Phase-one automation should support only `service_account_api_key` evidence.
+OIDC workload federation, mTLS client certificate proof, KMS-bound proof, and
+customer workload identity adapters are future evidence providers that can feed
+the same grant issuer.
+
+Grant evidence rules:
+
+- `service_account_api_key` evidence resolves to a tenant-scoped
+  service-account principal;
+- the principal must have a `CapabilityBinding` for the target
+  capability;
+- authorization resolves policy server-side from capability config,
+  environment, principal binding, operation kind, and grant evidence;
+- issued grants are short-lived, operation-bound, budgeted, and audited;
+- a service-account API key can request an capability grant only when policy names
+  that key, service account, operation, resource scope, and environment as
+  allowed.
 
 Route policy refactor move:
 
 - replace `console` with `management_console`;
 - replace `api_credentials` with `management_api_key`;
 - replace `user_session` with `seams_session`;
-- replace `threshold_session` with `sensitive_operation`;
+- replace `threshold_session` with `capability_grant`;
 - add `managementOperationKind` and required tenant/project/environment scope to
   management route policies;
 - put capability kind, operation kind, and required grant semantics in route
   policy;
 - keep threshold session claims inside MPC capability request parsing;
 - make `RoutePrincipal` carry normalized management, session, public, or
-  sensitive-operation context.
+  capability-grant context.
 
 Target route auth shape:
 
@@ -430,9 +508,9 @@ type RouteAuthPolicy =
     }
   | { plane: "seams_session" }
   | {
-      plane: "sensitive_operation";
-      capabilityKind: ProtectedCapabilityKind;
-      operationKind: SensitiveOperationKind;
+      plane: "capability_grant";
+      capabilityKind: CapabilityKind;
+      operationKind: CapabilityOperationKind;
       grantUse: "consume" | "inspect";
     }
   | { plane: "public"; proof: PublicProofType; rationale: string };
@@ -460,16 +538,16 @@ type RoutePrincipal =
       session: Extract<SeamsSession, { kind: "active" }>;
     }
   | {
-      plane: "sensitive_operation";
-      grant: Extract<SensitiveOperationGrant, { kind: "active" }>;
+      plane: "capability_grant";
+      grant: Extract<CapabilityGrant, { kind: "active" }>;
     }
   | { plane: "public"; proof: PublicProof };
 ```
 
-MPC signing endpoints become sensitive-operation routes whose handler parses an
-MPC lane. Vault proxy use, reveal, export, permission changes, and IdP
-high-risk scope issuance use the same route policy plane with different
-capability and operation kinds.
+MPC signing endpoints become capability-grant routes whose handler parses an
+MPC operation lane and intent. Vault proxy use, reveal, export, permission
+changes, and IdP high-risk scope issuance use the same route policy plane with
+different capability and operation kinds.
 
 ## Auth Provider Decision
 
@@ -483,7 +561,7 @@ Better Auth is useful for:
 
 Use Better Auth where customers want standard app auth and organization
 management. Use `seams-auth` where customers want a first-party Seams auth stack.
-Use Seams authorization for high-assurance cryptographic auth factors that
+Use Seams authorization for high-assurance cryptographic session evidence that
 Better Auth does not provide, such as MPC signer proofs derived from wallet or
 signer capabilities.
 
@@ -491,18 +569,19 @@ Seams authorization remains first-party because the core security model must
 support:
 
 - MPC-backed liveness and presence checks;
-- MPC signer proofs as derived auth factors;
-- operation digest binding before grant issuance;
-- exact capability lanes for vault, Ed25519 MPC, ECDSA MPC, and key export;
+- MPC signer proofs as derived grant evidence;
+- lane, intent, and display digest binding before capability grant minting;
+- exact lane, intent, and display digests for vault, Ed25519 MPC, ECDSA MPC,
+  and key export;
 - tenant-defined high-assurance policies;
-- server-side grant minting that fails closed;
-- audit evidence tied to capability ID, principal, lane, factor, and digest;
+- server-side capability grant minting that fails closed;
+- audit evidence tied to capability ID, principal, lane, evidence, and digest;
 - Cloudflare Worker boundaries and bundle guarantees;
 - future vault-specific authorization modes.
 
-External auth providers should feed normalized session and factor evidence into
-Seams authorization. Seams authorization decides whether to issue a
-`StepUpAuthorization` or `SensitiveOperationGrant`.
+External auth providers should feed normalized session evidence into
+Seams authorization. Seams authorization normalizes grant evidence and decides
+whether to issue a `CapabilityGrant`.
 
 ## Development Auth Provider Decision
 
@@ -521,16 +600,16 @@ Better Auth should provide:
 Seams should own from the start:
 
 - `SeamsSession` normalization;
-- operation digest construction;
-- operation-bound step-up challenges;
-- passkey assertions bound to Seams operation digests;
-- MPC signer proof challenges bound to Seams operation digests;
+- operation lane, intent, and display digest construction;
+- operation-bound grant challenges;
+- passkey assertions bound to Seams lane, intent, and display digests;
+- MPC signer proof challenges bound to Seams lane, intent, and display digests;
 - confirmer modal payloads;
-- `StepUpAuthorization`;
-- `SensitiveOperationGrant`;
+- `GrantEvidence`;
+- `CapabilityGrant`;
 - MPC threshold-session minting;
 - vault access grants;
-- audit envelopes for sensitive operations.
+- audit envelopes for capability operations.
 
 The Better Auth integration should therefore be an adapter and plugin bridge:
 
@@ -538,37 +617,39 @@ The Better Auth integration should therefore be an adapter and plugin bridge:
 Better Auth session
   -> betterAuthSessionProvider(auth)
   -> SeamsSession
-  -> Seams operation-bound step-up
-  -> StepUpAuthorization
-  -> SensitiveOperationGrant
+  -> Seams operation-bound grant evidence
+  -> CapabilityGrant
   -> capability operation
 ```
 
-### Seams Passkey Step-Up Plugin
+### Seams Passkey Grant Evidence Plugin
 
-Standard passkey login proves account control. Seams passkey step-up must prove
-presence for one exact sensitive operation.
+Standard passkey login proves account control. Seams passkey grant evidence must
+prove presence for one exact capability operation.
 
 Implement a custom Better Auth plugin endpoint for Seams-specific passkey
 challenges. This plugin should reuse Better Auth's session context and route
 mounting, while delegating challenge construction, digest binding, verification,
-and grant issuance to Seams authorization.
+and capability grant to Seams authorization.
 
 Required endpoints:
 
 ```text
-POST /seams/step-up/passkey/challenge
-POST /seams/step-up/passkey/verify
+POST /seams/grant-evidence/passkey/challenge
+POST /seams/grant-evidence/passkey/verify
 ```
 
 Challenge endpoint responsibilities:
 
 - require a valid Better Auth session;
 - normalize the session into `SeamsSession`;
-- accept a typed `SensitiveOperationIntent`;
-- construct the canonical operation digest inside Seams authorization;
+- accept a capability-local operation request and normalize it at the capability
+  route boundary;
+- construct the generic `CapabilityOperationEnvelope` inside Seams
+  authorization;
 - create a WebAuthn challenge bound to tenant, principal, session, capability,
-  operation kind, lane digest, intent digest, origin, RP ID, and expiry;
+  operation kind, lane digest, intent digest, display digest, origin, RP ID,
+  and expiry;
 - return public challenge options plus confirmer modal metadata.
 
 Verify endpoint responsibilities:
@@ -578,21 +659,23 @@ Verify endpoint responsibilities:
 - verify origin, RP ID, challenge, credential ID, user presence, and user
   verification policy;
 - verify the challenge maps to the same tenant, principal, session, operation
-  digest, and capability lane;
-- create `StepUpAuthorization`;
-- mint a short-lived `SensitiveOperationGrant` when policy allows;
+  kind, lane digest, intent digest, display digest, and capability ID;
+- create `GrantEvidence` with `evidenceKind: "passkey_assertion"`;
+- mint a short-lived `CapabilityGrant` when policy allows;
 - return only grant metadata required by the capability caller.
 
 Security rules:
 
 - Better Auth passkey registration and login can manage account-level passkeys.
-- Seams operation-bound passkey challenges must use Seams challenge records.
+- Seams operation-bound passkey challenges must use Seams grant challenge
+  records.
 - Better Auth hooks and plugin endpoints cannot mint Seams grants directly.
 - WebAuthn challenge records must be single-use and short-lived.
-- Challenge verification must fail when the operation digest, session, tenant,
-  RP ID, origin, or credential binding changes.
-- Confirmer modal display data must be derived from the typed operation intent
-  after boundary parsing.
+- Challenge verification must fail when the operation kind, lane digest, intent
+  digest, display digest, session, tenant, RP ID, origin, or credential binding
+  changes.
+- Confirmer modal display data must be derived from capability-owned typed
+  request data after boundary parsing.
 
 ## Product Shapes
 
@@ -619,7 +702,7 @@ Tenant isolation requirements:
 - tenant-scoped SSO provider configuration;
 - tenant-scoped session and factor records;
 - tenant-scoped role and team membership claims;
-- tenant-scoped capability policies;
+- tenant-scoped capability grant policies;
 - no cross-tenant lookup without an explicit platform-admin boundary.
 
 ### Multi-Session
@@ -636,14 +719,14 @@ Session requirements:
 - global principal logout;
 - tenant-wide forced logout;
 - session rotation and refresh;
-- session-bound step-up evidence;
+- session-bound grant evidence;
 - audit fields for device ID, user agent hash, IP hash, and auth provider.
 
 ### Session Exchange
 
 Session exchange is the boundary that converts provider-specific login evidence
-into a `SeamsSession`. It should be specified separately from step-up and
-sensitive-operation grants because it is the root login path for Better Auth,
+into a `SeamsSession`. It should be specified separately from grant evidence and
+capability grants because it is the root login path for Better Auth,
 Seams Auth, enterprise SSO, embedded wallet login, Slack-linked login helpers,
 and future providers.
 
@@ -689,15 +772,6 @@ type SessionExchangeCommand =
       authorizationCodeDigest: DigestB64u;
       stateDigest: DigestB64u;
       nonceDigest: DigestB64u;
-      device: SessionDeviceEvidence;
-      origin: HttpsOrigin;
-    }
-  | {
-      kind: "enterprise_saml_assertion";
-      tenantId: TenantId;
-      providerId: AuthProviderId;
-      assertionDigest: DigestB64u;
-      relayStateDigest: DigestB64u;
       device: SessionDeviceEvidence;
       origin: HttpsOrigin;
     }
@@ -774,25 +848,22 @@ type SessionExchangeFailure =
 Default exchange behavior:
 
 - `betterAuthSessionProvider(auth)` verifies the Better Auth session and emits
-  `AuthProviderSessionEvidence`; Seams owns the normalized session record.
+  `SessionProviderEvidence`; Seams owns the normalized session record.
 - Seams Auth native factors can exchange verified login assertions directly.
-- OIDC and SAML adapters verify protocol artifacts, then emit normalized
-  provider identity evidence.
+- OIDC adapters verify protocol artifacts, then emit normalized provider
+  identity evidence.
 - Embedded wallet login creates a `SeamsSession` without provisioning signer
   capabilities.
 - Refresh rotates refresh-token family state and records a session event.
 - Revocation operates on one session by default. Tenant forced logout and
   principal-wide logout are explicit commands.
-- Session exchange cannot mint `SensitiveOperationGrant` records, provision
-  capabilities, or satisfy operation step-up.
+- Session exchange cannot mint `CapabilityGrant` records, provision
+  capabilities, or satisfy grant evidence requirements by itself.
 
 ### Enterprise SSO
 
 Enterprise customers must be able to use their existing identity providers to
-log into Seams. Initial provider families:
-
-- OIDC;
-- SAML.
+log into Seams. Initial provider support is OIDC.
 
 Expected provider examples:
 
@@ -809,10 +880,14 @@ SSO requirements:
 - claim mapping to `principalId`, email, display name, groups, and roles;
 - JIT user provisioning;
 - optional SCIM later for lifecycle sync;
-- IdP-initiated and SP-initiated flows where supported;
+- authorization-code flow with PKCE and provider callback validation;
 - group and role mapping into Seams team/RBAC records;
-- SSO session evidence parsed into `AuthProviderSessionEvidence`;
-- step-up policy compatibility with SSO sessions plus Seams-native factors.
+- SSO session evidence parsed into `SessionProviderEvidence`;
+- capability grant policy compatibility with SSO sessions plus Seams-native
+  evidence.
+
+Deferred SAML support should be added as a separate provider adapter once the
+OIDC path is stable.
 
 ### Seams IdP Mode
 
@@ -837,7 +912,7 @@ IdP mode requirements:
 - claim mapping from Seams principals, organizations, roles, and groups;
 - application assignment policies;
 - per-application token lifetime and scope policy;
-- optional step-up before issuing high-risk scopes;
+- optional grant evidence before issuing high-risk scopes;
 - audit events for authorization code issuance, token issuance, token refresh,
   token revocation, and client configuration changes.
 
@@ -845,22 +920,34 @@ Embedded wallet login should be modeled as an auth factor that can create a
 `SeamsSession`. Wallet-owned MPC signer material remains capability-owned and
 loads only when a policy requires MPC-backed presence or signing. External
 relying-party applications receive identity tokens or assertions. Seams
-`SensitiveOperationGrant` records remain internal to Seams authorization.
+`CapabilityGrant` records remain internal to Seams authorization.
 
 ## Vocabulary
 
 | Current term | Target term |
 | --- | --- |
 | signing session | `SeamsSession` |
-| signing grant | `SensitiveOperationGrant` |
-| signing budget | `SensitiveOperationBudget` |
-| selected signing lane | capability-specific lane |
+| signing grant | `CapabilityGrant` |
+| signing budget | `CapabilityGrantBudget` |
+| capability-specific signing scope | capability-local lane |
 | signing auth method | `AuthFactor` |
 | signer material | capability-owned runtime material |
 | wallet registration | auth account registration plus optional capability provisioning |
 
 Use `MpcSigningSession` only inside the MPC capability modules, where threshold
 runtime state is actually present.
+
+`CapabilityLane` means a capability-local authorization path such as
+`vault.proxy_use`, `vault.reveal`, `near.sign_transaction`, or
+`evm.sign_transaction`. It determines the policy family and is bound as
+`laneDigest`.
+
+`CapabilityIntent` means the exact semantic request inside a lane, such as the
+transaction, vault secret use, export request, or permission change. It is bound
+as `intentDigest`.
+
+`CapabilityDisplay` means the canonical prompt and audit display derived from a
+parsed intent. It is bound as `displayDigest`.
 
 ## Layering Rules
 
@@ -874,21 +961,22 @@ runtime state is actually present.
    named deletion condition.
 7. Build a constrained first-party auth plugin surface for `seams-auth`. Support
    Better Auth through a session-provider adapter.
-8. Capabilities reference registered auth factor kinds through operation-level
+8. Capabilities reference registered grant evidence kinds through operation-level
    policies. They do not instantiate auth plugins directly.
 9. Auth providers can create sessions and verify factors. Only Seams
-   authorization can mint `SensitiveOperationGrant` records.
+   authorization can mint `CapabilityGrant` records.
 10. `seams-auth` persistence goes through an explicit database adapter. Raw
     database rows are normalized once at the adapter boundary.
 
 ## Configuration Shape
 
-Use an auth provider plus capability-specific operation policies.
+Use an auth provider plus capability-specific grant policies.
 
 First-party `seams-auth` should expose a Better Auth-style setup API. The
 top-level API should feel like application auth configuration, while internally
-normalizing every enabled mechanism into an `AuthPlugin` and `AuthFactorKind`.
-The `database` option is required for production deployments.
+normalizing every enabled mechanism into an `AuthPlugin`, `AuthFactorKind`, and
+`SessionEvidenceKind`, and `GrantEvidenceKind`. The `database` option is required
+for production deployments.
 
 ```ts
 import { seamsAuth } from "@seams/auth";
@@ -931,17 +1019,6 @@ export const auth = seamsAuth({
         clientSecret: env.OKTA_CLIENT_SECRET,
         claimMapping: {
           subject: "sub",
-          email: "email",
-          groups: "groups",
-        },
-      },
-    ],
-    saml: [
-      {
-        providerId: "entra-saml",
-        metadataUrl: env.ENTRA_SAML_METADATA_URL,
-        claimMapping: {
-          subject: "nameID",
           email: "email",
           groups: "groups",
         },
@@ -996,7 +1073,7 @@ All auth-provider records stay in the configured database:
 - auth accounts;
 - auth factors;
 - provider sessions;
-- step-up challenges;
+- grant challenges;
 - OTP challenges and rate limits;
 - passkey credentials;
 - provider identity links;
@@ -1014,22 +1091,29 @@ export const seams = createSeamsAuthorization({
     vaultAccessCapability({
       operationPolicies: {
         proxyUse: requireSession(),
-        revealSecret: requireAnyFactor(["passkey", "email_otp", "slack_otp"]),
-        exportSecret: requireAnyFactor(["passkey"]),
-        changePermissions: requireAnyFactor(["passkey"]),
-        breakGlassReveal: requireApprovalAndFactor(["passkey"]),
+        revealSecret: requireAnyGrantEvidence([
+          "passkey_assertion",
+          "email_otp",
+          "slack_otp",
+        ]),
+        exportSecret: requireAnyGrantEvidence(["passkey_assertion"]),
+        changePermissions: requireAnyGrantEvidence(["passkey_assertion"]),
+        breakGlassReveal: requireGrantEvidence([
+          "approval_decision",
+          "passkey_assertion",
+        ]),
       },
     }),
     nearEd25519MpcCapability({
       operationPolicies: {
-        signTransaction: requireAnyFactor(["passkey", "email_otp"]),
-        exportKey: requireAnyFactor(["passkey"]),
+        signTransaction: requireAnyGrantEvidence(["passkey_assertion", "email_otp"]),
+        exportKey: requireAnyGrantEvidence(["passkey_assertion"]),
       },
     }),
     evmEcdsaMpcCapability({
       operationPolicies: {
-        signTransaction: requireAnyFactor(["passkey", "email_otp"]),
-        exportKey: requireAnyFactor(["passkey"]),
+        signTransaction: requireAnyGrantEvidence(["passkey_assertion", "email_otp"]),
+        exportKey: requireAnyGrantEvidence(["passkey_assertion"]),
       },
     }),
   ],
@@ -1052,7 +1136,7 @@ const auth = seamsAuth({
 Better Auth provider:
 
 ```ts
-const seamsStepUpBridge = createSeamsStepUpBridge();
+const seamsGrantEvidenceBridge = createSeamsGrantEvidenceBridge();
 
 const auth = betterAuth({
   database: prismaAdapter(prisma),
@@ -1062,15 +1146,15 @@ const auth = betterAuth({
     organization(),
     apiKey(),
     seamsSlackOtp(),
-    seamsPasskeyStepUp({
-      stepUpBridge: seamsStepUpBridge,
+    seamsPasskeyGrantEvidence({
+      grantEvidenceBridge: seamsGrantEvidenceBridge,
     }),
   ],
 });
 
 const seams = createSeamsAuthorization({
   sessionProvider: betterAuthSessionProvider(auth),
-  stepUpBridge: seamsStepUpBridge,
+  grantEvidenceBridge: seamsGrantEvidenceBridge,
   capabilities: [
     vaultAccessCapability(),
     nearEd25519MpcCapability(),
@@ -1081,24 +1165,31 @@ const seams = createSeamsAuthorization({
 
 The embedded defaults should be conservative:
 
-| Capability operation | Default auth policy |
+| Capability operation | Default capability grant policy |
 | --- | --- |
 | Vault proxy use | active session plus RBAC |
-| Vault reveal | passkey, Email OTP, or Slack OTP step-up |
-| Vault export | passkey step-up |
-| Vault permission change | passkey step-up |
-| Vault break-glass reveal | approval plus passkey step-up |
-| MPC transaction signing | passkey or Email OTP step-up |
-| MPC key export | passkey step-up |
-| MPC auth proof | inherited signer capability policy |
-| High-assurance vault export | passkey plus MPC auth proof |
+| Vault reveal | passkey assertion, Email OTP, or Slack OTP evidence |
+| Vault export | passkey assertion evidence |
+| Vault permission change | passkey assertion evidence |
+| Vault break-glass reveal | approval plus passkey assertion evidence |
+| MPC transaction signing | passkey assertion or Email OTP evidence |
+| MPC key export | passkey assertion evidence |
+| MPC auth proof | inherited signer capability grant policy |
+| High-assurance vault export | passkey assertion plus MPC signer proof evidence |
 
 Tenant policy can make defaults stricter. It should not silently weaken the
 compiled capability defaults.
 
 ## Target Domain Types
 
+Capability kinds and operation kinds are registered identifiers. They should
+not be closed unions inside `seams-authorization`; capability packages register
+their own supported kinds and descriptors at app assembly time.
+
 ```ts
+type CapabilityKind = RegisteredCapabilityKind;
+type CapabilityOperationKind = RegisteredCapabilityOperationKind;
+
 type AuthAccount = {
   tenantId: TenantId;
   principalId: PrincipalId;
@@ -1112,10 +1203,58 @@ type AuthFactor =
   | { kind: "email_otp"; tenantId: TenantId; principalId: PrincipalId; email: EmailAddress }
   | { kind: "slack_otp"; tenantId: TenantId; principalId: PrincipalId; slackTeamId: SlackTeamId; slackUserId: SlackUserId }
   | { kind: "wallet_login"; tenantId: TenantId; principalId: PrincipalId; walletAccountId: EmbeddedWalletAccountId }
-  | { kind: "mpc_signer_proof"; tenantId: TenantId; principalId: PrincipalId; signerCapabilityId: CapabilityId; inheritedPolicyId: PolicyId }
   | { kind: "recovery_code"; tenantId: TenantId; principalId: PrincipalId; recoverySetId: RecoverySetId };
 
 type AuthFactorKind = AuthFactor["kind"];
+
+type SessionEvidenceKind =
+  | AuthFactorKind
+  | "oidc_session"
+  | "provider_mfa"
+  | "provider_phishing_resistant"
+  | "provider_device_trust";
+
+type AssuranceLevel =
+  | "session"
+  | "interactive_assertion"
+  | "provider_mfa"
+  | "phishing_resistant"
+  | "high_assurance";
+
+type SessionEvidenceRef =
+  | {
+      kind: "auth_factor_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      factorId: AuthFactorId;
+      evidenceKind: AuthFactorKind;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "provider_session_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      providerId: AuthProviderId;
+      evidenceKind: Extract<SessionEvidenceKind, "oidc_session">;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "provider_assurance_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      providerId: AuthProviderId;
+      evidenceKind: Extract<
+        SessionEvidenceKind,
+        "provider_mfa" | "provider_phishing_resistant" | "provider_device_trust"
+      >;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    };
 
 type AuthTenant = {
   tenantId: TenantId;
@@ -1141,12 +1280,21 @@ type AuthPrincipal =
       status: "active" | "suspended" | "deleted";
     }
   | {
-      kind: "service";
+      kind: "service_account";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      displayName: string;
+      status: "active" | "suspended" | "deleted";
+    }
+  | {
+      kind: "system";
       tenantId: TenantId;
       principalId: PrincipalId;
       displayName: string;
       status: "active" | "suspended" | "deleted";
     };
+
+type PrincipalKind = AuthPrincipal["kind"];
 
 type AuthPlugin =
   | {
@@ -1195,56 +1343,38 @@ type AuthProvider =
       kind: "seams_auth_provider";
       tenantId: TenantId;
       providerId: AuthProviderId;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
+      evidenceKinds: NonEmptyArray<SessionEvidenceKind>;
     }
   | {
       kind: "better_auth_provider";
       tenantId: TenantId;
       providerId: AuthProviderId;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
+      evidenceKinds: NonEmptyArray<SessionEvidenceKind>;
       betterAuthInstanceId: ExternalAuthInstanceId;
     }
   | {
       kind: "external_oidc_provider";
       providerId: AuthProviderId;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
+      evidenceKinds: NonEmptyArray<SessionEvidenceKind>;
       issuer: OidcIssuer;
       tenantId: TenantId;
       claimMapping: SsoClaimMapping;
-    }
-  | {
-      kind: "external_saml_provider";
-      providerId: AuthProviderId;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
-      tenantId: TenantId;
-      entityId: SamlEntityId;
-      claimMapping: SsoClaimMapping;
     };
 
-type AuthProviderSessionEvidence =
-  | {
-      kind: "provider_session";
-      providerId: AuthProviderId;
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      externalSessionId: ExternalSessionId;
-      sessionSubject: ExternalSessionSubject;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
-      deviceId: DeviceId;
-      evidenceDigest: DigestB64u;
-      expiresAt: IsoTimestamp;
-    }
-  | {
-      kind: "provider_step_up";
-      providerId: AuthProviderId;
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      factorKind: AuthFactorKind;
-      deviceId: DeviceId;
-      evidenceDigest: DigestB64u;
-      expiresAt: IsoTimestamp;
-    };
+type SessionProviderEvidence =
+  {
+    kind: "provider_session";
+    providerId: AuthProviderId;
+    tenantId: TenantId;
+    principalId: PrincipalId;
+    externalSessionId: ExternalSessionId;
+    sessionSubject: ExternalSessionSubject;
+    sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
+    assuranceLevel: AssuranceLevel;
+    deviceId: DeviceId;
+    evidenceDigest: DigestB64u;
+    expiresAt: IsoTimestamp;
+  };
 
 type MpcSignerProof =
   | {
@@ -1284,16 +1414,6 @@ type IdpRelyingParty =
       claimPolicyId: ClaimPolicyId;
       tokenPolicyId: TokenPolicyId;
       status: "active" | "suspended" | "deleted";
-    }
-  | {
-      kind: "saml_service_provider";
-      tenantId: TenantId;
-      relyingPartyId: IdpRelyingPartyId;
-      entityId: SamlEntityId;
-      assertionConsumerServiceUrls: NonEmptyArray<HttpsUrl>;
-      claimPolicyId: ClaimPolicyId;
-      assertionPolicyId: AssertionPolicyId;
-      status: "active" | "suspended" | "deleted";
     };
 
 type IdpTokenIssueRequest =
@@ -1324,7 +1444,8 @@ type SeamsSession =
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
       providerId: AuthProviderId;
-      authFactorId: AuthFactorId;
+      sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
+      assuranceLevel: AssuranceLevel;
       deviceId: DeviceId;
       expiresAt: IsoTimestamp;
     }
@@ -1334,7 +1455,8 @@ type SeamsSession =
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
       providerId: AuthProviderId;
-      authFactorId: AuthFactorId;
+      sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
+      assuranceLevel: AssuranceLevel;
       deviceId: DeviceId;
       revokedAt: IsoTimestamp;
     }
@@ -1344,118 +1466,204 @@ type SeamsSession =
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
       providerId: AuthProviderId;
-      authFactorId: AuthFactorId;
+      sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
+      assuranceLevel: AssuranceLevel;
       deviceId: DeviceId;
       expiredAt: IsoTimestamp;
     };
 
-type StepUpAuthorization =
+type GrantEvidenceKind =
+  | "seams_session"
+  | "passkey_assertion"
+  | "email_otp"
+  | "slack_otp"
+  | "wallet_login"
+  | "recovery_code"
+  | "oidc_session"
+  | "provider_mfa"
+  | "provider_phishing_resistant"
+  | "provider_device_trust"
+  | "mpc_signer_proof"
+  | "service_account_api_key"
+  | "approval_decision"
+  | "oidc_workload_federation"
+  | "mtls_client_certificate"
+  | "kms_bound_proof";
+
+type GrantEvidenceRef =
   | {
-      kind: "passkey_step_up";
+      kind: "session_grant_evidence";
       tenantId: TenantId;
       principalId: PrincipalId;
+      evidenceKind: "seams_session";
       sessionId: SeamsSessionId;
-      providerId: AuthProviderId;
-      authFactorId: AuthFactorId;
-      deviceId: DeviceId;
-      stepUpId: StepUpId;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
       expiresAt: IsoTimestamp;
     }
   | {
-      kind: "otp_step_up";
+      kind: "interactive_challenge_grant_evidence";
       tenantId: TenantId;
       principalId: PrincipalId;
+      evidenceKind: Extract<
+        GrantEvidenceKind,
+        "passkey_assertion" | "email_otp" | "slack_otp" | "wallet_login" | "recovery_code"
+      >;
+      sessionId: SeamsSessionId;
+      challengeId: GrantChallengeId;
+      laneDigest: DigestB64u;
+      intentDigest: DigestB64u;
+      displayDigest: DigestB64u;
+      deviceId: DeviceId;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "provider_assurance_grant_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      evidenceKind: Extract<
+        GrantEvidenceKind,
+        "oidc_session" | "provider_mfa" | "provider_phishing_resistant" | "provider_device_trust"
+      >;
       sessionId: SeamsSessionId;
       providerId: AuthProviderId;
-      authFactorId: AuthFactorId;
-      deviceId: DeviceId;
-      stepUpId: StepUpId;
-      factor: Extract<AuthFactor, { kind: "email_otp" | "slack_otp" }>;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "mpc_signer_grant_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      evidenceKind: "mpc_signer_proof";
+      sessionId: SeamsSessionId;
+      signerCapabilityId: CapabilityId;
+      inheritedPolicyId: PolicyId;
+      challengeDigest: DigestB64u;
+      proofDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "service_account_api_key_grant_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      evidenceKind: "service_account_api_key";
+      apiCredentialId: ApiCredentialId;
+      apiScopeDigest: DigestB64u;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "approval_decision_grant_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      evidenceKind: "approval_decision";
+      approvalId: ApprovalId;
+      laneDigest: DigestB64u;
+      intentDigest: DigestB64u;
+      displayDigest: DigestB64u;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "external_workload_grant_evidence";
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      evidenceKind: Extract<
+        GrantEvidenceKind,
+        "oidc_workload_federation" | "mtls_client_certificate" | "kms_bound_proof"
+      >;
+      issuerId: WorkloadIssuerId;
+      subjectDigest: DigestB64u;
+      evidenceDigest: DigestB64u;
+      assertedAt: IsoTimestamp;
       expiresAt: IsoTimestamp;
     };
-```
 
-Auth policies reference auth factor kinds registered by the selected auth
-provider:
+type CapabilityGrantRequest = {
+  kind: "capability_grant_request";
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  principalKind: PrincipalKind;
+  evidence: NonEmptyArray<GrantEvidenceRef>;
+  assuranceLevel: AssuranceLevel;
+  evidenceSetDigest: DigestB64u;
+};
 
-```ts
-type CapabilityOperationAuthPolicy =
+type GrantEvidenceRequirement =
   | {
-      kind: "session_only";
-      tenantId: TenantId;
-      policyId: PolicyId;
+      kind: "any_of";
+      evidenceKinds: NonEmptyArray<GrantEvidenceKind>;
     }
   | {
-      kind: "step_up_any_factor";
-      tenantId: TenantId;
-      policyId: PolicyId;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
-    }
-  | {
-      kind: "approval_and_step_up";
-      tenantId: TenantId;
-      policyId: PolicyId;
-      approvalPolicyId: ApprovalPolicyId;
-      factorKinds: NonEmptyArray<AuthFactorKind>;
+      kind: "all_of";
+      evidenceKinds: NonEmptyArray<GrantEvidenceKind>;
     };
 
-type CapabilityOperationPolicyMap =
+type CapabilityGrantPolicy =
   | {
-      kind: "vault_access_policy_map";
-      proxyUse: CapabilityOperationAuthPolicy;
-      revealSecret: CapabilityOperationAuthPolicy;
-      exportSecret: CapabilityOperationAuthPolicy;
-      changePermissions: CapabilityOperationAuthPolicy;
-      breakGlassReveal: CapabilityOperationAuthPolicy;
-    }
+      kind: "capability_grant_policy";
+      tenantId: TenantId;
+      policyId: PolicyId;
+      allowedPrincipalKinds: NonEmptyArray<PrincipalKind>;
+      allowedBindingKinds: NonEmptyArray<CapabilityBindingKind>;
+      requiredEvidence: NonEmptyArray<GrantEvidenceRequirement>;
+      minAssuranceLevel: AssuranceLevel;
+      maxTtlSeconds: PositiveInt;
+      maxUses: PositiveInt;
+    };
+
+type CapabilityOperationGrantPolicyBinding =
   | {
-      kind: "near_ed25519_mpc_policy_map";
-      signTransaction: CapabilityOperationAuthPolicy;
-      produceAuthProof: CapabilityOperationAuthPolicy;
-      exportKey: CapabilityOperationAuthPolicy;
-    }
-  | {
-      kind: "evm_ecdsa_mpc_policy_map";
-      signTransaction: CapabilityOperationAuthPolicy;
-      produceAuthProof: CapabilityOperationAuthPolicy;
-      exportKey: CapabilityOperationAuthPolicy;
+      kind: "capability_operation_grant_policy_binding";
+      tenantId: TenantId;
+      capabilityId: CapabilityId;
+      capabilityKind: CapabilityKind;
+      operationKind: CapabilityOperationKind;
+      policyId: PolicyId;
     };
 ```
 
-### MPC Signer Proof As Derived Auth
+### MPC Signer Proof As Grant Evidence
 
-`mpc_signer_proof` is a derived auth factor backed by an enabled MPC capability.
+`mpc_signer_proof` is derived grant evidence backed by an enabled MPC capability.
 It is stronger than ordinary app-session auth because the proof can bind user
 presence, registered device state, threshold participation, and a typed Seams
-operation digest.
+lane/intent/display digest set.
 
-The proof inherits the auth policy of the signer capability operation that
+The proof inherits the capability grant policy of the signer capability operation that
 produces it:
 
 ```text
 MPC capability produceAuthProof policy
-  -> passkey, Email OTP, wallet login, or tenant-defined step-up
+  -> passkey assertion, Email OTP, wallet login, or tenant-defined evidence
   -> MPC signer signs typed Seams auth challenge
   -> MpcSignerProof
-  -> mpc_signer_proof factor satisfied
+  -> mpc_signer_proof grant evidence
 ```
 
 This is a Seams-specific high-assurance primitive. Better Auth can provide the
-session and standard auth factors that feed the inherited policy, while Seams
+session and standard auth factors that feed grant evidence, while Seams
 authorization owns the MPC proof challenge, digest binding, capability lookup,
-threshold signing path, and grant issuance.
+threshold signing path, and capability grant.
 
 Evaluation rules:
 
-- policy branches that require `mpc_signer_proof` must name or resolve an MPC
-  signer capability;
-- the signer capability must exist, be active, and belong to the same tenant and
-  principal;
+- capability grant policies that require `mpc_signer_proof` evidence must name or
+  resolve an MPC signer capability;
+- the signer capability must exist, be active, and have a valid
+  `CapabilityBinding` for the requesting principal;
 - the signer capability must support `produceAuthProof`;
-- the `produceAuthProof` operation runs the signer capability's inherited auth
-  policy;
+- the `produceAuthProof` operation runs the signer capability's inherited
+  capability grant policy;
 - the proof challenge must bind tenant, principal, session, signer capability,
-  target operation, lane digest, intent digest, device ID, nonce, and expiry;
+  target operation, lane digest, intent digest, display digest, device ID,
+  nonce, and expiry;
 - missing or inactive MPC capability returns `capability_not_enabled` or
   `capability_not_active`;
 - no fallback to passkey, OTP, or session auth occurs unless the policy defines
@@ -1463,134 +1671,107 @@ Evaluation rules:
 - `mpc_signer_proof` cannot authorize producing another proof for the same
   signer by default.
 
-Capabilities are attached independently:
+Capabilities are resource-scoped. Principals gain access through explicit
+bindings:
 
 ```ts
-type ProtectedCapability =
+type ResourceScope =
   | {
-      kind: "vault_access";
+      kind: "tenant";
       tenantId: TenantId;
-      principalId: PrincipalId;
+    }
+  | {
+      kind: "project";
+      tenantId: TenantId;
+      projectId: ProjectId;
+    }
+  | {
+      kind: "environment";
+      tenantId: TenantId;
+      projectId: ProjectId;
+      environmentId: EnvironmentId;
+    };
+
+type CapabilityInstance =
+  | {
+      kind: "capability_instance";
+      tenantId: TenantId;
       capabilityId: CapabilityId;
+      capabilityKind: CapabilityKind;
+      resourceScope: ResourceScope;
       defaultPolicyId: PolicyId;
-      operationPolicies: Extract<
-        CapabilityOperationPolicyMap,
-        { kind: "vault_access_policy_map" }
-      >;
-    }
+      configDigest: DigestB64u;
+      lifecycle: "active" | "suspended" | "deleted";
+    };
+
+type CapabilityBindingKind = "owner" | "admin" | "direct_member" | "delegate_member";
+
+type CapabilityBinding =
   | {
-      kind: "near_ed25519_mpc_signing";
+      kind: "capability_binding";
       tenantId: TenantId;
-      principalId: PrincipalId;
+      bindingId: CapabilityBindingId;
       capabilityId: CapabilityId;
-      signerId: NearEd25519SignerId;
-      operationPolicies: Extract<
-        CapabilityOperationPolicyMap,
-        { kind: "near_ed25519_mpc_policy_map" }
-      >;
-    }
-  | {
-      kind: "evm_ecdsa_mpc_signing";
-      tenantId: TenantId;
       principalId: PrincipalId;
-      capabilityId: CapabilityId;
-      signerId: EvmEcdsaSignerId;
-      operationPolicies: Extract<
-        CapabilityOperationPolicyMap,
-        { kind: "evm_ecdsa_mpc_policy_map" }
-      >;
+      bindingKind: CapabilityBindingKind;
+      lifecycle: "active" | "suspended" | "deleted";
     };
 ```
 
-Sensitive operations are exact and capability-specific:
+Capability modules own rich operation lane, intent, and display types. They
+normalize parsed requests into a generic envelope before asking
+`seams-authorization` for a grant. Requests never carry `CapabilityGrantPolicy`;
+authorization resolves the policy server-side and records the selected
+`policyId`.
 
 ```ts
-type SensitiveOperationIntent =
+type CapabilityOperationEnvelope =
   | {
-      kind: "vault_access";
+      kind: "capability_operation_envelope";
       tenantId: TenantId;
       principalId: PrincipalId;
+      capabilityKind: CapabilityKind;
       capabilityId: CapabilityId;
-      lane: VaultAccessLane;
-      intent: VaultAccessIntent;
-      policy: SensitiveOperationPolicy;
-    }
-  | {
-      kind: "near_ed25519_mpc_sign";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      capabilityId: CapabilityId;
-      lane: NearEd25519MpcLane;
-      intent: NearEd25519SigningIntent;
-      policy: SensitiveOperationPolicy;
-    }
-  | {
-      kind: "evm_ecdsa_mpc_sign";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      capabilityId: CapabilityId;
-      lane: EvmEcdsaMpcLane;
-      intent: EvmEcdsaSigningIntent;
-      policy: SensitiveOperationPolicy;
-    }
-  | {
-      kind: "mpc_key_export";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      capabilityId: CapabilityId;
-      lane: MpcKeyExportLane;
-      intent: MpcKeyExportIntent;
-      policy: SensitiveOperationPolicy;
+      operationKind: CapabilityOperationKind;
+      laneDigest: DigestB64u;
+      intentDigest: DigestB64u;
+      displayDigest: DigestB64u;
     };
 
-type SensitiveOperationGrant =
-  | {
+type CapabilityGrantRecord = {
+  tenantId: TenantId;
+  requester: CapabilityGrantRequest;
+  grantId: CapabilityGrantId;
+  capabilityKind: CapabilityKind;
+  capabilityId: CapabilityId;
+  operationKind: CapabilityOperationKind;
+  laneDigest: DigestB64u;
+  intentDigest: DigestB64u;
+  displayDigest: DigestB64u;
+  policyId: PolicyId;
+};
+
+type CapabilityGrant =
+  | (CapabilityGrantRecord & {
       kind: "active";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      grantId: SensitiveOperationGrantId;
-      capabilityId: CapabilityId;
-      operationKind: SensitiveOperationKind;
-      laneDigest: DigestB64u;
-      intentDigest: DigestB64u;
-      policyId: PolicyId;
       remainingUses: PositiveInt;
       expiresAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (CapabilityGrantRecord & {
       kind: "consumed";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      grantId: SensitiveOperationGrantId;
-      capabilityId: CapabilityId;
-      operationKind: SensitiveOperationKind;
-      laneDigest: DigestB64u;
-      intentDigest: DigestB64u;
-      policyId: PolicyId;
       consumedAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (CapabilityGrantRecord & {
       kind: "expired";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      grantId: SensitiveOperationGrantId;
-      capabilityId: CapabilityId;
-      operationKind: SensitiveOperationKind;
-      laneDigest: DigestB64u;
-      intentDigest: DigestB64u;
-      policyId: PolicyId;
       expiredAt: IsoTimestamp;
-    };
+    });
 
 type MpcSignerProofFailure =
   | {
       kind: "capability_not_enabled";
       tenantId: TenantId;
       principalId: PrincipalId;
-      capabilityKind: "near_ed25519_mpc_signing" | "evm_ecdsa_mpc_signing";
+      capabilityKind: CapabilityKind;
     }
   | {
       kind: "capability_not_active";
@@ -1599,7 +1780,7 @@ type MpcSignerProofFailure =
       signerCapabilityId: CapabilityId;
     }
   | {
-      kind: "capability_principal_mismatch";
+      kind: "capability_binding_missing";
       tenantId: TenantId;
       principalId: PrincipalId;
       signerCapabilityId: CapabilityId;
@@ -1623,18 +1804,22 @@ Owns:
 - auth factors;
 - auth plugin registration;
 - `SeamsSession`;
-- step-up method selection;
-- sensitive-operation policies;
-- canonical operation digest envelope;
-- short-lived operation grants;
+- grant evidence challenge selection;
+- capability grant policies;
+- generic operation envelopes;
+- policy resolution from capability ID, operation kind, resource scope,
+  principal binding, and grant evidence;
+- short-lived capability grants;
 - replay and budget accounting;
-- audit envelopes.
+- audit envelopes;
 - auth provider evidence parsing.
 
 Does not own:
 
 - Better Auth storage schema;
 - Better Auth route handlers;
+- capability-local operation lane, intent, or display structs;
+- capability-local display rendering;
 - vault item schema;
 - secret unwrap or injection;
 - MPC threshold sessions;
@@ -1648,17 +1833,20 @@ Owns:
 
 - vault items, versions, fields, attachments, and wrapped keys;
 - team RBAC and membership access mode;
-- `VaultAccessLane`;
-- `VaultAccessIntent`;
+- `VaultAccessScope`;
+- `VaultAccessPayload`;
+- vault digest, display, and policy descriptors registered with
+  `seams-authorization`;
 - Secret Broker and Egress Gateway integration;
 - reveal, rotate, delegate, and proxy-only use policies;
-- default operation policy map.
+- capability-local default capability grant policy config.
 
 Uses `seams-authorization` for:
 
 - auth session checks;
-- step-up;
-- sensitive-operation grant minting;
+- grant evidence verification;
+- capability grant minting;
+- server-side policy resolution;
 - audit envelope generation.
 
 ### `capability-near-ed25519-mpc`
@@ -1666,13 +1854,16 @@ Uses `seams-authorization` for:
 Owns:
 
 - NEAR Ed25519 signer identity;
-- Ed25519 threshold signing lanes;
+- Ed25519 threshold signing operation lanes;
 - NEAR transaction and NEP-413 display semantics;
 - Ed25519 signing runtime material;
 - Ed25519 export behavior where supported;
-- default operation policy map.
+- NEAR digest, display, and policy descriptors registered with
+  `seams-authorization`;
+- capability-local default capability grant policy config.
 
-Uses `seams-authorization` for session, step-up, budget, grants, and audit.
+Uses `seams-authorization` for session, grant evidence, budget, grants, and
+audit.
 
 ### `capability-evm-ecdsa-mpc`
 
@@ -1685,9 +1876,12 @@ Owns:
 - signer WASM loading;
 - ECDSA key export;
 - EVM-family transaction display and nonce/budget coupling;
-- default operation policy map.
+- EVM digest, display, and policy descriptors registered with
+  `seams-authorization`;
+- capability-local default capability grant policy config.
 
-Uses `seams-authorization` for session, step-up, budget, grants, and audit.
+Uses `seams-authorization` for session, grant evidence, budget, grants, and
+audit.
 
 ## Lazy Loading Rules
 
@@ -1697,16 +1891,16 @@ Registration:
 - Register auth providers and auth plugins per tenant.
 - Register IdP relying-party applications only for tenants with IdP mode
   enabled.
-- Create only requested `ProtectedCapability` records.
+- Create only requested `CapabilityInstance` records.
 - Vault-only registration creates no Ed25519 or ECDSA signer records.
 - Wallet registration creates signer capabilities explicitly.
-- Capability provisioning validates that every referenced auth factor kind is
-  registered.
+- Capability provisioning validates that every referenced grant evidence kind is
+  registered or resolvable through the selected provider.
 
 Frontend:
 
 - Load auth UI for every account.
-- Load auth provider UI by registered tenant auth factor kind.
+- Load auth provider UI by registered tenant auth factor and grant evidence kind.
 - Load IdP admin UI only for tenants with IdP mode enabled.
 - Load vault UI only for tenants with `vault_access`.
 - Load wallet UI only for tenants with MPC signing capabilities.
@@ -1744,14 +1938,14 @@ packages/capability-assembly/
 `capability-assembly` is the only package that wires multiple capabilities into
 one app/runtime. Keep shared utilities out of assembly.
 
-`packages/seams-authorization/` owns `SeamsSession`, step-up, grant domain,
-policy evaluators, and audit envelope builders.
+`packages/seams-authorization/` owns `SeamsSession`, grant evidence, grant
+domain, policy evaluators, and audit envelope builders.
 
 `packages/seams-auth/` owns the first-party auth plugin registry and session
 provider implementation.
 
 `packages/seams-auth-better-auth/` owns Better Auth adapters that convert Better
-Auth sessions and step-up proofs into Seams auth provider evidence.
+Auth sessions and operation-bound assertions into Seams grant evidence.
 
 `packages/seams-auth-idp/` owns optional IdP endpoints, relying-party
 registration, OIDC Provider metadata, authorization-code issuance, token
@@ -1841,7 +2035,7 @@ auth_factors(
   tenant_id,
   factor_id,
   principal_id,
-  factor_kind,          -- passkey | email_otp | slack_otp | wallet_login | mpc_signer_proof | recovery_code
+  factor_kind,          -- passkey | email_otp | slack_otp | wallet_login | recovery_code
   factor_ref_json,
   lifecycle_kind,
   created_at_ms,
@@ -1867,9 +2061,9 @@ auth_providers(
   namespace,
   tenant_id,
   provider_id,
-  provider_kind,        -- seams_auth | better_auth | oidc | saml | wallet
+  provider_kind,        -- seams_auth | better_auth | oidc | wallet
   lifecycle_kind,
-  factor_kinds_json,
+  evidence_kinds_json,
   provider_config_json,
   config_digest,
   created_at_ms,
@@ -1910,10 +2104,25 @@ seams_sessions(
   provider_id,
   device_id,
   assurance_level,
+  session_evidence_digest,
   lifecycle_kind,       -- active | revoked | expired
   created_at_ms,
   expires_at_ms,
   revoked_at_ms
+)
+
+seams_session_evidence(
+  namespace,
+  tenant_id,
+  evidence_id,
+  session_id,
+  principal_id,
+  evidence_kind,
+  evidence_source_kind, -- auth_factor | provider_session | provider_assurance
+  evidence_ref_id,
+  evidence_digest,
+  asserted_at_ms,
+  expires_at_ms
 )
 
 seams_session_refresh_tokens(
@@ -1942,17 +2151,18 @@ seams_session_events(
   created_at_ms
 )
 
-step_up_challenges(
+grant_challenges(
   namespace,
   tenant_id,
   challenge_id,
   session_id,
   principal_id,
-  factor_kind,
+  grant_evidence_kinds_json,
   capability_kind,
   operation_kind,
   lane_digest,
   intent_digest,
+  display_digest,
   challenge_digest,
   lifecycle_kind,       -- issued | verified | expired | revoked
   created_at_ms,
@@ -1960,29 +2170,38 @@ step_up_challenges(
   verified_at_ms
 )
 
-step_up_authorizations(
+grant_evidence(
   namespace,
   tenant_id,
-  step_up_id,
+  evidence_id,
   challenge_id,
   session_id,
   principal_id,
-  factor_id,
+  principal_kind,
+  evidence_kind,
+  evidence_ref_kind,    -- session | auth_factor | provider | mpc_signer | api_credential | approval | external_workload
+  evidence_ref_id,
+  api_credential_id,
+  approval_id,
+  lane_digest,
+  intent_digest,
+  display_digest,
+  evidence_digest,
+  assurance_level,
   device_id,
-  operation_digest,
   lifecycle_kind,       -- active | consumed | expired | revoked
   created_at_ms,
   expires_at_ms,
   consumed_at_ms
 )
 
-operation_policies(
+capability_grant_policies(
   namespace,
   tenant_id,
   policy_id,
   capability_kind,
   operation_kind,
-  policy_kind,          -- session_only | step_up_any_factor | approval_and_step_up | mpc_signer_proof
+  policy_kind,          -- capability_grant_policy
   policy_json,
   lifecycle_kind,
   created_by_principal_id,
@@ -1990,20 +2209,36 @@ operation_policies(
   updated_at_ms
 )
 
-protected_capabilities(
+capability_instances(
   namespace,
   tenant_id,
   capability_id,
-  capability_kind,      -- vault_access | near_ed25519_mpc_signing | evm_ecdsa_mpc_signing
+  capability_kind,      -- registered kind, e.g. vault_access or near_ed25519_mpc_signing
+  resource_scope_kind,  -- tenant | project | environment
+  project_id,
+  environment_id,
   lifecycle_kind,
   default_policy_id,
-  operation_policy_map_json,
+  config_digest,
   created_by_principal_id,
   created_at_ms,
   updated_at_ms
 )
 
-principal_capability_bindings(
+capability_operation_grant_policy_bindings(
+  namespace,
+  tenant_id,
+  capability_id,
+  capability_kind,
+  operation_kind,
+  policy_id,
+  lifecycle_kind,
+  created_by_principal_id,
+  created_at_ms,
+  updated_at_ms
+)
+
+capability_bindings(
   namespace,
   tenant_id,
   binding_id,
@@ -2016,17 +2251,20 @@ principal_capability_bindings(
   updated_at_ms
 )
 
-sensitive_operation_grants(
+capability_grants(
   namespace,
   tenant_id,
   grant_id,
   grant_token_hash,
   principal_id,
-  session_id,
+  principal_kind,
+  evidence_set_digest,
+  capability_kind,
   capability_id,
   operation_kind,
   lane_digest,
   intent_digest,
+  display_digest,
   policy_id,
   remaining_uses,
   lifecycle_kind,       -- active | consumed | expired | revoked
@@ -2035,16 +2273,19 @@ sensitive_operation_grants(
   consumed_at_ms
 )
 
-sensitive_operation_grant_uses(
+capability_grant_uses(
   namespace,
   tenant_id,
   use_id,
   grant_id,
   principal_id,
+  evidence_set_digest,
   capability_id,
   operation_kind,
   result_kind,
-  operation_digest,
+  lane_digest,
+  intent_digest,
+  display_digest,
   created_at_ms
 )
 
@@ -2059,7 +2300,8 @@ authorization_audit_events(
   operation_kind,
   lane_digest,
   intent_digest,
-  factor_kinds_json,
+  display_digest,
+  evidence_kinds_json,
   result_kind,
   event_digest,
   created_at_ms
@@ -2192,21 +2434,21 @@ Auth factors prove who is present.
 
 Capabilities define what can be done.
 
-Operation policies define which auth factors can authorize each capability
+Capability grant policies define which auth factors can authorize each capability
 operation.
 
-Sensitive-operation grants authorize one exact action.
+Capability grants authorize one exact capability operation.
 
 Vault access default:
 
 ```text
-SeamsSession + operation policy + RBAC + short-lived grant + audit
+SeamsSession + capability grant policy + RBAC + short-lived grant + audit
 ```
 
 MPC signing default:
 
 ```text
-SeamsSession + operation policy + MPC capability lane + threshold signing runtime
+SeamsSession + capability grant policy + MPC operation lane + threshold signing runtime
 ```
 
 IdP token issuance default:

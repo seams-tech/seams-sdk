@@ -3,6 +3,8 @@
 Date created: June 22, 2026
 
 Status: implemented through Phase 8; benchmark evidence remains pending.
+Phase 9 is planned for implicit-account activation and optional named-account
+claiming.
 
 Related plans:
 
@@ -816,6 +818,80 @@ Acceptance:
   `nearEd25519SigningKeyId`.
 - Tests prove implicit `walletId`, `nearAccountId`, and
   `nearEd25519SigningKeyId` can all differ.
+
+### Phase 9: Activate Implicit NEAR Accounts And Claim Names
+
+Direct NEAR signing from an implicit account requires that the implicit account
+exist on-chain with the Ed25519 access key visible. Implicit registration
+intentionally skips that NEAR transaction, so the first direct NEAR action can
+surface `implicit_unfunded`.
+
+Model two operations explicitly:
+
+- **Activate implicit account** funds the existing 64-hex implicit account. This
+  is a transfer from the configured relayer/funding account to `nearAccountId`.
+  It must not create a new NEAR account, mutate `nearAccountId`, or rewrite exact
+  lane identity.
+- **Claim named NEAR account** creates a human-readable named NEAR account for
+  the wallet. This changes the wallet's NEAR account binding or adds another
+  NEAR signer/account binding. It is a separate account-management flow, not the
+  minimal fix for `implicit_unfunded`.
+
+Tasks:
+
+- [x] Add a D1/router auth-service boundary for NEAR account activation:
+      `fundImplicitNearAccount({ walletId, nearAccountId, nearPublicKeyStr })`.
+      The implementation must require explicit
+      `ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING`, configured
+      `relayerPrivateKey`, `relayerAccount`, `nearRpcUrl`, and
+      `accountInitialBalance`; if `relayerPublicKey` is configured, it must
+      match the private key.
+- [x] Validate at the route boundary that `nearAccountId` is an
+      `ImplicitNearAccountId` and equals
+      `deriveImplicitNearAccountIdFromEd25519PublicKey(nearPublicKeyStr)`.
+- [ ] Verify the wallet's persisted NEAR Ed25519 signer binding matches
+      `walletId`, `nearAccountId`, `nearPublicKeyStr`, and signer slot before
+      dispatching funds.
+- [x] Dispatch a transfer-only NEAR transaction to the implicit account. Do not
+      use `CreateAccount` for implicit activation.
+- [ ] Return a narrow activation result with transaction hash and readiness
+      status. If key visibility is delayed, return a pending readiness result
+      and schedule/refetch readiness on the client.
+- [x] Add a confirmation modal CTA for `implicit_unfunded` direct NEAR signing:
+      label it `Activate NEAR account` or `Fund account`. Disable `Confirm`
+      until activation succeeds or ask the user to retry after activation.
+- [x] After activation, clear/refetch the NEAR nonce/access-key lane for the
+      exact `walletId + nearAccountId + nearPublicKeyStr` subject.
+- [ ] Add local and D1 smoke coverage for implicit activation using a funded
+      testnet/localnet relayer. Keep missing-funding-config failures explicit.
+- [ ] Add source guards preventing `CreateAccount` from being used in the
+      implicit-account activation path.
+
+Acceptance:
+
+- An unfunded implicit account signing prompt shows an actionable activation CTA
+  instead of only a static error.
+- Activation sends a transfer to the existing implicit account and keeps
+  `walletId`, `nearAccountId`, and `nearEd25519SigningKeyId` unchanged.
+- The first direct NEAR action can succeed after activation and nonce readiness
+  refreshes.
+- Missing relayer private key, relayer account, NEAR RPC URL, or initial funding
+  amount, or a disabled test-funding flag returns a clear `not_configured`
+  route error. A configured relayer public key must match the private key.
+- Named-account claiming is not implemented through the implicit activation
+  route.
+
+Future named-account claim tasks:
+
+- [ ] Add a separate named-account claim route that accepts a desired
+      `NamedNearAccountId` and requires wallet-session authorization.
+- [ ] Decide whether claiming a name mutates the wallet's primary NEAR account
+      binding or adds a second `near_ed25519_signer` binding. Prefer adding a
+      second binding unless product semantics require migration.
+- [ ] Update local IndexedDB, D1 `wallet_signers`, warm sessions, nonce keys,
+      and display profiles through exact lane identity, not broad wallet lookup.
+- [ ] Add UI that asks for a human-readable NEAR name only inside the named claim
+      flow.
 
 ## Validation Plan
 

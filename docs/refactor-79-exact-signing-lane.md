@@ -2,9 +2,9 @@
 
 Date created: June 22, 2026
 
-Status: implemented and audited, including Phase 12 cleanup for temporary
-projections, aliases, IndexedDB split-identity coverage, and small type
-sidecars.
+Status: implemented and audited through Phase 13. Phase 14 tracks the remaining
+Ed25519 worker-material capability cleanup found during post-unlock manual
+testing.
 
 Related plans:
 
@@ -2076,6 +2076,181 @@ pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line 
 git diff --check
 ```
 
+## Phase 14: Make Ed25519 Worker Material Atomic
+
+Phase 13 made Ed25519 persistence mutation exact-lane keyed. A post-unlock NEAR
+signing regression showed a remaining gap: exact lanes can still expose worker
+material as scattered optional fields such as `ed25519WorkerMaterialHandle`,
+`ed25519WorkerMaterialBindingDigest`, and `materialKeyId`.
+
+Those fields are distinct, but they are not independent authority facts:
+
+- `materialKeyId` is the durable Ed25519 worker-material key slot;
+- `ed25519WorkerMaterialBindingDigest` is the exact material binding digest;
+- `ed25519WorkerMaterialHandle` is the current browser-worker runtime handle.
+
+The current narrow fix requires runtime material to carry `materialKeyId`, but
+the final architecture should make incomplete material unrepresentable
+globally.
+
+Target shape:
+
+```ts
+type Ed25519WorkerMaterialIdentity = {
+  materialKeyId: Ed25519WorkerMaterialKeyId;
+  bindingDigest: Ed25519WorkerMaterialBindingDigest;
+  clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+};
+
+type Ed25519LoadedWorkerMaterial = {
+  kind: 'loaded_worker_material';
+  identity: Ed25519WorkerMaterialIdentity;
+  handle: Ed25519WorkerMaterialHandle;
+};
+
+type Ed25519SealedWorkerMaterial = {
+  kind: 'sealed_worker_material';
+  identity: Ed25519WorkerMaterialIdentity;
+  sealedRef: Ed25519SealedWorkerMaterialRef;
+  sealedBlobB64u: string;
+  materialFormatVersion: string;
+};
+
+type Ed25519WorkerMaterialCapability =
+  | Ed25519LoadedWorkerMaterial
+  | Ed25519SealedWorkerMaterial;
+```
+
+Principles:
+
+- A runtime material capability cannot exist without `materialKeyId`,
+  `bindingDigest`, and `clientVerifyingShareB64u`.
+- `Ed25519WorkerMaterialIdentity` stays minimal. Timestamps, HSS protocol
+  versions, seal-key versions, and storage bookkeeping remain record metadata
+  and must not be used as lane authority.
+- Login remint either carries the whole `Ed25519WorkerMaterialCapability`
+  forward or carries none.
+- Lane selection checks `lane.material.kind`, not scattered optional record
+  fields.
+- IndexedDB may keep flat nullable columns for storage, but persistence reads
+  must immediately parse them into `Ed25519WorkerMaterialCapability | null`.
+- Core signing, export, restore, budget, and unlock code must not independently
+  read `record.materialKeyId`, `record.ed25519WorkerMaterialBindingDigest`,
+  `record.ed25519WorkerMaterialHandle`, or equivalent lane projections.
+
+### 14.1 Add Atomic Material Parsers And Builders
+
+Tasks:
+
+- [ ] Add `parseEd25519WorkerMaterialCapabilityFromRecord(...)` at the
+      persistence boundary.
+- [ ] Add `buildLoadedEd25519WorkerMaterialCapability(...)` and
+      `buildSealedEd25519WorkerMaterialCapability(...)` builders that require
+      the narrow branded inputs.
+- [ ] Keep raw flat-column compatibility inside the parser only. Core code must
+      receive `Ed25519WorkerMaterialCapability | null`.
+- [ ] Require runtime material to include `materialKeyId`,
+      `bindingDigest`, `clientVerifyingShareB64u`, and runtime `handle`.
+- [ ] Require sealed material to include the same identity plus `sealedRef`,
+      `sealedBlobB64u`, and `materialFormatVersion`.
+- [ ] Keep `materialCreatedAtMs`, `keyVersion`, and seal/key version fields
+      outside `Ed25519WorkerMaterialIdentity`. They may remain on persistence
+      records only when needed for expiry, display, migration, or storage
+      decoding.
+
+Acceptance:
+
+- A material object cannot be constructed from only handle + digest.
+- A material object cannot be constructed from only `materialKeyId`.
+- Runtime and sealed material share the same identity object.
+- Loaded material cannot be represented as sealed material with an optional
+  handle. If a handle exists, the branch is `loaded_worker_material`.
+
+### 14.2 Replace Flat Material Reads In Lane Selection
+
+Tasks:
+
+- [ ] Change available Ed25519 lane read models to expose
+      `material: Ed25519WorkerMaterialCapability | null`.
+- [ ] Update transaction lane selection to require `lane.material` instead of
+      checking `lane.materialKeyId`, `lane.ed25519WorkerMaterialBindingDigest`,
+      and `lane.ed25519WorkerMaterialHandle` independently.
+- [ ] Update restore/readiness paths to branch on `material.kind`.
+- [ ] Delete duplicated material-completeness helpers that inspect flat fields.
+
+Acceptance:
+
+- A lane with partial flat material fields is display/repair evidence only and
+  cannot become an authority candidate.
+- Duplicate exact lanes with different material capabilities still return
+  duplicate-specific failures.
+
+### 14.3 Replace Flat Material Reads In Warm-Session Persistence
+
+Tasks:
+
+- [ ] Change Ed25519 warm-session retention to carry
+      `Ed25519WorkerMaterialCapability`.
+- [ ] Ensure login remint preserves the entire material capability or none.
+- [ ] Keep retained material selection exact-lane scoped; no account-only or
+      wallet-only material retention.
+- [ ] Remove runtime/sealed branch structs that duplicate the material identity
+      fields inline.
+
+Acceptance:
+
+- Post-unlock NEAR signing has a selectable exact lane when prior runtime
+  material is retained.
+- If retained runtime material lacks any required identity field, the login
+  record is treated as material-pending and follows the restore/repair path.
+
+### 14.4 Update Worker, Restore, And Export Boundaries
+
+Tasks:
+
+- [ ] Update worker-material validation to return or accept the atomic material
+      capability shape where it crosses into SDK core.
+- [ ] Update sealed restore record parsing to expose the atomic material
+      capability.
+- [ ] Update Ed25519 export and restore flows so exact material identity is read
+      from `material.identity`.
+- [ ] Keep signer-worker generated bindings unchanged unless the Rust/wasm
+      boundary itself needs the grouped shape; grouping can stay SDK-side.
+
+Acceptance:
+
+- Browser-worker runtime handles remain runtime-only.
+- Durable sealed material remains restorable after reload.
+- Export/restore never reconstruct material identity by independently pulling
+  flat fields from records.
+
+### 14.5 Guards And Tests
+
+Tasks:
+
+- [ ] Extend `refactor79ExactSigningLane.guard.unit.test.ts` to reject
+      authority-path reads of `.materialKeyId`,
+      `.ed25519WorkerMaterialBindingDigest`, and
+      `.ed25519WorkerMaterialHandle` outside material parser/builder modules.
+- [ ] Add type fixtures proving incomplete runtime material and incomplete
+      sealed material are rejected.
+- [ ] Add unit coverage for login remint preserving loaded runtime material.
+- [ ] Add unit coverage for login remint with incomplete flat storage data
+      producing material-pending, not a selected lane.
+- [ ] Add unit coverage for lane selection using `lane.material.kind`.
+
+Validation:
+
+```bash
+pnpm -C packages/sdk-web -s type-check
+pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line \
+  unit/nearSigning.sessionSelection.unit.test.ts \
+  unit/warmSessionEd25519Persistence.unit.test.ts \
+  unit/routerAbEd25519.walletSessionState.unit.test.ts \
+  unit/refactor79ExactSigningLane.guard.unit.test.ts
+git diff --check
+```
+
 ## Done Criteria
 
 - Core signing/export/restore/budget functions accept exact lane identity.
@@ -2102,6 +2277,9 @@ git diff --check
   paths.
 - Display-only and repair-only broad discovery helpers are explicitly named.
 - Source guards block first-candidate fallback and broad authority reads.
+- Ed25519 worker material is exposed to core authority paths only as
+  `Ed25519WorkerMaterialCapability | null`, never as scattered optional flat
+  fields.
 - Selected/planning/spend state cannot carry branch signer facts that duplicate
   `identity.signer`.
 - Normalized ECDSA wallet/session records use `walletId`; `walletSessionUserId`
@@ -2229,3 +2407,102 @@ Follow-up validation after fixes:
 - [x] `cargo test --manifest-path crates/ecdsa-hss/Cargo.toml`
 - [x] `cargo test --manifest-path crates/signer-core/Cargo.toml threshold_ecdsa_hss`
 - [x] `git diff --check`
+
+## Review: Wallet-Rooted Sign-Intent Subjects, 2026-06-29
+
+Status: complete.
+
+Intent-digest confirmation payloads previously used two branch names that made
+the canonical identity ambiguous:
+
+```ts
+{ kind: 'near_account'; nearAccountId: AccountId }
+{ kind: 'wallet'; walletId: WalletId }
+```
+
+That shape made NEAR look account-rooted while EVM/Tempo looked wallet-rooted.
+The exact-lane model requires wallet identity to stay canonical, with chain
+account identifiers carried only as branch metadata.
+
+Replacement:
+
+```ts
+type SignIntentDigestSubject =
+  | {
+      kind: 'near_wallet';
+      walletId: WalletId;
+      nearAccountId: AccountId;
+    }
+  | {
+      kind: 'evm_wallet';
+      walletId: WalletId;
+      nearAccountId?: never;
+    };
+```
+
+Tasks:
+
+- [x] Rename sign-intent confirmation subject branches from `near_account` and
+      `wallet` to `near_wallet` and `evm_wallet`.
+- [x] Require `walletId` on NEAR sign-intent subjects so UI confirmation,
+      credential collection, and downstream auth never infer wallet identity
+      from `nearAccountId`.
+- [x] Keep `nearAccountId` only on the NEAR branch, where it is protocol account
+      metadata for display and NEAR-specific passkey lookup.
+- [x] Update EVM/Tempo signing to pass `evm_wallet` subjects with `walletId`
+      only.
+- [x] Add type fixtures rejecting EVM/Tempo subjects that carry
+      `nearAccountId`, and rejecting NEAR subjects missing `walletId`.
+- [x] Leave unrelated export/recovery `near_account` authorization unions
+      untouched; they are separate flows and should be renamed only with their
+      owning refactor.
+
+## Review: Account Menu Key Export Restoration, 2026-06-30
+
+Status: complete.
+
+The Account Menu `Export Keys` entry was restored after the exact-lane cutover.
+The restored UI must not recreate the old broad account lookup path. It resolves
+one exact export lane in the wallet context, then calls the existing exact-lane
+export API with the resolved lane identity.
+
+Tasks:
+
+- [x] Add a public `keys.resolveExactKeyExportLane(...)` boundary that accepts
+      only `{ walletSession, nearAccount }` for NEAR or
+      `{ walletSession, chainTarget }` for ECDSA, and returns the corresponding
+      exact lane identity.
+- [x] Route exact export-lane resolution through `SeamsWeb`, the wallet iframe
+      client/host protocol, and `BrowserSigningSurface` so iframe-backed
+      wallets resolve lanes against wallet-origin storage.
+- [x] Reuse the existing exact export selector semantics: zero candidates fail,
+      duplicate candidates fail, and no timestamp/source ranking is allowed.
+- [x] Restore `AccountMenuButton` `Export Keys` UI so it first resolves the
+      exact lane, then calls `keys.exportKeypairWithUI(...)` with
+      `laneIdentity`.
+- [x] Keep NEAR and ECDSA export branches explicit:
+      `ExactEd25519SigningLaneIdentity` for NEAR and
+      `ExactEcdsaSigningLaneIdentity` for ECDSA.
+- [x] Preserve the existing export modal portal behavior and Email OTP access;
+      the menu must not block Email OTP accounts before lane resolution.
+- [x] Fix secure-export confirmation subjects so NEAR export uses
+      `{ kind: 'near_wallet', nearAccountId }` and ECDSA export uses
+      `{ kind: 'evm_wallet', walletId }`; local-only export prompts must never
+      coerce an EVM wallet id through NEAR account validation.
+- [x] Keep the HSS worker secret-field guard strict while allowing
+      `seedB64u` only for the dedicated Ed25519 seed-export artifact request.
+- [x] Validate with focused export guards:
+      `unit/keyExport.behavior.guard.unit.test.ts` and
+      `unit/walletIframeHost.exportUi.unit.test.ts`.
+
+Validation notes:
+
+- [x] `git diff --check` passed for touched export/menu files.
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/keyExport.behavior.guard.unit.test.ts --reporter=line` passed.
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletIframeHost.exportUi.unit.test.ts --reporter=line` passed.
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/signer-worker.guards.test.ts unit/ecdsaExportViewerPayload.unit.test.ts unit/passkeyConfirm.exportFlow.unit.test.ts --reporter=line` passed.
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/confirmTxFlow.successPaths.test.ts --grep "LocalOnly" --reporter=line` passed.
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/confirmTxFlow.defensivePaths.test.ts --grep "DECRYPT_PRIVATE_KEY_WITH_PRF|SHOW_SECURE_PRIVATE_KEY_UI" --reporter=line` passed.
+- [ ] Full `packages/sdk-web` type-check is still blocked by unrelated
+      existing server/Express declaration errors; rerun after those are cleaned
+      up.

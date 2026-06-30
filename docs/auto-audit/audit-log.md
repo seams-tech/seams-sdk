@@ -11,7 +11,7 @@ Last updated: `2026-06-29T00:03:49Z`
 - Findings:
   - Security: `2`
   - Refactor/slimming: `2`
-- Highest severity: `high`
+- Highest severity: `medium`
 - Highest-severity items:
   - Ed25519 prepare responses are not request-bound before the SDK uses `server_verifying_share_b64u`, `server_commitments`, and budget metadata.
 - Next audit candidates:

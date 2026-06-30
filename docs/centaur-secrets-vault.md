@@ -24,34 +24,36 @@ These decisions define the first architecture pass:
 
 1. Build a first-party multi-tenant vault for merchant secrets.
 2. Use Cloudflare Secrets Store and Worker secrets only for platform secrets,
-   bootstrap material, and adapter credentials.
+   bootstrap material, and platform adapter credentials. Tenant connector
+   tokens belong in the vault custody model.
 3. Make cloud Worker injection the default runtime mode.
 4. Do not claim server-blindness for the default cloud-injection path.
 5. Keep server-blind merchant sidecar injection as a future enterprise mode.
 6. Keep own-vault storage as the primary secret backend.
 7. Treat 1Password as an adapter: live Connect reads or sync into own vault.
-8. Delegate members receive `VaultFieldRef` values, placeholder credentials, and
-   short-lived use grants.
+8. Delegate members receive `VaultFieldSelector` values, placeholder
+   credentials, and short-lived use grants.
 9. Delegate members do not receive reusable plaintext secrets.
-10. Use the Seams MPC signer as the default authorization gate for
-    `VaultAccessIntent`.
-11. Treat threshold unwrap as a later extension for sidecar or customer-managed
+10. Use Seams authorization and short-lived `CapabilityGrant` records as the
+    default gate for vault runtime operations.
+11. Treat `mpc_signer_proof` as optional high-assurance grant evidence for
+    tenants that enable MPC capabilities.
+12. Treat threshold unwrap as a later extension for sidecar or customer-managed
     key modes.
-12. Store tenant-scoped metadata, grants, and access indexes in D1.
-13. Store encrypted secret payloads and wrapped key blobs in R2 unless the
+13. Store tenant-scoped metadata, permissions, grants, and access indexes in D1.
+14. Store encrypted secret payloads and wrapped key blobs in R2 unless the
     payload is small enough to justify D1 storage.
-14. Model vault access as a protected capability gated by the same
-    sensitive-operation auth infrastructure used for MPC signing and key
-    export.
-15. Let registration provision protected capabilities independently:
-    `near_ed25519_signing`, `evm_ecdsa_signing`, and `vault_access`.
-16. Support vault-only customers that use Seams auth, sessions, step-up, grants,
+15. Model vault access as a capability instance gated by the same
+    auth/evidence/grant infrastructure used for MPC signing and key export.
+16. Let registration provision capability instances independently:
+    `near_ed25519_mpc_signing`, `evm_ecdsa_mpc_signing`, and `vault_access`.
+17. Support vault-only customers that use Seams auth, sessions, step-up, grants,
     and audit without provisioning wallet signers.
-17. Model humans, agents, and services as first-class principals that can all
+18. Model humans, agents, and services as first-class principals that can all
     become team members.
-18. Use membership access mode to distinguish direct vault access from
+19. Use membership access mode to distinguish direct vault access from
     proxy-only delegated use.
-19. Default agent memberships to `delegate_member`, while allowing explicit
+20. Default agent memberships to `delegate_member`, while allowing explicit
     promotion to direct membership when a team chooses that trust level.
 
 Product claim:
@@ -73,8 +75,8 @@ Seams cloud is blind to secrets during cloud injection.
    use grants, or scoped proxy tokens.
 2. Delegate members do not receive reusable plaintext secrets.
 3. Secret readback is a separate privileged action from secret use.
-4. Every item, field, grant, access intent, audit event, and egress decision
-   carries a required tenant identity.
+4. Every item, field, permission, grant, access intent, audit event, and egress
+   decision carries a required tenant identity.
 5. Untrusted inputs are normalized once at the request or persistence boundary.
 6. Core logic accepts precise domain types instead of raw route bodies, D1 rows,
    Slack payloads, or adapter-specific shapes.
@@ -86,8 +88,8 @@ Seams cloud is blind to secrets during cloud injection.
 10. Strict server-blind tenants require a merchant-side proxy or sidecar
    injection boundary.
 11. Revocation of a secret that has ever been revealed requires rotation.
-12. Team grants resolve through membership access mode before becoming effective
-    vault access.
+12. Team permissions resolve through membership access mode before becoming
+    effective vault access.
 13. `delegate_member` access permits brokered use through Egress Gateway, DB
     Gateway, or Model Gateway and rejects reveal, export, raw readback, manage,
     and delegate actions.
@@ -103,7 +105,8 @@ In scope:
 - Slack approval flows for sensitive access.
 - Worker-side Secret Broker APIs for typed tools, model gateway calls, egress
   transforms, and raw database leases.
-- Short-lived `VaultAccessIntent` approval with Seams MPC signer gating.
+- Short-lived vault `CapabilityGrant` issuance using Seams sessions, grant
+  evidence, policies, and optional MPC signer proof.
 - Own-vault encrypted payload storage.
 - 1Password adapter modes for live reads and sync/import.
 - Vault-only registration that provisions auth and vault access without
@@ -127,7 +130,7 @@ Out of scope for the first design:
 | Boundary | Sees plaintext? | Responsibility |
 | --- | --- | --- |
 | Dashboard browser during create/update/reveal | Yes, for the acting human | Secret entry, optional reveal, local encryption before upload where configured |
-| D1 metadata store | No | Tenant-scoped metadata, grants, indexes, lifecycle state |
+| D1 metadata store | No | Tenant-scoped metadata, permissions, grants, indexes, lifecycle state |
 | R2 encrypted blob store | No | Encrypted secret payloads, large audit payloads, adapter sync blobs |
 | Secret Broker Worker | Yes, only for approved cloud-injection mode | Policy, unwrap, injection grant minting, audit |
 | Egress Gateway Worker | Yes, only for approved cloud-injection mode | Request rewrite, upstream call, redacted audit |
@@ -168,13 +171,13 @@ Secret Broker
    |                            |
 D1 metadata                R2 encrypted payloads
    |
-Vault Grant Durable Object
+Capability Grant Durable Object
    |
 Policy Engine + Approval Workflow
    |
-Seams MPC signer gate
+Seams Authorization
    |
-short-lived use grant
+short-lived CapabilityGrant
    |
 Egress Gateway / DB Gateway / Model Gateway / merchant sidecar
 ```
@@ -185,10 +188,10 @@ Component responsibilities:
 | --- | --- | --- |
 | Vault API Worker | Workers | Dashboard and internal API routes |
 | Secret Broker | Workers | Grant resolution, policy checks, unwrap orchestration, 1Password adapters |
-| Vault Grant DO | Durable Objects | One-time grant state, replay locks, grant counters, per-item and per-field hot locks |
+| Capability Grant DO | Durable Objects | One-time grant state, replay locks, grant counters, per-item and per-field hot locks |
 | Approval Workflow | Workflows | Human approval, expiration, retry, escalation |
 | Async jobs | Queues | Rotation jobs, sync jobs, audit fanout |
-| Metadata | D1 | Tenant-scoped vault metadata, grants, version indexes |
+| Metadata | D1 | Tenant-scoped vault metadata, permissions, grants, version indexes |
 | Encrypted payloads | R2 or D1 BLOBs | Secret ciphertext and adapter sync blobs |
 | Platform bootstrap secrets | Cloudflare Secrets Store / Worker secrets | Platform-only bootstrap material |
 | Egress Gateway | Workers | Secret injection, upstream fetch, redacted audit |
@@ -211,10 +214,10 @@ field inside a specific item version.
 
 ```ts
 type VaultItemLifecycle =
-  | { kind: "draft"; tenantId: TenantId; itemId: VaultItemId }
-  | { kind: "active"; tenantId: TenantId; itemId: VaultItemId; activeVersionId: VaultItemVersionId }
-  | { kind: "rotating"; tenantId: TenantId; itemId: VaultItemId; fromVersionId: VaultItemVersionId; rotationId: RotationId }
-  | { kind: "archived"; tenantId: TenantId; itemId: VaultItemId; archivedBy: PrincipalId; archivedAt: IsoTimestamp };
+  | { kind: "draft"; tenantId: TenantId; vaultId: VaultId; itemId: VaultItemId }
+  | { kind: "active"; tenantId: TenantId; vaultId: VaultId; itemId: VaultItemId; activeVersionId: VaultItemVersionId }
+  | { kind: "rotating"; tenantId: TenantId; vaultId: VaultId; itemId: VaultItemId; fromVersionId: VaultItemVersionId; rotationId: RotationId }
+  | { kind: "archived"; tenantId: TenantId; vaultId: VaultId; itemId: VaultItemId; archivedBy: PrincipalId; archivedAt: IsoTimestamp };
 
 type VaultItemCategory =
   | "api_credential"
@@ -230,9 +233,9 @@ type VaultItemCategory =
   | "generic_secret";
 
 type VaultBackend =
-  | { kind: "own_vault"; tenantId: TenantId; itemId: VaultItemId }
-  | { kind: "onepassword_connect"; tenantId: TenantId; vaultId: OnePasswordVaultId; sourceItemId: OnePasswordItemId }
-  | { kind: "onepassword_sync"; tenantId: TenantId; syncedItemId: VaultItemId; sourceItemId: OnePasswordItemId };
+  | { kind: "own_vault"; tenantId: TenantId; vaultId: VaultId; itemId: VaultItemId }
+  | { kind: "onepassword_connect"; tenantId: TenantId; vaultId: VaultId; sourceVaultId: OnePasswordVaultId; sourceItemId: OnePasswordItemId }
+  | { kind: "onepassword_sync"; tenantId: TenantId; vaultId: VaultId; sourceVaultId: OnePasswordVaultId; syncedItemId: VaultItemId; sourceItemId: OnePasswordItemId };
 
 type VaultFieldKind =
   | "secret"
@@ -255,6 +258,7 @@ type VaultFieldSensitivity =
 
 type VaultItem = {
   tenantId: TenantId;
+  vaultId: VaultId;
   itemId: VaultItemId;
   backend: VaultBackend;
   category: VaultItemCategory;
@@ -268,6 +272,7 @@ type VaultItem = {
 
 type VaultItemVersion = {
   tenantId: TenantId;
+  vaultId: VaultId;
   itemId: VaultItemId;
   versionId: VaultItemVersionId;
   schemaVersion: 1;
@@ -279,6 +284,7 @@ type VaultItemVersion = {
 
 type VaultField = {
   tenantId: TenantId;
+  vaultId: VaultId;
   itemId: VaultItemId;
   versionId: VaultItemVersionId;
   fieldId: VaultFieldId;
@@ -292,44 +298,83 @@ type VaultField = {
 ```
 
 Field-level access is the default. Dashboard UI can display item-level
-groupings, while policy and grants remain precise enough for egress injection,
-database leases, reveal, and rotation.
+groupings, while policy and permissions remain precise enough for egress
+injection, database leases, reveal, and rotation.
 
 ```ts
-type VaultFieldRef = {
-  tenantId: TenantId;
-  itemId: VaultItemId;
-  fieldId: VaultFieldId;
-};
+type VaultFieldSelector =
+  | {
+      kind: "active_field";
+      tenantId: TenantId;
+      vaultId: VaultId;
+      itemId: VaultItemId;
+      fieldId: VaultFieldId;
+    }
+  | {
+      kind: "versioned_field";
+      tenantId: TenantId;
+      vaultId: VaultId;
+      itemId: VaultItemId;
+      versionId: VaultItemVersionId;
+      fieldId: VaultFieldId;
+    };
 
-type VaultAccessLane = {
+type ResolvedVaultFieldRef = {
+  kind: "resolved_vault_field_ref";
   tenantId: TenantId;
+  vaultId: VaultId;
   itemId: VaultItemId;
   versionId: VaultItemVersionId;
   fieldId: VaultFieldId;
-  grantId: VaultGrantId;
+  envelopeId: VaultFieldEnvelopeId;
+};
+
+type VaultAccessLane = {
+  kind: "vault_access_lane";
+  tenantId: TenantId;
+  capabilityId: CapabilityId;
+  operationKind:
+    | "vault.proxy_use"
+    | "vault.mint_scoped_credential"
+    | "vault.reveal"
+    | "vault.rotate"
+    | "vault.permission_change"
+    | "vault.break_glass_reveal";
+  vaultId: VaultId;
+  itemId: VaultItemId;
+  fieldId: VaultFieldId | null;
+  projectId: ProjectId | null;
+  environmentId: EnvironmentId | null;
 };
 ```
 
-Access intents must distinguish use from reveal:
+Selectors can point at the active field for dashboard and tool ergonomics.
+Runtime execution resolves the selector once to `ResolvedVaultFieldRef` before
+policy evaluation, digest construction, and secret unwrap. Rotation creates a new
+version and changes the active pointer; existing runtime grants stay bound to the
+resolved version they authorized.
+
+Access intents are capability-local. They are parsed by the vault module, then
+converted into a generic `CapabilityOperationEnvelope` for Seams authorization:
 
 ```ts
 type VaultAccessIntent =
   | {
       kind: "use_via_egress";
       lane: VaultAccessLane;
+      fieldRef: ResolvedVaultFieldRef;
       principal: Principal;
-      sessionId: SessionId;
       executionId: ExecutionId;
       destination: EgressDestination;
       injection: EgressInjectionRule;
+      proxyBindingId: VaultProxyBindingId;
       revealReason?: never;
     }
   | {
       kind: "mint_scoped_credential";
       lane: VaultAccessLane;
+      fieldRef: ResolvedVaultFieldRef;
       principal: Principal;
-      sessionId: SessionId;
       executionId: ExecutionId;
       credentialAudience: CredentialAudience;
       destination?: never;
@@ -339,22 +384,22 @@ type VaultAccessIntent =
   | {
       kind: "reveal_to_human";
       lane: VaultAccessLane;
+      fieldRef: ResolvedVaultFieldRef;
       principal: Principal;
+      sessionId: SeamsSessionId;
       approvalId: ApprovalId;
       revealReason: RevealReason;
-      sessionId?: never;
       executionId?: never;
       destination?: never;
       injection?: never;
     }
   | {
       kind: "rotate_item";
-      tenantId: TenantId;
-      itemId: VaultItemId;
+      lane: VaultAccessLane;
       principal: Principal;
       rotationId: RotationId;
-      lane?: never;
-      sessionId?: never;
+      requestedActiveVersionId: VaultItemVersionId;
+      fieldRef?: never;
       executionId?: never;
       destination?: never;
       injection?: never;
@@ -362,42 +407,49 @@ type VaultAccessIntent =
     };
 ```
 
-Grants should be resource-specific:
+Durable vault permissions are separate from short-lived capability grants:
 
 ```ts
-type VaultGrantAction =
+type VaultPermissionAction =
   | "vault.item.metadata.read"
   | "vault.field.use_via_egress"
   | "vault.field.mint_scoped_credential"
   | "vault.field.reveal_to_human"
   | "vault.item.rotate"
   | "vault.item.delegate"
-  | "vault.item.manage";
+  | "vault.item.manage"
+  | "vault.break_glass.reveal";
 
-type VaultGrantScope =
-  | { kind: "item"; tenantId: TenantId; itemId: VaultItemId }
-  | { kind: "field"; tenantId: TenantId; itemId: VaultItemId; fieldId: VaultFieldId }
+type VaultPermissionScope =
+  | { kind: "vault"; tenantId: TenantId; vaultId: VaultId }
+  | { kind: "item"; tenantId: TenantId; vaultId: VaultId; itemId: VaultItemId }
+  | { kind: "field"; tenantId: TenantId; vaultId: VaultId; itemId: VaultItemId; fieldId: VaultFieldId }
   | { kind: "label"; tenantId: TenantId; label: VaultLabel }
   | { kind: "environment"; tenantId: TenantId; environmentId: EnvironmentId }
   | { kind: "project"; tenantId: TenantId; projectId: ProjectId };
 
-type VaultGrantSubject =
+type VaultPermissionSubject =
   | { kind: "principal"; tenantId: TenantId; principalId: PrincipalId }
   | { kind: "team"; tenantId: TenantId; teamId: TeamId }
   | { kind: "role"; tenantId: TenantId; roleId: RoleId };
 
-type VaultGrant = {
+type VaultPermissionGrant = {
+  kind: "vault_permission_grant";
   tenantId: TenantId;
-  grantId: VaultGrantId;
-  grantee: VaultGrantSubject;
-  scope: VaultGrantScope;
-  actions: VaultGrantAction[];
-  constraints: VaultGrantConstraints;
+  permissionId: VaultPermissionId;
+  subject: VaultPermissionSubject;
+  scope: VaultPermissionScope;
+  actions: VaultPermissionAction[];
+  constraints: VaultPermissionConstraints;
   status: "active" | "suspended" | "revoked";
   createdBy: PrincipalId;
   createdAt: IsoTimestamp;
 };
 ```
+
+`VaultPermissionGrant` answers whether a principal can request an operation.
+`CapabilityGrant` answers whether this exact operation instance has satisfied
+session, evidence, approval, digest, TTL, replay, and policy requirements.
 
 ## Team RBAC And Member Access Modes
 
@@ -470,15 +522,16 @@ type TeamMembership = {
 };
 ```
 
-Effective access is the intersection of grants and membership mode:
+Effective access is the intersection of durable permissions, capability policy,
+and membership mode:
 
 ```text
-principal direct grants
-  + team grants
-  + role grants
-  + item or field grants
+principal direct permissions
+  + team permissions
+  + role permissions
+  + item or field permissions
   ∩ membership access mode
-  ∩ sensitive-operation policy
+  ∩ capability grant policy
   ∩ runtime boundary
 ```
 
@@ -486,7 +539,7 @@ Examples:
 
 | Member | Team | Access mode | Result |
 | --- | --- | --- | --- |
-| Alice | Support Ops | `direct_member` | Can reveal or manage secrets only when grants and policy allow it |
+| Alice | Support Ops | `direct_member` | Can reveal or manage secrets only when permissions and policy allow it |
 | refunds-agent | Support Ops | `delegate_member` | Can use approved fields through Egress Gateway only |
 | ops-agent | Platform Admins | `direct_member` | Treated like a promoted team member under explicit tenant policy |
 | billing-service | Finance | `delegate_member` | Can mint scoped credentials or use proxy-only egress |
@@ -501,74 +554,110 @@ Promote member to direct access
 ```
 
 Use one permission system for agents, humans, and services. Membership mode
-constrains how a principal can exercise a grant.
+constrains how a principal can request a runtime grant.
 
-## Protected Capability Model
+## Capability Authorization Model
 
-Registration should provision protected capabilities independently. Wallet
-customers can receive signing and vault capabilities. Vault-only customers can
-receive `vault_access` without Ed25519 or ECDSA signer provisioning.
+Registration should provision capabilities independently. Wallet customers can
+receive signing and vault capabilities. Vault-only customers receive
+`vault_access` without Ed25519 or ECDSA signer provisioning.
 
-```ts
-type ProtectedCapability =
-  | {
-      kind: "near_ed25519_signing";
-      tenantId: TenantId;
-      walletId: WalletId;
-      signerId: NearEd25519SignerId;
-    }
-  | {
-      kind: "evm_ecdsa_signing";
-      tenantId: TenantId;
-      walletId: WalletId;
-      keyId: EcdsaWalletKeyId;
-      chainTarget: ThresholdEcdsaChainTarget;
-    }
-  | {
-      kind: "vault_access";
-      tenantId: TenantId;
-      vaultPrincipalId: VaultPrincipalId;
-      defaultPolicyId: VaultPolicyId;
-    };
-```
-
-The shared sensitive-operation layer owns auth freshness, step-up, canonical
-digests, TTL, remaining uses, grant consumption, and audit envelopes. Each
-capability family owns its exact lane and executor.
+The shared authorization layer must stay generic. It owns sessions, grant
+evidence, capability bindings, policy resolution, TTL, remaining uses, replay
+checks, grant consumption, and audit envelopes. The vault module owns vault
+items, fields, lanes, intents, display text, egress policy, unwrap, reveal, and
+rotation.
 
 ```ts
-type SensitiveOperationIntent =
+type ResourceScope =
+  | { kind: "tenant"; tenantId: TenantId }
+  | { kind: "project"; tenantId: TenantId; projectId: ProjectId }
   | {
-      kind: "mpc_sign";
-      lane: MpcSigningLane;
-      transactionIntent: TransactionIntent;
-      policy: SensitiveOperationPolicy;
-    }
-  | {
-      kind: "key_export";
-      lane: KeyExportLane;
-      exportIntent: KeyExportIntent;
-      policy: SensitiveOperationPolicy;
-    }
-  | {
-      kind: "vault_access";
-      lane: VaultAccessLane;
-      vaultIntent: VaultAccessIntent;
-      policy: SensitiveOperationPolicy;
+      kind: "environment";
+      tenantId: TenantId;
+      projectId: ProjectId;
+      environmentId: EnvironmentId;
     };
+
+type CapabilityInstance = {
+  kind: "capability_instance";
+  tenantId: TenantId;
+  capabilityId: CapabilityId;
+  capabilityKind:
+    | "vault_access"
+    | "near_ed25519_mpc_signing"
+    | "evm_ecdsa_mpc_signing";
+  resourceScope: ResourceScope;
+  defaultPolicyId: PolicyId;
+  configDigest: DigestB64u;
+  lifecycle: "active" | "suspended" | "deleted";
+};
+
+type CapabilityBindingKind =
+  | "owner"
+  | "admin"
+  | "direct_member"
+  | "delegate_member";
+
+type CapabilityBinding = {
+  kind: "capability_binding";
+  tenantId: TenantId;
+  bindingId: CapabilityBindingId;
+  capabilityId: CapabilityId;
+  principalId: PrincipalId;
+  bindingKind: CapabilityBindingKind;
+  lifecycle: "active" | "suspended" | "deleted";
+};
+
+type CapabilityOperationEnvelope = {
+  kind: "capability_operation_envelope";
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  capabilityKind: CapabilityKind;
+  capabilityId: CapabilityId;
+  operationKind: CapabilityOperationKind;
+  laneDigest: DigestB64u;
+  intentDigest: DigestB64u;
+  displayDigest: DigestB64u;
+};
 ```
+
+Capability modules register operation descriptors. The descriptor normalizes a
+parsed vault intent into:
+
+- `laneDigest`, which binds the stable authorization lane such as
+  `vault.proxy_use` or `vault.reveal`;
+- `intentDigest`, which binds the exact field, version, destination, injection
+  rule, reason, expiry, nonce, and execution context;
+- `displayDigest`, which binds the human prompt and audit display.
+
+Requests never carry `CapabilityGrantPolicy`. Seams authorization resolves
+policy server-side from tenant, capability, resource scope, principal binding,
+operation kind, evidence, and environment. The resolved policy ID is recorded on
+the `CapabilityGrant`.
 
 Shared authorization flow:
 
 ```text
-principal + auth session + exact lane + intent + policy + expiry + nonce
-  -> canonical digest
-  -> step-up or approval when policy requires it
-  -> signer-approved authorization
-  -> short-lived operation grant
-  -> domain executor
-  -> audit and grant consumption
+principal + SeamsSession or service-account evidence
+  -> capability-local lane, intent, and display digests
+  -> server-side policy resolution
+  -> required grant evidence challenges or approvals
+  -> short-lived CapabilityGrant
+  -> vault executor consumes the grant
+  -> audit and replay lock
 ```
+
+Default vault policy should be usable without MPC:
+
+| Vault operation | Default grant evidence |
+| --- | --- |
+| Proxy use by delegate member | `seams_session` or `service_account_api_key` plus policy-bound capability binding |
+| Mint scoped credential | `seams_session` or `service_account_api_key` plus stricter destination/audience policy |
+| Human reveal | `passkey_assertion` or configured SSO assurance, direct-member binding, and tenant reveal policy |
+| Permission change | `passkey_assertion` and direct admin binding |
+| Break-glass reveal | `approval_decision` plus `passkey_assertion` |
+| High-assurance export or regulated reveal | Tenant policy may require `mpc_signer_proof` |
 
 ## Encryption And Key Hierarchy
 
@@ -597,6 +686,7 @@ identity:
 ```ts
 type VaultFieldEnvelopeAAD = {
   tenantId: TenantId;
+  vaultId: VaultId;
   itemId: VaultItemId;
   versionId: VaultItemVersionId;
   fieldId: VaultFieldId;
@@ -629,38 +719,40 @@ the sidecar performs plaintext injection.
 
 ## MPC Signer Role
 
-The first vault release should use the Seams MPC signer as an authorization
-gate, not as the primary data decryption primitive.
+The first vault release should treat the Seams MPC signer as optional
+high-assurance grant evidence. It should not be the primary data decryption
+primitive, and it should not be required for vault-only tenants.
 
-The signer should authorize a canonical access digest:
+When tenant policy requires `mpc_signer_proof`, the signer should authorize the
+same capability operation envelope used for non-MPC grant evidence:
 
 ```text
-VaultAccessIntentDigest =
+MpcVaultGrantEvidenceChallenge =
   H(
     tenantId,
-    itemId,
-    versionId,
-    fieldId,
-    grantId,
     principalId,
-    agentId,
     sessionId,
-    executionId,
-    destinationHost,
-    destinationPathPolicy,
-    methodPolicy,
-    injectionRule,
-    sensitiveOperationPolicy,
+    signerCapabilityId,
+    targetCapabilityId,
+    operationKind,
+    laneDigest,
+    intentDigest,
+    displayDigest,
+    evidencePolicyId,
     policyVersion,
+    deviceId,
     expiresAt,
     nonce
   )
 ```
 
-The Secret Broker and Egress Gateway should require a fresh signer-approved
-intent before unwrapping and injecting a secret. The MPC authorization does not
-make cloud injection server-blind because the Worker still handles plaintext
-after authorization.
+The Secret Broker and Egress Gateway require a fresh `CapabilityGrant` before
+unwrapping and injecting a secret. Tenant policy can require that the grant
+include `mpc_signer_proof`, passkey assertion, Slack OTP, SSO assurance,
+service-account evidence, approval evidence, or a configured combination.
+
+MPC authorization does not make cloud injection server-blind because the Worker
+still handles plaintext after authorization.
 
 Future modes can use MPC or threshold cryptography for unwrap participation:
 
@@ -680,7 +772,7 @@ Admin opens dashboard
   -> Vault API encrypts secret-bearing fields before persistence
   -> Vault API stores item and field metadata in D1
   -> Vault API stores ciphertext in R2 or D1
-  -> Secret Broker creates initial grants
+  -> Secret Broker creates initial permissions
   -> audit records vault.item.created
 ```
 
@@ -694,7 +786,7 @@ Required validation:
 - Item category.
 - Field kind and sensitivity.
 - Label set.
-- Grant action set.
+- Permission action set.
 - Encrypted envelope AAD.
 
 The API should never echo secret values after creation. Creation and rotation
@@ -712,28 +804,29 @@ type SecretWriteMode =
 ## Secret Use Flow
 
 ```text
-Agent calls typed tool with `VaultFieldRef`
+Agent calls typed tool with `VaultFieldSelector`
   -> Tool Gateway resolves item, active version, and field
   -> Tool Gateway builds VaultAccessIntent
-  -> Secret Broker resolves effective grants
+  -> Secret Broker resolves durable vault permissions
   -> Policy Engine evaluates destination, action, budget, tenant, principal, and session
   -> Approval Workflow runs when policy requires it
-  -> Seams MPC signer gates the approved intent
-  -> Vault Grant DO stores one-time use grant
+  -> Seams Authorization verifies required grant evidence
+  -> Capability Grant DO stores one-time CapabilityGrant replay lock
   -> Egress Gateway injects secret into the approved request
   -> audit records allow or deny
 ```
 
-The one-time grant should bind:
+The one-time `CapabilityGrant` should bind:
 
 - `tenantId`
+- `capabilityId`
+- `operationKind`
 - `itemId`
 - `versionId`
 - `fieldId`
-- `grantId`
+- `envelopeId`
 - `principalId`
-- `agentId`
-- `sessionId`
+- grant evidence set digest
 - `executionId`
 - destination host
 - method and path policy
@@ -741,7 +834,9 @@ The one-time grant should bind:
 - expiration
 - nonce
 - policy version
-- MPC signer authorization digest
+- `laneDigest`
+- `intentDigest`
+- `displayDigest`
 
 Grant replay must fail closed.
 
@@ -752,16 +847,18 @@ Reveal is an admin operation with a different lifecycle from use:
 ```text
 Admin requests reveal
   -> Policy Engine checks reveal permission
-  -> step-up auth required
-  -> approval required for configured tenants
-  -> Seams MPC signer gates reveal intent
+  -> Seams Authorization resolves reveal grant policy
+  -> step-up or SSO assurance required
+  -> approval required when tenant policy says so
+  -> optional MPC signer proof required when tenant policy says so
   -> dashboard displays value once
   -> audit records vault.field.revealed
 ```
 
 Reveal should be disabled for `delegate_member` principals. Agents default to
 `delegate_member`, so agent reveal requires explicit promotion to direct
-membership plus a grant and tenant policy that allow reveal. Tenant policy can
+membership plus a permission, runtime grant, and tenant policy that allow
+reveal. Tenant policy can
 disable reveal entirely. Export is a separate action and should remain out of
 the MVP unless an enterprise requirement forces it.
 
@@ -789,7 +886,8 @@ The gateway must also defend against egress bypass:
 - deny credential injection after host or scheme changes;
 - canonicalize host, scheme, method, path, and port before matching;
 - redact injected headers and query parameters before audit persistence;
-- bind each outbound request to a tenant, session, execution, and grant ID.
+- bind each outbound request to a tenant, evidence set, execution, and
+  capability grant ID.
 
 ## 1Password Adapter Plan
 
@@ -800,7 +898,7 @@ type OnePasswordMode =
   | {
       kind: "connect_live";
       tenantId: TenantId;
-      connectServerCredentialRef: VaultFieldRef;
+      connectServerCredentialRef: VaultFieldSelector;
       sourceVaultId: OnePasswordVaultId;
     }
   | {
@@ -872,29 +970,58 @@ team_memberships(
   updated_at
 )
 
-protected_capabilities(
+capability_instances(
   tenant_id,
   capability_id,
-  principal_id,
   capability_kind,
+  resource_scope_kind,
+  resource_scope_id,
   lifecycle_kind,
+  config_digest,
   default_policy_id,
   created_by_principal_id,
   created_at,
   updated_at
 )
 
-sensitive_operation_authorizations(
+capability_bindings(
   tenant_id,
-  operation_id,
+  binding_id,
   capability_id,
-  operation_kind,
-  lane_json,
+  principal_id,
+  binding_kind,
+  lifecycle_kind,
+  created_by_principal_id,
+  created_at,
+  updated_at
+)
+
+grant_evidence_refs(
+  tenant_id,
+  evidence_ref_id,
+  principal_id,
+  evidence_ref_kind,
+  evidence_digest,
+  lane_digest,
   intent_digest,
+  display_digest,
+  source_ref_json,
+  asserted_at,
+  expires_at
+)
+
+capability_grants(
+  tenant_id,
+  grant_id,
+  capability_id,
+  principal_id,
+  operation_kind,
+  lane_digest,
+  intent_digest,
+  display_digest,
   policy_id,
   policy_version_id,
-  auth_session_id,
-  approval_id,
+  evidence_set_digest,
   remaining_uses,
   status,
   created_at,
@@ -902,8 +1029,22 @@ sensitive_operation_authorizations(
   consumed_at
 )
 
+vaults(
+  tenant_id,
+  vault_id,
+  display_name,
+  resource_scope_kind,
+  resource_scope_id,
+  default_capability_id,
+  lifecycle_kind,
+  created_by_principal_id,
+  created_at,
+  updated_at
+)
+
 vault_items(
   tenant_id,
+  vault_id,
   item_id,
   backend_kind,
   category,
@@ -919,6 +1060,7 @@ vault_items(
 
 vault_item_versions(
   tenant_id,
+  vault_id,
   item_id,
   version_id,
   schema_version,
@@ -933,6 +1075,7 @@ vault_item_versions(
 
 vault_item_fields(
   tenant_id,
+  vault_id,
   item_id,
   version_id,
   field_id,
@@ -948,6 +1091,7 @@ vault_item_fields(
 
 vault_item_attachments(
   tenant_id,
+  vault_id,
   item_id,
   version_id,
   attachment_id,
@@ -960,6 +1104,7 @@ vault_item_attachments(
 
 vault_wrapped_keys(
   tenant_id,
+  vault_id,
   item_id,
   version_id,
   field_id,
@@ -971,11 +1116,11 @@ vault_wrapped_keys(
   created_at
 )
 
-vault_grants(
+vault_permission_grants(
   tenant_id,
-  grant_id,
-  grantee_kind,
-  grantee_id,
+  permission_id,
+  subject_kind,
+  subject_id,
   scope_kind,
   scope_id,
   actions_json,
@@ -986,22 +1131,41 @@ vault_grants(
   updated_at
 )
 
-vault_access_requests(
+vault_proxy_bindings(
+  tenant_id,
+  proxy_binding_id,
+  vault_id,
+  item_id,
+  field_id,
+  destination_policy_json,
+  injection_rule_json,
+  response_redaction_json,
+  status,
+  created_by_principal_id,
+  created_at,
+  updated_at
+)
+
+vault_access_events(
   tenant_id,
   request_id,
+  capability_grant_id,
+  vault_id,
   item_id,
   version_id,
   field_id,
-  grant_id,
+  envelope_id,
   principal_id,
-  session_id,
+  evidence_set_digest,
   execution_id,
   intent_kind,
   destination_json,
   decision,
   policy_version_id,
   approval_id,
-  mpc_authorization_digest,
+  lane_digest,
+  intent_digest,
+  display_digest,
   audit_id,
   created_at,
   expires_at
@@ -1024,9 +1188,9 @@ vault_rotation_jobs(
 Encrypted payload R2 keys:
 
 ```text
-tenants/{tenant_id}/vault/items/{item_id}/versions/{version_id}/fields/{field_id}.json
-tenants/{tenant_id}/vault/items/{item_id}/versions/{version_id}/attachments/{attachment_id}.json
-tenants/{tenant_id}/vault/wrapped-keys/{item_id}/{version_id}/{field_id}/{scope_id}.json
+tenants/{tenant_id}/vaults/{vault_id}/items/{item_id}/versions/{version_id}/fields/{field_id}.json
+tenants/{tenant_id}/vaults/{vault_id}/items/{item_id}/versions/{version_id}/attachments/{attachment_id}.json
+tenants/{tenant_id}/vaults/{vault_id}/wrapped-keys/{item_id}/{version_id}/{field_id}/{scope_id}.json
 tenants/{tenant_id}/vault/sync/onepassword/{sync_id}.json
 ```
 
@@ -1051,19 +1215,19 @@ Audit event types:
 - `vault.field.revealed`
 - `vault.item.rotation_started`
 - `vault.item.rotation_completed`
-- `sensitive_operation.authorized`
-- `sensitive_operation.denied`
-- `sensitive_operation.consumed`
+- `capability_grant.authorized`
+- `capability_grant.denied`
+- `capability_grant.consumed`
 - `vault.adapter.onepassword.sync_started`
 - `vault.adapter.onepassword.sync_completed`
 - `vault.adapter.onepassword.sync_failed`
 
 Audit records should include tenant, principal, capability ID, item ID, version
-ID, field ID, grant ID, sensitive operation kind, intent kind, destination,
-policy version, approval ID, run ID, digest, decision, and grant consumption
-outcome. They must omit plaintext secret values, raw authorization headers,
-OAuth tokens, raw database passwords, and full request bodies unless a redaction
-policy has classified every field.
+ID, field ID, capability grant ID, operation kind, intent kind, destination,
+policy version, approval ID, run ID, lane digest, intent digest, display digest,
+decision, and grant consumption outcome. They must omit plaintext secret values,
+raw authorization headers, OAuth tokens, raw database passwords, and full
+request bodies unless a redaction policy has classified every field.
 
 Operational signals:
 
@@ -1072,8 +1236,8 @@ Operational signals:
 - Grant replay failures.
 - Rotation job failures.
 - 1Password sync staleness.
-- Secrets with no active grant.
-- Grants that have never been used.
+- Secrets with no active permission.
+- Runtime grants that have never been used.
 - Secrets revealed in the last 30 days.
 
 ## Remaining Architectural Issues
@@ -1086,12 +1250,12 @@ These topics need explicit design decisions before implementation:
 | Key custody | Where do tenant root wrapping keys live? | Cloudflare Secrets Store, Worker secret, platform KMS, customer KMS, or sidecar. |
 | Tenant isolation tiers | How far does pooled storage go? | Decide pooled, dedicated data, and dedicated deployment migration paths. |
 | Metadata privacy | Which fields are plaintext for dashboard search? | Classify labels, hostnames, usernames, URLs, descriptions, and tags. |
-| Grant policy model | How expressive are vault grants? | Start with typed constraints, then add policy DSL only when needed. |
+| Grant policy model | How expressive are vault permissions and capability grant policies? | Start with typed constraints, then add policy DSL only when needed. |
 | Approval thresholds | Which actions need human approval or two-person approval? | Decide defaults for use, reveal, delegate, rotate, export, and raw DB access. |
 | Rotation | Which providers get first-class rotation? | Prioritize providers used by commerce harness demos and agent model calls. |
 | Egress bypass | How are containers prevented from direct network use? | Decide outbound routing, deny-by-default networking, and redirect handling. |
 | Audit retention | How long are access events and redacted request facts retained? | Set retention by tenant tier and compliance needs. |
-| Incident response | What happens during suspected compromise? | Tenant disable, revoke all grants, rotate affected secrets, freeze egress. |
+| Incident response | What happens during suspected compromise? | Tenant disable, revoke permissions and active grants, rotate affected secrets, freeze egress. |
 | 1Password behavior | Live read or sync by default? | Live keeps 1Password source of truth; sync gives stronger runtime control. |
 | Reveal UX | How is break-glass presented and recorded? | Step-up, reason, approval, one-time display, post-reveal rotation reminder. |
 | Sidecar future | How much sidecar design must exist in v1 types? | Keep explicit runtime branch, defer implementation. |
@@ -1099,6 +1263,88 @@ These topics need explicit design decisions before implementation:
 | Model-provider calls | Should LLM API keys go through AI Gateway, Egress Gateway, or both? | Decide routing and cost/audit ownership. |
 | Local development | How do engineers test without real merchant secrets? | Fixture vault, fake providers, `.dev.vars`, local R2/D1, no production secret access. |
 | Disaster recovery | What backups are required for encrypted payloads and wrapped keys? | Define recovery drills and key-loss behavior before production. |
+
+Recommended defaults:
+
+- Worker boundary split: define Secret Broker, Egress Gateway, Vault API, and
+  Grant DO as separate logical boundaries from the first implementation. The
+  pooled MVP can co-deploy them when needed, while dedicated enterprise tiers
+  should split them into service-bound Workers.
+- Key custody: use envelope encryption with per-field data keys, tenant/project
+  wrapping keys, and a platform-managed root in the default tier. Add customer
+  KMS and merchant sidecar root custody as explicit enterprise branches.
+- Tenant isolation: start with pooled D1/R2 and strict tenant-bound repository
+  parsers. Offer dedicated data stores for larger tenants and dedicated
+  Cloudflare deployments for regulated tenants.
+- Metadata privacy: plaintext metadata is allowed only after classification.
+  Names, labels, usernames, hostnames, URLs, and descriptions are
+  `tenant_sensitive_metadata` by default.
+- Reveal and break-glass: delegate members cannot reveal. Direct-member reveal
+  requires grant evidence and tenant reveal policy. Break-glass requires
+  approval evidence, a reason, one-time display, noisy audit, and a rotation
+  reminder.
+- Automation: service accounts can request proxy-use and rotation grants through
+  `service_account_api_key` evidence. Reveal and export stay interactive unless
+  a later enterprise policy explicitly enables a stronger workload proof.
+- 1Password: own vault is the runtime source of truth by default. Live Connect
+  reads are allowed for tenants that intentionally keep 1Password as source of
+  truth.
+
+## Design Critique And Resolutions
+
+This design should be judged against the long-term objective: a multi-tenant
+enterprise vault for human, agent, and service principals that can share and use
+secrets through controlled runtime boundaries, while sharing the same auth and
+grant machinery as MPC signing.
+
+| Critique | Resolution |
+| --- | --- |
+| A shared auth core that imports vault, NEAR, EVM, or future capability unions will become another monolith. | `seams-authorization` only knows sessions, grant evidence, capability IDs, operation kinds, policies, digests, grants, and audit. Capability modules own rich lane, intent, and display structs. |
+| Principal-owned capabilities are too narrow for shared vaults, project wallets, team resources, and service-owned resources. | Capabilities are resource-scoped through `CapabilityInstance.resourceScope`; principals gain access through `CapabilityBinding`. |
+| “Grant” can mean durable sharing permission or one-time runtime authorization. | Durable sharing uses `VaultPermissionGrant`; runtime authorization uses `CapabilityGrant`. |
+| Making MPC mandatory bloats vault-only customers and breaks non-browser integrations. | Vault policies use generic `GrantEvidenceRef` records. `mpc_signer_proof` is optional evidence for high-assurance tenants. |
+| Active-field references can drift during rotation. | Tools can hold `VaultFieldSelector`; runtime resolves once to `ResolvedVaultFieldRef` and binds the exact version and envelope in the grant. |
+| Proxy use can become an exfiltration channel if the destination is loosely specified. | `VaultProxyBinding` binds host, scheme, method, path, port, injection location, redirects, and response redaction before unwrap. |
+| Service accounts and scheduled jobs need non-interactive authorization. | Service-account API keys create `service_account_api_key` grant evidence and can request only policy-approved `CapabilityGrant` records. |
+| Shared team vaults do not map to the wallet signer model. | A vault is a resource. Teams, humans, agents, and services receive permissions and capability bindings against that resource. |
+| Agent identity should be first-class without forcing plaintext access. | Agents are normal principals with `delegate_member` default binding. Teams can explicitly promote an agent to `direct_member`. |
+| 1Password adapter credentials can create a bootstrap cycle. | Store connector credentials as sealed tenant adapter credentials under the own-vault key hierarchy or platform bootstrap path, then expose them only through adapter-specific broker code. |
+| Metadata search leaks sensitive names, usernames, hostnames, or tags. | Classify metadata as `public_display`, `tenant_sensitive_metadata`, or `secret_value`; encrypted metadata search is an enterprise extension. |
+| Break-glass reveal is operationally necessary and risky. | Model it as a distinct operation with approval evidence, passkey or SSO assurance, one-time display, noisy audit, and post-reveal rotation reminder. |
+
+## Repository Inventory
+
+The vault implementation should build on the modular auth refactor instead of
+landing as a parallel subsystem.
+
+| Area | Current inventory | Required refactor |
+| --- | --- | --- |
+| Auth monolith | `packages/sdk-server-ts/src/core/AuthService.ts` mixes wallet registration, WebAuthn, Email OTP, sessions, recovery, threshold signing, stores, and signer WASM. | Extract session/factor provider ports used by Seams authorization; keep MPC runtime behind capability modules. |
+| Route policy | `packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`. | Add management/API/session/capability-grant route planes from refactor-83; runtime vault routes require `capability_grant`. |
+| Route definitions | `packages/sdk-server-ts/src/router/routeDefinitions.ts` validates API scopes and route auth planes centrally. | Teach definitions about `management_api_key`, `seams_session`, and `capability_grant`; keep unknown capability operations fail-closed. |
+| Cloudflare router | `packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts` eagerly wires wallet, session, threshold, OTP, and seal routes. | Register vault routes through route modules with lazy runtime handler factories; keep vault-only Workers free of MPC imports. |
+| Route modules | `packages/sdk-server-ts/src/router/modules.ts` and `routeExtensions.ts` already support route extensions. | Evolve this into capability route registration; preserve Express parity only where the runtime actually supports the route. |
+| Express routes | `packages/sdk-server-ts/src/router/express/*` mirrors relay routes. | Decide whether vault runtime routes are Cloudflare-only for v1; management routes can keep Express parity. |
+| API credential scopes | `packages/shared-ts/src/console/apiKeyScopes.ts` is wallet-bootstrap oriented. | Split management scopes from grant-request scopes such as `grants.request.vault_proxy_use` and `grants.request.vault_rotate`. |
+| Console RBAC | `packages/sdk-server-ts/src/console/teamRbac/*` uses org-scoped team roles and wallet-operation categories. | Add principal kinds, member access modes, vault/admin categories, and direct/delegate membership constraints. |
+| Console policies | `packages/sdk-server-ts/src/console/policies/*` supports transaction and gas sponsorship policies. | Add capability grant policies, vault proxy policies, reveal policies, and permission-change policies. |
+| Approvals | `packages/sdk-server-ts/src/console/approvals/*` supports policy publish and key export. | Add vault reveal, break-glass reveal, permission change, rotation, and export approval operation types. |
+| Audit | `packages/sdk-server-ts/src/console/audit/*` and `consoleAuditMetadata.ts` handle existing console events. | Add capability, vault, proxy injection, reveal, deny, replay, rotation, adapter, and redaction event categories. |
+| Key exports | `packages/sdk-server-ts/src/console/keyExports/*` has signing/export-specific approval and service flows. | Move key export onto the same `CapabilityGrant` evidence and approval path used by vault reveal/export. |
+| Wallet index | `packages/sdk-server-ts/src/console/wallets/*` assumes wallet-centric resource surfaces. | Keep wallets as optional capability inventory; vault-only tenants should not require wallet rows. |
+| D1 migrations | `packages/sdk-server-ts/migrations/d1-console/0001` through `0018` cover console, RBAC, policies, API keys, audit, approvals, wallet index, key exports, webhooks, and observability. | Add new migrations for principals, capability instances/bindings, grant evidence, capability grants, vaults, vault items, fields, envelopes, permissions, proxy bindings, access events, and rotations. |
+| Dashboard shell | `apps/seams-site/src/pages/dashboard/dashboardConfig.tsx`, sidebar, routes, and route API clients cover current console pages. | Add vault pages; update team members, policy engine, approvals, API keys, audit, onboarding, and ops cockpit to surface vault capabilities. |
+| Dashboard API clients | `apps/seams-site/src/pages/dashboard/routes/*/*Api.ts` mirror server console APIs. | Add `routes/secrets-vault/consoleVaultApi.ts` and adapt existing clients for capability policies, grant-request scopes, and vault approval metadata. |
+| Browser step-up | `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` is signing-centered. | Rename to capability-grant confirmation types with generic evidence challenges, then map signing and vault UI onto it. |
+| React auth UI | `packages/sdk-web/src/react/components/PasskeyAuthMenu/*` exposes wallet/account policies. | Keep the components, adapt copy and adapters so passkey/OTP evidence can satisfy vault grants without wallet registration. |
+| Lit confirmation UI | `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/*` renders transaction/export confirmations. | Add capability display renderers for vault reveal, proxy use, permission change, and break-glass. |
+| Web worker split | `packages/sdk-web/src/core/walletRuntimePaths/*`, `SeamsWeb/walletIframe/*`, and signing workers currently load wallet/MPC runtime paths. | Add auth-only and vault-only entrypoints; assert that vault-only imports do not pull signer WASM, HSS, or MPC workers. |
+| SeamsWeb public API | `packages/sdk-web/src/SeamsWeb/publicApi/*` and `operations/registration/*` are wallet-registration heavy. | Add capability provisioning APIs and vault grant request helpers; make wallet signers optional capabilities. |
+| Server assembly | `apps/web-server/src/consoleConfig.ts` and server bootstrap seed console data. | Seed vault capability policies, direct/delegate team memberships, service-account grant-request scopes, and fake vault fixtures. |
+| Examples | `examples/self-host-cloudflare-worker` and `examples/relay-cloudflare-worker` are signing/relay focused. | Add a vault-only Cloudflare Worker example with no MPC bundle, plus a full-platform example with optional MPC evidence. |
+| Tests | `tests/relayer/*`, `tests/e2e/dashboard*.test.ts`, and `tests/unit/*guard*.test.ts` cover current console, router, and signing assumptions. | Phase 0 must list obsolete wallet-only expectations, delete redundant fixtures, and add type/runtime tests for vault-only tenants, grant replay, tenant isolation, and no-MPC imports. |
+| Rust Cloudflare router | `crates/router-ab-cloudflare/*` owns existing project-policy and normal-signing Cloudflare concepts. | Inventory only for v1 unless Centaur chooses to reuse Rust router primitives for egress policy or Durable Object evaluation. |
+| Missing adjacent spec | `docs/seams-commerce-harness.md` is referenced by product discussion but is absent in the repo. | Restore the file, update the reference, or move commerce harness requirements into `docs/centaur-cloud-fork.md` before implementation starts. |
 
 ## Local Development
 
@@ -1113,7 +1359,7 @@ Local fixtures should include:
 - Own-vault API key secret.
 - Own-vault database password secret.
 - 1Password synced secret fixture.
-- Active and revoked grants.
+- Active and revoked permissions and grants.
 - Allowed and denied egress fixtures.
 - Reveal-disabled tenant policy.
 
@@ -1125,17 +1371,19 @@ policy. Pure type and parser changes can use unit tests.
 
 | Phase | Focus | Deliverable |
 | --- | --- | --- |
-| 0 | Domain and threat model | Finalize tenant, protected capability, item, field, grant, intent, runtime-boundary, and audit types |
-| 1 | Persistence foundation | D1 migrations, R2 key builders, boundary parsers, repository tests |
-| 2 | Own-vault create/update | Dashboard API for metadata and encrypted value writes |
-| 3 | Grant model | Resource grants, sensitive-operation policy constraints, static type fixtures, dashboard grant UI |
-| 4 | Secret use path | `VaultAccessIntent`, policy evaluation, MPC signer gate, one-time use grants |
-| 5 | Egress integration | Header/query/placeholder injection through Worker-side Egress Gateway |
-| 6 | Reveal path | Human-only reveal with step-up, approval, audit, and tenant disable control |
-| 7 | Rotation | Manual rotation, version activation, retired versions, rotation workflow hooks |
-| 8 | 1Password adapter | Live Connect read path, sync/import path, adapter audit |
-| 9 | Hardening | Cross-tenant denial, grant replay denial, redaction checks, abuse limits |
-| 10 | Enterprise modes | Merchant sidecar injection, dedicated vault namespace, customer-managed key hooks |
+| 0 | Inventory and test triage | List wallet-only assumptions, redundant tests, stale fixtures, route surfaces, dashboard pages, SDK entrypoints, worker imports, migrations, and public exports. Delete tests that only preserve obsolete wallet-first behavior. |
+| 1 | Generic authorization foundation | Land or depend on refactor-83 primitives: `SeamsSession`, `GrantEvidenceRef`, `CapabilityInstance`, `CapabilityBinding`, `CapabilityOperationEnvelope`, `CapabilityGrant`, policy resolution, replay locks, and route planes. |
+| 2 | Vault domain package | Add vault IDs, item/version/field/envelope types, selectors, resolved refs, permission grants, proxy bindings, runtime boundary types, and type fixtures. |
+| 3 | Persistence foundation | Add D1 migrations, D1 repositories, R2 key builders, envelope AAD builders, boundary parsers, cross-tenant denial tests, and seed fixtures. |
+| 4 | Management API and dashboard CRUD | Add vault metadata/value write APIs, dashboard list/detail/create/edit/archive flows, redacted responses, audit records, and no-echo secret write behavior. |
+| 5 | Permissions and policies | Add vault permission grants, member access mode enforcement, capability grant policies, service-account grant-request scopes, approval policy wiring, and dashboard grant UI. |
+| 6 | Proxy use runtime | Implement vault access lanes, egress proxy bindings, grant evidence challenge flow, one-time `CapabilityGrant` issuance, Secret Broker unwrap, and Egress Gateway injection. |
+| 7 | Reveal and break-glass | Implement direct-member reveal, approval evidence, passkey/SSO step-up, optional `mpc_signer_proof`, one-time display, noisy audit, and rotation reminder. |
+| 8 | Rotation and scoped credentials | Implement manual rotation, version activation, retired versions, scoped credential minting, rotation workflows, and service-account rotation grants. |
+| 9 | 1Password adapter | Implement live Connect read, sync/import, adapter credential custody, source fingerprinting, stale sync detection, and adapter audit. |
+| 10 | Bundle and deployment hardening | Prove vault-only Workers and SDK imports do not load MPC code; decide Express parity; add dedicated-data and dedicated-deployment wiring. |
+| 11 | Security hardening | Add replay, destination mismatch, redirect, redaction, tenant isolation, abuse limit, incident response, disaster recovery, and backup drills. |
+| 12 | Enterprise modes | Add merchant sidecar injection, customer-managed key hooks, opaque metadata tier, and strict server-blind tenant mode. |
 
 ## Validation Plan
 
@@ -1143,28 +1391,35 @@ Type-level checks:
 
 - Invalid item lifecycle states.
 - Invalid access intent branch combinations.
-- Invalid protected capability branch combinations.
+- Invalid capability instance and binding branch combinations.
 - Vault-only registration cannot require wallet signer fields.
 - Wallet signing capability lanes cannot be used as vault access lanes.
 - Warm signing authority cannot be spread into vault reveal authority.
+- `VaultPermissionGrant` cannot be used where a `CapabilityGrant` is required.
+- `CapabilityGrant` cannot be constructed without lane, intent, and display
+  digests.
 - `delegate_member` access cannot construct reveal, export, manage, or delegate
   operations.
 - Agent direct membership must be explicit and cannot be inferred from agent
   principal kind.
-- Missing tenant identity on items, fields, grants, and access requests.
+- Missing tenant identity on items, fields, permissions, grants, and access
+  requests.
 - Delegate-member reveal attempts rejected at type and runtime boundaries.
 - Broad object spreads cannot construct core lifecycle branches.
+- Vault-only public entrypoints cannot import MPC signer workers or WASM.
 
 Unit tests:
 
 - Item and field metadata parsers.
 - Envelope AAD normalization.
-- Grant action normalization.
+- Permission action normalization.
+- Capability operation envelope construction.
 - Egress destination matching.
 - Injection rule matching.
 - Access intent digest construction.
-- Sensitive operation digest construction for signing, export, and vault access.
-- Protected capability registration plan normalization.
+- Capability grant digest construction for signing, export, and vault access.
+- Capability registration plan normalization.
+- Service-account grant evidence normalization.
 - Audit redaction.
 
 Integration tests:
@@ -1173,12 +1428,15 @@ Integration tests:
 - R2 encrypted payload writes and reads by tenant.
 - Cross-tenant metadata denial.
 - Cross-tenant R2 key denial.
-- Grant replay denial through Vault Grant DO.
+- Capability grant replay denial through Capability Grant DO.
 - Egress injection to fake OpenAI, Anthropic, Shopify, Stripe, and GitHub
   endpoints.
 - Reveal-disabled policy denial.
 - Rotation from version N to N+1.
 - 1Password sync fixture import.
+- Vault-only Worker bundle excludes MPC signer modules.
+- Service-account API key can request proxy-use and rotation grants only when
+  binding and policy allow it.
 
 Security tests:
 
@@ -1189,6 +1447,10 @@ Security tests:
 - Revoked grants fail closed.
 - Secret use with destination mismatch fails closed.
 - Secret use with policy version mismatch fails closed.
+- Secret use after active-version rotation stays bound to the originally
+  resolved version.
+- Redirect to an unapproved host fails before secret injection.
+- Service-account grant evidence cannot authorize reveal or export by default.
 - Delegate-member raw readback and reveal requests fail closed.
 - Promoted direct-member agent reveal requires explicit direct membership, grant,
   step-up, and tenant policy.

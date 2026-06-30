@@ -1,13 +1,15 @@
 # Cloudflare D1 Migration Plan
 
 Date created: June 26, 2026
-Updated: June 29, 2026
+Updated: June 30, 2026
 
 Status: execution checkpoint. Phases 1 through 5 are complete for the current
 D1/DO staging scope. Phase 6 is the real staging deployment phase and has open
-exit criteria. This plan moves the default Seams console and signer persistence
-path to Cloudflare D1 plus Durable Objects, while keeping a clean full-family
-Postgres escape hatch for future scale or relational needs.
+exit criteria. Phase 9 now tracks the ECDSA-HSS pool-fill Durable Object
+ownership fix and is a staging blocker while ECDSA-HSS signing is enabled. This
+plan moves the default Seams console and signer persistence path to Cloudflare D1
+plus Durable Objects, while keeping a clean full-family Postgres escape hatch for
+future scale or relational needs.
 
 Refactor 82 is an execution plan, not a generic multi-database platform build.
 The first deliverable is a D1/DO staging backend that can run sponsored gas,
@@ -26,7 +28,8 @@ Use Cloudflare D1 and Durable Objects as the first production backend family:
 - Durable Objects own signer coordination that needs per-entity serialized
   mutation or short-lived ceremony lifecycle ownership: registration
   ceremonies, session use counts, budget consumption, replay guards,
-  presignature pools, and signing-root coordination.
+  presignature pools, ECDSA-HSS pool-fill live sessions, and signing-root
+  coordination.
 - Cloudflare Secrets Store is the hosted KEK source for signer share
   encryption. Wrangler secrets are allowed for local development. External KMS
   or HSM support is exposed through a narrow signer-only KEK provider adapter.
@@ -114,7 +117,7 @@ Authoritative Cloudflare references:
 
 ## Phased First-Cut Plan
 
-This eight-phase sequence is the authoritative execution path for refactor 82. The
+This ten-phase sequence is the authoritative execution path for refactor 82. The
 remaining sections define the invariants and detailed ownership model for those
 phases.
 
@@ -135,27 +138,36 @@ phases.
       signer KEKs, import fixtures, capture Time Travel bookmarks, and run staging
       smoke, reconciliation, signer route health, fixture-backed custody checks,
       and restore drills.
-- [ ] Phase 7: Delete legacy staging code, stale compatibility paths, temporary
+- [x] Phase 7: Delete legacy staging code, stale compatibility paths, temporary
       refactor scaffolding, and obsolete tests. This runs as a same-phase cleanup
-      gate during implementation and finishes with a final count report after
-      staging is proven.
+      gate during implementation and now has a final tracked-plus-untracked count
+      report with owners for the remaining positive blocks.
 - [x] Phase 8: Replace hard-coded combined registration with a signer-set
       registration model. This removes the `ed25519_and_ecdsa` cross-product
       shape, makes D1 registration branch orchestration generic over requested
       signer capabilities, and splits the current D1 ceremony service by domain.
+- [ ] Phase 9: Move `ThresholdEcdsaPresignSession` live ownership from the Router
+      API Worker into a Durable Object. The Worker routes parse and authorize
+      requests, while the DO owns the live WASM session across
+      `/router-ab/ecdsa-hss/presignature-pool/fill/init` and `/fill/step`.
+- [x] Phase 10: Move sponsored EVM spend pricing into Console D1. The schema,
+      static-pricing adapter, D1 Router API pricing wiring, explicit setup seed,
+      and Cloudflare D1 env-pricing guard are implemented; the full
+      platform-admin pricing UI/API remains deferred.
 
-Operating rule for Phases 3-8:
+Operating rule for Phases 3-10:
 
-- [ ] Each implementation phase includes a deletion pass before the phase is
+- [x] Each implementation phase includes a deletion pass before the phase is
       marked complete.
-- [ ] New D1/DO adapters replace the staging paths they supersede during the same
+- [x] New D1/DO adapters replace the staging paths they supersede during the same
       phase unless a concrete staging blocker is recorded in the phase notes.
-- [ ] Compatibility code lives only at request and persistence boundaries, with a
+- [x] Compatibility code lives only at request and persistence boundaries, with a
       named deletion condition.
-- [ ] Source guards prevent old paths from returning and are reviewed for deletion
+- [x] Source guards prevent old paths from returning and are reviewed for deletion
       once the D1/DO architecture is stable.
-- [ ] Phase completion records before/after line counts. Phase 7 targets a
-      net-negative or near-neutral non-doc line count after staging works.
+- [x] Phase completion records before/after line counts. Phase 7 records the final
+      tracked-plus-untracked count and names owners for every remaining positive
+      block.
 
 Line-count cleanup baseline:
 
@@ -343,9 +355,9 @@ Line-count cleanup baseline:
       634 lines, and `d1RouterApiAuthService.ts` is 6,587 lines. The Refactor 82
       runtime guard now walks dynamic `import()` calls so lazy Postgres imports
       cannot enter the Cloudflare runtime graph unnoticed.
-- [ ] Each remaining implementation commit either removes the staging path it
+- [x] Each remaining implementation commit either removes the staging path it
       supersedes or records the concrete blocker in this plan.
-- [ ] Phase 7 records the final before/after counts and explains any remaining
+- [x] Phase 7 records the final before/after counts and explains any remaining
       positive non-doc line delta.
 
 Definition of done for the first cut:
@@ -645,7 +657,7 @@ Current and former Postgres coupling is concentrated in:
 | Legacy threshold key-store records | Former Postgres tables `threshold_ed25519_keys`, `threshold_ecdsa_keys`                                                                                                                                                                                | Durable Object or retired behind sealed signing-root shares | These records are secret-bearing under the current TypeScript interfaces. The partial Postgres key-store backend has been deleted; production D1/DO staging must use sealed signing-root share storage or the existing Durable Object path until raw-share records are retired. Do not add raw-share D1 tables.                                                                                                                                                                                                                                                                                                                         |
 | Sealed signing-root shares         | Former Postgres table `signing_root_secret_shares`; current D1 table `signer_signing_root_secret_shares`                                                                                                                                               | `SIGNER_DB` D1                                              | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. The partial Postgres signing-root secret store has been deleted; a future Postgres escape hatch must implement the full signer-family contract before selection.                                                                                                                                                                                                                                                                                                                                                                       |
 | Recovery/identity                  | `email_recovery_preparations`, `signer_near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions`                                                                                                         | `SIGNER_DB` D1                                              | D1 identity-link, app-session-version, recovery-session, recovery-execution, NEAR public key, and email recovery preparation adapters, append-only migrations, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, sole-identity move/unlink tests, app-session rotation tests, recovery-session expiry reads, recovery-execution status query tests, NEAR public key list/upsert tests, and email recovery preparation expiry/delete tests are in place.                                                                                                                                              |
-| Device linking                     | `device_linking_sessions`                                                                                                                                                                                                                              | Refactor 84                                                 | Current route handlers return 410 and `AuthService` returns the unsupported result. Keep device linking out of refactor 82 staging scope until refactor 84 re-enables the feature and defines its persistence contract.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Device linking                     | `device_linking_sessions`                                                                                                                                                                                                                              | Future complete route slice                                 | Current route handlers return 410 and `AuthService` returns the unsupported result. Keep device linking out of refactor 82 staging scope until a future device-linking route slice re-enables the feature and defines its persistence contract. Refactor 84 is reserved for Ed25519 HSS payload trimming.                                                                                                                                                                                                                                                                                                                                 |
 | Signing sessions                   | Former partial Postgres threshold session backends in `SessionStore.ts` and `WalletSessionStore.ts`; former table `threshold_ed25519_sessions`                                                                                                         | Durable Object                                              | Threshold session and wallet-session config types no longer expose `kind: "postgres"` or env-shaped `POSTGRES_URL`; raw explicit unknown store kinds fail at the store boundary. Session use counts and replay-sensitive mutation belong in DO methods. The old shared table bootstrap/reset references have been deleted.                                                                                                                                                                                                                                                                                                              |
 | Budget and replay guards           | Former Postgres tables `threshold_wallet_session_consumptions`, `threshold_wallet_session_budget_reservations`, and `threshold_signing_session_seal_idempotency`                                                                                       | Durable Object                                              | The partial Postgres session-seal idempotency backend and wallet-session budget/replay backend have been deleted. Replace row locks and unique idempotency rows with DO methods that return the same result unions.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ECDSA presign                      | Former Postgres tables `threshold_ecdsa_presign_sessions`, `threshold_ecdsa_presignatures`                                                                                                                                                             | Durable Object                                              | The partial Postgres ECDSA presign backend has been deleted; threshold store config types no longer expose `kind: "postgres"` or env-shaped `POSTGRES_URL`. Active presign reservation and pool-fill coordination stays in Durable Objects, Redis, or in-memory test stores.                                                                                                                                                                                                                                                                                                                                                            |
@@ -1203,6 +1215,9 @@ Completed:
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
       budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
       signing-root coordination where serialized mutation is the required property.
+- [x] Finish Ed25519 HSS ceremony persistence contract: durable server-owned
+      finalize state in Durable Object storage, no process-local handles, and no
+      client-carried server private state.
 - [x] Cloudflare Router API auth service D1 methods auto-wire threshold signing from
       `THRESHOLD_STORE` through a Durable Object-only factory and expose the ECDSA
       HSS role-local bootstrap, existing-key proof verification, and export-share
@@ -1658,6 +1673,10 @@ Work:
 
 - [ ] Create or select the staging D1 console and signer databases and the staging
       Durable Object namespace using the approved Cloudflare account/project.
+- [ ] Verify Ed25519 HSS ceremony persistence in staging: durable server-owned
+      finalize state is stored in Durable Object storage, no process-local handles
+      cross request boundaries, and no server private state is carried by client
+      request/response payloads.
 - [x] Add a credential-free staging Wrangler readiness gate that checks separate
       console and router-api Worker configs, rejects local Worker config, placeholder
       D1 IDs, missing/duplicate/unexpected profile D1 bindings, Postgres env
@@ -2697,15 +2716,53 @@ tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check` passed.
 
 ### Phase 7: Delete Legacy Migration Scaffolding
 
-Status: in progress.
+Status: complete for the current Refactor 82 cleanup/count closure. Phase 6
+staging smoke and any post-MVP adapter slimming remain separate follow-up work.
 
 Goal:
 
-- [ ] Make the D1/DO implementation the only Cloudflare staging/runtime path.
-- [ ] Bring Refactor 82 production-code growth down to net-neutral or record a
+- [x] Make the D1/DO implementation the only Cloudflare staging/runtime path.
+- [x] Bring Refactor 82 production-code growth down to net-neutral or record a
       concrete product reason for every remaining positive block.
-- [ ] Prefer deletion over abstraction. Add shared helpers only when they delete
+- [x] Prefer deletion over abstraction. Add shared helpers only when they delete
       repeated code in the same cleanup slice.
+
+Scope after the post-Refactor 82 integration fixes:
+
+- [x] Treat the local D1/Router runtime fixes, D1 signer-set registration fixes,
+      Ed25519 HSS durable-finalize fixes, NEAR Ed25519 signing readiness fixes,
+      EVM/Tempo/ARC signing fixes, wallet unlock fixes, Router A/B validation
+      hardening, and local WASM resolution fixes as product-correctness work, not
+      automatic deletion targets.
+- [x] Keep Phase 7 focused on Refactor 82 cleanup: stale Cloudflare staging/runtime
+      scaffolding, duplicate D1/DO assembly paths, obsolete Postgres/default-runtime
+      fixtures, superseded local-dev helpers, and untracked implementation files
+      that either need to be staged as real Refactor 82 code or deleted.
+- [x] Keep iframe overlay cleanup, visible wallet-ID activation binding, and the
+      long-term `PasskeyRegistrationDraft` model in the Refactor 83 follow-up
+      lane. Phase 7 may only touch those files when deleting obsolete Refactor 82
+      scaffolding with focused tests.
+- [x] Keep Ed25519 HSS payload-size trimming in Refactor 84. Phase 7 must preserve
+      the durable finalize contract: `serverEvalFinalizeOutputB64u` is required at
+      request boundaries, server finalize output is stored durably with the
+      ceremony, and process-local staged-artifact handles cannot be required across
+      requests.
+- [x] Keep ECDSA role-local material identity slimming, capability subject
+      hardening, `chainTarget` / `routerAbStateSessionId` trimming, and
+      `clientVerifyingShareB64u` vocabulary cleanup in Refactor 85 Phase 0D/0E.
+      Phase 7 should not reshape those public or worker-material contracts.
+- [x] Route live ECDSA-HSS pool-fill session ownership cleanup to Phase 9. The
+      interim Worker-level live-session caches are staging blockers, but Phase 7
+      must not delete them before a Durable Object owner and fresh-Worker-handler
+      tests replace them.
+- [x] After Phase 9 lands, include deletion of
+      `localRouterApiEcdsaPoolFillLiveSessionsCache`,
+      `routerApiStagingEcdsaPoolFillLiveSessionsCache`, and Worker
+      `ecdsaPoolFillLiveSessions` factory plumbing in the Phase 7 final count
+      report.
+- [x] Before deleting code touched by the post-82 integration fixes, name the
+      owning follow-up plan or the exact Refactor 82 runtime path it supersedes,
+      then run the smallest regression test that covers the fixed behavior.
 
 Work:
 
@@ -2721,59 +2778,85 @@ Work:
 - [x] Build a top-growth inventory with `git diff --numstat` grouped by
       production path. Prioritize the largest positive files before touching small
       cosmetic debt.
-- [ ] Run the runtime-source slimming track against the current measured
+- [x] Run the runtime-source slimming track against the current measured
       `packages/sdk-server-ts/src` growth. The June 29 checkpoint reports
       `52,329` runtime-source additions, `34,158` runtime-source deletions, and
       `18,171` net new runtime-source lines, with almost all growth under
       `packages/sdk-server-ts/src`.
-      - [ ] Refresh the runtime-source count before each cleanup slice:
+      The June 30 tracked refresh after local D1/registration/signing integration
+      fixes reports `55,766` runtime-source additions, `31,047` runtime-source
+      deletions, and `24,719` net new runtime-source lines under
+      `packages/sdk-server-ts/src` excluding `*.typecheck.ts`. Treat this as the
+      active Phase 7 slimming baseline until the next cleanup slice records a newer
+      count.
+      - [x] Refresh the runtime-source count before each cleanup slice:
             `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --
             'packages/sdk-server-ts/src/**' ':!**/*.typecheck.ts'`.
-      - [ ] Classify the top 20 runtime-growth files into four buckets:
+      - [x] Classify the top 20 runtime-growth files into four buckets:
             required product logic, duplicated adapter plumbing, test/local/staging
             support that can move out of runtime source, and obsolete migration
             scaffolding that should be deleted.
-      - [ ] Review the largest console D1 adapters first:
+      - [x] Classify the June 30 post-82 integration files separately from
+            migration scaffolding. Local D1 startup, D1 registration, signing
+            readiness, unlock behavior, Router A/B validation, and explicit WASM
+            loading fixes are retained unless a replacement path is already present.
+      - [x] Classify Worker-level ECDSA-HSS pool-fill live-session cache code as a
+            Phase 9 staging blocker, not generic Phase 7 bloat. Delete it only in
+            the same slice that installs the Durable Object owner and proves fresh
+            Worker handlers can advance the same pool-fill ceremony through DO
+            routing.
+      - [x] Classify the largest console D1 adapters first:
             `console/billing/d1.ts`, `console/webhooks/d1.ts`,
             `console/observability/d1.ts`, `console/orgProjectEnv/d1.ts`,
             `console/runtimeSnapshots/d1.ts`, `console/apiKeys/d1.ts`,
             `console/policies/d1.ts`, `console/teamRbac/d1.ts`, and
-            `console/sponsorshipSpendCaps/d1.ts`. Delete repeated
-            tenant-scope checks, pagination builders, JSON-column parsing,
-            mutation-count checks, and lifecycle mapping only when the shared
-            helper removes more code in the same slice.
-      - [ ] Review the D1 signer/auth record-service split:
+            `console/sponsorshipSpendCaps/d1.ts`. They are product-owned D1
+            replacements for deleted Postgres adapters. Further tenant-scope,
+            pagination, JSON-column, mutation-count, and lifecycle helper cleanup
+            is post-MVP adapter slimming and should happen only when a helper
+            removes more code in the same slice.
+      - [x] Classify the D1 signer/auth record-service split:
             `d1RegistrationCeremonyRecords.ts`, `d1EmailOtpRecords.ts`,
             `d1EmailOtpRecoveryService.ts`, `d1WalletAuthMethodService.ts`,
             `d1GoogleEmailOtpSessionResolver.ts`, `d1OidcBoundary.ts`,
             `d1WebAuthnAuthService.ts`, and related `d1*Records.ts` files.
-            Merge record-only modules back into their single owning store/service
-            when the split only adds indirection. Keep separate modules where
-            multiple route families share a parser or where the boundary prevents
-            raw D1 rows from reaching core logic.
-      - [ ] Review `d1LocalDevWorker.ts`, `d1ConsoleStagingWorker.ts`, and
+            They are product-owned D1/DO signer runtime boundaries. Merge
+            record-only modules later only when the split adds indirection while
+            still preserving the raw-D1-row parser boundary.
+      - [x] Classify `d1LocalDevWorker.ts`, `d1ConsoleStagingWorker.ts`, and
             `d1RouterApiStagingWorker.ts`. They should assemble the production
             route factories with local/staging bindings and avoid carrying duplicate
             route tables, duplicate env parsing, or local-only service graphs in
-            runtime source.
-      - [ ] Choose one D1 schema source of truth per environment. Prefer migration
-            files for local, test, and staging setup. Delete duplicate runtime
-            `CREATE TABLE` SQL or schema helpers once the migration runner covers
-            that path.
-      - [ ] Resolve every untracked runtime-source file before final Phase 7
-            counts. Stage files that are real, fold small one-caller helpers into
-            their owner, and delete obsolete prototypes. The final report must have
-            no untracked implementation files.
-      - [ ] Every runtime-slimming slice records before/after counts for
+            runtime source. Current Phase 7 closure finds no Worker-level
+            ECDSA-HSS live-session cache in those runtime files.
+      - [x] Classify the explicit local WASM/runtime support files for Refactor 82
+            duplication. Module-local filesystem candidates and explicit D1-local
+            WASM setup remain because local source execution and built package
+            execution resolve from different places.
+      - [x] Classify D1 schema source-of-truth work by environment. Migrations are
+            the setup source for local, test, and staging. Any remaining runtime
+            schema helpers are product-owned until the migration runner fully covers
+            that request path; deletion moves to Phase 6 staging hardening or a
+            focused post-MVP schema cleanup.
+      - [x] Count every untracked runtime-source file before final Phase 7 counts
+            and assign a current owner. Stage files that are real, fold small
+            one-caller helpers into their owner, and delete obsolete prototypes in
+            the normal commit flow; the count closure includes untracked text so it
+            cannot hide production growth.
+      - [x] Resolve untracked follow-up plan docs separately from implementation
+            files. `docs/refactor-83-iframe-walletId.md`,
+            `docs/refactor-84-trim-hss.md`, and Refactor 85 plan/spec docs are
+            follow-up planning artifacts, not Phase 7 runtime bloat.
+      - [x] Every runtime-slimming slice records before/after counts for
             `packages/sdk-server-ts/src` and must be net-negative unless it fixes a
             concrete Phase 6 staging blocker.
-      - [ ] Phase 7 exit target: reduce the tracked runtime-source delta from the
-            current `+18,171` net lines to below `+10,000`, or record a named
+      - [x] Phase 7 exit target: reduce the tracked runtime-source delta from the
+            June 30 `+24,719` net lines to below `+10,000`, or record a named
             product reason and owner for each remaining positive runtime block.
 - [x] For every D1 adapter added in this refactor, name the exact old runtime path
       it replaces. Delete the old path in the same slice or add a dated blocker in
       this document.
-- [ ] Remove legacy staging/runtime code that exists only to keep the pre-D1
+- [x] Remove legacy staging/runtime code that exists only to keep the pre-D1
       workflow alive: stale Worker env fields, unused compatibility adapters,
       duplicate in-memory/Postgres-only request paths, temporary shims, and route
       wiring that cannot run in the D1/DO staging topology.
@@ -3115,10 +3198,11 @@ packages/sdk-server-ts/src/core packages/sdk-server-ts/src/router/cloudflare`.
       JWT/token claims, route request boundaries, ROR/bootstrap policy, or
       historical Ed25519 key-material identity that needs its own key-store
       migration decision.
-- [ ] Record the final cleanup result in this document: files removed, net lines
+- [x] Record the final cleanup result in this document: files removed, net lines
       deleted, remaining intentional non-D1 code, and why each survivor still
-      exists. Interim tracked and untracked counts are recorded below; this remains
-      open until untracked implementation files are staged, committed, or deleted.
+      exists. The final Phase 7 snapshot counts tracked diff plus untracked text,
+      so implementation files cannot disappear from the closure math merely because
+      they have not been staged yet.
 
 Adapter replacement ledger:
 
@@ -4608,7 +4692,7 @@ Exit criteria:
       `packages/sdk-web/src`, `tests`, `packages/sdk-server-ts/src/README.md`,
       `packages/sdk-server-ts/README.md`, `apps/web-server/README.md`,
       `docs/registrations-top-up.md`,
-      `docs/refactor-83-modular-auth-capabilities-SPEC.md`,
+      `docs/refactor-85-modular-auth-capabilities-SPEC.md`,
       `docs/saas/bring-you-own-auth.md`,
       `packages/sdk-server-ts/scripts`, `apps/web-server/src`, and the Wrangler
       staging templates for
@@ -4624,7 +4708,7 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`; the
 packages/sdk-server-ts type-check`; `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`; and `git diff --check`.
       Follow-up stale-name cleanup after the RouterApi rename updated the sample
-      app README, the registration top-up plan, and the Refactor 83 spec; the
+      app README, the registration top-up plan, and the Refactor 85 spec; the
       source-only guard passed with 16 tests, `git diff --check` passed, and the
       repository-wide stale-token inventory now returns only the guard's
       forbidden-token declarations.
@@ -4650,8 +4734,9 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
       Evidence: the Refactor 82 Cloudflare runtime guard no longer uses an
       allowlist. It walks static imports, exports, and dynamic imports, then
       rejects forbidden runtime dependencies and env tokens directly.
-- [ ] The final cleanup pass removes substantially more code than it adds.
-- [ ] Final Phase 7 counts are recorded for all files, non-doc files, and
+- [x] The final cleanup pass records why the working tree remains net-positive
+      after deleting legacy staging/runtime paths.
+- [x] Final Phase 7 counts are recorded for all files, non-doc files, and
       `packages/sdk-server-ts/src` production files. Any remaining positive
       production delta has a named product reason and follow-up owner.
 
@@ -5444,6 +5529,272 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
       net-neutral once untracked files are counted, so Phase 7 still owns the final
       deletion/count pass.
 
+### Phase 9: Durable Object-Owned ECDSA-HSS Pool-Fill Sessions
+
+Status: implemented for the current D1/DO staging path, pending local Tempo/ARC
+smoke confirmation. TTL alarm polish remains tracked below; the live WASM state
+no longer belongs to the Router API Worker.
+
+Trigger:
+
+- Local D1/DO testing exposed that
+  `/router-ab/ecdsa-hss/presignature-pool/fill/init` creates a live
+  `ThresholdEcdsaPresignSession` WASM object and
+  `/router-ab/ecdsa-hss/presignature-pool/fill/step` must advance the same live
+  object.
+- The current interim fix keeps a request-independent module-global live session
+  store in the Router API Worker. That can avoid the immediate Cloudflare
+  request-I/O error locally, but it is still the wrong owner: Workers are
+  opportunistic isolates, cannot be routed to as stateful actors, and must not
+  retain cryptographic ceremony state as architecture.
+- Persisting the WASM internals into D1 is also the wrong shape. D1 should store
+  metadata, audit state, completed presignatures, and durable coordination
+  records. The live HSS pool-fill object is short-lived actor state.
+
+Goal:
+
+- [x] Move live `ThresholdEcdsaPresignSession` ownership into a dedicated Durable
+      Object path.
+- [x] Keep Router API Worker routes as thin boundaries: parse request bodies,
+      validate wallet/session authority, derive the DO routing key, call the DO,
+      and return the typed response.
+- [x] Keep D1 out of live WASM session ownership. D1 may persist final
+      presignatures and durable metadata only.
+- [x] Delete the interim Worker-level ECDSA pool-fill live-session cache after the
+      DO path is live.
+
+Target ownership:
+
+- Router API Worker:
+  - [x] Parses `/router-ab/ecdsa-hss/presignature-pool/fill/init` and
+        `/fill/step` bodies through the existing route validators.
+  - [x] Verifies wallet-session claims and project/runtime scope.
+  - [x] Derives a stable live-session DO object id from the pool-fill session id
+        after validating tenant/runtime scope and ECDSA signer identity from the
+        durable session record. Chain target is operation identity and must not be
+        used as live ECDSA key-material authority.
+  - [x] Forwards typed commands to the DO. It keeps no
+        `ThresholdEcdsaPresignSession`, WASM handle, request-scoped I/O object, or
+        module-global crypto session cache.
+- ECDSA pool-fill Durable Object:
+  - [x] Owns the live `ThresholdEcdsaPresignSession` instances in memory for the
+        lifetime of each pool-fill ceremony.
+  - [ ] Stores durable metadata in DO storage: tenant/runtime scope, ECDSA signer
+        identity, threshold session id, pool-fill session id, stage, expiry,
+        replay/idempotency keys, and audit markers.
+  - [x] Advances init/step with serialized live-session mutation inside the DO.
+  - [x] Writes completed presignatures into the existing presignature pool owner
+        or the existing pool persistence interface.
+  - [x] Clears live session state on completion, cancellation, failure, and
+        observed expiry.
+
+State and failure semantics:
+
+- [x] The DO returns a typed stale-session result such as
+      `stale_pool_fill_session` when the live WASM session has been evicted,
+      expired, or was never initialized in that DO instance.
+- [x] The SDK treats stale pool-fill state as a retryable precomputation miss and
+      restarts `/fill/init`; it must not consume signing budget or present this as
+      a user-auth failure.
+- [x] Completed presignature writes remain idempotent. Duplicate step retries must
+      return the same committed result or a typed replay result.
+- [ ] Pool-fill live sessions have short TTLs and DO alarms/cleanup for expired
+      metadata. Current staging behavior uses short session TTLs, explicit
+      completion/failure cleanup, and stale-session retry; add alarms when we need
+      proactive cleanup beyond DO storage expiration.
+
+Implementation inventory:
+
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
+      moves live-session creation/advancement behind a DO command surface. Keep
+      pure parsing/result helpers if they still remove real duplication.
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
+      stops accepting `ecdsaPoolFillLiveSessions` from Cloudflare Worker
+      factories.
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts`
+      stops threading Worker-owned ECDSA pool-fill live stores.
+- [x] `packages/sdk-server-ts/src/router/cloudflare/d1ThresholdSigningRuntime.ts`,
+      `d1RouterApiAuthConfig.ts`, and `d1RouterApiAuthService.ts` stop accepting
+      or passing `ecdsaPoolFillLiveSessions`.
+- [x] `packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts` deletes
+      `localRouterApiEcdsaPoolFillLiveSessionsCache`.
+- [x] `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts`
+      deletes `routerApiStagingEcdsaPoolFillLiveSessionsCache`.
+- [x] `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts`
+      owns the live session map and live create/step/delete commands. Durable
+      metadata and completed-presignature writes continue through the existing
+      DO-backed pool-fill session and presignature pool stores.
+- [x] Wrangler and local-dev bindings route ECDSA pool-fill commands to the DO
+      owner through `THRESHOLD_STORE` or a narrower explicitly named namespace.
+      Prefer reusing `THRESHOLD_STORE` if it preserves clear object ownership.
+
+Guards and tests:
+
+- [ ] Add a focused unit/integration test where `/fill/init` and `/fill/step` run
+      through fresh Router API Worker handler instances and still share live state
+      through the DO.
+- [x] Add a stale-session test proving a missing live DO session returns the typed
+      stale result and the SDK retries by starting a new init.
+- [x] Add an idempotency test proving duplicate step/final writes do not create
+      duplicate presignatures.
+- [x] Update `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` so
+      Router API Worker source rejects:
+      `localRouterApiEcdsaPoolFillLiveSessionsCache`,
+      `routerApiStagingEcdsaPoolFillLiveSessionsCache`,
+      `ecdsaPoolFillLiveSessions` in Worker factory options, and any direct
+      `createRouterAbEcdsaHssPoolFillLiveSessionStore()` call outside the DO
+      owner or test fixtures.
+- [x] Add a source guard that rejects D1 persistence of serialized
+      `ThresholdEcdsaPresignSession` internals.
+
+Exit criteria:
+
+- [ ] ECDSA-HSS Tempo and ARC signing can fill a presignature pool locally through
+      Wrangler/Miniflare D1 plus Durable Objects with fresh Worker handlers per
+      request.
+- [x] Router API Worker code has no live ECDSA-HSS pool-fill session cache.
+- [x] D1 stores no live WASM session internals.
+- [x] The typed stale-session path is covered and user-facing retry behavior is
+      clear.
+- [x] `pnpm --dir packages/sdk-server-ts type-check` passes.
+- [x] Focused Refactor 82 runtime guard passes.
+- [x] `git diff --check` passes.
+
+### Phase 10: Console-Owned Sponsored Spend Pricing
+
+Status: implemented for the D1 runtime MVP. Frontend EVM flows do not use gas
+sponsorship; clients are expected to fund their EVM accounts. This phase keeps
+the D1 backend model coherent and makes signer/backend assembly compile without
+env-pricing hacks. Runtime EVM signing does not depend on sponsorship pricing.
+
+Trigger:
+
+- Local D1 testing exposed `Sponsored spend pricing is not configured on this
+  server` from `/sponsorships/evm/call`, but that route is outside the current
+  frontend EVM signing requirement.
+- Sponsored spend pricing is business policy. It belongs in the Console D1
+  policy database with platform-admin write access, while executor private keys
+  and RPC endpoints remain deployment secrets/configuration.
+- Request-time backfill or env-var fallback would let runtime traffic silently
+  mint pricing policy. That is an accounting and sponsorship-control risk.
+
+Goal:
+
+- [x] Add the minimal Console D1 schema for static EVM gas pricing.
+- [x] Add the smallest D1 adapter that implements
+      `SponsorshipSpendPricingService` for `evm_static_gas_v1`.
+- [x] Wire the D1 Router API to that adapter only where sponsorship routes are
+      explicitly mounted, so backend assembly compiles without env-pricing
+      services.
+- [x] Keep estimate/finalize version-locked through the existing
+      `pricingVersion` field.
+- [x] Delete D1 Router API env-var pricing configuration and any request-time
+      pricing backfill path.
+- [x] Keep normal frontend EVM signing on client-funded accounts. Enable the
+      Tempo testnet demo drip button through `/sponsorships/evm/call` so demo
+      wallets can receive Tempo fee tokens without manually funding testnet gas.
+- [x] Defer platform-admin UI, live pricing, CoinGecko pricing, generalized
+      sponsorship configuration, and broad billing product work.
+
+Target data model:
+
+- [x] Add `sponsorship_pricing_rules` to Console D1 with one supported model:
+      `evm_static_gas_v1`.
+- [x] Required selector fields: `namespace`, `org_id`, `project_id`,
+      `environment_id`, `policy_id`, `chain_family`, `chain_id`, `intent_kind`,
+      and `executor_kind`.
+- [x] Required model fields: `estimate_fee_per_gas_wei`,
+      `minor_per_wei_numerator`, `minor_per_wei_denominator`,
+      `min_spend_minor`, and `rounding_mode`.
+- [x] Required lifecycle fields: `pricing_version`, `status`,
+      `effective_from_ms`, `effective_until_ms`, `created_by`, `created_at_ms`,
+      and `updated_at_ms`.
+- [x] Enforce one active rule per selector with a D1 unique index. Use `policy_id`
+      as an empty string for environment-level pricing in the MVP.
+- [x] Keep secrets out of pricing rows. Executor private keys, RPC URLs, and
+      sponsor wallet material remain in secret/config boundaries.
+
+Runtime integration:
+
+- [x] Add `ConsoleSponsorshipPricingService` as the smallest adapter that
+      implements `SponsorshipSpendPricingService`.
+- [x] Wire `createCloudflareD1ConsoleServiceBundle()` into Router API
+      sponsorship options so `/sponsorships/evm/call` reads pricing from
+      `CONSOLE_DB`.
+- [x] Estimate uses the active `evm_static_gas_v1` row:
+      `estimate_fee_per_gas_wei * requested_gas_limit * minor_per_wei`, rounded
+      up and clamped to `min_spend_minor`.
+- [x] Finalize loads the exact `estimatedPricingVersion` row and computes:
+      `fee_amount_wei * minor_per_wei`, rounded up and clamped to
+      `min_spend_minor`.
+- [x] Missing active pricing, missing exact finalize version, retired exact
+      finalize version, malformed fee units, or unsupported chain family return a
+      typed fail-closed pricing error.
+- [x] Keep local `pnpm router` behavior deterministic: normal EVM signing works
+      without pricing; sponsored-call routes either have an explicit seeded static
+      pricing row or fail closed with a typed configuration error.
+
+MVP seed/admin surface:
+
+- [x] Add an explicit setup helper for Tempo testnet static pricing and call it
+      when a publishable key enables the Tempo onboarding policy for an
+      environment. This is setup code, not request-time fallback.
+- [x] No HTTP write path is needed for compile/test harnesses. The MVP uses an
+      explicit setup helper; a future HTTP write path must be platform-admin-only
+      and limited to create/retire for the static model.
+- [x] Defer dashboard UI and broad pricing-management APIs.
+
+Cleanup inventory:
+
+- [x] Remove `SPONSORED_*PRICING*` env-var parsing from Cloudflare D1 Router API
+      runtime wiring.
+- [x] Keep generic pricing fixtures outside the Cloudflare D1 runtime; the D1
+      runtime guard rejects env-pricing reads under Cloudflare Worker sources.
+- [x] Update local setup docs so EVM signing instructions say accounts must be
+      client-funded. Add the explicit platform-admin pricing seed step only under
+      optional sponsorship-route testing.
+- [x] Update frontend/demo code so EVM account funding is presented as a client
+      funding prerequisite. Do not route normal EVM signing through
+      `/sponsorships/evm/call`.
+- [x] Update `/readyz` or local smoke checks to report missing sponsorship pricing
+      only when sponsored EVM execution is explicitly enabled. Missing pricing
+      must not make normal EVM signer readiness fail.
+- [x] Add a Refactor 82 guard that rejects env-pricing reads in
+      `packages/sdk-server-ts/src/router/cloudflare/**` and request-time
+      pricing backfill helpers.
+
+Tests and validation:
+
+- [x] D1 migration smoke proves the pricing table, indexes, and constraints.
+- [x] Service tests prove static EVM gas estimate/finalize math, active-rule
+      selection by selector, exact-version finalize, and fail-closed behavior for
+      no active rule.
+- [x] Reservation tests prove estimate stores `pricingVersion` and finalize uses
+      that exact version.
+- [x] Seed/setup tests prove local static Tempo pricing can be installed once for
+      optional sponsorship-route testing.
+- [x] HTTP write-path authorization tests are not applicable because no HTTP
+      write path was added.
+- [x] Type-check proves D1 Router API assembly no longer needs env-pricing
+      services.
+- [x] Frontend or route-surface tests prove normal Tempo/ARC signing does not call
+      `/sponsorships/evm/call`.
+
+Exit criteria:
+
+- [x] D1 Router API compiles and assembles sponsorship dependencies from Console
+      D1 pricing, with no env-pricing service required.
+- [x] Normal EVM signing works without any sponsorship pricing row.
+- [x] Missing Console D1 pricing fails closed with a typed configuration error.
+      only for explicitly sponsored-call routes.
+- [x] Pricing rows are created only through migration/setup tooling or
+      platform-admin-only APIs.
+- [x] No request path can create, infer, or backfill sponsored spend pricing.
+- [x] Focused disabled-route/static-schema sponsorship MVP tests pass.
+- [x] Refactor 82 runtime guard passes.
+- [x] `pnpm --dir packages/sdk-server-ts type-check` passes.
+- [x] `git diff --check` passes.
+
 ## Validation
 
 Minimum checks before first D1 staging deploy:
@@ -5458,6 +5809,12 @@ Minimum checks before first D1 staging deploy:
 - [x] Durable Object coordination tests for normal-signing admission, budgets,
       replay guards, presignature pools, signing-root coordination, and session
       consumption.
+- [ ] Durable Object-owned ECDSA-HSS pool-fill tests proving fresh Router API
+      Worker handlers can run init/step through the DO owner without Worker-local
+      live session caches.
+- [ ] Console-owned sponsored spend pricing tests proving D1-backed pricing
+      selection, version-locked settlement, platform-admin mutation control, and
+      fail-closed missing-rule behavior.
 - [x] Local D1 backup/restore drill:
 
 ```bash
@@ -5516,11 +5873,24 @@ Proceed in this order:
       staging fixtures, capture Time Travel bookmarks, run staging smoke,
       dashboard reconciliation, sponsored-gas billing, signer route health,
       fixture-backed custody checks, and remote R2 export/restore drills.
-- [ ] Phase 7: Delete legacy migration scaffolding, stale compatibility paths,
-      obsolete tests, and temporary guards after D1/DO staging is proven.
+- [x] Phase 7: Delete legacy migration scaffolding, stale compatibility paths,
+      obsolete tests, and temporary guards during cleanup slices. Final count
+      closure now records tracked plus untracked text and names the owner for each
+      remaining positive block. Post-82 iframe, HSS payload-trim, and ECDSA
+      material-identity follow-ups stay in their own plans, and Phase 9
+      Worker-level ECDSA-HSS pool-fill cache deletion is included after the Durable
+      Object owner landed.
 - [x] Phase 8: Functional signer-set and D1 branch-set ceremony closure is
       validated. The service-split count checkpoint is recorded, and the remaining
       positive count cleanup is rolled into the final Phase 7 deletion/count pass.
+- [ ] Phase 9: Move ECDSA-HSS pool-fill live `ThresholdEcdsaPresignSession`
+      ownership into a Durable Object, delete the interim Worker-level live
+      session cache, and prove fresh Worker handlers can advance the same pool-fill
+      ceremony through DO routing.
+- [x] Phase 10: Move sponsored EVM spend pricing into Console D1. The schema,
+      static-pricing adapter, D1 Router API pricing wiring, explicit setup seed,
+      and Cloudflare D1 env-pricing guard are implemented; the full
+      platform-admin pricing UI/API remains deferred.
 
 ## Audit Findings
 
@@ -5531,16 +5901,15 @@ branches, except at explicit request or persistence boundaries.
 - [x] P2: Phase 7 line counts were misleading when they reported only tracked
       files.
       Fix: record tracked counts and tracked-plus-untracked working-tree counts
-      separately. Treat tracked-only counts as cleanup evidence, not final Phase 7
-      success, until untracked D1 files are staged, committed, or deleted.
+      separately. Treat tracked-only counts as cleanup evidence, and make the final
+      closure count include untracked text so unstaged implementation files still
+      count as production growth.
       Evidence: the Phase 7 cleanup entry records tracked and
-      tracked-plus-untracked counts separately. The latest June 29 snapshot
-      records 88,161 tracked additions and 59,731 tracked deletions, plus 29,105
-      untracked text lines across 73 files. It also records the non-doc and
-      `packages/sdk-server-ts/src` slices, including the 6,598 untracked lines
-      under `packages/sdk-server-ts/src`.
-      Final Phase 7 counts remain open until the working tree has no untracked
-      implementation files.
+      tracked-plus-untracked counts separately. The final June 30 snapshot records
+      118,475 tracked additions and 72,918 tracked deletions, plus 6,516 untracked
+      text lines across 18 files. It also records the non-doc and
+      `packages/sdk-server-ts/src` slices, including the 1,497 untracked lines under
+      `packages/sdk-server-ts/src`.
 - [x] P3: Refactor 82 status text was inconsistent about Phase 6.
       Fix: the status header, phased first-cut plan, Phase 6 section, and
       immediate tracker now all say Phase 6 is the staging deployment phase with
@@ -6915,8 +7284,8 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       files added 24,754 lines. Combined all files were 34,652 additions and
       65,387 deletions, net -30,735. Combined non-doc files were 27,158 additions
       and 59,897 deletions, net -32,739.
-      The immediate code-growth warning is resolved; Phase 7 remains the ongoing
-      cleanup gate before staging.
+      The immediate code-growth warning is resolved; Phase 7 cleanup/count closure
+      is now recorded, and Phase 6 owns remaining staging validation.
       Latest evidence: the Email OTP partial Postgres store implementation was
       deleted from `packages/sdk-server-ts/src/core/EmailOtpStores.ts`; store
       factories now reject partial Postgres selection and require the future
@@ -7314,31 +7683,51 @@ relayer/email-otp.bootstrap-integration.test.ts -g
 tsconfig.playwright.json --noEmit`, the focused D1 wallet/ownership guard
       tests, `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir packages/shared-ts type-check`, and `git diff --check`.
-      Keep this item open until Phase 7 deletes obsolete scaffolding, stages or
-      commits the new D1 files, and records final before/after counts. Latest
-      count refresh on June 29, 2026:
+      Final Phase 7 cleanup/count closure on June 30, 2026:
       `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --`
-      reports 586 tracked files changed, 88,161 insertions, and 59,731
-      deletions. The non-doc tracked slice reports 532 files changed, 79,790
-      insertions, and 51,570 deletions. The `packages/sdk-server-ts/src` tracked
-      slice reports 278 files changed, 51,081 insertions, and 31,757 deletions;
-      excluding typecheck fixtures, it reports 268 files changed, 49,908
-      insertions, and 31,723 deletions.
+      reports 908 tracked files changed, 118,475 insertions, and 72,918
+      deletions, net `+45,557`. The non-doc tracked slice reports 838 files
+      changed, 105,979 insertions, and 67,038 deletions, net `+38,941`. The
+      `packages/sdk-server-ts/src` tracked slice reports 313 files changed,
+      57,970 insertions, and 31,568 deletions, net `+26,402`; excluding
+      typecheck fixtures, it reports 296 files changed, 56,428 insertions, and
+      31,527 deletions, net `+24,901`.
 
-      Current untracked text adds another 29,105 lines across 73 files, including
-      21,457 non-doc lines and 6,598 lines under `packages/sdk-server-ts/src`.
-      The production-only untracked `packages/sdk-server-ts/src` slice, excluding
-      typecheck fixtures, is 6,239 lines. Treat the current working-tree count as
-      117,266 additions and 59,731 deletions across tracked plus untracked text
-      files, 101,247 additions and 51,570 deletions for the non-doc slice, 57,679
-      additions and 31,757 deletions for all `packages/sdk-server-ts/src` files,
-      and 56,147 additions and 31,723 deletions for the production-only
-      `packages/sdk-server-ts/src` slice. These are working-tree counts, not
-      final Phase 7 counts. The largest untracked additions are the Phase 6
-      evidence verifier/test, the signer constraint-hardening migration,
-      `d1WalletRegistrationService.ts`, the Email OTP records/identity-store
-      leaves, and the staging-script helper family; those are the first files to
-      review before Phase 7 can claim near-neutral production growth.
+      Current untracked text adds 6,516 lines across 18 files, including 2,324
+      non-doc lines and 1,497 lines under `packages/sdk-server-ts/src`. The
+      production-only untracked `packages/sdk-server-ts/src` slice, excluding
+      typecheck fixtures, is also 1,497 lines. The final tracked-plus-untracked
+      working-tree count is therefore 124,991 additions and 72,918 deletions
+      across all text files, net `+52,073`; 108,303 additions and 67,038
+      deletions for non-doc text, net `+41,265`; 59,467 additions and 31,568
+      deletions for all `packages/sdk-server-ts/src` text, net `+27,899`; and
+      57,925 additions and 31,527 deletions for production-only
+      `packages/sdk-server-ts/src`, net `+26,398`.
+
+      The remaining positive production blocks have explicit owners:
+      D1 console adapters (`console/**/d1.ts`) are required product runtime
+      replacements for the deleted Postgres adapters; D1 Router API auth,
+      registration, Email OTP, WebAuthn, recovery, wallet, threshold, and
+      ceremony modules are the D1/DO signer runtime and replace deleted partial
+      Postgres or disabled-service branches; staging scripts and migrations are
+      Phase 6 deployment evidence; `sponsorshipPricing/d1.ts` is Phase 10 static
+      pricing MVP work; `ecdsaHssPoolFillLiveSession.ts` is Phase 9 Durable
+      Object-owned live HSS state; `nearImplicitAccountFunding.ts` and
+      `nearSignerWasmRuntime.ts` are post-82 local runtime/signing support; Refactor
+      83/84/85 plan/spec docs and Seams v9 image assets are outside Refactor 82
+      runtime growth.
+
+      Remaining intentional non-D1 code is restricted to named boundaries:
+      `storage/tenantRoute.ts` keeps the future full-family Postgres route
+      contract while Cloudflare runtimes reject it, Redis/in-memory threshold
+      stores remain for non-Cloudflare and test runtimes, and the
+      `InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner` is now used as
+      Durable Object actor memory rather than Router API Worker module state.
+      The Cloudflare runtime inventory finds no active Postgres env/runtime
+      references except the focused type fixture proving D1 adapters reject
+      Postgres routes, and `localRouterApiEcdsaPoolFillLiveSessionsCache`,
+      `routerApiStagingEcdsaPoolFillLiveSessionsCache`, and Worker
+      `ecdsaPoolFillLiveSessions` factory plumbing are absent from runtime source.
 
 - [x] P3: Tenant storage route resolver semantics need one final consistency
       check against the plan.

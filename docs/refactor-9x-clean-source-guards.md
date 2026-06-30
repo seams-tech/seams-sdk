@@ -179,6 +179,7 @@ Append new temporary guards here.
 | `crates/router-ab-cloudflare/tests/source_guards.rs` | Router A/B / Refactors 79-81 | Protects Cloudflare Worker security boundaries and route-shape invariants during modularization. | Split into durable security-boundary tests and delete route/refactor-specific text scans. | Cloudflare handler tests, route parity tests, protocol vectors. | active |
 | `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | Refactor 78 | Prevents wallet/account identity collapse while binding builders settle. | Builders and type fixtures make the collapse unrepresentable. | Builder tests, `@ts-expect-error` fixtures, parser tests. | active |
 | `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | Refactor 78 | Tracks known temporary exceptions to wallet/account source bans. | Allowlist reaches zero entries. | Same as above. | active |
+| `tests/unit/refactor83CapabilitySubjects.guard.unit.test.ts` visible iframe passkey registration checks | Refactor 83 | Prevents visible iframe passkey registration from drifting back to optional wallet IDs, `server_allocated` activation payloads, or shortened WebAuthn usernames. | Activation/public/message types, host parser tests, PasskeyAuthMenu behavior tests, and WebAuthn option tests are stable for one release branch. | Activation type fixtures, host activation parser tests, lit WebAuthn option tests. | active |
 
 ## Validation
 

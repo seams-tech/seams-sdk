@@ -33,7 +33,7 @@ This audit focused on [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/
 
 ## Security Findings
 
-### 1. High: Ed25519 prepare responses are not request-bound before the SDK uses `server_verifying_share_b64u`, `server_commitments`, and budget metadata
+### 1. Medium: Ed25519 prepare responses are not request-bound before the SDK uses `server_verifying_share_b64u`, `server_commitments`, and budget metadata
 
 - Evidence:
   - The request-bound prepare matcher already exists: [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigningValidation.ts:25`](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigningValidation.ts:25)
@@ -41,16 +41,18 @@ This audit focused on [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/
   - The ECDSA-HSS sibling path in the same file already performs request-bound parsing at the RPC boundary: [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts:1043`](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts:1043)
   - The signing flow immediately feeds the unvalidated prepare response into local share generation and finalize request construction: [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts:752`](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts:752), [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts:777`](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts:777)
   - The SDK only validates the response after the finalize round-trip completes: [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts:787`](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts:787)
-  - The SigningWorker finalize handler consumes `protocol.server_verifying_share_b64u` directly and only cross-checks `server_commitments` against stored round-1 state: [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/signing_worker/mod.rs:1221`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/signing_worker/mod.rs:1221), [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/signing_worker/mod.rs:1245`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/signing_worker/mod.rs:1245)
+  - The Router-to-SigningWorker prepare call already validates the prepare response against the admitted request before returning it to the public caller: [`/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/lib.rs:12131`](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/lib.rs:12131)
+  - The server-side finalize crypto routine verifies the supplied server verifying share against the active server secret, which reduces this from a demonstrated signing bypass to an SDK trust-boundary bug: [`/Users/pta/Dev/rust/seams-sdk/crates/ed25519-hss/src/role_signing.rs:250`](/Users/pta/Dev/rust/seams-sdk/crates/ed25519-hss/src/role_signing.rs:250)
 
 - Impact:
   - A tampered or buggy prepare response can influence the local client-share calculation and the finalize transcript before any SDK-side request/response binding check runs.
+  - Current server-side validation makes an unauthorized final signature unlikely under the honest-server threat model, but the SDK still emits a client signature share before enforcing the response/request invariant.
   - The helper that would reject scope, expiry, signing-worker, and signing-payload drift already exists. The current boundary simply does not use it where the risk is highest.
 
 - Recommendation:
   - Change `prepareRouterAbNormalSigningV2` to return a request-bound response, mirroring the ECDSA-HSS path in the same module.
   - Call `requireRouterAbNormalSigningPrepareMatchesRequest` before any use of `server_verifying_share_b64u`, `server_commitments`, `budget_reservation_id`, or `budget_operation_id`.
-  - Add a server-side finalize assertion that the provided `server_verifying_share_b64u` matches the stored round-1 material, not only the stored commitments.
+  - Add a small regression test that mutates prepare response scope, expiry, signing-payload digest, and signing-worker id and proves the SDK rejects the response before creating the client share.
 
 ### 2. Medium: presign-pool client ids silently downgrade to `Date.now()` and `Math.random()` when secure randomness is unavailable
 
@@ -62,6 +64,7 @@ This audit focused on [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/
 - Impact:
   - In degraded environments the SDK keeps running with predictable, collision-prone presign ids while the regular request-id path refuses to do the same.
   - That asymmetry can collapse multiple refill offers onto the same client id and makes replay/debug failures harder to reason about.
+  - The id is not a secret nonce. This is cryptographic hygiene and replay/collision hardening rather than a direct key-exposure issue.
 
 - Recommendation:
   - Use one shared secure-id helper for both request ids and client presign ids.
@@ -91,7 +94,7 @@ This audit focused on [`/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/
    - Audit wallet-session claim rehydration and runtime material validation keys for Ed25519 Router A/B sessions.
 
 2. `crates/router-ab-cloudflare/src/signing_worker/mod.rs`
-   - Audit the finalize materialization path around `server_verifying_share_b64u`, round-1 record reuse, and presign-pool hit lowering.
+   - Audit normal finalize materialization and add explicit invariant tests where the crypto layer currently enforces share consistency.
 
 3. `crates/router-ab-cloudflare/src/lib.rs`
    - Audit the public Ed25519 prepare/finalize budget binding path and compare its operation-id checks with the ECDSA finalize handler.

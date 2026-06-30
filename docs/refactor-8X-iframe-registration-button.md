@@ -709,6 +709,11 @@ Public API naming rules:
   for implicit NEAR registration.
 - The activation-surface API is
   `seams.registration.createPasskeyRegistrationActivationSurface(args)`.
+- Activation-surface registration is wallet-bound before WebAuthn. See
+  [refactor-83-iframe-walletId.md](./refactor-83-iframe-walletId.md): visible
+  iframe registration must pass a provided wallet ID through the public API,
+  postMessage payload, host parser, registration call, and WebAuthn
+  `user.name` / `user.displayName`.
 - Do not document or add a parallel `registerPasskeyAccount()` API unless the
   public API is intentionally renamed in a separate refactor.
 - Public examples must use the real `registration` namespace, because the

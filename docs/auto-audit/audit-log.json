@@ -73,7 +73,7 @@
         "refactor": 2,
         "total": 4
       },
-      "highest_severity": "high",
+      "highest_severity": "medium",
       "highest_severity_findings": [
         "Ed25519 prepare responses are not request-bound before the SDK uses server_verifying_share_b64u, server_commitments, and budget metadata"
       ],
@@ -84,7 +84,7 @@
       ],
       "recommended_next_flows": [
         "Wallet SDK Router A/B Ed25519 wallet-session rehydration and runtime material validation keys",
-        "Cloudflare SigningWorker Ed25519 finalize materialization and server_verifying_share checks",
+        "Cloudflare SigningWorker Ed25519 finalize materialization and explicit share-consistency invariant tests",
         "Cloudflare Router Ed25519 prepare/finalize budget operation binding and finalize metadata validation"
       ]
     }
