@@ -1090,6 +1090,45 @@ w3a-drawer .above-fold > .drawer-tx-confirmer-root {
   /* hyphens: auto; */
   white-space: pre-line;
 }
+.confirmation-body--funding {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.25rem;
+  color: var(--w3a-colors-textPrimary);
+  font-weight: 500;
+  max-width: none;
+  margin: 0.5rem auto;
+  text-align: center;
+  white-space: nowrap;
+}
+.confirmation-body__copy-target {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--w3a-modal__funding-copy__background, rgba(151, 124, 184, 0.16));
+  color: var(
+    --w3a-modal__funding-copy__color,
+    var(--w3a-colors-accent, var(--w3a-colors-primary, var(--w3a-colors-textPrimary)))
+  );
+  cursor: copy;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0.1rem;
+  padding: 0.1rem 0.35rem;
+  vertical-align: baseline;
+}
+.confirmation-body__copy-target:hover {
+  background: var(--w3a-modal__funding-copy__background-hover, rgba(151, 124, 184, 0.24));
+}
+.confirmation-body__copy-target:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
 .drawer-tx-confirmer-root .rpid {
   display: flex;
   flex-direction: row;

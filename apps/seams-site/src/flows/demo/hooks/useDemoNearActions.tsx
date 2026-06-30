@@ -8,7 +8,7 @@ import {
   useSeams,
   type SigningFlowEvent,
 } from '@seams/sdk/react';
-import { nearAccountRefFromAccountId } from '@seams/sdk/advanced';
+import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/sdk/advanced';
 import type { ActionArgs, FunctionCallAction } from '@seams/sdk/react';
 
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
@@ -16,6 +16,8 @@ import { handleSigningToastEvent } from './signingToast';
 
 type UseDemoNearActionsArgs = {
   isLoggedIn: boolean;
+  canSignNear: boolean;
+  walletId?: string | null;
   nearAccountId?: string | null;
   nearPublicKey?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
@@ -23,15 +25,21 @@ type UseDemoNearActionsArgs = {
 };
 
 export function useDemoNearActions(args: UseDemoNearActionsArgs) {
-  const { isLoggedIn, nearAccountId, nearPublicKey, seams, fetchGreeting } = args;
+  const { isLoggedIn, canSignNear, walletId, nearAccountId, nearPublicKey, seams, fetchGreeting } =
+    args;
 
   const [greetingInput, setGreetingInput] = useState('Hello from Seams!');
   const [txLoading, setTxLoading] = useState(false);
   const [delegateLoading, setDelegateLoading] = useState(false);
 
   const canExecuteGreeting = useCallback(
-    (val: string, loggedIn: boolean, accountId?: string | null) =>
-      Boolean(val?.trim()) && loggedIn && Boolean(accountId),
+    (
+      val: string,
+      loggedIn: boolean,
+      funded: boolean,
+      wallet?: string | null,
+      accountId?: string | null,
+    ) => Boolean(val?.trim()) && loggedIn && funded && Boolean(wallet) && Boolean(accountId),
     [],
   );
 
@@ -54,7 +62,9 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
   );
 
   const handleSetGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
+    if (!canExecuteGreeting(greetingInput, isLoggedIn, canSignNear, walletId, nearAccountId)) {
+      return;
+    }
     const actionToExecute: FunctionCallAction = createGreetingAction(
       greetingInput,
     ) as FunctionCallAction;
@@ -63,6 +73,10 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     let signingFailureMessage: string | null = null;
     try {
       await seams.near.signAndSendTransaction({
+        walletSession: walletSessionRefFromSession({
+          walletId,
+          walletSessionUserId: walletId,
+        }),
         nearAccount: nearAccountRefFromAccountId(nearAccountId!),
         receiverId: DEMO_CONTRACT_ID,
         actions: [actionToExecute],
@@ -129,18 +143,22 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     }
   }, [
     canExecuteGreeting,
+    canSignNear,
     createGreetingAction,
     fetchGreeting,
     greetingInput,
     isLoggedIn,
     nearAccountId,
     seams,
+    walletId,
   ]);
 
   const handleSignDelegateGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
+    if (!canExecuteGreeting(greetingInput, isLoggedIn, canSignNear, walletId, nearAccountId)) {
+      return;
+    }
 
-    const { login: loginState } = await seams.auth.getWalletSession();
+    const { login: loginState } = await seams.auth.getWalletSession(walletId!);
 
     setDelegateLoading(true);
     try {
@@ -154,6 +172,10 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
 
       const delegateAction = createGreetingAction(greetingInput, { postfix: 'Delegate' });
       const result = await seams.near.signDelegateAction({
+        walletSession: walletSessionRefFromSession({
+          walletId,
+          walletSessionUserId: walletId,
+        }),
         nearAccount: nearAccountRefFromAccountId(nearAccountId!),
         delegate: {
           senderId: nearAccountId!,
@@ -230,6 +252,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     }
   }, [
     canExecuteGreeting,
+    canSignNear,
     createGreetingAction,
     fetchGreeting,
     greetingInput,
@@ -237,6 +260,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     nearAccountId,
     nearPublicKey,
     seams,
+    walletId,
   ]);
 
   return {
@@ -246,6 +270,6 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     delegateLoading,
     handleSetGreeting,
     handleSignDelegateGreeting,
-    canSubmit: canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId),
+    canSubmit: canExecuteGreeting(greetingInput, isLoggedIn, canSignNear, walletId, nearAccountId),
   };
 }

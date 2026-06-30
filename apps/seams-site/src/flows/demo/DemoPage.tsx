@@ -9,6 +9,7 @@ import { NearGreetingSection } from './sections/NearGreetingSection';
 import { SigningSessionSection } from './sections/SigningSessionSection';
 import { ThresholdSignerSection } from './sections/ThresholdSignerSection';
 import { createChainDefaultGreeting } from './demoEvmHelpers';
+import { useDemoNearAccountFundingStatus } from './hooks/useDemoNearAccountFundingStatus';
 import { useDemoNearActions } from './hooks/useDemoNearActions';
 import { useDemoSigningSession } from './hooks/useDemoSigningSession';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
@@ -40,7 +41,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   }, []);
 
   const {
-    loginState: { isLoggedIn, nearAccountId, nearPublicKey },
+    loginState: { isLoggedIn, walletId, nearAccountId, nearPublicKey },
     seams,
   } = useSeamsHook();
 
@@ -51,8 +52,16 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   );
   const [arcGreetingInput, setArcGreetingInput] = useState(() => createChainDefaultGreeting('Arc'));
 
+  const nearAccountFunding = useDemoNearAccountFundingStatus({
+    isLoggedIn,
+    nearAccountId,
+    nearPublicKey,
+  });
+
   const nearActions = useDemoNearActions({
     isLoggedIn,
+    canSignNear: nearAccountFunding.canSignNear,
+    walletId,
     nearAccountId,
     nearPublicKey,
     seams,
@@ -62,29 +71,28 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const signingSession = useDemoSigningSession({
     clockMs,
     isLoggedIn,
-    nearAccountId,
+    walletId,
     seams,
   });
 
   const thresholdSigners = useDemoThresholdSigners({
     isLoggedIn,
-    nearAccountId,
+    walletId,
     seams,
     frontendConfig: props.__testOverrides?.frontendConfig,
     tempoGreetingInput,
     arcGreetingInput,
   });
 
-  if (!isLoggedIn || !nearAccountId) {
+  if (!isLoggedIn || !walletId) {
     return null;
   }
 
-  const accountName = nearAccountId.split('.')?.[0];
   return (
     <div>
       <div className="action-section">
         <div className="demo-page-header">
-          <h2 className="demo-title">Welcome, {accountName}</h2>
+          <h2 className="demo-title">Welcome</h2>
         </div>
       </div>
 
@@ -101,6 +109,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         onSignDelegate={nearActions.handleSignDelegateGreeting}
         delegateLoading={nearActions.delegateLoading}
         canSubmit={nearActions.canSubmit}
+        nearAccountFundingStatus={nearAccountFunding.status}
+        onFundAccount={nearAccountFunding.openFunding}
         error={error}
       />
 

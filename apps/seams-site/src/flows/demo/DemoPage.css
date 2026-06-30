@@ -201,6 +201,20 @@
   color: var(--site-text-secondary);
 }
 
+.near-greeting-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--site-space-2);
+  align-items: center;
+}
+
+.near-funding-status {
+  margin: 0.5rem 0 0;
+  color: var(--site-text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 .accent-btn {
   background: var(--w3a-colors-primary);
   padding: var(--site-space-3) var(--site-space-4);

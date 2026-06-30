@@ -2,6 +2,7 @@ import React from 'react';
 
 import { LoadingButton } from '@/components/LoadingButton';
 import Refresh from '@/components/icons/Refresh';
+import type { DemoNearAccountFundingStatus } from '../hooks/useDemoNearAccountFundingStatus';
 
 type NearGreetingSectionProps = {
   onchainGreeting: string | null | undefined;
@@ -14,10 +15,37 @@ type NearGreetingSectionProps = {
   onSignDelegate: () => void | Promise<void>;
   delegateLoading: boolean;
   canSubmit: boolean;
+  nearAccountFundingStatus: DemoNearAccountFundingStatus;
+  onFundAccount: () => void | Promise<void>;
   error: unknown;
 };
 
+function nearAccountNeedsFunding(status: DemoNearAccountFundingStatus): boolean {
+  return status.kind === 'needs_funding';
+}
+
+function nearFundingStatusText(status: DemoNearAccountFundingStatus): string {
+  switch (status.kind) {
+    case 'checking':
+      return 'Checking NEAR account funding...';
+    case 'needs_funding':
+      return 'NEAR account needs funding before signing.';
+    case 'unknown':
+      return `NEAR funding status unavailable: ${status.message}`;
+    case 'not_available':
+    case 'ready':
+      return '';
+    default: {
+      const exhaustive: never = status;
+      return exhaustive;
+    }
+  }
+}
+
 export function NearGreetingSection(props: NearGreetingSectionProps) {
+  const showFundAccount = nearAccountNeedsFunding(props.nearAccountFundingStatus);
+  const fundingStatusText = nearFundingStatusText(props.nearAccountFundingStatus);
+
   return (
     <div className="action-section">
       <h2 className="demo-subtitle">Sign Transactions with TouchId</h2>
@@ -48,18 +76,32 @@ export function NearGreetingSection(props: NearGreetingSectionProps) {
             placeholder="Enter new greeting"
           />
         </div>
-        <LoadingButton
-          onClick={props.onSetGreeting}
-          loading={props.txLoading}
-          loadingText="Processing..."
-          variant="primary"
-          size="medium"
-          className="greeting-btn"
-          disabled={!props.canSubmit || props.txLoading}
-          style={{ width: 200 }}
-        >
-          Set Greeting
-        </LoadingButton>
+        <div className="near-greeting-action-row">
+          <LoadingButton
+            onClick={props.onSetGreeting}
+            loading={props.txLoading}
+            loadingText="Processing..."
+            variant="primary"
+            size="medium"
+            className="greeting-btn"
+            disabled={!props.canSubmit || props.txLoading}
+            style={{ width: 200 }}
+          >
+            Set Greeting
+          </LoadingButton>
+          {showFundAccount ? (
+            <LoadingButton
+              onClick={props.onFundAccount}
+              variant="secondary"
+              size="medium"
+              className="greeting-btn"
+              style={{ width: 200 }}
+            >
+              Fund account
+            </LoadingButton>
+          ) : null}
+        </div>
+        {fundingStatusText ? <div className="near-funding-status">{fundingStatusText}</div> : null}
         <LoadingButton
           onClick={props.onSignDelegate}
           loading={props.delegateLoading}
