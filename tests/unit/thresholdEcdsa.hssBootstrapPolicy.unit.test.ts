@@ -86,16 +86,16 @@ async function createRoleLocalBootstrap(args: {
   const signingRootId = args.signingRootId || TEST_SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion;
   const participantIds = args.participantIds || [1, 2];
-  const walletKeyId = `wallet-key-${args.walletId}`;
+  const evmFamilySigningKeySlotId = `wallet-key-${args.walletId}`;
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: args.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     signingRootId,
     signingRootVersion,
   });
   const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
     walletId: args.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
   });
   const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
     context: {
@@ -110,7 +110,7 @@ async function createRoleLocalBootstrap(args: {
   const result = await args.svc.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
     walletId: args.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,

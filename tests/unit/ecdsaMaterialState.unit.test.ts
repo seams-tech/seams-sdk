@@ -35,6 +35,10 @@ import {
   buildEvmTransactionSigningLane,
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
+import type {
+  SigningSessionBudgetStatusAuth,
+  SigningSessionPreparedBudgetIdentity,
+} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
@@ -66,6 +70,28 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp',
   providerSubjectId: 'email:alice',
 } as const;
+
+class ObservingSigningSessionCoordinator extends SigningSessionCoordinator {
+  observedTrustedStatusAuth: SigningSessionBudgetStatusAuth | undefined;
+
+  override async prepareBudgetIdentity(
+    input: Parameters<SigningSessionCoordinator['prepareBudgetIdentity']>[0],
+  ): Promise<SigningSessionPreparedBudgetIdentity> {
+    this.observedTrustedStatusAuth = input.trustedStatusAuth;
+    return {
+      signingGrantId: 'wallet-session-1',
+      projectionVersion: 'projection-1',
+      status: {
+        sessionId: 'wallet-session-1',
+        status: 'active',
+        remainingUses: 3,
+        availableUses: 3,
+        expiresAtMs: 1_900_000_000_000,
+        projectionVersion: 'projection-1',
+      },
+    };
+  }
+}
 
 const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
@@ -404,6 +430,41 @@ test.describe('ecdsa material state', () => {
     if (state.kind !== 'ready_to_sign') return;
     expect(state.signerSession.clientShare.kind).toBe('role_local_worker_share');
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
+  });
+
+  test('passkey ECDSA readiness carries trusted budget auth from live signer material', async () => {
+    const record = makeRecord();
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    const state = buildEcdsaMaterialStateForCandidate({
+      candidate: makeCandidate(),
+      record,
+      authMethod: 'passkey',
+      source: 'login',
+      chainTarget: EVM_CHAIN_TARGET,
+      materialChainTarget: EVM_CHAIN_TARGET,
+    });
+    expect(state.kind).toBe('ready_to_sign');
+    if (state.kind !== 'ready_to_sign') return;
+    const coordinator = new ObservingSigningSessionCoordinator();
+
+    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
+      deps: {
+        touchConfirm: {
+          getWarmSessionStatus: readyWarmSessionStatus,
+        },
+        signingSessionCoordinator: coordinator,
+      },
+      lane: makeResolvedLane(),
+      material: state,
+    });
+
+    expect(readiness.readiness.status).toBe('ready');
+    expect(readiness.trustedBudgetStatusAuth.kind).toBe('trusted_budget_status_auth');
+    if (readiness.trustedBudgetStatusAuth.kind !== 'trusted_budget_status_auth') return;
+    expect(readiness.trustedBudgetStatusAuth.auth.relayerUrl).toBe('https://relay.localhost');
+    expect(readiness.trustedBudgetStatusAuth.auth.thresholdSessionId).toBe('threshold-session-1');
+    expect(readiness.trustedBudgetStatusAuth.auth.walletSessionJwt).toBe(record.walletSessionJwt);
+    expect(coordinator.observedTrustedStatusAuth).toEqual(readiness.trustedBudgetStatusAuth.auth);
   });
 
   test('matches ready material against exact signer identity when flat lane projections are stale', () => {

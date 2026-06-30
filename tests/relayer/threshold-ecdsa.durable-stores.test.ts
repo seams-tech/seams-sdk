@@ -4,6 +4,7 @@ import {
   createThresholdEcdsaSigningStores,
   type RouterAbEcdsaHssPoolFillSessionRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
+import { CloudflareDurableObjectThresholdEd25519HssCeremonyStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -148,6 +149,56 @@ function makeCloudflareDoPresignSessionRecord(input: {
     derivationVersion: 1,
   };
 }
+
+test.describe('threshold-ed25519 HSS durable ceremony store', () => {
+  test('persists client-owned finalization bytes across store instances', async () => {
+    const namespace = createMemoryDurableObjectNamespace();
+    const keyPrefix = randPrefix('threshold-ed25519:hss:ceremony');
+    const firstStore = new CloudflareDurableObjectThresholdEd25519HssCeremonyStore({
+      namespace,
+      objectName: 'threshold-ed25519-hss-ceremony-test',
+      keyPrefix,
+    });
+    await firstStore.put('ceremony-1', {
+      kind: 'session',
+      expiresAtMs: Date.now() + 60_000,
+      relayerKeyId: 'rk-ed25519',
+      operation: 'tx_signing',
+      context: {
+        applicationBindingDigestB64u: 'application-binding',
+        participantIds: [1, 2],
+      },
+      preparedSession: {
+        contextBindingB64u: 'context-binding',
+        evaluatorDriverStateB64u: 'evaluator-driver-state',
+      },
+      preparedServerSession: {
+        evaluatorDriverStateBytes: new Uint8Array([1, 2, 3]),
+        garblerDriverStateBytes: new Uint8Array([4, 5, 6]),
+      },
+      evaluationResult: {
+        stagedEvaluatorArtifactBytes: new Uint8Array([7, 8, 9]),
+        serverEvalFinalizeOutputBytes: new Uint8Array([10, 11, 12]),
+      },
+    });
+
+    const restartedStore = new CloudflareDurableObjectThresholdEd25519HssCeremonyStore({
+      namespace,
+      objectName: 'threshold-ed25519-hss-ceremony-test',
+      keyPrefix,
+    });
+    const restored = await restartedStore.take('ceremony-1');
+
+    expect(restored?.kind).toBe('session');
+    expect(Array.from(restored?.evaluationResult?.stagedEvaluatorArtifactBytes ?? [])).toEqual([
+      7, 8, 9,
+    ]);
+    expect(Array.from(restored?.evaluationResult?.serverEvalFinalizeOutputBytes ?? [])).toEqual([
+      10, 11, 12,
+    ]);
+    await expect(restartedStore.get('ceremony-1')).resolves.toBeNull();
+  });
+});
 
 test.describe('threshold-ecdsa durable presign stores', () => {
   test.describe('Wallet Session export replay guard', () => {

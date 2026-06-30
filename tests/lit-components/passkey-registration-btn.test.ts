@@ -338,10 +338,10 @@ test.describe('seams-passkey-registration-btn', () => {
 
       try {
         await prompt.generateRegistrationCredentialsInternal({
-          nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
           challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           signerSlot: 1,
-          intendedUserName: 'alice',
+          intendedUserName: 'alice.testnet',
         });
       } finally {
         credentials.create = originalCreate;
@@ -356,10 +356,39 @@ test.describe('seams-passkey-registration-btn', () => {
 
     expect(result).toEqual({
       rpId: 'example.localhost',
-      userName: 'alice',
-      displayName: 'alice',
+      userName: 'alice.testnet',
+      displayName: 'alice.testnet',
       userId: 'alice.testnet',
       fallbackRpId: 'example.localhost',
+    });
+  });
+
+  test('rejects WebAuthn registration when username does not match wallet ID', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ touchIdPromptPath }) => {
+      const mod = await import(touchIdPromptPath);
+      const prompt = new mod.TouchIdPrompt('example.localhost');
+      try {
+        await prompt.generateRegistrationCredentialsInternal({
+          walletId: 'alice.testnet',
+          challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          signerSlot: 1,
+          intendedUserName: 'alice',
+        });
+        return { ok: true, message: '' };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    }, {
+      touchIdPromptPath: sdkEsmPath(
+        'core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.js',
+      ),
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: 'WebAuthn registration user.name must match walletId',
     });
   });
 
@@ -379,12 +408,12 @@ test.describe('seams-passkey-registration-btn', () => {
         summary: { intentDigest: 'register:alice.testnet:1' } as any,
         txSigningRequests: [],
         securityContext: {
-          passkeyRegistration: {
-            kind: 'passkey_registration_confirm_display_v1',
-            intendedUserName: 'alice',
-            accountId: 'alice.testnet',
-            rpId: 'example.localhost',
-            signerSlot: 1,
+            passkeyRegistration: {
+              kind: 'passkey_registration_confirm_display_v1',
+              intendedUserName: 'alice.testnet',
+              accountId: 'alice.testnet',
+              rpId: 'example.localhost',
+              signerSlot: 1,
           },
         } as any,
         loading: false,
@@ -400,7 +429,7 @@ test.describe('seams-passkey-registration-btn', () => {
     await page.waitForSelector('.passkey-registration-confirm__identity');
     const identity = page.locator('.passkey-registration-confirm__identity');
     await expect(identity).toContainText('Account');
-    await expect(identity).toContainText('alice');
+    await expect(identity).toContainText('alice.testnet');
     await expect(identity).toContainText('Relying party');
     await expect(identity).toContainText('example.localhost');
     await expect(page.locator('w3a-tx-tree')).toHaveCount(0);

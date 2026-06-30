@@ -447,4 +447,95 @@ test.describe('wallet registration intent relayer signer sets', () => {
     );
     expect(response.body.registrationIntentGrant).toMatch(/^rig_/);
   });
+
+  test('creates an implicit Ed25519 registration intent with a preselected readable wallet ID', async () => {
+    const providedWalletId = 'frost-fjord-rgcmpa';
+    const response = await handleRouterApiWalletRegistrationIntent({
+      body: {
+        wallet: { kind: 'provided', walletId: providedWalletId },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+      headers: {
+        authorization: 'Bearer sk_test',
+        'x-seams-environment-id': ENVIRONMENT_ID,
+      },
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
+      origin: 'https://wallet.example.test',
+      route: route('wallet_registration_intent'),
+      services: {
+        authService: makeService(),
+        apiKeyAuth: makeApiKeyAuth(),
+        orgProjectEnv: await makeOrgProjectEnv(),
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    if (!response.body.ok) throw new Error(response.body.message);
+    expect(response.body.intent.walletId).toBe(providedWalletId);
+    const serverAllocatedWalletId = parseServerAllocatedWalletId(response.body.intent.walletId);
+    expect(serverAllocatedWalletId.ok).toBe(true);
+  });
+
+  test('rejects arbitrary provided wallet IDs for implicit Ed25519 registration', async () => {
+    const response = await handleRouterApiWalletRegistrationIntent({
+      body: {
+        wallet: { kind: 'provided', walletId: 'wallet_alice' },
+        authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+      headers: {
+        authorization: 'Bearer sk_test',
+        'x-seams-environment-id': ENVIRONMENT_ID,
+      },
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
+      origin: 'https://wallet.example.test',
+      route: route('wallet_registration_intent'),
+      services: {
+        authService: makeService(),
+        apiKeyAuth: makeApiKeyAuth(),
+        orgProjectEnv: await makeOrgProjectEnv(),
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'implicit account registration requires a generated readable walletId',
+    });
+  });
 });

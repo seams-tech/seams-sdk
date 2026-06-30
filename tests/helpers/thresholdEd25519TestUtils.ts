@@ -143,7 +143,6 @@ export function createThresholdSigningServiceForUnitTests(input: {
     keyVersion?: string;
     recoveryExportCapable?: boolean;
   } | null;
-  accessKeysOnChain?: Array<string | { publicKey: string; nonce: number | string }> | null;
   verifyWebAuthnAuthenticationLite?:
     | ((request: {
         userId: string;
@@ -231,7 +230,6 @@ export function createThresholdSigningServiceForUnitTests(input: {
         }
       : null,
   );
-  const accessKeysOnChain = input.accessKeysOnChain ?? null;
   const verifyWebAuthnAuthenticationLite =
     input.verifyWebAuthnAuthenticationLite || (async () => ({ success: true, verified: true }));
   const config = {
@@ -271,16 +269,6 @@ export function createThresholdSigningServiceForUnitTests(input: {
       ensureSignerWasmForUnitTests();
     },
     verifyWebAuthnAuthenticationLite,
-    viewAccessKeyList: async () =>
-      ({
-        keys: (accessKeysOnChain || []).map((entry) => ({
-          public_key: typeof entry === 'string' ? entry : entry.publicKey,
-          access_key: {
-            nonce: typeof entry === 'string' ? 0 : entry.nonce,
-            permission: 'FullAccess' as const,
-          },
-        })),
-      }) as any,
     dispatchNearTransaction:
       input.dispatchNearTransaction ||
       (async () => {

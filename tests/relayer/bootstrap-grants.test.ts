@@ -5,6 +5,7 @@ import {
   createInMemoryConsoleOrgProjectEnvService,
   createRouterApiBootstrapGrantBroker,
   createRouterApiRouter,
+  type ConsoleApiKeyService,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
@@ -118,6 +119,33 @@ function makeRouterApiService() {
 }
 
 test.describe('managed bootstrap grants', () => {
+  test('broker preserves class-backed publishable-key method binding', async () => {
+    const orgProjectEnv = await seedEnvironment();
+    const { apiKeys, secret } = await createPublishableKey({});
+    const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
+    const apiKeysRequiringThis = {
+      inner: apiKeys,
+      authenticatePublishableKey: async function (
+        this: { inner: ConsoleApiKeyService },
+        request: Parameters<NonNullable<ConsoleApiKeyService['authenticatePublishableKey']>>[0],
+      ) {
+        return await this.inner.authenticatePublishableKey!(request);
+      },
+    } as ConsoleApiKeyService & { inner: ConsoleApiKeyService };
+    const broker = createRouterApiBootstrapGrantBroker({
+      apiKeys: apiKeysRequiringThis,
+      tokenStore: bootstrapTokens,
+      orgProjectEnv,
+    });
+
+    const auth = await broker.authenticatePublishableKey({
+      publishableKey: secret,
+      origin: allowedOrigin,
+      environmentId,
+    });
+    expect(auth.ok).toBe(true);
+  });
+
   test('express issues bootstrap token for valid publishable_key', async () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});

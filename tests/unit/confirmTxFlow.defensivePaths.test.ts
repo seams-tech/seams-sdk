@@ -697,7 +697,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           type: types.UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
           summary: {},
           payload: {
-            nearAccountId: 'viewer.testnet',
+            subject: { kind: 'near_wallet', nearAccountId: 'viewer.testnet' },
             publicKey: 'ed25519:dummy',
             privateKey: 'ed25519:secret',
           },
@@ -788,7 +788,10 @@ test.describe('confirmTxFlow – defensive paths', () => {
           requestId: 'decrypt-1',
           type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
           summary: {},
-          payload: { nearAccountId: 'alice.testnet' },
+          payload: {
+            subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
+            publicKey: 'ed25519:test',
+          },
         } as any;
 
         const workerMessages: any[] = [];
@@ -796,7 +799,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
         (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
         await handleLocalOnlyFlow(ctx, request, worker, {
-          confirmationConfig: { uiMode: 'none', behavior: 'requireClick', autoProceedDelay: 0 },
+          confirmationConfig: { kind: 'silent', uiMode: 'none' },
           transactionSummary: {},
           theme: 'dark',
         });
@@ -872,7 +875,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
           summary: {},
           payload: {
-            nearAccountId: 'alice.testnet',
+            subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
             publicKey: 'ed25519:recovery-key',
             challengeB64u: 'bound-export-challenge-b64u',
           },
@@ -883,7 +886,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
         (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
         await handleLocalOnlyFlow(ctx, request, worker, {
-          confirmationConfig: { uiMode: 'none', behavior: 'requireClick', autoProceedDelay: 0 },
+          confirmationConfig: { kind: 'silent', uiMode: 'none' },
           transactionSummary: {},
           theme: 'dark',
         });

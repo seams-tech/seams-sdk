@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { parseThresholdEd25519SessionRouteRequest } from '../../packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation';
+import {
+  parseThresholdEd25519HssFinalizeWithSessionRouteRequest,
+  parseThresholdEd25519SessionRouteRequest,
+} from '../../packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation';
 
 function validThresholdEd25519SessionBody(): Record<string, unknown> {
   return {
@@ -63,5 +66,24 @@ test('threshold-ed25519 session route rejects body-owned ECDSA session claims', 
   if (!parsed.ok) {
     expect(parsed.body.message).toContain('Unsupported threshold-ed25519 session field');
     expect(parsed.body.message).toContain('ecdsaSessionClaims');
+  }
+});
+
+test('threshold-ed25519 HSS finalize requires server finalize output', () => {
+  const parsed = parseThresholdEd25519HssFinalizeWithSessionRouteRequest({
+    ceremonyHandle: 'ceremony-1',
+    evaluationResult: {
+      contextBindingB64u: 'context-binding',
+      stagedEvaluatorArtifactB64u: 'staged-artifact',
+    },
+  });
+
+  expect(parsed.ok).toBe(false);
+  if (!parsed.ok) {
+    expect(parsed.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'serverEvalFinalizeOutputB64u is required',
+    });
   }
 });

@@ -627,7 +627,7 @@ test.describe('registration intent allocation', () => {
             evaluatorDriverStateB64u: 'evaluator-driver-state',
           },
           clientOtOfferMessageB64u: 'client-ot-offer',
-              serverState: ED25519_HSS_SERVER_STATE,
+          serverState: ED25519_HSS_SERVER_STATE,
         }),
       },
     });
@@ -718,7 +718,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
-              serverState: ED25519_HSS_SERVER_STATE,
+            serverState: ED25519_HSS_SERVER_STATE,
           };
         },
         respondForRegistration: async (request: Record<string, unknown>) => {
@@ -823,7 +823,11 @@ test.describe('registration intent allocation', () => {
     const finalized = await service.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       ed25519: {
-        evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
+        evaluationResult: {
+          contextBindingB64u: 'context-binding',
+          stagedEvaluatorArtifactB64u: 'evaluation-result',
+          serverEvalFinalizeOutputB64u: 'server-finalize-output',
+        } as any,
       },
     });
     expect(finalized).toMatchObject({
@@ -883,7 +887,7 @@ test.describe('registration intent allocation', () => {
             evaluatorDriverStateB64u: 'evaluator-driver-state',
           },
           clientOtOfferMessageB64u: 'client-ot-offer',
-              serverState: ED25519_HSS_SERVER_STATE,
+          serverState: ED25519_HSS_SERVER_STATE,
         }),
       },
     });
@@ -1000,7 +1004,7 @@ test.describe('registration intent allocation', () => {
             evaluatorDriverStateB64u: 'evaluator-driver-state',
           },
           clientOtOfferMessageB64u: 'client-ot-offer',
-              serverState: ED25519_HSS_SERVER_STATE,
+          serverState: ED25519_HSS_SERVER_STATE,
         }),
         respondForRegistration: async () => ({
           ok: true,
@@ -1072,7 +1076,11 @@ test.describe('registration intent allocation', () => {
       service.finalizeWalletRegistration({
         registrationCeremonyId: started.registrationCeremonyId,
         ed25519: {
-          evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
+          evaluationResult: {
+            contextBindingB64u: 'context-binding',
+            stagedEvaluatorArtifactB64u: 'evaluation-result',
+            serverEvalFinalizeOutputB64u: 'server-finalize-output',
+          } as any,
         },
         emailOtpEnrollment: emailOtpEnrollmentMaterial('wallet_alice', EMAIL_OTP_PROVIDER_SUBJECT),
         emailOtpBackupAck: emailOtpBackupAck(),
@@ -1304,7 +1312,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
-              serverState: ED25519_HSS_SERVER_STATE,
+            serverState: ED25519_HSS_SERVER_STATE,
           };
         },
         respondForRegistration: async (request: Record<string, unknown>) => {
@@ -1499,7 +1507,11 @@ test.describe('registration intent allocation', () => {
     const finalized = await service.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       ed25519: {
-        evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
+        evaluationResult: {
+          contextBindingB64u: 'context-binding',
+          stagedEvaluatorArtifactB64u: 'evaluation-result',
+          serverEvalFinalizeOutputB64u: 'server-finalize-output',
+        } as any,
         sessionPolicy: {
           version: 'threshold_session_v1',
           walletId: 'wallet_alice',
@@ -2825,7 +2837,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
-              serverState: ED25519_HSS_SERVER_STATE,
+            serverState: ED25519_HSS_SERVER_STATE,
           };
         },
         respondForRegistration: async (request: Record<string, unknown>) => {
@@ -2953,7 +2965,11 @@ test.describe('registration intent allocation', () => {
     const finalized = await service.finalizeWalletAddSigner({
       addSignerCeremonyId: started.addSignerCeremonyId,
       ed25519: {
-        evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
+        evaluationResult: {
+          contextBindingB64u: 'context-binding',
+          stagedEvaluatorArtifactB64u: 'evaluation-result',
+          serverEvalFinalizeOutputB64u: 'server-finalize-output',
+        } as any,
       },
     });
 
@@ -2961,12 +2977,12 @@ test.describe('registration intent allocation', () => {
       ok: true,
       walletId: 'wallet_alice',
       rpId: RP_ID,
-	      ed25519: {
-	        nearAccountId: 'alice.testnet',
-	        nearEd25519SigningKeyId: 'alice.testnet',
-	        publicKey: 'ed25519:public-key',
-	        relayerKeyId: 'relayer-key-ed25519',
-	        keyVersion: 'threshold-ed25519-hss-v1',
+      ed25519: {
+        nearAccountId: 'alice.testnet',
+        nearEd25519SigningKeyId: 'alice.testnet',
+        publicKey: 'ed25519:public-key',
+        relayerKeyId: 'relayer-key-ed25519',
+        keyVersion: 'threshold-ed25519-hss-v1',
       },
     });
     expect(finalizeRequest).toMatchObject({
@@ -2981,12 +2997,12 @@ test.describe('registration intent allocation', () => {
         ceremonyHandle: 'ed25519-add-signer-handle',
       },
     });
-	    expect(keygenRequest).toMatchObject({
-	      walletId: 'wallet_alice',
-	      nearAccountId: 'alice.testnet',
-	      nearEd25519SigningKeyId: 'alice.testnet',
-	      rpId: RP_ID,
-	      keyVersion: 'threshold-ed25519-hss-v1',
+    expect(keygenRequest).toMatchObject({
+      walletId: 'wallet_alice',
+      nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
+      rpId: RP_ID,
+      keyVersion: 'threshold-ed25519-hss-v1',
       publicKey: 'ed25519:public-key',
       relayerKeyId: 'relayer-key-ed25519',
     });
@@ -2996,11 +3012,11 @@ test.describe('registration intent allocation', () => {
     });
     expect(bindingWrite).toMatchObject({
       rpId: RP_ID,
-	      credentialIdB64u: 'Y3JlZGVudGlhbC1pZA',
-	      userId: 'wallet_alice',
-	      nearAccountId: 'alice.testnet',
-	      nearEd25519SigningKeyId: 'alice.testnet',
-	      signerSlot: 2,
+      credentialIdB64u: 'Y3JlZGVudGlhbC1pZA',
+      userId: 'wallet_alice',
+      nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
+      signerSlot: 2,
       publicKey: 'ed25519:public-key',
       relayerKeyId: 'relayer-key-ed25519',
       keyVersion: 'threshold-ed25519-hss-v1',
@@ -3097,7 +3113,7 @@ test.describe('registration intent allocation', () => {
               evaluatorDriverStateB64u: 'evaluator-driver-state',
             },
             clientOtOfferMessageB64u: 'client-ot-offer',
-              serverState: ED25519_HSS_SERVER_STATE,
+            serverState: ED25519_HSS_SERVER_STATE,
           };
         },
       },

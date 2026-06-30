@@ -24,6 +24,7 @@ function buildUnsignedJwtFixture(payload: Record<string, unknown>): string {
 
 const CONTEXT_BINDING_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const APPLICATION_BINDING_DIGEST_32_B64U = 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc';
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = 'wallet-key:evm-family:wallet-user:project%3Aenv:default';
 const CLIENT_PUBLIC_KEY_33_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
 const RELAYER_PUBLIC_KEY_33_B64U = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD';
 const GROUP_PUBLIC_KEY_33_B64U = 'BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE';
@@ -34,7 +35,7 @@ function buildRouterAbEcdsaHssWalletSessionJwtFixture(args: { expiresAtMs: numbe
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: 'wallet-user',
     walletId: 'wallet-user',
-    walletKeyId: 'wallet-key-wallet-user',
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     thresholdSessionId: 'threshold-session',
     signingGrantId: 'signing-grant',
     keyScope: 'evm-family',
@@ -45,7 +46,7 @@ function buildRouterAbEcdsaHssWalletSessionJwtFixture(args: { expiresAtMs: numbe
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
-        wallet_key_id: 'wallet-key-wallet-user',
+        wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
         wallet_id: 'wallet-user',
         ecdsa_threshold_key_id: 'ecdsa-threshold-key',
         signing_root_id: 'project:env',
@@ -76,7 +77,7 @@ function buildRouterAbEcdsaHssWalletSessionJwtFixture(args: { expiresAtMs: numbe
 const BOOTSTRAP_ARGS = {
   formatVersion: 'ecdsa-hss-role-local' as const,
   walletId: toWalletId('wallet-user'),
-  walletKeyId: 'wallet-key-wallet-user',
+  evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ecdsa-threshold-key'),
   signingRootId: 'project:env',
   signingRootVersion: 'default',
@@ -99,9 +100,10 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: 'wallet-user',
-    walletKeyId: 'wallet-key-wallet-user',
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: 'ecdsa-threshold-key',
     relayerKeyId: 'relayer-key',
+    applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_32_B64U,
     contextBinding32B64u: CONTEXT_BINDING_32_B64U,
     publicIdentity: {
       hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_33_B64U,

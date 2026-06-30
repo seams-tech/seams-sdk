@@ -133,7 +133,7 @@ test.describe('signer worker JS guards – PRF rejection', () => {
   });
 });
 
-test('HSS client worker allows prfFirstB64u only for Ed25519 HSS client-input derivation', () => {
+test('HSS client worker allows secret fields only for their dedicated protocol requests', () => {
   const source = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/hss-client.worker.ts',
   );
@@ -145,10 +145,17 @@ test('HSS client worker allows prfFirstB64u only for Ed25519 HSS client-input de
   const derivationCase = sourceBetween(
     fieldPolicy,
     'case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:',
+    'case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:',
+  );
+  const seedExportCase = sourceBetween(
+    fieldPolicy,
+    'case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:',
     'default:',
   );
 
   expect(derivationCase).toContain("field !== secretB64uField('prfFirst')");
+  expect(seedExportCase).toContain("field !== secretB64uField('seed')");
   expect(fieldPolicy).toContain("'prfOutput'");
   expect(fieldPolicy).toContain("secretB64uField('prfFirst')");
+  expect(fieldPolicy).toContain("secretB64uField('seed')");
 });

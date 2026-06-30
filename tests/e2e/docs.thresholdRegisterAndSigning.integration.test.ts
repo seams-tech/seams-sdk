@@ -589,7 +589,7 @@ test.describe('docs frontend register + threshold signing integration', () => {
     await expect(scope.getByText('Arc greeting updated')).toBeVisible();
   });
 
-  test('register/login reaches the sponsored Tempo drip route for a zero-gas signer', async ({
+  test('register/login keeps sponsored Tempo drip disabled for client-funded EVM', async ({
     page,
   }) => {
     await mountRegisterToSigningHarness(page);
@@ -606,45 +606,16 @@ test.describe('docs frontend register + threshold signing integration', () => {
 
     const dripButton = scope.getByRole('button', { name: 'Drip Fee Tokens' });
     await expect(dripButton).toBeVisible();
-
-    await dripButton.evaluate((el: HTMLElement) => el.click());
-
-    await page.waitForFunction(() => {
-      const counters = (window as any).__docsRegisterFlowCounters;
-      return (
-        counters &&
-        counters.loginCalls === 1 &&
-        counters.bootstrapCalls.length === 1 &&
-        counters.tempoSponsoredCallRequests === 1 &&
-        counters.tempoFeeTokenBalanceReads >= 1
-      );
-    });
+    await expect(dripButton).toBeDisabled();
 
     const finalCounters = await page.evaluate(() => (window as any).__docsRegisterFlowCounters);
     expect(finalCounters.registerCalls).toBe(1);
     expect(finalCounters.loginCalls).toBe(1);
     expect(finalCounters.bootstrapCalls).toEqual(['alice.testnet:tempo']);
-    expect(finalCounters.tempoSponsoredCallRequests).toBe(1);
-    expect(finalCounters.tempoFeeTokenBalanceReads).toBeGreaterThanOrEqual(1);
+    expect(finalCounters.tempoSponsoredCallRequests).toBe(0);
+    expect(finalCounters.tempoFeeTokenBalanceReads).toBe(0);
     expect(finalCounters.tempoSigns).toBe(0);
     expect(finalCounters.tempoDispatches).toBe(0);
-    expect(finalCounters.lastTempoSponsoredCallRequest).toMatchObject({
-      authorization: 'Bearer pk_docsregisterflow',
-      environmentHeader: 'env_test_docs',
-      environmentId: 'env_test_docs',
-      nearAccountId: 'alice.testnet',
-      walletAddress: '0x1111111111111111111111111111111111111111',
-      chainId: 42431,
-      call: {
-        gasLimit: '300000',
-        value: '0',
-      },
-    });
-    expect(String(finalCounters.lastTempoSponsoredCallRequest.call.to || '').toLowerCase()).toBe(
-      '0xbb442b54c85efba2d7b81ea52990ad638cdba483',
-    );
-    expect(String(finalCounters.lastTempoSponsoredCallRequest.call.data || '')).toMatch(
-      /^0x867ae9d4/i,
-    );
+    expect(finalCounters.lastTempoSponsoredCallRequest).toBeNull();
   });
 });

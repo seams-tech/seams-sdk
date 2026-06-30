@@ -70,7 +70,10 @@ test.describe('threshold ECDSA export viewer payload', () => {
     if (!capturedPayload) throw new Error('expected export viewer request to be captured');
 
     expect(capturedRequestType).toBe('showSecurePrivateKeyUi');
-    expect(capturedPayload.nearAccountId).toBe('frost-vermillion-k7p9m2');
+    expect(capturedPayload.subject).toEqual({
+      kind: 'evm_wallet',
+      walletId: 'frost-vermillion-k7p9m2',
+    });
     expect(capturedPayload.loading).toBe(true);
     expect(capturedPayload.keys).toEqual([
       {
@@ -118,7 +121,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
 
   test('accepts server-allocated wallet ids for Email OTP export authorization', async () => {
     let capturedSummaryAccountId = '';
-    let capturedPayloadAccountId = '';
+    let capturedPayloadWalletId = '';
     let capturedChallengeKind = '';
 
     const authorization = await requestEmailOtpKeyExportAuthorization(
@@ -128,8 +131,9 @@ test.describe('threshold ECDSA export viewer payload', () => {
             capturedSummaryAccountId = String(
               (request.summary as { accountId?: unknown }).accountId || '',
             );
-            capturedPayloadAccountId = String(
-              (request.payload as { nearAccountId?: unknown }).nearAccountId || '',
+            capturedPayloadWalletId = String(
+              (request.payload as { signingSubject?: { walletId?: unknown } }).signingSubject
+                ?.walletId || '',
             );
             return {
               requestId: request.requestId,
@@ -161,6 +165,6 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(authorization.otpCode).toBe('123456');
     expect(capturedChallengeKind).toBe('wallet_session_challenge');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
-    expect(capturedPayloadAccountId).toBe('frost-vermillion-k7p9m2');
+    expect(capturedPayloadWalletId).toBe('frost-vermillion-k7p9m2');
   });
 });

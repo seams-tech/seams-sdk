@@ -62,6 +62,39 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
+  test('ECDSA HSS export confirmation digest binds the EVM-family signing key slot', () => {
+    const passkeyExportSource = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts',
+    );
+    const emailOtpWorkerSource = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+    );
+    const thresholdServiceSource = readRepoFile(
+      'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+    );
+    const thresholdServiceMethod = findMethodDeclarationAndBody(
+      thresholdServiceSource,
+      'computeEcdsaHssExportConfirmationDigest32',
+    );
+    if (!thresholdServiceMethod) {
+      throw new Error('Missing server ECDSA HSS export confirmation digest builder');
+    }
+
+    const passkeyDigest = findObjectBlockAfter(
+      passkeyExportSource,
+      'const confirmationDigest32B64u = await digestB64u(',
+    );
+    const emailOtpDigest = findObjectBlockAfter(
+      emailOtpWorkerSource,
+      'const confirmationDigest32B64u = await digestB64u(',
+    );
+    const serverDigest = findObjectBlockAfter(thresholdServiceMethod, 'alphabetizeStringify(');
+
+    expect(passkeyDigest).toContain('evmFamilySigningKeySlotId');
+    expect(emailOtpDigest).toContain('evmFamilySigningKeySlotId');
+    expect(serverDigest).toContain('evmFamilySigningKeySlotId');
+  });
+
   test('budget status lookup avoids subject-wide ECDSA scan fallback', () => {
     const source = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts',

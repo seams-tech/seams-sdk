@@ -21,13 +21,6 @@ const EVM_TARGET = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 } as const satisfies ThresholdEcdsaChainTarget;
-const RUNTIME_POLICY_SCOPE = {
-  orgId: 'org_inventory_parser',
-  projectId: 'project_inventory_parser',
-  envId: 'dev',
-  signingRootVersion: 'root_v1',
-} as const;
-
 function inventoryRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     keyHandle: 'ehss-key-inventory',
@@ -82,11 +75,10 @@ function profileSigner(metadataOverrides: Record<string, unknown> = {}): Account
 }
 
 test.describe('threshold ECDSA key identity inventory parser', () => {
-  test('accepts canonical inventory records and binds runtime policy scope', () => {
+  test('accepts canonical inventory records and binds explicit signing-root facts', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
       walletId: WALLET_ID,
       rpId: RP_ID,
-      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       records: [inventoryRecord()],
     });
 

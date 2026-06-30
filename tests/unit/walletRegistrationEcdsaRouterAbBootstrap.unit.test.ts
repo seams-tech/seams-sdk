@@ -32,7 +32,6 @@ import { clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation } from '@/core/sig
 
 const WALLET_ID = 'router-ab-registration.testnet';
 const RP_ID = 'localhost';
-const WALLET_KEY_ID = 'wallet-key-router-ab-registration';
 const RELAYER_URL = 'https://relay.example.test';
 const KEY_HANDLE = 'router-ab-ecdsa-key';
 const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-threshold-key-1';
@@ -48,7 +47,7 @@ const CREDENTIAL_ID_B64U = 'credential-router-ab-registration';
 const ROLE_LOCAL_SIGNING_MATERIAL_HANDLE = {
   kind: 'role_local_worker_session',
   materialHandle:
-    'router-ab-ecdsa-role-local:threshold-ecdsa-session-1:router-ab-ecdsa-key:session-1',
+    'router-ab-ecdsa-role-local:threshold-ecdsa-session-1:router-ab-ecdsa-key:session-1:fixture-binding',
   bindingDigest: b64u(15, 32),
 } satisfies ThresholdEcdsaRoleLocalWorkerShareHandle;
 
@@ -77,19 +76,21 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u(payload)}.sig`;
 }
 
-const APPLICATION_BINDING_DIGEST_B64U = b64u(7, 32);
+const APPLICATION_BINDING_DIGEST_B64U = '2KjkLHk8C8gUMNRbDQLReJT_k93sD3zVS5QZB8fsldA';
 const CONTEXT_BINDING_32_B64U = 'OyVzuOm6z7oD9lROMqtIK1MZuxTy-l6AMUji9knVQ6w';
 const READY_STATE_BLOB_32_B64U = b64u(10, 32);
 const CLIENT_PUBLIC_KEY_33_B64U = publicKey33(2, 11) as EcdsaHssClientSharePublicKey33B64u;
 const RELAYER_PUBLIC_KEY_33_B64U = publicKey33(3, 12) as EcdsaRelayerHssPublicKey33B64u;
 const GROUP_PUBLIC_KEY_33_B64U = publicKey33(2, 13);
 const OWNER_ADDRESS_20_B64U = Buffer.from(OWNER_ADDRESS.slice(2), 'hex').toString('base64url');
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID =
+  `wallet-key:evm-family:${WALLET_ID}:${SIGNING_ROOT_ID}:${SIGNING_ROOT_VERSION}`;
 
 function routerAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStateV1 {
   const state = parseRouterAbEcdsaHssNormalSigningStateV1({
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
-      wallet_key_id: WALLET_KEY_ID,
+      wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       wallet_id: WALLET_ID,
       ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
       signing_root_id: SIGNING_ROOT_ID,
@@ -129,7 +130,7 @@ function walletSessionJwt(
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     keyScope: 'evm-family',
@@ -164,7 +165,7 @@ function clientBootstrap(): WalletRegistrationEcdsaClientBootstrap {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: WALLET_ID,
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
@@ -191,9 +192,10 @@ function serverBootstrap(
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: toWalletId(WALLET_ID),
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(ECDSA_THRESHOLD_KEY_ID),
     relayerKeyId: RELAYER_KEY_ID,
+    applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_B64U,
     contextBinding32B64u: CONTEXT_BINDING_32_B64U,
     publicIdentity: {
       hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_33_B64U,
@@ -226,7 +228,7 @@ function walletKey(): WalletRegistrationEcdsaWalletKey {
     keyScope: 'evm-family',
     chainTarget: EVM_TARGET,
     walletId: WALLET_ID,
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     keyHandle: KEY_HANDLE,
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,

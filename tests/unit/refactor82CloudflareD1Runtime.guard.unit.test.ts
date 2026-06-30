@@ -24,8 +24,7 @@ const billingCleanupDocPath = 'docs/saas/billing-cleanup.md';
 const consoleOnboardingDocPath = 'docs/saas/console-onboarding.md';
 const currentBillingDocPaths = ['docs/saas/billing-2.md', 'docs/saas/prepaid-billing.md'] as const;
 const dbSchemaDocPath = 'docs/saas/db-schema.md';
-const dashboardBackendImplementationDocPath =
-  'docs/saas/dashboard-backend-implementation-plan.md';
+const dashboardBackendImplementationDocPath = 'docs/saas/dashboard-backend-implementation-plan.md';
 const policyIdDocPath = 'docs/saas/policyId.md';
 const generalizedGasSponsorshipDocPath = 'docs/saas/generalized-gas-sponsorship.md';
 const gasSponsorshipPrepaidDocPath = 'docs/saas/gas-sponsorship-prepaid-balances.md';
@@ -54,6 +53,17 @@ const forbiddenCloudflarePostgresEnvTokens = [
   'BILLING_POSTGRES_URL',
   'RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL',
   'WEBHOOK_RETRY_POSTGRES_URL',
+] as const;
+
+const forbiddenCloudflareD1EnvPricingPatterns = [
+  {
+    pattern: /\bSPONSORED_EXECUTION_(?:STATIC|REAL)_PRICING_JSON\b/,
+    message: 'reads sponsored execution pricing from Worker env instead of Console D1',
+  },
+  {
+    pattern: /\bresolve(?:Static|CoinGecko|Sponsored)SponsoredExecutionPricingFromEnv\b/,
+    message: 'constructs sponsored execution pricing from Worker env instead of Console D1',
+  },
 ] as const;
 
 const legacyRouteCapabilityFlagPatterns = [
@@ -392,7 +402,8 @@ const staleGasSponsorshipPrepaidDocPatterns = [
     message: 'references the old simple-threshold-signer absolute workspace path',
   },
   {
-    pattern: /\bserver\/src\/console\/(?:billing|billingPrepaidReservations|sponsoredCalls)\/postgres\.ts\b/,
+    pattern:
+      /\bserver\/src\/console\/(?:billing|billingPrepaidReservations|sponsoredCalls)\/postgres\.ts\b/,
     message: 'references removed server Postgres sponsorship or billing adapters',
   },
   {
@@ -539,7 +550,8 @@ const staleObservabilityDocPatterns = [
     message: 'references deleted Postgres observability adapter files',
   },
   {
-    pattern: /\bconsole_observability_(?:events|event_dedup|ingest_windows|request_rollups_minute)\b/,
+    pattern:
+      /\bconsole_observability_(?:events|event_dedup|ingest_windows|request_rollups_minute)\b/,
     message: 'uses old console-prefixed observability table names instead of D1 names',
   },
 ] as const;
@@ -597,10 +609,6 @@ const deletedDuplicateTestSetupMockPaths = [
 const routerApiProxyShimTextPaths = [
   'tests/setup/cross-origin-headers.ts',
   'tests/setup/bootstrap.ts',
-  'tests/e2e/signTransactions.concurrentSessions.walletIframe.test.ts',
-  'tests/e2e/executeAction.twice.walletIframe.test.ts',
-  'tests/e2e/nearMultichain.seamNormalization.walletIframe.test.ts',
-  'tests/helpers/thresholdEcdsaSealedRefreshHarness.ts',
   'benchmarks/registration-flow/src/scenario-harness.ts',
 ] as const;
 const activeRouterApiTextPaths = [
@@ -612,7 +620,7 @@ const activeRouterApiTextPaths = [
   'docs/chats/chat-6-voiceId.md',
   'docs/deployment/infra.md',
   'docs/registrations-top-up.md',
-  'docs/refactor-83-modular-auth-capabilities-SPEC.md',
+  'docs/refactor-85-modular-auth-capabilities-SPEC.md',
   'docs/auth-provider-integrations/auth0.md',
   'docs/auth-provider-integrations/better-auth.md',
   'docs/auth-provider-integrations/google-oidc.md',
@@ -1008,7 +1016,8 @@ const forbiddenD1StagingCliHelperPatterns = [
     message: 'defines local path resolution instead of d1-staging-config',
   },
   {
-    pattern: /\bfunction\s+(?:requirePackagePath|resolveRequiredPackagePath|requirePath|normalizePath)\b/,
+    pattern:
+      /\bfunction\s+(?:requirePackagePath|resolveRequiredPackagePath|requirePath|normalizePath)\b/,
     message: 'defines local required path resolution instead of d1-staging-config',
   },
   {
@@ -1523,7 +1532,10 @@ function sdkServerTsconfigPostgresScaffoldingViolations(): string[] {
   return violations.sort();
 }
 
-function sourcePatternViolations(relativePath: string, patterns: readonly SourcePattern[]): string[] {
+function sourcePatternViolations(
+  relativePath: string,
+  patterns: readonly SourcePattern[],
+): string[] {
   const violations: string[] = [];
   const source = readSource(relativePath);
   for (const { pattern, message } of patterns) {
@@ -1541,6 +1553,13 @@ function sourcePatternViolationsForFiles(
     violations.push(...sourcePatternViolations(relativePath, patterns));
   }
   return violations.sort();
+}
+
+function cloudflareD1EnvPricingViolations(): string[] {
+  return sourcePatternViolationsForFiles(
+    cloudflareRuntimeRoots,
+    forbiddenCloudflareD1EnvPricingPatterns,
+  );
 }
 
 function staleRefactor82NameViolations(): string[] {
@@ -1782,7 +1801,7 @@ function routerApiStagingWorkerSignerCustodyViolations(): string[] {
   return violations.sort();
 }
 
-function d1WorkerRequestScopedHandlerCacheViolations(): string[] {
+function d1WorkerRouterApiHandlerLifetimeViolations(): string[] {
   const violations: string[] = [];
   for (const relativePath of [
     'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
@@ -1795,6 +1814,82 @@ function d1WorkerRequestScopedHandlerCacheViolations(): string[] {
         `${relativePath}: caches FetchHandler instances that can retain request-scoped Worker I/O bindings`,
       );
     }
+    if (/HandlerCacheEntry/.test(source) || /HandlerCache/.test(source)) {
+      violations.push(
+        `${relativePath}: caches Router API handlers instead of request-independent live session stores`,
+      );
+    }
+  }
+  const localWorker = readSource('packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts');
+  const stagingWorker = readSource(cloudflareD1RouterApiStagingWorkerPath);
+  const ecdsaPoolFill = readSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+  );
+  const thresholdStore = readSource(
+    'packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts',
+  );
+  const thresholdStoreClient = readSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts',
+  );
+  if (localWorker.includes('localRouterApiEcdsaPoolFillLiveSessions')) {
+    violations.push(
+      'packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts: owns ECDSA pool-fill live sessions outside the Durable Object',
+    );
+  }
+  if (stagingWorker.includes('routerApiStagingEcdsaPoolFillLiveSessions')) {
+    violations.push(
+      `${cloudflareD1RouterApiStagingWorkerPath}: owns ECDSA pool-fill live sessions outside the Durable Object`,
+    );
+  }
+  if (
+    localWorker.includes('createRouterAbEcdsaHssPoolFillLiveSessionStore') ||
+    stagingWorker.includes('createRouterAbEcdsaHssPoolFillLiveSessionStore')
+  ) {
+    violations.push(
+      'D1 Router API Worker constructs ECDSA pool-fill live-session stores directly',
+    );
+  }
+  for (const [relativePath, source] of [
+    ['packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts', localWorker],
+    [cloudflareD1RouterApiStagingWorkerPath, stagingWorker],
+  ] as const) {
+    if (source.includes('ThresholdEcdsaPresignSession')) {
+      violations.push(
+        `${relativePath}: references live ECDSA-HSS WASM presign sessions outside the Durable Object`,
+      );
+    }
+    if (source.includes('presignSession') && source.includes('JSON.stringify')) {
+      violations.push(
+        `${relativePath}: may serialize ECDSA-HSS live presign session state outside the Durable Object`,
+      );
+    }
+  }
+  if (ecdsaPoolFill.includes('fetch.bind(globalThis)')) {
+    violations.push(
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts: caches a request-context fetch binding',
+    );
+  }
+  for (const token of [
+    'routerAbEcdsaHssPoolFillLiveSessionCreate',
+    'routerAbEcdsaHssPoolFillLiveSessionStep',
+    'routerAbEcdsaHssPoolFillLiveSessionDelete',
+    'InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner',
+  ]) {
+    if (!thresholdStore.includes(token)) {
+      violations.push(
+        `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts: missing ${token}`,
+      );
+    }
+  }
+  if (!thresholdStoreClient.includes('CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner')) {
+    violations.push(
+      'packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts: missing DO-backed ECDSA pool-fill live-session owner',
+    );
+  }
+  if (!thresholdStoreClient.includes(':ecdsa-pool-fill:${id}')) {
+    violations.push(
+      'packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts: ECDSA pool-fill live-session owner must route live WASM state by presignSessionId',
+    );
   }
   return violations.sort();
 }
@@ -1888,9 +1983,7 @@ function d1NearEd25519RegistrationBranchSplitViolations(): string[] {
   const violations: string[] = [];
   const branchAbsolutePath = toAbsolutePath(cloudflareD1NearEd25519RegistrationBranchPath);
   if (!fs.existsSync(branchAbsolutePath)) {
-    return [
-      `${cloudflareD1NearEd25519RegistrationBranchPath}: missing NEAR Ed25519 branch module`,
-    ];
+    return [`${cloudflareD1NearEd25519RegistrationBranchPath}: missing NEAR Ed25519 branch module`];
   }
   const branchSource = readSource(cloudflareD1NearEd25519RegistrationBranchPath);
   for (const exportedHelper of [
@@ -1957,9 +2050,7 @@ function d1WalletAddSignerServiceSplitViolations(): string[] {
     'finalizeWalletAddSigner',
   ]) {
     if (ceremonySource.includes(methodName)) {
-      violations.push(
-        `${cloudflareD1WalletRegistrationServicePath}: still owns ${methodName}`,
-      );
+      violations.push(`${cloudflareD1WalletRegistrationServicePath}: still owns ${methodName}`);
     }
   }
   return violations.sort();
@@ -2007,6 +2098,48 @@ function removedRegistrationSignerSelectionFilenameViolations(): string[] {
   return violations.sort();
 }
 
+function durableEd25519HssCeremonyStoreViolations(): string[] {
+  const violations: string[] = [];
+  const localWorker = readSource(cloudflareD1LocalDevWorkerPath);
+  const stagingWorker = readSource(cloudflareD1RouterApiStagingWorkerPath);
+  const thresholdFactory = readSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts',
+  );
+  const doStore = readSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts',
+  );
+  const forbiddenWorkerTokens = [
+    'LOCAL_D1_ED25519_HSS_CEREMONY_STORE',
+    'STAGING_D1_ED25519_HSS_CEREMONY_STORE',
+    'ed25519HssCeremonyStore:',
+  ] as const;
+  for (const token of forbiddenWorkerTokens) {
+    if (localWorker.includes(token)) {
+      violations.push(`${cloudflareD1LocalDevWorkerPath}: contains ${token}`);
+    }
+    if (stagingWorker.includes(token)) {
+      violations.push(`${cloudflareD1RouterApiStagingWorkerPath}: contains ${token}`);
+    }
+  }
+  if (!thresholdFactory.includes('ed25519Stores.ed25519HssCeremonyStore')) {
+    violations.push('Cloudflare threshold factory does not wire the DO-backed Ed25519 HSS store');
+  }
+  const requiredDoStoreTokens = [
+    'class CloudflareDurableObjectThresholdEd25519HssCeremonyStore',
+    'durable Ed25519 HSS ceremony cannot store preparedSessionHandle',
+    'durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle',
+    'durable Ed25519 HSS evaluationResult server finalize output is required',
+    'base64UrlEncode(preparedServerSession.evaluatorDriverStateBytes)',
+    "op: 'getdel'",
+  ] as const;
+  for (const token of requiredDoStoreTokens) {
+    if (!doStore.includes(token)) {
+      violations.push(`Cloudflare DO store missing Ed25519 HSS durable ceremony token: ${token}`);
+    }
+  }
+  return violations.sort();
+}
+
 test('Cloudflare router runtime graph stays D1/DO-only at persistence boundaries', () => {
   const violations = cloudflareRuntimeDependencyViolations();
   expect(violations, violations.join('\n')).toEqual([]);
@@ -2014,6 +2147,11 @@ test('Cloudflare router runtime graph stays D1/DO-only at persistence boundaries
 
 test('Cloudflare Worker env shape does not expose Postgres cron fallbacks', () => {
   const violations = cloudflarePostgresEnvTokenViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Cloudflare D1 runtime reads sponsored pricing from Console D1, not Worker env', () => {
+  const violations = cloudflareD1EnvPricingViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
@@ -2096,7 +2234,10 @@ test('sdk-server TypeScript config does not revive pg compiler scaffolding', () 
 });
 
 test('account settings docs describe the current D1 account adapter', () => {
-  const violations = sourcePatternViolations(accountSettingsDocPath, staleAccountSettingsDocPatterns);
+  const violations = sourcePatternViolations(
+    accountSettingsDocPath,
+    staleAccountSettingsDocPatterns,
+  );
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
@@ -2253,8 +2394,13 @@ test('Router API staging Worker owns signer custody and sponsored EVM bindings',
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
-test('D1 Worker entrypoints do not cache request-scoped FetchHandlers', () => {
-  const violations = d1WorkerRequestScopedHandlerCacheViolations();
+test('D1 Worker ECDSA pool-fill live sessions stay request-independent', () => {
+  const violations = d1WorkerRouterApiHandlerLifetimeViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Ed25519 HSS session ceremony state is DO-backed in Cloudflare D1 workers', () => {
+  const violations = durableEd25519HssCeremonyStoreViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });
 

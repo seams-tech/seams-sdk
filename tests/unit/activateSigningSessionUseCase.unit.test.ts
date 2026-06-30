@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseSigningGrantId,
-  parseWalletKeyId,
 } from '@shared/utils/domainIds';
 import {
   buildEmailOtpWorkerIssuedSessionHandle,
@@ -87,7 +87,6 @@ function ecdsaHandle(
 }
 
 const walletId = toWalletId('wallet_alice');
-const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-activation'));
 const rpId = toRpId('wallet.example');
 const authSubjectId = toEmailOtpAuthSubjectId('google:alice');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -101,6 +100,11 @@ const otherChainTarget = thresholdEcdsaChainTargetFromChainFamily({
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-threshold-key');
 const signingRootId = toEcdsaHssSigningRootId('root');
 const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
+const walletKeyId = deriveEvmFamilySigningKeySlotId({
+  walletId,
+  signingRootId,
+  signingRootVersion,
+});
 const signingGrantId = parsedDomain(parseSigningGrantId('signing-grant'));
 const ed25519ThresholdSessionId = parsedDomain(
   parseThresholdEd25519SessionId('threshold-ed25519-session'),
@@ -169,7 +173,7 @@ function emailOtpEcdsaAuthFor(
 function publicFacts(target: ThresholdEcdsaChainTarget) {
   return buildEcdsaRoleLocalPublicFacts({
     walletId,
-      walletKeyId,
+    walletKeyId,
     chainTarget: target,
     keyHandle: 'ecdsa-key-handle',
     ecdsaThresholdKeyId,
@@ -183,6 +187,7 @@ function publicFacts(target: ThresholdEcdsaChainTarget) {
     groupPublicKey33B64u: compressedSecp256k1PublicKeyB64u(11),
     ethereumAddress: '0x1111111111111111111111111111111111111111',
     contextBinding32B64u: b64u(32, 7),
+    applicationBindingDigestB64u: b64u(32, 9),
   });
 }
 

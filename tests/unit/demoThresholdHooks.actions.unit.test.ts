@@ -182,6 +182,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoTempoFeeTokenActions({
           isLoggedIn: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {
@@ -254,7 +255,7 @@ test.describe('demo threshold action hooks', () => {
     expect(result.stateAfter.target).toBeNull();
   });
 
-  test('useDemoTempoSigningActions runs drip + tempo sign paths', async ({ page }) => {
+  test('useDemoTempoSigningActions keeps drip disabled and runs tempo sign path', async ({ page }) => {
     const result = await page.evaluate(async ({ paths, tempoRpcHost }) => {
       const viteReactPath = '/node_modules/.vite/deps/react.js' as string;
       const viteReactDomClientPath = '/node_modules/.vite/deps/react-dom_client.js' as string;
@@ -368,6 +369,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoTempoSigningActions({
           isLoggedIn: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {
@@ -457,18 +459,9 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.fetchTempoGreetingCalls).toBe(1);
     expect(result.counters.refreshFundingAddressCalls).toBe(1);
     expect(result.counters.requestChainIds).toEqual([42431]);
-    expect(result.counters.dripIdempotencyKeys).toHaveLength(2);
-    expect(result.counters.dripIdempotencyKeys[0]).toContain('tempo_drip_click:');
-    expect(result.counters.dripIdempotencyKeys[1]).toContain('tempo_drip_click:');
-    expect(result.counters.dripIdempotencyKeys[0]).not.toBe(result.counters.dripIdempotencyKeys[1]);
-    expect(result.counters.dripWalletAddresses).toEqual([
-      '0x1111111111111111111111111111111111111111',
-      '0x1111111111111111111111111111111111111111',
-    ]);
-    expect(result.counters.dripCallData[0]).toMatch(/^0x867ae9d4/i);
-    expect(result.counters.dripCallData[0]?.toLowerCase()).toContain(
-      '1111111111111111111111111111111111111111',
-    );
+    expect(result.counters.dripIdempotencyKeys).toEqual([]);
+    expect(result.counters.dripWalletAddresses).toEqual([]);
+    expect(result.counters.dripCallData).toEqual([]);
     expect(result.stateAfter.tempoDripLoading).toBe(false);
     expect(result.stateAfter.tempoThresholdSignLoading).toBe(false);
   });
@@ -547,6 +540,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoArcSigningActions({
           canSignEvm: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {
@@ -676,6 +670,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoArcSigningActions({
           canSignEvm: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {
@@ -759,6 +754,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoTempoFeeTokenActions({
           isLoggedIn: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {
@@ -864,6 +860,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoTempoSigningActions({
           isLoggedIn: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {
@@ -975,6 +972,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoTempoSigningActions({
           isLoggedIn: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {
@@ -1092,6 +1090,7 @@ test.describe('demo threshold action hooks', () => {
       function Harness() {
         hookApi = useDemoArcSigningActions({
           canSignEvm: true,
+          walletId: 'frost-demo-k7p9m2',
           nearAccountId: 'alice.testnet',
           seams: {
             tempo: {

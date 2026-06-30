@@ -98,6 +98,73 @@ test('sendTransaction rejects direct broadcast without nonce readiness', async (
   expect(broadcastCalled).toBe(false);
 });
 
+test('executeActionInternal broadcasts with nonce readiness from signing result envelope', async () => {
+  const nonceLease: NonceLeaseRef = {
+    leaseId: 'lease-envelope',
+    operationId: 'operation-envelope',
+    operationFingerprint: 'fingerprint-envelope',
+  } as NonceLeaseRef;
+  const signedTransaction = new SignedTransaction({
+    transaction: { signerId: 'alice.testnet' } as never,
+    signature: { keyType: 0, signatureData: [1] } as never,
+    borsh_bytes: [2],
+  });
+  let broadcastNonceLease: NonceLeaseRef | undefined;
+  const nonceEvents: string[] = [];
+  const context = {
+    configs: {
+      network: {
+        chains: [{ network: 'near-testnet', rpcUrl: 'https://rpc.testnet.near.org' }],
+      },
+    },
+    nearClient: {
+      sendTransaction: async (tx: SignedTransaction) => {
+        broadcastNonceLease = tx.nonceLease;
+        return { transaction: { hash: 'tx-hash' } };
+      },
+    },
+    signingEngine: {
+      signNear: async () => ({
+        signedTransaction,
+        nearAccountId: 'alice.testnet',
+        nonceLease,
+      }),
+      getNonceCoordinator: () => ({
+        markBroadcastAccepted: async () => {
+          nonceEvents.push('accepted');
+        },
+        markFinalized: async () => {
+          nonceEvents.push('finalized');
+        },
+        markBroadcastRejected: async () => {
+          nonceEvents.push('rejected');
+        },
+      }),
+    },
+  } as unknown as SeamsWebContext;
+
+  const result = await executeActionInternal({
+    context,
+    nearAccountId: 'alice.testnet',
+    walletSession: walletSessionRefFromSession({
+      walletId: 'wallet-alice',
+      walletSessionUserId: 'wallet-alice',
+    }),
+    receiverId: 'contract.testnet',
+    actionArgs: {
+      type: ActionType.Transfer,
+      amount: '1',
+    },
+  });
+
+  expect(result).toMatchObject({
+    success: true,
+    transactionId: 'tx-hash',
+  });
+  expect(broadcastNonceLease).toEqual(nonceLease);
+  expect(nonceEvents).toEqual(['accepted', 'finalized']);
+});
+
 test('executeActionInternal forwards the original signing error to afterCall', async () => {
   const afterCalls: Array<{ ok: boolean; error?: string }> = [];
   const onErrors: string[] = [];

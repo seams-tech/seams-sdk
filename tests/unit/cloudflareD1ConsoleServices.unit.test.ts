@@ -182,7 +182,7 @@ function noop(): void {}
 
 function firstFakeD1Row<T>(query: string): T | null {
   if (query.includes('sqlite_master') && query.includes('runtime_snapshot_outbox')) {
-    return { table_count: 40 } as T;
+    return { table_count: 41 } as T;
   }
   if (query.includes('sqlite_master') && query.includes('email_otp_registration_attempts')) {
     return { table_count: 21 } as T;
@@ -347,6 +347,14 @@ function numberField(record: JsonRecord, key: string): number {
   return value;
 }
 
+function stringField(record: JsonRecord, key: string): string {
+  const value = record[key];
+  if (typeof value !== 'string') {
+    throw new Error(`Expected string field ${key}`);
+  }
+  return value;
+}
+
 function isJsonRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -457,6 +465,7 @@ test('D1 Router API storage options expose sponsored EVM only with executor conf
     runtimeSnapshots: bundle.runtimeSnapshots,
     config: sponsoredEvmCallConfig,
   });
+  expect(bundle.routerApiRouterOptions.sponsorship.pricing).toBeTruthy();
   expect(bundle.routerApiRouterOptions.sponsoredEvmCall?.publishableKeyAuth).toBe(
     bundle.routerApiRouterOptions.publishableKeyAuth,
   );
@@ -481,7 +490,7 @@ test('local D1 Worker ready smoke validates D1 tables and DO admission', async (
     backend: 'cloudflare_d1_do',
     namespace: 'seams-local-test',
     schemas: {
-      consoleTables: 40,
+      consoleTables: 41,
       signerTables: 21,
     },
     admission: {
@@ -512,6 +521,9 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     thresholdEd25519: { configured: true },
     cors: {
       allowedOrigins: [
+        'https://localhost',
+        'https://localhost:8443',
+        'https://localhost:9444',
         'http://127.0.0.1:9090',
         'http://localhost:9090',
         'http://127.0.0.1:8787',
@@ -591,10 +603,10 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
   });
 });
 
-test('local D1 Worker mounts sponsored EVM Router API route when local executor config is present', async () => {
+test('local D1 Worker mounts direct sponsored EVM Router API route when local executor config is present', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {
+    new Request('http://127.0.0.1:8787/sponsorships/evm/call', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -828,6 +840,99 @@ test('local D1 Worker serves dashboard onboarding state through D1 services', as
   }
 });
 
+test('local D1 publishable key creation publishes Tempo sponsorship runtime snapshot', async () => {
+  test.setTimeout(60_000);
+  const consoleTemp = createTemporaryD1Database();
+  const signerTemp = createTemporaryD1Database();
+
+  try {
+    await applyD1MigrationFiles(consoleTemp.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(signerTemp.database, listD1MigrationFiles('d1-signer'));
+    const env = {
+      ...createLocalD1WorkflowEnv({
+        consoleDatabase: consoleTemp.database,
+        signerDatabase: signerTemp.database,
+      }),
+      SPONSORED_EVM_EXECUTORS_JSON: createLocalSponsoredEvmExecutorsJson(),
+    };
+
+    const organizationResponse = await callLocalWorkflowWorker(env, {
+      method: 'POST',
+      path: '/console/onboarding/organization',
+      body: {
+        org: { name: 'Tempo Snapshot Org', slug: 'tempo-snapshot-org' },
+      },
+    });
+    expect(organizationResponse.status).toBe(201);
+
+    const projectResponse = await callLocalWorkflowWorker(env, {
+      method: 'POST',
+      path: '/console/onboarding/project',
+      body: {
+        project: { id: 'proj_tempo_snapshot', name: 'Tempo Snapshot Project' },
+        environment: { id: 'proj_tempo_snapshot-dev', name: 'Development' },
+      },
+    });
+    expect(projectResponse.status).toBe(201);
+    const projectResult = jsonRecordField(await readJsonRecord(projectResponse), 'result');
+    const projectId = stringField(jsonRecordField(projectResult, 'project'), 'id');
+    const environmentId = stringField(jsonRecordField(projectResult, 'environment'), 'id');
+
+    const apiKeyResponse = await callLocalWorkflowWorker(env, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        kind: 'publishable_key',
+        name: 'tempo-snapshot-browser',
+        environmentId,
+        allowedOrigins: ['https://localhost:8443'],
+        rateLimitBucket: 'default_web_v1',
+        quotaBucket: 'free_registrations_v1',
+      },
+    });
+    expect(apiKeyResponse.status).toBe(201);
+
+    const snapshotResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: `/console/runtime-snapshots/latest?environmentId=${encodeURIComponent(
+        environmentId,
+      )}&projectId=${encodeURIComponent(projectId)}`,
+    });
+    expect(snapshotResponse.status).toBe(200);
+    const snapshot = jsonRecordField(await readJsonRecord(snapshotResponse), 'snapshot');
+    expect(stringField(snapshot, 'environmentId')).toBe(environmentId);
+    expect(numberField(snapshot, 'version')).toBeGreaterThanOrEqual(1);
+    const gasSponsorship = jsonRecordField(jsonRecordField(snapshot, 'payload'), 'gasSponsorship');
+    expect(stringField(gasSponsorship, 'status')).toBe('resolved');
+    const resolvedPolicies = jsonArrayField(gasSponsorship, 'resolvedPolicies');
+    expect(resolvedPolicies).toHaveLength(1);
+    const policy = jsonRecordAt(resolvedPolicies, 0);
+    const pricingRow = await consoleTemp.database
+      .prepare(
+        `SELECT pricing_version
+           FROM sponsorship_pricing_rules
+          WHERE namespace = ?
+            AND environment_id = ?
+            AND policy_id = ?
+            AND chain_id = ?
+            AND status = 'active'`,
+      )
+      .bind(
+        'seams-local-workflow-smoke',
+        environmentId,
+        stringField(policy, 'policyId'),
+        42_431,
+      )
+      .first<{ pricing_version?: string }>();
+    expect(pricingRow?.pricing_version).toBe(
+      `tempo-testnet-static-v1:${stringField(policy, 'policyId')}`,
+    );
+  } finally {
+    cleanupTemporaryD1Database(consoleTemp.tempDir);
+    cleanupTemporaryD1Database(signerTemp.tempDir);
+  }
+});
+
 test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke on real D1', async () => {
   test.setTimeout(60_000);
   const consoleTemp = createTemporaryD1Database();
@@ -851,7 +956,7 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
       backend: 'cloudflare_d1_do',
       namespace: 'seams-local-workflow-smoke',
       schemas: {
-        consoleTables: 40,
+        consoleTables: 41,
         signerTables: 21,
       },
       admission: {

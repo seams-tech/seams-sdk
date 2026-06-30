@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { requireWalletKeyId } from '@shared/signing-lanes';
 import { getWalletSession, unlock } from '@/SeamsWeb/operations/auth/login';
+import { unlockDomain } from '@/SeamsWeb/operations/auth/walletAuth';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import {
@@ -1151,6 +1152,104 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
+  test('local wallet-auth unlock carries resolved implicit NEAR Ed25519 binding into login core', async () => {
+    clearAllStoredThresholdEd25519SessionRecords();
+    const nearAccountId = IMPLICIT_NEAR_ACCOUNT_ID;
+    const walletId = IMPLICIT_WALLET_ID;
+    const nearEd25519SigningKeyId = IMPLICIT_ED25519_KEY_SCOPE_ID;
+    await persistReadyEd25519WarmRecord({
+      sessionId: 'implicit-domain-seed-ed25519-session',
+      signingGrantId: 'implicit-domain-seed-ed25519-grant',
+      walletSessionJwt: 'jwt-implicit-domain-seed',
+      walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 3,
+    });
+
+    const connectCalls: Array<Record<string, unknown>> = [];
+    const activateCalls: Array<Record<string, unknown>> = [];
+    const context = createBaseContext({
+      signingEngine: {
+        getUserBySignerSlot: async () => ({
+          nearAccountId,
+          signerSlot: 1,
+          operationalPublicKey: 'ed25519:implicit-domain',
+        }),
+        getLastUser: async () => ({
+          nearAccountId,
+          signerSlot: 1,
+          operationalPublicKey: 'ed25519:implicit-domain',
+        }),
+        nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-implicit', signerSlot: 1 }],
+        connectEd25519Session: async (args: Record<string, unknown>) => {
+          connectCalls.push(args);
+          await persistReadyEd25519WarmRecord({
+            sessionId: 'implicit-domain-login-ed25519-session',
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
+            walletSessionJwt: 'jwt-implicit-domain-ed25519',
+            walletId,
+            nearAccountId,
+            nearEd25519SigningKeyId,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+          });
+          return {
+            ok: true,
+            sessionId: 'implicit-domain-login-ed25519-session',
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
+            jwt: 'jwt-implicit-domain-ed25519',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+          };
+        },
+        activateAuthenticatedWalletState: async (args: Record<string, unknown>) => {
+          activateCalls.push(args);
+        },
+      },
+    });
+    const deps = {
+      getContext: () => context,
+      walletIframe: {
+        shouldUseWalletIframe: () => false,
+        requireRouter: async () => {
+          throw new Error('wallet iframe should not be used');
+        },
+      },
+      signingEngine: {
+        ...context.signingEngine,
+        activateAuthenticatedWalletState: async (args: Record<string, unknown>) => {
+          activateCalls.push(args);
+        },
+      },
+      nearClient: {},
+      initWalletIframe: async () => undefined,
+    } as any;
+
+    try {
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlockDomain(deps, walletId, {
+            unlockSelection: { mode: 'ed25519_only', ed25519: true },
+          }),
+        { nearAccountId: String(nearAccountId), profileContinuitySnapshot: null },
+      );
+
+      expect(result.success, String(result.error || '')).toBe(true);
+      expect(connectCalls).toHaveLength(1);
+      expect(connectCalls[0]?.walletId).toBe(walletId);
+      expect(connectCalls[0]?.nearAccountId).toBe(String(nearAccountId));
+      expect(connectCalls[0]?.nearEd25519SigningKeyId).toBe(nearEd25519SigningKeyId);
+      expect(activateCalls).toHaveLength(1);
+      expect(activateCalls[0]?.walletId).toBe(walletId);
+      expect(activateCalls[0]?.nearAccountId).toBe(String(nearAccountId));
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
+  });
+
   test('returns active signingSession in threshold-signer warm mode', async () => {
     let bootstrapCalls = 0;
     let bootstrapArgs: Record<string, unknown> | null = null;
@@ -1226,7 +1325,8 @@ test.describe('unlock threshold warm-session requirements', () => {
     const sharedKey = bootstrapArgs?.['key'] as Record<string, unknown> | undefined;
     const lanePolicy = bootstrapArgs?.['lanePolicy'] as Record<string, unknown> | undefined;
     expect(String(lanePolicy?.thresholdSessionId || '')).toMatch(/^threshold-ecdsa-login-/);
-    expect(lanePolicy?.signingGrantId).toBe(WALLET_SIGNING_SESSION_ID);
+    expect(String(lanePolicy?.signingGrantId || '')).toMatch(/^wallet-ecdsa-login-/);
+    expect(lanePolicy?.signingGrantId).not.toBe(WALLET_SIGNING_SESSION_ID);
     expect(sharedKey?.keyScope).toBe('evm-family');
     expect(sharedKey?.ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
     expect(lanePolicy?.chainTarget).toEqual(EVM_CHAIN_TARGET);
@@ -3438,7 +3538,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     const signingGrantIds = bootstrapArgs.map((args) =>
       String(bootstrapLanePolicy(args).signingGrantId || ''),
     );
-    expect(new Set(signingGrantIds).size).toBe(1);
+    expect(new Set(signingGrantIds).size).toBe(2);
     expect(
       signingGrantIds.every((signingGrantId) =>
         signingGrantId.startsWith('wallet-ecdsa-login-'),

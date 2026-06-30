@@ -198,6 +198,7 @@ function makeWorkerCtx(args: {
 function installThresholdEcdsaFetchMock(args?: {
   failPresignInitAfter?: number;
   presignInitDelayMs?: number;
+  failFirstPresignStepAsStale?: boolean;
 }): {
   counters: ThresholdFetchCounters;
   restore: () => void;
@@ -264,6 +265,20 @@ function installThresholdEcdsaFetchMock(args?: {
     if (path.endsWith(ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH)) {
       counters.presignStep += 1;
       counters.presignStepPaths.push(path);
+      if (args?.failFirstPresignStepAsStale && counters.presignStep === 1) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'stale_session_state',
+            message:
+              'Router A/B ECDSA-HSS pool-fill live session unavailable; retry /router-ab/ecdsa-hss/presignature-pool/fill/init',
+          }),
+          {
+            status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
       return new Response(
         JSON.stringify({
           ok: true,
@@ -528,6 +543,44 @@ test.describe('Router A/B ECDSA-HSS presignature pool refill behavior', () => {
           expiresAtMs,
         },
       });
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('Router A/B pool-fill refill restarts once after stale DO live session state', async () => {
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignBigR33: PRESIGN_BIG_R_33,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock({ failFirstPresignStepAsStale: true });
+
+    try {
+      const refill = await refillRouterAbEcdsaHssClientPresignaturePool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningMaterial: clientSigningMaterial(),
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        credential: WALLET_SESSION_CREDENTIAL,
+        routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+        workerCtx,
+      });
+
+      expect(refill.ok).toBe(true);
+      expect(fetchMock.counters.presignInit).toBe(2);
+      expect(fetchMock.counters.presignStep).toBe(2);
+      expect(
+        getRouterAbEcdsaHssClientPresignaturePoolDepth({
+          relayerUrl: RELAYER_URL,
+          scope: ROUTER_AB_ECDSA_HSS_SCOPE,
+          participantIds: PARTICIPANT_IDS,
+        }),
+      ).toBe(1);
     } finally {
       fetchMock.restore();
     }

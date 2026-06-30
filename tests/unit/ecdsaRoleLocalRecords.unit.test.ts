@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parseWalletKeyId } from '@shared/utils/domainIds';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
@@ -46,13 +46,6 @@ function compressedPublicKeyB64u(prefix: 2 | 3, fill: number): string {
   return base64UrlEncode(bytes);
 }
 
-function parsedDomain<T>(
-  result: { ok: true; value: T } | { ok: false; error: { message: string } },
-): T {
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-}
-
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -60,14 +53,23 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 
 const walletId = toWalletId('wallet.testnet');
+const otherWalletId = toWalletId('other-wallet.testnet');
 const rpId = toRpId('localhost');
-const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-role-local'));
-const otherWalletKeyId = parsedDomain(parseWalletKeyId('wallet-key-role-local-other'));
 const keyHandle = 'ecdsa-key-handle';
 const passkeyCredentialIdB64u = 'passkey-credential-id';
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ehss-key');
 const signingRootId = toEcdsaHssSigningRootId('root');
 const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
+const walletKeyId = deriveEvmFamilySigningKeySlotId({
+  walletId,
+  signingRootId,
+  signingRootVersion,
+});
+const otherWalletKeyId = deriveEvmFamilySigningKeySlotId({
+  walletId: otherWalletId,
+  signingRootId,
+  signingRootVersion,
+});
 const hssClientSharePublicKey33B64u = compressedPublicKeyB64u(2, 11);
 const relayerPublicKey33B64u = compressedPublicKeyB64u(3, 12);
 const groupPublicKey33B64u = compressedPublicKeyB64u(2, 13);

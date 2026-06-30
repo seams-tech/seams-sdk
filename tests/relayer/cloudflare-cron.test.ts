@@ -37,7 +37,6 @@ test.describe('cloudflare cron billing finalization', () => {
         namespace: 'billing-ns',
         periodMonthUtc: '2026-01',
         orgIds: ['org-a', 'org-b'],
-        ensureSchema: false,
         now,
         runner: async (input) => {
           runnerInput = input;
@@ -59,7 +58,6 @@ test.describe('cloudflare cron billing finalization', () => {
     expect(runnerInput?.namespace).toBe('billing-ns');
     expect(runnerInput?.orgIds).toEqual(['org-a', 'org-b']);
     expect(runnerInput?.periodMonthUtc).toBe('2026-01');
-    expect(runnerInput?.ensureSchema).toBe(false);
     expect(runnerInput?.now).toBe(now);
   });
 });

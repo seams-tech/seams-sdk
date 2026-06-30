@@ -150,6 +150,7 @@ function makeActivationPrepareReq(override?: Partial<any>): any {
     payload: {
       activationId: 'activation-1',
       expiresAtMs: Date.now() + 60_000,
+      wallet: { kind: 'provided', walletId: 'frost-fjord-rgcmpa' },
       options: {},
       presentation: DEFAULT_ACTIVATION_PRESENTATION,
       ...override,
@@ -249,6 +250,7 @@ test.describe('wallet iframe host registration activation', () => {
           kind: 'wallet_iframe_registration_activation_v1',
           activationId: 'activation-1',
         }),
+        wallet: { kind: 'provided', walletId: 'frost-fjord-rgcmpa' },
       }),
     );
     expect(posts.some((msg) => msg.type === 'PM_REGISTRATION_ACTIVATION_READY')).toBe(true);
@@ -328,6 +330,34 @@ test.describe('wallet iframe host registration activation', () => {
     expect(registerCalls).toBe(0);
     expect(posts).toEqual([]);
     expect(document.querySelector('[data-seams-registration-activation-id]')).toBeNull();
+  });
+
+  test('activation prepare rejects missing or invalid provided wallets', async () => {
+    const posts: ChildToParentEnvelope[] = [];
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        registerPasskey: async () => ({ success: true }),
+      }),
+    );
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({ wallet: undefined }),
+      ),
+    ).rejects.toThrow('Registration activation requires a provided wallet');
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({ wallet: { kind: 'server_allocated' } }),
+      ),
+    ).rejects.toThrow('Registration activation requires a provided wallet');
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({ wallet: { kind: 'provided', walletId: '' } }),
+      ),
+    ).rejects.toThrow();
   });
 
   test('activation presentation rejects unsupported CSS properties', async () => {

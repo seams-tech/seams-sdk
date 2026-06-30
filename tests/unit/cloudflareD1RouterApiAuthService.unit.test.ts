@@ -17,6 +17,7 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
+import { buildD1ThresholdEd25519RegistrationSessionPolicy } from '../../packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
@@ -66,8 +67,7 @@ type WebAuthnAssertionFixture = {
 
 const TEST_COMBINED_NEAR_ACCOUNT_ID =
   '0000000000000000000000000000000000000000000000000000000000000001';
-const TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U =
-  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 function testEd25519PreparedServerState() {
   return {
@@ -123,6 +123,59 @@ function requireParsedDomainId<T>(result: { ok: true; value: T } | { ok: false }
   if (!result.ok) throw new Error('invalid test domain id');
   return result.value;
 }
+
+test('D1 Ed25519 registration session policy keeps passkey RP ID in authority scope', () => {
+  const rpId = requireParsedDomainId(parseWebAuthnRpId('localhost'));
+  const built = buildD1ThresholdEd25519RegistrationSessionPolicy({
+    requestedSessionPolicy: {
+      version: 'threshold_session_v1',
+      authorityScope: { kind: 'passkey_rp', rpId: 'localhost' },
+      thresholdSessionId: 'tsess-d1-passkey',
+      signingGrantId: 'wss-d1-passkey',
+      participantIds: [1, 2],
+      ttlMs: 600_000,
+      remainingUses: 3,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'local-signing-worker',
+      },
+    },
+    walletId: 'jade-orchid-2caqh9',
+    nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+    nearEd25519SigningKeyId: 'near-ed25519-signing-key-id',
+    relayerKeyId: 'ed25519:relayer',
+    expectedRpId: rpId,
+  });
+  expect(built.ok).toBe(true);
+  if (!built.ok) throw new Error(built.message);
+  expect(built.value.authorityScope).toEqual({ kind: 'passkey_rp', rpId });
+  expect(Object.prototype.hasOwnProperty.call(built.value, 'rpId')).toBe(false);
+});
+
+test('D1 Ed25519 registration session policy rejects root passkey RP ID', () => {
+  const rpId = requireParsedDomainId(parseWebAuthnRpId('localhost'));
+  const built = buildD1ThresholdEd25519RegistrationSessionPolicy({
+    requestedSessionPolicy: {
+      version: 'threshold_session_v1',
+      authorityScope: { kind: 'passkey_rp', rpId: 'localhost' },
+      rpId: 'localhost',
+      thresholdSessionId: 'tsess-d1-passkey',
+      signingGrantId: 'wss-d1-passkey',
+      ttlMs: 600_000,
+      remainingUses: 3,
+    },
+    walletId: 'jade-orchid-2caqh9',
+    nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
+    nearEd25519SigningKeyId: 'near-ed25519-signing-key-id',
+    relayerKeyId: 'ed25519:relayer',
+    expectedRpId: rpId,
+  });
+  expect(built).toMatchObject({
+    ok: false,
+    code: 'invalid_body',
+    message: 'threshold_ed25519.session_policy.rpId belongs in authorityScope',
+  });
+});
 
 class RecordingEmailOtpDeliveryProvider {
   readonly calls: CloudflareD1EmailOtpDeliveryProviderInput[] = [];
@@ -253,6 +306,16 @@ function isRecordingDurableObjectReplayReservationRequest(
 
 function recordingDurableObjectRequestKey(request: Record<string, unknown>): string {
   return String(request.key || '').trim();
+}
+
+function recordingDurableObjectRequestsIncludeKey(
+  requests: readonly Record<string, unknown>[],
+  key: string,
+): boolean {
+  for (const request of requests) {
+    if (recordingDurableObjectRequestKey(request) === key) return true;
+  }
+  return false;
 }
 
 function testEcdsaClientBootstrap(
@@ -2503,6 +2566,40 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
       `${prefix}server-allocated-wallet-reservation:${registration.intent.walletId}`,
     );
 
+    const providedWalletId = walletIdFromString('frost-fjord-rgcmpa');
+    const providedRegistration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'provided', walletId: providedWalletId },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2, 3],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+    });
+    expect(providedRegistration.ok).toBe(true);
+    if (!providedRegistration.ok) throw new Error(providedRegistration.message);
+    expect(providedRegistration.intent.walletId).toBe(providedWalletId);
+    expect(parseServerAllocatedWalletId(providedRegistration.intent.walletId).ok).toBe(true);
+    expect(
+      recordingDurableObjectRequestsIncludeKey(
+        durableObjects.stub.requests,
+        `${prefix}server-allocated-wallet-reservation:${providedWalletId}`,
+      ),
+    ).toBe(true);
+
     const addSignerRecord = durableObjects.stub.values.get(
       `${prefix}add-signer-intent:${addSigner.addSignerIntentGrant}`,
     );
@@ -2936,6 +3033,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
         evaluationResult: {
           contextBindingB64u: 'ed25519-context-binding',
           stagedEvaluatorArtifactB64u: 'ed25519-staged-evaluator-artifact',
+          serverEvalFinalizeOutputB64u: 'ed25519-server-finalize-output',
         },
       },
       ecdsa: {

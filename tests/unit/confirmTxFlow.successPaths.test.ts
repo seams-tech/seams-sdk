@@ -186,7 +186,8 @@ test.describe('confirmTxFlow – success paths', () => {
         });
         if (nearContextFixture.nearPublicKeyStr) {
           ctx.nonceCoordinator.initializeNearAccessKey({
-            accountId: nearContextFixture.nearAccountId || 'test-near-context.testnet',
+            walletId: nearContextFixture.walletId || 'test-wallet',
+            nearAccountId: nearContextFixture.nearAccountId || 'test-near-context.testnet',
             publicKey: nearContextFixture.nearPublicKeyStr,
           });
         }
@@ -264,7 +265,10 @@ test.describe('confirmTxFlow – success paths', () => {
           requestId: 'r1',
           type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
           summary: {},
-          payload: { nearAccountId: 'alice.testnet', publicKey: 'pk' },
+          payload: {
+            subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
+            publicKey: 'pk',
+          },
         };
 
         const msgs: any[] = [];
@@ -306,12 +310,8 @@ test.describe('confirmTxFlow – success paths', () => {
     // - For the initial DECRYPT_PRIVATE_KEY_WITH_PRF step, we should proceed directly to the
     //   TouchID/WebAuthn prompt (no "Confirm Decryption" UI that requires an extra click).
     //
-    // Therefore the effective confirmation behavior in host mode must be:
-    // - `uiMode: 'none'` (skip intermediate confirmer UI entirely)
-    // - `behavior: 'skipClick'` (no click gating; go straight to TouchID prompt)
-    //
-    // If we ever regress to `uiMode: 'drawer'` + `behavior: 'requireClick'`, the user is forced
-    // to click a redundant drawer before the TouchID prompt appears (the bug that prompted this test).
+    // Therefore host mode must skip intermediate confirmer UI entirely and go straight to
+    // the TouchID prompt.
     const result = await page.evaluate(
       async ({ paths }) => {
         const types = await import(paths.types);
@@ -391,7 +391,10 @@ test.describe('confirmTxFlow – success paths', () => {
             requestId: 'r-decrypt-host',
             type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
             summary: {},
-            payload: { nearAccountId: 'alice.testnet', publicKey: 'pk' },
+            payload: {
+              subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
+              publicKey: 'pk',
+            },
           } as any;
 
           // Simulate a config that would normally mount UI, and assert host-mode overrides it.
@@ -418,8 +421,6 @@ test.describe('confirmTxFlow – success paths', () => {
             credId: resp?.credential?.id,
             promptCalls,
             createdConfirmUiElements,
-            finalUiMode: confirmationConfig.uiMode,
-            finalBehavior: confirmationConfig.behavior,
           };
         } finally {
           // Restore globals for test isolation.
@@ -438,8 +439,6 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.credId).toBe('auth-cred');
     expect(result.promptCalls).toBe(1);
     expect(result.createdConfirmUiElements).toBe(0);
-    expect(result.finalUiMode).toBe('none');
-    expect(result.finalBehavior).toBe('skipClick');
   });
 
   test('Registration: collects registration credential without access-key nonce reservation', async ({
@@ -680,6 +679,7 @@ test.describe('confirmTxFlow – success paths', () => {
           payload: {
             intentDigest: 'intent-1',
             signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
+            walletId: 'carol-wallet',
             nearAccountId: 'carol.testnet',
             nearPublicKeyStr: 'pk',
             txSigningRequests: [{ receiverId: 'x', actions: [] }],
@@ -718,6 +718,188 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.reserved).toEqual(['201']);
     // Signing responses must not expose PRF in UserConfirm-driven design.
     expect(result.prf).toBeUndefined();
+  });
+
+  test('Signing: funds implicit NEAR account, waits for access key, then emits tx context', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const handle = mod.handlePromptFromWorker as Function;
+
+        const nearAccountId =
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+        const walletId = 'frost-grove-k7p9m2';
+        const nearPublicKeyStr = 'ed25519:test-implicit-public-key';
+        const originalFetch = globalThis.fetch.bind(globalThis);
+        const reserved: string[] = [];
+        let fundingCalls = 0;
+        let accessKeyLookups = 0;
+        let fundedRequestBody: any = null;
+        globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes('/near/implicit-account/fund')) {
+            fundingCalls += 1;
+            fundedRequestBody = JSON.parse(String(init?.body || '{}'));
+            return new Response(
+              JSON.stringify({
+                ok: true,
+                walletId,
+                nearAccountId,
+                fundedAmountYocto: '100000000000000000000000',
+                transactionHash: 'funding-tx-hash',
+              }),
+              {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+            );
+          }
+          return await originalFetch(input, init);
+        }) as typeof fetch;
+
+        try {
+          const ctx: any = {
+            relayerUrl: 'https://relay.test',
+            userPreferencesManager: {
+              getConfirmationConfig: () => ({
+                uiMode: 'none',
+                behavior: 'skipClick',
+                autoProceedDelay: 0,
+              }),
+            },
+            nearContextFixture: {
+              nearAccountId,
+              nearPublicKeyStr,
+              reserveNonces(n: number) {
+                reserved.push(...Array.from({ length: n }, (_, i) => String(301 + i)));
+                return reserved.slice(-n);
+              },
+              releaseNonce(_n: string) {},
+            },
+            nearClient: {
+              async viewAccessKey() {
+                accessKeyLookups += 1;
+                if (fundingCalls === 0) {
+                  throw new Error('Access key not found');
+                }
+                return { nonce: 300, permission: 'FullAccess' };
+              },
+              async viewBlock() {
+                return { header: { height: 3001, hash: 'h-implicit-funded' } };
+              },
+            },
+            touchIdPrompt: {
+              getRpId: () => 'example.localhost',
+              getAuthenticationCredentialsSerializedForChallengeB64u: async () =>
+                ({
+                  id: 'auth-cred',
+                  rawId: 'CQ',
+                  type: 'public-key',
+                  response: {
+                    clientDataJSON: 'AQ',
+                    authenticatorData: 'Ag',
+                    signature: 'Aw',
+                    userHandle: undefined,
+                  },
+                  clientExtensionResults: {
+                    prf: {
+                      results: {
+                        first: 'BQ',
+                        second: undefined,
+                      },
+                    },
+                  },
+                }) as any,
+            },
+            indexedDB: {
+              clientDB: {
+                resolveProfileAccountContext: async ({
+                  chainIdKey,
+                  accountAddress,
+                }: {
+                  chainIdKey: string;
+                  accountAddress: string;
+                }) =>
+                  (globalThis as any).__buildTestNearProfileAccountContext({
+                    chainIdKey,
+                    accountAddress,
+                  }),
+                listProfileAuthenticators: async () => [
+                  { credentialId: 'test-passkey', transports: [] },
+                ],
+                selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                  authenticatorsForPrompt: authenticators,
+                  wrongPasskeyError: undefined,
+                }),
+              },
+            },
+          };
+          await (globalThis as any).__attachTestNonceCoordinator(ctx);
+
+          const request = {
+            requestId: 'r-implicit-fund',
+            type: types.UserConfirmationType.SIGN_TRANSACTION,
+            summary: {},
+            payload: {
+              walletId,
+              intentDigest: 'intent-implicit-fund',
+              signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
+              nearAccountId,
+              nearPublicKeyStr,
+              nearFundingAuth: {
+                kind: 'wallet_session',
+                walletSessionJwt: 'wallet-session-jwt',
+              },
+              txSigningRequests: [{ receiverId: 'x', actions: [] }],
+              rpcCall: {
+                method: 'sign',
+                argsJson: {},
+                nearAccountId,
+                nearRpcUrl: 'https://rpc.testnet.near.org',
+              },
+            },
+          } as any;
+          const msgs: any[] = [];
+          const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
+          await handle(
+            ctx,
+            {
+              type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+              data: request,
+            },
+            worker,
+          );
+          const resp = msgs[0]?.data;
+          return {
+            confirmed: resp?.confirmed,
+            error: resp?.error,
+            tx: resp?.transactionContext,
+            nonceLeases: resp?.nonceLeases,
+            reserved,
+            fundingCalls,
+            accessKeyLookups,
+            fundedRequestBody,
+          };
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.confirmed, result.error || 'unknown error').toBe(true);
+    expect(result.tx?.nextNonce).toBe('301');
+    expect(result.nonceLeases).toHaveLength(1);
+    expect(result.reserved).toEqual(['301']);
+    expect(result.fundingCalls).toBe(1);
+    expect(result.accessKeyLookups).toBeGreaterThanOrEqual(2);
+    expect(result.fundedRequestBody).toEqual({
+      nearAccountId: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      nearPublicKeyStr: 'ed25519:test-implicit-public-key',
+    });
   });
 
   test('Delegate action: warm-session confirmation skips access-key readiness', async ({

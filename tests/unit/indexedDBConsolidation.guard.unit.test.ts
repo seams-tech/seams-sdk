@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import { LEGACY_INDEXED_DB_NAMES } from '../../packages/sdk-web/src/core/indexedDB/schemaNames';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -32,30 +31,6 @@ test.describe('IndexedDB consolidation source guards', () => {
     );
     expect(repositorySource).not.toMatch(/SIGNING_SESSION_SEAL_DB_NAME/);
     expect(repositorySource).not.toMatch(/SIGNING_SESSION_SEAL_DB_VERSION/);
-  });
-
-  test('legacy database name literals stay isolated to explicit boundary files', () => {
-    const allowedLegacyReferences = new Set([
-      'packages/sdk-web/src/core/indexedDB/index.ts',
-      'packages/sdk-web/src/core/indexedDB/schemaNames.ts',
-      'packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts',
-      'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts',
-      'packages/shared-ts/src/utils/signingSessionSeal.ts',
-    ]);
-    const sourceFiles = [
-      ...listSourceFiles('packages/sdk-web/src'),
-      ...listSourceFiles('packages/shared-ts/src'),
-    ].filter((relativePath) => !allowedLegacyReferences.has(relativePath));
-
-    for (const legacyName of LEGACY_INDEXED_DB_NAMES) {
-      const literalPattern = new RegExp(
-        `['"\`]${legacyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`,
-      );
-      const offenders = sourceFiles.filter((relativePath) =>
-        literalPattern.test(readRepoSource(relativePath)),
-      );
-      expect(offenders, legacyName).toEqual([]);
-    }
   });
 
   test('raw IndexedDB APIs stay behind persistence boundaries', () => {

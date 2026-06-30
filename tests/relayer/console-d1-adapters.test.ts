@@ -122,6 +122,11 @@ type D1MigrationTarget = {
   readonly expectedMigrationCount: number;
   readonly expectedTableCount: number;
 };
+
+async function applyConsoleD1Migrations(database: D1DatabaseLike): Promise<void> {
+  await applyD1MigrationFiles(database, listD1MigrationFiles('d1-console'));
+}
+
 type SponsoredRecordBuildInput = Parameters<RecordSponsoredExecutionInput['buildRecord']>[0];
 type SponsoredRecordBuildOutput = ReturnType<RecordSponsoredExecutionInput['buildRecord']>;
 type RawD1SponsoredCallInsertInput = {
@@ -6489,10 +6494,10 @@ test.describe('D1 adapter contracts', () => {
   test('billing reservations are trigger-atomic and idempotent', async () => {
     const temp = createTemporaryD1Database();
     try {
+      await applyConsoleD1Migrations(temp.database);
       const service = await createD1ConsoleBillingPrepaidReservationService({
         database: temp.database,
         namespace: 'd1-contracts',
-        ensureSchema: true,
         now: () => new Date('2026-06-27T00:00:00.000Z'),
         defaultReservationTtlMs: 60_000,
       });
@@ -6755,10 +6760,10 @@ test.describe('D1 adapter contracts', () => {
   test('billing credit purchases settle through D1 Stripe webhook idempotency', async () => {
     const temp = createTemporaryD1Database();
     try {
+      await applyConsoleD1Migrations(temp.database);
       const billing = await createD1ConsoleBillingService({
         database: temp.database,
         namespace: 'd1-contracts',
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
       });
       const ctx = {
@@ -6855,12 +6860,12 @@ test.describe('D1 adapter contracts', () => {
   test('billing monthly finalization persists D1 usage statements idempotently', async () => {
     const temp = createTemporaryD1Database();
     try {
+      await applyConsoleD1Migrations(temp.database);
       const namespace = 'd1-contracts';
       const orgId = 'org-d1-billing-monthly';
       const billing = await createD1ConsoleBillingService({
         database: temp.database,
         namespace,
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
       });
       const ctx = {
@@ -6891,7 +6896,6 @@ test.describe('D1 adapter contracts', () => {
         namespace,
         orgIds: [orgId],
         periodMonthUtc: '2026-05',
-        ensureSchema: false,
         now: fixedD1AtomicBillingNow,
       });
       expect(first).toMatchObject({
@@ -6941,7 +6945,6 @@ test.describe('D1 adapter contracts', () => {
         namespace,
         orgIds: [orgId],
         periodMonthUtc: '2026-05',
-        ensureSchema: false,
         now: fixedD1AtomicBillingNow,
       });
       expect(second).toMatchObject({
@@ -6963,24 +6966,22 @@ test.describe('D1 adapter contracts', () => {
   test('sponsored gas settlement writes reservation, billing, and call record in one D1 batch', async () => {
     const temp = createTemporaryD1Database();
     try {
+      await applyConsoleD1Migrations(temp.database);
       const namespace = 'd1-contracts';
       const billing = await createD1ConsoleBillingService({
         database: temp.database,
         namespace,
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
       });
       const prepaidReservations = await createD1ConsoleBillingPrepaidReservationService({
         database: temp.database,
         namespace,
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
         defaultReservationTtlMs: 60_000,
       });
       const sponsoredCalls = await createD1ConsoleSponsoredCallService({
         database: temp.database,
         namespace,
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
       });
       const ctx = {
@@ -7173,24 +7174,22 @@ test.describe('D1 adapter contracts', () => {
   test('sponsored gas settlement rejects stale D1 reservation transitions without side effects', async () => {
     const temp = createTemporaryD1Database();
     try {
+      await applyConsoleD1Migrations(temp.database);
       const namespace = 'd1-contracts';
       const billing = await createD1ConsoleBillingService({
         database: temp.database,
         namespace,
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
       });
       const prepaidReservations = await createD1ConsoleBillingPrepaidReservationService({
         database: temp.database,
         namespace,
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
         defaultReservationTtlMs: 60_000,
       });
       const sponsoredCalls = await createD1ConsoleSponsoredCallService({
         database: temp.database,
         namespace,
-        ensureSchema: true,
         now: fixedD1AtomicBillingNow,
       });
       const ctx = {
@@ -7289,10 +7288,10 @@ test.describe('D1 adapter contracts', () => {
   test('sponsored call idempotency returns the original record', async () => {
     const temp = createTemporaryD1Database();
     try {
+      await applyConsoleD1Migrations(temp.database);
       const service = await createD1ConsoleSponsoredCallService({
         database: temp.database,
         namespace: 'd1-contracts',
-        ensureSchema: true,
         now: () => new Date('2026-06-27T00:00:00.000Z'),
       });
       const ctx = {

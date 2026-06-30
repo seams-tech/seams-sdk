@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
@@ -44,6 +44,11 @@ const TEMPO_TARGET = {
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_SHARE_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: 'alice.testnet',
+  signingRootId: 'signing-root-1',
+  signingRootVersion: 'signing-root-v1',
+});
 
 function bootstrap(args: {
   chainId: number | string;
@@ -65,7 +70,7 @@ function bootstrap(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId('alice.testnet'),
-      walletKeyId: requireWalletKeyId('wallet-key-bootstrap-persistence'),
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       chainTarget: EVM_TARGET,
       keyHandle,
       ecdsaThresholdKeyId,
@@ -112,7 +117,7 @@ function bootstrap(args: {
       ethereumAddress: args.ownerAddress,
       keyHandle,
       ecdsaThresholdKeyId,
-      walletKeyId: requireWalletKeyId('wallet-key-bootstrap-persistence'),
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       relayerKeyId: 'relayer-key-1',
       relayerVerifyingShareB64u: VALID_RELAYER_PUBLIC_KEY_B64U,
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,

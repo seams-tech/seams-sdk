@@ -169,11 +169,9 @@ function inputFor(
 }
 
 function registrationPrepareInputFor(body: unknown, authService: Record<string, unknown>) {
-  return inputFor(
-    'wallet_registration_prepare',
-    body,
-    authService,
-  ) as Parameters<typeof handleRouterApiWalletRegistrationPrepare>[0];
+  return inputFor('wallet_registration_prepare', body, authService) as Parameters<
+    typeof handleRouterApiWalletRegistrationPrepare
+  >[0];
 }
 
 function ecdsaInventoryInputFor(args: {
@@ -883,6 +881,7 @@ test.describe('wallet registration route boundaries', () => {
               evaluationResult: {
                 contextBindingB64u: 'context',
                 stagedEvaluatorArtifactB64u: 'artifact',
+                serverEvalFinalizeOutputB64u: 'server-finalize-output',
                 [forbiddenField]: 'client-owned',
               },
             },
@@ -905,6 +904,38 @@ test.describe('wallet registration route boundaries', () => {
       });
     });
   }
+
+  test('finalize rejects Ed25519 HSS evaluation result without server finalize output', async () => {
+    let called = false;
+    const response = await handleRouterApiWalletRegistrationFinalize(
+      inputFor(
+        'wallet_registration_finalize',
+        {
+          registrationCeremonyId: 'wrc_123',
+          ed25519: {
+            evaluationResult: {
+              contextBindingB64u: 'context',
+              stagedEvaluatorArtifactB64u: 'artifact',
+            },
+          },
+        },
+        {
+          finalizeWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'ed25519.evaluationResult.serverEvalFinalizeOutputB64u is required',
+    });
+  });
 
   test('respond forwards only the normalized server-visible client request', async () => {
     let captured: unknown = null;
@@ -1056,6 +1087,7 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
+              serverEvalFinalizeOutputB64u: 'server-finalize-output',
             },
             sessionPolicy: {
               version: 'threshold_session_v1',
@@ -1131,6 +1163,7 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
+              serverEvalFinalizeOutputB64u: 'server-finalize-output',
             },
             sessionPolicy: {
               version: 'threshold_session_v1',

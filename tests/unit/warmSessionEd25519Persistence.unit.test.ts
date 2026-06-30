@@ -141,6 +141,7 @@ function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): voi
     clientVerifyingShareB64u,
     ed25519WorkerMaterialHandle,
     ed25519WorkerMaterialBindingDigest,
+    materialKeyId,
     materialCreatedAtMs: 1_800_000_000_000,
     keyVersion: 'threshold-ed25519-hss-v1',
     source: 'registration',

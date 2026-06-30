@@ -1587,6 +1587,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
 
         (window as any).__pamPasskeyRegisterCalls = 0;
         (window as any).__pamPasskeyRegisterWallets = [];
+        (window as any).__pamPasskeyRegisterKinds = [];
         function Harness() {
           const [inputUsername, setInputUsername] = React.useState('');
           const runtime = React.useMemo(
@@ -1609,10 +1610,11 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           const controller = usePasskeyAuthMenuController(
             {
               defaultMode: AuthMenuMode.Register,
-              onRegister: (options?: any) => {
+              onRegister: (request: any) => {
                 (window as any).__pamPasskeyRegisterCalls += 1;
+                (window as any).__pamPasskeyRegisterKinds.push(String(request?.kind || ''));
                 (window as any).__pamPasskeyRegisterWallets.push(
-                  String(options?.wallet?.walletId || ''),
+                  String(request?.wallet?.walletId || ''),
                 );
               },
             },
@@ -1624,6 +1626,11 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
             React.createElement('div', { id: 'implicit-show-input' }, String(controller.showAccountInput)),
             React.createElement('div', { id: 'implicit-readonly' }, String(controller.accountInputReadOnly)),
             React.createElement('div', { id: 'implicit-wallet-id' }, String(controller.currentValue || '')),
+            React.createElement(
+              'div',
+              { id: 'implicit-activation-wallet-id' },
+              String(controller.registrationActivationWallet?.walletId || ''),
+            ),
             React.createElement('div', { id: 'implicit-can-submit' }, String(controller.canSubmit)),
             React.createElement(
               'button',
@@ -1658,11 +1665,15 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('#implicit-show-input')).toHaveText('true');
     await expect(mount.locator('#implicit-readonly')).toHaveText('true');
     await expect(mount.locator('#implicit-wallet-id')).toHaveText(/^[a-z]+-[a-z]+-[a-z0-9]{6}$/);
+    await expect(mount.locator('#implicit-activation-wallet-id')).toHaveText(
+      (await mount.locator('#implicit-wallet-id').textContent()) || '',
+    );
     await expect(mount.locator('#implicit-can-submit')).toHaveText('true');
     const initialWalletId = await mount.locator('#implicit-wallet-id').textContent();
     await mount.getByRole('button', { name: 'Generate another wallet name' }).click();
     await expect(mount.locator('#implicit-wallet-id')).not.toHaveText(initialWalletId || '');
     const generatedWalletId = await mount.locator('#implicit-wallet-id').textContent();
+    await expect(mount.locator('#implicit-activation-wallet-id')).toHaveText(generatedWalletId || '');
     const button = mount.getByRole('button', { name: 'Create with Passkey' });
     await expect(button).toBeEnabled();
     await button.click();
@@ -1672,6 +1683,9 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterWallets))
       .toEqual([generatedWalletId]);
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterKinds))
+      .toEqual(['implicit_wallet']);
   });
 
   test('Passkey sponsored named registration keeps username input required', async ({ page }) => {

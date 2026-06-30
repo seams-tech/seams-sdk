@@ -181,7 +181,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
             warning: 'Decrypting your private key grants full control of your account.',
           },
           payload: {
-            nearAccountId: 'alice.testnet',
+            subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
             publicKey: '',
           },
         };
@@ -225,6 +225,190 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
 
     expect(result.requestId).toBe('sess-1');
     expect(result.confirmed).toBe(true);
+  });
+
+  test('preserves nonce leases across the worker confirmation bridge', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ workerPath }) => {
+        await import(workerPath);
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
+          req: any,
+          opts?: any,
+        ) => Promise<any>;
+
+        const request = {
+          requestId: 'near-tx-lease-1',
+          type: 'signTransaction',
+          summary: {
+            receiverId: 'contract.testnet',
+          },
+          payload: {
+            walletId: 'wallet-alice',
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'wallet-alice',
+              intent: 'transaction_sign',
+              sessionId: 'threshold-session-lease',
+              retention: 'volatile',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 1,
+            },
+          },
+        };
+
+        const originalAdd = self.addEventListener.bind(self);
+        self.addEventListener = ((type: string, listener: any, options?: any) => {
+          if (type === 'message') {
+            const wrapped = (ev: MessageEvent) => {
+              const data: any = ev.data;
+              if (data?.type === 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD') {
+                self.dispatchEvent(
+                  new MessageEvent('message', {
+                    data: {
+                      type: 'USER_PASSKEY_CONFIRM_RESPONSE',
+                      requestId: data.requestId,
+                      channelToken: data.channelToken,
+                      data: {
+                        requestId: data.data.requestId,
+                        confirmed: true,
+                        transactionContext: {
+                          nearPublicKeyStr: 'ed25519:test',
+                          nextNonce: '41',
+                          txBlockHeight: '123',
+                          txBlockHash: 'block-hash',
+                          accessKeyInfo: {
+                            nonce: '40',
+                            block_height: 123,
+                            block_hash: 'block-hash',
+                          },
+                        },
+                        nonceLeases: [
+                          {
+                            leaseId: 'lease-1',
+                            operationId: 'near-tx-lease-1',
+                            operationFingerprint: 'fingerprint-1',
+                            nonce: '41',
+                          },
+                        ],
+                      },
+                    },
+                  }),
+                );
+              }
+              listener(ev);
+            };
+            return originalAdd(type, wrapped, options);
+          }
+          return originalAdd(type, listener, options);
+        }) as any;
+
+        const resp = await awaitUserConfirmation(request, { timeoutMs: 250 });
+        return {
+          requestId: resp?.request_id,
+          confirmed: resp?.confirmed,
+          nonceLeases: resp?.nonce_leases,
+        };
+      },
+      { workerPath: WORKER_PATH },
+    );
+
+    expect(result).toEqual({
+      requestId: 'near-tx-lease-1',
+      confirmed: true,
+      nonceLeases: [
+        {
+          leaseId: 'lease-1',
+          operationId: 'near-tx-lease-1',
+          operationFingerprint: 'fingerprint-1',
+          nonce: '41',
+        },
+      ],
+    });
+  });
+
+  test('rejects transaction context without nonce leases across the worker confirmation bridge', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ workerPath }) => {
+        await import(workerPath);
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
+          req: any,
+          opts?: any,
+        ) => Promise<any>;
+
+        const request = {
+          requestId: 'near-tx-missing-lease-1',
+          type: 'signTransaction',
+          summary: {
+            receiverId: 'contract.testnet',
+          },
+          payload: {
+            walletId: 'wallet-alice',
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'wallet-alice',
+              intent: 'transaction_sign',
+              sessionId: 'threshold-session-missing-lease',
+              retention: 'volatile',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 1,
+            },
+          },
+        };
+
+        const originalAdd = self.addEventListener.bind(self);
+        self.addEventListener = ((type: string, listener: any, options?: any) => {
+          if (type === 'message') {
+            const wrapped = (ev: MessageEvent) => {
+              const data: any = ev.data;
+              if (data?.type === 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD') {
+                self.dispatchEvent(
+                  new MessageEvent('message', {
+                    data: {
+                      type: 'USER_PASSKEY_CONFIRM_RESPONSE',
+                      requestId: data.requestId,
+                      channelToken: data.channelToken,
+                      data: {
+                        requestId: data.data.requestId,
+                        confirmed: true,
+                        transactionContext: {
+                          nearPublicKeyStr: 'ed25519:test',
+                          nextNonce: '41',
+                          txBlockHeight: '123',
+                          txBlockHash: 'block-hash',
+                          accessKeyInfo: {
+                            nonce: '40',
+                            block_height: 123,
+                            block_hash: 'block-hash',
+                          },
+                        },
+                      },
+                    },
+                  }),
+                );
+              }
+              listener(ev);
+            };
+            return originalAdd(type, wrapped, options);
+          }
+          return originalAdd(type, listener, options);
+        }) as any;
+
+        try {
+          await awaitUserConfirmation(request, { timeoutMs: 250 });
+          return { ok: true };
+        } catch (error: any) {
+          return { ok: false, message: String(error?.message || error) };
+        }
+      },
+      { workerPath: WORKER_PATH },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('requires nonceLeases');
   });
 
   test('preserves Email OTP code and challenge id across the worker confirmation bridge', async ({
@@ -330,7 +514,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
             warning: 'Decrypting your private key grants full control of your account.',
           },
           payload: {
-            nearAccountId: 'alice.testnet',
+            subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
             publicKey: '',
           },
         };

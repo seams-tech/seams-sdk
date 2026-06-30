@@ -82,28 +82,37 @@ async function runFlow(
       }
 
       function useSeamsHook() {
+        const walletId = 'frost-giant-8n1lfz';
+        const nearAccountId = '13f209913f2d5d9cd8d7ec99a9a93f8c7b';
         return {
-          accountInputState: { targetAccountId: 'alice.testnet', accountExists: true },
-          unlock: async (nearAccountId: string) => {
-            counters.loginCalls.push(String(nearAccountId || ''));
+          accountInputState: {
+            targetWalletId: walletId,
+            targetAccountId: nearAccountId,
+            accountExists: true,
+          },
+          unlock: async (selectedWalletId: string) => {
+            counters.loginCalls.push(String(selectedWalletId || ''));
             return {
               success: true,
-              nearAccountId: String(nearAccountId || 'alice.testnet'),
+              walletId: String(selectedWalletId || walletId),
+              nearAccountId,
               jwt: 'mock-jwt-token',
             };
           },
           registerPasskey: async () => ({
             success: true,
-            nearAccountId: 'alice.testnet',
+            walletId,
+            nearAccountId,
             transactionId: 'mock-registration-tx',
           }),
           seams: {
             recovery: {
-              syncAccount: async (args?: { accountId?: string }) => {
-                counters.syncCalls.push(String(args?.accountId || ''));
+              syncAccount: async (args?: { walletId?: string }) => {
+                counters.syncCalls.push(String(args?.walletId || ''));
                 return {
                   success: true,
-                  accountId: 'alice.testnet',
+                  accountId: nearAccountId,
+                  walletId,
                   publicKey: 'ed25519:mock-synced',
                   message: 'synced',
                   loginState: { isLoggedIn: true },
@@ -197,7 +206,7 @@ test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
 
   test('register flow does not auto-provision Tempo/EVM signers', async ({ page }) => {
     const result = await runFlow(page, { flow: 'register' });
-    expect(result.loggedInCalls).toEqual(['alice.testnet']);
+    expect(result.loggedInCalls).toEqual(['13f209913f2d5d9cd8d7ec99a9a93f8c7b']);
     expect(result.loginCalls).toEqual([]);
     expect(result.loginError).toBeNull();
     expect(result.syncCalls).toEqual([]);
@@ -206,8 +215,8 @@ test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
 
   test('login flow succeeds with a basic successful login result', async ({ page }) => {
     const result = await runFlow(page, { flow: 'login' });
-    expect(result.loggedInCalls).toEqual(['alice.testnet']);
-    expect(result.loginCalls).toEqual(['alice.testnet']);
+    expect(result.loggedInCalls).toEqual(['13f209913f2d5d9cd8d7ec99a9a93f8c7b']);
+    expect(result.loginCalls).toEqual(['frost-giant-8n1lfz']);
     expect(result.loginError).toBeNull();
     expect(result.syncCalls).toEqual([]);
     expect(result.syncError).toBeNull();
@@ -215,10 +224,10 @@ test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
 
   test('sync flow is wired to recovery.syncAccount', async ({ page }) => {
     const result = await runFlow(page, { flow: 'sync' });
-    expect(result.loggedInCalls).toEqual(['alice.testnet']);
+    expect(result.loggedInCalls).toEqual(['13f209913f2d5d9cd8d7ec99a9a93f8c7b']);
     expect(result.loginCalls).toEqual([]);
     expect(result.loginError).toBeNull();
-    expect(result.syncCalls).toEqual(['alice.testnet']);
+    expect(result.syncCalls).toEqual(['frost-giant-8n1lfz']);
     expect(result.syncError).toBeNull();
   });
 

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
-import bs58 from 'bs58';
 import { ed25519 } from '@noble/curves/ed25519.js';
+import { base58Encode } from '../../packages/shared-ts/src/utils/encoders';
 
 const WORKER_PATH = '/sdk/workers/passkey-confirm.worker.js';
 
@@ -11,7 +11,7 @@ function toB64u(bytes: Uint8Array): string {
 
 function deriveExpectedPublicKey(seedBytes: Uint8Array): string {
   const publicKeyBytes = ed25519.getPublicKey(seedBytes);
-  return `ed25519:${bs58.encode(publicKeyBytes)}`;
+  return `ed25519:${base58Encode(publicKeyBytes)}`;
 }
 
 test.describe('passkey-confirm export flow worker', () => {
@@ -197,7 +197,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-2',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                walletId: 'alice.testnet',
+                walletId: 'frost-vermillion-k7p9m2',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',
@@ -251,7 +251,7 @@ test.describe('passkey-confirm export flow worker', () => {
       data: {
         ok: false,
         cancelled: true,
-        accountId: 'alice.testnet',
+        accountId: 'frost-vermillion-k7p9m2',
         exportedSchemes: [],
       },
     });
@@ -427,7 +427,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-4',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                walletId: 'alice.testnet',
+                walletId: 'frost-vermillion-k7p9m2',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',
@@ -469,7 +469,7 @@ test.describe('passkey-confirm export flow worker', () => {
       data: {
         ok: false,
         cancelled: true,
-        accountId: 'alice.testnet',
+        accountId: 'frost-vermillion-k7p9m2',
         exportedSchemes: [],
       },
     });
@@ -707,10 +707,18 @@ test.describe('passkey-confirm export flow worker', () => {
       'showSecurePrivateKeyUi',
     ]);
     expect(result.showPayloads[0]).toMatchObject({
+      subject: {
+        kind: 'near_wallet',
+        nearAccountId: 'alice.testnet',
+      },
       loading: true,
       publicKey: expectedPublicKey,
     });
     expect(result.showPayloads[1]).toMatchObject({
+      subject: {
+        kind: 'near_wallet',
+        nearAccountId: 'alice.testnet',
+      },
       loading: false,
       publicKey: expectedPublicKey,
     });
@@ -800,7 +808,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-ecdsa-hss-happy-path',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                walletId: 'alice.testnet',
+                walletId: 'frost-vermillion-k7p9m2',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',
@@ -863,10 +871,18 @@ test.describe('passkey-confirm export flow worker', () => {
     ]);
     expect(result.firstPromptCredential).toBeUndefined();
     expect(result.showPayloads[0]).toMatchObject({
+      subject: {
+        kind: 'evm_wallet',
+        walletId: 'frost-vermillion-k7p9m2',
+      },
       loading: true,
       publicKey: publicKeyHex,
     });
     expect(result.showPayloads[1]).toMatchObject({
+      subject: {
+        kind: 'evm_wallet',
+        walletId: 'frost-vermillion-k7p9m2',
+      },
       loading: false,
       publicKey: publicKeyHex,
     });
@@ -883,7 +899,7 @@ test.describe('passkey-confirm export flow worker', () => {
       success: true,
       data: {
         ok: true,
-        accountId: 'alice.testnet',
+        accountId: 'frost-vermillion-k7p9m2',
         exportedSchemes: ['secp256k1'],
       },
     });
@@ -912,7 +928,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-retired-ecdsa-hss-kind',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                walletId: 'alice.testnet',
+                walletId: 'frost-vermillion-k7p9m2',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',

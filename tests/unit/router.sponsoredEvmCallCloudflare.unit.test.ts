@@ -83,10 +83,16 @@ test.describe('cloudflare sponsored evm call route', () => {
     expect(response.status).toBe(404);
   });
 
-  test('handles the configured sponsorship route', async () => {
+  test('warns and fails closed when sponsored route is mounted without pricing', async () => {
+    const warnings: unknown[][] = [];
     const handler = createCloudflareRouter(makeFakeAuthService(), {
       corsOrigins: ['https://example.localhost'],
       sponsoredEvmCall: makeSponsoredOptions(),
+      logger: {
+        warn: (...args: unknown[]) => {
+          warnings.push(args);
+        },
+      },
     });
 
     const response = await callCf(handler, {
@@ -97,7 +103,8 @@ test.describe('cloudflare sponsored evm call route', () => {
     });
 
     expect(response.status).not.toBe(404);
-    expect(response.status).toBe(401);
-    expect(response.json?.code).toBe('publishable_key_missing');
+    expect(response.status).toBe(503);
+    expect(response.json?.code).toBe('sponsorship_pricing_unavailable');
+    expect(warnings[0]?.[0]).toBe('[sponsored-evm-call][pricing-unconfigured]');
   });
 });

@@ -53,9 +53,49 @@ test.describe('threshold ECDSA key-enrollment bootstrap parity gate', () => {
     });
   });
 
-  test('manual bootstrap still fails on startup parity errors', async () => {
+  test('default bootstrap soft-fails retryable well-known fetch errors', async () => {
     const ensureParity = async () => {
-      throw new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502');
+      throw Object.assign(
+        new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502'),
+        { code: 'sealed_refresh_parity_http_error' },
+      );
+    };
+
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      await expect(
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
+          kind: 'default_bootstrap_parity',
+          walletId: 'alice.testnet',
+          chainTarget: EVM_CHAIN_TARGET,
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(String(warnings[0]?.[0] || '')).toContain(
+      'default bootstrap skipped retryable sealed-refresh capability fetch failure',
+    );
+    expect(warnings[0]?.[1]).toMatchObject({
+      walletId: 'alice.testnet',
+      chainTarget: 'evm:eip155:11155111',
+      error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
+    });
+  });
+
+  test('default bootstrap still fails closed on parity mismatches', async () => {
+    const ensureParity = async () => {
+      throw Object.assign(
+        new Error('[sealed-refresh-parity] Client/server mismatch for fields: keyVersion'),
+        { code: 'sealed_refresh_parity_mismatch' },
+      );
     };
 
     await expect(
@@ -63,8 +103,8 @@ test.describe('threshold ECDSA key-enrollment bootstrap parity gate', () => {
         kind: 'default_bootstrap_parity',
         walletId: 'alice.testnet',
         chainTarget: EVM_CHAIN_TARGET,
-        }),
-    ).rejects.toThrow('Well-known endpoint returned HTTP 502');
+      }),
+    ).rejects.toThrow('Client/server mismatch');
   });
 
   test('transaction-sign bootstrap soft-fails retryable well-known fetch errors', async () => {

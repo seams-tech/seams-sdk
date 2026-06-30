@@ -213,7 +213,10 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           document.body.appendChild(scrollHost);
 
           const states: string[] = [];
+          const walletId =
+            'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
+            wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
               label: 'Create with Passkey',
@@ -391,7 +394,10 @@ test.describe('WalletIframeRouter registration activation surface', () => {
           document.body.appendChild(target);
 
           const states: string[] = [];
+          const walletId =
+            'frost-fjord-rgcmpa' as import('@shared/utils/registrationIntent').WalletId;
           const surface = router.createPasskeyRegistrationActivationSurface({
+            wallet: { kind: 'provided', walletId },
             presentation: {
               kind: 'outline_overlay',
               label: 'Create with Passkey',

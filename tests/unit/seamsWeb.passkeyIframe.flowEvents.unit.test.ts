@@ -7,6 +7,7 @@ const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 
 const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
   const accountId = 'alice.testnet';
+  const walletId = 'frost-orchid-k7p9m2';
 
   const eventBase = (requestId, flow, phase, step, status, message, extra = {}) => ({
     version: 2,
@@ -94,7 +95,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
         ].forEach((payload) => postProgress(requestId, payload));
         postResult(requestId, {
           success: true,
-          walletId: accountId,
+          walletId,
           nearAccountId: accountId,
           loggedInNearAccountId: accountId,
           signerSelectionKind: signerSelection && (signerSelection.kind || signerSelection.mode),

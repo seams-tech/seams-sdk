@@ -11,10 +11,12 @@ import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
 } from '@/core/signingEngine/session/persistence/records';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   parseEd25519ClientVerifyingShareB64u,
   parseEd25519SealedWorkerMaterialRef,
   parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialHandle,
   parseEd25519WorkerMaterialKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { SigningSessionStatus } from '@/core/types/seams';
@@ -687,6 +689,77 @@ test.describe('near signing session selection', () => {
       sealedWorkerMaterialB64u: 'retain-material-sealed-blob',
       materialFormatVersion: 'ed25519_worker_material_v1',
       materialKeyId: 'retain-material-key-id',
+      keyVersion: 'kek-s-test',
+    });
+  });
+
+  test('retains runtime Ed25519 worker material key when minting a new login session', () => {
+    clearAllStoredThresholdEd25519SessionRecords();
+    const nearAccountId = 'retain-runtime-material-passkey-ed25519.testnet';
+    const runtimePolicyScope = {
+      orgId: 'org-retain-runtime-material',
+      projectId: 'project-retain-runtime-material',
+      envId: 'dev',
+      signingRootVersion: 'default',
+    } as const;
+    const common = {
+      kind: 'jwt_passkey' as const,
+      passkeyCredentialIdB64u: 'credential-ed25519-runtime-selection',
+      walletId: nearAccountId,
+      nearAccountId: toAccountId(nearAccountId),
+      nearEd25519SigningKeyId: nearAccountId,
+      rpId: 'localhost',
+      relayerUrl: 'https://localhost:9444',
+      relayerKeyId: 'ed25519:retain-runtime-material-relayer-key',
+      participantIds: [1, 2],
+      sessionKind: 'jwt' as const,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 2,
+      signerSlot: 1,
+      runtimePolicyScope,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1' as const,
+        signingWorkerId: 'signing-worker-local',
+      },
+    };
+    persistWarmSessionEd25519Capability({
+      ...common,
+      sessionId: 'threshold-retain-runtime-material-old',
+      signingGrantId: 'wallet-retain-runtime-material-old',
+      jwt: 'router-ab-ed25519-retain-runtime-material-old-jwt',
+      clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
+        'retain-runtime-material-client-verifying-share',
+      ),
+      ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
+        'retain-runtime-material-handle',
+      ),
+      ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+        'retain-runtime-material-binding-digest',
+      ),
+      materialKeyId: parseEd25519WorkerMaterialKeyId('retain-runtime-material-key-id'),
+      materialCreatedAtMs: Date.now(),
+      keyVersion: 'kek-s-test',
+      source: 'registration' as const,
+      updatedAtMs: 1,
+    });
+
+    persistWarmSessionEd25519Capability({
+      ...common,
+      sessionId: 'threshold-retain-runtime-material-new',
+      signingGrantId: 'wallet-retain-runtime-material-new',
+      jwt: 'router-ab-ed25519-retain-runtime-material-new-jwt',
+      source: 'login' as const,
+      updatedAtMs: 2,
+    });
+
+    const newRecord = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+      'threshold-retain-runtime-material-new',
+    );
+    expect(newRecord).toMatchObject({
+      clientVerifyingShareB64u: 'retain-runtime-material-client-verifying-share',
+      ed25519WorkerMaterialHandle: 'retain-runtime-material-handle',
+      ed25519WorkerMaterialBindingDigest: 'retain-runtime-material-binding-digest',
+      materialKeyId: 'retain-runtime-material-key-id',
       keyVersion: 'kek-s-test',
     });
   });

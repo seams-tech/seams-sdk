@@ -101,4 +101,42 @@ test.describe('OverlayController', () => {
     expect(res.afterUpdate.width).toBe('150px');
     expect(res.afterUpdate.height).toBe('60px');
   });
+
+  test('forceHide clears sticky overlay lock and makes iframe inert', async ({ page }) => {
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.overlay);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const overlay = new OverlayController({ ensureIframe: () => iframe });
+
+        overlay.showFullscreen();
+        overlay.setSticky(true);
+        overlay.hide();
+        const afterStickyHide = overlay.getState();
+
+        overlay.forceHide();
+        const afterForceHide = {
+          ...overlay.getState(),
+          pointerEvents: getComputedStyle(iframe).pointerEvents,
+          ariaHidden: iframe.getAttribute('aria-hidden'),
+          width: getComputedStyle(iframe).width,
+          height: getComputedStyle(iframe).height,
+        };
+
+        return { afterStickyHide, afterForceHide };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(res.afterStickyHide.visible).toBe(true);
+    expect(res.afterStickyHide.sticky).toBe(true);
+    expect(res.afterForceHide.visible).toBe(false);
+    expect(res.afterForceHide.sticky).toBe(false);
+    expect(res.afterForceHide.pointerEvents).toBe('none');
+    expect(res.afterForceHide.ariaHidden).toBe('true');
+    expect(res.afterForceHide.width).toBe('0px');
+    expect(res.afterForceHide.height).toBe('0px');
+  });
 });

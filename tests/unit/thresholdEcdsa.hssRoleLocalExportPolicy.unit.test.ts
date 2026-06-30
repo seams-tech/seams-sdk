@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 import type {
   EcdsaHssExportShareRequest,
@@ -70,10 +71,14 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
 
   const walletId = 'wallet-user-1';
   const rpId = 'wallet.example.test';
-  const walletKeyId = `wallet-key-${walletId}`;
   const ecdsaThresholdKeyId = 'ecdsa-key-1';
   const signingRootId = 'signing-root';
   const signingRootVersion = 'default';
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId,
+    signingRootId,
+    signingRootVersion,
+  });
   const relayerKeyId = 'relayer-key-1';
   const participantIds = [1, 2];
 
@@ -90,7 +95,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   const bootstrap = await svc.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -121,13 +126,13 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     keyScope: 'evm-family',
     keyHandle: bootstrapValue.keyHandle,
     relayerKeyId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     thresholdExpiresAtMs: bootstrapValue.expiresAtMs,
     participantIds: bootstrapValue.participantIds,
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
-        wallet_key_id: walletKeyId,
+        wallet_key_id: evmFamilySigningKeySlotId,
         wallet_id: walletId,
         ecdsa_threshold_key_id: ecdsaThresholdKeyId,
         signing_root_id: signingRootId,
@@ -168,7 +173,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     const requestWithoutDigests = {
       formatVersion: 'ecdsa-hss-role-local-export' as const,
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       relayerKeyId,
       contextBinding32B64u: input?.contextBinding32B64u ?? clientBootstrap.contextBinding32B64u,
@@ -182,7 +187,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     const confirmationDigest32B64u = await digestB64u({
       version: EXPORT_CONFIRMATION_DIGEST_VERSION,
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       relayerKeyId,
       contextBinding32B64u: requestWithoutDigests.contextBinding32B64u,
@@ -205,7 +210,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
         operation: 'explicit_key_export',
         keyHandle: bootstrapValue.keyHandle,
         walletId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId,
         relayerKeyId,
         signingRootId: bootstrapValue.signingRootId,
@@ -241,7 +246,13 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     const bootstrapRequest = {
       formatVersion: 'ecdsa-hss-role-local',
       walletId: 'wallet-user-1',
-      walletKeyId: 'wallet-key-wallet-user-1',
+      evmFamilySigningKeySlotId: String(
+        deriveEvmFamilySigningKeySlotId({
+          walletId: 'wallet-user-1',
+          signingRootId: 'signing-root',
+          signingRootVersion: 'default',
+        }),
+      ),
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: 'signing-root',
       signingRootVersion: 'default',
@@ -265,6 +276,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       'walletSessionUserId',
       'subject_id',
       'wallet_session_user_id',
+      'walletKeyId',
       'wallet_id',
       'wallet_key_id',
       'ecdsa_threshold_key_id',

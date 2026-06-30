@@ -9,7 +9,6 @@ import {
   createThresholdEcdsaKeyStore,
   createThresholdEd25519KeyStore,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore';
-import { createThresholdEcdsaSigningStores } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
 import { parseEcdsaHssRoleLocalKeyRecord } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type {

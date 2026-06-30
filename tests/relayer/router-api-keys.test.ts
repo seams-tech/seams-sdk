@@ -8,6 +8,7 @@ import {
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
   createRouterApiKeyAuthAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
   createRouterApiRouter,
   type ConsoleApiKeyService,
   type ConsoleWallet,
@@ -117,6 +118,50 @@ async function createActiveSecret(
 }
 
 test.describe('Router API key auth (express)', () => {
+  test('auth adapters preserve class-backed service method binding', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+    });
+    const publishable = await apiKeys.createApiKey(apiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'browser-key',
+      environmentId: 'env-prod',
+      allowedOrigins: ['https://example.localhost'],
+    });
+    const apiKeysRequiringThis = {
+      inner: apiKeys,
+      authenticateApiKey: async function (
+        this: { inner: ConsoleApiKeyService },
+        request: Parameters<NonNullable<ConsoleApiKeyService['authenticateApiKey']>>[0],
+      ) {
+        return await this.inner.authenticateApiKey!(request);
+      },
+      authenticatePublishableKey: async function (
+        this: { inner: ConsoleApiKeyService },
+        request: Parameters<NonNullable<ConsoleApiKeyService['authenticatePublishableKey']>>[0],
+      ) {
+        return await this.inner.authenticatePublishableKey!(request);
+      },
+    } as ConsoleApiKeyService & { inner: ConsoleApiKeyService };
+
+    const secretAuth = await createRouterApiKeyAuthAdapter(apiKeysRequiringThis).authenticate({
+      secret,
+      endpoint: 'POST /wallets/register/intent',
+      requiredScopes: ['accounts.create'],
+      environmentId: 'env-prod',
+    });
+    expect(secretAuth.ok).toBe(true);
+
+    const publishableAuth = await createRouterApiPublishableKeyAuthAdapter(
+      apiKeysRequiringThis,
+    ).authenticate({
+      secret: publishable.secret,
+      origin: 'https://example.localhost',
+      environmentId: 'env-prod',
+    });
+    expect(publishableAuth.ok).toBe(true);
+  });
 
   test('rejects missing API key', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();

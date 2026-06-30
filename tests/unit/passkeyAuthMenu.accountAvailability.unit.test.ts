@@ -49,13 +49,22 @@ test.describe('Passkey auth account availability', () => {
         },
         auth: {
           async getRecentUnlocks() {
+            const account = {
+              walletId: 'aerp1',
+              displayName: 'aerp1',
+              nearAccountId: 'aerp1.w3a-v1.testnet',
+              signerSlot: 1,
+              authMethod: 'passkey',
+            };
             return {
+              walletIds: ['aerp1'],
               accountIds: ['aerp1.w3a-v1.testnet'],
-              lastUsedAccount: { nearAccountId: 'aerp1.w3a-v1.testnet' },
+              accounts: [account],
+              lastUsedAccount: account,
             };
           },
-          async hasPasskeyCredential() {
-            return true;
+          async hasPasskeyCredential(walletId: string) {
+            return walletId === 'aerp1';
           },
         },
         getContext() {
@@ -119,6 +128,7 @@ test.describe('Passkey auth account availability', () => {
           const hook = (window as any).__w3aAccountAvailabilityHook;
           return (
             hook?.inputUsername === 'aerp1' &&
+            hook?.targetWalletId === 'aerp1' &&
             hook?.targetAccountId === 'aerp1.w3a-v1.testnet' &&
             viewAccountCalls > 0
           );
@@ -129,9 +139,11 @@ test.describe('Passkey auth account availability', () => {
       const hook = (window as any).__w3aAccountAvailabilityHook;
       const snapshot = {
         inputUsername: String(hook?.inputUsername || ''),
+        targetWalletId: String(hook?.targetWalletId || ''),
         targetAccountId: String(hook?.targetAccountId || ''),
         isUsingExistingAccount: Boolean(hook?.isUsingExistingAccount),
         accountExists: Boolean(hook?.accountExists),
+        passkeyCredentialExists: Boolean(hook?.passkeyCredentialExists),
         viewAccountCalls,
         viewAccessKeyListCalls,
       };
@@ -141,9 +153,11 @@ test.describe('Passkey auth account availability', () => {
     }, { paths: IMPORT_PATHS });
 
     expect(result.inputUsername).toBe('aerp1');
+    expect(result.targetWalletId).toBe('aerp1');
     expect(result.targetAccountId).toBe('aerp1.w3a-v1.testnet');
     expect(result.isUsingExistingAccount).toBe(true);
     expect(result.accountExists).toBe(false);
+    expect(result.passkeyCredentialExists).toBe(true);
     expect(result.viewAccountCalls).toBeGreaterThan(0);
     expect(result.viewAccessKeyListCalls).toBe(0);
   });
@@ -173,7 +187,7 @@ test.describe('Passkey auth account availability', () => {
         root.render(
           React.createElement(AccountExistsBadge, {
             isUsingExistingAccount: true,
-            accountExists: false,
+            targetExists: false,
             mode: AuthMenuMode.Register,
             secure: true,
           }),

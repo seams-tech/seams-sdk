@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { buildEd25519SessionPolicy } from '@/core/signingEngine/threshold/sessionPolicy';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
+import { base58Encode } from '@shared/utils/encoders';
+import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
   createThresholdSigningServiceForUnitTests,
@@ -53,7 +55,6 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
       keyVersion: 'threshold-ed25519-hss-v1',
       recoveryExportCapable: true,
     },
-    accessKeysOnChain: [publicKey],
     verifyWebAuthnAuthenticationLite: async ({ expectedChallenge }) => {
       capturedExpectedChallenge = expectedChallenge;
       return { success: true, verified: true };
@@ -92,6 +93,76 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
   expect(result.code).not.toBe('invalid_assertion');
 });
 
+test('threshold-ed25519 passkey session mint does not require access-key reads for implicit accounts', async () => {
+  const publicKeyBytes = new Uint8Array(32).fill(31);
+  const publicKey = `ed25519:${base58Encode(publicKeyBytes)}`;
+  const nearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(publicKey);
+  const walletId = 'frost-vermillion-k7p9m2';
+  const nearEd25519SigningKeyId = 'ed25519ks_implicit_session_scope';
+  const rpId = 'localhost';
+  const relayerKeyId = 'ed25519:implicit-session-relayer';
+  const relayerSigningShareB64u = Buffer.alloc(32, 13).toString('base64url');
+  const relayerVerifyingShareB64u = deriveThresholdEd25519VerifyingShareForUnitTests({
+    signingShareB64u: relayerSigningShareB64u,
+  });
+  const { policy } = await buildEd25519SessionPolicy({
+    walletId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    rpId,
+    relayerKeyId,
+    thresholdSessionId: 'tsess-implicit-session-ed25519',
+    signingGrantId: 'wsess-implicit-session',
+    participantIds: [1, 2],
+    ttlMs: 300_000,
+    remainingUses: 5,
+    routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
+  });
+
+  const { svc } = createThresholdSigningServiceForUnitTests({
+    keyRecord: {
+      walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      rpId,
+      publicKey,
+      relayerSigningShareB64u,
+      relayerVerifyingShareB64u,
+      keyVersion: 'threshold-ed25519-hss-v1',
+      recoveryExportCapable: true,
+    },
+  });
+
+  const scheme = svc.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
+  if (!scheme || scheme.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
+    throw new Error('threshold-ed25519 scheme missing in test service');
+  }
+
+  const result = await scheme.session({
+    relayerKeyId,
+    sessionPolicy: policy,
+    auth: {
+      kind: 'passkey',
+      expected_origin: 'http://localhost',
+      webauthn_authentication: {
+        id: 'cred-implicit-session',
+        rawId: 'cred-implicit-session',
+        type: 'public-key',
+        authenticatorAttachment: null,
+        response: {
+          clientDataJSON: 'client-data-json',
+          authenticatorData: 'authenticator-data',
+          signature: 'signature',
+          userHandle: null,
+        },
+        clientExtensionResults: null,
+      },
+    },
+  });
+
+  expect(result.ok).toBe(true);
+});
+
 test('threshold-ed25519 passkey session mint creates wallet budgets per signing grant', async () => {
   const nearAccountId = 'alice.testnet';
   const rpId = 'localhost';
@@ -111,7 +182,6 @@ test('threshold-ed25519 passkey session mint creates wallet budgets per signing 
       keyVersion: 'threshold-ed25519-hss-v1',
       recoveryExportCapable: true,
     },
-    accessKeysOnChain: [publicKey],
   });
   const scheme = svc.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
   if (!scheme || scheme.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {

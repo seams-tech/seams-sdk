@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { parseWalletKeyId } from '@shared/utils/domainIds';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -48,16 +48,8 @@ function compressedSecp256k1PublicKeyB64u(fill: number): string {
   return base64UrlEncode(bytes);
 }
 
-function parsedDomain<T>(
-  result: { ok: true; value: T } | { ok: false; error: { message: string } },
-): T {
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-}
-
 const walletId = toWalletId('wallet_alice');
 const rpId = toRpId('wallet.example');
-const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-provision-ecdsa'));
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -72,6 +64,11 @@ const runtimePolicyScope = {
 const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
 const signingRootId = toEcdsaHssSigningRootId(signingRootScope.signingRootId);
 const signingRootVersion = toEcdsaHssSigningRootVersion(signingRootScope.signingRootVersion);
+const walletKeyId = deriveEvmFamilySigningKeySlotId({
+  walletId,
+  signingRootId,
+  signingRootVersion,
+});
 const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
   credentialIdB64u: 'credential-passkey',
   rpId,
@@ -209,6 +206,7 @@ function publicFacts(input: ProvisionEcdsaInput) {
     relayerPublicKey33B64u: compressedSecp256k1PublicKeyB64u(10),
     groupPublicKey33B64u: compressedSecp256k1PublicKeyB64u(11),
     ethereumAddress: '0x1111111111111111111111111111111111111111',
+    applicationBindingDigestB64u: b64u(32, 6),
     contextBinding32B64u: b64u(32, 7),
   });
 }

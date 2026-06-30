@@ -25,6 +25,7 @@ import {
   type RouterAbEcdsaHssNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaHss';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 type EcdsaRouteInput = Parameters<typeof handleRouterAbEcdsaHssNormalSigningRouteCore>[0];
 type EcdsaThresholdService = NonNullable<ReturnType<EcdsaRouteInput['getThreshold']>>;
@@ -36,6 +37,13 @@ const keyHandle = 'ehss-key-1';
 const relayerKeyId = 'ehss-relayer-1';
 const signingWorkerId = 'signing-worker-1';
 const expiresAtMs = Date.now() + 60_000;
+const signingRootId = 'root-1';
+const signingRootVersion = 'root-v1';
+const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+  walletId,
+  signingRootId,
+  signingRootVersion,
+});
 
 let scope: RouterAbEcdsaHssNormalSigningScopeV1;
 let thresholdSessionId: string;
@@ -75,11 +83,11 @@ async function buildScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
     application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   } as const;
   return {
-    wallet_key_id: rpId,
+    wallet_key_id: evmFamilySigningKeySlotId,
     wallet_id: walletId,
     ecdsa_threshold_key_id: 'ecdsa-key-1',
-    signing_root_id: 'root-1',
-    signing_root_version: 'root-v1',
+    signing_root_id: signingRootId,
+    signing_root_version: signingRootVersion,
     context,
     public_identity: {
       context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(context),
@@ -116,6 +124,7 @@ function walletSessionClaims(): Record<string, unknown> {
     keyScope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
     keyHandle,
     relayerKeyId,
+    evmFamilySigningKeySlotId,
     rpId,
     runtimePolicyScope: {
       orgId: 'org-1',

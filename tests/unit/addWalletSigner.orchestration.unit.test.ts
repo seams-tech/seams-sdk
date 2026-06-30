@@ -31,7 +31,7 @@ import {
 } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
@@ -272,7 +272,7 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
 
 function plannedEcdsaWalletKeyId(walletId: unknown): string {
   return String(
-    derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope({
+    deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
       walletId,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     }),
@@ -672,7 +672,11 @@ function createContext(captures: Record<string, unknown>): any {
         input: Record<string, unknown>,
       ) => {
         captures.ed25519ArtifactArgs = input;
-        return { stagedEvaluatorArtifactB64u: 'staged-artifact' };
+        return {
+          contextBindingB64u: 'context-binding',
+          stagedEvaluatorArtifactB64u: 'staged-artifact',
+          serverEvalFinalizeOutputB64u: 'server-finalize-output',
+        };
       },
       finalizeWalletEd25519SignerRegistration: async (input: Record<string, unknown>) => {
         captures.storedEd25519 = input;
@@ -1059,9 +1063,9 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         };
       }
       if (body.ecdsa) {
-        const chainTargets =
-          mockedRegistrationEvmFamilyEcdsaSigner((captures.intent as any)?.signerSelection)
-            ?.chainTargets || [{ kind: 'evm', namespace: 'eip155', chainId: 1 }];
+        const chainTargets = mockedRegistrationEvmFamilyEcdsaSigner(
+          (captures.intent as any)?.signerSelection,
+        )?.chainTargets || [{ kind: 'evm', namespace: 'eip155', chainId: 1 }];
         const patchRegistrationWalletKey = captures.patchRegistrationWalletKey as
           | ((walletKey: Record<string, unknown>) => Record<string, unknown>)
           | undefined;
@@ -1526,7 +1530,9 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
     expect(captures.finalizeBody).toMatchObject({
       ed25519: {
         evaluationResult: {
+          contextBindingB64u: 'context-binding',
           stagedEvaluatorArtifactB64u: 'staged-artifact',
+          serverEvalFinalizeOutputB64u: 'server-finalize-output',
         },
         sessionKind: 'jwt',
       },
@@ -2072,7 +2078,9 @@ test('addWalletSigner orchestrates later Ed25519 from an ECDSA wallet', async ()
     expect(captures.finalizeBody).toMatchObject({
       ed25519: {
         evaluationResult: {
+          contextBindingB64u: 'context-binding',
           stagedEvaluatorArtifactB64u: 'staged-artifact',
+          serverEvalFinalizeOutputB64u: 'server-finalize-output',
         },
         sessionKind: 'jwt',
       },

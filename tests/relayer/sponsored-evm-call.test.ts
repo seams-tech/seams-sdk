@@ -28,7 +28,12 @@ import {
   startExpressRouter,
 } from './helpers';
 import { registerSponsoredEvmCallRoute } from '@server';
-import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
+import {
+  applyD1MigrationFiles,
+  cleanupTemporaryD1Database,
+  createTemporaryD1Database,
+  listD1MigrationFiles,
+} from '../helpers/sqliteD1';
 
 type ExpressMiddleware = (req: unknown, res: unknown, next: (err?: unknown) => void) => unknown;
 type ExpressAppLike = ((req: unknown, res: unknown) => unknown) & {
@@ -127,21 +132,19 @@ async function makeSponsorshipServices(input?: {
   const temp = createTemporaryD1Database();
   sponsorshipD1TempDirs.add(temp.tempDir);
   const namespace = randomNamespace('test:sponsored-evm-call');
+  await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-console'));
   const billingService = await createD1ConsoleBillingService({
     database: temp.database,
     namespace,
-    ensureSchema: true,
   });
   const prepaidReservations = await createD1ConsoleBillingPrepaidReservationService({
     database: temp.database,
     namespace,
-    ensureSchema: true,
     defaultReservationTtlMs: 60_000,
   });
   const ledger = await createD1ConsoleSponsoredCallService({
     database: temp.database,
     namespace,
-    ensureSchema: true,
   });
   const seedBalanceMinor = Math.max(0, Math.trunc(input?.initialBalanceMinor ?? 5_000));
   if (seedBalanceMinor > 0) {
@@ -1469,7 +1472,56 @@ test.describe('sponsored evm call route', () => {
       });
       const blockedBody = blocked.json || {};
       expect(blocked.status).toBe(403);
-      expect(blockedBody.code).toBe('origin_not_allowed');
+      expect(blockedBody.code).toBe('publishable_key_origin_blocked');
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('uses publishable key origin policy instead of route-level CORS for authorization', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots);
+    const key = await createPublishableKey(apiKeys, {
+      allowedOrigins: ['https://wallet.example.com'],
+    });
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing,
+      ledger,
+      runtimeSnapshots,
+      prepaidReservations,
+      corsOrigins: ['https://app.example.com'],
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: 'https://wallet.example.com',
+          'x-seams-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          walletId: 'wallet-origin-authorized',
+          walletAddress,
+          chainId: 42_431,
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
+            gasLimit: '300000',
+            value: '0',
+          },
+          idempotencyKey: makeIdempotencyKey('wallet-origin-authorized'),
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.json?.ok).toBe(true);
     } finally {
       await server.close();
       await rpc.close();

@@ -1231,7 +1231,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           securityContext: {
             passkeyRegistration: {
               kind: 'passkey_registration_confirm_display_v1',
-              intendedUserName: 'alice',
+              intendedUserName: 'alice.testnet',
               accountId: 'alice.testnet',
               rpId: 'wallet.example.test',
               signerSlot: 1,
@@ -1255,7 +1255,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       'Create your passkey',
     );
     await expect(identity).toContainText('Account');
-    await expect(identity).toContainText('alice');
+    await expect(identity).toContainText('alice.testnet');
     await expect(identity).toContainText('Relying party');
     await expect(identity).toContainText('wallet.example.test');
     await expect(page.locator('.passkey-registration-confirm__value').first()).toHaveAttribute(

@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { unlock } from '@/SeamsWeb/operations/auth/login';
+import {
+  resolveNearAccountIdForWalletAuthUnlockRecord,
+  resolveNearEd25519WalletUnlockSubject,
+} from '@/SeamsWeb/operations/auth/walletAuth';
 import { SeamsWeb } from '@/SeamsWeb';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import { toAccountId } from '@/core/types/accountIds';
 import {
@@ -44,6 +49,56 @@ function clearUnlockPasskeyWalletBinding(): void {
 }
 
 test.describe('SeamsWeb unlock cancellation events', () => {
+  test('wallet-auth unlock resolves NEAR binding from stored wallet Ed25519 lane', () => {
+    seedUnlockPasskeyWalletBinding();
+    try {
+      expect(resolveNearAccountIdForWalletAuthUnlockRecord(UNLOCK_WALLET_ID)).toBe(
+        UNLOCK_NEAR_ACCOUNT_ID,
+      );
+    } finally {
+      clearUnlockPasskeyWalletBinding();
+    }
+  });
+
+  test('wallet-auth unlock resolves NEAR binding from durable wallet signer metadata', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    IndexedDBManager.listActiveWalletSigners = async (args: {
+      walletId: string;
+      signerFamily: 'ed25519' | 'ecdsa';
+    }) => {
+      if (args.signerFamily !== 'ed25519') return [];
+      return [
+        {
+          profileId: UNLOCK_WALLET_ID,
+          chainIdKey: '__wallet_subject__',
+          accountAddress: UNLOCK_WALLET_ID,
+          signerId: 'ed25519:unlock',
+          signerSlot: 1,
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
+          status: 'active',
+          addedAt: Date.now(),
+          updatedAt: Date.now(),
+          metadata: {
+            walletId: UNLOCK_WALLET_ID,
+            nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
+            nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
+          },
+        },
+      ] as any;
+    };
+    try {
+      const subject = await resolveNearEd25519WalletUnlockSubject(UNLOCK_WALLET_ID);
+      expect(subject?.nearAccountId).toBe(UNLOCK_NEAR_ACCOUNT_ID);
+      expect(subject?.nearEd25519SigningKeyId).toBe(UNLOCK_NEAR_ED25519_SIGNING_KEY_ID);
+      expect(subject?.signerSlot).toBe(1);
+    } finally {
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+    }
+  });
+
   test('passkey unlock emits unlock.cancelled for WebAuthn cancellation errors', async () => {
     const events: any[] = [];
     const afterCalls: any[] = [];

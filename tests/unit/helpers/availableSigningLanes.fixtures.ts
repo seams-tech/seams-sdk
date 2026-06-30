@@ -15,7 +15,7 @@ import { toAccountId } from '@/core/types/accountIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
-  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
+  deriveEvmFamilySigningKeySlotId,
   toRpId,
   type EvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -263,13 +263,10 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
 }): AvailableSigningLanesRuntimeEcdsaRecord {
   const keyId = args.ecdsaThresholdKeyId || 'shared-ecdsa-key';
   const thresholdOwnerAddress = args.thresholdOwnerAddress;
-  const walletKeyId = deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
+  const walletKeyId = deriveEvmFamilySigningKeySlotId({
     walletId: AVAILABLE_LANES_WALLET_ID,
-    ecdsaThresholdKeyId: keyId,
     signingRootId: 'sr-test:dev',
     signingRootVersion: 'default',
-    participantIds: [1, 2],
-    thresholdOwnerAddress,
   });
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: AVAILABLE_LANES_WALLET_ID,

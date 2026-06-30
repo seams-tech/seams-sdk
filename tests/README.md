@@ -132,7 +132,6 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
 ```bash
 (pnpm build:sdk-full) \
   && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.commitQueue.unit.test.ts --reporter=line \
-  && pnpm -C tests exec playwright test ./e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts -g "same-tab refresh reuses sealed PRF session without extra TouchID prompt" --reporter=line \
   && pnpm -C tests exec playwright test ./unit/reportTempoBroadcastFailure.unit.test.ts ./unit/evmSigning.noncePrefetch.unit.test.ts --reporter=line
 ```
 
@@ -154,9 +153,7 @@ pnpm build:sdk
 
 - E2E
   - `e2e/thresholdEd25519.*.test.ts` threshold keygen/session/signing coverage
-  - `e2e/worker_events.test.ts` signer/UserConfirm worker wiring and events
   - `e2e/cancel_overlay_specs.test.ts` cancel + overlay specs (cancel hides UI)
-  - `e2e/signTransactions.concurrentSessions.walletIframe.test.ts` concurrent signing session isolation
 
 - Unit
   - `unit/nonceCoordinator.nearContext.test.ts` coordinator-owned NEAR nonce context and batch lifecycle
