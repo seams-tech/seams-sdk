@@ -554,8 +554,6 @@ fn anti_drift_projection_mode_and_staged_artifact_boundary_matches_verified_mirr
         client_output_binding: [0x17; 32],
         seed_output,
         seed_output_binding: [0x18; 32],
-        server_output_payload_binding: [0x19; 32],
-        server_output_payload: vec![0x1a],
     };
     let masked_projection =
         production::wire::OutputProjectionMode::client_masked_projection([0x22; 32]);
@@ -574,6 +572,8 @@ fn anti_drift_projection_mode_and_staged_artifact_boundary_matches_verified_mirr
     assert!(artifact_json.get("projection_mode").is_some());
     assert!(artifact_json.get("client_output_value_kind").is_some());
     assert!(artifact_json.get("client_output_commitment").is_some());
+    assert!(artifact_json.get("server_output_payload_binding").is_none());
+    assert!(artifact_json.get("server_output_payload").is_none());
 
     assert_eq!(
         mirror::server::api::client_output_value_kind_for_projection_mode(
@@ -621,9 +621,8 @@ fn anti_drift_client_owned_worker_boundary_uses_one_use_mask_handle() {
     assert!(open_shape.has_client_output_mask_b64u);
     assert_eq!(open_shape.client_output_mask_len, 32);
 
-    let signer_worker_types = read_workspace_file(
-        "packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts",
-    );
+    let signer_worker_types =
+        read_workspace_file("packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts");
     assert_ts_export_has_required_string_field(
         &signer_worker_types,
         "PrepareThresholdEd25519HssClientOutputMaskHandleResult",
@@ -668,8 +667,7 @@ fn anti_drift_client_owned_worker_boundary_uses_one_use_mask_handle() {
     let sdk_wasm_wrapper = read_workspace_file(
         "packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts",
     );
-    assert!(sdk_wasm_wrapper
-        .contains("prepareThresholdEd25519HssClientOutputMaskHandleWasm"));
+    assert!(sdk_wasm_wrapper.contains("prepareThresholdEd25519HssClientOutputMaskHandleWasm"));
     assert!(sdk_wasm_wrapper
         .contains("buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm"));
     assert!(sdk_wasm_wrapper.contains("remainingUses !== 1"));
@@ -680,8 +678,11 @@ fn anti_drift_client_owned_worker_boundary_uses_one_use_mask_handle() {
     );
     assert!(hss_client_worker.contains("fieldName: 'clientOutputMaskB64u'"));
     assert!(hss_client_worker.contains("byteLength: ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES"));
-    assert!(hss_client_worker.contains("ed25519HssClientOutputMaskStore.delete(args.clientOutputMaskHandle)"));
-    assert!(hss_client_worker.contains("stored.contextBindingB64u !== args.expectedContextBindingB64u"));
+    assert!(hss_client_worker
+        .contains("ed25519HssClientOutputMaskStore.delete(args.clientOutputMaskHandle)"));
+    assert!(
+        hss_client_worker.contains("stored.contextBindingB64u !== args.expectedContextBindingB64u")
+    );
     assert!(hss_client_worker.contains("stored.remainingUses !== 1"));
     assert!(hss_client_worker.contains("clientOutputMaskB64u,"));
 

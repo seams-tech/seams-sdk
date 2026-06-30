@@ -15,6 +15,7 @@ use crate::runtime::{
     evaluation::{elapsed_ns_u64, monotonic_now_ns},
     SharedRuntime,
 };
+use crate::server::ServerEvalFinalizeOutput;
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
     AddStageRequestPayload, AddStageResponsePayload, ClientOtOffer, ClientOutputPacket,
@@ -194,21 +195,6 @@ impl ClientSession {
         Ok((y_client_bundle, tau_client_bundle))
     }
 
-    fn server_assist_init_from_role_separated_delivery(
-        packet: &RoleSeparatedServerInputDeliveryPacket,
-    ) -> ServerAssistInitPacket {
-        ServerAssistInitPacket {
-            context_binding: packet.context_binding,
-            server_eval_handle: packet.server_eval_handle,
-            transcript_id: packet.transcript_id,
-            server_input_commitment: packet.server_input_commitment,
-            y_client_response: packet.y_client_response.clone(),
-            tau_client_response: packet.tau_client_response.clone(),
-            y_client_remote_release: packet.y_client_remote_release.clone(),
-            tau_client_remote_release: packet.tau_client_remote_release.clone(),
-        }
-    }
-
     fn server_input_bundle_from_transport_pair(
         expected_label: &str,
         left: DdhHssTransportBundle,
@@ -313,6 +299,24 @@ impl ClientSession {
         )
     }
 
+    pub fn build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery(
+        &self,
+        runtime: &SharedRuntime,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_mask: [u8; 32],
+    ) -> ProtoResult<(StagedEvaluatorArtifact, ServerEvalFinalizeOutput)> {
+        self.build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_with_projection_profiled(
+            runtime,
+            client_packet,
+            evaluator_ot_state,
+            packet,
+            DdhHiddenEvalClientOutputProjection::client_masked_projection(client_output_mask),
+        )
+        .map(|(artifact, server_output, _)| (artifact, server_output))
+    }
+
     fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_with_projection(
         &self,
         runtime: &SharedRuntime,
@@ -339,7 +343,29 @@ impl ClientSession {
         packet: &RoleSeparatedServerInputDeliveryPacket,
         client_output_projection: DdhHiddenEvalClientOutputProjection,
     ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
-        let assist = Self::server_assist_init_from_role_separated_delivery(packet);
+        self.build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_with_projection_profiled(
+            runtime,
+            client_packet,
+            evaluator_ot_state,
+            packet,
+            client_output_projection,
+        )
+        .map(|(artifact, _, stage_profile)| (artifact, stage_profile))
+    }
+
+    fn build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_with_projection_profiled(
+        &self,
+        runtime: &SharedRuntime,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_projection: DdhHiddenEvalClientOutputProjection,
+    ) -> ProtoResult<(
+        StagedEvaluatorArtifact,
+        ServerEvalFinalizeOutput,
+        DdhHiddenEvalStageProfile,
+    )> {
+        let assist = ServerAssistInitPacket::from_role_separated_delivery(packet);
         self.validate_server_assist_init_packet(client_packet, evaluator_ot_state, &assist)?;
         let (y_client_bundle, tau_client_bundle) = self
             .reconstruct_client_input_bundles_from_server_assist_init(
@@ -375,6 +401,7 @@ impl ClientSession {
                     .to_string(),
             ));
         }
+        let server_output = ServerEvalFinalizeOutput::from_hidden_eval_outputs(&run.output);
         self.build_staged_evaluator_artifact_from_hidden_eval_outputs(
             runtime,
             run.client_input_commitment,
@@ -382,7 +409,7 @@ impl ClientSession {
             run.output,
             client_output_projection.client_output_mask(),
         )
-        .map(|(artifact, _, _)| (artifact, stage_profile))
+        .map(|(artifact, _, _)| (artifact, server_output, stage_profile))
     }
 
     pub fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
@@ -404,6 +431,54 @@ impl ClientSession {
             evaluator_ot_state,
             packet,
             client_output_mask,
+        )
+    }
+
+    pub fn build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_message(
+        &self,
+        runtime: &SharedRuntime,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_mask: [u8; 32],
+    ) -> ProtoResult<(StagedEvaluatorArtifact, ServerEvalFinalizeOutput)> {
+        let client_packet: ClientPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOtRequest,
+            client_request_message,
+        )?;
+        self.build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery(
+            runtime,
+            &client_packet,
+            evaluator_ot_state,
+            packet,
+            client_output_mask,
+        )
+    }
+
+    pub fn build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_message_profiled(
+        &self,
+        runtime: &SharedRuntime,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_mask: [u8; 32],
+    ) -> ProtoResult<(
+        StagedEvaluatorArtifact,
+        ServerEvalFinalizeOutput,
+        DdhHiddenEvalStageProfile,
+    )> {
+        let client_packet: ClientPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOtRequest,
+            client_request_message,
+        )?;
+        self.build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_with_projection_profiled(
+            runtime,
+            &client_packet,
+            evaluator_ot_state,
+            packet,
+            DdhHiddenEvalClientOutputProjection::client_masked_projection(client_output_mask),
         )
     }
 
@@ -1725,18 +1800,6 @@ impl ClientSession {
             b"seed_output_message",
             &seed_output.bytes,
         );
-        let server_output_payload = crate::wire::serialize_transport_pair_payload(
-            "server_output_bundle",
-            &output.x_server_base_left,
-            &output.x_server_base_right,
-        )?;
-        let server_output_payload_binding =
-            crate::protocol::transcript::server_output_payload_binding(
-                self.context_binding,
-                run_binding,
-                evaluation_digest,
-                &server_output_payload,
-            );
         let output_sealing_finalization_duration_ns = elapsed_ns_u64(output_sealing_started);
         Ok((
             StagedEvaluatorArtifact {
@@ -1763,8 +1826,6 @@ impl ClientSession {
                 client_output_binding,
                 seed_output,
                 seed_output_binding,
-                server_output_payload_binding,
-                server_output_payload,
             },
             result_assembly_duration_ns,
             output_sealing_finalization_duration_ns,

@@ -670,7 +670,7 @@ fn role_separated_client_materialization_keeps_client_bundles_off_server_packet(
         decode_client_request(fixture.output.context_binding, &client_request_message)
             .expect("decode client request");
 
-    let (delivery, _server_eval_state) = garbler_session
+    let (delivery, server_eval_state) = garbler_session
         .prepare_role_separated_server_input_delivery(
             &client_packet,
             fixture.input.y_server,
@@ -744,15 +744,35 @@ fn role_separated_client_materialization_keeps_client_bundles_off_server_packet(
 
     let mut downgraded_artifact = masked_artifact.clone();
     downgraded_artifact.projection_mode = OutputProjectionMode::trusted_server_projection();
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection_from_role_separated_delivery(
+            &server_eval_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+        )
+        .expect("prepare server assist flow");
+    let finalize_state = flow
+        .final_server_eval_state
+        .finalize_state()
+        .expect("finalized server state");
     assert!(
         runtime
-            .finalize_report_from_staged_evaluator_artifact(&garbler_session, &downgraded_artifact)
+            .finalize_report_from_staged_evaluator_artifact(
+                &garbler_session,
+                &downgraded_artifact,
+                &finalize_state.output,
+            )
             .is_err(),
         "server finalization must reject projection-mode downgrade metadata",
     );
 
     let report = runtime
-        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &masked_artifact)
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &masked_artifact,
+            &finalize_state.output,
+        )
         .expect("finalize masked client-owned artifact");
     assert_eq!(report.projection_mode, masked_artifact.projection_mode);
     assert!(

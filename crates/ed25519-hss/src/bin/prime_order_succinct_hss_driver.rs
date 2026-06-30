@@ -47,6 +47,7 @@ struct ServerInputsJson {
 struct ServerCeremonyJsonOutput {
     context_binding_b64u: String,
     staged_evaluator_artifact_b64u: String,
+    server_eval_finalize_output_b64u: String,
 }
 
 fn main() {
@@ -173,7 +174,7 @@ fn cmd_server_ceremony_json() -> ProtoResult<()> {
     let runtime = evaluator_driver_state.runtime.materialize()?;
     let evaluator_session = evaluator_driver_state.evaluator_session.materialize()?;
     let garbler_session = garbler_driver_state.garbler_session.materialize()?;
-    let (_server_assist_init, artifact) = garbler_session
+    let (_server_assist_init, artifact, server_output) = garbler_session
         .prepare_server_ceremony_from_transport_messages(
             &runtime,
             &evaluator_session,
@@ -189,6 +190,7 @@ fn cmd_server_ceremony_json() -> ProtoResult<()> {
             &evaluator_driver_state.evaluator_session.context_binding,
         ),
         staged_evaluator_artifact_b64u: encode_state_blob_b64u(&artifact)?,
+        server_eval_finalize_output_b64u: encode_state_blob_b64u(&server_output)?,
     };
     write_json_stdout(&output)
 }

@@ -7,7 +7,7 @@ use ed25519_hss::ddh::{
 };
 use ed25519_hss::fixtures::{committed_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::PreparedSession;
-use ed25519_hss::server::ServerEvalOperation;
+use ed25519_hss::server::{ServerEvalOperation, ServerEvalState};
 use ed25519_hss::shared::{ProtoError, ProtoResult};
 use ed25519_hss::wire::{
     ClientOtOffer, ClientOutputPacket, ClientPacket, EvaluationReport, StagedEvaluatorArtifact,
@@ -117,6 +117,15 @@ pub fn build_client_owned_staged_evaluator_artifact(
     session: &PreparedSession,
     input: &ed25519_hss::shared::FExpandInput,
 ) -> ProtoResult<StagedEvaluatorArtifact> {
+    let (artifact, _server_eval_state) =
+        build_client_owned_staged_evaluator_artifact_with_server_eval_state(session, input)?;
+    Ok(artifact)
+}
+
+pub fn build_client_owned_staged_evaluator_artifact_with_server_eval_state(
+    session: &PreparedSession,
+    input: &ed25519_hss::shared::FExpandInput,
+) -> ProtoResult<(StagedEvaluatorArtifact, ServerEvalState)> {
     ensure_prepared_session_input_context(session, input)?;
     let runtime = session.shared_runtime();
     let garbler_session = session.garbler_session();
@@ -130,20 +139,29 @@ pub fn build_client_owned_staged_evaluator_artifact(
         )?;
     let client_packet =
         decode_client_request(session.candidate().context_binding, &client_request_message)?;
-    let (delivery, _server_eval_state) = garbler_session
+    let (delivery, server_eval_state) = garbler_session
         .prepare_role_separated_server_input_delivery(
             &client_packet,
             input.y_server,
             input.tau_server,
             ServerEvalOperation::Registration,
         )?;
-    evaluator_session.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
-        &runtime,
-        &client_packet,
-        &evaluator_ot_state,
-        &delivery,
-        TEST_CLIENT_OUTPUT_MASK,
-    )
+    let artifact = evaluator_session
+        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+            &runtime,
+            &client_packet,
+            &evaluator_ot_state,
+            &delivery,
+            TEST_CLIENT_OUTPUT_MASK,
+        )?;
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection_from_role_separated_delivery(
+            &server_eval_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+        )?;
+    Ok((artifact, flow.final_server_eval_state))
 }
 
 pub fn evaluate_via_client_owned_flow(
@@ -153,8 +171,16 @@ pub fn evaluate_via_client_owned_flow(
     ensure_prepared_session_input_context(session, input)?;
     let runtime = session.shared_runtime();
     let garbler_session = session.garbler_session();
-    let artifact = build_client_owned_staged_evaluator_artifact(session, input)?;
-    runtime.finalize_report_from_staged_evaluator_artifact(&garbler_session, &artifact)
+    let (artifact, server_eval_state) =
+        build_client_owned_staged_evaluator_artifact_with_server_eval_state(session, input)?;
+    let finalize_state = server_eval_state.finalize_state().ok_or_else(|| {
+        ProtoError::InvalidInput("server eval state must be finalized".to_string())
+    })?;
+    runtime.finalize_report_from_staged_evaluator_artifact(
+        &garbler_session,
+        &artifact,
+        &finalize_state.output,
+    )
 }
 
 pub fn section_bytes<'a>(

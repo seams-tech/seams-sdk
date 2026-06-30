@@ -9,7 +9,7 @@ use ed25519_hss::wire::{
 };
 
 use crate::support::{
-    build_client_owned_staged_evaluator_artifact, decode_client_offer,
+    build_client_owned_staged_evaluator_artifact_with_server_eval_state, decode_client_offer,
     decode_client_output_message, decode_client_request, decode_server_input_delivery,
     decode_transport_message, ensure_prepared_session_input_context,
     evaluate_via_client_owned_flow, first_fixture, TransportKind,
@@ -950,10 +950,21 @@ fn prime_order_succinct_hss_finalizes_report_from_client_owned_staged_evaluator_
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
     let runtime = session.shared_runtime();
     let garbler_session = session.garbler_session();
-    let artifact = build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
+    let (artifact, server_eval_state) =
+        build_client_owned_staged_evaluator_artifact_with_server_eval_state(
+            &session,
+            &fixture.input,
+        )
         .expect("client-owned staged evaluator artifact");
+    let finalize_state = server_eval_state
+        .finalize_state()
+        .expect("finalized server state");
     let report = runtime
-        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &artifact)
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &artifact,
+            &finalize_state.output,
+        )
         .expect("finalize report from client-owned staged artifact");
 
     assert_eq!(

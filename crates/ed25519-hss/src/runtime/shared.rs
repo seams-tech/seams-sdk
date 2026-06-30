@@ -15,7 +15,7 @@ use crate::runtime::{
     compile_prime_order_cpu_execution_program, execute_prime_order_cpu_execution_program,
     PrimeOrderCpuExecutionProgram, PrimeOrderCpuExecutionResult,
 };
-use crate::server::ServerSession;
+use crate::server::{ServerEvalFinalizeOutput, ServerSession};
 use crate::shared::{CanonicalContext, ProtoResult};
 use crate::wire::{
     ArtifactSummary, EvaluationReport, OutputProjectionMode, StagedEvaluatorArtifact,
@@ -89,7 +89,8 @@ impl SharedRuntime {
         &self,
         garbler_session: &ServerSession,
         artifact: &StagedEvaluatorArtifact,
+        server_output: &ServerEvalFinalizeOutput,
     ) -> ProtoResult<EvaluationReport> {
-        build_report_from_staged_evaluator_artifact(self, garbler_session, artifact)
+        build_report_from_staged_evaluator_artifact(self, garbler_session, artifact, server_output)
     }
 }

@@ -20,8 +20,9 @@ use crate::runtime::{
     EvaluateTiming, SharedRuntime,
 };
 use crate::server::{
-    ot::prepare_garbler_ot_state_for_session, ServerDriverState, ServerEvalOperation,
-    ServerEvalServerRoots, ServerEvalState, ServerOutputOpener, ServerSession, ServerSessionState,
+    ot::prepare_garbler_ot_state_for_session, ServerDriverState, ServerEvalFinalizeOutput,
+    ServerEvalOperation, ServerEvalServerRoots, ServerEvalState, ServerOutputOpener, ServerSession,
+    ServerSessionState,
 };
 use crate::shared::ProtoResult;
 #[cfg(test)]
@@ -291,7 +292,7 @@ impl ServerSession {
         y_server: [u8; 32],
         tau_server: [u8; 32],
         operation: ServerEvalOperation,
-    ) -> ProtoResult<StagedEvaluatorArtifact> {
+    ) -> ProtoResult<(StagedEvaluatorArtifact, ServerEvalFinalizeOutput)> {
         let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
         self.build_staged_evaluator_artifact_from_transport_messages_with_pool(
             runtime,
@@ -316,6 +317,7 @@ impl ServerSession {
         operation: ServerEvalOperation,
     ) -> ProtoResult<(
         StagedEvaluatorArtifact,
+        ServerEvalFinalizeOutput,
         DdhHiddenEvalStageProfile,
         EvaluateTiming,
     )> {
@@ -342,8 +344,8 @@ impl ServerSession {
         tau_server: [u8; 32],
         _operation: ServerEvalOperation,
         constant_pool: &DdhHiddenEvalConstantPool,
-    ) -> ProtoResult<StagedEvaluatorArtifact> {
-        Ok(self
+    ) -> ProtoResult<(StagedEvaluatorArtifact, ServerEvalFinalizeOutput)> {
+        let (artifact, server_output, _stage_profile, _timing) = self
             .build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
                 runtime,
                 evaluator_session,
@@ -353,8 +355,8 @@ impl ServerSession {
                 tau_server,
                 _operation,
                 constant_pool,
-            )?
-            .0)
+            )?;
+        Ok((artifact, server_output))
     }
 
     pub fn build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
@@ -369,6 +371,7 @@ impl ServerSession {
         constant_pool: &DdhHiddenEvalConstantPool,
     ) -> ProtoResult<(
         StagedEvaluatorArtifact,
+        ServerEvalFinalizeOutput,
         DdhHiddenEvalStageProfile,
         EvaluateTiming,
     )> {
@@ -387,6 +390,7 @@ impl ServerSession {
                 tau_server,
                 constant_pool,
             )?;
+        let server_output = ServerEvalFinalizeOutput::from_hidden_eval_outputs(&run.output);
         let (artifact, result_assembly_duration_ns, output_sealing_finalization_duration_ns) =
             evaluator_session.build_staged_evaluator_artifact_from_hidden_eval_outputs(
                 runtime,
@@ -397,7 +401,7 @@ impl ServerSession {
             )?;
         timing.result_assembly_duration_ns = result_assembly_duration_ns;
         timing.output_sealing_finalization_duration_ns = output_sealing_finalization_duration_ns;
-        Ok((artifact, stage_profile, timing))
+        Ok((artifact, server_output, stage_profile, timing))
     }
 
     fn build_hidden_eval_run_from_transport_messages_with_pool(
@@ -473,7 +477,11 @@ impl ServerSession {
         y_server: [u8; 32],
         tau_server: [u8; 32],
         operation: ServerEvalOperation,
-    ) -> ProtoResult<(WireMessage, StagedEvaluatorArtifact)> {
+    ) -> ProtoResult<(
+        WireMessage,
+        StagedEvaluatorArtifact,
+        ServerEvalFinalizeOutput,
+    )> {
         let client_packet: ClientPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientOtRequest,
@@ -481,22 +489,23 @@ impl ServerSession {
         )?;
         let (server_assist_init, _server_eval_state) =
             self.prepare_server_assist_init(&client_packet, y_server, tau_server, operation)?;
-        let artifact = self.build_staged_evaluator_artifact_from_transport_messages_with_pool(
-            runtime,
-            evaluator_session,
-            evaluator_ot_state,
-            client_request_message,
-            y_server,
-            tau_server,
-            operation,
-            &prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?,
-        )?;
+        let (artifact, server_output) = self
+            .build_staged_evaluator_artifact_from_transport_messages_with_pool(
+                runtime,
+                evaluator_session,
+                evaluator_ot_state,
+                client_request_message,
+                y_server,
+                tau_server,
+                operation,
+                &prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?,
+            )?;
         let server_assist_init_message = crate::wire::encode_transport_message(
             self.context_binding,
             TransportKind::ServerAssistInit,
             &server_assist_init,
         )?;
-        Ok((server_assist_init_message, artifact))
+        Ok((server_assist_init_message, artifact, server_output))
     }
 
     pub fn prepare_add_stage_response(
@@ -1555,18 +1564,11 @@ impl ServerSession {
                     .to_string(),
             ));
         }
-        let expected_server_output_payload = crate::wire::serialize_transport_pair_payload(
-            "server_output_bundle",
-            &finalize_state.output.x_server_base_left,
-            &finalize_state.output.x_server_base_right,
+        let report = runtime.finalize_report_from_staged_evaluator_artifact(
+            self,
+            artifact,
+            &finalize_state.output,
         )?;
-        if artifact.server_output_payload != expected_server_output_payload {
-            return Err(crate::shared::ProtoError::InvalidInput(
-                "staged evaluator artifact server output payload binding does not match finalize state"
-                    .to_string(),
-            ));
-        }
-        let report = runtime.finalize_report_from_staged_evaluator_artifact(self, artifact)?;
         let allowed_output_kind =
             Self::allowed_output_kind_for_operation(server_eval_state.operation);
         let seed_output = match allowed_output_kind {

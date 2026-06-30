@@ -654,26 +654,6 @@ pub(crate) fn compute_evaluation_digest_from_output_commitments(
     out
 }
 
-pub(crate) fn server_output_payload_binding(
-    context_binding: [u8; 32],
-    run_binding: [u8; 32],
-    evaluation_digest: [u8; 32],
-    server_output_payload: &[u8],
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(
-        b"succinct-garbling-proto/prime-order-succinct-hss/server-output-payload-binding/v0",
-    );
-    hasher.update(context_binding);
-    hasher.update(run_binding);
-    hasher.update(evaluation_digest);
-    hasher.update(server_output_payload);
-    let digest = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    out
-}
-
 pub(crate) fn nested_output_message_binding(
     context_binding: [u8; 32],
     run_binding: [u8; 32],

@@ -77,7 +77,7 @@ pub struct ServerEvalServerRoots {
     pub tau_server: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerEvalFinalizeOutput {
     pub canonical_seed_commitment: [u8; 32],
     pub x_server_base_left: DdhHssTransportBundle,

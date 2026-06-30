@@ -7,7 +7,7 @@ use ed25519_hss::ddh::DdhHiddenEvalStageProfile;
 use ed25519_hss::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 use ed25519_hss::server::ServerEvalOperation;
-use ed25519_hss::shared::{FExpandInput, ProtoResult};
+use ed25519_hss::shared::{FExpandInput, ProtoError, ProtoResult};
 use serde::{Deserialize, Serialize};
 
 const REPORT_VERSION: &str = "prime_order_hss_registration_benchmark_v1";
@@ -337,7 +337,7 @@ fn run_registration_sample(
     let client_request_ns = client_request_started.elapsed().as_nanos();
 
     let server_input_delivery_started = Instant::now();
-    let (delivery, _server_eval_state) = garbler_session
+    let (delivery, server_eval_state) = garbler_session
         .prepare_role_separated_server_input_delivery_message(
             &client_request_message,
             input.y_server,
@@ -358,8 +358,24 @@ fn run_registration_sample(
     let client_artifact_ns = client_artifact_started.elapsed().as_nanos();
 
     let finalize_started = Instant::now();
-    let report =
-        runtime.finalize_report_from_staged_evaluator_artifact(&garbler_session, &artifact)?;
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection_from_role_separated_delivery(
+            &server_eval_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+        )?;
+    let finalize_state = flow
+        .final_server_eval_state
+        .finalize_state()
+        .ok_or_else(|| {
+            ProtoError::InvalidInput("server eval state must be finalized".to_string())
+        })?;
+    let report = runtime.finalize_report_from_staged_evaluator_artifact(
+        &garbler_session,
+        &artifact,
+        &finalize_state.output,
+    )?;
     let finalize_report_ns = finalize_started.elapsed().as_nanos();
     black_box(&report);
 

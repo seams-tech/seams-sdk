@@ -296,8 +296,6 @@ pub struct StagedEvaluatorArtifact {
     pub client_output_binding: [u8; 32],
     pub seed_output: WireMessage,
     pub seed_output_binding: [u8; 32],
-    pub server_output_payload_binding: [u8; 32],
-    pub server_output_payload: Vec<u8>,
 }
 
 #[cfg(test)]
@@ -519,6 +517,21 @@ pub struct ServerAssistInitPacket {
     pub tau_client_response: DdhHssOtResponseBundle,
     pub y_client_remote_release: DdhHssOtReleasedRemoteBundle,
     pub tau_client_remote_release: DdhHssOtReleasedRemoteBundle,
+}
+
+impl ServerAssistInitPacket {
+    pub fn from_role_separated_delivery(packet: &RoleSeparatedServerInputDeliveryPacket) -> Self {
+        Self {
+            context_binding: packet.context_binding,
+            server_eval_handle: packet.server_eval_handle,
+            transcript_id: packet.transcript_id,
+            server_input_commitment: packet.server_input_commitment,
+            y_client_response: packet.y_client_response.clone(),
+            tau_client_response: packet.tau_client_response.clone(),
+            y_client_remote_release: packet.y_client_remote_release.clone(),
+            tau_client_remote_release: packet.tau_client_remote_release.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

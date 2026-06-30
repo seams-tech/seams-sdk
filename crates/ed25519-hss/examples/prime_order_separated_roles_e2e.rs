@@ -175,7 +175,7 @@ fn run() -> ProtoResult<()> {
             &server_assist_init_for_staged_flow,
         )?;
     let shared_runtime = prepared.shared_runtime();
-    let staged_evaluator_artifact = garbler_session_for_respond
+    let (staged_evaluator_artifact, server_output) = garbler_session_for_respond
         .build_staged_evaluator_artifact_from_transport_messages(
             &shared_runtime,
             &evaluator_session_for_evaluate,
@@ -211,6 +211,7 @@ fn run() -> ProtoResult<()> {
     let report = shared_runtime.finalize_report_from_staged_evaluator_artifact(
         &prepared.garbler_session(),
         &staged_evaluator_artifact,
+        &server_output,
     )?;
     timings.push(("final_report", final_report_started.elapsed()));
     write_json(&report_path, &report)?;

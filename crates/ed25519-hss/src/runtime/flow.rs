@@ -3,7 +3,9 @@ use crate::runtime::SharedRuntime;
 use crate::server::{ServerEvalOperation, ServerEvalState, ServerOtState};
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
-    ClientOtOffer, ClientStageRequestPacket, EvaluationReport, StagedEvaluatorArtifact, WireMessage,
+    ClientOtOffer, ClientStageRequestPacket, EvaluationReport,
+    RoleSeparatedServerInputDeliveryPacket, ServerAssistInitPacket, StagedEvaluatorArtifact,
+    TransportKind, WireMessage,
 };
 
 pub struct PreparedServerAssistFlow {
@@ -163,7 +165,7 @@ impl PreparedSession {
         tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<PreparedServerAssistFlow> {
-        let (server_assist_init_message, mut server_eval_state) = self
+        let (server_assist_init_message, server_eval_state) = self
             .prepare_server_assist_init_message(
                 garbler_ot_state,
                 client_request_message,
@@ -171,6 +173,66 @@ impl PreparedSession {
                 tau_server,
                 operation,
             )?;
+        self.prepare_server_assist_flow_to_output_projection_from_server_assist_init(
+            &server_eval_state,
+            client_request_message,
+            evaluator_ot_state,
+            server_assist_init_message,
+        )
+    }
+
+    pub fn prepare_server_assist_flow_to_output_projection_from_role_separated_delivery(
+        &self,
+        server_eval_state: &ServerEvalState,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        delivery: &RoleSeparatedServerInputDeliveryPacket,
+    ) -> ProtoResult<PreparedServerAssistFlow> {
+        if delivery.context_binding != server_eval_state.context_binding {
+            return Err(ProtoError::InvalidInput(
+                "role-separated delivery context binding does not match server eval state"
+                    .to_string(),
+            ));
+        }
+        if delivery.server_eval_handle != server_eval_state.handle {
+            return Err(ProtoError::InvalidInput(
+                "role-separated delivery handle does not match server eval state".to_string(),
+            ));
+        }
+        if delivery.transcript_id != server_eval_state.transcript_id {
+            return Err(ProtoError::InvalidInput(
+                "role-separated delivery transcript id does not match server eval state"
+                    .to_string(),
+            ));
+        }
+        if delivery.server_input_commitment != server_eval_state.server_input_commitment {
+            return Err(ProtoError::InvalidInput(
+                "role-separated delivery server input commitment does not match server eval state"
+                    .to_string(),
+            ));
+        }
+        let server_assist_init = ServerAssistInitPacket::from_role_separated_delivery(delivery);
+        let server_assist_init_message = crate::wire::encode_transport_message(
+            self.candidate().context_binding,
+            TransportKind::ServerAssistInit,
+            &server_assist_init,
+        )?;
+        self.prepare_server_assist_flow_to_output_projection_from_server_assist_init(
+            server_eval_state,
+            client_request_message,
+            evaluator_ot_state,
+            server_assist_init_message,
+        )
+    }
+
+    pub fn prepare_server_assist_flow_to_output_projection_from_server_assist_init(
+        &self,
+        server_eval_state: &ServerEvalState,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        server_assist_init_message: WireMessage,
+    ) -> ProtoResult<PreparedServerAssistFlow> {
+        let mut server_eval_state = server_eval_state.clone();
         let add_stage_request_message = self.prepare_add_stage_request_message(
             client_request_message,
             evaluator_ot_state,

@@ -3,7 +3,7 @@ use std::process;
 
 use ed25519_hss::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
-use ed25519_hss::shared::{FExpandInput, ProtoResult};
+use ed25519_hss::shared::{FExpandInput, ProtoError, ProtoResult};
 use ed25519_hss::wire::EvaluationReport;
 
 fn main() {
@@ -58,7 +58,7 @@ fn evaluate_via_client_owned_flow(
             input.y_client,
             input.tau_client,
         )?;
-    let (delivery, _server_eval_state) = garbler_session
+    let (delivery, server_eval_state) = garbler_session
         .prepare_role_separated_server_input_delivery_message(
             &client_request_message,
             input.y_server,
@@ -73,7 +73,24 @@ fn evaluate_via_client_owned_flow(
             &delivery,
             [0x5a; 32],
         )?;
-    runtime.finalize_report_from_staged_evaluator_artifact(&garbler_session, &artifact)
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection_from_role_separated_delivery(
+            &server_eval_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+        )?;
+    let finalize_state = flow
+        .final_server_eval_state
+        .finalize_state()
+        .ok_or_else(|| {
+            ProtoError::InvalidInput("server eval state must be finalized".to_string())
+        })?;
+    runtime.finalize_report_from_staged_evaluator_artifact(
+        &garbler_session,
+        &artifact,
+        &finalize_state.output,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

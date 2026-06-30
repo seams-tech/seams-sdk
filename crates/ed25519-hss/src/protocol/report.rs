@@ -1,7 +1,6 @@
 use crate::client::{ClientSession, OutputOpeners};
-use crate::ddh::{DdhHssShareSide, DdhHssTransportPurpose, HiddenEvalInputOwner};
 use crate::runtime::SharedRuntime;
-use crate::server::ServerSession;
+use crate::server::{ServerEvalFinalizeOutput, ServerSession};
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
     ClientOutputPacket, ClientOutputValueKind, EvaluationReport, HiddenCoreMaterialization,
@@ -62,6 +61,7 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
     runtime: &SharedRuntime,
     garbler_session: &ServerSession,
     artifact: &StagedEvaluatorArtifact,
+    server_output: &ServerEvalFinalizeOutput,
 ) -> ProtoResult<EvaluationReport> {
     debug_assert_eq!(
         artifact.context_binding, runtime.candidate.context_binding,
@@ -150,43 +150,32 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
             "evaluation result seed output binding is invalid".to_string(),
         ));
     }
-    let expected_server_output_payload_binding =
-        crate::protocol::transcript::server_output_payload_binding(
-            artifact.context_binding,
+    let expected_evaluation_digest =
+        crate::protocol::transcript::compute_evaluation_digest_from_output_commitments(
+            runtime.artifact.artifact_digest,
             artifact.bindings.run_binding,
-            artifact.bindings.evaluation_digest,
-            &artifact.server_output_payload,
+            &runtime.execution_result,
+            server_output.canonical_seed_commitment,
+            artifact.client_output_value_kind,
+            artifact.client_output_commitment,
+            server_output.x_server_base_left.commitment,
+            artifact.output_projector_binding,
         );
-    if artifact.server_output_payload_binding != expected_server_output_payload_binding {
+    if artifact.bindings.evaluation_digest != expected_evaluation_digest {
         return Err(ProtoError::InvalidInput(
-            "evaluation result server output payload binding is invalid".to_string(),
+            "evaluation result digest does not match server output".to_string(),
         ));
     }
-    let (server_left, server_right) = crate::wire::deserialize_transport_pair_payload(
-        DdhHssTransportPurpose::ServerOutput,
-        &artifact.server_output_payload,
-    )?;
-    debug_assert_eq!(
-        server_left.owner,
-        HiddenEvalInputOwner::Server,
-        "server output payload should carry a server-owned hidden shared-value representation"
-    );
-    debug_assert_eq!(
-        server_left.label, "x_server_base",
-        "server output payload should carry x_server_base"
-    );
-    debug_assert_eq!(server_left.share_side, DdhHssShareSide::Left);
-    debug_assert_eq!(server_right.share_side, DdhHssShareSide::Right);
-    let server_output = garbler_session.seal_server_output_packet_message(
+    let server_output_message = garbler_session.seal_server_output_packet_message(
         artifact.bindings.run_binding,
         artifact.bindings.evaluation_digest,
-        &server_left,
-        &server_right,
+        &server_output.x_server_base_left,
+        &server_output.x_server_base_right,
     )?;
     let output_delivery = OutputDelivery {
         client: artifact.client_output.clone(),
         seed: artifact.seed_output.clone(),
-        server: server_output,
+        server: server_output_message,
     };
 
     Ok(EvaluationReport {

@@ -19,6 +19,8 @@ use ed25519_hss::runtime::EvaluateTiming;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerDriverState;
 #[cfg(feature = "hss-server-exports")]
+use ed25519_hss::server::ServerEvalFinalizeOutput;
+#[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerEvalOperation;
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use ed25519_hss::shared::public_key_from_base_shares;
@@ -122,6 +124,7 @@ pub(crate) struct ThresholdEd25519HssBuildClientOwnedStagedArtifactArgs {
 pub(crate) struct ThresholdEd25519HssBuildClientOwnedStagedArtifactOutput {
     context_binding_b64u: String,
     staged_evaluator_artifact_b64u: String,
+    server_eval_finalize_output_b64u: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,6 +179,7 @@ struct ThresholdEd25519HssBuildServerOwnedStagedArtifactArgs {
 struct ThresholdEd25519HssPrepareServerCeremonyOutput {
     context_binding_b64u: String,
     staged_evaluator_artifact_handle: String,
+    server_eval_finalize_output_b64u: String,
     timings: ThresholdEd25519HssPrepareServerCeremonyTimings,
 }
 
@@ -322,6 +326,7 @@ struct ThresholdEd25519HssFinalizeReportArgs {
     #[serde(default)]
     staged_evaluator_artifact_handle: String,
     staged_evaluator_artifact_bytes: Vec<u8>,
+    server_eval_finalize_output_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Serialize)]
@@ -382,7 +387,7 @@ static NEXT_PREPARED_SERVER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 #[cfg(feature = "hss-server-exports")]
 thread_local! {
-    static STAGED_EVALUATOR_ARTIFACT_CACHE: RefCell<BTreeMap<String, StagedEvaluatorArtifact>> =
+    static STAGED_EVALUATOR_ARTIFACT_CACHE: RefCell<BTreeMap<String, ServerOwnedStagedEvaluatorArtifact>> =
         RefCell::new(BTreeMap::new());
 }
 
@@ -418,11 +423,26 @@ fn with_cached_prepared_server_session<T>(
 }
 
 #[cfg(feature = "hss-server-exports")]
-fn cache_staged_evaluator_artifact(artifact: StagedEvaluatorArtifact) -> String {
+struct ServerOwnedStagedEvaluatorArtifact {
+    artifact: StagedEvaluatorArtifact,
+    server_output: ServerEvalFinalizeOutput,
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn cache_staged_evaluator_artifact(
+    artifact: StagedEvaluatorArtifact,
+    server_output: ServerEvalFinalizeOutput,
+) -> String {
     let id = NEXT_STAGED_EVALUATOR_ARTIFACT_ID.fetch_add(1, Ordering::Relaxed);
     let handle = format!("hss-artifact-{id:016x}");
     STAGED_EVALUATOR_ARTIFACT_CACHE.with(|cache| {
-        cache.borrow_mut().insert(handle.clone(), artifact);
+        cache.borrow_mut().insert(
+            handle.clone(),
+            ServerOwnedStagedEvaluatorArtifact {
+                artifact,
+                server_output,
+            },
+        );
     });
     handle
 }
@@ -430,7 +450,7 @@ fn cache_staged_evaluator_artifact(artifact: StagedEvaluatorArtifact) -> String 
 #[cfg(feature = "hss-server-exports")]
 fn with_cached_staged_evaluator_artifact<T>(
     handle: &str,
-    f: impl FnOnce(&StagedEvaluatorArtifact) -> Result<T, String>,
+    f: impl FnOnce(&ServerOwnedStagedEvaluatorArtifact) -> Result<T, String>,
 ) -> Result<Option<T>, String> {
     let trimmed = handle.trim();
     if trimmed.is_empty() {
@@ -637,14 +657,15 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
     let (report, decode_artifact_ms, serialized_session_materialize_ms, finalize_report_ms) =
         if let Some(report) = with_cached_staged_evaluator_artifact(
             &args.staged_evaluator_artifact_handle,
-            |artifact| {
+            |record| {
                 with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
                     let finalize_report_started = Date::now();
                     session
                         .shared_runtime()
                         .finalize_report_from_staged_evaluator_artifact(
                             &session.garbler_session(),
-                            artifact,
+                            &record.artifact,
+                            &record.server_output,
                         )
                         .map(|report| {
                             (
@@ -670,6 +691,10 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
                 &args.staged_evaluator_artifact_bytes,
                 "stagedEvaluatorArtifactBytes",
             )?;
+            let server_output: ServerEvalFinalizeOutput = decode_state_blob_bytes(
+                &args.server_eval_finalize_output_bytes,
+                "serverEvalFinalizeOutputBytes",
+            )?;
             let decode_artifact_ms = (Date::now() - decode_artifact_started).max(0.0);
             if let Some(report) =
                 with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
@@ -679,6 +704,7 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
                         .finalize_report_from_staged_evaluator_artifact(
                             &session.garbler_session(),
                             &staged_evaluator_artifact,
+                            &server_output,
                         )
                         .map(|report| {
                             (
@@ -710,6 +736,7 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
                     .finalize_report_from_staged_evaluator_artifact(
                         &garbler_session,
                         &staged_evaluator_artifact,
+                        &server_output,
                     )
                     .map_err(|e| JsValue::from_str(&e.to_string()))?;
                 let finalize_report_ms = (Date::now() - finalize_report_started).max(0.0);
@@ -767,6 +794,12 @@ pub fn threshold_ed25519_hss_prepare_server_ceremony(args: JsValue) -> Result<Js
         &JsValue::from_str(&output.staged_evaluator_artifact_handle),
     )
     .map_err(|_| JsValue::from_str("Failed to set stagedEvaluatorArtifactHandle"))?;
+    Reflect::set(
+        &js_output,
+        &JsValue::from_str("serverEvalFinalizeOutputB64u"),
+        &JsValue::from_str(&output.server_eval_finalize_output_b64u),
+    )
+    .map_err(|_| JsValue::from_str("Failed to set serverEvalFinalizeOutputB64u"))?;
     let timings = serde_wasm_bindgen::to_value(&output.timings).map_err(|e| {
         JsValue::from_str(&format!(
             "Failed to serialize HSS server ceremony timings: {e}"
@@ -1179,8 +1212,8 @@ pub(crate) fn build_threshold_ed25519_hss_client_owned_staged_evaluator_artifact
     )
     .map_err(js_value_to_string)?;
     let (runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
-    let artifact = evaluator_session
-        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
+    let (artifact, server_output) = evaluator_session
+        .build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_message(
             &runtime,
             &client_request_message,
             &evaluator_ot_state,
@@ -1192,6 +1225,10 @@ pub(crate) fn build_threshold_ed25519_hss_client_owned_staged_evaluator_artifact
     Ok(ThresholdEd25519HssBuildClientOwnedStagedArtifactOutput {
         context_binding_b64u: base64_url_encode(&evaluator_state.evaluator_session.context_binding),
         staged_evaluator_artifact_b64u: encode_state_blob(&artifact, "staged evaluator artifact")?,
+        server_eval_finalize_output_b64u: encode_state_blob(
+            &server_output,
+            "server eval finalize output",
+        )?,
     })
 }
 
@@ -1221,30 +1258,34 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
             let decode_messages_ms = (Date::now() - decode_messages_started).max(0.0);
 
             let ceremony_core_started = Date::now();
-            let (staged_evaluator_artifact, stage_profile, evaluate_timing) = session
-                .garbler_session()
-                .build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
-                    &session.shared_runtime(),
-                    &session.evaluator_session(),
-                    &evaluator_ot_state,
-                    &client_request_message,
-                    y_relayer,
-                    tau_relayer,
-                    operation,
-                    session.hidden_eval_constants(),
-                )
-                .map_err(|e| e.to_string())?;
+            let (staged_evaluator_artifact, server_output, stage_profile, evaluate_timing) =
+                session
+                    .garbler_session()
+                    .build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
+                        &session.shared_runtime(),
+                        &session.evaluator_session(),
+                        &evaluator_ot_state,
+                        &client_request_message,
+                        y_relayer,
+                        tau_relayer,
+                        operation,
+                        session.hidden_eval_constants(),
+                    )
+                    .map_err(|e| e.to_string())?;
             let ceremony_core_ms = (Date::now() - ceremony_core_started).max(0.0);
             let timing_fields = ceremony_timing_fields(evaluate_timing);
 
             let encode_artifact_started = Date::now();
+            let server_eval_finalize_output_b64u =
+                encode_state_blob(&server_output, "server eval finalize output")?;
             let staged_evaluator_artifact_handle =
-                cache_staged_evaluator_artifact(staged_evaluator_artifact);
+                cache_staged_evaluator_artifact(staged_evaluator_artifact, server_output);
             let encode_artifact_ms = (Date::now() - encode_artifact_started).max(0.0);
 
             Ok(ThresholdEd25519HssPrepareServerCeremonyOutput {
                 context_binding_b64u: base64_url_encode(&session.candidate().context_binding),
                 staged_evaluator_artifact_handle,
+                server_eval_finalize_output_b64u,
                 timings: ThresholdEd25519HssPrepareServerCeremonyTimings {
                     decode_states_ms,
                     decode_messages_ms,
@@ -1338,28 +1379,32 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
     let materialize_sessions_ms = (Date::now() - materialize_sessions_started).max(0.0);
 
     let ceremony_core_started = Date::now();
-    let (staged_evaluator_artifact, stage_profile, evaluate_timing) = garbler_session
-        .build_staged_evaluator_artifact_from_transport_messages_profiled(
-            &runtime,
-            &evaluator_session,
-            &evaluator_ot_state,
-            &client_request_message,
-            y_relayer,
-            tau_relayer,
-            operation,
-        )
-        .map_err(|e| e.to_string())?;
+    let (staged_evaluator_artifact, server_output, stage_profile, evaluate_timing) =
+        garbler_session
+            .build_staged_evaluator_artifact_from_transport_messages_profiled(
+                &runtime,
+                &evaluator_session,
+                &evaluator_ot_state,
+                &client_request_message,
+                y_relayer,
+                tau_relayer,
+                operation,
+            )
+            .map_err(|e| e.to_string())?;
     let ceremony_core_ms = (Date::now() - ceremony_core_started).max(0.0);
     let timing_fields = ceremony_timing_fields(evaluate_timing);
 
     let encode_artifact_started = Date::now();
+    let server_eval_finalize_output_b64u =
+        encode_state_blob(&server_output, "server eval finalize output")?;
     let staged_evaluator_artifact_handle =
-        cache_staged_evaluator_artifact(staged_evaluator_artifact);
+        cache_staged_evaluator_artifact(staged_evaluator_artifact, server_output);
     let encode_artifact_ms = (Date::now() - encode_artifact_started).max(0.0);
 
     Ok(ThresholdEd25519HssPrepareServerCeremonyOutput {
         context_binding_b64u: base64_url_encode(&evaluator_state.evaluator_session.context_binding),
         staged_evaluator_artifact_handle,
+        server_eval_finalize_output_b64u,
         timings: ThresholdEd25519HssPrepareServerCeremonyTimings {
             decode_states_ms,
             decode_messages_ms,

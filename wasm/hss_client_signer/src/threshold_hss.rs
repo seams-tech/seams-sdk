@@ -367,8 +367,8 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
         session_source,
         |context_binding, runtime, evaluator_session| {
             let build_artifact_started_at = Date::now();
-            let (artifact, stage_profile) = evaluator_session
-                .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message_profiled(
+            let (artifact, server_output, stage_profile) = evaluator_session
+                .build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_message_profiled(
                     runtime,
                     &client_request_message,
                     &evaluator_ot_state,
@@ -379,6 +379,7 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
             Ok((
                 context_binding,
                 artifact,
+                server_output,
                 stage_profile,
                 elapsed_ms(build_artifact_started_at),
             ))
@@ -387,12 +388,17 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
     if let Some(handle) = release_handle.as_deref() {
         remove_hss_client_session_handle(handle);
     }
-    let ((context_binding, artifact, stage_profile, build_artifact_ms), materialize_session_ms) =
-        built?;
+    let (
+        (context_binding, artifact, server_output, stage_profile, build_artifact_ms),
+        materialize_session_ms,
+    ) = built?;
 
     let encode_artifact_started_at = Date::now();
     let staged_evaluator_artifact_b64u = encode_state_blob(&artifact, "staged evaluator artifact")
         .map_err(|e| JsValue::from_str(&e))?;
+    let server_eval_finalize_output_b64u =
+        encode_state_blob(&server_output, "server eval finalize output")
+            .map_err(|e| JsValue::from_str(&e))?;
     let encode_artifact_ms = elapsed_ms(encode_artifact_started_at);
 
     let timings = object();
@@ -846,6 +852,11 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
         &out,
         "stagedEvaluatorArtifactB64u",
         &staged_evaluator_artifact_b64u,
+    )?;
+    set_string(
+        &out,
+        "serverEvalFinalizeOutputB64u",
+        &server_eval_finalize_output_b64u,
     )?;
     Reflect::set(&out, &JsValue::from_str("timings"), &timings)
         .map_err(|_| JsValue::from_str("Failed to serialize field timings"))?;
