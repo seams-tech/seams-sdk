@@ -10,7 +10,7 @@ import type {
   ThresholdRuntimePolicyScope,
   WalletRegistrationEcdsaPreparePayload,
 } from '../../core/types';
-import { derivePlannedEvmFamilyWalletKeyId } from './d1RegistrationCeremonyRecords';
+import { deriveEvmFamilySigningKeySlotId } from './d1RegistrationCeremonyRecords';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 
@@ -34,20 +34,20 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
       message: 'ECDSA registration contains an invalid chain target',
     };
   }
-  const walletKeyId = derivePlannedEvmFamilyWalletKeyId({
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
     walletId: input.walletId,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
   });
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: input.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
   });
   const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
     walletId: input.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
   });
   return {
     ok: true,
@@ -57,7 +57,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
       prepare: {
         formatVersion: 'ecdsa-hss-role-local',
         walletId: input.walletId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId,
         signingRootId: input.signingRootId,
         signingRootVersion: input.signingRootVersion,

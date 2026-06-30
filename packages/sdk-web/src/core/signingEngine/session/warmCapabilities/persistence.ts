@@ -71,7 +71,7 @@ type PersistWarmSessionEd25519RuntimeWorkerMaterial = {
   sealedWorkerMaterialRef?: never;
   sealedWorkerMaterialB64u?: never;
   materialFormatVersion?: never;
-  materialKeyId?: never;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
   materialCreatedAtMs: number;
   keyVersion: string;
 };
@@ -140,7 +140,7 @@ type RetainedEd25519WorkerMaterialFacts =
       sealedWorkerMaterialRef?: never;
       sealedWorkerMaterialB64u?: never;
       materialFormatVersion?: never;
-      materialKeyId?: never;
+      materialKeyId: Ed25519WorkerMaterialKeyId;
       materialCreatedAtMs: number;
       keyVersion: string;
     }
@@ -281,7 +281,7 @@ function readRetainedEd25519WorkerMaterialFacts(args: {
         keyVersion,
       };
     }
-    if (ed25519WorkerMaterialHandle) {
+    if (ed25519WorkerMaterialHandle && materialKeyId) {
       return {
         kind: 'runtime_worker_material',
         clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
@@ -289,6 +289,7 @@ function readRetainedEd25519WorkerMaterialFacts(args: {
         ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
           ed25519WorkerMaterialBindingDigest,
         ),
+        materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
         materialCreatedAtMs,
         keyVersion,
       };
@@ -431,7 +432,7 @@ export function persistWarmSessionEd25519Capability(
         : {}),
     ...(materialKeyId
       ? { materialKeyId }
-      : retainedMaterial.kind === 'sealed_worker_material'
+      : retainedMaterial.kind !== 'none'
         ? { materialKeyId: retainedMaterial.materialKeyId }
         : {}),
     ...(materialCreatedAtMs > 0

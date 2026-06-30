@@ -76,7 +76,11 @@ const HSS_RESPOND_KEYS = ['ceremonyHandle', 'clientRequest', 'sessionKind'] as c
 const HSS_FINALIZE_KEYS = ['ceremonyHandle', 'evaluationResult', 'sessionKind'] as const;
 const HSS_CONTEXT_KEYS = ['applicationBindingDigestB64u', 'participantIds'] as const;
 const CLIENT_REQUEST_KEYS = ['clientRequestMessageB64u'] as const;
-const EVALUATION_RESULT_KEYS = ['contextBindingB64u', 'stagedEvaluatorArtifactB64u'] as const;
+const EVALUATION_RESULT_KEYS = [
+  'contextBindingB64u',
+  'stagedEvaluatorArtifactB64u',
+  'serverEvalFinalizeOutputB64u',
+] as const;
 
 function invalidThresholdEd25519Body(message: string): ThresholdEd25519RouteParseError {
   return { ok: false, body: { ok: false, code: 'invalid_body', message } };
@@ -110,9 +114,7 @@ function parseEd25519AuthorityScope(
     );
   }
   if (raw.kind !== 'passkey_rp') {
-    return invalidThresholdEd25519Body(
-      'sessionPolicy.authorityScope.kind must be passkey_rp',
-    );
+    return invalidThresholdEd25519Body('sessionPolicy.authorityScope.kind must be passkey_rp');
   }
   const rpId = parseWebAuthnRpId(raw.rpId);
   if (!rpId.ok) {
@@ -152,7 +154,9 @@ function isHssSessionOperation(value: unknown): value is ThresholdEd25519HssSess
   }
 }
 
-function parseEd25519SessionPolicy(raw: unknown): ThresholdEd25519RouteParseResult<Ed25519SessionPolicy> {
+function parseEd25519SessionPolicy(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<Ed25519SessionPolicy> {
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('sessionPolicy is required');
   if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) {
     return invalidThresholdEd25519Body(
@@ -161,7 +165,9 @@ function parseEd25519SessionPolicy(raw: unknown): ThresholdEd25519RouteParseResu
   }
   const unsupported = findUnexpectedRouteKey(raw, SESSION_POLICY_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 sessionPolicy field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 sessionPolicy field: ${unsupported}`,
+    );
   }
   if (raw.version !== 'threshold_session_v1') {
     return invalidThresholdEd25519Body('sessionPolicy.version must be threshold_session_v1');
@@ -222,20 +228,28 @@ function parseEd25519SessionPolicy(raw: unknown): ThresholdEd25519RouteParseResu
   };
 }
 
-function parseHssContext(raw: unknown): ThresholdEd25519RouteParseResult<ThresholdEd25519HssCanonicalContext> {
+function parseHssContext(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<ThresholdEd25519HssCanonicalContext> {
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('context is required');
   const unsupported = findUnexpectedRouteKey(raw, HSS_CONTEXT_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 HSS context field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 HSS context field: ${unsupported}`,
+    );
   }
   const applicationBindingDigestB64u = requiredStringField(raw, 'applicationBindingDigestB64u');
   if (!applicationBindingDigestB64u.ok) return applicationBindingDigestB64u;
   try {
     if (base64UrlDecode(applicationBindingDigestB64u.request).length !== 32) {
-      return invalidThresholdEd25519Body('context.applicationBindingDigestB64u must decode to 32 bytes');
+      return invalidThresholdEd25519Body(
+        'context.applicationBindingDigestB64u must decode to 32 bytes',
+      );
     }
   } catch {
-    return invalidThresholdEd25519Body('context.applicationBindingDigestB64u must be valid base64url');
+    return invalidThresholdEd25519Body(
+      'context.applicationBindingDigestB64u must be valid base64url',
+    );
   }
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
   if (!participantIds || participantIds.length < 2) {
@@ -256,7 +270,9 @@ function parseClientRequestEnvelope(
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('clientRequest is required');
   const unsupported = findUnexpectedRouteKey(raw, CLIENT_REQUEST_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 clientRequest field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 clientRequest field: ${unsupported}`,
+    );
   }
   const clientRequestMessageB64u = requiredStringField(raw, 'clientRequestMessageB64u');
   if (!clientRequestMessageB64u.ok) return clientRequestMessageB64u;
@@ -269,17 +285,22 @@ function parseEvaluationResultEnvelope(
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('evaluationResult is required');
   const unsupported = findUnexpectedRouteKey(raw, EVALUATION_RESULT_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 evaluationResult field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 evaluationResult field: ${unsupported}`,
+    );
   }
   const contextBindingB64u = requiredStringField(raw, 'contextBindingB64u');
   if (!contextBindingB64u.ok) return contextBindingB64u;
   const stagedEvaluatorArtifactB64u = requiredStringField(raw, 'stagedEvaluatorArtifactB64u');
   if (!stagedEvaluatorArtifactB64u.ok) return stagedEvaluatorArtifactB64u;
+  const serverEvalFinalizeOutputB64u = requiredStringField(raw, 'serverEvalFinalizeOutputB64u');
+  if (!serverEvalFinalizeOutputB64u.ok) return serverEvalFinalizeOutputB64u;
   return {
     ok: true,
     request: {
       contextBindingB64u: contextBindingB64u.request,
       stagedEvaluatorArtifactB64u: stagedEvaluatorArtifactB64u.request,
+      serverEvalFinalizeOutputB64u: serverEvalFinalizeOutputB64u.request,
     },
   };
 }
@@ -295,7 +316,9 @@ export function parseThresholdEd25519SessionRouteRequest(
   if (sessionKindError) return sessionKindError;
   const unsupported = findUnexpectedRouteKey(raw, SESSION_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 session field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 session field: ${unsupported}`,
+    );
   }
   const relayerKeyId = requiredStringField(raw, 'relayerKeyId');
   if (!relayerKeyId.ok) return relayerKeyId;
@@ -335,7 +358,9 @@ export function parseThresholdEd25519HssPrepareWithSessionRouteRequest(
   if (sessionKindError) return sessionKindError;
   const unsupported = findUnexpectedRouteKey(raw, HSS_PREPARE_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 HSS prepare field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 HSS prepare field: ${unsupported}`,
+    );
   }
   const relayerKeyId = requiredStringField(raw, 'relayerKeyId');
   if (!relayerKeyId.ok) return relayerKeyId;
@@ -365,7 +390,9 @@ export function parseThresholdEd25519HssRespondWithSessionRouteRequest(
   if (sessionKindError) return sessionKindError;
   const unsupported = findUnexpectedRouteKey(raw, HSS_RESPOND_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 HSS respond field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 HSS respond field: ${unsupported}`,
+    );
   }
   const ceremonyHandle = requiredStringField(raw, 'ceremonyHandle');
   if (!ceremonyHandle.ok) return ceremonyHandle;
@@ -391,7 +418,9 @@ export function parseThresholdEd25519HssFinalizeWithSessionRouteRequest(
   if (sessionKindError) return sessionKindError;
   const unsupported = findUnexpectedRouteKey(raw, HSS_FINALIZE_KEYS);
   if (unsupported) {
-    return invalidThresholdEd25519Body(`Unsupported threshold-ed25519 HSS finalize field: ${unsupported}`);
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 HSS finalize field: ${unsupported}`,
+    );
   }
   const ceremonyHandle = requiredStringField(raw, 'ceremonyHandle');
   if (!ceremonyHandle.ok) return ceremonyHandle;

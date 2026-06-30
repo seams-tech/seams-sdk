@@ -103,14 +103,14 @@ type SealedSigningSessionEcdsaRestoreMetadataBase = {
 
 export type SealedSigningSessionEcdsaRestoreMetadata =
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
+      evmFamilySigningKeySlotId: string;
       rpId: string;
       credentialIdB64u: string;
-      walletKeyId?: never;
       providerSubjectId?: never;
       authSubjectId?: never;
     })
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
-      walletKeyId: string;
+      evmFamilySigningKeySlotId: string;
       providerSubjectId?: string;
       authSubjectId?: string;
       rpId?: never;

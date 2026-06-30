@@ -116,6 +116,22 @@ void persistWarmSessionEd25519Capability({
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
+  materialKeyId,
+  materialCreatedAtMs: 1_800_000_000_000,
+  keyVersion: 'threshold-ed25519-hss-v1',
+});
+
+// @ts-expect-error Runtime Ed25519 material persistence requires materialKeyId.
+void persistWarmSessionEd25519Capability({
+  kind: 'jwt_passkey',
+  ...commonArgs,
+  sessionKind: 'jwt',
+  jwt: 'jwt-token',
+  source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
+  clientVerifyingShareB64u,
+  ed25519WorkerMaterialHandle,
+  ed25519WorkerMaterialBindingDigest,
   materialCreatedAtMs: 1_800_000_000_000,
   keyVersion: 'threshold-ed25519-hss-v1',
 });

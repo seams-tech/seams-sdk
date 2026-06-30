@@ -95,6 +95,20 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
       );
       return;
     }
+    if (
+      args.kind === 'default_bootstrap_parity' &&
+      isRetryableSealedRefreshCapabilityFetchError(error)
+    ) {
+      console.warn(
+        '[threshold-ecdsa] default bootstrap skipped retryable sealed-refresh capability fetch failure',
+        {
+          walletId: String(args.walletId || '').trim(),
+          chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
+          error: parityErrorMessage(error),
+        },
+      );
+      return;
+    }
     throw error;
   }
 }

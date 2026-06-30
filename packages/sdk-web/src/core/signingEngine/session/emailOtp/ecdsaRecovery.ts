@@ -24,10 +24,7 @@ import { walletSessionAuthFromPersistedEd25519Record } from '@/core/signingEngin
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { requestRehydrateEmailOtpEcdsaWarmSessionMaterial } from './workerRequests';
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
-import {
-  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
-  type WalletKeyId,
-} from '../identity/evmFamilyEcdsaIdentity';
+import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -104,7 +101,7 @@ export type EmailOtpEcdsaRestoreSource =
       relayerUrl: string;
       chainTarget: ThresholdEcdsaChainTarget;
       keyHandle: string;
-      walletKeyId: WalletKeyId;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
       relayerKeyId: string;
       participantIds: readonly number[];
       sessionKind: 'jwt';
@@ -123,7 +120,7 @@ export type EmailOtpEcdsaRestoreSource =
       relayerUrl: string;
       chainTarget: ThresholdEcdsaChainTarget;
       keyHandle: string;
-      walletKeyId: WalletKeyId;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
       relayerKeyId: string;
       participantIds: readonly number[];
       sessionKind: 'jwt';
@@ -153,24 +150,6 @@ function restoreBootstrapWithDurableEcdsaFacts(args: {
       ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
     },
   };
-}
-
-function deriveEmailOtpEcdsaRestoreWalletKeyId(record: {
-  walletId: unknown;
-  ecdsaThresholdKeyId: unknown;
-  signingRootId: unknown;
-  signingRootVersion: unknown;
-  participantIds: unknown;
-  ethereumAddress: unknown;
-}): WalletKeyId {
-  return deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-    walletId: record.walletId,
-    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion,
-    participantIds: record.participantIds,
-    thresholdOwnerAddress: record.ethereumAddress,
-  });
 }
 
 function defaultEmailOtpSessionAuthContext(): ThresholdEcdsaEmailOtpAuthContext {
@@ -324,7 +303,7 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
     relayerUrl: sealedRecord.relayerUrl,
     chainTarget: sealedRecord.chainTarget,
     keyHandle: sealedRecord.keyHandle,
-    walletKeyId: deriveEmailOtpEcdsaRestoreWalletKeyId(sealedRecord),
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(sealedRecord.evmFamilySigningKeySlotId),
     relayerKeyId: sealedRecord.relayerKeyId,
     participantIds: [...sealedRecord.participantIds],
     sessionKind,
@@ -362,7 +341,7 @@ function buildCurrentRecordEmailOtpEcdsaRestoreSource(args: {
     relayerUrl: ecdsaRecord.relayerUrl,
     chainTarget: ecdsaRecord.chainTarget,
     keyHandle: ecdsaRecord.keyHandle,
-    walletKeyId: deriveEmailOtpEcdsaRestoreWalletKeyId(ecdsaRecord),
+    evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
     relayerKeyId: ecdsaRecord.relayerKeyId,
     participantIds: [...ecdsaRecord.participantIds],
     sessionKind: 'jwt',
@@ -512,7 +491,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     restore: {
       sessionId: restoreSource.thresholdSessionId,
       walletId: sealedRecord.walletId,
-      walletKeyId: String(restoreSource.walletKeyId),
+      evmFamilySigningKeySlotId: String(restoreSource.evmFamilySigningKeySlotId),
       chainTarget: restoreSource.chainTarget,
       signingGrantId: restoreSource.signingGrantId,
       keyHandle: restoreSource.keyHandle,

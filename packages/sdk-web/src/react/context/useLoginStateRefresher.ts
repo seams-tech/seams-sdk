@@ -4,18 +4,17 @@ import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState, SeamsContextType } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
-import { extractUsernameFromAccountId } from '../hooks/useAccountInput';
 import {
   buildReactLoggedInLoginStateFromSession,
   buildReactLoggedOutLoginState,
 } from './reactLoginStateBuilders';
 
-function syncInputUsernameFromAccountId(
+function syncInputUsernameFromWalletId(
   setInputUsername: SeamsContextType['setInputUsername'],
-  accountId: string | null | undefined,
+  walletId: string | null | undefined,
 ): void {
-  const username = extractUsernameFromAccountId(accountId);
-  if (username) setInputUsername(username);
+  const value = String(walletId || '').trim();
+  if (value) setInputUsername(value);
 }
 
 export function useLoginStateRefresher(args: {
@@ -45,8 +44,8 @@ export function useLoginStateRefresher(args: {
               seams.preferences.setCurrentWallet(toWalletId(ls.walletId));
             } catch {}
           }
-          if (ls.nearAccountId) {
-            syncInputUsernameFromAccountId(setInputUsername, ls.nearAccountId);
+          if (ls.walletId) {
+            syncInputUsernameFromWalletId(setInputUsername, ls.walletId);
           }
           const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
           setLoginState(nextLoginState ?? buildReactLoggedOutLoginState());

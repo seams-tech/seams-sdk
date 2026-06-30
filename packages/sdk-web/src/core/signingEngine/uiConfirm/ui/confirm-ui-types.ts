@@ -29,6 +29,8 @@ export type ConfirmUIUpdate = {
   evmExplorerUrl?: string;
   loading?: boolean;
   errorMessage?: string;
+  confirmText?: string;
+  cancelText?: string;
   title?: string;
   body?: string;
   signingAuthMode?: SigningAuthMode;

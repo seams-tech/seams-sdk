@@ -66,7 +66,7 @@ async function parseBootstrapOutput(
   const signingRoot = signingRootFromRouteInput(input);
   if (
     !sameString(value.walletId, input.walletId) ||
-    !sameString(value.walletKeyId, input.walletKeyId) ||
+    !sameString(value.evmFamilySigningKeySlotId, input.evmFamilySigningKeySlotId) ||
     !sameString(value.ecdsaThresholdKeyId, input.ecdsaThresholdKeyId) ||
     !sameString(value.signingRootId, signingRoot.signingRootId) ||
     !sameString(value.signingRootVersion, signingRoot.signingRootVersion) ||
@@ -83,7 +83,7 @@ async function parseBootstrapOutput(
   });
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: input.walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     chainTarget: input.chainTarget,
     keyHandle: value.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
@@ -102,7 +102,7 @@ async function parseBootstrapOutput(
   return {
     kind: 'bootstrap_ecdsa_session_route_output_v1',
     walletId: input.walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     keyHandle: value.keyHandle,
     relayerPublicIdentity: {
@@ -155,7 +155,7 @@ export function createThresholdEcdsaRelayerClient(
       const response = await thresholdEcdsaHssRoleLocalBootstrap(config.relayerUrl, {
         formatVersion: 'ecdsa-hss-role-local',
         walletId: input.walletId,
-        walletKeyId: input.walletKeyId,
+        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
         signingRootId: signingRoot.signingRootId,
         signingRootVersion: signingRoot.signingRootVersion,

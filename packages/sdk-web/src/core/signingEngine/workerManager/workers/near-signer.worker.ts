@@ -359,7 +359,6 @@ function storeThresholdEd25519WorkerMaterialFromHssOutput(payload: unknown):
       materialFormatVersion: string;
       materialKeyId: string;
       signerSlot: number;
-      keyVersion: string;
     }
   | ThresholdEd25519WorkerMaterialFailure {
   return runMaterialCommand(
@@ -380,7 +379,6 @@ function restoreThresholdEd25519WorkerMaterial(payload: unknown):
       materialFormatVersion: string;
       materialKeyId: string;
       signerSlot: number;
-      keyVersion: string;
     }
   | ThresholdEd25519WorkerMaterialFailure {
   return runMaterialCommand(
@@ -668,7 +666,6 @@ function requireStoredMaterialOutput(output: unknown): {
   materialFormatVersion: string;
   materialKeyId: string;
   signerSlot: number;
-  keyVersion: string;
 } {
   const parsed = output as {
     ok?: unknown;
@@ -680,7 +677,6 @@ function requireStoredMaterialOutput(output: unknown): {
     materialFormatVersion?: unknown;
     materialKeyId?: unknown;
     signerSlot?: unknown;
-    keyVersion?: unknown;
   };
   const materialHandle = String(parsed?.materialHandle || '').trim();
   const materialBindingDigest = String(parsed?.materialBindingDigest || '').trim();
@@ -690,7 +686,6 @@ function requireStoredMaterialOutput(output: unknown): {
   const materialFormatVersion = String(parsed?.materialFormatVersion || '').trim();
   const materialKeyId = String(parsed?.materialKeyId || '').trim();
   const signerSlot = Math.floor(Number(parsed?.signerSlot) || 0);
-  const keyVersion = String(parsed?.keyVersion || '').trim();
   if (
     parsed?.ok !== true ||
     !materialHandle ||
@@ -700,8 +695,7 @@ function requireStoredMaterialOutput(output: unknown): {
     !clientVerifyingShareB64u ||
     !materialFormatVersion ||
     !materialKeyId ||
-    signerSlot <= 0 ||
-    !keyVersion
+    signerSlot <= 0
   ) {
     throw new Error('threshold_ed25519_worker_material returned invalid output');
   }
@@ -715,7 +709,6 @@ function requireStoredMaterialOutput(output: unknown): {
     materialFormatVersion,
     materialKeyId,
     signerSlot,
-    keyVersion,
   };
 }
 
@@ -748,7 +741,6 @@ function requireRestoredMaterialOutput(output: unknown): {
   materialFormatVersion: string;
   materialKeyId: string;
   signerSlot: number;
-  keyVersion: string;
 } {
   const parsed = output as {
     ok?: unknown;
@@ -760,7 +752,6 @@ function requireRestoredMaterialOutput(output: unknown): {
     materialFormatVersion?: unknown;
     materialKeyId?: unknown;
     signerSlot?: unknown;
-    keyVersion?: unknown;
   };
   const materialHandle = String(parsed?.materialHandle || '').trim();
   const materialBindingDigest = String(parsed?.materialBindingDigest || '').trim();
@@ -770,7 +761,6 @@ function requireRestoredMaterialOutput(output: unknown): {
   const materialFormatVersion = String(parsed?.materialFormatVersion || '').trim();
   const materialKeyId = String(parsed?.materialKeyId || '').trim();
   const signerSlot = Math.floor(Number(parsed?.signerSlot) || 0);
-  const keyVersion = String(parsed?.keyVersion || '').trim();
   if (
     parsed?.ok !== true ||
     !materialHandle ||
@@ -780,8 +770,7 @@ function requireRestoredMaterialOutput(output: unknown): {
     !sealedWorkerMaterialB64u ||
     !materialFormatVersion ||
     !materialKeyId ||
-    signerSlot <= 0 ||
-    !keyVersion
+    signerSlot <= 0
   ) {
     throw new Error('threshold_ed25519_worker_material_restore returned invalid output');
   }
@@ -795,7 +784,6 @@ function requireRestoredMaterialOutput(output: unknown): {
     materialFormatVersion,
     materialKeyId,
     signerSlot,
-    keyVersion,
   };
 }
 

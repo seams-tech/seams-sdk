@@ -16,23 +16,18 @@ import {
   deriveSigningRootId,
   normalizeRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  type Ed25519SessionPolicy,
   registrationPreparationIdFromString,
-  type ThresholdEd25519BootstrapSession,
-  type ThresholdRuntimePolicyScope,
-  type WalletRegistrationPrepareResponse,
-  type WalletRegistrationFinalizeResponse,
-  type WalletRegistrationHssRespondResponse,
-  type WalletRegistrationStartResponse,
+  ThresholdEd25519BootstrapSession,
+  WalletRegistrationPrepareResponse,
+  WalletRegistrationFinalizeResponse,
+  WalletRegistrationHssRespondResponse,
+  WalletRegistrationStartResponse,
 } from '../../core/types';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../core/ThresholdService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
-import { parseThresholdEd25519AuthorityScope } from '../../core/ThresholdService/validation';
 import type { WalletStore } from '../../core/d1WalletStore';
 import type { CloudflareRouterApiAuthService } from '../authServicePort';
 import {
@@ -65,10 +60,10 @@ import { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from './d1EmailOt
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegistrationBranch';
 import {
+  buildD1ThresholdEd25519RegistrationSessionPolicy,
   buildD1WalletEd25519SignerRecord,
-  d1RegistrationIntentEd25519AuthorityScopeKey,
   d1RegistrationIntentNearEd25519SigningKeyId,
-  d1RegistrationIntentPasskeyRpId,
+  d1RegistrationIntentThresholdEd25519AuthorityScope,
   d1RegistrationIntentSigningRootId,
   d1RegistrationIntentSigningRootVersion,
   d1ThresholdEd25519RegistrationAccountScope,
@@ -76,7 +71,6 @@ import {
   resolveD1NearEd25519RegistrationPrepareScope,
   respondD1NearEd25519RegistrationHss,
   toD1ThresholdEd25519BootstrapSession,
-  validateD1ThresholdEd25519SessionPolicyBindings,
 } from './d1NearEd25519RegistrationBranch';
 
 type StartWalletRegistrationInput = Parameters<
@@ -109,132 +103,6 @@ function normalizeD1ThresholdRuntimePolicyScope(raw: unknown) {
   } catch {
     return undefined;
   }
-}
-
-type D1InvalidBodyResult = { ok: false; code: 'invalid_body'; message: string };
-type D1Ed25519SessionPolicyBuildResult =
-  | { ok: true; value: Ed25519SessionPolicy }
-  | D1InvalidBodyResult;
-
-function parseD1ThresholdEd25519SessionPolicyRouterAbNormalSigning(
-  requestedSessionPolicy: Record<string, unknown>,
-): { ok: true; value: Ed25519SessionPolicy['routerAbNormalSigning'] } | D1InvalidBodyResult {
-  if (!Object.prototype.hasOwnProperty.call(requestedSessionPolicy, 'routerAbNormalSigning')) {
-    return { ok: true, value: undefined };
-  }
-  try {
-    const parsed = parseRouterAbEd25519NormalSigningState(
-      requestedSessionPolicy.routerAbNormalSigning,
-    );
-    if (parsed) return { ok: true, value: parsed };
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message:
-        'threshold_ed25519.session_policy.routerAbNormalSigning must be a Router A/B normal-signing state',
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message:
-        error && typeof error === 'object' && 'message' in error
-          ? String((error as { message?: unknown }).message)
-          : 'threshold_ed25519.session_policy.routerAbNormalSigning is invalid',
-    };
-  }
-}
-
-function parseD1ThresholdEd25519SessionPolicyParticipantIds(
-  requestedSessionPolicy: Record<string, unknown>,
-): { ok: true; value: number[] | undefined } | D1InvalidBodyResult {
-  if (!Object.prototype.hasOwnProperty.call(requestedSessionPolicy, 'participantIds')) {
-    return { ok: true, value: undefined };
-  }
-  const participantIds = normalizeThresholdEd25519ParticipantIds(
-    requestedSessionPolicy.participantIds,
-  );
-  if (participantIds) return { ok: true, value: participantIds };
-  return {
-    ok: false,
-    code: 'invalid_body',
-    message: 'threshold_ed25519.session_policy.participantIds must contain participant ids',
-  };
-}
-
-function buildD1ThresholdEd25519RegistrationSessionPolicy(input: {
-  readonly requestedSessionPolicy: Record<string, unknown>;
-  readonly walletId: string;
-  readonly nearAccountId: string;
-  readonly nearEd25519SigningKeyId: string;
-  readonly relayerKeyId: string;
-  readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
-}): D1Ed25519SessionPolicyBuildResult {
-  const requestedSessionPolicy = input.requestedSessionPolicy;
-  const version = toOptionalTrimmedString(requestedSessionPolicy.version);
-  if (version !== 'threshold_session_v1') {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'threshold_ed25519.session_policy.version must be threshold_session_v1',
-    };
-  }
-  const authorityScope = parseThresholdEd25519AuthorityScope(
-    requestedSessionPolicy.authorityScope,
-  );
-  if (!authorityScope) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'threshold_ed25519.session_policy.authorityScope is required',
-    };
-  }
-  const thresholdSessionId = toOptionalTrimmedString(
-    requestedSessionPolicy.thresholdSessionId,
-  );
-  if (!thresholdSessionId) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'threshold_ed25519.session_policy.thresholdSessionId is required',
-    };
-  }
-  const ttlMs = Number(requestedSessionPolicy.ttlMs);
-  const remainingUses = Number(requestedSessionPolicy.remainingUses);
-  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || !Number.isFinite(remainingUses) || remainingUses <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'threshold_ed25519.session_policy ttlMs/remainingUses must be positive',
-    };
-  }
-  const routerAbNormalSigning =
-    parseD1ThresholdEd25519SessionPolicyRouterAbNormalSigning(requestedSessionPolicy);
-  if (!routerAbNormalSigning.ok) return routerAbNormalSigning;
-  const participantIds =
-    parseD1ThresholdEd25519SessionPolicyParticipantIds(requestedSessionPolicy);
-  if (!participantIds.ok) return participantIds;
-  const signingGrantId = toOptionalTrimmedString(requestedSessionPolicy.signingGrantId);
-  return {
-    ok: true,
-    value: {
-      version: 'threshold_session_v1',
-      walletId: input.walletId,
-      nearAccountId: input.nearAccountId,
-      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-      authorityScope,
-      relayerKeyId: input.relayerKeyId,
-      thresholdSessionId,
-      ...(signingGrantId ? { signingGrantId } : {}),
-      ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
-      ...(routerAbNormalSigning.value
-        ? { routerAbNormalSigning: routerAbNormalSigning.value }
-        : {}),
-      ...(participantIds.value ? { participantIds: participantIds.value } : {}),
-      ttlMs,
-      remainingUses,
-    },
-  };
 }
 
 type RegistrationIntentSignerBranches = {
@@ -1062,13 +930,9 @@ export class CloudflareD1WalletRegistrationService {
           signingRootId: ceremony.signingRootId,
           signingRootVersion: ceremony.signingRootVersion,
         });
-        const ed25519AuthorityScopeKey = d1RegistrationIntentEd25519AuthorityScopeKey(
+        const ed25519AuthorityScope = d1RegistrationIntentThresholdEd25519AuthorityScope(
           ceremony.intent,
         );
-        const registrationPasskeyRpId = d1RegistrationIntentPasskeyRpId({
-          intent: ceremony.intent,
-          field: 'registration HSS finalize rpId',
-        });
         const finalized = await threshold.ed25519Hss.finalizeForRegistration({
           orgId: ceremony.orgId,
           request: {
@@ -1092,7 +956,7 @@ export class CloudflareD1WalletRegistrationService {
               accountProvisioning: ed25519.accountProvisioning,
             }),
             wallet_key_id: nearEd25519SigningKeyId,
-            rpId: registrationPasskeyRpId,
+            authorityScope: ed25519AuthorityScope,
             ceremonyHandle: ed25519State.ceremonyHandle,
             preparedSession: ed25519State.preparedSession,
             serverState: ed25519State.serverState,
@@ -1128,7 +992,7 @@ export class CloudflareD1WalletRegistrationService {
           walletId: ceremony.intent.walletId,
           nearAccountId: finalized.nearAccountId,
           nearEd25519SigningKeyId,
-          rpId: ed25519AuthorityScopeKey,
+          authorityScope: ed25519AuthorityScope,
           keyVersion: ed25519.keyVersion,
           recoveryExportCapable: true,
           publicKey: finalized.publicKey,
@@ -1163,23 +1027,13 @@ export class CloudflareD1WalletRegistrationService {
             return { ok: false, code: 'invalid_body', message: 'ed25519.sessionKind must be jwt' };
           }
           const requestedPolicy = request.ed25519.sessionPolicy as Record<string, unknown>;
-          const policyBindingError = validateD1ThresholdEd25519SessionPolicyBindings({
-            requestedSessionPolicy: requestedPolicy,
-            expectedWalletId: String(ceremony.intent.walletId),
-            expectedRelayerKeyId: keygen.relayerKeyId,
-            expectedNearAccountId: finalized.nearAccountId,
-            expectedNearEd25519SigningKeyId: nearEd25519SigningKeyId,
-            expectedRpId: ed25519AuthorityScopeKey,
-          });
-          if (policyBindingError) {
-            return { ok: false, code: 'invalid_body', message: policyBindingError };
-          }
           const sessionPolicy = buildD1ThresholdEd25519RegistrationSessionPolicy({
             requestedSessionPolicy: requestedPolicy,
             walletId: String(ceremony.intent.walletId),
             nearAccountId: finalized.nearAccountId,
             nearEd25519SigningKeyId,
             relayerKeyId: keygen.relayerKeyId,
+            expectedAuthorityScope: ed25519AuthorityScope,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           });
           if (!sessionPolicy.ok) return sessionPolicy;
@@ -1187,7 +1041,7 @@ export class CloudflareD1WalletRegistrationService {
             walletId: String(ceremony.intent.walletId),
             nearAccountId: finalized.nearAccountId,
             nearEd25519SigningKeyId,
-            rpId: ed25519AuthorityScopeKey,
+            authorityScope: sessionPolicy.value.authorityScope,
             relayerKeyId: keygen.relayerKeyId,
             sessionPolicy: sessionPolicy.value,
           });

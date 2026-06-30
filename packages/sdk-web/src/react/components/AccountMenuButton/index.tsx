@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ScanIcon } from './icons/ScanIcon';
+import { KeyIcon } from './icons/KeyIcon';
 import { LinkIcon } from './icons/LinkIcon';
 import { SlidersIcon } from './icons/SlidersIcon';
 import { RecoveryCodesIcon } from './icons/RecoveryCodesIcon';
+import { SpinnerIcon } from './icons/SpinnerIcon';
 import { SunIcon } from './icons/SunIcon';
 import { MoonIcon } from './icons/MoonIcon';
 import { UserAccountButton } from './UserAccountButton';
@@ -15,10 +17,25 @@ import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
 import { LinkedDevicesModal } from './LinkedDevicesModal';
 import { RecoveryCodesModal } from './RecoveryCodesModal';
+import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { requirePrimaryChainByFamily } from '@/core/config/chains';
+import {
+  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromConfig,
+  toWalletId,
+  walletSessionRefFromSession,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+
+type ExportChain = 'near' | 'evm';
+
+function formatExportKeyErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  const message = String(error || '').trim();
+  return message || 'Key export is unavailable for this wallet.';
+}
 
 function resolveDefaultPortalTarget(
   explicit: HTMLElement | ShadowRoot | null | undefined,
@@ -96,6 +113,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
+  const [showExportKeyTypeModal, setShowExportKeyTypeModal] = useState(false);
+  const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
+  const [exportRestrictionMessage, setExportRestrictionMessage] = useState<string | null>(null);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
 
@@ -186,9 +206,95 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     }
   };
 
+  const startExportKeyFlow = useCallback(
+    async (chain: ExportChain) => {
+      if (exportRestrictionMessage) return;
+      if (!loginState.isLoggedIn || !walletId) {
+        setExportRestrictionMessage('Key export requires an unlocked wallet.');
+        return;
+      }
+
+      const walletSession = walletSessionRefFromSession({
+        walletId,
+        walletSessionUserId: walletId,
+      });
+
+      setExportLoadingChain(chain);
+      setExportRestrictionMessage(null);
+      try {
+        if (chain === 'near') {
+          if (!nearAccountId) {
+            throw new Error('NEAR key export requires a NEAR account binding.');
+          }
+          const nearAccount = nearAccountRefFromAccountId(nearAccountId);
+          const resolvedLane = await seams.keys.resolveExactKeyExportLane({
+            kind: 'near',
+            walletSession,
+            nearAccount,
+          });
+          if (resolvedLane.kind !== 'near') {
+            throw new Error('NEAR key export lane resolution returned the wrong signer kind.');
+          }
+          await seams.keys.exportKeypairWithUI({
+            kind: 'near',
+            walletSession,
+            nearAccount,
+            laneIdentity: resolvedLane.laneIdentity,
+            options: {
+              chain: 'near',
+              variant: 'drawer',
+            },
+          });
+        } else {
+          const chainTarget = thresholdEcdsaChainTargetFromConfig(
+            requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
+          );
+          const resolvedLane = await seams.keys.resolveExactKeyExportLane({
+            kind: 'ecdsa',
+            walletSession,
+            chainTarget,
+          });
+          if (resolvedLane.kind !== 'ecdsa') {
+            throw new Error('ECDSA key export lane resolution returned the wrong signer kind.');
+          }
+          await seams.keys.exportKeypairWithUI({
+            kind: 'ecdsa',
+            walletSession,
+            chainTarget,
+            laneIdentity: resolvedLane.laneIdentity,
+            options: {
+              variant: 'drawer',
+            },
+          });
+        }
+        setShowExportKeyTypeModal(false);
+      } catch (error: unknown) {
+        const message = formatExportKeyErrorMessage(error);
+        setExportRestrictionMessage(message);
+        console.error('[AccountMenuButton] Key export failed:', error);
+      } finally {
+        setExportLoadingChain(null);
+      }
+    },
+    [exportRestrictionMessage, loginState.isLoggedIn, nearAccountId, seams, walletId],
+  );
+
   // Menu items configuration with context-aware handlers
   const MENU_ITEMS: MenuItem[] = useMemo(() => {
     const items: MenuItem[] = [];
+
+    items.push({
+      id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
+      icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
+      label: 'Export Keys',
+      description: 'Export wallet signing keys',
+      disabled: !loginState.isLoggedIn || exportLoadingChain !== null,
+      onClick: () => {
+        setExportRestrictionMessage(null);
+        setShowExportKeyTypeModal(true);
+      },
+      keepOpenOnClick: true,
+    });
 
     if (canShowRecoveryCodes) {
       items.push({
@@ -245,7 +351,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [canShowRecoveryCodes, loginState.isLoggedIn, theme, handleToggleTheme]);
+  }, [canShowRecoveryCodes, exportLoadingChain, loginState.isLoggedIn, theme, handleToggleTheme]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -358,6 +464,21 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             walletId={walletId!}
             isOpen={showRecoveryCodes}
             onClose={() => setShowRecoveryCodes(false)}
+          />,
+          portalHost!,
+        )}
+
+      {canPortal &&
+        createPortal(
+          <ExportKeyTypeModal
+            isOpen={showExportKeyTypeModal}
+            loadingChain={exportLoadingChain}
+            restrictionMessage={exportRestrictionMessage}
+            onClose={() => {
+              if (exportLoadingChain) return;
+              setShowExportKeyTypeModal(false);
+            }}
+            onSelectChain={startExportKeyFlow}
           />,
           portalHost!,
         )}

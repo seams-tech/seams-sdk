@@ -263,7 +263,7 @@ export function buildEcdsaMaterialStateForCandidate(
     record: args.record || null,
     expected: {
       walletId: args.candidate.walletId,
-      walletKeyId: args.candidate.key.walletKeyId,
+      evmFamilySigningKeySlotId: args.candidate.key.evmFamilySigningKeySlotId,
       chainTarget: args.materialChainTarget,
       authMethod: args.authMethod,
       source: args.source,
@@ -464,7 +464,7 @@ export function summarizeVisibleEcdsaMaterial(args: {
     record,
     expected: {
       walletId: record.walletId,
-      walletKeyId: recordCandidate.key.walletKeyId,
+      evmFamilySigningKeySlotId: recordCandidate.key.evmFamilySigningKeySlotId,
       chainTarget: args.materialChainTarget,
       authMethod: args.authMethod,
       source: args.source,

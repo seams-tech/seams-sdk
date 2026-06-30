@@ -30,6 +30,7 @@ import {
 } from './cosigners';
 import { createThresholdEd25519RelayerPresignMaterial } from './ed25519PresignRound1';
 import { expectThresholdEd25519Round2SignWasmOutput } from './ed25519PresignRound2';
+import { thresholdEd25519AuthorityScopesMatch } from './validation';
 
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
@@ -39,7 +40,7 @@ function authorityScopesMatch(
   left: ThresholdEd25519AuthorityScope,
   right: ThresholdEd25519AuthorityScope,
 ): boolean {
-  return left.kind === right.kind && left.rpId === right.rpId;
+  return thresholdEd25519AuthorityScopesMatch(left, right);
 }
 
 function parseCommitments(input: unknown, label: string): ParseResult<ThresholdEd25519Commitments> {

@@ -108,7 +108,7 @@ function statusMatchesAuthScope(
 ): boolean {
   switch (auth.curve) {
     case 'ecdsa':
-      return status.curve === 'ecdsa' && status.walletKeyId === auth.walletKeyId;
+      return status.curve === 'ecdsa' && status.evmFamilySigningKeySlotId === auth.evmFamilySigningKeySlotId;
     case 'ed25519':
       return status.curve === 'ed25519' && status.rpId === auth.rpId;
   }

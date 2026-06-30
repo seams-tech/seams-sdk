@@ -87,6 +87,7 @@ export function createManagerAssembly(args: {
       passkeyAuthenticatorStore: args.stores.passkeyAuthenticatorStore,
       userPreferencesManager: userPreferencesManager,
       nonceCoordinator: nonceCoordinator,
+      relayerUrl: args.seamsWebConfigs.network.relayer.url,
       chains,
       rpIdOverride: touchIdPrompt.getRpId(),
       nearExplorerUrl,

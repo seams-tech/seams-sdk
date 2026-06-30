@@ -660,6 +660,9 @@ export async function prepareTransactionSigningOperation<
       ? await args.coordinator.prepareBudgetIdentity({
           lane: thresholdOperation.lane,
           operationUsesNeeded: args.intent.operationUsesNeeded,
+          ...(thresholdOperation.trustedStatusAuth
+            ? { trustedStatusAuth: thresholdOperation.trustedStatusAuth }
+            : {}),
         })
       : undefined;
 

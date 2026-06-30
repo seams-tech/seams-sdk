@@ -396,7 +396,7 @@ function normalizeEcdsaRestoreMetadata(
   const sessionKind =
     sessionKindRaw === 'cookie' || sessionKindRaw === 'jwt' ? sessionKindRaw : undefined;
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
-  const walletKeyId = normalizeOptionalNonEmptyString(obj.walletKeyId);
+  const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
   const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
@@ -423,11 +423,11 @@ function normalizeEcdsaRestoreMetadata(
     return undefined;
   }
   const authBranch =
-    credentialIdB64u && rpId
-      ? ({ rpId, credentialIdB64u } as const)
-      : walletKeyId && (providerSubjectId || authSubjectId)
+    evmFamilySigningKeySlotId && credentialIdB64u && rpId
+      ? ({ evmFamilySigningKeySlotId, rpId, credentialIdB64u } as const)
+      : evmFamilySigningKeySlotId && (providerSubjectId || authSubjectId)
         ? ({
-            walletKeyId,
+            evmFamilySigningKeySlotId,
             ...(providerSubjectId ? { providerSubjectId } : {}),
             ...(authSubjectId ? { authSubjectId } : {}),
           } as const)
@@ -1300,22 +1300,14 @@ function logSealedSessionClassification(args: {
     CurrentSealedSessionRecordClassification
   >;
 }): void {
-  const outcome =
-    args.classification.kind === 'rebuild_required'
-      ? 'rebuilt'
-      : args.classification.kind === 'malformed'
-        ? 'malformed'
-        : 'rejected';
+  if (args.classification.kind === 'rebuild_required') return;
+  const outcome = args.classification.kind === 'malformed' ? 'malformed' : 'rejected';
   const payload = {
     operation: args.operation,
     outcome,
     classificationKind: args.classification.kind,
     ...args.classification,
   };
-  if (outcome === 'rebuilt') {
-    console.info('[SigningSessionSealedStore] sealed record boundary outcome', payload);
-    return;
-  }
   console.warn('[SigningSessionSealedStore] sealed record boundary outcome', payload);
 }
 

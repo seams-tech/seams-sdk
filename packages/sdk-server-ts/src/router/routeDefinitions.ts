@@ -1554,6 +1554,13 @@ export function createRouterApiRouteDefinitions(
       'Resolve wallet ECDSA key facts for explicit repair inventory',
       ['authService'],
     ),
+    userSessionRoute(
+      'wallet_near_implicit_account_fund',
+      'POST',
+      '/wallets/:walletId/near/implicit-account/fund',
+      'Fund a wallet implicit NEAR account for local testing',
+      ['authService', 'session'],
+    ),
     apiCredentialRoute(
       'registration_bootstrap_grants',
       'POST',

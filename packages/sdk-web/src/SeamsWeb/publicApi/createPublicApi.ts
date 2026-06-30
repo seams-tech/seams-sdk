@@ -65,6 +65,7 @@ export type RegistrationCapabilityDomainMethods = {
 };
 
 export type KeyExportCapabilityDomainMethods = {
+  resolveExactKeyExportLane: KeyExportCapability['resolveExactKeyExportLane'];
   exportKeypairWithUI: KeyExportCapability['exportKeypairWithUI'];
   exportThresholdEd25519SeedFromHssReport: KeyExportCapability['exportThresholdEd25519SeedFromHssReport'];
 };
@@ -172,6 +173,7 @@ export function createPublicApi(deps: {
       domain: deps.devices,
     }),
     keys: {
+      resolveExactKeyExportLane: deps.keys.resolveExactKeyExportLane,
       exportKeypairWithUI: deps.keys.exportKeypairWithUI,
       exportThresholdEd25519SeedFromHssReport:
         deps.keys.exportThresholdEd25519SeedFromHssReport,

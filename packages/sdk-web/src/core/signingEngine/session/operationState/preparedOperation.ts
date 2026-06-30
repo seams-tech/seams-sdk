@@ -38,6 +38,7 @@ export type ThresholdSigningReadinessInput = {
   expiresAtMs?: number;
   remainingUses?: number;
   usesNeeded?: number;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 };
 
 export type ThresholdSigningOperationCoordinator = {
@@ -78,6 +79,7 @@ export type PreparedThresholdSigningOperation<
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   availableLanesGeneration: number;
   metadata: TMetadata;
 };
@@ -118,6 +120,9 @@ export async function prepareThresholdSigningOperation<
     expiresAtMs: lifecycle.readiness.expiresAtMs,
     remainingUses: lifecycle.readiness.remainingUses,
     usesNeeded: lifecycle.readiness.usesNeeded,
+    ...(lifecycle.readiness.trustedStatusAuth
+      ? { trustedStatusAuth: lifecycle.readiness.trustedStatusAuth }
+      : {}),
     forceFreshAuth: args.forceFreshAuth || lifecycle.forceFreshAuth,
     sensitiveOperationPolicy: args.sensitiveOperationPolicy,
     missingWhenExpiresAtMissing: args.missingWhenExpiresAtMissing,
@@ -136,6 +141,9 @@ export async function prepareThresholdSigningOperation<
     readiness: resolved.readiness,
     expiresAtMs: resolved.expiresAtMs,
     remainingUses: resolved.remainingUses,
+    ...(lifecycle.readiness.trustedStatusAuth
+      ? { trustedStatusAuth: lifecycle.readiness.trustedStatusAuth }
+      : {}),
     availableLanesGeneration: Math.max(0, Math.floor(Number(lifecycle.availableLanesGeneration) || 0)),
     metadata: (lifecycle.metadata || {}) as TMetadata,
   };

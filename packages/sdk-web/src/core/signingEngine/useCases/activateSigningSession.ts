@@ -24,7 +24,7 @@ export type ActivateSigningSessionFailure = UseCaseFailure<ActivateSigningSessio
 
 export type ActivateSigningSessionSealPolicyInput = {
   walletId: ActivateSigningSessionInput['walletId'];
-  walletKeyId: ActivateSigningSessionInput['walletKeyId'];
+  evmFamilySigningKeySlotId: ActivateSigningSessionInput['evmFamilySigningKeySlotId'];
   rpId: ActivateSigningSessionInput['rpId'];
   auth: SigningSessionActivationAuth;
   material: SigningSessionActivationMaterial;
@@ -222,8 +222,8 @@ function validateAuthMatchesInput(
   }
   if (isEmailOtpEcdsaAuth(input.auth)) {
     if (
-      sameString(input.auth.walletKeyId, input.walletKeyId) &&
-      sameString(handle.walletKeyId, input.walletKeyId)
+      sameString(input.auth.evmFamilySigningKeySlotId, input.evmFamilySigningKeySlotId) &&
+      sameString(handle.evmFamilySigningKeySlotId, input.evmFamilySigningKeySlotId)
     ) {
       return null;
     }
@@ -245,7 +245,7 @@ function validateEcdsaRecordMatchesInput(args: {
   const facts = args.material.record.publicFacts;
   if (
     !sameString(facts.walletId, args.input.walletId) ||
-    !sameString(facts.walletKeyId, args.input.walletKeyId)
+    !sameString(facts.evmFamilySigningKeySlotId, args.input.evmFamilySigningKeySlotId)
   ) {
     return failure({
       code: 'material_branch_mismatch',
@@ -426,7 +426,7 @@ async function sealWriteForMaterial(args: {
 
   const policy = await args.deps.sealPolicy.resolve({
     walletId: args.input.walletId,
-    walletKeyId: args.input.walletKeyId,
+    evmFamilySigningKeySlotId: args.input.evmFamilySigningKeySlotId,
     rpId: args.input.rpId,
     auth: args.input.auth,
     material: args.material,
@@ -466,7 +466,7 @@ export async function activateSigningSession(
   await emit(deps, {
     kind: 'received_input',
     walletId: input.walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     rpId: input.rpId,
     auth: input.auth,
     material: input.material,
@@ -478,7 +478,7 @@ export async function activateSigningSession(
   await emit(deps, {
     kind: 'validating_material',
     walletId: input.walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     rpId: input.rpId,
     auth: input.auth,
     material: input.material,
@@ -508,7 +508,7 @@ export async function activateSigningSession(
   await emit(deps, {
     kind: 'writing_seals',
     walletId: input.walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     rpId: input.rpId,
     sealWrites: nonEmptySealWrites,
   });

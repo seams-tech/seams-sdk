@@ -5,9 +5,8 @@ import type {
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthRegistrationFlow,
   GoogleEmailOtpWalletAuthResolvedMode,
-  PasskeyRegistrationOptions,
 } from '@/SeamsWeb';
-import type { WalletId } from '@shared/utils/registrationIntent';
+import type { RegisterWalletInput, WalletId } from '@shared/utils/registrationIntent';
 import {
   AuthMenuMode,
   AuthMenuModeMap,
@@ -144,11 +143,26 @@ export type PasskeyAuthMenuRegistrationAccountInput =
   | 'implicit_wallet'
   | 'sponsored_named_near_account';
 
+export type PasskeyAuthMenuProvidedRegistrationWallet = Extract<
+  RegisterWalletInput,
+  { kind: 'provided' }
+>;
+
+export type PasskeyAuthMenuRegistrationRequest =
+  | {
+      kind: 'implicit_wallet';
+      wallet: PasskeyAuthMenuProvidedRegistrationWallet;
+    }
+  | {
+      kind: 'sponsored_named_near_account';
+      wallet: PasskeyAuthMenuProvidedRegistrationWallet;
+    };
+
 export interface PasskeyAuthMenuProps {
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onLogin?: () => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
-  onRegister?: (options?: PasskeyRegistrationOptions) => void | Promise<unknown>;
+  onRegister?: (request: PasskeyAuthMenuRegistrationRequest) => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onSyncAccount?: () => void | Promise<unknown>;
   /** App-selected Email OTP signing-session policy exposed through the auth menu. */

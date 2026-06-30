@@ -13,7 +13,17 @@ import {
   type SigningRootRecord,
   type SigningRootRecordResult,
 } from '../../../core/ThresholdService/signingRootRecords';
-import { parseRouterAbEd25519PresignRecord } from '../../../core/ThresholdService/validation';
+import {
+  parseRouterAbEcdsaHssPoolFillSessionRecord as parseFullRouterAbEcdsaHssPoolFillSessionRecord,
+  parseRouterAbEcdsaHssServerPresignatureShareRecord,
+  parseRouterAbEd25519PresignRecord,
+} from '../../../core/ThresholdService/validation';
+import type { RouterAbEcdsaHssPoolFillSessionRecord } from '../../../core/ThresholdService/stores/EcdsaSigningStore';
+import {
+  InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner,
+  type RouterAbEcdsaHssPoolFillLiveSessionCreateInput,
+  type RouterAbEcdsaHssPoolFillLiveSessionStepInput,
+} from '../../../core/ThresholdService/routerAb/ecdsaHssPoolFillLiveSession';
 
 type DurableObjectStorageLike = {
   get(key: string): Promise<unknown>;
@@ -82,7 +92,12 @@ type DoReq =
       expiresAtMs: number;
       nowMs: number;
     }
-  | { op: 'routerAbEcdsaHssPresignaturePut'; listKey: string; value: unknown }
+  | {
+      op: 'routerAbEcdsaHssPresignaturePut';
+      listKey: string;
+      dedupeKey: string;
+      value: unknown;
+    }
   | {
       op: 'routerAbEcdsaHssPresignatureReserve';
       listKey: string;
@@ -104,6 +119,9 @@ type DoReq =
       value: unknown;
       ttlMs?: number;
     }
+  | { op: 'routerAbEcdsaHssPoolFillLiveSessionCreate'; input: unknown }
+  | { op: 'routerAbEcdsaHssPoolFillLiveSessionStep'; input: unknown }
+  | { op: 'routerAbEcdsaHssPoolFillLiveSessionDelete'; presignSessionId: string }
   | {
       op: 'ed25519PresignCheckCapacity';
       capacity: unknown;
@@ -187,11 +205,6 @@ type RouterAbNormalSigningQuotaDecision =
   | { kind: 'accepted'; requestId: string }
   | { kind: 'reuse_existing'; requestId: string; existingLifecycleId: string }
   | { kind: 'short_window_saturated' };
-
-type RouterAbEcdsaHssPoolFillSessionRecord = {
-  expiresAtMs: number;
-  version: number;
-};
 
 type Ed25519PresignIndexEntry = {
   presignId: string;
@@ -696,18 +709,100 @@ function authBudgetReservationExpired(): DoErr {
 function parseRouterAbEcdsaHssPoolFillSessionRecord(
   raw: unknown,
 ): RouterAbEcdsaHssPoolFillSessionRecord | null {
-  if (!isPlainObject(raw)) return null;
-  const expiresAtMs = (raw as { expiresAtMs?: unknown }).expiresAtMs;
-  const version = (raw as { version?: unknown }).version;
-  if (typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
-  if (typeof version !== 'number' || !Number.isFinite(version)) return null;
-  return { expiresAtMs, version };
+  return parseFullRouterAbEcdsaHssPoolFillSessionRecord(raw);
 }
 
 function parsePositiveInteger(value: unknown): number | null {
   const parsed = Math.floor(Number(value));
   if (!Number.isSafeInteger(parsed) || parsed < 1) return null;
   return parsed;
+}
+
+function parsePositiveIntegerArray(raw: unknown): number[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: number[] = [];
+  for (const item of raw) {
+    const value = parsePositiveInteger(item);
+    if (!value) return null;
+    out.push(value);
+  }
+  return out;
+}
+
+function parseStringArray(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: string[] = [];
+  for (const item of raw) {
+    const value = toKey(item);
+    if (!value) return null;
+    out.push(value);
+  }
+  return out;
+}
+
+function parseRouterAbEcdsaHssPoolFillLiveSessionCreateInput(
+  raw: unknown,
+): RouterAbEcdsaHssPoolFillLiveSessionCreateInput | DoErr {
+  if (!isPlainObject(raw)) {
+    return err('invalid_body', 'ECDSA-HSS pool-fill live session create input must be an object');
+  }
+  const presignSessionId = toKey(raw.presignSessionId);
+  const record = parseRouterAbEcdsaHssPoolFillSessionRecord(raw.record);
+  const participantIds = parsePositiveIntegerArray(raw.participantIds);
+  const relayerParticipantId = parsePositiveInteger(raw.relayerParticipantId);
+  const relayerThresholdShare32B64u = toKey(raw.relayerThresholdShare32B64u);
+  const groupPublicKey33B64u = toKey(raw.groupPublicKey33B64u);
+  if (
+    !presignSessionId ||
+    !record ||
+    !participantIds ||
+    !relayerParticipantId ||
+    !relayerThresholdShare32B64u ||
+    !groupPublicKey33B64u
+  ) {
+    return err('invalid_body', 'Invalid ECDSA-HSS pool-fill live session create input');
+  }
+  return {
+    presignSessionId,
+    record,
+    participantIds,
+    relayerParticipantId,
+    relayerThresholdShare32B64u,
+    groupPublicKey33B64u,
+  };
+}
+
+function parseRouterAbEcdsaHssPoolFillLiveSessionStepInput(
+  raw: unknown,
+): RouterAbEcdsaHssPoolFillLiveSessionStepInput | DoErr {
+  if (!isPlainObject(raw)) {
+    return err('invalid_body', 'ECDSA-HSS pool-fill live session step input must be an object');
+  }
+  const presignSessionId = toKey(raw.presignSessionId);
+  const record = parseRouterAbEcdsaHssPoolFillSessionRecord(raw.record);
+  const requestedStageRaw = toKey(raw.requestedStage);
+  const requestedStage =
+    requestedStageRaw === 'triples' || requestedStageRaw === 'presign'
+      ? requestedStageRaw
+      : null;
+  const outgoingMessagesB64u = parseStringArray(raw.outgoingMessagesB64u);
+  const thresholdExpiresAtMs = Number(raw.thresholdExpiresAtMs);
+  if (
+    !presignSessionId ||
+    !record ||
+    !requestedStage ||
+    !outgoingMessagesB64u ||
+    !Number.isFinite(thresholdExpiresAtMs)
+  ) {
+    return err('invalid_body', 'Invalid ECDSA-HSS pool-fill live session step input');
+  }
+  return {
+    presignSessionId,
+    record,
+    requestedStage,
+    outgoingMessagesB64u,
+    thresholdExpiresAtMs,
+  };
 }
 
 function parseEd25519PresignRateLimitEntry(
@@ -805,6 +900,8 @@ async function withTxn<T>(
 
 export class ThresholdStoreDurableObject {
   private readonly state: DurableObjectStateLike;
+  private readonly ecdsaPoolFillLiveSessions =
+    new InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner();
 
   constructor(state: DurableObjectStateLike, _env: unknown) {
     this.state = state;
@@ -1485,13 +1582,25 @@ export class ThresholdStoreDurableObject {
 
     if (op === 'routerAbEcdsaHssPresignaturePut') {
       const listKey = toKey((req as { listKey?: unknown }).listKey);
+      const dedupeKey = toKey((req as { dedupeKey?: unknown }).dedupeKey);
       if (!listKey) return json(err('invalid_body', 'Missing listKey'));
-      const value = (req as { value?: unknown }).value;
+      if (!dedupeKey) return json(err('invalid_body', 'Missing dedupeKey'));
+      const value = parseRouterAbEcdsaHssServerPresignatureShareRecord(
+        (req as { value?: unknown }).value,
+      );
+      if (!value) return json(err('invalid_body', 'Invalid ECDSA-HSS presignature record'));
       await withTxn(this.state, async (store) => {
+        const duplicate = await store.get(dedupeKey);
+        if (duplicate !== null && duplicate !== undefined) return;
         const raw = await store.get(listKey);
         const list = Array.isArray(raw) ? [...raw] : [];
+        if (list.some((entry) => entry?.presignatureId === value.presignatureId)) {
+          await store.put(dedupeKey, { presignatureId: value.presignatureId });
+          return;
+        }
         list.push(value);
         await store.put(listKey, list);
+        await store.put(dedupeKey, { presignatureId: value.presignatureId });
       });
       return json(ok(true));
     }
@@ -1614,6 +1723,31 @@ export class ThresholdStoreDurableObject {
       });
 
       return json(ok(result));
+    }
+
+    if (op === 'routerAbEcdsaHssPoolFillLiveSessionCreate') {
+      const parsed = parseRouterAbEcdsaHssPoolFillLiveSessionCreateInput(
+        (req as { input?: unknown }).input,
+      );
+      if (isDoErr(parsed)) return json(parsed);
+      const result = await this.ecdsaPoolFillLiveSessions.createSession(parsed);
+      return json(ok(result));
+    }
+
+    if (op === 'routerAbEcdsaHssPoolFillLiveSessionStep') {
+      const parsed = parseRouterAbEcdsaHssPoolFillLiveSessionStepInput(
+        (req as { input?: unknown }).input,
+      );
+      if (isDoErr(parsed)) return json(parsed);
+      const result = await this.ecdsaPoolFillLiveSessions.stepSession(parsed);
+      return json(ok(result));
+    }
+
+    if (op === 'routerAbEcdsaHssPoolFillLiveSessionDelete') {
+      const presignSessionId = toKey((req as { presignSessionId?: unknown }).presignSessionId);
+      if (!presignSessionId) return json(err('invalid_body', 'Missing presignSessionId'));
+      await this.ecdsaPoolFillLiveSessions.deleteSession(presignSessionId);
+      return json(ok(null));
     }
 
     if (op === 'ed25519PresignCheckCapacity') {

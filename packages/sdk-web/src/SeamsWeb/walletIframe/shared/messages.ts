@@ -31,6 +31,7 @@ import type {
   GoogleEmailOtpWalletAuthResolvedMode,
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
+  ResolveExactKeyExportLaneInput,
 } from '@/SeamsWeb/publicApi/types';
 import type {
   AddSignerSelection,
@@ -93,6 +94,7 @@ export type ParentToChildType =
   | 'PM_REPORT_TEMPO_FINALIZED'
   | 'PM_REPORT_TEMPO_DROPPED_OR_REPLACED'
   | 'PM_RECONCILE_TEMPO_NONCE_LANE'
+  | 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE'
   | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'
   | 'PM_GET_RECENT_UNLOCKS'
@@ -160,6 +162,7 @@ export interface PMCancelPayload {
 export interface PMRegistrationActivationPreparePayload {
   activationId: string;
   expiresAtMs: number;
+  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
   presentation: RegistrationActivationButtonPresentation;
@@ -459,6 +462,8 @@ export interface PMReportTempoDroppedOrReplacedPayload extends PMTempoNonceLifec
 
 export interface PMReconcileTempoNonceLanePayload extends PMTempoNonceLifecyclePayloadBase {}
 
+export type PMResolveExactKeyExportLanePayload = ResolveExactKeyExportLaneInput;
+
 export type PMExportKeypairUiPayload =
   | {
       kind: 'near';
@@ -711,6 +716,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REPORT_TEMPO_FINALIZED', PMReportTempoFinalizedPayload>
   | RpcEnvelope<'PM_REPORT_TEMPO_DROPPED_OR_REPLACED', PMReportTempoDroppedOrReplacedPayload>
   | RpcEnvelope<'PM_RECONCILE_TEMPO_NONCE_LANE', PMReconcileTempoNonceLanePayload>
+  | RpcEnvelope<'PM_RESOLVE_EXACT_KEY_EXPORT_LANE', PMResolveExactKeyExportLanePayload>
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
   | RpcEnvelope<
       'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',

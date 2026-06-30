@@ -2,6 +2,7 @@ import type { TransactionInputWasm } from '@/core/types/actions';
 import { ActionType } from '@/core/types/actions';
 import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
 import {
+  SigningAuthPlanKind,
   signingAuthModeFromSigningAuthPlan,
   type SigningAuthPlan,
 } from '../../stepUpConfirmation/types';
@@ -9,6 +10,9 @@ import {
   UserConfirmationType,
   type UserConfirmRequest,
   type TransactionSummary,
+  type SignIntentDigestSubject,
+  type SignIntentDigestPayload,
+  type WebAuthnChallenge,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { TxDisplayModel } from '../../interfaces/display';
 import { buildNearDisplayModel } from '../../chains/near/display';
@@ -45,6 +49,55 @@ function normalizeChallengeB64u(value: unknown): string {
   const challenge = String(value || '').trim();
   if (!challenge) return PENDING_CHALLENGE_B64U;
   return challenge;
+}
+
+function signingSubjectLabel(subject: SignIntentDigestSubject): string {
+  switch (subject.kind) {
+    case 'near_wallet':
+      return subject.nearAccountId;
+    case 'evm_wallet':
+      return subject.walletId;
+    default: {
+      const exhaustive: never = subject;
+      throw new Error(`Unsupported signing subject: ${String(exhaustive)}`);
+    }
+  }
+}
+
+function requireIntentDigestWebAuthnChallenge(
+  value: WebAuthnChallenge | undefined,
+): WebAuthnChallenge {
+  if (!value) {
+    throw new Error('[SigningConfirmation] passkey intent signing requires webauthnChallenge');
+  }
+  return value;
+}
+
+function buildSignIntentDigestPayload(args: {
+  signingSubject: SignIntentDigestSubject;
+  challengeB64u: string;
+  displayModel?: TxDisplayModel;
+  webauthnChallenge?: WebAuthnChallenge;
+  signingAuthPlan: SigningAuthPlan;
+  emailOtpPrompt?: OrchestrateIntentDigestSigningConfirmationParams['emailOtpPrompt'];
+}): SignIntentDigestPayload {
+  if (args.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth) {
+    return {
+      signingSubject: args.signingSubject,
+      challengeB64u: args.challengeB64u,
+      ...(args.displayModel ? { displayModel: args.displayModel } : {}),
+      webauthnChallenge: requireIntentDigestWebAuthnChallenge(args.webauthnChallenge),
+      signingAuthPlan: args.signingAuthPlan,
+    };
+  }
+  return {
+    signingSubject: args.signingSubject,
+    challengeB64u: args.challengeB64u,
+    ...(args.displayModel ? { displayModel: args.displayModel } : {}),
+    signingAuthPlan: args.signingAuthPlan,
+    ...(args.webauthnChallenge ? { webauthnChallenge: args.webauthnChallenge } : {}),
+    ...(args.emailOtpPrompt ? { emailOtpPrompt: args.emailOtpPrompt } : {}),
+  };
 }
 
 function buildPendingIntentDisplayModel(args: {
@@ -191,6 +244,7 @@ export async function orchestrateSigningConfirmation(
             displayModel: eagerDisplayModel,
             rpcCall: params.rpcCall,
             ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
+            ...(params.nearFundingAuth ? { nearFundingAuth: params.nearFundingAuth } : {}),
             ...(params.webauthnChallenge
               ? { webauthnChallenge: params.webauthnChallenge }
               : {}),
@@ -228,6 +282,7 @@ export async function orchestrateSigningConfirmation(
           displayModel,
           rpcCall: params.rpcCall,
           ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
+          ...(params.nearFundingAuth ? { nearFundingAuth: params.nearFundingAuth } : {}),
           ...(params.webauthnChallenge
             ? { webauthnChallenge: params.webauthnChallenge }
             : {}),
@@ -333,11 +388,13 @@ export async function orchestrateSigningConfirmation(
       const uiIntentDigest = normalizeIntentDigestForUi(params.intentDigest);
       intentDigest = uiIntentDigest;
       const challengeB64u = normalizeChallengeB64u(params.challengeB64u);
+      const signingSubject = params.signingSubject;
+      const signingSubjectDisplayLabel = signingSubjectLabel(signingSubject);
       const displayModel =
         params.displayModel ||
         buildPendingIntentDisplayModel({
           chain: params.chain,
-          signerAccountId: params.signerAccountId,
+          signerAccountId: signingSubjectDisplayLabel,
           title: params.title,
           body: params.body,
           intentDigest: uiIntentDigest || undefined,
@@ -353,16 +410,14 @@ export async function orchestrateSigningConfirmation(
         requestId: sessionId,
         type: UserConfirmationType.SIGN_INTENT_DIGEST,
         summary,
-        payload: {
-          nearAccountId: params.signerAccountId,
+        payload: buildSignIntentDigestPayload({
+          signingSubject,
           challengeB64u,
           displayModel,
-          ...(params.webauthnChallenge
-            ? { webauthnChallenge: params.webauthnChallenge }
-            : {}),
+          webauthnChallenge: params.webauthnChallenge,
           signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
-        },
+        }),
         confirmationConfig: params.confirmationConfigOverride,
         ...(uiIntentDigest ? { intentDigest: uiIntentDigest } : {}),
       };

@@ -1,5 +1,5 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { d1Integer as toNumber, d1ChangedRows, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
+import { d1Integer as toNumber, d1ChangedRows, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -81,14 +81,10 @@ export type ConsoleBillingD1Service = ConsoleBillingService & {
   [CONSOLE_BILLING_D1_RUNTIME]: ConsoleBillingD1Runtime;
 };
 
-export interface D1ConsoleBillingSchemaOptions {
-  database: D1DatabaseLike;
-}
 
 export interface D1ConsoleBillingServiceOptions {
   database: D1DatabaseLike;
   namespace?: string;
-  ensureSchema?: boolean;
   now?: () => Date;
   providers?: Partial<BillingProviderAdapters>;
 }
@@ -98,7 +94,6 @@ export interface D1ConsoleBillingMonthlyFinalizationOptions {
   namespace?: string;
   orgIds?: string[];
   periodMonthUtc?: string;
-  ensureSchema?: boolean;
   now?: () => Date;
 }
 
@@ -149,290 +144,6 @@ interface LedgerEntryInsertInput {
 type D1LedgerEntryInsertGuard = {
   readonly kind: 'previous_statement_changed_one';
 };
-
-export const CONSOLE_BILLING_D1_SCHEMA_SQL = Object.freeze([
-  `
-    CREATE TABLE IF NOT EXISTS billing_accounts (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      credit_balance_minor INTEGER NOT NULL DEFAULT 0,
-      low_balance_threshold_minor INTEGER NOT NULL DEFAULT 2000,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id),
-      CHECK (length(namespace) > 0),
-      CHECK (length(org_id) > 0),
-      CHECK (low_balance_threshold_minor >= 0),
-      CHECK (created_at_ms > 0),
-      CHECK (updated_at_ms >= created_at_ms)
-    )
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS billing_ledger_entries (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      entry_type TEXT NOT NULL,
-      amount_minor INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
-      description TEXT NOT NULL,
-      month_utc TEXT,
-      related_invoice_id TEXT,
-      related_purchase_id TEXT,
-      source_event_id TEXT,
-      actor_type TEXT NOT NULL,
-      actor_user_id TEXT,
-      reason_code TEXT,
-      note TEXT,
-      idempotency_key TEXT,
-      created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, id),
-      CHECK (length(namespace) > 0),
-      CHECK (length(org_id) > 0),
-      CHECK (length(id) > 0),
-      CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL')),
-      CHECK (amount_minor != 0),
-      CHECK (
-        (entry_type = 'CREDIT_PURCHASE' AND amount_minor > 0)
-        OR (entry_type IN ('USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT') AND amount_minor < 0)
-        OR (entry_type IN ('MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL') AND amount_minor != 0)
-      ),
-      CHECK (currency = 'USD'),
-      CHECK (length(description) > 0),
-      CHECK (
-        month_utc IS NULL
-        OR (
-          month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
-          AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
-        )
-      ),
-      CHECK (related_invoice_id IS NULL OR length(related_invoice_id) > 0),
-      CHECK (related_purchase_id IS NULL OR length(related_purchase_id) > 0),
-      CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
-      CHECK (actor_type IN ('USER', 'SYSTEM', 'PROVIDER')),
-      CHECK (actor_user_id IS NULL OR length(actor_user_id) > 0),
-      CHECK (reason_code IS NULL OR length(reason_code) > 0),
-      CHECK (note IS NULL OR length(note) > 0),
-      CHECK (idempotency_key IS NULL OR length(idempotency_key) > 0),
-      CHECK (created_at_ms > 0)
-    )
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS billing_ledger_entries_idempotency_uidx
-      ON billing_ledger_entries (namespace, org_id, idempotency_key)
-      WHERE idempotency_key IS NOT NULL
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS billing_ledger_entries_type_source_uidx
-      ON billing_ledger_entries (namespace, org_id, entry_type, source_event_id)
-      WHERE source_event_id IS NOT NULL
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS billing_ledger_entries_org_created_idx
-      ON billing_ledger_entries (namespace, org_id, created_at_ms DESC, id DESC)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS billing_ledger_entries_org_month_idx
-      ON billing_ledger_entries (namespace, org_id, month_utc, entry_type)
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS billing_ledger_postings (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      ledger_entry_id TEXT NOT NULL,
-      account_code TEXT NOT NULL,
-      direction TEXT NOT NULL,
-      amount_minor INTEGER NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, id),
-      FOREIGN KEY (namespace, org_id, ledger_entry_id)
-        REFERENCES billing_ledger_entries(namespace, org_id, id)
-        ON DELETE CASCADE,
-      CHECK (length(namespace) > 0),
-      CHECK (length(org_id) > 0),
-      CHECK (length(id) > 0),
-      CHECK (length(ledger_entry_id) > 0),
-      CHECK (length(account_code) > 0),
-      CHECK (direction IN ('DEBIT', 'CREDIT')),
-      CHECK (amount_minor > 0),
-      CHECK (created_at_ms > 0)
-    )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS billing_ledger_postings_entry_idx
-      ON billing_ledger_postings (namespace, org_id, ledger_entry_id)
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS billing_monthly_active_wallets (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      month_utc TEXT NOT NULL,
-      wallet_id TEXT NOT NULL,
-      source_event_id TEXT,
-      created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, month_utc, wallet_id),
-      CHECK (length(namespace) > 0),
-      CHECK (length(org_id) > 0),
-      CHECK (
-        month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
-        AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
-      ),
-      CHECK (length(wallet_id) > 0),
-      CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
-      CHECK (created_at_ms > 0)
-    )
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS billing_monthly_active_wallets_source_uidx
-      ON billing_monthly_active_wallets (namespace, org_id, source_event_id)
-      WHERE source_event_id IS NOT NULL
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS billing_credit_purchases (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      credit_pack_id TEXT NOT NULL,
-      status TEXT NOT NULL,
-      amount_minor INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
-      provider TEXT NOT NULL,
-      provider_checkout_session_ref TEXT NOT NULL,
-      provider_customer_ref TEXT,
-      related_invoice_id TEXT,
-      settled_at_ms INTEGER,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, id),
-      CHECK (status IN ('PENDING', 'SETTLED', 'CANCELED')),
-      CHECK (amount_minor > 0),
-      CHECK (currency = 'USD'),
-      CHECK (provider = 'stripe')
-    )
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS billing_credit_purchases_checkout_uidx
-      ON billing_credit_purchases (namespace, org_id, provider_checkout_session_ref)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS billing_credit_purchases_namespace_checkout_idx
-      ON billing_credit_purchases (namespace, provider_checkout_session_ref)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS billing_credit_purchases_namespace_customer_idx
-      ON billing_credit_purchases (namespace, provider_customer_ref)
-      WHERE provider_customer_ref IS NOT NULL
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS invoices (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      document_type TEXT NOT NULL,
-      status TEXT NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
-      amount_due_minor INTEGER NOT NULL,
-      amount_paid_minor INTEGER NOT NULL,
-      period_month_utc TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      due_at_ms INTEGER,
-      PRIMARY KEY (namespace, org_id, id),
-      CHECK (document_type IN ('PURCHASE_RECEIPT', 'USAGE_STATEMENT')),
-      CHECK (status IN ('OPEN', 'PAID', 'VOID', 'UNCOLLECTIBLE')),
-      CHECK (currency = 'USD'),
-      CHECK (amount_due_minor >= 0),
-      CHECK (amount_paid_minor >= 0)
-    )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS invoices_org_created_idx
-      ON invoices (namespace, org_id, created_at_ms DESC, id DESC)
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS invoices_org_statement_month_uidx
-      ON invoices (namespace, org_id, document_type, period_month_utc)
-      WHERE document_type = 'USAGE_STATEMENT'
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS invoice_line_items (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      invoice_id TEXT NOT NULL,
-      period_month_utc TEXT NOT NULL,
-      item_type TEXT NOT NULL,
-      description TEXT NOT NULL,
-      quantity INTEGER NOT NULL,
-      unit_amount_minor INTEGER NOT NULL,
-      amount_minor INTEGER NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, id),
-      FOREIGN KEY (namespace, org_id, invoice_id)
-        REFERENCES invoices(namespace, org_id, id)
-        ON DELETE CASCADE,
-      CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT')),
-      CHECK (quantity > 0),
-      CHECK (unit_amount_minor >= 0),
-      CHECK (amount_minor >= 0)
-    )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS invoice_line_items_invoice_idx
-      ON invoice_line_items (namespace, org_id, invoice_id)
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS stripe_webhook_events (
-      namespace TEXT NOT NULL,
-      event_id TEXT NOT NULL,
-      provider_ref TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      processed_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, event_id)
-    )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS stripe_webhook_events_org_idx
-      ON stripe_webhook_events (namespace, org_id, processed_at_ms DESC)
-  `,
-  `
-    CREATE TRIGGER IF NOT EXISTS billing_ledger_entries_account_apply
-    AFTER INSERT ON billing_ledger_entries
-    BEGIN
-      INSERT INTO billing_accounts
-        (namespace, org_id, credit_balance_minor, low_balance_threshold_minor, created_at_ms, updated_at_ms)
-      VALUES
-        (NEW.namespace, NEW.org_id, 0, 2000, NEW.created_at_ms, NEW.created_at_ms)
-      ON CONFLICT(namespace, org_id) DO NOTHING;
-
-      UPDATE billing_accounts
-         SET credit_balance_minor = credit_balance_minor + NEW.amount_minor,
-             updated_at_ms = NEW.created_at_ms
-       WHERE namespace = NEW.namespace
-         AND org_id = NEW.org_id;
-    END
-  `,
-  `
-    CREATE TRIGGER IF NOT EXISTS billing_ledger_entries_sponsored_postings
-    AFTER INSERT ON billing_ledger_entries
-    WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' AND ABS(NEW.amount_minor) > 0
-    BEGIN
-      INSERT INTO billing_ledger_postings
-        (namespace, org_id, id, ledger_entry_id, account_code, direction, amount_minor, created_at_ms)
-      VALUES
-        (NEW.namespace, NEW.org_id, NEW.id || ':debit_prepaid_liability', NEW.id, 'org_prepaid_liability', 'DEBIT', ABS(NEW.amount_minor), NEW.created_at_ms),
-        (NEW.namespace, NEW.org_id, NEW.id || ':credit_sponsored_revenue', NEW.id, 'revenue_sponsored_execution', 'CREDIT', ABS(NEW.amount_minor), NEW.created_at_ms);
-    END
-  `,
-] as const);
-
-export async function ensureConsoleBillingD1Schema(
-  options: D1ConsoleBillingSchemaOptions,
-): Promise<void> {
-  for (const statement of CONSOLE_BILLING_D1_SCHEMA_SQL) {
-    await options.database.exec(formatD1ExecStatement(statement));
-  }
-}
 
 export function getConsoleBillingD1Runtime(
   service: ConsoleBillingService | null | undefined,
@@ -1998,9 +1709,6 @@ async function processStripeWebhookEventD1(input: {
 export async function createD1ConsoleBillingService(
   options: D1ConsoleBillingServiceOptions,
 ): Promise<ConsoleBillingService> {
-  if (options.ensureSchema) {
-    await ensureConsoleBillingD1Schema({ database: options.database });
-  }
   const state: D1ConsoleBillingState = {
     database: options.database,
     namespace: ensureNamespace(options.namespace),
@@ -2450,7 +2158,6 @@ export async function runD1ConsoleBillingMonthlyFinalization(
   const service = await createD1ConsoleBillingService({
     database: options.database,
     namespace,
-    ensureSchema: options.ensureSchema !== false,
     now,
   });
 

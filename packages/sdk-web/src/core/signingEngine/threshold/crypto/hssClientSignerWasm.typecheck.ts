@@ -9,6 +9,7 @@ import {
   type ThresholdEcdsaHssRoleLocalClientContext,
   type ThresholdEcdsaHssStableKeyContext,
 } from './hssClientSignerWasm';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand,
   FinalizeEcdsaClientBootstrapCommand,
@@ -25,17 +26,13 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import type {
   WasmPrepareThresholdEd25519HssClientRequestRequest,
 } from '../../../types/signer-worker';
-import { parseWalletKeyId } from '@shared/utils/domainIds';
-
-function parsedWalletKeyId(value: string) {
-  const parsed = parseWalletKeyId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
-
 const serverPlannedContext = parseServerPlannedEcdsaHssContext({
   walletId: 'wallet-user',
-  walletKeyId: 'wallet-key-wallet-user',
+  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+    walletId: 'wallet-user',
+    signingRootId: 'project:dev',
+    signingRootVersion: 'default',
+  }),
   chainTarget: {
     kind: 'evm',
     namespace: 'eip155',
@@ -84,7 +81,11 @@ void stableContextWithThresholdSessionId;
 void ({
   ...locallyConstructedStableContext,
   // @ts-expect-error stable ECDSA HSS key context rejects SDK wallet key aliases.
-  walletKeyId: parsedWalletKeyId('wallet-key-wallet-user'),
+  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+    walletId: 'wallet-user',
+    signingRootId: 'project:dev',
+    signingRootVersion: 'default',
+  }),
 } satisfies ThresholdEcdsaHssStableKeyContext);
 
 void ({

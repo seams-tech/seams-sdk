@@ -69,11 +69,10 @@ export class CloudflareD1ThresholdSigningRuntime {
       return null;
     }
     this.thresholdSigningService = createCloudflareDurableObjectThresholdSigningService({
-        thresholdStore: this.options.thresholdStore,
-        auth: {
+      thresholdStore: this.options.thresholdStore,
+      auth: {
         getRelayerAccount: this.getRelayerAccount.bind(this),
         verifyWebAuthnAuthenticationLite: this.options.auth.verifyWebAuthnAuthenticationLite,
-        viewAccessKeyList: unsupportedCloudflareD1NearAccessKeyList,
         dispatchNearSignedTransactionBorsh: unsupportedCloudflareD1NearTransactionDispatch,
       },
     });
@@ -172,10 +171,6 @@ export class CloudflareD1ThresholdSigningRuntime {
     }
     return await threshold.ecdsaHssRoleLocalExportShare(input);
   }
-}
-
-async function unsupportedCloudflareD1NearAccessKeyList(): Promise<never> {
-  throw new Error('Cloudflare D1 Router API auth service does not support NEAR access-key reads');
 }
 
 async function unsupportedCloudflareD1NearTransactionDispatch(): Promise<never> {

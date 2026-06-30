@@ -19,6 +19,7 @@ export type CloudflareRouterApiAuthServiceMethod =
   | 'finalizeWalletAddAuthMethod'
   | 'finalizeWalletAddSigner'
   | 'finalizeWalletRegistration'
+  | 'fundImplicitNearAccount'
   | 'getConfiguredRelayerAccount'
   | 'getEmailOtpRecoveryCodeStatus'
   | 'getGoogleOidcPublicConfig'

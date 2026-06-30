@@ -39,7 +39,7 @@ import {
 import type { EmailOtpEcdsaBootstrapStrictPayload } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import {
-  derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope,
+  deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
@@ -527,7 +527,7 @@ export async function loginWithEmailOtpEcdsaCapability(
   if (!runtimePolicyScope) {
     throw new Error('Email OTP ECDSA login requires runtimePolicyScope');
   }
-  const walletKeyId = derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope({
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
     walletId: args.walletSession.walletId,
     runtimePolicyScope,
   });
@@ -557,7 +557,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     routePlan,
     workerCtx,
     ecdsaClientRootHandleBinding: {
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       authSubjectId: emailOtpAuthSubjectId,
       operation: emailOtpWorkerHandleOperationFromLoginOperation(routePlan.operation),
       chainTarget,
@@ -580,7 +580,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     walletId: String(args.walletSession.walletId),
     walletSessionUserId,
     userId: emailOtpAuthSubjectId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     clientRootShareHandle: workerResult.clientRootShareHandle,
     chainTarget,
     publicationChainTargets,

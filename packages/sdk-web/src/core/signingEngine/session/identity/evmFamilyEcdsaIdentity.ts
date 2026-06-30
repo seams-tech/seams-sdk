@@ -11,7 +11,12 @@ import {
   routerAbEcdsaHssActiveStateSessionId,
   type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
-import { parseWalletKeyId, type WalletKeyId } from '@shared/signing-lanes';
+import {
+  assertEvmFamilySigningKeySlotIdMatchesPlan,
+  deriveEvmFamilySigningKeySlotId as deriveSharedEvmFamilySigningKeySlotId,
+  requireEvmFamilySigningKeySlotId,
+  type EvmFamilySigningKeySlotId,
+} from '@shared/signing-lanes';
 import type {
   ThresholdEcdsaBackendBinding,
   ThresholdEcdsaClientAdditiveShareHandle,
@@ -72,7 +77,7 @@ export type {
   WalletId,
   ThresholdEcdsaSessionId,
   SigningGrantId,
-  WalletKeyId,
+  EvmFamilySigningKeySlotId,
 };
 export type ParticipantId = number & { readonly __brand: 'ParticipantId' };
 export type ThresholdOwnerAddress = `0x${string}` & {
@@ -137,7 +142,7 @@ export type EcdsaKeyFacts = EvmFamilyEcdsaWalletKeyFacts;
 export type EvmFamilyEcdsaWalletKey = {
   kind: 'evm_family_ecdsa_wallet_key';
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
   keyFacts: EvmFamilyEcdsaWalletKeyFacts;
@@ -292,6 +297,8 @@ export type ReadyRouterAbEcdsaHssNormalSigning = {
 
 export type ReadyEcdsaSignerSession = {
   kind: 'ready_ecdsa_signer_session';
+  walletId: WalletId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   publicFacts: VerifiedEcdsaPublicFacts;
   chainTarget: ThresholdEcdsaChainTarget;
   session: ReadyThresholdEcdsaSession;
@@ -307,7 +314,7 @@ export type ReadyEcdsaSignerSession = {
 
 export type EvmFamilyEcdsaKeyIdentity = {
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   keyScope: EvmFamilyKeyScope;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
@@ -323,7 +330,7 @@ export type EvmFamilyEcdsaKeyIdentity = {
 
 export type SessionBootstrapKeyContext = {
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   participantIds: readonly ParticipantId[];
   keyScope?: never;
   ecdsaThresholdKeyId?: never;
@@ -396,7 +403,7 @@ export type EvmFamilyEcdsaIdentityMismatch =
   | ({ kind: 'chain_family_mismatch'; field: 'chainTarget' } & IdentityMismatchDetails)
   | ({ kind: 'key_id_mismatch'; field: 'ecdsaThresholdKeyId' } & IdentityMismatchDetails)
   | ({ kind: 'signing_root_mismatch'; field: 'signingRoot' } & IdentityMismatchDetails)
-  | ({ kind: 'wallet_key_mismatch'; field: 'walletKeyId' } & IdentityMismatchDetails)
+  | ({ kind: 'wallet_key_mismatch'; field: 'evmFamilySigningKeySlotId' } & IdentityMismatchDetails)
   | ({
       kind: 'public_key_mismatch';
       field: 'thresholdEcdsaPublicKeyB64u';
@@ -438,7 +445,7 @@ export type EvmFamilyEcdsaMaterialResolution =
 
 export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   walletId: unknown;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
@@ -465,7 +472,7 @@ export type BuildEvmFamilyEcdsaWalletKeyInput = BuildBaseEvmFamilyEcdsaKeyIdenti
 
 export type BuildEvmFamilyKeyFingerprintFromPublicFactsInput = {
   walletId: unknown;
-  walletKeyId?: unknown;
+  evmFamilySigningKeySlotId?: unknown;
   publicFacts: VerifiedEcdsaPublicFacts;
 };
 
@@ -537,7 +544,7 @@ export type ResolveReadyEvmFamilyEcdsaMaterialInput = {
   keyRef?: never;
   expected: {
     walletId: WalletId | string;
-    walletKeyId: WalletKeyId | string;
+    evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
     chainTarget: ThresholdEcdsaChainTarget;
     authMethod: EvmFamilyEcdsaAuthMethod;
     source: ThresholdEcdsaSessionStoreSource;
@@ -558,69 +565,34 @@ function normalizeRpId(value: unknown): RpId {
   return requiredString(value, 'rpId') as RpId;
 }
 
-function normalizeWalletKeyId(value: unknown): WalletKeyId {
-  const parsed = parseWalletKeyId(value);
-  if (!parsed.ok) throw new Error(`[evm-family-ecdsa] ${parsed.error.message}`);
-  return parsed.value;
+function normalizeWalletKeyId(value: unknown): EvmFamilySigningKeySlotId {
+  try {
+    return requireEvmFamilySigningKeySlotId(value);
+  } catch (error) {
+    throw new Error(
+      `[evm-family-ecdsa] ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
-function walletKeyPart(value: unknown): string {
-  return encodeURIComponent(requiredString(value, 'walletKeyId component'));
-}
-
-export function deriveEvmFamilyWalletKeyIdFromSigningRootFacts(input: {
-  walletId: unknown;
-  ecdsaThresholdKeyId: unknown;
-  signingRootId: unknown;
-  signingRootVersion: unknown;
-  participantIds: unknown;
-  thresholdOwnerAddress: unknown;
-}): WalletKeyId {
-  const walletId = toWalletId(input.walletId);
-  const ecdsaThresholdKeyId = normalizeEcdsaThresholdKeyId(input.ecdsaThresholdKeyId);
-  const signingRootId = normalizeSigningRootId(input.signingRootId);
-  const signingRootVersion = normalizeSigningRootVersion(input.signingRootVersion);
-  const participantIds = normalizeParticipantIds(input.participantIds)
-    .map((participantId) => Number(participantId))
-    .join(',');
-  const thresholdOwnerAddress = normalizeThresholdOwnerAddress(input.thresholdOwnerAddress);
-  const raw = [
-    'wallet-key',
-    'evm-family',
-    walletKeyPart(walletId),
-    walletKeyPart(ecdsaThresholdKeyId),
-    walletKeyPart(signingRootId),
-    walletKeyPart(signingRootVersion),
-    walletKeyPart(participantIds),
-    walletKeyPart(thresholdOwnerAddress),
-  ].join(':');
-  return normalizeWalletKeyId(raw);
-}
-
-export function derivePlannedEvmFamilyWalletKeyId(input: {
+export function deriveEvmFamilySigningKeySlotId(input: {
   walletId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
-}): WalletKeyId {
-  const walletId = toWalletId(input.walletId);
-  const signingRootId = normalizeSigningRootId(input.signingRootId);
-  const signingRootVersion = normalizeSigningRootVersion(input.signingRootVersion);
-  const raw = [
-    'wallet-key',
-    'evm-family',
-    walletKeyPart(walletId),
-    walletKeyPart(signingRootId),
-    walletKeyPart(signingRootVersion),
-  ].join(':');
-  return normalizeWalletKeyId(raw);
+}): EvmFamilySigningKeySlotId {
+  return deriveSharedEvmFamilySigningKeySlotId({
+    walletId: toWalletId(input.walletId),
+    signingRootId: normalizeSigningRootId(input.signingRootId),
+    signingRootVersion: normalizeSigningRootVersion(input.signingRootVersion),
+  });
 }
 
-export function derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope(input: {
+export function deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope(input: {
   walletId: unknown;
   runtimePolicyScope: Parameters<typeof signingRootScopeFromRuntimePolicyScope>[0];
-}): WalletKeyId {
+}): EvmFamilySigningKeySlotId {
   const signingRoot = signingRootScopeFromRuntimePolicyScope(input.runtimePolicyScope);
-  return derivePlannedEvmFamilyWalletKeyId({
+  return deriveEvmFamilySigningKeySlotId({
     walletId: input.walletId,
     signingRootId: signingRoot.signingRootId,
     signingRootVersion: signingRoot.signingRootVersion || 'default',
@@ -691,31 +663,42 @@ export function resolveThresholdEcdsaKeyIdFromKeyRef(args: {
   return normalizeEcdsaThresholdKeyId(explicitKeyId);
 }
 
-export function resolveThresholdSigningRootBindingFromRecord(args: {
-  record: Pick<ThresholdEcdsaSessionRecord, 'runtimePolicyScope' | 'keyHandle'> & {
-    signingRootId?: unknown;
-    signingRootVersion?: unknown;
-  };
+export function parseThresholdSigningRootBinding(input: {
+  signingRootId: unknown;
+  signingRootVersion: unknown;
 }): {
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
 } {
-  const runtimePolicyScope = args.record.runtimePolicyScope;
-  if (runtimePolicyScope) {
-    try {
-      const scopeBinding = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
-      return {
-        signingRootId: normalizeSigningRootId(scopeBinding.signingRootId),
-        signingRootVersion: normalizeSigningRootVersion(scopeBinding.signingRootVersion),
-      };
-    } catch {}
-  }
-
-  const signingRootId = normalizeSigningRootId(args.record.signingRootId);
   return {
-    signingRootId,
-    signingRootVersion: normalizeSigningRootVersion(args.record.signingRootVersion),
+    signingRootId: normalizeSigningRootId(input.signingRootId),
+    signingRootVersion: normalizeSigningRootVersion(input.signingRootVersion),
   };
+}
+
+export function resolveThresholdSigningRootBindingFromRecord(args: {
+  record: Pick<ThresholdEcdsaSessionRecord, 'signingRootId' | 'signingRootVersion'>;
+}): {
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+} {
+  return parseThresholdSigningRootBinding({
+    signingRootId: args.record.signingRootId,
+    signingRootVersion: args.record.signingRootVersion,
+  });
+}
+
+export function resolveThresholdSigningRootBindingFromRuntimePolicyScope(args: {
+  runtimePolicyScope: Parameters<typeof signingRootScopeFromRuntimePolicyScope>[0];
+}): {
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+} {
+  const scopeBinding = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+  return parseThresholdSigningRootBinding({
+    signingRootId: scopeBinding.signingRootId,
+    signingRootVersion: scopeBinding.signingRootVersion,
+  });
 }
 
 export function toThresholdEcdsaPublicKeyB64u(value: unknown): ThresholdEcdsaPublicKeyB64u {
@@ -803,8 +786,8 @@ function firstKeyMismatch(
   if (String(left.walletId) !== String(right.walletId)) {
     return mismatch('wallet_mismatch', 'walletId', left.walletId, right.walletId);
   }
-  if (String(left.walletKeyId) !== String(right.walletKeyId)) {
-    return mismatch('wallet_key_mismatch', 'walletKeyId', left.walletKeyId, right.walletKeyId);
+  if (String(left.evmFamilySigningKeySlotId) !== String(right.evmFamilySigningKeySlotId)) {
+    return mismatch('wallet_key_mismatch', 'evmFamilySigningKeySlotId', left.evmFamilySigningKeySlotId, right.evmFamilySigningKeySlotId);
   }
   if (left.keyScope !== right.keyScope) {
     return mismatch('key_scope_mismatch', 'keyScope', left.keyScope, right.keyScope);
@@ -862,7 +845,7 @@ export function buildEvmFamilyEcdsaKeyIdentity(
   const walletId = toWalletId(input.walletId);
   return buildNormalizedEvmFamilyEcdsaKeyIdentity({
     walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
@@ -873,7 +856,7 @@ export function buildEvmFamilyEcdsaKeyIdentity(
 
 function buildNormalizedEvmFamilyEcdsaKeyIdentity(input: {
   walletId: WalletId;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
@@ -882,7 +865,7 @@ function buildNormalizedEvmFamilyEcdsaKeyIdentity(input: {
 }): EvmFamilyEcdsaKeyIdentity {
   return {
     walletId: input.walletId,
-    walletKeyId: normalizeWalletKeyId(input.walletKeyId),
+    evmFamilySigningKeySlotId: normalizeWalletKeyId(input.evmFamilySigningKeySlotId),
     keyScope: 'evm-family',
     ecdsaThresholdKeyId: normalizeEcdsaThresholdKeyId(input.ecdsaThresholdKeyId),
     signingRootId: normalizeSigningRootId(input.signingRootId),
@@ -897,7 +880,7 @@ export function buildBaseEvmFamilyEcdsaKeyIdentity(
 ): EvmFamilyEcdsaKeyIdentity {
   return buildNormalizedEvmFamilyEcdsaKeyIdentity({
     walletId: toWalletId(input.walletId),
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
@@ -908,12 +891,12 @@ export function buildBaseEvmFamilyEcdsaKeyIdentity(
 
 export function buildSessionBootstrapKeyContext(input: {
   walletId: unknown;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
   participantIds: unknown;
 }): SessionBootstrapKeyContext {
   return {
     walletId: toWalletId(input.walletId),
-    walletKeyId: normalizeWalletKeyId(input.walletKeyId),
+    evmFamilySigningKeySlotId: normalizeWalletKeyId(input.evmFamilySigningKeySlotId),
     participantIds: normalizeParticipantIds(input.participantIds),
   };
 }
@@ -949,7 +932,7 @@ export function evmFamilyEcdsaWalletKeyToIdentity(
 ): EvmFamilyEcdsaKeyIdentity {
   return {
     walletId: walletKey.walletId,
-    walletKeyId: walletKey.walletKeyId,
+    evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
     keyScope: walletKey.keyFacts.keyScope,
     ecdsaThresholdKeyId: walletKey.keyFacts.ecdsaThresholdKeyId,
     signingRootId: walletKey.keyFacts.signingRootId,
@@ -985,7 +968,7 @@ export function buildEvmFamilyEcdsaWalletKey(
   return {
     kind: 'evm_family_ecdsa_wallet_key',
     walletId: keyIdentity.walletId,
-    walletKeyId: keyIdentity.walletKeyId,
+    evmFamilySigningKeySlotId: keyIdentity.evmFamilySigningKeySlotId,
     keyHandle,
     chainTarget: input.chainTarget,
     keyFacts: {
@@ -1115,6 +1098,8 @@ function requireThresholdEcdsaBackendBinding(
 }
 
 function buildThresholdEcdsaSignerClientShare(args: {
+  walletId: WalletId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   backendBinding: ThresholdEcdsaBackendBinding;
   publicFacts: VerifiedEcdsaPublicFacts;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1221,6 +1206,10 @@ export function buildReadyEcdsaSignerSession(
   input: BuildReadyEcdsaSignerSessionInput,
 ): ReadyEcdsaSignerSession {
   const backendBinding = requireThresholdEcdsaBackendBinding(input.keyRef.backendBinding);
+  const walletId = toWalletId(input.keyRef.userId);
+  const evmFamilySigningKeySlotId = requireEvmFamilySigningKeySlotId(
+    input.keyRef.evmFamilySigningKeySlotId,
+  );
   const session = buildReadyThresholdEcdsaSession({
     signingGrantId: input.keyRef.signingGrantId,
     thresholdSessionId: input.keyRef.thresholdSessionId,
@@ -1252,6 +1241,8 @@ export function buildReadyEcdsaSignerSession(
   }
   return {
     kind: 'ready_ecdsa_signer_session',
+    walletId,
+    evmFamilySigningKeySlotId,
     publicFacts: input.publicFacts,
     chainTarget,
     session,
@@ -1265,6 +1256,8 @@ export function buildReadyEcdsaSignerSession(
         : {}),
     },
     clientShare: buildThresholdEcdsaSignerClientShare({
+      walletId,
+      evmFamilySigningKeySlotId,
       backendBinding,
       publicFacts: input.publicFacts,
       chainTarget,
@@ -1299,6 +1292,7 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: String(record.walletId),
+    evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
     chainTarget: record.chainTarget,
     relayerUrl: record.relayerUrl,
     keyHandle: record.keyHandle,
@@ -1452,10 +1446,16 @@ export function buildEvmFamilyEcdsaKeyIdentityFromRecord(args: {
   const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
     record: args.record,
   });
-  const walletKeyId = normalizeWalletKeyId(args.record.walletKeyId);
+  const evmFamilySigningKeySlotId = assertEvmFamilySigningKeySlotIdMatchesPlan({
+    evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
+    walletId: args.record.walletId,
+    signingRootId: signingRootBinding.signingRootId,
+    signingRootVersion: signingRootBinding.signingRootVersion,
+    message: '[evm-family-ecdsa] persisted evmFamilySigningKeySlotId mismatches signing-root identity',
+  });
   return buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.record.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     signingRootId: signingRootBinding.signingRootId,
     signingRootVersion: signingRootBinding.signingRootVersion,
@@ -1466,7 +1466,7 @@ export function buildEvmFamilyEcdsaKeyIdentityFromRecord(args: {
 
 export function buildEvmFamilyEcdsaKeyIdentityFromKeyRef(args: {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
-  walletKeyId?: unknown;
+  evmFamilySigningKeySlotId: unknown;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   trustedOwnerAddress?: unknown;
 }): EvmFamilyEcdsaKeyIdentity {
@@ -1479,28 +1479,22 @@ export function buildEvmFamilyEcdsaKeyIdentityFromKeyRef(args: {
       '[evm-family-ecdsa] key ref owner address mismatches trusted EVM-family key material',
     );
   }
-  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-    record: {
-      keyHandle: toEvmFamilyEcdsaKeyHandle(args.keyRef.keyHandle),
-      runtimePolicyScope: args.runtimePolicyScope,
-    },
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRuntimePolicyScope({
+    runtimePolicyScope: args.runtimePolicyScope,
   });
   const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromKeyRef({
     keyRef: args.keyRef,
   });
-  const walletKeyId = args.walletKeyId
-    ? normalizeWalletKeyId(args.walletKeyId)
-    : deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-        walletId: args.keyRef.userId,
-        ecdsaThresholdKeyId,
-        signingRootId: signingRootBinding.signingRootId,
-        signingRootVersion: signingRootBinding.signingRootVersion,
-        participantIds: args.keyRef.participantIds,
-        thresholdOwnerAddress,
-      });
+  const evmFamilySigningKeySlotId = assertEvmFamilySigningKeySlotIdMatchesPlan({
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
+    walletId: args.keyRef.userId,
+    signingRootId: signingRootBinding.signingRootId,
+    signingRootVersion: signingRootBinding.signingRootVersion,
+    message: '[evm-family-ecdsa] key-ref evmFamilySigningKeySlotId mismatches signing-root identity',
+  });
   return buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.keyRef.userId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     ...signingRootBinding,
     participantIds: args.keyRef.participantIds,
@@ -1561,7 +1555,7 @@ export function deriveEvmFamilyKeyFingerprint(
     version: 'evm_family_ecdsa_key_fingerprint_v2',
     walletId: String(key.walletId),
     baseEcdsaSubjectId: String(deriveBaseEcdsaSubjectIdFromWalletId(key.walletId)),
-    walletKeyId: String(key.walletKeyId),
+    evmFamilySigningKeySlotId: String(key.evmFamilySigningKeySlotId),
     keyScope: key.keyScope,
     ecdsaThresholdKeyId: String(key.ecdsaThresholdKeyId),
     signingRootId: String(key.signingRootId),
@@ -1578,7 +1572,7 @@ export function deriveEvmFamilyKeyFingerprintFromPublicFacts(
   const canonical = alphabetizeStringify({
     version: 'evm_family_ecdsa_public_facts_fingerprint_v1',
     walletId: String(toWalletId(input.walletId)),
-    ...(input.walletKeyId ? { walletKeyId: String(normalizeWalletKeyId(input.walletKeyId)) } : {}),
+    ...(input.evmFamilySigningKeySlotId ? { evmFamilySigningKeySlotId: String(normalizeWalletKeyId(input.evmFamilySigningKeySlotId)) } : {}),
     keyHandle: String(input.publicFacts.keyHandle),
     publicKeyB64u: String(input.publicFacts.publicKeyB64u),
     participantIds: input.publicFacts.participantIds.map((id) => Number(id)),
@@ -1628,21 +1622,21 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
   }
 
   const expectedWalletId = toWalletId(input.expected.walletId);
-  const expectedWalletKeyId = normalizeWalletKeyId(input.expected.walletKeyId);
+  const expectedWalletKeyId = normalizeWalletKeyId(input.expected.evmFamilySigningKeySlotId);
   if (String(recordKey.walletId) !== String(expectedWalletId)) {
     return {
       kind: 'identity_mismatch',
       reason: mismatch('wallet_mismatch', 'walletId', expectedWalletId, recordKey.walletId),
     };
   }
-  if (String(recordKey.walletKeyId) !== String(expectedWalletKeyId)) {
+  if (String(recordKey.evmFamilySigningKeySlotId) !== String(expectedWalletKeyId)) {
     return {
       kind: 'identity_mismatch',
       reason: mismatch(
         'wallet_key_mismatch',
-        'walletKeyId',
+        'evmFamilySigningKeySlotId',
         expectedWalletKeyId,
-        recordKey.walletKeyId,
+        recordKey.evmFamilySigningKeySlotId,
       ),
     };
   }

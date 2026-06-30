@@ -1,4 +1,5 @@
 import type {
+  ThresholdEd25519AuthorityScope,
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
@@ -30,7 +31,7 @@ export type ThresholdEd25519RegistrationKeygenRequest = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   keyVersion: string;
   recoveryExportCapable: true;
   publicKey: string;

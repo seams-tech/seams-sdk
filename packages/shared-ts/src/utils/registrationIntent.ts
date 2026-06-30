@@ -536,6 +536,16 @@ export function createServerAllocatedWalletId(): ServerAllocatedWalletId {
   );
 }
 
+export function createReadableWalletId(): WalletId {
+  return walletIdFromString(
+    [
+      randomServerAllocatedWalletWord(SERVER_ALLOCATED_WALLET_ADJECTIVES),
+      randomServerAllocatedWalletWord(SERVER_ALLOCATED_WALLET_NOUNS),
+      randomServerAllocatedWalletSuffix(6),
+    ].join('-'),
+  );
+}
+
 export function parseServerAllocatedWalletId(raw: unknown): ServerAllocatedWalletIdParseResult {
   const parsed = parseWalletId(raw);
   if (!parsed.ok) return parsed;

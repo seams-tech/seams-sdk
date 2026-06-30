@@ -158,7 +158,7 @@ export function createRouterApiBootstrapGrantBroker(
   }
   const authenticatePublishableKeyFn: NonNullable<
     ConsoleApiKeyService['authenticatePublishableKey']
-  > = maybeAuthenticatePublishableKey;
+  > = maybeAuthenticatePublishableKey.bind(options.apiKeys);
 
   const tokenTtlMs = Math.max(1_000, Math.floor(options.tokenTtlMs || 60_000));
   const now = options.now || (() => new Date());

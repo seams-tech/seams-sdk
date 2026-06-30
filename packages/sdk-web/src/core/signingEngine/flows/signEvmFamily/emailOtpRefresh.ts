@@ -72,7 +72,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
     cachedExportArtifact: keyRef.ecdsaHssExportArtifact || null,
     expected: {
       walletId: record.walletId,
-      walletKeyId: recordKey.walletKeyId,
+      evmFamilySigningKeySlotId: recordKey.evmFamilySigningKeySlotId,
       chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
       source: SIGNER_AUTH_METHODS.emailOtp,

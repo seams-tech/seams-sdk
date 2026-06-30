@@ -61,6 +61,7 @@ export interface UiConfirmContext {
   passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
+  relayerUrl: string;
   chains?: readonly SeamsChainConfig[];
   getTheme?: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;

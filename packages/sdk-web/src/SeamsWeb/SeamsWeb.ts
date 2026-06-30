@@ -90,6 +90,7 @@ import type { LoginWithEmailOtpEd25519CapabilityInternalResult } from '@/core/si
 import {
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
+  nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromRequest,
   walletSessionRefFromSession,
   type NearAccountRef,
@@ -124,7 +125,11 @@ import {
   type NearEd25519SignerBinding,
 } from '@shared/utils/walletCapabilityBindings';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import {
+  buildNearWalletRegistrationSignerSetSelection,
+  resolvePasskeyRegistrationAccountProvisioning,
+} from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { isObject } from '@shared/utils/validation';
@@ -401,6 +406,52 @@ async function resolveEmailOtpEd25519KeyIdentity(
 }
 
 type ExportKeypairWithUIBoundaryInput = Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
+type ResolveExactKeyExportLaneBoundaryInput = Parameters<
+  KeyExportCapability['resolveExactKeyExportLane']
+>[0];
+type ResolveExactKeyExportLaneBoundaryResult = Awaited<
+  ReturnType<KeyExportCapability['resolveExactKeyExportLane']>
+>;
+
+function normalizeResolveExactKeyExportLaneInput(
+  input: ResolveExactKeyExportLaneBoundaryInput,
+): ResolveExactKeyExportLaneBoundaryInput {
+  switch (input.kind) {
+    case 'near':
+      return {
+        kind: 'near',
+        walletSession: walletSessionRefFromSession(input.walletSession),
+        nearAccount: nearAccountRefFromAccountId(input.nearAccount.accountId),
+      };
+    case 'ecdsa':
+      return {
+        kind: 'ecdsa',
+        walletSession: walletSessionRefFromSession(input.walletSession),
+        chainTarget: thresholdEcdsaChainTargetFromRequest(input.chainTarget),
+      };
+  }
+  input satisfies never;
+  throw new Error('[SeamsWeb] unsupported key export lane resolution kind');
+}
+
+function normalizeResolveExactKeyExportLaneResult(
+  result: ResolveExactKeyExportLaneBoundaryResult,
+): ResolveExactKeyExportLaneBoundaryResult {
+  switch (result.kind) {
+    case 'near':
+      return {
+        kind: 'near',
+        laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+      };
+    case 'ecdsa':
+      return {
+        kind: 'ecdsa',
+        laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
+      };
+  }
+  result satisfies never;
+  throw new Error('[SeamsWeb] unsupported key export lane resolution result');
+}
 
 function normalizeExportKeypairWithUIInput(
   input: ExportKeypairWithUIBoundaryInput,
@@ -538,7 +589,7 @@ export class SeamsWeb {
                   relayUrl: prepareArgs.relayUrl,
                   walletId: walletIdFromString(prepareArgs.walletId),
                   userId: prepareArgs.userId,
-                  walletKeyId: prepareArgs.walletKeyId,
+                  evmFamilySigningKeySlotId: prepareArgs.evmFamilySigningKeySlotId,
                   appSessionJwt: prepareArgs.appSessionJwt,
                 }),
               registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
@@ -608,6 +659,8 @@ export class SeamsWeb {
         deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
       },
       keys: {
+        resolveExactKeyExportLane: async (input) =>
+          await this.resolveExactKeyExportLaneDomain(input),
         exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
         exportThresholdEd25519SeedFromHssReport: async (args) =>
           await this.exportThresholdEd25519SeedFromHssReportDomain(args),
@@ -861,18 +914,29 @@ export class SeamsWeb {
         '[SeamsWeb] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
       );
     }
-    const { wallet, ...registrationOptions } = options || {};
+    const { wallet, nearAccountProvisioning, ...registrationOptions } = options || {};
     const rpId = requireSeamsWebRegistrationRpId(this.signingEngine.getRpId());
     if (!rpId) {
       throw new Error('Missing rpId for Router API registration');
     }
+    const provisioningPreference =
+      nearAccountProvisioning ?? this.configs.registration.nearAccountProvisioning;
+    const resolvedWallet =
+      wallet ||
+      (provisioningPreference.kind === 'relayer_named_subaccount'
+        ? { kind: 'provided' as const, walletId: createServerAllocatedWalletId() }
+        : { kind: 'server_allocated' as const });
+    const accountProvisioning = resolvePasskeyRegistrationAccountProvisioning({
+      configs: this.configs,
+      wallet: resolvedWallet,
+      preference: provisioningPreference,
+    });
     return await this.registerWalletDomain({
-      wallet: wallet || {
-        kind: 'server_allocated',
-      },
+      wallet: resolvedWallet,
       authMethod: { kind: 'passkey', rpId },
       signerSelection: buildNearWalletRegistrationSignerSetSelection({
         configs: this.configs,
+        accountProvisioning,
         options: registrationOptions,
       }),
       options: registrationOptions,
@@ -899,14 +963,15 @@ export class SeamsWeb {
         } catch {}
       }
     };
-    void this.initWalletIframe().catch(() => {});
+    const activationWalletId = String(args.wallet.walletId);
+    void this.initWalletIframe(activationWalletId).catch(() => {});
     return {
       kind: 'wallet_iframe_registration_activation_surface_v1',
       mount: (target: HTMLElement) => {
         void (async () => {
           try {
             if (disposed) return;
-            const router = await this.walletIframe.requireRouter();
+            const router = await this.walletIframe.requireRouter(activationWalletId);
             if (disposed) return;
             inner = router.createPasskeyRegistrationActivationSurface(args);
             inner.onStateChange(setState);
@@ -2152,6 +2217,25 @@ export class SeamsWeb {
    * Canonical entrypoint to show secure key export UI (wallet-origin only) without
    * returning private keys to the caller.
    */
+  private async resolveExactKeyExportLaneDomain(
+    input: Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0],
+  ): Promise<Awaited<ReturnType<KeyExportCapability['resolveExactKeyExportLane']>>> {
+    const resolvedInput = normalizeResolveExactKeyExportLaneInput(input);
+    const routerAccountId = String(resolvedInput.walletSession.walletId || '').trim();
+    if (!routerAccountId) {
+      throw new Error('[SeamsWeb] key export lane resolution requires wallet session context');
+    }
+
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(routerAccountId);
+      const result = await router.resolveExactKeyExportLane(resolvedInput);
+      return normalizeResolveExactKeyExportLaneResult(result);
+    }
+
+    const result = await this.signingEngine.resolveExactKeyExportLane(resolvedInput);
+    return normalizeResolveExactKeyExportLaneResult(result);
+  }
+
   private async exportKeypairWithUIDomain(
     input: Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
   ): Promise<void> {

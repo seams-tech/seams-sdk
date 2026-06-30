@@ -1,4 +1,8 @@
-import type { RegisterAccountPayload, SignIntentDigestPayload } from './confirmTypes';
+import type {
+  RegisterAccountPayload,
+  SignIntentDigestPayload,
+  SignIntentDigestSubject,
+} from './confirmTypes';
 
 const passkeyPlan = {
   kind: 'passkeyReauth',
@@ -11,7 +15,10 @@ const emailOtpPlan = {
 } as const;
 
 const validPasskeyIntentPayload: SignIntentDigestPayload = {
-  nearAccountId: 'alice.testnet',
+  signingSubject: {
+    kind: 'evm_wallet',
+    walletId: 'frost-vermillion-k7p9m2',
+  },
   challengeB64u: 'transaction-digest',
   signingAuthPlan: passkeyPlan,
   webauthnChallenge: {
@@ -26,18 +33,46 @@ void validPasskeyIntentPayload;
 
 // @ts-expect-error passkey intent signing requires typed WebAuthn challenge intent.
 const invalidPasskeyIntentPayload: SignIntentDigestPayload = {
-  nearAccountId: 'alice.testnet',
+  signingSubject: {
+    kind: 'evm_wallet',
+    walletId: 'frost-vermillion-k7p9m2',
+  },
   challengeB64u: 'transaction-digest',
   signingAuthPlan: passkeyPlan,
 };
 void invalidPasskeyIntentPayload;
 
 const validEmailOtpIntentPayload: SignIntentDigestPayload = {
-  nearAccountId: 'alice.testnet',
+  signingSubject: {
+    kind: 'evm_wallet',
+    walletId: 'frost-vermillion-k7p9m2',
+  },
   challengeB64u: 'transaction-digest',
   signingAuthPlan: emailOtpPlan,
 };
 void validEmailOtpIntentPayload;
+
+const validNearWalletSubject: SignIntentDigestSubject = {
+  kind: 'near_wallet',
+  walletId: 'frost-vermillion-k7p9m2',
+  nearAccountId: 'alice.testnet',
+};
+void validNearWalletSubject;
+
+// @ts-expect-error NEAR signing subjects must carry wallet identity.
+const invalidNearWalletSubjectMissingWallet: SignIntentDigestSubject = {
+  kind: 'near_wallet',
+  nearAccountId: 'alice.testnet',
+};
+void invalidNearWalletSubjectMissingWallet;
+
+// @ts-expect-error EVM-family signing subjects do not carry NEAR account identity.
+const invalidEvmWalletSubjectWithNearAccount: SignIntentDigestSubject = {
+  kind: 'evm_wallet',
+  walletId: 'frost-vermillion-k7p9m2',
+  nearAccountId: 'alice.testnet',
+};
+void invalidEvmWalletSubjectWithNearAccount;
 
 const validRegistrationPayload: RegisterAccountPayload = {
   walletId: 'frost-vermillion-k7p9m2',

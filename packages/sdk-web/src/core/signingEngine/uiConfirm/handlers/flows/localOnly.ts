@@ -5,13 +5,16 @@ import {
   UserConfirmationType,
   TransactionSummary,
   LocalOnlyUserConfirmRequest,
+  type DecryptPrivateKeyWithPrfPayload,
+  type LocalOnlyExportSubject,
   type ShowSecurePrivateKeyUiPayload,
   type ExportPrivateKeyDisplayEntry,
+  type SerializableCredential,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { UserConfirmSecurityContext } from '@/core/types';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
-import { getNearAccountId, getIntentDigest } from './adapters/request';
+import { getIntentDigest } from './adapters/request';
 import { errorMessage } from '@shared/utils/errors';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
@@ -21,6 +24,10 @@ import {
   removeExportViewerHostIfPresent,
   type UpsertExportViewerHostArgs,
 } from '../../ui/export-viewer-host';
+import {
+  collectAuthenticationCredentialForChallengeB64u,
+  collectAuthenticationCredentialForWalletChallengeB64u,
+} from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 
 function createRandomChallengeB64u(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -50,6 +57,19 @@ function sanitizeThemeTokens(
   };
 }
 
+function localOnlyExportSubjectId(subject: LocalOnlyExportSubject): string {
+  switch (subject.kind) {
+    case 'near_wallet':
+      return subject.nearAccountId;
+    case 'evm_wallet':
+      return subject.walletId;
+    default: {
+      const exhaustive: never = subject;
+      throw new Error(`Unsupported local key export subject: ${String(exhaustive)}`);
+    }
+  }
+}
+
 async function mountExportViewer(
   ctx: UiConfirmContext,
   payload: ShowSecurePrivateKeyUiPayload,
@@ -59,7 +79,7 @@ async function mountExportViewer(
   const hostArgs: UpsertExportViewerHostArgs = {
     theme: payload.theme || theme || 'dark',
     variant: payload.variant || (confirmationConfig.uiMode === 'drawer' ? 'drawer' : 'modal'),
-    accountId: payload.nearAccountId,
+    accountId: localOnlyExportSubjectId(payload.subject),
     sessionId: payload.viewerSessionId,
     publicKey: payload.publicKey,
     privateKey: payload.privateKey,
@@ -85,6 +105,35 @@ function buildLocalOnlySecurityContext(
   }
 }
 
+async function collectLocalOnlyExportCredentialWithPRF(args: {
+  ctx: UiConfirmContext;
+  payload: DecryptPrivateKeyWithPrfPayload;
+  challengeB64u: string;
+}): Promise<SerializableCredential> {
+  switch (args.payload.subject.kind) {
+    case 'near_wallet':
+      return await collectAuthenticationCredentialForChallengeB64u({
+        credentialStore: args.ctx.webauthnCredentialStore,
+        touchIdPrompt: args.ctx.touchIdPrompt,
+        nearAccountId: args.payload.subject.nearAccountId,
+        challengeB64u: args.challengeB64u,
+        includeSecondPrfOutput: true,
+      });
+    case 'evm_wallet':
+      return await collectAuthenticationCredentialForWalletChallengeB64u({
+        credentialStore: args.ctx.webauthnCredentialStore,
+        touchIdPrompt: args.ctx.touchIdPrompt,
+        walletId: args.payload.subject.walletId,
+        challengeB64u: args.challengeB64u,
+        includeSecondPrfOutput: true,
+      });
+    default: {
+      const exhaustive: never = args.payload.subject;
+      throw new Error(`Unsupported local key export subject: ${String(exhaustive)}`);
+    }
+  }
+}
+
 export async function handleLocalOnlyFlow(
   ctx: UiConfirmContext,
   request: LocalOnlyUserConfirmRequest,
@@ -105,7 +154,6 @@ export async function handleLocalOnlyFlow(
     transactionSummary,
     theme,
   });
-  const nearAccountId = getNearAccountId(request);
 
   // SHOW_SECURE_PRIVATE_KEY_UI: purely visual; keep UI open and return confirmed immediately
   if (request.type === UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI) {
@@ -176,12 +224,10 @@ export async function handleLocalOnlyFlow(
       }
     }
     try {
-      const credential = await adapters.webauthn.collectAuthenticationCredentialWithPRF({
-        nearAccountId,
+      const credential = await collectLocalOnlyExportCredentialWithPRF({
+        ctx,
+        payload: request.payload as DecryptPrivateKeyWithPrfPayload,
         challengeB64u,
-        // Offline export / local decrypt needs both PRF outputs so wallet-origin code can
-        // recover/derive key material without requiring a pre-existing warm session.
-        includeSecondPrfOutput: true,
       });
       // No modal to keep open; export viewer will be shown by a subsequent request.
       return session.confirmAndCloseModal({

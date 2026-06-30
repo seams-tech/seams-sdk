@@ -566,6 +566,32 @@ async function runPresignHandshake(args: {
 }): Promise<
   { ok: true; presignature: RouterAbEcdsaHssClientPresignatureRef } | RouterAbEcdsaHssCoordinatorError
 > {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await runPresignHandshakeAttempt(args);
+    if (result.ok || !isRetryablePoolFillStale(result) || attempt === 1) return result;
+  }
+  return {
+    ok: false,
+    code: 'stale_session_state',
+    message: 'Router A/B ECDSA-HSS pool-fill session stayed stale after retry',
+  };
+}
+
+async function runPresignHandshakeAttempt(args: {
+  relayerUrl: string;
+  poolFillInitKeySelector: RouterAbEcdsaHssPoolFillInitKeySelector;
+  participantIds: number[];
+  clientParticipantId: number;
+  relayerParticipantId: number;
+  clientSigningMaterial: RouterAbEcdsaHssClientSigningMaterialSource;
+  groupPublicKey33: Uint8Array;
+  credential: RouterAbWalletSessionCredential;
+  requestTag?: string;
+  routerAbEcdsaHssPoolFill: RouterAbEcdsaHssPresignaturePoolFill;
+  workerCtx: WorkerOperationContext;
+}): Promise<
+  { ok: true; presignature: RouterAbEcdsaHssClientPresignatureRef } | RouterAbEcdsaHssCoordinatorError
+> {
   assertRouterAbEcdsaHssClientSigningMaterialSource(args.clientSigningMaterial);
   const init = await routerAbEcdsaHssPresignaturePoolFillInit({
     relayerUrl: args.relayerUrl,
@@ -624,7 +650,6 @@ async function runPresignHandshake(args: {
     if (localInit.presignatureHandle && localInit.presignatureBigR33) {
       localPresignatureHandle = localInit.presignatureHandle;
       localBigR33 = localInit.presignatureBigR33;
-      shouldAbortLocalSession = false;
     }
 
     for (let i = 0; i < MAX_HANDSHAKE_STEPS; i++) {
@@ -648,7 +673,6 @@ async function runPresignHandshake(args: {
         if (localStepped.presignatureHandle && localStepped.presignatureBigR33) {
           localPresignatureHandle = localStepped.presignatureHandle;
           localBigR33 = localStepped.presignatureBigR33;
-          shouldAbortLocalSession = false;
         }
       }
 
@@ -701,7 +725,6 @@ async function runPresignHandshake(args: {
         if (localStepped.presignatureHandle && localStepped.presignatureBigR33) {
           localPresignatureHandle = localStepped.presignatureHandle;
           localBigR33 = localStepped.presignatureBigR33;
-          shouldAbortLocalSession = false;
         }
       }
     }
@@ -738,6 +761,7 @@ async function runPresignHandshake(args: {
         };
       }
 
+      shouldAbortLocalSession = false;
       return {
         ok: true,
         presignature: {
@@ -766,6 +790,10 @@ async function runPresignHandshake(args: {
       }).catch(() => {});
     }
   }
+}
+
+function isRetryablePoolFillStale(result: RouterAbEcdsaHssCoordinatorError): boolean {
+  return result.code === 'stale_session_state' || result.code === 'stale_pool_fill_session';
 }
 
 function routerAbEcdsaHssSigningIdentityFromScope(scope: RouterAbEcdsaHssNormalSigningScopeV1): {

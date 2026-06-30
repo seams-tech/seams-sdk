@@ -53,7 +53,7 @@ const evmTarget = {
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  walletKeyId: 'wallet-key-localhost',
+  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -142,7 +142,7 @@ const laneWithoutKey: EvmFamilyEcdsaSessionLane = {
 };
 void laneWithoutKey;
 
-// @ts-expect-error key identity requires walletKeyId.
+// @ts-expect-error key identity requires evmFamilySigningKeySlotId.
 const keyWithoutWalletKeyId: EvmFamilyEcdsaKeyIdentity = {
   walletId: key.walletId,
   keyScope: 'evm-family',
@@ -179,7 +179,7 @@ void publicFacts;
 
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  walletKeyId: key.walletKeyId,
+  evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
   keyHandle,
   chainTarget: evmTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,

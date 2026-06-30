@@ -15,7 +15,7 @@ import type {
 const bootstrapBase = {
   formatVersion: 'ecdsa-hss-role-local',
   walletId: toWalletId('wallet-user'),
-  walletKeyId: 'wallet-key-example-test',
+  evmFamilySigningKeySlotId: 'wallet-key-example-test',
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ecdsa-key'),
   signingRootId: 'project:env',
   signingRootVersion: 'default',

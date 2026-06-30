@@ -35,6 +35,10 @@ import {
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalMaterialHandle,
+} from '../../signingEngine/session/keyMaterialBrands';
+import {
   parseGeneratedFinalizeEcdsaClientBootstrapOutput,
   parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   parseGeneratedPrepareEcdsaClientBootstrapOutput,
@@ -712,8 +716,8 @@ function createBrowserSignerCryptoPort(
           value: {
             handle: {
               kind: 'role_local_worker_session',
-              materialHandle: stored.materialHandle,
-              bindingDigest: stored.bindingDigest,
+              materialHandle: parseEcdsaRoleLocalMaterialHandle(stored.materialHandle),
+              bindingDigest: parseEcdsaRoleLocalBindingDigest(stored.bindingDigest),
             },
           },
         };

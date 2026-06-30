@@ -327,7 +327,6 @@ export type {
   InMemoryConsoleBillingServiceOptions,
   ConsoleBillingD1Runtime,
   ConsoleBillingD1Service,
-  D1ConsoleBillingSchemaOptions,
   D1ConsoleBillingServiceOptions,
   D1ConsoleBillingMonthlyFinalizationOptions,
   D1ConsoleBillingMonthlyFinalizationResult,
@@ -609,7 +608,6 @@ export {
 } from '../console/apiKeys';
 export {
   createInMemoryConsoleBillingService,
-  ensureConsoleBillingD1Schema,
   createD1ConsoleBillingService,
   getConsoleBillingD1Runtime,
   createSponsoredExecutionDebitD1InsertStatement,

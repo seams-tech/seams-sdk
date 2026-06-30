@@ -579,6 +579,7 @@ export interface WasmPrepareThresholdEd25519HssClientRequestResult {
 export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
+  serverEvalFinalizeOutputB64u: string;
   timings?: Record<string, number>;
 }
 export type WasmOpenThresholdEd25519HssSeedOutputRequest =
@@ -1064,7 +1065,6 @@ export function isSignTransactionsWithActionsSuccess(
 ): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions> {
   return response.type === WorkerResponseType.SignTransactionsWithActionsSuccess;
 }
-
 
 export function isSignDelegateActionSuccess(
   response: DelegateSignResponse,

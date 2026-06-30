@@ -74,7 +74,7 @@ function publicEcdsaHssBootstrapValue<T extends { thresholdSessionId: string }>(
 function validateEcdsaHssSessionIdentity(input: {
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   relayerKeyId: string;
 }): { ok: true } | { ok: false; code: string; message: string } {
   if (input.walletSessionAuth.expiresAtMs <= Date.now()) {
@@ -83,8 +83,8 @@ function validateEcdsaHssSessionIdentity(input: {
   if (input.walletId !== input.walletSessionAuth.userId) {
     return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
   }
-  if (input.walletKeyId !== input.walletSessionAuth.walletKeyId) {
-    return { ok: false, code: 'identity_mismatch', message: 'walletKeyId mismatch' };
+  if (input.evmFamilySigningKeySlotId !== input.walletSessionAuth.evmFamilySigningKeySlotId) {
+    return { ok: false, code: 'identity_mismatch', message: 'evmFamilySigningKeySlotId mismatch' };
   }
 
   if (input.relayerKeyId !== input.walletSessionAuth.relayerKeyId) {
@@ -259,14 +259,14 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
   const { ctx, headers, request } = input;
   const expectedRelayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
     walletId: request.walletId,
-    walletKeyId: request.walletKeyId,
+    evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
   });
   if (request.relayerKeyId !== expectedRelayerKeyId) {
     return { ok: false, code: 'relayer_key_mismatch', message: 'relayerKeyId mismatch' };
   }
   const expectedThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: request.walletId,
-    walletKeyId: request.walletKeyId,
+    evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
     signingRootId: request.signingRootId,
     signingRootVersion: request.signingRootVersion,
   });
@@ -323,7 +323,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     }
     const expectedChallenge = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
       walletId: request.walletId,
-      walletKeyId: request.walletKeyId,
+      evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
       rpId: rpId.value,
       ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
       signingRootId: request.signingRootId,
@@ -650,7 +650,7 @@ export function registerThresholdEcdsaRoutes(
       ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
       thresholdEcdsaRouteDiagnosticMetadata(body, [
         'walletId',
-        'walletKeyId',
+        'evmFamilySigningKeySlotId',
         'ecdsaThresholdKeyId',
         'relayerKeyId',
         'requestId',
@@ -678,7 +678,7 @@ export function registerThresholdEcdsaRoutes(
           const identity = validateEcdsaHssSessionIdentity({
             walletSessionAuth: validated.walletSessionAuth,
             walletId: parsed.walletId,
-            walletKeyId: parsed.walletKeyId,
+            evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
             relayerKeyId: parsed.relayerKeyId,
           });
           if (!identity.ok) return identity;
@@ -710,7 +710,7 @@ export function registerThresholdEcdsaRoutes(
         const signed = await signRouterAbEcdsaHssWalletSessionJwt({
           session: ctx.opts.session,
           userId: parsed.walletId,
-          walletKeyId: parsed.walletKeyId,
+          evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
           relayerKeyId: parsed.relayerKeyId,
           sessionInfo: {
             sessionKind: 'jwt',
@@ -722,7 +722,7 @@ export function registerThresholdEcdsaRoutes(
             keyHandle: bootstrap.value.keyHandle,
             stableKeyContext: {
               walletId: parsed.walletId,
-              walletKeyId: parsed.walletKeyId,
+              evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
               keyScope: 'evm-family',
               ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
               signingRootId: parsed.signingRootId,
@@ -763,7 +763,7 @@ export function registerThresholdEcdsaRoutes(
       ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
       thresholdEcdsaRouteDiagnosticMetadata(body, [
         'walletId',
-        'walletKeyId',
+        'evmFamilySigningKeySlotId',
         'ecdsaThresholdKeyId',
         'relayerKeyId',
         'clientDeviceId',
@@ -793,7 +793,7 @@ export function registerThresholdEcdsaRoutes(
         const identity = validateEcdsaHssSessionIdentity({
           walletSessionAuth: validated.walletSessionAuth,
           walletId: parsed.walletId,
-          walletKeyId: parsed.walletKeyId,
+          evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
           relayerKeyId: parsed.relayerKeyId,
         });
         if (!identity.ok) return identity;

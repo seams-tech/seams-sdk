@@ -4,6 +4,7 @@ import type {
   SigningSessionPersistenceMode,
   SeamsConfigsInput,
   SeamsConfigsReadonly,
+  SeamsRegistrationNearAccountProvisioning,
   SeamsWalletMode,
   RouterAbEcdsaHssPresignaturePoolPolicy,
 } from '../types/seams';
@@ -70,6 +71,24 @@ function joinUrlPath(baseUrl: string, path: string): string {
   return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
 }
 
+function resolveRegistrationNearAccountProvisioning(
+  value: unknown,
+): SeamsRegistrationNearAccountProvisioning {
+  if (!value || typeof value !== 'object') return { kind: 'implicit_account' };
+  const kind = String((value as { kind?: unknown }).kind || '').trim();
+  switch (kind) {
+    case '':
+    case 'implicit_account':
+      return { kind: 'implicit_account' };
+    case 'relayer_named_subaccount':
+      return { kind: 'relayer_named_subaccount' };
+    default:
+      throw new Error(
+        `[configPresets] Invalid config: registration.nearAccountProvisioning.kind (${kind})`,
+      );
+  }
+}
+
 function resolveRegistrationConfig(args: {
   overrides: SeamsConfigsInput;
   defaults: SeamsConfigsReadonly;
@@ -90,6 +109,9 @@ function resolveRegistrationConfig(args: {
     registrationDefaults.mode === 'backend_proxy' ? registrationDefaults : null;
   const mode =
     registrationOverrides?.mode ?? registrationDefaults.mode ?? ('backend_proxy' as const);
+  const nearAccountProvisioning = resolveRegistrationNearAccountProvisioning(
+    registrationOverrides?.nearAccountProvisioning ?? registrationDefaults.nearAccountProvisioning,
+  );
 
   if (mode === 'managed') {
     const environmentId =
@@ -110,6 +132,7 @@ function resolveRegistrationConfig(args: {
       environmentId,
       publishableKey,
       paymentMode,
+      nearAccountProvisioning,
     };
   }
 
@@ -125,6 +148,7 @@ function resolveRegistrationConfig(args: {
   return {
     mode: 'backend_proxy',
     bootstrapUrl,
+    nearAccountProvisioning,
   };
 }
 

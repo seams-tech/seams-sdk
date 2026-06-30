@@ -14,6 +14,7 @@ import {
   handleRouterApiWalletRegistrationPrepare,
   handleRouterApiWalletRegistrationStart,
   handleRouterApiWalletEcdsaKeyFactsInventory,
+  handleRouterApiWalletNearImplicitAccountFund,
 } from '../../walletRegistrationRoutes';
 import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
 import type { RouteResponse } from '../../routeExecutionContext';
@@ -40,6 +41,7 @@ const ROUTE_IDS = [
   'wallet_add_auth_method_finalize',
   'wallet_revoke_auth_method',
   'wallet_ecdsa_key_facts_inventory',
+  'wallet_near_implicit_account_fund',
 ] as const;
 
 type WalletRegistrationRouteId = (typeof ROUTE_IDS)[number];
@@ -143,6 +145,8 @@ export async function handleWalletRegistration(
                             ? await handleRouterApiWalletAddAuthMethodFinalize(common)
                             : route.id === 'wallet_revoke_auth_method'
                               ? await handleRouterApiWalletRevokeAuthMethod(common)
-                              : await handleRouterApiWalletEcdsaKeyFactsInventory(common);
+                              : route.id === 'wallet_ecdsa_key_facts_inventory'
+                                ? await handleRouterApiWalletEcdsaKeyFactsInventory(common)
+                                : await handleRouterApiWalletNearImplicitAccountFund(common);
   return toFetchRouteResponse(response);
 }

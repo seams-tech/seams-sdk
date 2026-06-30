@@ -13,6 +13,7 @@ import { usePasskeyAuthMenuController } from './controller/usePasskeyAuthMenuCon
 import { useSDKEvents } from './controller/useSDKEvents';
 import type { SeamsWeb } from '@/SeamsWeb';
 import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
+import type { RegisterWalletInput } from '@shared/utils/registrationIntent';
 
 type CSSVarStyle = React.CSSProperties & {
   [key: `--${string}`]: string | number | undefined;
@@ -29,6 +30,7 @@ const OTP_CODE_LENGTH = 6;
 type MountPasskeyRegistrationActivationSurfaceArgs = {
   seamsWeb: SeamsWeb;
   target: HTMLElement;
+  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
   onStateChange(state: RegistrationActivationSurfaceState): void;
 };
 
@@ -36,6 +38,7 @@ function mountPasskeyRegistrationActivationSurface(
   args: MountPasskeyRegistrationActivationSurfaceArgs,
 ): () => void {
   const surface = args.seamsWeb.registration.createPasskeyRegistrationActivationSurface({
+    wallet: args.wallet,
     presentation: {
       kind: 'outline_overlay',
       label: 'Create with Passkey',
@@ -118,10 +121,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
 
   const waitingSDKEventsText = React.useMemo(() => {
     if (!showSDKEvents) return '';
-    if (
-      controller.mode !== AuthMenuMode.Register &&
-      controller.mode !== AuthMenuMode.Login
-    ) {
+    if (controller.mode !== AuthMenuMode.Register && controller.mode !== AuthMenuMode.Login) {
       return '';
     }
     const text = runtime.sdkFlow.eventsText?.trim() ?? '';
@@ -176,15 +176,18 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
 
   React.useEffect(() => {
     if (!iframeRegistrationButtonEnabled) return;
+    if (!controller.registrationActivationWallet) return;
     const target = registrationActivationTargetRef.current;
     if (!target) return;
     return mountPasskeyRegistrationActivationSurface({
       seamsWeb: runtime.seamsWeb,
       target,
+      wallet: controller.registrationActivationWallet,
       onStateChange: controller.onRegistrationActivationSurfaceStateChange,
     });
   }, [
     controller.onRegistrationActivationSurfaceStateChange,
+    controller.registrationActivationWallet,
     iframeRegistrationButtonEnabled,
     runtime.seamsWeb,
   ]);

@@ -1,4 +1,3 @@
-import type { AccessKeyList } from '../rpcClients/near/NearClient';
 import type {
   ThresholdStoreConfigInput,
   VerifyAuthenticationResponse,
@@ -32,7 +31,6 @@ export type CloudflareDurableObjectThresholdSigningAuthPort = {
     readonly expected_origin: string;
     readonly webauthn_authentication: WebAuthnAuthenticationCredential;
   }) => Promise<VerifyAuthenticationResponse>;
-  readonly viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
   readonly dispatchNearSignedTransactionBorsh: ThresholdNearTransactionDispatcher;
 };
 
@@ -71,12 +69,13 @@ export function createCloudflareDurableObjectThresholdSigningService(input: {
     ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
     ecdsaPoolFillSessionStore: ecdsaStores.poolFillSessionStore,
     ecdsaPresignaturePool: ecdsaStores.presignaturePool,
+    ecdsaPoolFillLiveSessionOwner: ecdsaStores.poolFillLiveSessionOwner,
     signingRootShareResolver: createConfiguredSigningRootShareResolver(input.thresholdStore),
+    ed25519HssCeremonyStore: ed25519Stores.ed25519HssCeremonyStore,
     config: input.thresholdStore,
     ensureReady,
     ensureSignerWasm: ensureReady,
     verifyWebAuthnAuthenticationLite: input.auth.verifyWebAuthnAuthenticationLite,
-    viewAccessKeyList: input.auth.viewAccessKeyList,
     dispatchNearTransaction: input.auth.dispatchNearSignedTransactionBorsh,
   });
 }

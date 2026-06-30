@@ -1,8 +1,11 @@
 import { handleRouterApiSponsoredEvmCall } from '../../routerApiSponsoredEvmCall';
 import { findRouteDefinitionById } from '../../routeDefinitions';
-import { toFetchRouteResponse } from '../../routeResponses';
+import { routeJson, toFetchRouteResponse } from '../../routeResponses';
 import { readJson } from '../http';
 import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
+
+const SPONSORED_EVM_MVP_DISABLED_MESSAGE =
+  'EVM gas sponsorship pricing is not configured on this server.';
 
 export async function handleSponsoredEvmCall(
   ctx: CloudflareRouterApiContext,
@@ -13,6 +16,19 @@ export async function handleSponsoredEvmCall(
 
   const options = ctx.opts.sponsoredEvmCall;
   if (!options) return null;
+  if (!ctx.opts.sponsorship?.pricing) {
+    ctx.logger.warn('[sponsored-evm-call][pricing-unconfigured]', {
+      path: ctx.pathname,
+      reason: SPONSORED_EVM_MVP_DISABLED_MESSAGE,
+    });
+    return toFetchRouteResponse(
+      routeJson(503, {
+        ok: false,
+        code: 'sponsorship_pricing_unavailable',
+        message: SPONSORED_EVM_MVP_DISABLED_MESSAGE,
+      }),
+    );
+  }
 
   const response = await handleRouterApiSponsoredEvmCall({
     body: await readJson(ctx.request),
@@ -26,7 +42,6 @@ export async function handleSponsoredEvmCall(
       routerApiSponsoredEvmCall: {
         billing: options.billing,
         config: options.config,
-        corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
         resolveExecutionAdapter: options.resolveExecutionAdapter || null,
         observabilityIngestion: ctx.opts.observabilityIngestion || null,
         prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,

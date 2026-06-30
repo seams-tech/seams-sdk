@@ -1,5 +1,5 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { d1Number as toNumber, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
+import { d1Number as toNumber, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../storage/tenantRoute';
 import { ConsoleSponsoredCallError } from './errors';
 import type {
@@ -32,93 +32,13 @@ export type ConsoleSponsoredCallD1Service = ConsoleSponsoredCallService & {
 export interface D1ConsoleSponsoredCallServiceOptions {
   database: D1DatabaseLike;
   namespace?: string;
-  ensureSchema?: boolean;
   now?: () => Date;
 }
 
-export interface D1ConsoleSponsoredCallSchemaOptions {
-  database: D1DatabaseLike;
-}
 
 type D1SponsoredCallInsertGuard = {
   readonly kind: 'previous_statement_changed_one';
 };
-
-export const CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL = Object.freeze([
-  `
-    CREATE TABLE IF NOT EXISTS sponsored_call_records (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      environment_id TEXT NOT NULL,
-      api_key_id TEXT NOT NULL,
-      api_key_kind TEXT NOT NULL,
-      route TEXT NOT NULL,
-      policy_id TEXT NOT NULL DEFAULT '',
-      policy_name_at_event TEXT,
-      template_id TEXT,
-      chain_family TEXT NOT NULL DEFAULT 'evm',
-      intent_kind TEXT NOT NULL DEFAULT 'evm_call',
-      executor_kind TEXT NOT NULL DEFAULT 'evm_eoa',
-      account_ref TEXT NOT NULL DEFAULT '',
-      target_ref TEXT NOT NULL DEFAULT '',
-      sponsor_ref TEXT NOT NULL DEFAULT '',
-      tx_or_execution_ref TEXT,
-      receipt_status TEXT NOT NULL,
-      fee_unit TEXT NOT NULL DEFAULT 'wei',
-      fee_amount TEXT NOT NULL DEFAULT '0',
-      details_json TEXT NOT NULL DEFAULT '{}',
-      estimated_spend_minor INTEGER,
-      settled_spend_minor INTEGER,
-      pricing_version TEXT,
-      pricing_source TEXT,
-      billing_ledger_entry_id TEXT,
-      prepaid_reservation_id TEXT,
-      charged INTEGER NOT NULL DEFAULT 0,
-      charged_reason TEXT,
-      settled_at_iso TEXT,
-      error_code TEXT,
-      error_message TEXT,
-      idempotency_key TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, id),
-      CHECK (api_key_kind IN ('secret_key', 'publishable_key')),
-      CHECK (receipt_status IN ('success', 'reverted', 'broadcast_failed', 'rpc_rejected')),
-      CHECK (chain_family IN ('evm', 'near')),
-      CHECK (intent_kind IN ('evm_call', 'near_delegate')),
-      CHECK (executor_kind IN ('evm_eoa', 'near_delegate')),
-      CHECK (fee_unit IN ('wei', 'yocto_near')),
-      CHECK (charged IN (0, 1)),
-      CHECK (length(idempotency_key) > 0),
-      CHECK (json_valid(details_json)),
-      CHECK (estimated_spend_minor IS NULL OR estimated_spend_minor >= 0),
-      CHECK (settled_spend_minor IS NULL OR settled_spend_minor >= 0),
-      CHECK (created_at_ms > 0),
-      CHECK (updated_at_ms > 0),
-      CHECK (updated_at_ms >= created_at_ms)
-    )
-  `,
-  `
-    DROP INDEX IF EXISTS sponsored_call_idempotency_key_idx
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS sponsored_call_idempotency_key_idx
-      ON sponsored_call_records (namespace, org_id, idempotency_key)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS sponsored_call_org_created_idx
-      ON sponsored_call_records (namespace, org_id, created_at_ms DESC, id DESC)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS sponsored_call_org_environment_created_idx
-      ON sponsored_call_records (namespace, org_id, environment_id, created_at_ms DESC, id DESC)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS sponsored_call_org_policy_created_idx
-      ON sponsored_call_records (namespace, org_id, policy_id, created_at_ms DESC, id DESC)
-  `,
-] as const);
 
 interface NormalizedSponsoredCallListRequest {
   readonly environmentId?: string;
@@ -135,14 +55,6 @@ const DEFAULT_LIST_LIMIT = 25;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_LOOKBACK_DAYS = 90;
 const MAX_LOOKBACK_DAYS = 365;
-
-export async function ensureConsoleSponsoredCallD1Schema(
-  options: D1ConsoleSponsoredCallSchemaOptions,
-): Promise<void> {
-  for (const statement of CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL) {
-    await options.database.exec(formatD1ExecStatement(statement));
-  }
-}
 
 export function getConsoleSponsoredCallD1Runtime(
   service: ConsoleSponsoredCallService | null | undefined,
@@ -624,9 +536,6 @@ export async function createD1ConsoleSponsoredCallRecord(input: {
 export async function createD1ConsoleSponsoredCallService(
   options: D1ConsoleSponsoredCallServiceOptions,
 ): Promise<ConsoleSponsoredCallService> {
-  if (options.ensureSchema) {
-    await ensureConsoleSponsoredCallD1Schema({ database: options.database });
-  }
   const database = options.database;
   const namespace = ensureNamespace(options.namespace);
   const now = options.now || defaultNow;

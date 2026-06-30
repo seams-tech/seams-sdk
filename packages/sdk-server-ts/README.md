@@ -36,6 +36,11 @@ SQLite driver when manual inspection is useful. Treat local inspection as
 read-only. Remote D1 inspection should use Wrangler, Cloudflare dashboard tools,
 exports, or a purpose-built admin route.
 
+Local EVM signing is client-funded. Sponsored EVM execution is optional and
+uses Console D1 pricing rows, never request-time backfill or Worker env pricing.
+For local sponsorship-route tests only, seed static Tempo pricing explicitly
+with `seedD1ConsoleStaticEvmSponsorshipPricingRule`.
+
 ## Staging D1/DO Preflight
 
 Before applying remote D1 migrations, copy

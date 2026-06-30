@@ -12,6 +12,9 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
 import {
+  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapStorePort,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
@@ -130,20 +133,22 @@ export async function finalizeWalletRegistrationEcdsaSessions(
             },
     });
     if (args.auth.kind === 'email_otp') {
-      upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
+      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
         walletId,
         chainTarget: walletKey.chainTarget,
         bootstrap,
         source: 'email_otp',
         emailOtpAuthContext: args.auth.emailOtpAuthContext,
       });
+      markRegistrationEcdsaBootstrapRuntimeValidated({ bootstrap, record });
     } else {
-      upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
+      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
         walletId,
         chainTarget: walletKey.chainTarget,
         bootstrap,
         source: 'registration',
       });
+      markRegistrationEcdsaBootstrapRuntimeValidated({ bootstrap, record });
       await hydratePasskeyRegistrationSession({
         walletId,
         relayerUrl: args.relayerUrl,
@@ -155,6 +160,21 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       });
     }
   }
+}
+
+function markRegistrationEcdsaBootstrapRuntimeValidated(args: {
+  bootstrap: Awaited<ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>>;
+  record: ReturnType<typeof upsertThresholdEcdsaSessionFromBootstrap>;
+}): void {
+  if (
+    args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind !== 'role_local_worker_handle'
+  ) {
+    return;
+  }
+  if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(args.record)) return;
+  throw new Error(
+    '[SigningEngine] ECDSA registration bootstrap returned worker material that could not be runtime-validated',
+  );
 }
 
 async function hydratePasskeyRegistrationSession(args: {

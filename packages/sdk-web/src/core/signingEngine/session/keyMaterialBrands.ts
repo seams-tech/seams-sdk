@@ -28,6 +28,8 @@ export type EcdsaClientVerifyingShareB64u = Brand<
 export type Ed25519RelayerKeyId = Brand<string, 'Ed25519RelayerKeyId'>;
 export type EcdsaRelayerKeyId = Brand<string, 'EcdsaRelayerKeyId'>;
 export type EcdsaKeyHandle = Brand<string, 'EcdsaKeyHandle'>;
+export type EcdsaRoleLocalMaterialHandle = Brand<string, 'EcdsaRoleLocalMaterialHandle'>;
+export type EcdsaRoleLocalBindingDigest = Brand<string, 'EcdsaRoleLocalBindingDigest'>;
 export type EcdsaClientAdditiveShareHandle = Brand<
   string,
   'EcdsaClientAdditiveShareHandle'
@@ -128,6 +130,24 @@ export function parseEcdsaThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
 
 export function parseEcdsaKeyHandle(value: unknown): EcdsaKeyHandle {
   return parseNonEmptyBrand<'EcdsaKeyHandle'>(value, 'ECDSA key handle');
+}
+
+export function parseEcdsaRoleLocalMaterialHandle(
+  value: unknown,
+): EcdsaRoleLocalMaterialHandle {
+  return parseNonEmptyBrand<'EcdsaRoleLocalMaterialHandle'>(
+    value,
+    'ECDSA role-local material handle',
+  );
+}
+
+export function parseEcdsaRoleLocalBindingDigest(
+  value: unknown,
+): EcdsaRoleLocalBindingDigest {
+  return parseNonEmptyBrand<'EcdsaRoleLocalBindingDigest'>(
+    value,
+    'ECDSA role-local binding digest',
+  );
 }
 
 export function parseEcdsaClientAdditiveShareHandle(

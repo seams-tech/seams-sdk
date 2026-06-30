@@ -281,7 +281,10 @@ export async function requestNearEd25519ExportAuthorization(
         warning: 'Confirm to reveal your NEAR private key export.',
       },
       payload: {
-        nearAccountId: args.nearAccountId,
+        subject: {
+          kind: 'near_wallet',
+          nearAccountId: String(args.nearAccountId),
+        },
         publicKey: args.expectedPublicKey,
       },
       intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
@@ -321,7 +324,10 @@ export async function showNearEd25519ExportViewer(
       warning: 'Anyone with your private key can fully control your account. Never share it.',
     },
     payload: {
-      nearAccountId: args.nearAccountId,
+      subject: {
+        kind: 'near_wallet',
+        nearAccountId: String(args.nearAccountId),
+      },
       viewerSessionId: args.viewerSessionId,
       publicKey: args.expectedPublicKey,
       keys,
@@ -395,7 +401,10 @@ export async function requestThresholdEcdsaExportAuthorization(
             : 'Confirm to reveal your EVM private key export.',
       },
       payload: {
-        walletId: walletIdForUi,
+        subject: {
+          kind: 'evm_wallet',
+          walletId: walletIdForUi,
+        },
         publicKey: args.publicKey,
       },
       intentDigest: `export-keys:${walletIdForUi}:${thresholdEcdsaChainTargetKey(args.chainTarget)}:secp256k1`,
@@ -439,7 +448,10 @@ export async function showThresholdEcdsaExportViewer(
       warning: 'Anyone with your private key can fully control your account. Never share it.',
     },
     payload: {
-      walletId: args.walletId,
+      subject: {
+        kind: 'evm_wallet',
+        walletId: args.walletId,
+      },
       viewerSessionId: args.viewerSessionId,
       publicKey: args.publicKeyHex,
       keys,

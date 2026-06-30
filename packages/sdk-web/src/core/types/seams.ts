@@ -592,19 +592,18 @@ export interface SignTransactionResult {
 }
 
 export interface RecentUnlockAccount {
+  walletId: string;
   nearAccountId: AccountId;
+  displayName: string;
   signerSlot: number;
   authMethod?: WalletAuthMethod | null;
 }
 
 export interface GetRecentUnlocksResult {
+  walletIds: string[];
   accountIds: string[];
   accounts?: RecentUnlockAccount[];
-  lastUsedAccount: {
-    nearAccountId: AccountId;
-    signerSlot: number;
-    authMethod?: WalletAuthMethod | null;
-  } | null;
+  lastUsedAccount: RecentUnlockAccount | null;
 }
 
 export interface SignDelegateActionResult {
@@ -723,6 +722,14 @@ export type SeamsWalletMode = 'direct' | 'iframe';
 
 export type SeamsRegistrationPaymentMode = 'disabled' | 'quota_then_x402' | 'always_x402';
 
+export type SeamsRegistrationNearAccountProvisioning =
+  | {
+      kind: 'implicit_account';
+    }
+  | {
+      kind: 'relayer_named_subaccount';
+    };
+
 export interface SeamsSigningSessionDefaultsInput {
   /**
    * Defaults for relay-minted warm signing sessions minted by `unlock()`.
@@ -748,12 +755,14 @@ export type SeamsRegistrationConfigInput =
   | {
       mode?: 'backend_proxy';
       registrationBootstrapUrl?: string;
+      nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
     }
   | {
       mode: 'managed';
       environmentId: string;
       publishableKey: string;
       paymentMode?: SeamsRegistrationPaymentMode;
+      nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
     };
 
 export interface SeamsRelayerConfigInput {
@@ -799,12 +808,14 @@ export type SeamsRegistrationConfig =
   | {
       mode: 'backend_proxy';
       bootstrapUrl: string;
+      nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
     }
   | {
       mode: 'managed';
       environmentId: string;
       publishableKey: string;
       paymentMode: SeamsRegistrationPaymentMode;
+      nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
     };
 
 export interface SeamsNetworkConfig {

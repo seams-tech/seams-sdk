@@ -153,6 +153,18 @@ function toWalletAuthMethod(authMethod: unknown): WalletAuthMethod | null {
   return null;
 }
 
+function signerLoginDisplayName(args: {
+  walletId: string;
+  authMethod: WalletAuthMethod | null;
+  metadata: Record<string, unknown>;
+}): string {
+  if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+    const email = toTrimmedString(args.metadata.email || '');
+    if (email) return email;
+  }
+  return args.walletId;
+}
+
 export async function resolveNearAccountContext(
   clientDB: ProfileAccountContextPort,
   nearAccountId: AccountId,
@@ -242,9 +254,18 @@ export async function getNearAccountProjection(
       : projection.profile.passkeyCredential?.id || passkeyCredentialRawId;
   const operationalPublicKey =
     typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey : '';
+  const walletId = toTrimmedString(metadata.walletId || '');
+  if (!walletId) return null;
+  const authMethod = toWalletAuthMethod(projection.selectedSigner.signerAuthMethod);
 
   return {
+    walletId,
     nearAccountId: accountId,
+    loginDisplayName: signerLoginDisplayName({
+      walletId,
+      authMethod,
+      metadata,
+    }),
     signerSlot: projection.selectedSigner.signerSlot,
     version: 2,
     registeredAt: projection.profile.createdAt,
@@ -255,7 +276,7 @@ export async function getNearAccountProjection(
       id: passkeyCredentialId,
       rawId: passkeyCredentialRawId,
     },
-    authMethod: toWalletAuthMethod(projection.selectedSigner.signerAuthMethod),
+    authMethod,
     preferences: projection.profile.preferences,
   };
 }
@@ -372,7 +393,9 @@ export async function upsertNearAccountProjection(
   const normalizedSignerSlot =
     Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1;
   const userData: ClientUserData = {
+    walletId: input.walletId || buildNearProfileId(accountId),
     nearAccountId: accountId,
+    loginDisplayName: input.loginDisplayName || input.walletId || buildNearProfileId(accountId),
     signerSlot: normalizedSignerSlot,
     version: input.version || 2,
     registeredAt: now,

@@ -210,7 +210,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
         ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
       )
     : '';
-	  const walletKeyId = String(args.bootstrap.keygen.walletKeyId || '').trim();
+	  const evmFamilySigningKeySlotId = String(args.bootstrap.keygen.evmFamilySigningKeySlotId || '').trim();
 	  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
 	  const userId = String(keyRef.userId || '').trim();
 	  const authSubjectId = String(args.emailOtpAuthContext.authSubjectId || userId).trim();
@@ -227,7 +227,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     : [];
 	  if (
 	    !ecdsaThresholdKeyId ||
-	    !walletKeyId ||
+	    !evmFamilySigningKeySlotId ||
 	    !userId ||
 	    !authSubjectId ||
 	    !ethereumAddress ||
@@ -310,7 +310,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
 	    ...sealedRecordBase,
 	    ecdsaRestore: {
 	      chainTarget: actualChainTarget,
-	      walletKeyId,
+	      evmFamilySigningKeySlotId,
 	      authSubjectId,
 	      walletSessionJwt,
       sessionKind: 'jwt',

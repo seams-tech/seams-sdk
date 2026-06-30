@@ -9,6 +9,7 @@ import {
   normalizeAddSignerSelection,
   normalizeRegistrationAuthMethodInput,
   normalizeRegistrationSignerPlan,
+  parseServerAllocatedWalletId,
   registrationIntentGrantFromString,
   registrationSignerSetSelectionFromPlan,
   type RegistrationSignerPlan,
@@ -267,6 +268,41 @@ export class CloudflareD1RegistrationIntentService {
     };
   }
 
+  private async reserveProvidedImplicitWalletId(input: {
+    readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+    readonly walletId: unknown;
+    readonly expiresAtMs: number;
+  }): Promise<RegistrationIntentWalletResolution> {
+    const parsed = parseServerAllocatedWalletId(input.walletId);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'implicit account registration requires a generated readable walletId',
+      };
+    }
+    const existing = await this.signerWallets.signerWalletExists(parsed.value);
+    if (existing) {
+      return {
+        ok: false,
+        code: 'wallet_id_collision',
+        message: 'walletId is already registered',
+      };
+    }
+    const reserved = await input.store.reserveServerAllocatedWalletId({
+      walletId: parsed.value,
+      expiresAtMs: input.expiresAtMs,
+    });
+    if (!reserved) {
+      return {
+        ok: false,
+        code: 'wallet_id_collision',
+        message: 'walletId is already reserved',
+      };
+    }
+    return { ok: true, walletId: parsed.value };
+  }
+
   private async resolveGenericRegistrationWalletId(input: {
     readonly store: CloudflareD1RegistrationCeremonyIntentStore;
     readonly wallet: RegisterWalletInput | undefined;
@@ -297,11 +333,11 @@ export class CloudflareD1RegistrationIntentService {
     switch (provisioning.kind) {
       case 'implicit_account':
         if (input.wallet?.kind === 'provided') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'implicit account registration requires server_allocated wallet allocation',
-          };
+          return await this.reserveProvidedImplicitWalletId({
+            store: input.store,
+            walletId: input.wallet.walletId,
+            expiresAtMs: input.expiresAtMs,
+          });
         }
         return await this.createAvailableServerAllocatedWalletId(input);
       case 'sponsored_named_account': {

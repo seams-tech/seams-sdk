@@ -20,7 +20,7 @@ type RawThresholdSessionIds = {
 
 type RawEcdsaRestoreMetadata = {
   chainTarget?: unknown;
-  walletKeyId?: unknown;
+  evmFamilySigningKeySlotId?: unknown;
   rpId?: unknown;
   credentialIdB64u?: unknown;
   providerSubjectId?: unknown;
@@ -165,10 +165,10 @@ type SealedRecoveryWalletSessionAuthCarrier = {
 export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
   SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'passkey';
+    evmFamilySigningKeySlotId: string;
     rpId: string;
     credentialIdB64u: string;
     clientVerifyingShareB64u: string;
-    walletKeyId?: never;
     providerSubjectId?: never;
     authSubjectId?: never;
   };
@@ -176,7 +176,7 @@ export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
 export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
   SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
-    walletKeyId: string;
+    evmFamilySigningKeySlotId: string;
     providerSubjectId: string;
     clientVerifyingShareB64u?: string;
     companionEd25519ThresholdSessionId?: string;
@@ -464,7 +464,7 @@ export function normalizeSealedRecoveryRecord(
     const relayerUrl = normalizeNonEmptyString(raw.relayerUrl);
 	    const companionRpIdHint = normalizeNonEmptyString(ed25519Restore?.rpId);
 	    const passkeyRpId = normalizeNonEmptyString(restore?.rpId) || companionRpIdHint;
-	    const walletKeyId = normalizeNonEmptyString(restore?.walletKeyId);
+    const evmFamilySigningKeySlotId = normalizeNonEmptyString(restore?.evmFamilySigningKeySlotId);
     const credentialIdB64u = normalizeNonEmptyString(restore?.credentialIdB64u);
     const providerSubjectId =
       normalizeNonEmptyString(restore?.providerSubjectId) ||
@@ -499,7 +499,7 @@ export function normalizeSealedRecoveryRecord(
     if (
       !relayerUrl ||
 	      (raw.authMethod === 'passkey' && !passkeyRpId) ||
-	      (raw.authMethod === 'email_otp' && !walletKeyId) ||
+      !evmFamilySigningKeySlotId ||
       (raw.authMethod === 'passkey' && !credentialIdB64u) ||
       (raw.authMethod === 'email_otp' && !providerSubjectId) ||
       !ecdsaThresholdKeyId ||
@@ -628,7 +628,8 @@ export function normalizeSealedRecoveryRecord(
               ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
               : {}),
             chainTarget,
-	            rpId: passkeyRpId!,
+            evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
+            rpId: passkeyRpId!,
             credentialIdB64u: credentialIdB64u!,
             signingRootId: signingRootBinding.signingRootId,
             signingRootVersion: signingRootBinding.signingRootVersion,
@@ -662,7 +663,7 @@ export function normalizeSealedRecoveryRecord(
               ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
               : {}),
             chainTarget,
-	            walletKeyId: walletKeyId!,
+	            evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
             providerSubjectId: providerSubjectId!,
             signingRootId: signingRootBinding.signingRootId,
             signingRootVersion: signingRootBinding.signingRootVersion,
@@ -756,7 +757,7 @@ export function normalizeSealedRecoveryRecord(
       !companionSigningRootBinding ||
       !companionEcdsaThresholdKeyId ||
       !normalizeNonEmptyString(raw.relayerUrl) ||
-	      !normalizeNonEmptyString(ecdsaRestore.walletKeyId) ||
+	      !normalizeNonEmptyString(ecdsaRestore.evmFamilySigningKeySlotId) ||
       !companionProviderSubjectId ||
       !normalizeNonEmptyString(ecdsaRestore.relayerKeyId) ||
       !normalizeNonEmptyString(ecdsaRestore.keyHandle) ||
@@ -801,7 +802,7 @@ export function normalizeSealedRecoveryRecord(
         ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
         : {}),
       chainTarget: companionChainTarget,
-	      walletKeyId: normalizeNonEmptyString(ecdsaRestore.walletKeyId)!,
+	      evmFamilySigningKeySlotId: normalizeNonEmptyString(ecdsaRestore.evmFamilySigningKeySlotId)!,
       providerSubjectId: companionProviderSubjectId,
       signingRootId: companionSigningRootBinding.signingRootId,
       signingRootVersion: companionSigningRootBinding.signingRootVersion,

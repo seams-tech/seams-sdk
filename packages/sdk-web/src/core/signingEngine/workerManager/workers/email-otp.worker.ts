@@ -3,7 +3,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { parseWalletKeyId } from '@shared/utils/domainIds';
+import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import {
   joinNormalizedUrl,
@@ -339,7 +339,7 @@ type ExactEmailOtpEcdsaWarmSessionRestore = {
   sessionId: string;
   walletId: string;
   userId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: string;
   keyHandle: string;
@@ -412,7 +412,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
   restore: {
     sessionId: string;
     walletId: string;
-    walletKeyId: string;
+    evmFamilySigningKeySlotId: string;
     chainTarget: ThresholdEcdsaChainTarget;
     signingGrantId: string;
     keyHandle: string;
@@ -465,7 +465,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
     };
   }
   const walletId = readString(args.restore.walletId, 'walletId');
-  const walletKeyId = readString(args.restore.walletKeyId, 'walletKeyId');
+  const evmFamilySigningKeySlotId = String(readEvmFamilySigningKeySlotId(args.restore.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'));
   let ed25519Restore: ExactEmailOtpEcdsaWarmSessionEd25519Restore | undefined;
   if (args.restore.ed25519) {
     const ed25519ParticipantIds = normalizeThresholdEd25519ParticipantIds(
@@ -517,13 +517,13 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
         sessionId,
         walletId,
         userId: walletId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
         chainTarget: args.restore.chainTarget,
         signingGrantId: readString(args.restore.signingGrantId, 'signingGrantId'),
         keyHandle: readString(args.restore.keyHandle, 'keyHandle'),
         keyContext: buildSessionBootstrapKeyContext({
           walletId,
-          walletKeyId,
+          evmFamilySigningKeySlotId,
           participantIds,
         }),
         relayerKeyId: readString(args.restore.relayerKeyId, 'relayerKeyId'),
@@ -565,10 +565,8 @@ function readString(value: unknown, label: string): string {
   return requireTrimmedString(value, label);
 }
 
-function readWalletKeyId(value: unknown, label: string) {
-  const parsed = parseWalletKeyId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
+function readEvmFamilySigningKeySlotId(value: unknown, label: string) {
+  return requireEvmFamilySigningKeySlotId(value, label);
 }
 
 function readNumber(value: unknown, label: string): number {
@@ -971,7 +969,7 @@ function issueEmailOtpEcdsaClientRootHandle(args: {
     kind: 'email_otp_worker_session_handle_v1' as const,
     sessionId,
     walletId: readString(args.walletId, 'walletId'),
-    walletKeyId: readString(args.binding.walletKeyId, 'walletKeyId'),
+    evmFamilySigningKeySlotId: String(readEvmFamilySigningKeySlotId(args.binding.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId')),
     authSubjectId: readString(args.binding.authSubjectId, 'authSubjectId'),
   };
   const handle: EmailOtpWorkerIssuedSessionHandlePayload =
@@ -999,7 +997,7 @@ function issueEmailOtpEcdsaClientRootHandle(args: {
 function claimEmailOtpEcdsaClientRootShare(args: {
   handle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   authSubjectId: string;
   chainTarget: ThresholdEcdsaChainTarget;
 }): Uint8Array {
@@ -1022,8 +1020,10 @@ function claimEmailOtpEcdsaClientRootShare(args: {
     if (entry.handle.walletId !== readString(args.walletId, 'walletId')) {
       throw new Error('Email OTP ECDSA client-root handle wallet mismatch');
     }
-    if (entry.handle.walletKeyId !== readString(args.walletKeyId, 'walletKeyId')) {
-      throw new Error('Email OTP ECDSA client-root handle walletKeyId mismatch');
+    if (
+      entry.handle.evmFamilySigningKeySlotId !== String(readEvmFamilySigningKeySlotId(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'))
+    ) {
+      throw new Error('Email OTP ECDSA client-root handle evmFamilySigningKeySlotId mismatch');
     }
     if (entry.handle.authSubjectId !== readString(args.authSubjectId, 'authSubjectId')) {
       throw new Error('Email OTP ECDSA client-root handle subject mismatch');
@@ -1043,7 +1043,7 @@ function claimEmailOtpEcdsaClientRootShare(args: {
 function claimEmailOtpWalletRegistrationEcdsaClientRootShare(args: {
   handle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   authSubjectId: string;
 }): Uint8Array {
   const handle = args.handle;
@@ -1069,8 +1069,10 @@ function claimEmailOtpWalletRegistrationEcdsaClientRootShare(args: {
     if (entry.handle.walletId !== readString(args.walletId, 'walletId')) {
       throw new Error('Email OTP ECDSA client-root handle wallet mismatch');
     }
-    if (entry.handle.walletKeyId !== readString(args.walletKeyId, 'walletKeyId')) {
-      throw new Error('Email OTP ECDSA client-root handle walletKeyId mismatch');
+    if (
+      entry.handle.evmFamilySigningKeySlotId !== String(readEvmFamilySigningKeySlotId(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'))
+    ) {
+      throw new Error('Email OTP ECDSA client-root handle evmFamilySigningKeySlotId mismatch');
     }
     if (entry.handle.authSubjectId !== readString(args.authSubjectId, 'authSubjectId')) {
       throw new Error('Email OTP ECDSA client-root handle subject mismatch');
@@ -1155,7 +1157,7 @@ function prepareEcdsaClientBootstrapFromEmailOtpWorkerHandle(
     clientRootShare32 = claimEmailOtpEcdsaClientRootShare({
       handle,
       walletId: handle.walletId,
-      walletKeyId: handle.walletKeyId,
+      evmFamilySigningKeySlotId: handle.evmFamilySigningKeySlotId,
       authSubjectId: handle.authSubjectId,
       chainTarget: handle.chainTarget,
     });
@@ -1447,7 +1449,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   restore: {
     sessionId: string;
     walletId: string;
-    walletKeyId: string;
+    evmFamilySigningKeySlotId: string;
     chainTarget: ThresholdEcdsaChainTarget;
     signingGrantId: string;
     keyHandle: string;
@@ -2809,11 +2811,12 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       userId,
       clientSecret32,
     });
-    const thresholdEd25519RecoveryCodeSecret32B64u = await deriveEmailOtpEd25519RecoveryCodeSecret32B64u({
-      clientSecret32,
-      walletId,
-      userId,
-    });
+    const thresholdEd25519RecoveryCodeSecret32B64u =
+      await deriveEmailOtpEd25519RecoveryCodeSecret32B64u({
+        clientSecret32,
+        walletId,
+        userId,
+      });
     const returnedClientSecret32 =
       args.returnClientSecret32 && clientSecret32 ? clientSecret32 : null;
     if (returnedClientSecret32) {
@@ -2842,9 +2845,9 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
   routeAuth?: AppOrWalletSessionAuth;
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 } & (
-	  | (EmailOtpRegistrationBootstrap & {
-	      walletSessionUserId: WalletSessionUserId;
-	      walletKeyId: string;
+  | (EmailOtpRegistrationBootstrap & {
+      walletSessionUserId: WalletSessionUserId;
+      evmFamilySigningKeySlotId: string;
       participantIds?: number[];
       sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
@@ -2854,9 +2857,9 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
       ttlMs?: number;
       remainingUses?: number;
     })
-	  | (EmailOtpExistingKeyBootstrap & {
-	      walletSessionUserId: WalletSessionUserId;
-	      walletKeyId: string;
+  | (EmailOtpExistingKeyBootstrap & {
+      walletSessionUserId: WalletSessionUserId;
+      evmFamilySigningKeySlotId: string;
       participantIds?: number[];
       sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
@@ -2915,12 +2918,11 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
   if (!participantIds) {
     throw new Error('Email OTP Ed25519 export requires participantIds');
   }
-  const applicationBindingDigestB64u =
-    await computeSdkEd25519HssApplicationBindingDigestB64u({
-      nearEd25519SigningKeyId,
-      signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
-      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
-    });
+  const applicationBindingDigestB64u = await computeSdkEd25519HssApplicationBindingDigestB64u({
+    nearEd25519SigningKeyId,
+    signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
+    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
+  });
   const context = {
     applicationBindingDigestB64u,
     participantIds,
@@ -2990,6 +2992,7 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
   }) as {
     contextBindingB64u?: unknown;
     stagedEvaluatorArtifactB64u?: unknown;
+    serverEvalFinalizeOutputB64u?: unknown;
   };
   const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: relayUrl,
@@ -3001,6 +3004,10 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
       stagedEvaluatorArtifactB64u: readString(
         evaluationResult.stagedEvaluatorArtifactB64u,
         'stagedEvaluatorArtifactB64u',
+      ),
+      serverEvalFinalizeOutputB64u: readString(
+        evaluationResult.serverEvalFinalizeOutputB64u,
+        'serverEvalFinalizeOutputB64u',
       ),
     },
   });
@@ -3064,9 +3071,9 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const walletId = toWalletId(
     exactSessionBootstrap ? args.keyContext.walletId : args.walletSessionUserId,
   );
-  const walletKeyId = exactSessionBootstrap
-    ? String(args.keyContext.walletKeyId).trim()
-    : readString(args.walletKeyId, 'walletKeyId');
+  const evmFamilySigningKeySlotId = exactSessionBootstrap
+    ? String(readEvmFamilySigningKeySlotId(args.keyContext.evmFamilySigningKeySlotId, 'keyContext.evmFamilySigningKeySlotId'))
+    : String(readEvmFamilySigningKeySlotId(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'));
   const chainTarget = exactSessionBootstrap ? args.lanePolicy.chainTarget : args.chainTarget;
   const chainId = Math.floor(Number(chainTarget.chainId));
   if (!Number.isSafeInteger(chainId) || chainId < 0) {
@@ -3113,7 +3120,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   args.onProgress?.('signer.ecdsa.bootstrap.started');
   const sessionPolicy = buildEcdsaHssSessionPolicy({
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     chainTarget,
     ...(keyHandle ? { keyHandle } : {}),
     sessionId,
@@ -3170,7 +3177,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     const bootstrapParticipantIds = participantIds || [1, 2];
     const bootstrapIdentity = {
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: roleLocalArgs.ecdsaThresholdKeyId,
       signingRootId: roleLocalArgs.signingRootId,
       signingRootVersion: roleLocalArgs.signingRootVersion,
@@ -3254,7 +3261,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     };
     const publicFacts = buildEcdsaRoleLocalPublicFacts({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       chainTarget,
       keyHandle: value.keyHandle,
       ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
@@ -3297,6 +3304,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       thresholdEcdsaKeyRef: {
         type: 'threshold-ecdsa-secp256k1',
         userId: walletId,
+        evmFamilySigningKeySlotId,
         chainTarget,
         relayerUrl,
         keyHandle: value.keyHandle,
@@ -3318,11 +3326,11 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         signingGrantId: value.signingGrantId,
         routerAbEcdsaHssNormalSigning: value.routerAbEcdsaHssNormalSigning,
       },
-	      keygen: {
-	        ok: true,
-	        keygenSessionId,
-	        walletKeyId,
-	        ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
+      keygen: {
+        ok: true,
+        keygenSessionId,
+        evmFamilySigningKeySlotId,
+        ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
         clientVerifyingShareB64u,
         relayerKeyId: value.relayerKeyId,
         thresholdEcdsaPublicKeyB64u: value.thresholdEcdsaPublicKeyB64u,
@@ -3352,13 +3360,11 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     }
     const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
     const signingRootId = toEcdsaHssSigningRootId(signingRootScope.signingRootId);
-    const signingRootVersion = toEcdsaHssSigningRootVersion(
-      signingRootScope.signingRootVersion,
-    );
+    const signingRootVersion = toEcdsaHssSigningRootVersion(signingRootScope.signingRootVersion);
     const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(
       await computeEcdsaHssRoleLocalThresholdKeyId({
         walletId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
         signingRootId,
         signingRootVersion,
       }),
@@ -3382,13 +3388,11 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   if (!exactSessionBootstrap && operation === 'email_otp_bootstrap' && runtimePolicyScope) {
     const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
     const signingRootId = toEcdsaHssSigningRootId(signingRootScope.signingRootId);
-    const signingRootVersion = toEcdsaHssSigningRootVersion(
-      signingRootScope.signingRootVersion,
-    );
+    const signingRootVersion = toEcdsaHssSigningRootVersion(signingRootScope.signingRootVersion);
     const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(
       await computeEcdsaHssRoleLocalThresholdKeyId({
         walletId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
         signingRootId,
         signingRootVersion,
       }),
@@ -3409,7 +3413,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       signingRootVersion,
       relayerKeyId: await computeEcdsaHssRoleLocalRelayerKeyId({
         walletId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
       }),
     });
   }
@@ -3420,7 +3424,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
 async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   relayUrl: string;
   walletSessionUserId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   clientRootShare32: Uint8Array;
   publicationChainTargets: ThresholdEcdsaChainTarget[];
   keyHandle?: string;
@@ -3451,7 +3455,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
       ? await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
           relayUrl: args.relayUrl,
           walletSessionUserId,
-          walletKeyId: args.walletKeyId,
+          evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
           clientRootShare32: args.clientRootShare32,
           operation: 'email_otp_bootstrap',
           keyHandle: canonicalKeyHandle,
@@ -3471,7 +3475,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
       : await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
           relayUrl: args.relayUrl,
           walletSessionUserId,
-          walletKeyId: args.walletKeyId,
+          evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
           clientRootShare32: args.clientRootShare32,
           operation: 'email_otp_bootstrap',
           participantIds: args.participantIds,
@@ -3522,7 +3526,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
 async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
   relayUrl: string;
   userId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   readyRecord: EcdsaRoleLocalReadyRecord;
   keyHandle: string;
   relayerKeyId: string;
@@ -3541,7 +3545,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
   const userId = readString(args.userId, 'userId');
   const walletSessionUserId = toWalletSessionUserId(userId);
-  const walletKeyId = readString(args.walletKeyId, 'walletKeyId');
+  const evmFamilySigningKeySlotId = String(readEvmFamilySigningKeySlotId(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'));
   const keyHandle = requireThresholdEcdsaHssKeyHandle(args.keyHandle, 'explicit export');
   const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(args.ecdsaThresholdKeyId);
   const thresholdSessionId = readString(args.thresholdSessionId, 'thresholdSessionId');
@@ -3574,7 +3578,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
   const walletId = toWalletId(walletSessionUserId);
   if (
     String(publicFacts.walletId) !== String(walletId) ||
-    String(publicFacts.walletKeyId) !== walletKeyId ||
+    String(publicFacts.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId ||
     String(publicFacts.keyHandle) !== keyHandle ||
     String(publicFacts.ecdsaThresholdKeyId) !== String(ecdsaThresholdKeyId) ||
     publicFacts.participantIds.join(',') !== participantIds.join(',')
@@ -3592,7 +3596,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
     walletId: walletSessionUserId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -3608,7 +3612,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
     operation: 'explicit_key_export',
     keyHandle,
     walletId: walletSessionUserId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     signingRootId,
@@ -3629,7 +3633,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
   const exportShare = await thresholdEcdsaHssRoleLocalExportShare(relayerUrl, {
     formatVersion: 'ecdsa-hss-role-local-export',
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -3676,7 +3680,7 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
   primaryBootstrap: ThresholdEcdsaSessionBootstrapResult;
   relayerUrl: string;
   userId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   sessionKind?: 'jwt';
 }): Promise<
   | {
@@ -3708,7 +3712,7 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
     ...(await runThresholdEcdsaRoleLocalExportFromReadyRecord({
       relayUrl: args.relayerUrl,
       userId: args.userId,
-      walletKeyId: args.walletKeyId,
+      evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
       readyRecord,
       keyHandle: readString(args.primaryBootstrap.thresholdEcdsaKeyRef.keyHandle, 'keyHandle'),
       relayerKeyId: readString(
@@ -3860,7 +3864,9 @@ function parseOptionalWorkerEcdsaClientRootHandleBinding(
       throw new Error('Email OTP wallet-registration ECDSA handle binding forbids chainTarget');
     }
     return {
-      walletKeyId: readString(obj.walletKeyId, 'ecdsaClientRootHandleBinding.walletKeyId'),
+      evmFamilySigningKeySlotId: String(
+        readEvmFamilySigningKeySlotId(obj.evmFamilySigningKeySlotId, 'ecdsaClientRootHandleBinding.evmFamilySigningKeySlotId'),
+      ),
       authSubjectId: readString(obj.authSubjectId, 'ecdsaClientRootHandleBinding.authSubjectId'),
       action: 'wallet_registration_ecdsa_prepare',
       operation: 'registration',
@@ -3871,7 +3877,9 @@ function parseOptionalWorkerEcdsaClientRootHandleBinding(
     throw new Error(`Unsupported Email OTP ECDSA client-root handle binding action: ${action}`);
   }
   return {
-    walletKeyId: readString(obj.walletKeyId, 'ecdsaClientRootHandleBinding.walletKeyId'),
+    evmFamilySigningKeySlotId: String(
+      readEvmFamilySigningKeySlotId(obj.evmFamilySigningKeySlotId, 'ecdsaClientRootHandleBinding.evmFamilySigningKeySlotId'),
+    ),
     authSubjectId: readString(obj.authSubjectId, 'ecdsaClientRootHandleBinding.authSubjectId'),
     action: 'threshold_ecdsa_bootstrap',
     operation: parseEmailOtpWorkerHandleOperation(obj.operation),
@@ -3911,7 +3919,9 @@ function parseWorkerIssuedEcdsaSessionBootstrapClientRootHandle(
     kind: 'email_otp_worker_session_handle_v1',
     sessionId: readString(obj.sessionId, 'clientRootShareHandle.sessionId'),
     walletId: readString(obj.walletId, 'clientRootShareHandle.walletId'),
-    walletKeyId: readString(obj.walletKeyId, 'clientRootShareHandle.walletKeyId'),
+    evmFamilySigningKeySlotId: String(
+      readEvmFamilySigningKeySlotId(obj.evmFamilySigningKeySlotId, 'clientRootShareHandle.evmFamilySigningKeySlotId'),
+    ),
     authSubjectId: readString(obj.authSubjectId, 'clientRootShareHandle.authSubjectId'),
     action: 'threshold_ecdsa_bootstrap',
     operation: parseEmailOtpWorkerHandleOperation(obj.operation),
@@ -3953,7 +3963,9 @@ function parseWorkerIssuedWalletRegistrationEcdsaPrepareClientRootHandle(
     kind: 'email_otp_worker_session_handle_v1',
     sessionId: readString(obj.sessionId, 'clientRootShareHandle.sessionId'),
     walletId: readString(obj.walletId, 'clientRootShareHandle.walletId'),
-    walletKeyId: readString(obj.walletKeyId, 'clientRootShareHandle.walletKeyId'),
+    evmFamilySigningKeySlotId: String(
+      readEvmFamilySigningKeySlotId(obj.evmFamilySigningKeySlotId, 'clientRootShareHandle.evmFamilySigningKeySlotId'),
+    ),
     authSubjectId: readString(obj.authSubjectId, 'clientRootShareHandle.authSubjectId'),
     action: 'wallet_registration_ecdsa_prepare',
     operation: 'registration',
@@ -4015,7 +4027,10 @@ function parseEmailOtpPrepareEcdsaClientBootstrapInput(
   const brandedHandle = buildEmailOtpWorkerIssuedSessionHandle({
     sessionId: handle.sessionId,
     walletId: toWalletId(handle.walletId),
-    walletKeyId: readWalletKeyId(handle.walletKeyId, 'clientRootShareHandle.walletKeyId'),
+    evmFamilySigningKeySlotId: readEvmFamilySigningKeySlotId(
+      handle.evmFamilySigningKeySlotId,
+      'clientRootShareHandle.evmFamilySigningKeySlotId',
+    ),
     authSubjectId: toEmailOtpAuthSubjectId(handle.authSubjectId),
     action: 'threshold_ecdsa_bootstrap',
     operation: handle.operation,
@@ -4074,7 +4089,7 @@ function parseWalletRegistrationEcdsaPrepareContext(
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: readString(obj.walletId, 'prepare.walletId'),
-    walletKeyId: readString(obj.walletKeyId, 'prepare.walletKeyId'),
+    evmFamilySigningKeySlotId: String(readEvmFamilySigningKeySlotId(obj.evmFamilySigningKeySlotId, 'prepare.evmFamilySigningKeySlotId')),
     ecdsaThresholdKeyId: readString(obj.ecdsaThresholdKeyId, 'prepare.ecdsaThresholdKeyId'),
     signingRootId: readString(obj.signingRootId, 'prepare.signingRootId'),
     signingRootVersion: readString(obj.signingRootVersion, 'prepare.signingRootVersion'),
@@ -4346,7 +4361,10 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
           nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
-          nearEd25519SigningKeyId: readString(payload.nearEd25519SigningKeyId, 'nearEd25519SigningKeyId'),
+          nearEd25519SigningKeyId: readString(
+            payload.nearEd25519SigningKeyId,
+            'nearEd25519SigningKeyId',
+          ),
           userId: readString(payload.userId, 'userId'),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
@@ -4378,7 +4396,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         walletId: readString(payload.walletId, 'walletId'),
         walletSessionUserId: readString(payload.walletSessionUserId, 'walletSessionUserId'),
         userId: readString(payload.userId, 'userId'),
-        walletKeyId: readString(payload.walletKeyId, 'walletKeyId'),
+        evmFamilySigningKeySlotId: String(readEvmFamilySigningKeySlotId(payload.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId')),
         clientRootShareHandle: parseWorkerIssuedEcdsaSessionBootstrapClientRootHandle(
           payload.clientRootShareHandle,
         ),
@@ -4487,7 +4505,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           restore: {
             sessionId: readString(restore.sessionId, 'restore.sessionId'),
             walletId: readString(restore.walletId, 'restore.walletId'),
-            walletKeyId: readString(restore.walletKeyId, 'restore.walletKeyId'),
+            evmFamilySigningKeySlotId: String(readEvmFamilySigningKeySlotId(restore.evmFamilySigningKeySlotId, 'restore.evmFamilySigningKeySlotId')),
             chainTarget: parseWorkerChainTarget(restore.chainTarget),
             signingGrantId: readString(restore.signingGrantId, 'restore.signingGrantId'),
             keyHandle: readString(restore.keyHandle, 'restore.keyHandle'),
@@ -4531,7 +4549,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           otpCode: readString(payload.otpCode, 'otpCode'),
           shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan: readRoutePlan(payload.routePlan, type),
-          walletKeyId: readString(payload.walletKeyId, 'walletKeyId'),
+          evmFamilySigningKeySlotId: String(readEvmFamilySigningKeySlotId(payload.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId')),
           walletSessionJwt: readString(payload.walletSessionJwt, 'walletSessionJwt'),
           ecdsaThresholdKeyId: readString(payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
           relayerKeyId: readString(payload.relayerKeyId, 'relayerKeyId'),
@@ -4706,7 +4724,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
           ok: true,
           result: {
             thresholdEcdsaClientVerifyingShareB64u: result.thresholdEcdsaClientVerifyingShareB64u,
-            thresholdEd25519RecoveryCodeSecret32B64u: result.thresholdEd25519RecoveryCodeSecret32B64u,
+            thresholdEd25519RecoveryCodeSecret32B64u:
+              result.thresholdEd25519RecoveryCodeSecret32B64u,
             recoveryKeys: result.recoveryKeys,
             recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
             challengeId: result.challengeId,
@@ -4760,7 +4779,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
           ok: true,
           result: {
             thresholdEcdsaClientVerifyingShareB64u: result.thresholdEcdsaClientVerifyingShareB64u,
-            thresholdEd25519RecoveryCodeSecret32B64u: result.thresholdEd25519RecoveryCodeSecret32B64u,
+            thresholdEd25519RecoveryCodeSecret32B64u:
+              result.thresholdEd25519RecoveryCodeSecret32B64u,
             recoveryKeys: result.recoveryKeys,
             recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
             otpChannel: result.otpChannel,
@@ -4783,20 +4803,17 @@ self.addEventListener('message', async (event: MessageEvent) => {
           clientRootShare32 = claimEmailOtpWalletRegistrationEcdsaClientRootShare({
             handle: msg.payload.clientRootShareHandle,
             walletId: prepare.walletId,
-            walletKeyId: prepare.walletKeyId,
+            evmFamilySigningKeySlotId: prepare.evmFamilySigningKeySlotId,
             authSubjectId: msg.payload.clientRootShareHandle.authSubjectId,
           });
-          const applicationBindingDigestB64u =
-            await computeSdkEcdsaHssApplicationBindingDigestB64u({
+          const applicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u(
+            {
               walletId: toWalletId(readString(prepare.walletId, 'prepare.walletId')),
-              ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(
-                prepare.ecdsaThresholdKeyId,
-              ),
+              ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(prepare.ecdsaThresholdKeyId),
               signingRootId: toEcdsaHssSigningRootId(prepare.signingRootId),
-              signingRootVersion: toEcdsaHssSigningRootVersion(
-                prepare.signingRootVersion,
-              ),
-            });
+              signingRootVersion: toEcdsaHssSigningRootVersion(prepare.signingRootVersion),
+            },
+          );
           const prepared = prepareEcdsaClientBootstrapFromResolvedEmailOtpRoot({
             context: {
               applicationBindingDigestB64u,
@@ -4941,7 +4958,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 unlockChallengeB64u: result.unlockChallengeB64u,
                 clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
                 unlockSignatureB64u: result.unlockSignatureB64u,
-                thresholdEd25519RecoveryCodeSecret32B64u: result.thresholdEd25519RecoveryCodeSecret32B64u,
+                thresholdEd25519RecoveryCodeSecret32B64u:
+                  result.thresholdEd25519RecoveryCodeSecret32B64u,
               },
               ...(msg.payload.ecdsaClientRootHandleBinding
                 ? {
@@ -4985,9 +5003,15 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const artifact = await runThresholdEd25519SeedExportFromPrfFirst({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
             nearAccountId: readString(msg.payload.nearAccountId, 'nearAccountId'),
-            nearEd25519SigningKeyId: readString(msg.payload.nearEd25519SigningKeyId, 'nearEd25519SigningKeyId'),
+            nearEd25519SigningKeyId: readString(
+              msg.payload.nearEd25519SigningKeyId,
+              'nearEd25519SigningKeyId',
+            ),
             signingRootId: readString(signingRootScope.signingRootId, 'signingRootId'),
-            signingRootVersion: readString(signingRootScope.signingRootVersion, 'signingRootVersion'),
+            signingRootVersion: readString(
+              signingRootScope.signingRootVersion,
+              'signingRootVersion',
+            ),
             participantIds: msg.payload.participantIds,
             thresholdSessionId: readString(msg.payload.thresholdSessionId, 'thresholdSessionId'),
             walletSessionJwt: readString(msg.payload.walletSessionJwt, 'walletSessionJwt'),
@@ -5015,7 +5039,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
             'walletSessionUserId',
           );
           const userId = readString(msg.payload.userId, 'userId');
-          const walletKeyId = readString(msg.payload.walletKeyId, 'walletKeyId');
+          const evmFamilySigningKeySlotId = String(
+            readEvmFamilySigningKeySlotId(msg.payload.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
+          );
           const publicationChainTargets = readEcdsaPublicationChainTargets({
             primaryChainTarget: msg.payload.chainTarget,
             publicationChainTargets: msg.payload.publicationChainTargets,
@@ -5023,14 +5049,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
           clientRootShare32 = claimEmailOtpEcdsaClientRootShare({
             handle: msg.payload.clientRootShareHandle,
             walletId,
-            walletKeyId,
+            evmFamilySigningKeySlotId,
             authSubjectId: userId,
             chainTarget: msg.payload.chainTarget,
           });
           const bootstraps = await runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare({
             relayUrl: relayerUrl,
             walletSessionUserId,
-            walletKeyId,
+            evmFamilySigningKeySlotId,
             clientRootShare32,
             publicationChainTargets,
             keyHandle: msg.payload.keyHandle,
@@ -5053,7 +5079,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             primaryBootstrap,
             relayerUrl,
             userId: walletSessionUserId,
-            walletKeyId,
+            evmFamilySigningKeySlotId,
             sessionKind: msg.payload.sessionKind,
           });
           postToMainThread({
@@ -5195,7 +5221,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const artifact = await runThresholdEcdsaRoleLocalExportFromReadyRecord({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
             userId: walletId,
-            walletKeyId: readString(msg.payload.walletKeyId, 'walletKeyId'),
+            evmFamilySigningKeySlotId: String(readEvmFamilySigningKeySlotId(msg.payload.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId')),
             readyRecord: msg.payload.readyRecord,
             keyHandle: readString(msg.payload.keyHandle, 'keyHandle'),
             relayerKeyId: readString(msg.payload.relayerKeyId, 'relayerKeyId'),

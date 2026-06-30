@@ -105,6 +105,7 @@ import {
   throwEd25519MaterialRestoreRequired,
 } from './shared/ed25519MaterialRestore';
 import { hasRouterAbEd25519SigningAuth } from './shared/routerAbWalletSessionCredential';
+import { walletSessionJwtFromPersistedEd25519Record } from '../../session/walletSessionAuthBoundary';
 import {
   receiveTransactionIntent,
   recordAvailableSigningLanesRead,
@@ -546,6 +547,20 @@ function resolveEd25519PasskeyStorageSource(
   source: ThresholdEd25519SessionStoreSource | undefined,
 ): Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'> {
   return source && source !== 'email_otp' ? source : 'login';
+}
+
+function trustedBudgetStatusAuthFromEd25519Record(
+  record: ThresholdEd25519SessionRecord,
+): SigningSessionBudgetStatusAuth | null {
+  const relayerUrl = String(record.relayerUrl || '').trim();
+  const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+  const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(record);
+  if (!relayerUrl || !thresholdSessionId || !walletSessionJwt) return null;
+  return {
+    relayerUrl,
+    thresholdSessionId,
+    walletSessionJwt,
+  };
 }
 
 async function resolveNearTransactionPlannerReadiness(args: {
@@ -1166,6 +1181,13 @@ function exactSignerForRuntimeNearEd25519AvailableLane(
   }).identity.signer;
 }
 
+function nearEd25519AvailableLaneHasWorkerMaterial(lane: NearEd25519AvailableLane): boolean {
+  return (
+    Boolean(String(lane.ed25519WorkerMaterialBindingDigest || '').trim()) &&
+    Boolean(String(lane.materialKeyId || '').trim())
+  );
+}
+
 function verifiedRuntimeNearEd25519AvailableLanes(args: {
   availableLanes: AvailableSigningLanes | null;
   walletId: WalletId | string;
@@ -1176,6 +1198,7 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
     const laneAuthMethod = signingLaneAuthMethod(lane.auth);
     if (lane.source !== 'runtime_session_record' && lane.source !== 'runtime_and_durable') continue;
     if (lane.source === 'runtime_session_record' && lane.state !== 'ready') continue;
+    if (!nearEd25519AvailableLaneHasWorkerMaterial(lane as NearEd25519AvailableLane)) continue;
     const signingGrantId = String(lane.signingGrantId || '').trim();
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
     if (!signingGrantId || !thresholdSessionId) continue;
@@ -1473,11 +1496,13 @@ async function prepareNearEd25519TransactionOperation(args: {
   );
   const transactionOperation = prepareTransactionOperationFromReadiness(transactionReadinessState);
   const identity = requireResolvedNearEd25519SigningLane(lane);
+  const trustedStatusAuth = trustedBudgetStatusAuthFromEd25519Record(recordForLifecycle);
   const readinessInput = {
     readiness: readiness.readiness,
     expiresAtMs: readiness.expiresAtMs,
     remainingUses: readiness.remainingUses,
     usesNeeded: operationUsesNeeded,
+    ...(trustedStatusAuth ? { trustedStatusAuth } : {}),
   };
   return {
     lane,
@@ -1698,8 +1723,15 @@ export async function signTransactionWithActions(
           signingSessionCoordinator,
           passkeyEd25519Reconnect: passkeyEd25519Reconnect || null,
         });
+        const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(thresholdSessionRecord);
+        if (!walletSessionJwt) {
+          throw new Error(
+            '[SigningEngine][near] prepared Ed25519 session is missing Wallet Session bearer JWT',
+          );
+        }
         const ed25519SigningBoundary = {
           sessionId: executionState.sessionId,
+          walletSessionJwt,
           signingSessionPlan: executionState.signingSessionPlan,
           signingAuthPlan: executionState.signingAuthPlan,
           signingLane: executionState.signingLane,

@@ -67,15 +67,15 @@ function normalizeSessionRecord(
   };
   switch (input.curve) {
     case 'ecdsa': {
-      if (!('walletKeyId' in raw)) return null;
+      if (!('evmFamilySigningKeySlotId' in raw)) return null;
       const userId = String(raw.walletId || '').trim();
-      const walletKeyId = String(raw.walletKeyId || '').trim();
-      if (!userId || !walletKeyId) return null;
+      const evmFamilySigningKeySlotId = String(raw.evmFamilySigningKeySlotId || '').trim();
+      if (!userId || !evmFamilySigningKeySlotId) return null;
       return {
         ...base,
         curve: 'ecdsa',
         userId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
       };
     }
     case 'ed25519': {
@@ -136,7 +136,7 @@ function normalizeWalletBudgetRecord(
       return {
         ...base,
         curve: 'ecdsa',
-        walletKeyId: raw.budgetScope.walletKeyId,
+        evmFamilySigningKeySlotId: raw.budgetScope.evmFamilySigningKeySlotId,
       };
     case 'ed25519':
       if (raw.budgetScope.kind !== 'passkey_rp') return null;

@@ -76,7 +76,7 @@ const emailOtpSingleUseAuthContext = {
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  walletKeyId: 'wallet-key-example-test',
+  evmFamilySigningKeySlotId: 'wallet-key-example-test',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'signing-root-1',
   signingRootVersion: 'default',
@@ -85,7 +85,7 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 });
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  walletKeyId: key.walletKeyId,
+  evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
   keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
   chainTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,

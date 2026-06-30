@@ -36,6 +36,9 @@ SEAMS_STAGING_ENV_ID = "staging"
 ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "seams-d1-router-api-staging"
 RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
 RELAYER_PUBLIC_KEY = "ed25519:<staging-relayer-public-key>"
+NEAR_RPC_URL = "https://test.rpc.fastnear.com"
+ACCOUNT_INITIAL_BALANCE = "30000000000000000000000"
+ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING = "false"
 RELAY_SESSION_ISSUER = "seams-router-api-staging"
 RELAY_SESSION_AUDIENCE = "seams-wallet-session"
 SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
@@ -46,5 +49,6 @@ SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 required = [
   "RELAY_SESSION_HMAC_SECRET",
   "ACCOUNT_ID_DERIVATION_SECRET",
+  "RELAYER_PRIVATE_KEY",
   "SPONSORED_EVM_EXECUTORS_JSON",
 ]

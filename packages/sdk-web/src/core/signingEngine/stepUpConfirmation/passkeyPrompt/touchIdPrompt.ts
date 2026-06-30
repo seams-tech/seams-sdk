@@ -7,6 +7,7 @@ import {
 import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { executeWebAuthnWithParentFallbacksSafari } from '../../webauthnAuth/fallbacks/safari-fallbacks';
+import { type WalletId, walletIdFromString } from '@shared/utils/registrationIntent';
 
 function isRegistrableSuffix(host: string, cand: string): boolean {
   if (!host || !cand) return false;
@@ -46,6 +47,22 @@ interface RegisterCredentialsArgs {
   challengeB64u: string;
   signerSlot?: number;
   intendedUserName: string;
+}
+
+type ExpectedPasskeyRegistrationUser = {
+  walletId: WalletId;
+};
+
+function requireExpectedPasskeyRegistrationUser(input: {
+  walletId: string;
+  intendedUserName: string;
+}): ExpectedPasskeyRegistrationUser {
+  const walletId = walletIdFromString(String(input.walletId || '').trim());
+  const intendedUserName = String(input.intendedUserName || '').trim();
+  if (intendedUserName !== String(walletId)) {
+    throw new Error('WebAuthn registration user.name must match walletId');
+  }
+  return { walletId };
 }
 
 interface AuthenticateCredentialsForChallengeB64uArgs {
@@ -195,10 +212,7 @@ export class TouchIdPrompt {
       this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
       // Single source of truth for rpId: use getRpId().
       const rpId = this.getRpId();
-      const userName = normalizeCredentialDisplayName(
-        intendedUserName,
-        generateSignerSlotDisplayName(walletId, signerSlot),
-      );
+      const expectedUser = requireExpectedPasskeyRegistrationUser({ walletId, intendedUserName });
       const publicKey: PublicKeyCredentialCreationOptions = {
         challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
         rp: {
@@ -207,8 +221,8 @@ export class TouchIdPrompt {
         },
         user: {
           id: new TextEncoder().encode(generateSignerSlotUserId(walletId, signerSlot)),
-          name: userName,
-          displayName: userName,
+          name: expectedUser.walletId,
+          displayName: expectedUser.walletId,
         },
         pubKeyCredParams: [
           { alg: -7, type: 'public-key' },
@@ -318,11 +332,6 @@ function assertSerializedAuthenticationCredentialChallenge(
   }
 }
 
-function normalizeCredentialDisplayName(value: string, fallback: string): string {
-  const normalized = String(value || '').trim();
-  return normalized || fallback;
-}
-
 /**
  * Generate signer-slot-specific user ID to prevent Chrome sync conflicts
  * Creates technical identifiers with full wallet context.
@@ -340,25 +349,6 @@ function generateSignerSlotUserId(walletId: string, signerSlot?: number): string
     return walletId;
   }
   return `${walletId} (${signerSlot})`;
-}
-
-/**
- * Generate user-friendly display name for passkey manager UI
- * Creates clean, intuitive names that users will see
- *
- * @param walletId - The wallet ID.
- * @param signerSlot - The signer slot (optional, undefined for signer slot 1, 2 for signer slot 2, etc.)
- * @returns User-friendly display name:
- *   - Signer slot 1: "serp120"
- *   - Signer slot 2: "serp120 (signer 2)"
- *   - Signer slot 3: "serp120 (signer 3)"
- */
-function generateSignerSlotDisplayName(walletId: string, signerSlot?: number): string {
-  const baseUsername = walletId.split('.')[0];
-  if (signerSlot === undefined || signerSlot === 1) {
-    return baseUsername;
-  }
-  return `${baseUsername} (signer ${signerSlot})`;
 }
 
 // Abort native WebAuthn when page is being hidden or unloaded.

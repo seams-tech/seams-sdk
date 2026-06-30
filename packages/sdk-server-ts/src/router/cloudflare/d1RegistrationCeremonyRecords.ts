@@ -40,6 +40,7 @@ import {
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { registrationPreparationIdFromString } from '../../core/types';
@@ -554,7 +555,7 @@ function parseD1WalletRegistrationEcdsaWalletKey(
   if (!record || record.keyScope !== 'evm-family') return null;
   const chainTarget = thresholdEcdsaChainTargetFromValue(record.chainTarget);
   const walletId = toOptionalTrimmedString(record.walletId);
-  const walletKeyId = toOptionalTrimmedString(record.walletKeyId);
+  const evmFamilySigningKeySlotId = toOptionalTrimmedString(record.evmFamilySigningKeySlotId);
   const keyHandle = toOptionalTrimmedString(record.keyHandle);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
   const signingRootId = toOptionalTrimmedString(record.signingRootId);
@@ -567,7 +568,7 @@ function parseD1WalletRegistrationEcdsaWalletKey(
   if (
     !chainTarget ||
     !walletId ||
-    !walletKeyId ||
+    !evmFamilySigningKeySlotId ||
     !keyHandle ||
     !ecdsaThresholdKeyId ||
     !signingRootId ||
@@ -584,7 +585,7 @@ function parseD1WalletRegistrationEcdsaWalletKey(
     keyScope: 'evm-family',
     chainTarget,
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     keyHandle,
     ecdsaThresholdKeyId,
     signingRootId,
@@ -1130,7 +1131,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
   if (record.keyScope !== 'evm-family') return null;
   const registrationPreparationId = toOptionalTrimmedString(record.registrationPreparationId);
   const walletId = toOptionalTrimmedString(record.walletId);
-  const walletKeyId = toOptionalTrimmedString(record.walletKeyId);
+  const evmFamilySigningKeySlotId = toOptionalTrimmedString(record.evmFamilySigningKeySlotId);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
   const signingRootId = toOptionalTrimmedString(record.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
@@ -1144,7 +1145,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
   const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
   if (
     !walletId ||
-    !walletKeyId ||
+    !evmFamilySigningKeySlotId ||
     !ecdsaThresholdKeyId ||
     !signingRootId ||
     !signingRootVersion ||
@@ -1162,7 +1163,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -1189,7 +1190,7 @@ function parseD1EcdsaHssServerBootstrapResponse(
   const record = toRecordValue(raw);
   if (!record || record.formatVersion !== 'ecdsa-hss-role-local') return null;
   const walletId = toOptionalTrimmedString(record.walletId);
-  const walletKeyId = toOptionalTrimmedString(record.walletKeyId);
+  const evmFamilySigningKeySlotId = toOptionalTrimmedString(record.evmFamilySigningKeySlotId);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const applicationBindingDigestB64u = toOptionalTrimmedString(record.applicationBindingDigestB64u);
@@ -1212,7 +1213,7 @@ function parseD1EcdsaHssServerBootstrapResponse(
   const remainingUses = safeInteger(record.remainingUses);
   if (
     !walletId ||
-    !walletKeyId ||
+    !evmFamilySigningKeySlotId ||
     !ecdsaThresholdKeyId ||
     !relayerKeyId ||
     !applicationBindingDigestB64u ||
@@ -1239,7 +1240,7 @@ function parseD1EcdsaHssServerBootstrapResponse(
   const bootstrap: EcdsaHssServerBootstrapResponse = {
     formatVersion: 'ecdsa-hss-role-local',
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     applicationBindingDigestB64u,
@@ -1345,7 +1346,7 @@ export function isMatchingD1EcdsaClientBootstrap(input: {
   return (
     actual.formatVersion === expected.formatVersion &&
     actual.walletId === expected.walletId &&
-    actual.walletKeyId === expected.walletKeyId &&
+    actual.evmFamilySigningKeySlotId === expected.evmFamilySigningKeySlotId &&
     actual.ecdsaThresholdKeyId === expected.ecdsaThresholdKeyId &&
     actual.signingRootId === expected.signingRootId &&
     actual.signingRootVersion === expected.signingRootVersion &&
@@ -1368,7 +1369,7 @@ export function toD1EcdsaHssClientBootstrapRequest(
   return {
     formatVersion: clientBootstrap.formatVersion,
     walletId: clientBootstrap.walletId,
-    walletKeyId: clientBootstrap.walletKeyId,
+    evmFamilySigningKeySlotId: clientBootstrap.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: clientBootstrap.ecdsaThresholdKeyId,
     signingRootId: clientBootstrap.signingRootId,
     signingRootVersion: clientBootstrap.signingRootVersion,
@@ -1437,7 +1438,7 @@ export type D1EcdsaWalletKeyBuildResult =
 
 type RequiredD1EcdsaWalletKeyBootstrapFields = {
   readonly walletId: string | undefined;
-  readonly walletKeyId: string | undefined;
+  readonly evmFamilySigningKeySlotId: string | undefined;
   readonly keyHandle: string | undefined;
   readonly ecdsaThresholdKeyId: string | undefined;
   readonly signingRootId: string | undefined;
@@ -1450,7 +1451,7 @@ type RequiredD1EcdsaWalletKeyBootstrapFields = {
 
 type CompleteD1EcdsaWalletKeyBootstrapFields = {
   readonly walletId: string;
-  readonly walletKeyId: string;
+  readonly evmFamilySigningKeySlotId: string;
   readonly keyHandle: string;
   readonly ecdsaThresholdKeyId: string;
   readonly signingRootId: string;
@@ -1479,7 +1480,7 @@ export function buildD1EcdsaWalletKeysFromBootstrap(input: {
   const bootstrap = input.bootstrap;
   const required: RequiredD1EcdsaWalletKeyBootstrapFields = {
     walletId: toOptionalTrimmedString(bootstrap.walletId),
-    walletKeyId: toOptionalTrimmedString(bootstrap.walletKeyId),
+    evmFamilySigningKeySlotId: toOptionalTrimmedString(bootstrap.evmFamilySigningKeySlotId),
     keyHandle: toOptionalTrimmedString(bootstrap.keyHandle),
     ecdsaThresholdKeyId: toOptionalTrimmedString(bootstrap.ecdsaThresholdKeyId),
     signingRootId: toOptionalTrimmedString(bootstrap.signingRootId),
@@ -1526,7 +1527,7 @@ function requireD1EcdsaWalletKeyBootstrapFields(
   fields: RequiredD1EcdsaWalletKeyBootstrapFields,
 ): D1EcdsaWalletKeyBootstrapFieldCheck {
   if (!fields.walletId) return { ok: false, missingField: 'walletId' };
-  if (!fields.walletKeyId) return { ok: false, missingField: 'walletKeyId' };
+  if (!fields.evmFamilySigningKeySlotId) return { ok: false, missingField: 'evmFamilySigningKeySlotId' };
   if (!fields.keyHandle) return { ok: false, missingField: 'keyHandle' };
   if (!fields.ecdsaThresholdKeyId) {
     return { ok: false, missingField: 'ecdsaThresholdKeyId' };
@@ -1547,7 +1548,7 @@ function requireD1EcdsaWalletKeyBootstrapFields(
     ok: true,
     value: {
       walletId: fields.walletId,
-      walletKeyId: fields.walletKeyId,
+      evmFamilySigningKeySlotId: fields.evmFamilySigningKeySlotId,
       keyHandle: fields.keyHandle,
       ecdsaThresholdKeyId: fields.ecdsaThresholdKeyId,
       signingRootId: fields.signingRootId,
@@ -1571,7 +1572,7 @@ function d1EcdsaWalletKeysForChainTargets(input: {
       keyScope: 'evm-family',
       chainTarget,
       walletId: input.required.walletId,
-      walletKeyId: input.required.walletKeyId,
+      evmFamilySigningKeySlotId: input.required.evmFamilySigningKeySlotId,
       keyHandle: input.required.keyHandle,
       ecdsaThresholdKeyId: input.required.ecdsaThresholdKeyId,
       signingRootId: input.required.signingRootId,
@@ -1617,25 +1618,7 @@ export function buildD1WalletEcdsaSignerRecords(input: {
   return records;
 }
 
-export function derivePlannedEvmFamilyWalletKeyId(input: {
-  readonly walletId: string;
-  readonly signingRootId: string;
-  readonly signingRootVersion: string;
-}): string {
-  const walletId = toOptionalTrimmedString(input.walletId);
-  const signingRootId = toOptionalTrimmedString(input.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(input.signingRootVersion);
-  if (!walletId || !signingRootId || !signingRootVersion) {
-    throw new Error('ECDSA wallet-key identity requires walletId and signing root');
-  }
-  return [
-    'wallet-key',
-    'evm-family',
-    encodeURIComponent(walletId),
-    encodeURIComponent(signingRootId),
-    encodeURIComponent(signingRootVersion),
-  ].join(':');
-}
+export { deriveEvmFamilySigningKeySlotId };
 
 export function parseD1PositiveIntegerArray(raw: unknown): number[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;

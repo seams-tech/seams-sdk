@@ -1,5 +1,5 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import { d1ChangedRows, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
+import { d1ChangedRows, queryD1All, queryD1One, type D1Row } from '../../storage/d1Sql';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -50,136 +50,10 @@ export type ConsoleBillingPrepaidReservationD1Service =
 export interface D1ConsoleBillingPrepaidReservationServiceOptions {
   database: D1DatabaseLike;
   namespace?: string;
-  ensureSchema?: boolean;
   now?: () => Date;
   defaultReservationTtlMs?: number;
 }
 
-export interface D1ConsoleBillingPrepaidReservationSchemaOptions {
-  database: D1DatabaseLike;
-}
-
-export const CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL = Object.freeze([
-  `
-    CREATE TABLE IF NOT EXISTS billing_prepaid_reservation_summaries (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      reserved_minor INTEGER NOT NULL DEFAULT 0,
-      active_reservation_count INTEGER NOT NULL DEFAULT 0,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id),
-      CHECK (length(namespace) > 0),
-      CHECK (length(org_id) > 0),
-      CHECK (reserved_minor >= 0),
-      CHECK (active_reservation_count >= 0),
-      CHECK (created_at_ms > 0),
-      CHECK (updated_at_ms >= created_at_ms)
-    )
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS billing_prepaid_reservations (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      environment_id TEXT NOT NULL,
-      policy_id TEXT,
-      source_event_id TEXT NOT NULL,
-      requested_minor INTEGER NOT NULL,
-      posted_balance_minor INTEGER NOT NULL,
-      settled_minor INTEGER NOT NULL DEFAULT 0,
-      released_minor INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL,
-      tx_or_execution_ref TEXT,
-      pricing_version TEXT,
-      expires_at_ms INTEGER NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, id),
-      CHECK (length(namespace) > 0),
-      CHECK (length(org_id) > 0),
-      CHECK (length(id) > 0),
-      CHECK (length(environment_id) > 0),
-      CHECK (length(source_event_id) > 0),
-      CHECK (requested_minor > 0),
-      CHECK (posted_balance_minor >= 0),
-      CHECK (settled_minor >= 0),
-      CHECK (released_minor >= 0),
-      CHECK (status IN ('RESERVED', 'SETTLED', 'RELEASED', 'EXPIRED')),
-      CHECK (expires_at_ms > created_at_ms),
-      CHECK (created_at_ms > 0),
-      CHECK (updated_at_ms >= created_at_ms),
-      CHECK (
-        (status = 'RESERVED' AND settled_minor = 0 AND released_minor = 0 AND tx_or_execution_ref IS NULL AND pricing_version IS NULL)
-        OR (status = 'SETTLED' AND released_minor = CASE WHEN requested_minor > settled_minor THEN requested_minor - settled_minor ELSE 0 END)
-        OR (status IN ('RELEASED', 'EXPIRED') AND settled_minor = 0 AND released_minor = requested_minor)
-      )
-    )
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS billing_prepaid_reservations_source_event_idx
-      ON billing_prepaid_reservations (namespace, org_id, source_event_id)
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS billing_prepaid_reservations_namespace_id_idx
-      ON billing_prepaid_reservations (namespace, id)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS billing_prepaid_reservations_org_status_idx
-      ON billing_prepaid_reservations (namespace, org_id, status, expires_at_ms ASC)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS billing_prepaid_reservations_status_idx
-      ON billing_prepaid_reservations (namespace, status, expires_at_ms ASC)
-  `,
-  `
-    CREATE TRIGGER IF NOT EXISTS billing_prepaid_reservations_reserve_insert
-    BEFORE INSERT ON billing_prepaid_reservations
-    WHEN NEW.status = 'RESERVED'
-    BEGIN
-      INSERT INTO billing_prepaid_reservation_summaries
-        (namespace, org_id, reserved_minor, active_reservation_count, created_at_ms, updated_at_ms)
-      VALUES
-        (NEW.namespace, NEW.org_id, 0, 0, NEW.created_at_ms, NEW.created_at_ms)
-      ON CONFLICT(namespace, org_id) DO NOTHING;
-
-      SELECT CASE
-        WHEN (
-          SELECT reserved_minor
-          FROM billing_prepaid_reservation_summaries
-          WHERE namespace = NEW.namespace AND org_id = NEW.org_id
-        ) + NEW.requested_minor > NEW.posted_balance_minor
-        THEN RAISE(ABORT, 'prepaid_balance_insufficient')
-      END;
-
-      UPDATE billing_prepaid_reservation_summaries
-         SET reserved_minor = reserved_minor + NEW.requested_minor,
-             active_reservation_count = active_reservation_count + 1,
-             updated_at_ms = NEW.created_at_ms
-       WHERE namespace = NEW.namespace AND org_id = NEW.org_id;
-    END
-  `,
-  `
-    CREATE TRIGGER IF NOT EXISTS billing_prepaid_reservations_reserved_exit_update
-    AFTER UPDATE OF status ON billing_prepaid_reservations
-    WHEN OLD.status = 'RESERVED' AND NEW.status IN ('SETTLED', 'RELEASED', 'EXPIRED')
-    BEGIN
-      UPDATE billing_prepaid_reservation_summaries
-         SET reserved_minor = MAX(0, reserved_minor - OLD.requested_minor),
-             active_reservation_count = MAX(0, active_reservation_count - 1),
-             updated_at_ms = NEW.updated_at_ms
-       WHERE namespace = NEW.namespace AND org_id = NEW.org_id;
-    END
-  `,
-] as const);
-
-export async function ensureConsoleBillingPrepaidReservationD1Schema(
-  options: D1ConsoleBillingPrepaidReservationSchemaOptions,
-): Promise<void> {
-  for (const statement of CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL) {
-    await options.database.exec(formatD1ExecStatement(statement));
-  }
-}
 
 export function getConsoleBillingPrepaidReservationD1Runtime(
   service: ConsoleBillingPrepaidReservationService | null | undefined,
@@ -723,9 +597,6 @@ async function releaseReservedReservation(input: {
 export async function createD1ConsoleBillingPrepaidReservationService(
   options: D1ConsoleBillingPrepaidReservationServiceOptions,
 ): Promise<ConsoleBillingPrepaidReservationService> {
-  if (options.ensureSchema) {
-    await ensureConsoleBillingPrepaidReservationD1Schema({ database: options.database });
-  }
   const database = options.database;
   const namespace = ensureNamespace(options.namespace);
   const now = options.now || defaultNow;

@@ -8,7 +8,11 @@ import {
 import {
   type RegisterAccountPayload,
   type UserConfirmRequest,
+  type DecryptPrivateKeyWithPrfPayload,
+  type LocalOnlyExportSubject,
+  type ShowSecurePrivateKeyUiPayload,
   type SignIntentDigestPayload,
+  type SignIntentDigestSubject,
   type SignNep413Payload,
   type SignTransactionPayload,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
@@ -42,7 +46,39 @@ export function validateUserConfirmRequest(input: unknown): UserConfirmRequest {
   if (!isObject(p.payload) || Array.isArray(p.payload))
     throw new Error('invalid payload: expected an object');
   assertSigningRequestUsesAuthPlanOnly(input as unknown as UserConfirmRequest);
+  assertLocalOnlyExportRequestSubject(input as unknown as UserConfirmRequest);
   return input as unknown as UserConfirmRequest;
+}
+
+function assertLocalOnlyExportRequestSubject(request: UserConfirmRequest): void {
+  if (
+    request.type !== UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF &&
+    request.type !== UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI
+  ) {
+    return;
+  }
+  const payload = ((request as { payload?: unknown }).payload ?? {}) as Record<string, unknown>;
+  if (!isString(payload.publicKey)) {
+    throw new Error('Invalid secure confirm request: local key export requires publicKey');
+  }
+  if (!isObject(payload.subject) || Array.isArray(payload.subject)) {
+    throw new Error('Invalid secure confirm request: local key export requires subject');
+  }
+  const subject = payload.subject as Record<string, unknown>;
+  switch (subject.kind) {
+    case 'near_wallet':
+      if (!isString(subject.nearAccountId) || !subject.nearAccountId.trim()) {
+        throw new Error('Invalid secure confirm request: near export subject requires nearAccountId');
+      }
+      return;
+    case 'evm_wallet':
+      if (!isString(subject.walletId) || !subject.walletId.trim()) {
+        throw new Error('Invalid secure confirm request: ECDSA export subject requires walletId');
+      }
+      return;
+    default:
+      throw new Error('Invalid secure confirm request: unsupported local key export subject');
+  }
 }
 
 function assertSigningRequestUsesAuthPlanOnly(request: UserConfirmRequest): void {
@@ -139,22 +175,85 @@ export function getNearAccountId(request: UserConfirmRequest): string {
       return getSignTransactionPayload(request).rpcCall.nearAccountId;
     case UserConfirmationType.SIGN_NEP413_MESSAGE:
       return (request.payload as SignNep413Payload).nearAccountId;
-    case UserConfirmationType.SIGN_INTENT_DIGEST:
-      return (request.payload as SignIntentDigestPayload).nearAccountId;
+    case UserConfirmationType.SIGN_INTENT_DIGEST: {
+      const subject = getSignIntentDigestSubject(request);
+      return subject.kind === 'near_wallet' ? subject.nearAccountId : '';
+    }
     case UserConfirmationType.REGISTER_ACCOUNT:
     case UserConfirmationType.LINK_DEVICE:
       return String(getRegisterAccountPayload(request).nearAccountId || '').trim();
     case UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF: {
-      const p = request.payload as { nearAccountId?: string };
-      return p?.nearAccountId || '';
+      const subject = getLocalOnlyExportSubject(request);
+      return subject.kind === 'near_wallet' ? subject.nearAccountId : '';
     }
     case UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI: {
-      const p = request.payload as { nearAccountId?: string };
-      return p?.nearAccountId || '';
+      const subject = getLocalOnlyExportSubject(request);
+      return subject.kind === 'near_wallet' ? subject.nearAccountId : '';
     }
     default:
       return '';
   }
+}
+
+export function getLocalOnlyExportSubject(request: UserConfirmRequest): LocalOnlyExportSubject {
+  if (
+    request.type !== UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF &&
+    request.type !== UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI
+  ) {
+    throw new Error(`Expected local key export request, got ${request.type}`);
+  }
+  const payload = request.payload as
+    | DecryptPrivateKeyWithPrfPayload
+    | ShowSecurePrivateKeyUiPayload;
+  return payload.subject;
+}
+
+export function getLocalOnlyExportSubjectId(request: UserConfirmRequest): string {
+  const subject = getLocalOnlyExportSubject(request);
+  switch (subject.kind) {
+    case 'near_wallet':
+      return subject.nearAccountId;
+    case 'evm_wallet':
+      return subject.walletId;
+    default: {
+      const exhaustive: never = subject;
+      throw new Error(`Unsupported local key export subject: ${String(exhaustive)}`);
+    }
+  }
+}
+
+export function getSignIntentDigestSubject(request: UserConfirmRequest): SignIntentDigestSubject {
+  if (request.type !== UserConfirmationType.SIGN_INTENT_DIGEST) {
+    throw new Error(`Expected SIGN_INTENT_DIGEST request, got ${request.type}`);
+  }
+  const subject = (request.payload as SignIntentDigestPayload).signingSubject;
+  if (!subject || (subject.kind !== 'near_wallet' && subject.kind !== 'evm_wallet')) {
+    throw new Error('SIGN_INTENT_DIGEST request requires an explicit signingSubject');
+  }
+  return subject;
+}
+
+export function getSubjectLabel(request: UserConfirmRequest): string {
+  if (
+    request.type === UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF ||
+    request.type === UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI
+  ) {
+    return getLocalOnlyExportSubjectId(request);
+  }
+  if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
+    const subject = getSignIntentDigestSubject(request);
+    switch (subject.kind) {
+      case 'near_wallet':
+        return subject.nearAccountId;
+      case 'evm_wallet':
+        return subject.walletId;
+      default: {
+        const exhaustive: never = subject;
+        throw new Error(`Unsupported signing subject: ${String(exhaustive)}`);
+      }
+    }
+  }
+  return getNearAccountId(request);
 }
 
 export function getWalletId(request: UserConfirmRequest): string {
@@ -166,6 +265,13 @@ export function getWalletId(request: UserConfirmRequest): string {
     case UserConfirmationType.REGISTER_ACCOUNT:
     case UserConfirmationType.LINK_DEVICE:
       return String(getRegisterAccountPayload(request).walletId || '').trim();
+    case UserConfirmationType.SIGN_INTENT_DIGEST: {
+      const subject = getSignIntentDigestSubject(request);
+      return subject.walletId;
+    }
+    case UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF:
+    case UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI:
+      return getLocalOnlyExportSubjectId(request);
     default:
       return getNearAccountId(request);
   }
@@ -253,6 +359,14 @@ export function getNearPublicKeyStr(request: UserConfirmRequest): string | undef
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
   return undefined;
+}
+
+export function getNearFundingWalletSessionJwt(request: UserConfirmRequest): string | undefined {
+  if (request.type !== UserConfirmationType.SIGN_TRANSACTION) return undefined;
+  const fundingAuth = getSignTransactionPayload(request).nearFundingAuth;
+  if (fundingAuth?.kind !== 'wallet_session') return undefined;
+  const jwt = String(fundingAuth.walletSessionJwt || '').trim();
+  return jwt || undefined;
 }
 
 export function getRegisterAccountPayload(request: UserConfirmRequest): RegisterAccountPayload {

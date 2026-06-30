@@ -4,6 +4,11 @@ export { PasskeyAuthMenuSkeleton, PasskeyAuthMenuSkeletonInner } from './skeleto
 export { preloadPasskeyAuthMenu } from './preload';
 
 export { AuthMenuMode, AuthMenuModeMap } from './types';
-export type { AuthMenuModeLabel, AuthMenuHeadings, PasskeyAuthMenuProps } from './types';
+export type {
+  AuthMenuModeLabel,
+  AuthMenuHeadings,
+  PasskeyAuthMenuProps,
+  PasskeyAuthMenuRegistrationRequest,
+} from './types';
 
 export { default } from './shell';

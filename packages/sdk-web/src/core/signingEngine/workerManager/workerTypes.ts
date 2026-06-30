@@ -67,9 +67,7 @@ import type {
   PrepareEcdsaClientBootstrapInput,
 } from '@/core/platform';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
-import type {
-  GeneratedPrepareEcdsaClientBootstrapOutput,
-} from '@/core/platform/signerCoreCommandAdapters';
+import type { GeneratedPrepareEcdsaClientBootstrapOutput } from '@/core/platform/signerCoreCommandAdapters';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -232,7 +230,7 @@ export type EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1';
   sessionId: string;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   authSubjectId: string;
   action: 'threshold_ecdsa_bootstrap';
   operation: EmailOtpWorkerSessionHandleOperation;
@@ -243,7 +241,7 @@ export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1';
   sessionId: string;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   authSubjectId: string;
   action: 'wallet_registration_ecdsa_prepare';
   operation: 'registration';
@@ -266,7 +264,7 @@ export type EmailOtpPrepareEcdsaClientBootstrapInput = Omit<
 };
 
 export type EmailOtpEcdsaSessionBootstrapHandleBinding = {
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   authSubjectId: string;
   action?: 'threshold_ecdsa_bootstrap';
   operation: EmailOtpWorkerSessionHandleOperation;
@@ -274,7 +272,7 @@ export type EmailOtpEcdsaSessionBootstrapHandleBinding = {
 };
 
 export type EmailOtpWalletRegistrationEcdsaPrepareHandleBinding = {
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   authSubjectId: string;
   action: 'wallet_registration_ecdsa_prepare';
   operation: 'registration';
@@ -291,7 +289,7 @@ type EmailOtpEcdsaBootstrapBasePayload = {
   walletId: string;
   walletSessionUserId: string;
   userId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   chainTarget: ThresholdEcdsaChainTarget;
   publicationChainTargets: ThresholdEcdsaChainTarget[];
@@ -627,7 +625,7 @@ export interface EmailOtpWorkerOperationMap {
       restore: {
         sessionId: string;
         walletId: string;
-        walletKeyId: string;
+        evmFamilySigningKeySlotId: string;
         chainTarget: ThresholdEcdsaChainTarget;
         signingGrantId: string;
         keyHandle: string;
@@ -679,7 +677,7 @@ export interface EmailOtpWorkerOperationMap {
       otpCode: string;
       shamirPrimeB64u: string;
       routePlan: EmailOtpRoutePlan;
-      walletKeyId: string;
+      evmFamilySigningKeySlotId: string;
       walletSessionJwt: string;
       ecdsaThresholdKeyId: string;
       relayerKeyId: string;
@@ -1058,6 +1056,7 @@ export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHa
   payload: {
     contextBindingB64u: string;
     stagedEvaluatorArtifactB64u: string;
+    serverEvalFinalizeOutputB64u: string;
     timings?: Record<string, number>;
   };
   diagnostics?: WorkerResponseDiagnostics;

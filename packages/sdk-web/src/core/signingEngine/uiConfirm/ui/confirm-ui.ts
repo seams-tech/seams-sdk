@@ -68,6 +68,8 @@ interface HostTxConfirmerElement extends HTMLElement {
   loading?: boolean;
   deferClose?: boolean;
   errorMessage?: string;
+  confirmText?: string;
+  cancelText?: string;
   body?: string;
   title: string;
   signingAuthMode?: SigningAuthMode;
@@ -292,6 +294,8 @@ function applyHostElementProps(
   if (update.securityContext != null) element.securityContext = update.securityContext;
   if (update.theme != null) element.theme = update.theme;
   if (update.loading != null) element.loading = !!update.loading;
+  if (update.confirmText != null) element.confirmText = update.confirmText;
+  if (update.cancelText != null) element.cancelText = update.cancelText;
   if (update.body != null) element.body = update.body;
   if (update.title != null) element.title = update.title;
   if (Object.prototype.hasOwnProperty.call(update, 'errorMessage')) {

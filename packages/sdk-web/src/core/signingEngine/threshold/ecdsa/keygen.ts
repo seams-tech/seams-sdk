@@ -2,7 +2,7 @@ import { bootstrapEcdsaSession } from './bootstrapSession';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WalletKeyId } from '@shared/signing-lanes';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 /**
  * Threshold-ecdsa (secp256k1) keygen helper (standard WebAuthn).
@@ -18,14 +18,14 @@ export async function keygenEcdsa(args: {
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   userId: string;
-  walletKeyId: WalletKeyId | string;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   workerCtx: WorkerOperationContext;
 }): Promise<
 	  | {
 	      ok: true;
 	      keygenSessionId?: string;
-	      walletKeyId: string;
+	      evmFamilySigningKeySlotId: string;
 	      keyHandle?: string;
 	      ecdsaThresholdKeyId?: string;
 	      clientVerifyingShareB64u?: string;
@@ -47,7 +47,7 @@ export async function keygenEcdsa(args: {
     touchIdPrompt: args.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),
-    walletKeyId: args.walletKeyId,
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     chainTarget: args.chainTarget,
     authKind: 'passkey_prompt',
     workerCtx: args.workerCtx,
@@ -56,7 +56,7 @@ export async function keygenEcdsa(args: {
 	  return {
 	    ok: true,
 	    keygenSessionId: bootstrap.keygenSessionId,
-	    walletKeyId: bootstrap.walletKeyId,
+	    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
 	    keyHandle: bootstrap.keyHandle,
     ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
     clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,

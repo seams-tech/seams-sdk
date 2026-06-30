@@ -342,7 +342,6 @@ export type {
   InMemoryConsoleBillingServiceOptions,
   ConsoleBillingD1Runtime,
   ConsoleBillingD1Service,
-  D1ConsoleBillingSchemaOptions,
   D1ConsoleBillingServiceOptions,
   D1ConsoleBillingMonthlyFinalizationOptions,
   D1ConsoleBillingMonthlyFinalizationResult,
@@ -370,7 +369,6 @@ export type {
   ConsoleBillingPrepaidReservationService,
   ConsoleBillingPrepaidReservationD1Runtime,
   ConsoleBillingPrepaidReservationD1Service,
-  D1ConsoleBillingPrepaidReservationSchemaOptions,
   D1ConsoleBillingPrepaidReservationServiceOptions,
   InMemoryConsoleBillingPrepaidReservationServiceOptions,
 } from '../console/billingPrepaidReservations';
@@ -393,7 +391,6 @@ export type {
   ConsoleSponsoredCallService,
   ConsoleSponsoredCallD1Runtime,
   ConsoleSponsoredCallD1Service,
-  D1ConsoleSponsoredCallSchemaOptions,
   D1ConsoleSponsoredCallServiceOptions,
   InMemoryConsoleSponsoredCallServiceOptions,
 } from '../console/sponsoredCalls';
@@ -688,7 +685,6 @@ export {
   createInMemoryConsoleBillingService,
 } from '../console/billing/service';
 export {
-  ensureConsoleBillingD1Schema,
   createD1ConsoleBillingService,
   getConsoleBillingD1Runtime,
   createSponsoredExecutionDebitD1InsertStatement,
@@ -704,10 +700,8 @@ export {
 } from '../console/billing/errors';
 export {
   CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME,
-  CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL,
   createReleaseConsoleBillingPrepaidReservationD1Statement,
   createSettleConsoleBillingPrepaidReservationD1Statement,
-  ensureConsoleBillingPrepaidReservationD1Schema,
   createD1ConsoleBillingPrepaidReservationService,
   getConsoleBillingPrepaidReservationD1Runtime,
 } from '../console/billingPrepaidReservations/d1';
@@ -720,11 +714,9 @@ export {
 } from '../console/billingPrepaidReservations/errors';
 export {
   CONSOLE_SPONSORED_CALL_D1_RUNTIME,
-  CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL,
   createD1ConsoleSponsoredCallRecordInsertStatement,
   createD1ConsoleSponsoredCallRecord,
   createD1ConsoleSponsoredCallService,
-  ensureConsoleSponsoredCallD1Schema,
   getConsoleSponsoredCallD1Runtime,
   loadD1ConsoleSponsoredCallRecordById,
   loadD1ConsoleSponsoredCallRecordByIdempotencyKey,

@@ -16,6 +16,7 @@ import {
   type PasskeyAuthMenuProps,
   type PasskeyAuthMenuRegistrationAccountInput,
   type PasskeyAuthMenuRegistrationPrompt,
+  type PasskeyAuthMenuRegistrationRequest,
   type PasskeyAuthMenuSocialCompletion,
 } from '../types';
 import type {
@@ -30,9 +31,59 @@ import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
 import { extractUsernameFromAccountId } from '@/react/hooks/useAccountInput';
 import {
-  createServerAllocatedWalletId,
+  createReadableWalletId,
+  type RegisterWalletInput,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
+
+type ProvidedRegistrationWalletInput = Extract<RegisterWalletInput, { kind: 'provided' }>;
+
+type PasskeyRegistrationDraft = {
+  kind: 'passkey_registration_draft';
+  wallet: ProvidedRegistrationWalletInput;
+};
+
+function createPasskeyRegistrationDraft(): PasskeyRegistrationDraft {
+  return {
+    kind: 'passkey_registration_draft',
+    wallet: {
+      kind: 'provided',
+      walletId: createReadableWalletId(),
+    },
+  };
+}
+
+function passkeyRegistrationDraftWalletId(draft: PasskeyRegistrationDraft): string {
+  return String(draft.wallet.walletId);
+}
+
+function providedRegistrationWalletFromValue(walletId: string): ProvidedRegistrationWalletInput {
+  return {
+    kind: 'provided',
+    walletId: walletIdFromString(walletId),
+  };
+}
+
+function createPasskeyAuthMenuRegistrationRequest(input: {
+  registrationAccountInput: PasskeyAuthMenuRegistrationAccountInput;
+  passkeyRegistrationDraft: PasskeyRegistrationDraft;
+  currentValue: string;
+}): PasskeyAuthMenuRegistrationRequest {
+  switch (input.registrationAccountInput) {
+    case 'implicit_wallet':
+      return {
+        kind: 'implicit_wallet',
+        wallet: input.passkeyRegistrationDraft.wallet,
+      };
+    case 'sponsored_named_near_account':
+      return {
+        kind: 'sponsored_named_near_account',
+        wallet: providedRegistrationWalletFromValue(input.currentValue.trim()),
+      };
+  }
+  const exhaustive: never = input.registrationAccountInput;
+  throw new Error(`Unknown passkey registration account input: ${exhaustive}`);
+}
 
 export interface PasskeyAuthMenuLinkDeviceController {
   isOpen: boolean;
@@ -113,6 +164,7 @@ export interface PasskeyAuthMenuController {
   accountInputReadOnly: boolean;
   accountInputRerollLabel?: string;
   accountInputRerollDisabled: boolean;
+  registrationActivationWallet?: ProvidedRegistrationWalletInput;
   onAccountInputReroll?: () => void;
   targetExists: boolean;
   passkeyAccountOptions: StoredAccountOption[];
@@ -418,14 +470,6 @@ function formatEmailOtpResendError(error: unknown): string {
   return getErrorMessage(error, 'Could not send code. Try again.');
 }
 
-function createReadableRegistrationWalletId(): string {
-  try {
-    return String(createServerAllocatedWalletId());
-  } catch {
-    return '';
-  }
-}
-
 function normalizeStoredAccountId(value: unknown): string {
   return String(value || '')
     .trim()
@@ -519,9 +563,9 @@ export function usePasskeyAuthMenuController(
   const lastUserSelectedModeRef = React.useRef<AuthMenuMode | null>(null);
 
   const [waiting, setWaiting] = React.useState(false);
-  const [waitingReason, setWaitingReason] = React.useState<
-    'passkey' | 'social' | 'restore' | null
-  >(null);
+  const [waitingReason, setWaitingReason] = React.useState<'passkey' | 'social' | 'restore' | null>(
+    null,
+  );
   const [showScanDevice, setShowScanDevice] = React.useState(false);
   const [otpPromptState, setOtpPromptState] = React.useState<ActiveOtpPromptState | null>(null);
   const [registrationPromptState, setRegistrationPromptState] =
@@ -544,8 +588,8 @@ export function usePasskeyAuthMenuController(
   const [postRecoveryRotationBusy, setPostRecoveryRotationBusy] = React.useState(false);
   const [postRecoveryRotationError, setPostRecoveryRotationError] = React.useState('');
   const [methodError, setMethodError] = React.useState<string>('');
-  const [generatedRegistrationWalletId, setGeneratedRegistrationWalletId] = React.useState(
-    createReadableRegistrationWalletId,
+  const [passkeyRegistrationDraft, setPasskeyRegistrationDraft] = React.useState(
+    createPasskeyRegistrationDraft,
   );
 
   React.useEffect(() => {
@@ -593,9 +637,11 @@ export function usePasskeyAuthMenuController(
   );
 
   const targetExists = mode === AuthMenuMode.Login ? loginTargetExists : registrationTargetExists;
+  const passkeyRegistrationDraftWalletIdValue =
+    passkeyRegistrationDraftWalletId(passkeyRegistrationDraft);
   const displayedCurrentValue =
     mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput
-      ? generatedRegistrationWalletId
+      ? passkeyRegistrationDraftWalletIdValue
       : currentValue;
   const shouldRestoreSyncedPasskeyOnLogin =
     mode === AuthMenuMode.Login &&
@@ -620,8 +666,12 @@ export function usePasskeyAuthMenuController(
     registrationUsesGeneratedWalletInput;
   const accountInputReadOnly =
     mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput;
+  const registrationActivationWallet =
+    mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput
+      ? passkeyRegistrationDraft.wallet
+      : undefined;
   const onAccountInputReroll = React.useCallback(() => {
-    setGeneratedRegistrationWalletId(createReadableRegistrationWalletId());
+    setPasskeyRegistrationDraft(createPasskeyRegistrationDraft());
     setMethodError('');
   }, []);
 
@@ -639,9 +689,7 @@ export function usePasskeyAuthMenuController(
         ...(option.authMethod ? { authMethod: option.authMethod } : {}),
       });
     }
-    return [...byWalletAuth.values()].sort((a, b) =>
-      a.displayName.localeCompare(b.displayName),
-    );
+    return [...byWalletAuth.values()].sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [runtime.accountOptions]);
 
   // If the user is attempting to register but we discover the account already exists,
@@ -765,7 +813,7 @@ export function usePasskeyAuthMenuController(
           setMethodError('This account already exists. Log in instead.');
         } else if (
           registrationUsesGeneratedWalletInput &&
-          generatedRegistrationWalletId.trim().length === 0
+          passkeyRegistrationDraftWalletIdValue.trim().length === 0
         ) {
           setMethodError('Could not generate a wallet name. Try again.');
         } else if (registrationRequiresAccountInput && currentValue.trim().length === 0) {
@@ -794,16 +842,12 @@ export function usePasskeyAuthMenuController(
           closeLinkDeviceView('flow');
           setMode(AuthMenuMode.Login);
         } else {
-          const registrationOptions =
-            registrationUsesGeneratedWalletInput && generatedRegistrationWalletId.trim()
-              ? {
-                  wallet: {
-                    kind: 'provided' as const,
-                    walletId: walletIdFromString(generatedRegistrationWalletId.trim()),
-                  },
-                }
-              : undefined;
-          await props.onRegister?.(registrationOptions);
+          const registrationRequest = createPasskeyAuthMenuRegistrationRequest({
+            registrationAccountInput,
+            passkeyRegistrationDraft,
+            currentValue,
+          });
+          await props.onRegister?.(registrationRequest);
           setWaiting(false);
           setWaitingReason(null);
           setMode(AuthMenuMode.Login);
@@ -828,7 +872,9 @@ export function usePasskeyAuthMenuController(
     secure,
     registrationTargetExists,
     currentValue,
-    generatedRegistrationWalletId,
+    passkeyRegistrationDraft,
+    passkeyRegistrationDraftWalletIdValue,
+    registrationAccountInput,
     registrationUsesGeneratedWalletInput,
     registrationRequiresAccountInput,
     props.onLogin,
@@ -1408,12 +1454,7 @@ export function usePasskeyAuthMenuController(
           return assertNeverRegistrationActivationSurfaceState(state);
       }
     },
-    [
-      activationRefreshLoginState,
-      closeLinkDeviceView,
-      setCurrentValue,
-      setMode,
-    ],
+    [activationRefreshLoginState, closeLinkDeviceView, setCurrentValue, setMode],
   );
 
   return {
@@ -1434,6 +1475,7 @@ export function usePasskeyAuthMenuController(
         ? 'Generate another wallet name'
         : undefined,
     accountInputRerollDisabled: waiting,
+    ...(registrationActivationWallet ? { registrationActivationWallet } : {}),
     onAccountInputReroll:
       mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput
         ? onAccountInputReroll

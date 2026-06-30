@@ -140,10 +140,10 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       throw new Error('passkey ECDSA restore requires existing role-local ready record');
     }
 
-	    upsertRestoredThresholdEcdsaSessionRecord({
-	      walletId: toWalletId(args.walletId),
-	      walletKeyId: ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
-	      chainTarget: args.record.chainTarget,
+    upsertRestoredThresholdEcdsaSessionRecord({
+      walletId: toWalletId(args.walletId),
+      evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
+      chainTarget: args.record.chainTarget,
       relayerUrl: args.record.relayerUrl,
       keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
       ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,

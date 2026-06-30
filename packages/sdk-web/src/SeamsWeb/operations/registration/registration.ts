@@ -68,7 +68,7 @@ import {
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
-import { derivePlannedEvmFamilyWalletKeyId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilySigningKeySlotId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
@@ -1225,7 +1225,7 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
   });
 }
 
-function plannedEvmFamilyWalletKeyIdFromRegistrationIntent(intent: {
+function plannedEvmFamilySigningKeySlotIdFromRegistrationIntent(intent: {
   walletId: string;
   runtimePolicyScope?: {
     projectId: string;
@@ -1235,9 +1235,9 @@ function plannedEvmFamilyWalletKeyIdFromRegistrationIntent(intent: {
 }): string {
   const runtimePolicyScope = intent.runtimePolicyScope;
   if (!runtimePolicyScope?.signingRootVersion) {
-    throw new Error('ECDSA registration wallet-key identity requires signing root scope');
+    throw new Error('ECDSA registration signing key slot requires signing root scope');
   }
-  return derivePlannedEvmFamilyWalletKeyId({
+  return deriveEvmFamilySigningKeySlotId({
     walletId: intent.walletId,
     signingRootId: deriveSigningRootId(runtimePolicyScope),
     signingRootVersion: runtimePolicyScope.signingRootVersion,
@@ -1641,7 +1641,7 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
   relayerUrl: string;
   walletId: string;
   providerSubject: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   appSessionJwt: string;
 }): Promise<EmailOtpRegistrationEnrollmentMaterial> {
   if (input.authMethod.kind !== 'email_otp') {
@@ -1666,7 +1666,7 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
     relayUrl: input.relayerUrl,
     walletId: toWalletId(input.walletId),
     userId: input.providerSubject,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     appSessionJwt: input.appSessionJwt,
   });
 }
@@ -2190,7 +2190,7 @@ async function registerEcdsaWalletOnly(args: {
           relayerUrl,
           walletId: String(walletId),
           providerSubject: emailAuthority.providerSubject,
-          walletKeyId: plannedEvmFamilyWalletKeyIdFromRegistrationIntent({
+          evmFamilySigningKeySlotId: plannedEvmFamilySigningKeySlotIdFromRegistrationIntent({
             walletId: String(walletId),
             runtimePolicyScope: intentResponse.intent.runtimePolicyScope,
           }),
@@ -2657,7 +2657,7 @@ async function registerWalletInternal(
           relayerUrl,
           walletId: String(intentResponse.intent.walletId),
           providerSubject: emailAuthority.providerSubject,
-          walletKeyId: plannedEvmFamilyWalletKeyIdFromRegistrationIntent({
+          evmFamilySigningKeySlotId: plannedEvmFamilySigningKeySlotIdFromRegistrationIntent({
             walletId: String(intentResponse.intent.walletId),
             runtimePolicyScope: intentResponse.intent.runtimePolicyScope,
           }),

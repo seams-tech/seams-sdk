@@ -5,7 +5,10 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import {
   exportKeypairWithUI as exportKeypairWithUIValue,
   type ExportKeypairWithUIDeps,
+  resolveExactKeyExportLane as resolveExactKeyExportLaneValue,
   type SigningEngineExportKeypairWithUIInput,
+  type SigningEngineResolveExactKeyExportLaneInput,
+  type SigningEngineResolveExactKeyExportLaneResult,
 } from './exportKeypairOperation';
 import { exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIValue } from './privateKeyExportRecovery';
 import { exportThresholdEd25519SeedFromHssReport as exportThresholdEd25519SeedFromHssReportValue } from './nearEd25519SeedReportExport';
@@ -42,6 +45,13 @@ export async function exportKeypairWithUI(
   input: SigningEngineExportKeypairWithUIInput,
 ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
   return await exportKeypairWithUIValue(exportKeypairDeps(deps), input);
+}
+
+export async function resolveExactKeyExportLane(
+  deps: RecoveryPublicDeps,
+  input: SigningEngineResolveExactKeyExportLaneInput,
+): Promise<SigningEngineResolveExactKeyExportLaneResult> {
+  return await resolveExactKeyExportLaneValue(exportKeypairDeps(deps), input);
 }
 
 export function exportNearEd25519SeedArtifactWithUI(
@@ -87,4 +97,9 @@ export async function exportThresholdEd25519SeedFromHssReport(
   );
 }
 
-export type { SigningEngineExportKeypairWithUIInput, KeyExportEventCallback };
+export type {
+  SigningEngineExportKeypairWithUIInput,
+  SigningEngineResolveExactKeyExportLaneInput,
+  SigningEngineResolveExactKeyExportLaneResult,
+  KeyExportEventCallback,
+};

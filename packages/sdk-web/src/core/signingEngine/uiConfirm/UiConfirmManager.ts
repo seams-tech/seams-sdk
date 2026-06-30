@@ -1121,11 +1121,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaRecord &&
       ecdsaRecord.chainTarget &&
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
-	        ? {
-	            chainTarget: ecdsaRecord.chainTarget,
-	            rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
-	            credentialIdB64u: ecdsaPasskeyCredentialId,
-	            ...persistedRestoreWalletSessionAuthFields(ecdsaRecord),
+        ? {
+            chainTarget: ecdsaRecord.chainTarget,
+            evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
+            rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
+            credentialIdB64u: ecdsaPasskeyCredentialId,
+            ...persistedRestoreWalletSessionAuthFields(ecdsaRecord),
             keyHandle: ecdsaRecord.keyHandle,
             ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
             ethereumAddress,

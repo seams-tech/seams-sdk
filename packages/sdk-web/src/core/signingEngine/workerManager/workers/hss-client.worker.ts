@@ -986,6 +986,8 @@ function forbiddenSecretFieldsForHssWorkerRequest(requestType: number): string[]
   switch (requestType) {
     case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:
       return fields.filter((field) => field !== secretB64uField('prfFirst'));
+    case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:
+      return fields.filter((field) => field !== secretB64uField('seed'));
     default:
       return fields;
   }

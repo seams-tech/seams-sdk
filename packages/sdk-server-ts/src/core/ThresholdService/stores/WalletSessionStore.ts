@@ -45,7 +45,7 @@ export type EcdsaWalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
@@ -56,7 +56,7 @@ export type WalletSigningBudgetSessionRecord = {
   walletId: string;
   budgetScope:
     | { kind: 'passkey_rp'; rpId: string }
-    | { kind: 'wallet_key'; walletKeyId: string };
+    | { kind: 'wallet_key'; evmFamilySigningKeySlotId: string };
   binding: WalletSigningBudgetBinding;
   participantIds: number[];
 };

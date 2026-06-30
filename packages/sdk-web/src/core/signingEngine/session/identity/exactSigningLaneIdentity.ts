@@ -188,7 +188,7 @@ function parseEvmFamilyEcdsaKeyIdentity(value: unknown): EvmFamilyEcdsaKeyIdenti
   }
   return buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: key.walletId,
-    walletKeyId: key.walletKeyId,
+    evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
     signingRootId: key.signingRootId,
     signingRootVersion: key.signingRootVersion,
@@ -303,7 +303,7 @@ type CanonicalExactSigningLaneIdentity = {
         };
         key: {
           walletId: string;
-          walletKeyId: string;
+          evmFamilySigningKeySlotId: string;
           keyScope: EvmFamilyEcdsaKeyIdentity['keyScope'];
           ecdsaThresholdKeyId: string;
           signingRootId: string;
@@ -342,7 +342,7 @@ function canonicalKeyIdentity(key: EvmFamilyEcdsaKeyIdentity): Extract<
 >['key'] {
   return {
     walletId: String(key.walletId),
-    walletKeyId: String(key.walletKeyId),
+    evmFamilySigningKeySlotId: String(key.evmFamilySigningKeySlotId),
     keyScope: key.keyScope,
     ecdsaThresholdKeyId: String(key.ecdsaThresholdKeyId),
     signingRootId: String(key.signingRootId),

@@ -107,7 +107,11 @@ import {
   type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
-import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import {
+  buildNearWalletRegistrationSignerSetSelection,
+  resolvePasskeyRegistrationAccountProvisioning,
+} from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 
 export class SeamsWebIframe {
   readonly configs: SeamsConfigsReadonly;
@@ -442,6 +446,8 @@ export class SeamsWebIframe {
       deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
     };
     this.keys = {
+      resolveExactKeyExportLane: async (input) =>
+        await this.resolveExactKeyExportLaneDomain(input),
       exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
       exportThresholdEd25519SeedFromHssReport: async (args) =>
         await this.exportThresholdEd25519SeedFromHssReportDomain(args),
@@ -541,9 +547,32 @@ export class SeamsWebIframe {
         '[SeamsWebIframe] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
       );
     }
-    const { wallet, ...registrationOptions } = options || {};
+    const { wallet, nearAccountProvisioning, ...registrationOptions } = options || {};
+    const provisioningPreference =
+      nearAccountProvisioning ?? this.configs.registration.nearAccountProvisioning;
+    const resolvedWallet =
+      wallet ||
+      (provisioningPreference.kind === 'relayer_named_subaccount'
+        ? { kind: 'provided' as const, walletId: createServerAllocatedWalletId() }
+        : { kind: 'server_allocated' as const });
+    const accountProvisioning = resolvePasskeyRegistrationAccountProvisioning({
+      configs: this.configs,
+      wallet: resolvedWallet,
+      preference: provisioningPreference,
+    });
+    if (accountProvisioning.kind === 'sponsored_named_account') {
+      if (resolvedWallet.kind !== 'provided') {
+        throw new Error('[SeamsWebIframe] sponsored NEAR registration requires a provided walletId');
+      }
+      return await this.near.registerNearWallet({
+        wallet: resolvedWallet,
+        accountProvisioning,
+        options: registrationOptions,
+      });
+    }
     return await this.near.registerNearWallet({
-      ...(wallet ? { wallet } : {}),
+      ...(resolvedWallet.kind === 'provided' ? { wallet: resolvedWallet } : {}),
+      accountProvisioning,
       options: registrationOptions,
     });
   }
@@ -1127,6 +1156,13 @@ export class SeamsWebIframe {
   ): Promise<void> {
     await this.requireRouterReady();
     return this.router.exportKeypairWithUI(input);
+  }
+
+  private async resolveExactKeyExportLaneDomain(
+    input: Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0],
+  ): Promise<Awaited<ReturnType<KeyExportCapability['resolveExactKeyExportLane']>>> {
+    await this.requireRouterReady();
+    return await this.router.resolveExactKeyExportLane(input);
   }
 
   private async exportThresholdEd25519SeedFromHssReportDomain(args: {

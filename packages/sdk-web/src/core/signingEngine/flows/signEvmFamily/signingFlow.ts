@@ -543,7 +543,10 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       sessionId,
       chain: config.targetKind,
       kind: 'intentDigest' as const,
-      signerAccountId: input.walletId,
+      signingSubject: {
+        kind: 'evm_wallet' as const,
+        walletId: input.walletId,
+      },
       challengeB64u: PENDING_CHALLENGE_B64U,
       intentDigest: PENDING_INTENT_DIGEST,
       ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),

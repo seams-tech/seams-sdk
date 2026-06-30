@@ -198,7 +198,7 @@ export type RouterAbNormalSigningAdmissionInput =
       curve: 'ecdsa-hss';
       phase: 'prepare' | 'finalize';
       walletId: string;
-      walletKeyId: string;
+      evmFamilySigningKeySlotId: string;
       thresholdSessionId: string;
       signingGrantId: string;
       requestId: string;
@@ -274,7 +274,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     curve: 'ecdsa-hss',
     phase: input.phase,
     walletId: input.walletSessionAuth.userId,
-    walletKeyId: input.walletSessionAuth.walletKeyId,
+    evmFamilySigningKeySlotId: input.walletSessionAuth.evmFamilySigningKeySlotId,
     thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,

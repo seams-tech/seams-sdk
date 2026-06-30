@@ -1,4 +1,3 @@
-import { buildCorsOrigins, normalizeCorsOrigin } from '../core/SessionService';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../console/observability';
@@ -124,7 +123,6 @@ type MatchedSponsoredEvmExecution = {
 export interface RouterApiSponsoredEvmCallService {
   billing: ConsoleBillingService;
   config: SponsoredEvmCallExecutorConfig;
-  corsOrigins: readonly string[];
   resolveExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   prepaidReservations: ConsoleBillingPrepaidReservationService | null;
@@ -159,15 +157,6 @@ function normalizeOrigin(value: unknown): string {
   } catch {
     return '';
   }
-}
-
-function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boolean {
-  const normalizedOrigin = normalizeCorsOrigin(origin);
-  if (!normalizedOrigin) return false;
-  const normalizedAllowedOrigins = buildCorsOrigins(...allowedOrigins);
-  if (normalizedAllowedOrigins === '*') return true;
-  if (!Array.isArray(normalizedAllowedOrigins)) return false;
-  return normalizedAllowedOrigins.includes(normalizedOrigin);
 }
 
 function normalizeTxHashOrNull(value: unknown): `0x${string}` | null {
@@ -481,13 +470,6 @@ export async function handleRouterApiSponsoredEvmCall(
   }
 
   const origin = normalizeOrigin(input.origin);
-  if (!origin || !isAllowedOrigin(origin, routerApiSponsoredEvmCall.corsOrigins)) {
-    return routeJson(403, {
-      ok: false,
-      code: 'origin_not_allowed',
-      message: 'Origin is not allowed',
-    });
-  }
   const sponsoredEvmConfig = routerApiSponsoredEvmCall.config;
   const publishableKeyAuth = routerApiSponsoredEvmCall.publishableKeyAuth;
 

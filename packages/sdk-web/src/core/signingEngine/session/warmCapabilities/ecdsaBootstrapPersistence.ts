@@ -24,7 +24,6 @@ import {
 } from '../../threshold/sessionPolicy';
 import {
   resolveThresholdSigningRootBindingFromRecord,
-  toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
 
 export type ThresholdEcdsaBootstrapStorePort = {
@@ -125,8 +124,6 @@ function ecdsaBootstrapSignerActivation(args: {
     parseThresholdRuntimePolicyScopeFromJwt(args.bootstrap.session.jwt || keyRef.walletSessionJwt);
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
     record: {
-      keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       signingRootId: ecdsaRoleLocalReadyRecord.publicFacts.signingRootId,
       signingRootVersion: ecdsaRoleLocalReadyRecord.publicFacts.signingRootVersion,
     },
@@ -150,7 +147,7 @@ function ecdsaBootstrapSignerActivation(args: {
     'relayerVerifyingShareB64u',
   );
   const participantIds = requireParticipantIds(keyRef.participantIds || keygen.participantIds);
-	  const walletKeyId = requireBootstrapString(keygen.walletKeyId, 'walletKeyId');
+	  const evmFamilySigningKeySlotId = requireBootstrapString(keygen.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId');
   const chainIdKey = resolveBootstrapTargetChainIdKey({
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
@@ -177,7 +174,7 @@ function ecdsaBootstrapSignerActivation(args: {
 	        keyScope: 'evm-family',
 	        keyHandle,
 	        walletId: args.walletId,
-	        walletKeyId,
+	        evmFamilySigningKeySlotId,
 	        ecdsaThresholdKeyId,
         signingRootId,
         signingRootVersion,
@@ -192,7 +189,7 @@ function ecdsaBootstrapSignerActivation(args: {
         },
 	        sharedEvmFamilyKey: {
 	          walletId: args.walletId,
-	          walletKeyId,
+	          evmFamilySigningKeySlotId,
 	          keyScope: 'evm-family',
           keyHandle,
           ecdsaThresholdKeyId,

@@ -101,6 +101,7 @@ export type ResolveSigningSessionAuthPlanFromReadinessInput = {
   expiresAtMs?: number;
   remainingUses?: number;
   usesNeeded?: number;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   forceFreshAuth?: boolean;
   sensitiveOperationPolicy?: SigningSessionPlannerInput['sensitiveOperationPolicy'];
   missingWhenExpiresAtMissing?: boolean;
@@ -503,6 +504,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
           .getAvailableStatus(
             buildBudgetStatusCheckForLane({
               lane: input.lane,
+              trustedStatusAuth: input.trustedStatusAuth,
             }),
           )
           .catch(() => ({
@@ -515,6 +517,12 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       input.lane.curve === 'ed25519' &&
       (walletBudgetStatus?.status === 'budget_unknown' ||
         walletBudgetStatus?.status === 'unavailable');
+    const passkeyEd25519PreflightUnavailable =
+      signingLaneAuthMethod(input.lane.auth) === 'passkey' &&
+      input.lane.curve === 'ed25519' &&
+      input.readiness.status === 'ready' &&
+      (walletBudgetStatus?.status === 'budget_unknown' ||
+        walletBudgetStatus?.status === 'unavailable');
     const ecdsaStepUpPreflightUnavailable =
       input.lane.curve === 'ecdsa' &&
       input.readiness.status === 'ready' &&
@@ -523,18 +531,21 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     // Email OTP can mint a fresh Ed25519 session at step-up. Treat an
     // unreadable preflight as reauthable so server-side authorize remains
     // the budget enforcement point instead of failing before the prompt.
-    // ECDSA transaction lanes have the same reconnect boundary for passkey
-    // and Email OTP step-up, so stale/unauthorized budget probes must prompt
-    // fresh auth instead of surfacing a terminal "session not ready" error.
-    const budgetStatusForPlanning =
-      (emailOtpEd25519PreflightUnavailable || ecdsaStepUpPreflightUnavailable) &&
-      walletBudgetStatus
-        ? {
-            sessionId: signingGrantId,
-            status: 'not_found' as const,
-            statusCode: walletBudgetStatus.status,
-          }
-        : walletBudgetStatus;
+    // Passkey Ed25519 has a reconnect boundary where fresh auth is useful.
+    // ECDSA keeps record-backed warm readiness here; later admission and
+    // reservation remain the budget enforcement points.
+    const reauthableEd25519PreflightUnavailable =
+      emailOtpEd25519PreflightUnavailable || passkeyEd25519PreflightUnavailable;
+    let budgetStatusForPlanning = walletBudgetStatus;
+    if (ecdsaStepUpPreflightUnavailable) {
+      budgetStatusForPlanning = null;
+    } else if (reauthableEd25519PreflightUnavailable && walletBudgetStatus) {
+      budgetStatusForPlanning = {
+        sessionId: signingGrantId,
+        status: 'not_found',
+        statusCode: walletBudgetStatus.status,
+      };
+    }
     if (emailOtpEd25519PreflightUnavailable && walletBudgetStatus) {
       console.warn('[SigningSessionCoordinator][email-otp-ed25519] budget preflight unavailable', {
         signingGrantId,
@@ -545,8 +556,18 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
         usesNeeded: input.usesNeeded,
       });
     }
+    if (passkeyEd25519PreflightUnavailable && walletBudgetStatus) {
+      console.warn('[SigningSessionCoordinator][passkey-ed25519] budget preflight unavailable', {
+        signingGrantId,
+        thresholdSessionId: input.lane.thresholdSessionId,
+        budgetStatus: walletBudgetStatus.status,
+        readiness: input.readiness.status,
+        remainingUses: input.remainingUses,
+        usesNeeded: input.usesNeeded,
+      });
+    }
     if (ecdsaStepUpPreflightUnavailable && walletBudgetStatus) {
-      console.warn('[SigningSessionCoordinator][ecdsa] budget preflight unavailable', {
+      console.debug('[SigningSessionCoordinator][ecdsa] budget preflight deferred', {
         signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
         budgetStatus: walletBudgetStatus.status,

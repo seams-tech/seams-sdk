@@ -13,7 +13,7 @@ const ecdsaAuth = {
   thresholdSessionId: 'threshold-session-ecdsa',
   signingGrantId: 'signing-grant-ecdsa',
   userId: 'wallet-ecdsa',
-  walletKeyId: 'wallet-key-example-localhost',
+  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,

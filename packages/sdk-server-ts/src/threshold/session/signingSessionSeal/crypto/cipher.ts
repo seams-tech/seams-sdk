@@ -33,9 +33,17 @@ function toErrorResult(error: unknown): { ok: false; code: string; message: stri
 
 function normalizeResult(result: HandlerResult): HandlerResult {
   if (result.ok) {
+    const ciphertext = toOptionalTrimmedString(result.ciphertext);
+    if (!ciphertext) {
+      return {
+        ok: false,
+        code: 'invalid_ciphertext',
+        message: 'Signing-session seal cipher returned empty ciphertext',
+      };
+    }
     return {
       ok: true,
-      ciphertext: String(result.ciphertext || ''),
+      ciphertext,
       ...(String(result.keyVersion || '').trim()
         ? { keyVersion: String(result.keyVersion).trim() }
         : {}),

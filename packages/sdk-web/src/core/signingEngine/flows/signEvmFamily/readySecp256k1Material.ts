@@ -1,4 +1,7 @@
-import { assertMatchingWalletKeyId, requireWalletKeyId } from '@shared/signing-lanes';
+import {
+  assertMatchingEvmFamilySigningKeySlotId,
+  requireEvmFamilySigningKeySlotId,
+} from '@shared/signing-lanes';
 import {
   buildKnownReadyThresholdEcdsaSessionPolicy,
   buildReadyEcdsaSignerSession,
@@ -30,20 +33,23 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
 export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
   record: ThresholdEcdsaSessionRecord;
   requestLabel: unknown;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
 }): Promise<ReadySecp256k1SigningMaterial> {
-  const walletKeyId = requireWalletKeyId(args.walletKeyId, 'threshold-ecdsa signing walletKeyId');
-  assertMatchingWalletKeyId({
-    expected: walletKeyId,
-    actual: args.record.walletKeyId,
-    actualLabel: 'threshold-ecdsa session record walletKeyId',
-    message: '[multichain] threshold-ecdsa walletKeyId mismatch; reconnect threshold session',
+  const evmFamilySigningKeySlotId = requireEvmFamilySigningKeySlotId(
+    args.evmFamilySigningKeySlotId,
+    'threshold-ecdsa signing evmFamilySigningKeySlotId',
+  );
+  assertMatchingEvmFamilySigningKeySlotId({
+    expected: evmFamilySigningKeySlotId,
+    actual: args.record.evmFamilySigningKeySlotId,
+    actualLabel: 'threshold-ecdsa session record evmFamilySigningKeySlotId',
+    message: '[multichain] threshold-ecdsa evmFamilySigningKeySlotId mismatch; reconnect threshold session',
   });
-  assertMatchingWalletKeyId({
-    expected: walletKeyId,
-    actual: args.record.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
-    actualLabel: 'threshold-ecdsa role-local publicFacts walletKeyId',
-    message: '[multichain] threshold-ecdsa walletKeyId mismatch; reconnect threshold session',
+  assertMatchingEvmFamilySigningKeySlotId({
+    expected: evmFamilySigningKeySlotId,
+    actual: args.record.ecdsaRoleLocalReadyRecord.publicFacts.evmFamilySigningKeySlotId,
+    actualLabel: 'threshold-ecdsa role-local publicFacts evmFamilySigningKeySlotId',
+    message: '[multichain] threshold-ecdsa evmFamilySigningKeySlotId mismatch; reconnect threshold session',
   });
   const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
   if (requestChain && args.record.chainTarget.kind !== requestChain) {

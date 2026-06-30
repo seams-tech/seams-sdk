@@ -229,7 +229,7 @@ export function buildWalletEcdsaSignerRecord(input: {
   return {
     version: 'wallet_signer_ecdsa_v1',
     walletId: input.walletId,
-    walletKeyId: input.walletKey.walletKeyId,
+    evmFamilySigningKeySlotId: input.walletKey.evmFamilySigningKeySlotId,
     signerId: `ecdsa:${chainTargetKey}`,
     chainTargetKey,
     chainTarget: input.walletKey.chainTarget,

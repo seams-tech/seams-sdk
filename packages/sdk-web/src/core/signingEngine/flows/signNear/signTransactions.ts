@@ -454,6 +454,10 @@ export async function runNearTransactionWithActionsSigning({
       txSigningRequests: [confirmationTransaction],
       rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
+      nearFundingAuth: {
+        kind: 'wallet_session',
+        walletSessionJwt: ed25519SigningBoundary.walletSessionJwt,
+      },
       confirmationConfigOverride: confirmationConfigForSigningAuthPlan({
         signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
         override: confirmationConfigOverride,

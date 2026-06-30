@@ -69,7 +69,6 @@ import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaWalletKey,
   buildEvmFamilyEcdsaSessionLanePolicy,
-  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
   type EvmFamilyEcdsaWalletKey,
@@ -395,17 +394,9 @@ function buildActivationKeyAndLanePolicy(args: {
       );
     }
   }
-  const walletKeyId = deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-    walletId: args.record.walletId,
-    ecdsaThresholdKeyId: planKeyId,
-    signingRootId: planSigningRootId,
-    signingRootVersion: planSigningRootVersion,
-    participantIds: planParticipantIds,
-    thresholdOwnerAddress: args.record.ethereumAddress,
-  });
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.record.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: planKeyId,
     signingRootId: planSigningRootId,
     signingRootVersion: planSigningRootVersion,
@@ -417,7 +408,7 @@ function buildActivationKeyAndLanePolicy(args: {
   return {
     walletKey: buildEvmFamilyEcdsaWalletKey({
       walletId: key.walletId,
-      walletKeyId: key.walletKeyId,
+      evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
       keyHandle: args.record.keyHandle,
       chainTarget: args.plan.chainTarget,
       ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
@@ -1383,7 +1374,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
     },
 	    keygen: {
 	      ok: true,
-	      walletKeyId: record.walletKeyId,
+	      evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
 	      ecdsaThresholdKeyId,
       relayerKeyId,
       clientVerifyingShareB64u,

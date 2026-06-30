@@ -224,6 +224,7 @@ void ({
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
+      serverEvalFinalizeOutputB64u: 'server-finalize-output',
     },
   },
 } satisfies WalletRegistrationFinalizeRequest);
@@ -234,6 +235,7 @@ void ({
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
+      serverEvalFinalizeOutputB64u: 'server-finalize-output',
       // @ts-expect-error wallet registration finalize rejects raw opened client output
       xClientBaseB64u: 'client-output',
     },
@@ -246,6 +248,7 @@ void ({
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
+      serverEvalFinalizeOutputB64u: 'server-finalize-output',
       // @ts-expect-error wallet registration finalize rejects seed output
       seedOutputMessageB64u: 'seed-output',
     },

@@ -8,6 +8,7 @@ import type {
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   LoginResult,
+  RecentUnlockAccount,
   WalletSession,
   LoginState,
   SigningSessionStatus,
@@ -110,10 +111,9 @@ import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapa
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
-  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
   evmFamilyEcdsaWalletKeyToIdentity,
   resolveThresholdEcdsaKeyIdFromRecord,
-  resolveThresholdSigningRootBindingFromRecord,
+  resolveThresholdSigningRootBindingFromRuntimePolicyScope,
   toEvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -159,6 +159,10 @@ import {
   createLocalUnlockChallengeB64u,
 } from '@/SeamsWeb/operations/authMethods/passkey/localUnlock';
 import {
+  parseNearEd25519SigningKeyId,
+  type NearEd25519SigningKeyId,
+} from '@shared/utils/registrationIntent';
+import {
   passkeyCredentialIdB64uFromAuthentication,
   passkeyPrfFirstB64uFromCredential,
 } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
@@ -188,9 +192,26 @@ type ResolvedWalletSessionIdentity =
 type ResolvedLoginWalletBinding = {
   walletId: WalletId;
   nearAccountId: AccountId;
-  nearEd25519SigningKeyId: string;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   ed25519Record: ThresholdEd25519SessionRecord | null;
 };
+
+export type LoginResolvedWalletBinding = {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  ed25519Record?: ThresholdEd25519SessionRecord | null;
+};
+
+type LoginWalletBindingResolution =
+  | {
+      kind: 'lookup_by_near_account';
+      binding?: never;
+    }
+  | {
+      kind: 'provided_wallet_binding';
+      binding: LoginResolvedWalletBinding;
+    };
 
 type WalletSessionStatusIdentity =
   | {
@@ -298,10 +319,9 @@ function resolveLoginWalletBinding(nearAccountId: AccountId): ResolvedLoginWalle
     if (String(recordNearAccountId) !== String(nearAccountId)) {
       throw new Error('[login] persisted Ed25519 record nearAccountId mismatch');
     }
-    const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
-    if (!nearEd25519SigningKeyId) {
-      throw new Error('[login] persisted Ed25519 record is missing nearEd25519SigningKeyId');
-    }
+    const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(
+      record.nearEd25519SigningKeyId,
+    );
     return {
       walletId: toWalletId(record.walletId),
       nearAccountId: recordNearAccountId,
@@ -311,6 +331,41 @@ function resolveLoginWalletBinding(nearAccountId: AccountId): ResolvedLoginWalle
   }
 
   throw new Error('[login] Ed25519 login requires a persisted wallet binding');
+}
+
+function normalizeProvidedLoginWalletBinding(args: {
+  nearAccountId: AccountId;
+  binding: LoginResolvedWalletBinding;
+}): ResolvedLoginWalletBinding {
+  const nearAccountId = toAccountId(String(args.binding.nearAccountId));
+  if (String(nearAccountId) !== String(args.nearAccountId)) {
+    throw new Error('[login] provided Ed25519 wallet binding nearAccountId mismatch');
+  }
+  return {
+    walletId: toWalletId(args.binding.walletId),
+    nearAccountId,
+    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
+      args.binding.nearEd25519SigningKeyId,
+    ),
+    ed25519Record: args.binding.ed25519Record || null,
+  };
+}
+
+function resolveLoginWalletBindingForUnlock(args: {
+  nearAccountId: AccountId;
+  resolution: LoginWalletBindingResolution;
+}): ResolvedLoginWalletBinding {
+  switch (args.resolution.kind) {
+    case 'lookup_by_near_account':
+      return resolveLoginWalletBinding(args.nearAccountId);
+    case 'provided_wallet_binding':
+      return normalizeProvidedLoginWalletBinding({
+        nearAccountId: args.nearAccountId,
+        binding: args.resolution.binding,
+      });
+    default:
+      return assertNeverLoginState(args.resolution);
+  }
 }
 
 function buildLoggedOutLoginState(args: {
@@ -373,6 +428,21 @@ function walletAuthMethodBindingFromRecord(
       record satisfies never;
       return null;
   }
+}
+
+function recentUnlockAccountFromUser(user: ClientUserData): RecentUnlockAccount {
+  const walletId = String(user.walletId || '').trim();
+  if (!walletId) {
+    throw new Error('[login] recent unlock account is missing walletId');
+  }
+  const displayName = String(user.loginDisplayName || '').trim() || walletId;
+  return {
+    walletId,
+    nearAccountId: user.nearAccountId,
+    displayName,
+    signerSlot: user.signerSlot,
+    authMethod: user.authMethod || null,
+  };
 }
 
 async function readWalletAuthMethodBindingsForSession(
@@ -860,6 +930,32 @@ export async function unlock(
   nearAccountId: AccountId,
   options?: LoginHooksOptions,
 ): Promise<LoginAndCreateSessionResult> {
+  return await unlockInternal(context, nearAccountId, options, {
+    kind: 'lookup_by_near_account',
+  });
+}
+
+export async function unlockResolvedWalletBinding(
+  context: LoginWebContext,
+  binding: LoginResolvedWalletBinding,
+  options?: LoginHooksOptions,
+): Promise<LoginAndCreateSessionResult> {
+  const normalizedBinding = normalizeProvidedLoginWalletBinding({
+    nearAccountId: binding.nearAccountId,
+    binding,
+  });
+  return await unlockInternal(context, normalizedBinding.nearAccountId, options, {
+    kind: 'provided_wallet_binding',
+    binding: normalizedBinding,
+  });
+}
+
+async function unlockInternal(
+  context: LoginWebContext,
+  nearAccountId: AccountId,
+  options: LoginHooksOptions | undefined,
+  bindingResolution: LoginWalletBindingResolution,
+): Promise<LoginAndCreateSessionResult> {
   const { onEvent, onError, afterCall } = options || {};
   const { signingEngine } = context;
   let loginCredential: WebAuthnAuthenticationCredential | undefined;
@@ -908,7 +1004,10 @@ export async function unlock(
     });
     const { accountSubject, authenticators, baseSignerSlot, requiresLocalPasskeyUnlock } =
       accountPhase;
-    const walletBinding = resolveLoginWalletBinding(nearAccountId);
+    const walletBinding = resolveLoginWalletBindingForUnlock({
+      nearAccountId,
+      resolution: bindingResolution,
+    });
     unlockWalletBinding = walletBinding;
 
     // Shared prompt wrapper used by local unlock, app-session exchange, and inventory repair.
@@ -1745,34 +1844,26 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
   if (!keyHandle) {
     throw new Error('[login] threshold ECDSA bootstrap missing keyHandle');
   }
-  const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle);
   const runtimePolicyScope =
     bootstrap.session.runtimePolicyScope ||
     parseThresholdRuntimePolicyScopeFromJwt(
       String(bootstrap.session.jwt || keyRef.walletSessionJwt || '').trim(),
     );
-  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-    record: {
-      keyHandle: canonicalKeyHandle,
-      runtimePolicyScope,
-    },
+  if (!runtimePolicyScope) {
+    throw new Error('[login] threshold ECDSA bootstrap requires runtimePolicyScope');
+  }
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRuntimePolicyScope({
+    runtimePolicyScope,
   });
   const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
     record: { ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId },
   });
-  const walletKeyId = deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-    walletId: args.walletId,
-    ecdsaThresholdKeyId,
-    signingRootId: String(signingRootBinding.signingRootId),
-    signingRootVersion: String(signingRootBinding.signingRootVersion),
-    participantIds: keyRef.participantIds || bootstrap.keygen.participantIds,
-    thresholdOwnerAddress: String(args.thresholdOwnerAddress || '').trim(),
-  });
+  const evmFamilySigningKeySlotId = bootstrap.keygen.evmFamilySigningKeySlotId;
   return {
     keyHandle,
     key: buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: args.walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       signingRootId: String(signingRootBinding.signingRootId),
       signingRootVersion: String(signingRootBinding.signingRootVersion),
@@ -2457,9 +2548,6 @@ async function primeThresholdLoginWarmSigners(args: {
             signingGrantId,
           };
         };
-        const ecdsaOnlySigningGrantId =
-          String(warmState.signingGrantId || '').trim() ||
-          createThresholdLoginWarmSessionId('wallet-ecdsa-login');
         const resolveCurrentBootstrapIdentity = (): ThresholdLoginWarmEcdsaBootstrapIdentity => {
           if (bootstrapIdentity) return bootstrapIdentity;
           const thresholdEcdsaSessionJwt = String(
@@ -2485,10 +2573,11 @@ async function primeThresholdLoginWarmSigners(args: {
             throw new Error('[login] threshold ECDSA warm-up requires shared key identity');
           }
           const thresholdSessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
+          const signingGrantId = createThresholdLoginWarmSessionId('wallet-ecdsa-login');
           const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
             chainTarget: target.chainTarget,
             thresholdSessionId,
-            signingGrantId: ecdsaOnlySigningGrantId,
+            signingGrantId,
             thresholdSessionKind: 'jwt',
             ttlMs: args.ttlMs,
             remainingUses: unlockRemainingUses,
@@ -2630,9 +2719,10 @@ async function primeThresholdLoginWarmSigners(args: {
                       '[login] threshold ECDSA first bootstrap requires PRF.first from the wallet unlock assertion',
                     );
                   })();
+          const signingGrantId = createThresholdLoginWarmSessionId('wallet-ecdsa-login');
           const sessionIdentity = buildEcdsaSessionIdentity({
             thresholdSessionId,
-            signingGrantId: ecdsaOnlySigningGrantId,
+            signingGrantId,
           });
           const appSessionJwt =
             args.routeAuthorization.kind === 'app_session_jwt'
@@ -3728,16 +3818,15 @@ export async function getRecentUnlocks(
   context: RecentUnlocksWebContext,
 ): Promise<GetRecentUnlocksResult> {
   const allUsersData = await context.signingEngine.getAllUsers();
-  const accountIds = [...new Set(allUsersData.map((user) => user.nearAccountId))];
-  const lastUsedAccount = await context.signingEngine.getLastUser();
+  const accounts = allUsersData.map((user) => recentUnlockAccountFromUser(user));
+  const walletIds = [...new Set(accounts.map((account) => account.walletId))];
+  const accountIds = [...new Set(accounts.map((account) => account.nearAccountId))];
+  const lastUsedUser = await context.signingEngine.getLastUser();
   return {
+    walletIds,
     accountIds,
-    accounts: allUsersData.map((user) => ({
-      nearAccountId: user.nearAccountId,
-      signerSlot: user.signerSlot,
-      authMethod: user.authMethod || null,
-    })),
-    lastUsedAccount,
+    accounts,
+    lastUsedAccount: lastUsedUser ? recentUnlockAccountFromUser(lastUsedUser) : null,
   };
 }
 

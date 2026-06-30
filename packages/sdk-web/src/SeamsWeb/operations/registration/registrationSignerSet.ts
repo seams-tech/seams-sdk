@@ -3,11 +3,16 @@ import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '@shared/threshold/particip
 import {
   implicitNearAccountProvisioning,
   sponsoredNamedNearAccountProvisioning,
+  type RegisterWalletInput,
   type RegistrationNearAccountProvisioning,
   type RegistrationSignerSetSelection,
+  type WalletId,
 } from '@shared/utils/registrationIntent';
 import { parseNamedNearAccountId } from '@shared/utils/near';
-import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import type {
+  SeamsConfigsReadonly,
+  SeamsRegistrationNearAccountProvisioning,
+} from '@/core/types/seams';
 import type { RegistrationHooksOptions } from '@/core/types/sdkSentEvents';
 import { THRESHOLD_ED25519_HSS_DERIVATION_VERSION } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
@@ -62,4 +67,41 @@ export function sponsoredNamedRegistrationProvisioningFromAccountId(
     throw new Error(parsed.message);
   }
   return sponsoredNamedNearAccountProvisioning(parsed.value);
+}
+
+export function relayerNamedSubaccountProvisioningFromWalletId(args: {
+  walletId: WalletId | string;
+  relayerAccountId: string;
+}): RegistrationNearAccountProvisioning {
+  const walletId = String(args.walletId || '').trim();
+  const relayerAccountId = String(args.relayerAccountId || '').trim();
+  if (!walletId) throw new Error('Relayer named NEAR registration requires walletId');
+  if (!relayerAccountId) {
+    throw new Error('Relayer named NEAR registration requires relayer accountId');
+  }
+  return sponsoredNamedRegistrationProvisioningFromAccountId(`${walletId}.${relayerAccountId}`);
+}
+
+export function resolvePasskeyRegistrationAccountProvisioning(args: {
+  configs: SeamsConfigsReadonly;
+  wallet: RegisterWalletInput;
+  preference?: SeamsRegistrationNearAccountProvisioning;
+}): RegistrationNearAccountProvisioning {
+  const preference = args.preference ?? args.configs.registration.nearAccountProvisioning;
+  switch (preference.kind) {
+    case 'implicit_account':
+      return implicitNearAccountProvisioning();
+    case 'relayer_named_subaccount':
+      if (args.wallet.kind !== 'provided') {
+        throw new Error('Relayer named NEAR registration requires a provided walletId');
+      }
+      return relayerNamedSubaccountProvisioningFromWalletId({
+        walletId: args.wallet.walletId,
+        relayerAccountId: args.configs.network.relayer.accountId,
+      });
+    default: {
+      const exhaustive: never = preference;
+      return exhaustive;
+    }
+  }
 }

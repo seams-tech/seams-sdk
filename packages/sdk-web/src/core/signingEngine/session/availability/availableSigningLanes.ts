@@ -30,7 +30,6 @@ import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
-  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
   resolveThresholdEcdsaKeyIdFromRecord,
   toEvmFamilyEcdsaKeyHandle,
@@ -1087,14 +1086,7 @@ async function recordToEcdsaLane(args: {
   try {
     keyIdentity = buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId,
-      walletKeyId: deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-        walletId,
-        ecdsaThresholdKeyId,
-        signingRootId: recoveryRecord.signingRootId,
-        signingRootVersion: recoveryRecord.signingRootVersion,
-        participantIds: recoveryRecord.participantIds,
-        thresholdOwnerAddress: recoveryRecord.ethereumAddress,
-      }),
+      evmFamilySigningKeySlotId: recoveryRecord.evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       signingRootId: recoveryRecord.signingRootId,
       signingRootVersion: recoveryRecord.signingRootVersion,

@@ -8,12 +8,10 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '../../interfaces/ecdsaChainTarget';
-import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
   buildEvmFamilyEcdsaWalletKey,
-  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
+  parseThresholdSigningRootBinding,
   resolveThresholdEcdsaKeyIdFromRecord,
-  resolveThresholdSigningRootBindingFromRecord,
   toEvmFamilyEcdsaKeyHandle,
   toThresholdEcdsaPublicKeyB64u,
   type EvmFamilyEcdsaWalletKey,
@@ -135,16 +133,11 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
       keyFacts.thresholdOwnerAddress ||
       args.metadata.thresholdOwnerAddress ||
       args.metadata.ownerAddress;
+    const evmFamilySigningKeySlotId = keyFacts.evmFamilySigningKeySlotId || args.metadata.evmFamilySigningKeySlotId;
+    if (!evmFamilySigningKeySlotId) return null;
     return buildEvmFamilyEcdsaWalletKey({
       walletId: keyWalletId,
-      walletKeyId: deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-        walletId: keyWalletId,
-        ecdsaThresholdKeyId,
-        signingRootId,
-        signingRootVersion,
-        participantIds,
-        thresholdOwnerAddress,
-      }),
+      evmFamilySigningKeySlotId,
       keyHandle: args.keyHandle,
       chainTarget: args.chainTarget,
       ecdsaThresholdKeyId,
@@ -231,7 +224,6 @@ export function parseProfileContinuityEcdsaWarmKey(args: {
 function parseThresholdEcdsaKeyIdentityRecord(args: {
   walletId: WalletId;
   rpId: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   raw: unknown;
 }): ThresholdEcdsaKeyIdentityInventoryEntry | null {
   const { raw } = args;
@@ -278,27 +270,18 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
         ecdsaThresholdKeyId: raw.ecdsaThresholdKeyId,
       },
     });
-    const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-      record: {
-        keyHandle: canonicalKeyHandle,
-        runtimePolicyScope: args.runtimePolicyScope,
-        signingRootId: raw.signingRootId || rawKey.signingRootId,
-        signingRootVersion: raw.signingRootVersion || rawKey.signingRootVersion,
-      },
+    const signingRootBinding = parseThresholdSigningRootBinding({
+      signingRootId: raw.signingRootId || rawKey.signingRootId,
+      signingRootVersion: raw.signingRootVersion || rawKey.signingRootVersion,
     });
+    const evmFamilySigningKeySlotId = rawKey.evmFamilySigningKeySlotId || raw.evmFamilySigningKeySlotId;
+    if (!evmFamilySigningKeySlotId) return null;
     return {
       accountAddress,
       ownerAddress,
       walletKey: buildEvmFamilyEcdsaWalletKey({
         walletId: args.walletId,
-        walletKeyId: deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
-          walletId: args.walletId,
-          ecdsaThresholdKeyId,
-          signingRootId: signingRootBinding.signingRootId,
-          signingRootVersion: signingRootBinding.signingRootVersion,
-          participantIds: rawKey.participantIds || raw.participantIds,
-          thresholdOwnerAddress,
-        }),
+        evmFamilySigningKeySlotId,
         keyHandle: canonicalKeyHandle,
         chainTarget,
         ecdsaThresholdKeyId,
@@ -317,7 +300,6 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
 export function parseThresholdEcdsaKeyIdentityTargets(args: {
   walletId: WalletId;
   rpId: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   records: readonly unknown[];
 }): ThresholdEcdsaKeyIdentityInventoryEntry[] {
   const entries: ThresholdEcdsaKeyIdentityInventoryEntry[] = [];
@@ -325,7 +307,6 @@ export function parseThresholdEcdsaKeyIdentityTargets(args: {
     const parsed = parseThresholdEcdsaKeyIdentityRecord({
       walletId: args.walletId,
       rpId: args.rpId,
-      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       raw,
     });
     if (!parsed) continue;

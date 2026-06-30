@@ -32,7 +32,7 @@ import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 export type EcdsaRoleLocalExportMaterial = {
   readyRecord: EcdsaRoleLocalReadyRecord;
@@ -150,7 +150,7 @@ function parseCredentialIdB64u(value: unknown, field = 'credentialIdB64u'): Cred
 }
 
 function toWalletKeyId(value: unknown) {
-  return requireWalletKeyId(value);
+  return requireEvmFamilySigningKeySlotId(value);
 }
 
 function parseAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
@@ -268,7 +268,7 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   }
   return {
     walletId: toWalletId(input.walletId),
-    walletKeyId: toWalletKeyId(input.walletKeyId),
+    evmFamilySigningKeySlotId: toWalletKeyId(input.evmFamilySigningKeySlotId),
     chainTarget: thresholdEcdsaChainTargetFromRequest(
       isRecord(input.chainTarget) ? input.chainTarget : {},
     ),
@@ -557,7 +557,7 @@ function serializeEcdsaRoleLocalPublicFacts(
 ): Record<string, unknown> {
   return {
     walletId: facts.walletId,
-    walletKeyId: facts.walletKeyId,
+    evmFamilySigningKeySlotId: facts.evmFamilySigningKeySlotId,
     chainTarget: facts.chainTarget,
     keyHandle: facts.keyHandle,
     ecdsaThresholdKeyId: facts.ecdsaThresholdKeyId,
@@ -603,7 +603,7 @@ export function ecdsaRoleLocalReadyRecordStorageKey(
   return [
     'ecdsa_role_local_ready_v1',
     keyPart(input.walletId),
-    keyPart(input.walletKeyId),
+    keyPart(input.evmFamilySigningKeySlotId),
     keyPart(thresholdEcdsaChainTargetKey(input.chainTarget)),
     keyPart(input.keyHandle),
     keyPart(input.ecdsaThresholdKeyId),
@@ -633,7 +633,7 @@ export function ecdsaRoleLocalReadyRecordMatchesInput(args: {
   const input = args.input;
   return (
     String(facts.walletId) === String(input.walletId) &&
-    String(facts.walletKeyId) === String(input.walletKeyId) &&
+    String(facts.evmFamilySigningKeySlotId) === String(input.evmFamilySigningKeySlotId) &&
     thresholdEcdsaChainTargetsEqual(facts.chainTarget, input.chainTarget) &&
     String(facts.keyHandle) === String(input.keyHandle) &&
     String(facts.ecdsaThresholdKeyId) === String(input.ecdsaThresholdKeyId) &&

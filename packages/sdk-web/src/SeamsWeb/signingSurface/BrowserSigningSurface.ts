@@ -74,6 +74,8 @@ import { type ThresholdEd25519CommitQueueByKey } from '@/core/signingEngine/thre
 import { clearAllRouterAbEd25519ClientPresigns } from '@/core/signingEngine/threshold/ed25519/presignPool';
 import * as recoveryPublic from '@/core/signingEngine/flows/recovery/public';
 import type {
+  SigningEngineResolveExactKeyExportLaneInput,
+  SigningEngineResolveExactKeyExportLaneResult,
   RecoveryPublicDeps,
   SigningEngineExportKeypairWithUIInput,
   KeyExportEventCallback,
@@ -698,6 +700,12 @@ export class BrowserSigningSurface {
     input: SigningEngineExportKeypairWithUIInput,
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
     return await recoveryPublic.exportKeypairWithUI(this.recoveryPublicDeps, input);
+  }
+
+  async resolveExactKeyExportLane(
+    input: SigningEngineResolveExactKeyExportLaneInput,
+  ): Promise<SigningEngineResolveExactKeyExportLaneResult> {
+    return await recoveryPublic.resolveExactKeyExportLane(this.recoveryPublicDeps, input);
   }
 
   exportNearEd25519SeedArtifactWithUI(args: {

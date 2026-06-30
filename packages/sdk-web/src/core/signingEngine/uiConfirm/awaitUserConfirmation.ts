@@ -13,6 +13,7 @@ import {
   RegistrationConfirmationDiagnostics,
   SerializableCredential,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { NonceLeaseRef } from '@/core/signingEngine/interfaces/nonceLease';
 import { isObject, isString, isBoolean } from '@shared/utils/validation';
 import { errorMessage, toError } from '@shared/utils/errors';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
@@ -28,6 +29,7 @@ type ConfirmResponsePayload = {
   otpCode?: string;
   emailOtpChallengeId?: string;
   transactionContext?: TransactionContext;
+  nonceLeases?: NonceLeaseRef[];
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   error?: string;
 };
@@ -97,24 +99,23 @@ export function awaitUserConfirmationV2(
       if (resolveEnvelopeRequestId(env) !== request.requestId) return;
       if (!isMatchingChannelToken(env, channelToken)) return;
       cleanup();
-      const response: WorkerConfirmationResponse = env.data.confirmed
-        ? {
-            request_id: request.requestId,
-            intent_digest: env.data.intentDigest,
-            confirmed: true,
-            credential: env.data.credential,
-            otp_code: env.data.otpCode,
-            email_otp_challenge_id: env.data.emailOtpChallengeId,
-            transaction_context: env.data.transactionContext,
-            registration_diagnostics: env.data.registrationDiagnostics,
-          }
-        : {
-            request_id: request.requestId,
-            intent_digest: env.data.intentDigest,
-            confirmed: false,
-            registration_diagnostics: env.data.registrationDiagnostics,
-            error: env.data.error,
-          };
+      let response: WorkerConfirmationResponse;
+      try {
+        response = env.data.confirmed
+          ? buildConfirmedWorkerConfirmationResponse({
+              requestId: request.requestId,
+              data: env.data,
+            })
+          : {
+              request_id: request.requestId,
+              intent_digest: env.data.intentDigest,
+              confirmed: false,
+              registration_diagnostics: env.data.registrationDiagnostics,
+              error: env.data.error,
+            };
+      } catch (error: unknown) {
+        return reject(toError(error));
+      }
       return resolve(response);
     };
     self.addEventListener('message', onDecisionReceived);
@@ -152,6 +153,92 @@ export function awaitUserConfirmationV2(
       return reject(toError(postErr));
     }
   });
+}
+
+function buildConfirmedWorkerConfirmationResponse(args: {
+  requestId: string;
+  data: ConfirmResponsePayload;
+}): WorkerConfirmationResponse {
+  const nonceLeases = normalizeNonceLeaseRefs(args.data.nonceLeases);
+  const base = {
+    request_id: args.requestId,
+    confirmed: true as const,
+    ...(args.data.intentDigest ? { intent_digest: args.data.intentDigest } : {}),
+    ...(args.data.credential ? { credential: args.data.credential } : {}),
+    ...(args.data.otpCode ? { otp_code: args.data.otpCode } : {}),
+    ...(args.data.emailOtpChallengeId
+      ? { email_otp_challenge_id: args.data.emailOtpChallengeId }
+      : {}),
+    ...(args.data.registrationDiagnostics
+      ? { registration_diagnostics: args.data.registrationDiagnostics }
+      : {}),
+  };
+  if (args.data.transactionContext) {
+    if (!nonceLeases?.length) {
+      throw new Error('Secure confirm transaction response requires nonceLeases');
+    }
+    return {
+      ...base,
+      transaction_context: args.data.transactionContext,
+      nonce_leases: nonceLeases,
+    };
+  }
+  if (nonceLeases !== undefined) {
+    throw new Error('Secure confirm response nonceLeases require transactionContext');
+  }
+  return base;
+}
+
+function normalizeNonceLeaseRefs(value: unknown): NonceLeaseRef[] | undefined {
+  if (value == null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid secure confirm response nonceLeases: expected array');
+  }
+  return value.map(normalizeNonceLeaseRef);
+}
+
+function normalizeNonceLeaseRef(value: unknown): NonceLeaseRef {
+  if (!isObject(value)) {
+    throw new Error('Invalid secure confirm response nonceLease: expected object');
+  }
+  const record = value as Record<string, unknown>;
+  const leaseId = normalizeNonceLeaseString(record.leaseId, 'nonceLease.leaseId');
+  const operationId = normalizeNonceLeaseString(record.operationId, 'nonceLease.operationId');
+  const operationFingerprint = normalizeNonceLeaseString(
+    record.operationFingerprint,
+    'nonceLease.operationFingerprint',
+  );
+  const nonce = normalizeNonceLeaseString(record.nonce, 'nonceLease.nonce');
+  const batchId =
+    record.batchId == null ? undefined : normalizeNonceLeaseString(record.batchId, 'nonceLease.batchId');
+  const txIndex = normalizeNonceLeaseTxIndex(record.txIndex);
+  return {
+    leaseId,
+    operationId,
+    operationFingerprint,
+    nonce,
+    ...(batchId ? { batchId } : {}),
+    ...(txIndex !== undefined ? { txIndex } : {}),
+  };
+}
+
+function normalizeNonceLeaseString(value: unknown, field: string): string {
+  if (!isString(value)) {
+    throw new Error(`Invalid secure confirm response ${field}: expected string`);
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`Invalid secure confirm response ${field}: expected non-empty string`);
+  }
+  return normalized;
+}
+
+function normalizeNonceLeaseTxIndex(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw new Error('Invalid secure confirm response nonceLease.txIndex: expected safe integer');
+  }
+  return value;
 }
 
 function isConfirmResponseEnvelope(msg: unknown): msg is ConfirmResponseEnvelope {

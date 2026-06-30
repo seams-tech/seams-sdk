@@ -41,6 +41,7 @@ import type {
   SignDelegateActionResult,
   SigningSessionStatus,
   SignTransactionResult,
+  SeamsRegistrationNearAccountProvisioning,
   ThemeName,
   SeamsConfigsReadonly,
 } from '@/core/types/seams';
@@ -111,6 +112,8 @@ import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
 import type {
   KeyExportEventCallback,
+  SigningEngineResolveExactKeyExportLaneInput,
+  SigningEngineResolveExactKeyExportLaneResult,
   SigningEngineExportKeypairWithUIInput,
 } from '@/core/signingEngine/flows/recovery/public';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
@@ -226,6 +229,7 @@ export type RegisterNearWalletArgs =
 
 export type PasskeyRegistrationOptions = RegistrationHooksOptions & {
   wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>;
+  nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
 };
 
 export type RegisterEvmWalletArgs = {
@@ -694,6 +698,7 @@ export type WalletIframeRegistrationActivationSurface = {
 };
 
 export type CreatePasskeyRegistrationActivationSurfaceArgs = {
+  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
   options?: RegistrationHooksOptions;
   presentation: RegistrationActivationButtonPresentation;
 };
@@ -926,7 +931,13 @@ export type ExportKeypairWithUIInput =
       options: ThresholdEd25519SeedExportUiOptions;
     };
 
+export type ResolveExactKeyExportLaneInput = SigningEngineResolveExactKeyExportLaneInput;
+export type ResolveExactKeyExportLaneResult = SigningEngineResolveExactKeyExportLaneResult;
+
 export interface KeyExportCapability {
+  resolveExactKeyExportLane(
+    input: ResolveExactKeyExportLaneInput,
+  ): Promise<ResolveExactKeyExportLaneResult>;
   exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void>;
   exportThresholdEd25519SeedFromHssReport(args: {
     walletSession: WalletSessionRef;

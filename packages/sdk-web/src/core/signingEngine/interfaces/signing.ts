@@ -3,6 +3,10 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import type {
+  EcdsaRoleLocalBindingDigest,
+  EcdsaRoleLocalMaterialHandle,
+} from '../session/keyMaterialBrands';
+import type {
   EcdsaRoleLocalPublicFacts,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
@@ -33,8 +37,8 @@ export type ThresholdEcdsaClientAdditiveShareHandle = {
 
 export type ThresholdEcdsaRoleLocalWorkerShareHandle = {
   kind: 'role_local_worker_session';
-  materialHandle: string;
-  bindingDigest: string;
+  materialHandle: EcdsaRoleLocalMaterialHandle;
+  bindingDigest: EcdsaRoleLocalBindingDigest;
 };
 
 export type ThresholdEcdsaHssRoleLocalClientState = {
@@ -112,6 +116,7 @@ export type KeyRef =
        * Canonical product-facing identity for the integrated ecdsa-hss key.
        */
       keyHandle?: string;
+      evmFamilySigningKeySlotId: string;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       signingRootId?: never;
       signingRootVersion?: never;

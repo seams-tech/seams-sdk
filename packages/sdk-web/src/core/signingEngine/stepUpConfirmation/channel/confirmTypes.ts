@@ -13,6 +13,7 @@ import type {
   UserConfirmProgressEvent,
   WebAuthnChallenge,
 } from '../types';
+import type { NonceLeaseRef } from '../../interfaces/nonceLease';
 
 export type {
   ForbiddenMainThreadSecrets,
@@ -80,16 +81,24 @@ type WorkerConfirmationResponseBase = {
   intent_digest?: string;
 };
 
+type WorkerConfirmationSuccessBase = WorkerConfirmationResponseBase & {
+  confirmed: true;
+  credential?: SerializableCredential;
+  otp_code?: string;
+  email_otp_challenge_id?: string;
+  registration_diagnostics?: RegistrationConfirmationDiagnostics;
+  error?: never;
+};
+
 // Payload to return to Rust WASM is snake_case.
 export type WorkerConfirmationResponse =
-  | (WorkerConfirmationResponseBase & {
-      confirmed: true;
-      credential?: SerializableCredential;
-      otp_code?: string;
-      email_otp_challenge_id?: string;
-      transaction_context?: TransactionContext;
-      registration_diagnostics?: RegistrationConfirmationDiagnostics;
-      error?: never;
+  | (WorkerConfirmationSuccessBase & {
+      transaction_context: TransactionContext;
+      nonce_leases: NonceLeaseRef[];
+    })
+  | (WorkerConfirmationSuccessBase & {
+      transaction_context?: never;
+      nonce_leases?: never;
     })
   | (WorkerConfirmationResponseBase & {
       confirmed: false;
@@ -99,6 +108,7 @@ export type WorkerConfirmationResponse =
       otp_code?: never;
       email_otp_challenge_id?: never;
       transaction_context?: never;
+      nonce_leases?: never;
     });
 
 // ===== V2 MESSAGE TYPES =====
@@ -184,6 +194,10 @@ export interface SignTransactionPayload {
   displayModel?: TxDisplayModel;
   rpcCall: RpcCallPayload;
   nearPublicKeyStr?: string;
+  nearFundingAuth?: {
+    kind: 'wallet_session';
+    walletSessionJwt: string;
+  };
   webauthnChallenge?: WebAuthnChallenge;
   signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
@@ -203,8 +217,20 @@ export type RegistrationActivationProof = {
   activatedAtMs: number;
 };
 
+export type LocalOnlyExportSubject =
+  | {
+      kind: 'near_wallet';
+      nearAccountId: string;
+      walletId?: never;
+    }
+  | {
+      kind: 'evm_wallet';
+      walletId: string;
+      nearAccountId?: never;
+    };
+
 export interface DecryptPrivateKeyWithPrfPayload {
-  nearAccountId: string;
+  subject: LocalOnlyExportSubject;
   publicKey: string;
   challengeB64u?: string;
 }
@@ -226,9 +252,9 @@ export interface ExportGuidance {
 }
 
 export interface ShowSecurePrivateKeyUiPayload {
-  nearAccountId: string;
+  subject: LocalOnlyExportSubject;
   viewerSessionId?: string;
-  publicKey?: string;
+  publicKey: string;
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];
   guidance?: ExportGuidance;
@@ -251,8 +277,20 @@ export interface SignNep413Payload {
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
+export type SignIntentDigestSubject =
+  | {
+      kind: 'near_wallet';
+      walletId: string;
+      nearAccountId: string;
+    }
+  | {
+      kind: 'evm_wallet';
+      walletId: string;
+      nearAccountId?: never;
+    };
+
 type SignIntentDigestPayloadBase = {
-  nearAccountId: string;
+  signingSubject: SignIntentDigestSubject;
   /**
    * Base64url-encoded 32-byte digest used as WebAuthn challenge when the
    * derived signing auth display mode is WebAuthn.

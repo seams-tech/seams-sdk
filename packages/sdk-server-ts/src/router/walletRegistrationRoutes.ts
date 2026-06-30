@@ -23,6 +23,8 @@ import type {
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
   EcdsaHssServerBootstrapResponse,
+  FundImplicitNearAccountRequest,
+  FundImplicitNearAccountResult,
   ThresholdEd25519BootstrapSession,
   WalletKeyFactsInventoryAuth,
   WalletRegistrationFinalizeRequest,
@@ -52,6 +54,7 @@ import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   signRouterAbEcdsaHssWalletSessionJwt,
   signRouterAbEd25519WalletSessionJwt,
+  validateRouterAbEd25519WalletSessionTokenInputs,
 } from './commonRouterUtils';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
@@ -65,6 +68,10 @@ import { isPlainObject } from '@shared/utils/validation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import { normalizeCorsOrigin } from '../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
+import {
+  deriveImplicitNearAccountIdFromEd25519PublicKey,
+  parseImplicitNearAccountId,
+} from '@shared/utils/near';
 import {
   addAuthMethodIntentGrantFromString,
   computeAddAuthMethodIntentDigestB64u,
@@ -136,6 +143,54 @@ type RouterApiWalletRegistrationPrepareInput = Omit<
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
+
+function parseFundImplicitNearAccountBody(
+  body: unknown,
+  walletId: string,
+): ParseResult<FundImplicitNearAccountRequest> {
+  if (!isPlainObject(body)) {
+    return { ok: false, code: 'invalid_body', message: 'JSON body required' };
+  }
+  const nearAccountId = String((body as { nearAccountId?: unknown }).nearAccountId || '').trim();
+  const nearPublicKeyStr = String(
+    (body as { nearPublicKeyStr?: unknown }).nearPublicKeyStr || '',
+  ).trim();
+  if (!walletId) return { ok: false, code: 'invalid_body', message: 'walletId is required' };
+  if (!nearAccountId) {
+    return { ok: false, code: 'invalid_body', message: 'nearAccountId is required' };
+  }
+  if (!nearPublicKeyStr) {
+    return { ok: false, code: 'invalid_body', message: 'nearPublicKeyStr is required' };
+  }
+  const parsedNearAccountId = parseImplicitNearAccountId(nearAccountId);
+  if (!parsedNearAccountId.ok) {
+    return { ok: false, code: 'invalid_body', message: parsedNearAccountId.message };
+  }
+  try {
+    const derivedNearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(nearPublicKeyStr);
+    if (derivedNearAccountId !== parsedNearAccountId.value) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'nearAccountId does not match nearPublicKeyStr implicit account ID',
+      };
+    }
+  } catch (error: unknown) {
+    const message =
+      error && typeof error === 'object' && 'message' in error
+        ? String((error as { message?: unknown }).message || 'Invalid nearPublicKeyStr')
+        : 'Invalid nearPublicKeyStr';
+    return { ok: false, code: 'invalid_body', message };
+  }
+  return {
+    ok: true,
+    value: {
+      walletId,
+      nearAccountId: parsedNearAccountId.value,
+      nearPublicKeyStr,
+    },
+  };
+}
 
 function exposesRegistrationRouteDiagnostics(input: RouterApiWalletRegistrationInput): boolean {
   const raw =
@@ -417,7 +472,7 @@ async function attachEcdsaWalletSessionJwt(
   const signed = await signRouterAbEcdsaHssWalletSessionJwt({
     session: input.services.session,
     userId: bootstrap.walletId,
-    walletKeyId: bootstrap.walletKeyId,
+    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
     relayerKeyId: bootstrap.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
@@ -429,7 +484,7 @@ async function attachEcdsaWalletSessionJwt(
       keyHandle: bootstrap.keyHandle,
       stableKeyContext: {
         walletId: bootstrap.walletId,
-        walletKeyId: bootstrap.walletKeyId,
+        evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
         keyScope: 'evm-family',
         ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
         signingRootId: bootstrap.signingRootId,
@@ -568,9 +623,7 @@ function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> 
   };
 }
 
-function parseRegistrationSignerSet(
-  raw: unknown,
-): ParseResult<ParsedRegistrationSignerSet> {
+function parseRegistrationSignerSet(raw: unknown): ParseResult<ParsedRegistrationSignerSet> {
   const signerPlan = normalizeRegistrationSignerPlan(raw);
   if (!signerPlan.ok) {
     return { ok: false, code: 'invalid_body', message: signerPlan.message };
@@ -1163,9 +1216,7 @@ async function parseWalletRegistrationPrepareBody(
     return { ok: false, code: 'invalid_body', message: 'registration authMethod is invalid' };
   }
   if (!signerSelection.ok) return signerSelection;
-  const nearEd25519Branch = findRegistrationSignerPlanNearEd25519Branch(
-    signerSelection.value.plan,
-  );
+  const nearEd25519Branch = findRegistrationSignerPlanNearEd25519Branch(signerSelection.value.plan);
   if (!nearEd25519Branch) {
     return {
       ok: false,
@@ -1497,7 +1548,7 @@ function parseWalletRegistrationHssRespondRequest(
       clientBootstrap: {
         formatVersion: parsed.formatVersion,
         walletId: parsed.walletId,
-        walletKeyId: parsed.walletKeyId,
+        evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
         signingRootId: parsed.signingRootId,
         signingRootVersion: parsed.signingRootVersion,
@@ -1668,6 +1719,12 @@ function parseWalletRegistrationFinalizeRequest(
       'ed25519.evaluationResult.stagedEvaluatorArtifactB64u is required',
     );
     if (!stagedEvaluatorArtifactB64u.ok) return stagedEvaluatorArtifactB64u;
+    const serverEvalFinalizeOutputB64u = trimRequiredString(
+      evaluationResult,
+      'serverEvalFinalizeOutputB64u',
+      'ed25519.evaluationResult.serverEvalFinalizeOutputB64u is required',
+    );
+    if (!serverEvalFinalizeOutputB64u.ok) return serverEvalFinalizeOutputB64u;
     const forbiddenField = findOwnField(evaluationResult, ED25519_HSS_FINALIZE_FORBIDDEN_FIELDS);
     if (forbiddenField) {
       return {
@@ -1693,6 +1750,7 @@ function parseWalletRegistrationFinalizeRequest(
       evaluationResult: {
         contextBindingB64u: contextBindingB64u.value,
         stagedEvaluatorArtifactB64u: stagedEvaluatorArtifactB64u.value,
+        serverEvalFinalizeOutputB64u: serverEvalFinalizeOutputB64u.value,
       },
       ...(sessionKind ? { sessionKind } : {}),
       ...(sessionPolicy ? { sessionPolicy } : {}),
@@ -2596,5 +2654,33 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
     ok: true,
     ecdsaKeyIdentityTargets: keyInventory.records,
     diagnostics: keyInventory.diagnostics,
+  });
+}
+
+export async function handleRouterApiWalletNearImplicitAccountFund(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<RouteErrorBody | FundImplicitNearAccountResult>> {
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  const parsedBody = parseFundImplicitNearAccountBody(input.body, walletId);
+  if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
+
+  const sessionInputs = await validateRouterAbEd25519WalletSessionTokenInputs({
+    body: input.body,
+    headers: input.headers || {},
+    session: input.services.session,
+  });
+  if (!sessionInputs.ok) {
+    return routeError(401, 'unauthorized', sessionInputs.message);
+  }
+  if (sessionInputs.claims.walletId !== parsedBody.value.walletId) {
+    return routeError(403, 'forbidden', 'Wallet session does not match walletId');
+  }
+  if (sessionInputs.claims.nearAccountId !== parsedBody.value.nearAccountId) {
+    return routeError(403, 'forbidden', 'Wallet session does not match nearAccountId');
+  }
+
+  const result = await input.services.authService.fundImplicitNearAccount(parsedBody.value);
+  return routeJson(result.ok ? 200 : 400, result, {
+    usage: result.ok ? { walletId: result.walletId } : undefined,
   });
 }

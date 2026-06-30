@@ -67,9 +67,10 @@ export function createRouterApiKeyAuthAdapter(apiKeys: ConsoleApiKeyService): Ro
   if (typeof authenticateApiKey !== 'function') {
     throw new Error('ConsoleApiKeyService.authenticateApiKey is required for Router API key auth');
   }
+  const authenticateApiKeyFn = authenticateApiKey.bind(apiKeys);
   return {
     authenticate: async (input) => {
-      const result = await authenticateApiKey(input);
+      const result = await authenticateApiKeyFn(input);
       return toRouterApiAuthResult(result);
     },
   };
@@ -84,9 +85,10 @@ export function createRouterApiPublishableKeyAuthAdapter(
       'ConsoleApiKeyService.authenticatePublishableKey is required for Router API publishable key auth',
     );
   }
+  const authenticatePublishableKeyFn = authenticatePublishableKey.bind(apiKeys);
   return {
     authenticate: async (input) => {
-      const result = await authenticatePublishableKey({
+      const result = await authenticatePublishableKeyFn({
         secret: input.secret,
         origin: input.origin,
         environmentId: input.environmentId,

@@ -10,7 +10,7 @@ import {
   THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
   type EcdsaHssSessionPolicy,
 } from '../../threshold/sessionPolicy';
-import { parseWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   toEcdsaHssThresholdKeyId,
   toEcdsaHssThresholdSessionId,
@@ -34,12 +34,14 @@ const authSubjectId = toEmailOtpAuthSubjectId('google:subject-1');
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-key-1');
 const sessionId = toEcdsaHssThresholdSessionId('threshold-session-1');
 const signingGrantId = toEcdsaHssSigningGrantId('signing-grant-1');
-const walletKeyIdResult = parseWalletKeyId('wallet-key-example-test');
-if (!walletKeyIdResult.ok) throw new Error(walletKeyIdResult.error.message);
-const walletKeyId = walletKeyIdResult.value;
+const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+  walletId,
+  signingRootId: 'project:dev',
+  signingRootVersion: 'default',
+});
 const keyContext = buildSessionBootstrapKeyContext({
   walletId: walletSessionUserId,
-  walletKeyId,
+  evmFamilySigningKeySlotId,
   participantIds: [1, 2],
 });
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
@@ -54,7 +56,7 @@ const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
 void ({
   version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
   walletId,
-  walletKeyId,
+  evmFamilySigningKeySlotId,
   chainTarget,
   ecdsaThresholdKeyId,
   sessionId,
@@ -77,7 +79,7 @@ void ({
   version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
   // @ts-expect-error raw strings must be normalized to WalletSessionUserId first
   walletId: 'wallet.testnet',
-  walletKeyId,
+  evmFamilySigningKeySlotId,
   chainTarget,
   ecdsaThresholdKeyId,
   sessionId,
@@ -89,7 +91,7 @@ void ({
 void ({
   version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
   walletId,
-  walletKeyId,
+  evmFamilySigningKeySlotId,
   chainTarget,
   // @ts-expect-error raw key ids must be normalized to EcdsaThresholdKeyId first
   ecdsaThresholdKeyId: 'ecdsa-key-1',

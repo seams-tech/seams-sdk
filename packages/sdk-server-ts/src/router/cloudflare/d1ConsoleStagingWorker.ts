@@ -34,6 +34,7 @@ const CONSOLE_STAGING_READY_TABLES = Object.freeze([
   'team_members',
   'billing_accounts',
   'billing_prepaid_reservations',
+  'sponsorship_pricing_rules',
   'sponsored_call_records',
   'runtime_snapshot_outbox',
 ]);

@@ -10,7 +10,10 @@ import {
   toEmailOtpAuthSubjectId,
   type EmailOtpAuthSubjectId,
 } from '../signingEngine/session/identity/emailOtpHssIdentity';
-import { parseWalletKeyId, type WalletKeyId } from '@shared/signing-lanes';
+import {
+  requireEvmFamilySigningKeySlotId,
+  type EvmFamilySigningKeySlotId,
+} from '@shared/signing-lanes';
 import type { RelayerKeyId } from './ecdsaRoleLocalRecords';
 
 const clientSecretSourceBrand: unique symbol = Symbol('ClientSecretSource');
@@ -47,7 +50,7 @@ export type EmailOtpWorkerIssuedSessionHandle = {
       kind: 'email_otp_worker_session_handle_v1';
       sessionId: string;
       walletId: WalletId;
-      walletKeyId: WalletKeyId;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ecdsa_bootstrap';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
@@ -62,7 +65,7 @@ export type EmailOtpWorkerIssuedSessionHandle = {
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ed25519_session';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
-      walletKeyId?: never;
+      evmFamilySigningKeySlotId?: never;
       chainTarget?: never;
     }
 );
@@ -77,7 +80,7 @@ export type EmailOtpWorkerIssuedSessionHandleInput =
   | {
       sessionId: string;
       walletId: WalletId;
-      walletKeyId: WalletKeyId;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ecdsa_bootstrap';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
@@ -91,7 +94,7 @@ export type EmailOtpWorkerIssuedSessionHandleInput =
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ed25519_session';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
-      walletKeyId?: never;
+      evmFamilySigningKeySlotId?: never;
       chainTarget?: never;
     };
 
@@ -118,12 +121,12 @@ function requirePlatformObject(value: unknown, field: string): Record<string, un
   return value as Record<string, unknown>;
 }
 
-function requirePlatformWalletKeyId(value: unknown, field: string): WalletKeyId {
-  const parsed = parseWalletKeyId(value);
-  if (!parsed.ok) {
-    throw new Error(`[platform] ${field} is invalid: ${parsed.error.message}`);
+function requirePlatformWalletKeyId(value: unknown, field: string): EvmFamilySigningKeySlotId {
+  try {
+    return requireEvmFamilySigningKeySlotId(value, field);
+  } catch (error) {
+    throw new Error(`[platform] ${field} is invalid`, { cause: error });
   }
-  return parsed.value;
 }
 
 export type RequiredPrfSecretSourceInput = {
@@ -166,7 +169,7 @@ export function buildEmailOtpWorkerIssuedSessionHandle(
         kind: 'email_otp_worker_session_handle_v1',
         sessionId,
         walletId: input.walletId,
-        walletKeyId: input.walletKeyId,
+        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
         authSubjectId: input.authSubjectId,
         action: 'threshold_ecdsa_bootstrap',
         operation: input.operation,
@@ -239,9 +242,9 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
     return buildEmailOtpWorkerIssuedSessionHandle({
       ...base,
       action,
-      walletKeyId: requirePlatformWalletKeyId(
-        payload.walletKeyId,
-        'email OTP worker-issued handle walletKeyId',
+      evmFamilySigningKeySlotId: requirePlatformWalletKeyId(
+        payload.evmFamilySigningKeySlotId,
+        'email OTP worker-issued handle evmFamilySigningKeySlotId',
       ),
       chainTarget: thresholdEcdsaChainTargetFromRequest(
         requirePlatformObject(payload.chainTarget, 'email OTP worker-issued handle chainTarget'),
@@ -254,9 +257,9 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
         '[platform] email OTP Ed25519 worker-issued handles cannot include chainTarget',
       );
     }
-    if ('walletKeyId' in payload) {
+    if ('evmFamilySigningKeySlotId' in payload) {
       throw new Error(
-        '[platform] email OTP Ed25519 worker-issued handles cannot include walletKeyId',
+        '[platform] email OTP Ed25519 worker-issued handles cannot include evmFamilySigningKeySlotId',
       );
     }
     return buildEmailOtpWorkerIssuedSessionHandle({

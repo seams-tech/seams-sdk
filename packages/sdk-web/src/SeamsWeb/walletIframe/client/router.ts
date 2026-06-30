@@ -147,6 +147,10 @@ import type {
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
 import type { ExportKeypairWithUIInput } from '@/SeamsWeb/signingSurface/types';
 import type {
+  ResolveExactKeyExportLaneInput,
+  ResolveExactKeyExportLaneResult,
+} from '@/SeamsWeb/publicApi/types';
+import type {
   BootstrapThresholdEcdsaSessionArgs,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
@@ -265,6 +269,26 @@ const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
 const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
 const WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS = 5 * 60 * 1000;
+
+function parseResolveExactKeyExportLaneResult(
+  result: ResolveExactKeyExportLaneResult,
+): ResolveExactKeyExportLaneResult {
+  switch (result.kind) {
+    case 'near':
+      return {
+        kind: 'near',
+        laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+      };
+    case 'ecdsa':
+      return {
+        kind: 'ecdsa',
+        laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
+      };
+  }
+  result satisfies never;
+  throw new Error('[WalletIframeRouter] unsupported key export lane resolution result');
+}
+
 const EMAIL_OTP_APP_ORIGIN_FORBIDDEN_RESULT_KEYS = new Set([
   'S',
   'secretS',
@@ -934,10 +958,7 @@ export class WalletIframeRouter {
           cb({ ok, result: payload?.result, cancelled: payload?.cancelled, error: payload?.error });
         }
         // Release overlay lock after result
-        this.overlayState.forceFullscreen = false;
-        this.overlayState.controller.setSticky(false);
-        // Progress bus will hide after completion; hide defensively here
-        this.hideFrameForActivation();
+        this.releaseOverlayLockAndHideWhenIdle();
         if (ok) {
           const walletId = payload?.result?.walletId;
           void this.getWalletSession(walletId)
@@ -1263,11 +1284,7 @@ export class WalletIframeRouter {
     };
     const releaseActivationOverlay = (): void => {
       cleanupActivationMount();
-      this.overlayState.forceFullscreen = false;
-      this.overlayState.controller.setSticky(false);
-      if (!this.progressBus.wantsVisible()) {
-        this.hideFrameForActivation();
-      }
+      this.releaseOverlayLockAndHideWhenIdle();
     };
     const postActivationCancel = (
       reason: Extract<RegistrationActivationSurfaceState, { kind: 'cancelled' }>['reason'],
@@ -1357,6 +1374,7 @@ export class WalletIframeRouter {
                 payload: {
                   activationId,
                   expiresAtMs,
+                  wallet: payload.wallet,
                   ...(safeOptions ? { options: safeOptions } : {}),
                   ...(payload.options?.confirmationConfig
                     ? { confirmationConfig: payload.options.confirmationConfig }
@@ -1453,9 +1471,7 @@ export class WalletIframeRouter {
       }
       return res.result;
     } finally {
-      this.overlayState.forceFullscreen = false;
-      this.overlayState.controller.setSticky(false);
-      this.hideFrameForActivation();
+      this.releaseOverlayLockAndHideWhenIdle();
     }
   }
 
@@ -1488,9 +1504,7 @@ export class WalletIframeRouter {
       });
       return res.result;
     } finally {
-      this.overlayState.forceFullscreen = false;
-      this.overlayState.controller.setSticky(false);
-      this.hideFrameForActivation();
+      this.releaseOverlayLockAndHideWhenIdle();
     }
   }
 
@@ -2459,6 +2473,16 @@ export class WalletIframeRouter {
     return res.result;
   }
 
+  async resolveExactKeyExportLane(
+    input: ResolveExactKeyExportLaneInput,
+  ): Promise<ResolveExactKeyExportLaneResult> {
+    const res = await this.post<ResolveExactKeyExportLaneResult>({
+      type: 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE',
+      payload: input,
+    });
+    return parseResolveExactKeyExportLaneResult(res.result);
+  }
+
   async exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void> {
     const { onEvent, ...messageOptions } = input.options;
     if (input.kind === 'near') {
@@ -2558,7 +2582,7 @@ export class WalletIframeRouter {
     await this.post<void>({ type: 'PM_CANCEL', payload: { requestId } }).catch(() => {});
     // Always clear local progress + hide overlay even if the host didn't receive the message
     this.progressBus.unregister(requestId);
-    this.hideFrameForActivation();
+    this.releaseOverlayLockAndHideWhenIdle();
   }
 
   async cancelAll(): Promise<void> {
@@ -2566,7 +2590,7 @@ export class WalletIframeRouter {
     await this.post<void>({ type: 'PM_CANCEL', payload: {} }).catch(() => {});
     // Clear all local progress listeners and force-hide the overlay
     this.progressBus.clearAll();
-    this.hideFrameForActivation();
+    this.releaseOverlayLockAndHideWhenIdle();
   }
 
   private onPortMessage(e: MessageEvent<ChildToParentEnvelope>) {
@@ -2646,6 +2670,7 @@ export class WalletIframeRouter {
         });
       }
       this.progressBus.unregister(requestId);
+      this.releaseOverlayLockAndHideWhenIdle();
       return;
     }
     this.state.pending.delete(requestId);
@@ -2674,6 +2699,7 @@ export class WalletIframeRouter {
         this.progressBus.dispatch({ requestId, payload: fallbackProgress });
       }
       this.progressBus.unregister(requestId);
+      this.releaseOverlayLockAndHideWhenIdle();
       return;
     }
 
@@ -2726,10 +2752,7 @@ export class WalletIframeRouter {
         if (pending?.timer !== undefined) window.clearTimeout(pending.timer);
         this.state.pending.delete(requestId);
         this.progressBus.unregister(requestId);
-        this.overlayState.controller.setSticky(false);
-        if (!this.progressBus.wantsVisible()) {
-          this.hideFrameForActivation();
-        }
+        this.releaseOverlayLockAndHideWhenIdle();
         this.sendBestEffortCancel(requestId);
         const elapsedMs = Math.max(0, Date.now() - requestStartMs);
         return new Error(`Wallet request timeout for ${envelope.type} after ${elapsedMs}ms`);
@@ -2788,6 +2811,7 @@ export class WalletIframeRouter {
         this.state.pending.delete(requestId);
         window.clearTimeout(timer);
         this.progressBus.unregister(requestId);
+        this.releaseOverlayLockAndHideWhenIdle();
         reject(toError(err));
       }
     });
@@ -2841,6 +2865,13 @@ export class WalletIframeRouter {
     if (!this.overlayState.controller.getState().visible) return;
     if (this.progressBus.wantsVisible()) return;
     this.overlayState.controller.hide();
+  }
+
+  private releaseOverlayLockAndHideWhenIdle(): void {
+    this.overlayState.forceFullscreen = false;
+    this.overlayState.controller.setSticky(false);
+    if (this.progressBus.wantsVisible()) return;
+    this.overlayState.controller.forceHide();
   }
 
   private sendBestEffortCancel(targetRequestId?: string): void {
@@ -2948,7 +2979,11 @@ function isEmailRecoveryFlowEvent(p: ProgressPayload): p is EmailRecoveryFlowEve
 function normalizeSignedTransactionResult(result: SignTransactionResult): SignTransactionResult {
   const signedTransaction = result.signedTransaction;
   if (!isPlainSignedTransactionLike(signedTransaction)) return result;
-  const nonceLease = (signedTransaction as { nonceLease?: NonceLeaseRef }).nonceLease;
+  const nonceLease =
+    (signedTransaction as { nonceLease?: NonceLeaseRef }).nonceLease || result.nonceLease;
+  const serverDispatch = (
+    signedTransaction as { serverDispatch?: SignedTransaction['serverDispatch'] }
+  ).serverDispatch;
   return {
     ...result,
     signedTransaction: SignedTransaction.fromPlain({
@@ -2956,6 +2991,7 @@ function normalizeSignedTransactionResult(result: SignTransactionResult): SignTr
       signature: signedTransaction.signature,
       borsh_bytes: extractBorshBytesFromPlainSignedTx(signedTransaction),
       ...(nonceLease ? { nonceLease } : {}),
+      ...(serverDispatch ? { serverDispatch } : {}),
     }),
   };
 }

@@ -17,6 +17,11 @@ import type {
   SigningAuthMode,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { formatEmailOtpSentText } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/promptText';
+import {
+  copyTextToClipboard,
+  isNearTransactionSubmittingNotice,
+  parseNearAccountFundingNotice,
+} from '@/core/signingEngine/uiConfirm/nearFundingNotice';
 
 const EMAIL_OTP_SUBMIT_FADE_MS = 150;
 
@@ -174,7 +179,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     const chainId = String(this.model?.chainId || '').trim();
     if (chainId) return false;
     const blockHeight = String(this.securityContext?.blockHeight || '').trim();
-    return this.loading && !blockHeight;
+    const submittingTransaction = isNearTransactionSubmittingNotice(String(this.body || ''));
+    return (this.loading || submittingTransaction) && !blockHeight;
   }
 
   private _isEmailOtpMode(): boolean {
@@ -392,6 +398,40 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               ${this._otpResendLabel()}
             </button>`
           : ''}
+      </div>
+    `;
+  }
+
+  private _onFundingNoticeCopy = (event: Event): void => {
+    const target = event.currentTarget as HTMLElement | null;
+    const accountId = String(target?.dataset.copyValue || '').trim();
+    void copyTextToClipboard(accountId);
+  };
+
+  private _renderConfirmationBody() {
+    const body = String(this.body || '').trim();
+    if (!body) return '';
+    if (isNearTransactionSubmittingNotice(body)) {
+      return html`<div class="confirmation-body confirmation-body--status">${body}</div>`;
+    }
+    const fundingNotice = parseNearAccountFundingNotice(body);
+    if (!fundingNotice) {
+      return html`<div class="confirmation-body">${body}</div>`;
+    }
+    return html`
+      <div class="confirmation-body confirmation-body--funding">
+        NEAR account
+        <button
+          type="button"
+          class="confirmation-body__copy-target"
+          data-copy-value=${fundingNotice.accountId}
+          title=${`Copy ${fundingNotice.accountId}`}
+          aria-label=${`Copy NEAR account ${fundingNotice.accountId}`}
+          @click=${this._onFundingNoticeCopy}
+        >
+          ${fundingNotice.shortAccountId}
+        </button>
+        needs funding before signing.
       </div>
     `;
   }
@@ -688,43 +728,39 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                     ? html`<span class="domain-text">${this.securityContext.rpId}</span>`
                     : ''}
                 </div>
-                ${securityDetailsText || securityDetailsLoading
-                  ? html` <span class="security-details">
-                      ${securityDetailsLoading
-                        ? html`
-                            <span
-                              class="loading-indicator security-loading-indicator"
-                              role="progressbar"
-                              aria-label="Loading block height"
-                            ></span>
-                            <span>Loading block...</span>
-                          `
-                        : html`
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              class="block-height-icon"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                            >
-                              <path
-                                d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
-                              />
-                              <path d="m3.3 7 8.7 5 8.7-5" />
-                              <path d="M12 22V12" />
-                            </svg>
-                            ${securityDetailsText}
-                          `}
-                    </span>`
-                  : ''}
+                <span class="security-details">
+                  ${securityDetailsLoading
+                    ? html`
+                        <span
+                          class="loading-indicator security-loading-indicator"
+                          role="progressbar"
+                          aria-label="Loading block height"
+                        ></span>
+                        <span>Loading block...</span>
+                      `
+                    : html`
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          class="block-height-icon"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
+                          />
+                          <path d="m3.3 7 8.7 5 8.7-5" />
+                          <path d="M12 22V12" />
+                        </svg>
+                        ${securityDetailsText || 'block'}
+                      `}
+                </span>
               </div>
             </div>
-            ${this.body && this.body.trim()
-              ? html`<div class="confirmation-body">${this.body}</div>`
-              : ''}
+            ${this._renderConfirmationBody()}
             ${this._renderEmailOtpPrompt()}
           </div>
           <div class="section responsive-card responsive-card-center">

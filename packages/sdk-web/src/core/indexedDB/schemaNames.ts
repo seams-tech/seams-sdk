@@ -81,12 +81,6 @@ export const SEAMS_WALLET_INDEXES = {
   passkeyRpIdCredentialId: 'passkey_rp_id_credential_id',
 } as const;
 
-export const LEGACY_INDEXED_DB_NAMES = [
-  'PasskeyClientDB',
-  'PasskeyAccountKeyMaterial',
-  'seams_wallet_v1',
-] as const;
-
 export type SeamsWalletStoreName =
   (typeof SEAMS_WALLET_STORES)[keyof typeof SEAMS_WALLET_STORES];
 

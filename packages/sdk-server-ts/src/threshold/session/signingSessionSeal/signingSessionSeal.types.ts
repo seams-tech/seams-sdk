@@ -121,7 +121,7 @@ type SigningSessionSealThresholdSessionRecordBase = {
 export type SigningSessionSealEcdsaThresholdSessionRecord =
   SigningSessionSealThresholdSessionRecordBase & {
     curve: 'ecdsa';
-    walletKeyId: string;
+    evmFamilySigningKeySlotId: string;
     rpId?: never;
   };
 
@@ -129,7 +129,7 @@ export type SigningSessionSealEd25519ThresholdSessionRecord =
   SigningSessionSealThresholdSessionRecordBase & {
     curve: 'ed25519';
     rpId: string;
-    walletKeyId?: never;
+    evmFamilySigningKeySlotId?: never;
   };
 
 export type SigningSessionSealThresholdSessionRecord =

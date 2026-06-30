@@ -2,6 +2,7 @@ import type {
   CreatePasskeyRegistrationActivationSurfaceArgs,
   RegistrationActivationButtonPresentation,
 } from './publicApi/types';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 
 export const validOutlineOverlayPresentation: RegistrationActivationButtonPresentation = {
   kind: 'outline_overlay',
@@ -28,6 +29,18 @@ export const validIframeButtonPresentation: RegistrationActivationButtonPresenta
 };
 
 export const validActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
+  wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
+  presentation: validOutlineOverlayPresentation,
+};
+
+// @ts-expect-error activation surfaces require the displayed provided wallet ID.
+export const missingWalletActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
+  presentation: validOutlineOverlayPresentation,
+};
+
+export const serverAllocatedActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
+  // @ts-expect-error visible activation cannot allocate a different wallet later.
+  wallet: { kind: 'server_allocated' },
   presentation: validOutlineOverlayPresentation,
 };
 
@@ -50,5 +63,6 @@ export const invalidIncompleteIframeButtonPresentation: RegistrationActivationBu
 
 // @ts-expect-error activation surfaces require an explicit presentation contract.
 export const invalidActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
+  wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
   options: {},
 };

@@ -176,6 +176,16 @@ function missingConcreteFields(
   return missing;
 }
 
+function hasEd25519TransactionMaterial(
+  lane: AvailableEd25519SigningLane | null | undefined,
+): lane is NearEd25519AvailableLane {
+  return (
+    isConcreteNearEd25519Lane(lane) &&
+    Boolean(String(lane.ed25519WorkerMaterialBindingDigest || '').trim()) &&
+    Boolean(String(lane.materialKeyId || '').trim())
+  );
+}
+
 function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
   if (candidate.curve === 'ed25519') {
     return selectedEd25519Lane({
@@ -260,7 +270,7 @@ function selectSelectedEd25519Lane(
 
   // Runtime lanes are accepted only after availability assembly has produced a
   // concrete candidate. Account metadata cannot create or override this anchor.
-  if (nearRuntimeLane) {
+  if (nearRuntimeLane && hasEd25519TransactionMaterial(nearRuntimeLane)) {
     const candidate = ed25519LaneCandidateFromAvailableLane({
       lane: nearRuntimeLane,
     });
@@ -295,7 +305,7 @@ function selectSelectedEd25519Lane(
 
   const concreteCandidates =
     input.availableLanes?.candidates?.ed25519?.near
-      ?.filter(isConcreteNearEd25519Lane)
+      ?.filter(hasEd25519TransactionMaterial)
       .map((availableLane) => ({
         availableLane,
         candidate: ed25519LaneCandidateFromAvailableLane({

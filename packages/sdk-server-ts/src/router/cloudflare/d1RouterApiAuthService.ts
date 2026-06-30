@@ -36,6 +36,7 @@ import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService
 import { CloudflareD1WalletRegistrationService } from './d1WalletRegistrationService';
 import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
+import { fundImplicitNearAccountWithRelayer } from '../../core/nearImplicitAccountFunding';
 import {
   normalizeD1RouterApiAuthOptions,
   type CloudflareD1RouterApiAuthServiceOptions,
@@ -595,6 +596,37 @@ class CloudflareD1RouterApiAuthMetadataService {
     input: RouterApiInput<'listWalletEcdsaKeyFactsInventory'>,
   ): Promise<RouterApiResult<'listWalletEcdsaKeyFactsInventory'>> {
     return await this.thresholdSigning.listWalletEcdsaKeyFactsInventory(input);
+  }
+
+  async fundImplicitNearAccount(
+    input: RouterApiInput<'fundImplicitNearAccount'>,
+  ): Promise<RouterApiResult<'fundImplicitNearAccount'>> {
+    if (!this.options.implicitNearAccountTestFundingEnabled) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: 'Implicit NEAR account test funding is not enabled on this server',
+      };
+    }
+    const relayerAccount = this.options.relayerAccount;
+    const relayerPrivateKey = this.options.relayerPrivateKey;
+    const nearRpcUrl = this.options.nearRpcUrl;
+    const fundedAmountYocto = this.options.accountInitialBalance;
+    if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !fundedAmountYocto) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: 'Implicit NEAR account funding is not configured on this server',
+      };
+    }
+    return await fundImplicitNearAccountWithRelayer({
+      ...input,
+      relayerAccount,
+      relayerPrivateKey,
+      relayerPublicKey: this.options.relayerPublicKey,
+      nearRpcUrl,
+      fundedAmountYocto,
+    });
   }
 
   getConfiguredRelayerAccount(): RouterApiResult<'getConfiguredRelayerAccount'> {

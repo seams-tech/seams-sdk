@@ -259,7 +259,7 @@ const ecdsaPrepare = {
   prepare: {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: String(intent.walletId),
-    walletKeyId: 'wallet-key-registration',
+    evmFamilySigningKeySlotId: 'wallet-key-registration',
     ecdsaThresholdKeyId: 'ek_registration',
     signingRootId: 'project:env',
     signingRootVersion: 'default',
@@ -277,7 +277,7 @@ const ecdsaPrepare = {
 const ecdsaBootstrap = {
   formatVersion: 'ecdsa-hss-role-local',
   walletId: String(intent.walletId),
-  walletKeyId: 'wallet-key-registration',
+  evmFamilySigningKeySlotId: 'wallet-key-registration',
   ecdsaThresholdKeyId: 'ek_registration',
   relayerKeyId: 'rk_registration',
   applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
@@ -309,7 +309,7 @@ const ecdsaWalletKey = {
   keyScope: 'evm-family',
   chainTarget: ecdsaChainTarget,
   walletId: String(intent.walletId),
-  walletKeyId: 'wallet-key-registration',
+  evmFamilySigningKeySlotId: 'wallet-key-registration',
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: 'ek_registration',
   signingRootId: 'project:env',

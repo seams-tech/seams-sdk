@@ -112,7 +112,7 @@ function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsa
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: requireEmailRecoveryString(value.walletId, 'walletId'),
-    walletKeyId: requireEmailRecoveryString(value.walletKeyId, 'walletKeyId'),
+    evmFamilySigningKeySlotId: requireEmailRecoveryString(value.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
     ecdsaThresholdKeyId: requireEmailRecoveryString(
       value.ecdsaThresholdKeyId,
       'ecdsaThresholdKeyId',
@@ -159,7 +159,7 @@ function parseEmailRecoveryEcdsaWalletKeys(value: unknown): WalletRegistrationEc
       keyScope: 'evm-family',
       chainTarget,
       walletId: requireEmailRecoveryString(raw.walletId, 'walletId'),
-      walletKeyId: requireEmailRecoveryString(raw.walletKeyId, 'walletKeyId'),
+      evmFamilySigningKeySlotId: requireEmailRecoveryString(raw.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
       keyHandle: requireEmailRecoveryString(raw.keyHandle, 'keyHandle'),
       ecdsaThresholdKeyId: requireEmailRecoveryString(
         raw.ecdsaThresholdKeyId,

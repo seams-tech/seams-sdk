@@ -38,6 +38,7 @@ import {
   UserConfirmationType,
   UserConfirmMessageType,
   type ExportPrivateKeyDisplayEntry,
+  type LocalOnlyExportSubject,
   type UserConfirmRequest,
   type UserConfirmDecision,
 } from '../../stepUpConfirmation/channel/confirmTypes';
@@ -532,6 +533,36 @@ function exportSubjectIdForPayload(payload: ExportPrivateKeysWithUiWorkerPayload
   throw new Error('Invalid export subject');
 }
 
+function requireExportWalletId(raw: string): string {
+  const parsed = parseWalletId(raw);
+  if (!parsed.ok) {
+    throw new Error('ECDSA export requires wallet identity');
+  }
+  return String(parsed.value);
+}
+
+function localOnlyExportSubjectForTarget(args: {
+  exportTarget: ExportWorkerTarget;
+  exportSubjectId: string;
+}): LocalOnlyExportSubject {
+  switch (args.exportTarget.kind) {
+    case 'near':
+      return {
+        kind: 'near_wallet',
+        nearAccountId: String(toAccountId(args.exportSubjectId)),
+      };
+    case 'ecdsa':
+      return {
+        kind: 'evm_wallet',
+        walletId: requireExportWalletId(args.exportSubjectId),
+      };
+    default: {
+      const exhaustive: never = args.exportTarget;
+      throw new Error(`Unsupported export target: ${String(exhaustive)}`);
+    }
+  }
+}
+
 function exportIntentDigestForPayload(args: {
   payload: ExportPrivateKeysWithUiWorkerPayload;
   exportSubjectId: string;
@@ -850,6 +881,10 @@ async function runExportPrivateKeysWithUi(
     exportSubjectId,
     exportTarget,
   });
+  const localOnlySubject = localOnlyExportSubjectForTarget({
+    exportTarget,
+    exportSubjectId,
+  });
 
   let prfSecondB64u = '';
   const exportKeys: ExportPrivateKeyDisplayEntry[] = [];
@@ -870,9 +905,7 @@ async function runExportPrivateKeysWithUi(
               : 'Authenticate with your passkey to prepare export keys.',
       },
       payload: {
-        ...(exportTarget.kind === 'near'
-          ? { nearAccountId: exportSubjectId }
-          : { walletId: exportSubjectId }),
+        subject: localOnlySubject,
         publicKey: exportPublicKey,
       },
       intentDigest,
@@ -905,9 +938,7 @@ async function runExportPrivateKeysWithUi(
         warning: 'Preparing your private key export.',
       },
       payload: {
-        ...(exportTarget.kind === 'near'
-          ? { nearAccountId: exportSubjectId }
-          : { walletId: exportSubjectId }),
+        subject: localOnlySubject,
         viewerSessionId,
         publicKey: exportPublicKey,
         keys: loadingKeys,
@@ -984,9 +1015,7 @@ async function runExportPrivateKeysWithUi(
         warning: 'Anyone with your private key can fully control your account. Never share it.',
       },
       payload: {
-        ...(exportTarget.kind === 'near'
-          ? { nearAccountId: exportSubjectId }
-          : { walletId: exportSubjectId }),
+        subject: localOnlySubject,
         viewerSessionId,
         publicKey: first.publicKey,
         privateKey: first.privateKey,
@@ -1036,9 +1065,7 @@ async function runExportPrivateKeysWithUi(
           warning: 'Private key export failed.',
         },
         payload: {
-          ...(exportTarget.kind === 'near'
-            ? { nearAccountId: exportSubjectId }
-            : { walletId: exportSubjectId }),
+          subject: localOnlySubject,
           viewerSessionId,
           publicKey: exportPublicKey,
           keys: loadingKeys,
@@ -1410,6 +1437,7 @@ function toDecisionFromWorkerResponse(
     otpCode: response.otp_code,
     emailOtpChallengeId: response.email_otp_challenge_id,
     transactionContext: response.transaction_context,
+    ...(response.nonce_leases ? { nonceLeases: response.nonce_leases } : {}),
     registrationDiagnostics: response.registration_diagnostics,
   };
 }

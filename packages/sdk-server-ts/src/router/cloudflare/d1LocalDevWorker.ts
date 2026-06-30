@@ -22,7 +22,10 @@ import { ThresholdStoreDurableObject } from './durableObjects/thresholdStore';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
+  ThresholdStoreConfigInput,
 } from '../../core/types';
+import { createSigningSessionSealOptions } from '../../threshold/session/signingSessionSeal/options';
+import type { SigningSessionSealRoutesOptions } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import { createCloudflareRouter } from './createCloudflareRouter';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
@@ -62,6 +65,13 @@ interface LocalD1DevEnv {
   readonly SEAMS_LOCAL_CONSOLE_ROLES?: string;
   readonly SEAMS_LOCAL_RELAYER_ACCOUNT?: string;
   readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
+  readonly SEAMS_LOCAL_RELAYER_PRIVATE_KEY?: string;
+  readonly RELAYER_ACCOUNT_ID?: string;
+  readonly RELAYER_PUBLIC_KEY?: string;
+  readonly RELAYER_PRIVATE_KEY?: string;
+  readonly NEAR_RPC_URL?: string;
+  readonly ACCOUNT_INITIAL_BALANCE?: string;
+  readonly ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING?: string;
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
   readonly GOOGLE_OIDC_CLIENT_ID?: string;
   readonly GOOGLE_OIDC_CLIENT_IDS?: string;
@@ -169,6 +179,9 @@ const LOCAL_SIGNING_ROOT_SHARE_FIXTURES = Object.freeze([
   },
 ] as const);
 const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
+  'https://localhost',
+  'https://localhost:8443',
+  'https://localhost:9444',
   'http://127.0.0.1:9090',
   'http://localhost:9090',
   'http://127.0.0.1:8787',
@@ -212,6 +225,7 @@ const CONSOLE_READY_TABLES = Object.freeze([
   'billing_prepaid_reservations',
   'sponsorship_spend_cap_windows',
   'sponsorship_spend_cap_reservations',
+  'sponsorship_pricing_rules',
   'sponsored_call_records',
   'runtime_snapshots',
   'runtime_snapshot_outbox',
@@ -710,9 +724,11 @@ function isRouterApiPath(pathname: string): boolean {
     pathname.startsWith('/recover-email') ||
     pathname.startsWith('/router-ab/') ||
     pathname.startsWith('/session/') ||
+    pathname.startsWith('/sponsorships/') ||
     pathname.startsWith('/sync-account/') ||
     pathname.startsWith('/v1/') ||
     pathname.startsWith('/wallet/') ||
+    pathname.startsWith('/wallet-session/') ||
     pathname.startsWith('/wallets/') ||
     pathname.startsWith('/webauthn/')
   );
@@ -729,6 +745,7 @@ function createLocalReadyCheck(env: LocalD1DevEnv): () => Promise<void> {
 }
 
 async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const bundle = await createCloudflareD1ConsoleServiceBundle({
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
@@ -741,6 +758,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     },
     adapters: {
       ensureSchema: false,
+      sponsoredEvmCallConfig,
     },
   });
   return createCloudflareConsoleRouter({
@@ -797,18 +815,64 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     ...(sessionCookieName ? { sessionCookieName } : {}),
     ed25519RegistrationPrepare: { authService },
     ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
+    signingSessionSeal: localSigningSessionSealOptions(env),
+  });
+}
+
+function localThresholdStoreConfig(env: LocalD1DevEnv): ThresholdStoreConfigInput {
+  return {
+    kind: 'cloudflare-do',
+    namespace: env.THRESHOLD_STORE,
+    THRESHOLD_PREFIX: localTenantStorageNamespace(env),
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID:
+      normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
+      'local-d1-threshold-signing-worker',
+    ROUTER_AB_SIGNING_WORKER_URL:
+      normalizeLocalString(env.ROUTER_AB_SIGNING_WORKER_URL) ||
+      DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL,
+    ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL: normalizeLocalString(
+      env.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL,
+    ),
+    SIGNING_WORKER_URL: normalizeLocalString(env.SIGNING_WORKER_URL),
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: localRouterAbInternalServiceAuthSecret(env),
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN: normalizeLocalString(
+      env.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN,
+    ),
+    signingRootShareResolverAdapters: createLocalD1SigningRootShareResolverAdapters(env),
+  };
+}
+
+function localSigningSessionSealOptions(
+  env: LocalD1DevEnv,
+): SigningSessionSealRoutesOptions | undefined {
+  const seal = localEmailOtpServerSealConfig(env);
+  if (!seal) return undefined;
+  return createSigningSessionSealOptions({
+    keyVersion: seal.keyVersion,
+    shamirPrimeB64u: seal.shamirPrimeB64u,
+    serverEncryptExponentB64u: seal.serverEncryptExponentB64u,
+    serverDecryptExponentB64u: seal.serverDecryptExponentB64u,
+    thresholdStoreConfig: localThresholdStoreConfig(env),
   });
 }
 
 function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
+  const relayerPrivateKey = env.RELAYER_PRIVATE_KEY || env.SEAMS_LOCAL_RELAYER_PRIVATE_KEY;
+  const relayerPublicKey =
+    env.RELAYER_PUBLIC_KEY ||
+    (env.RELAYER_PRIVATE_KEY ? undefined : env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY);
   return createCloudflareD1RouterApiAuthService({
     database: env.SIGNER_DB,
     namespace: localTenantStorageNamespace(env),
     orgId: localConsoleOrgId(env),
     projectId: localConsoleProjectId(env),
     envId: localConsoleEnvironmentId(env),
-    relayerAccount: env.SEAMS_LOCAL_RELAYER_ACCOUNT,
-    relayerPublicKey: env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY,
+    relayerAccount: env.RELAYER_ACCOUNT_ID || env.SEAMS_LOCAL_RELAYER_ACCOUNT,
+    relayerPublicKey,
+    relayerPrivateKey,
+    nearRpcUrl: env.NEAR_RPC_URL,
+    accountInitialBalance: env.ACCOUNT_INITIAL_BALANCE,
+    implicitNearAccountTestFundingEnabled: env.ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING,
     googleOidcClientId: localGoogleOidcClientId(env),
     oidcExchange: localOidcExchangeConfig(env),
     accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
@@ -823,26 +887,7 @@ function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
-    thresholdStore: {
-      kind: 'cloudflare-do',
-      namespace: env.THRESHOLD_STORE,
-      THRESHOLD_PREFIX: localTenantStorageNamespace(env),
-      ROUTER_AB_NORMAL_SIGNING_WORKER_ID:
-        normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
-        'local-d1-threshold-signing-worker',
-      ROUTER_AB_SIGNING_WORKER_URL:
-        normalizeLocalString(env.ROUTER_AB_SIGNING_WORKER_URL) ||
-        DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL,
-      ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL: normalizeLocalString(
-        env.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL,
-      ),
-      SIGNING_WORKER_URL: normalizeLocalString(env.SIGNING_WORKER_URL),
-      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: localRouterAbInternalServiceAuthSecret(env),
-      ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN: normalizeLocalString(
-        env.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN,
-      ),
-      signingRootShareResolverAdapters: createLocalD1SigningRootShareResolverAdapters(env),
-    },
+    thresholdStore: localThresholdStoreConfig(env),
   });
 }
 
@@ -1146,7 +1191,7 @@ function normalSigningAuthority(input: RouterAbNormalSigningAdmissionInput): str
     case 'ed25519':
       return input.rpId;
     case 'ecdsa-hss':
-      return input.walletKeyId;
+      return input.evmFamilySigningKeySlotId;
   }
   input satisfies never;
   throw new Error('Unsupported local D1/DO admission smoke curve');
@@ -1270,7 +1315,7 @@ async function handleLocalRouterAbEcdsaHssSeed(
   }
   const seeded = await threshold.seedLocalRouterAbEcdsaHssNormalSigningSession({
     walletId: requireOptionalString(body.walletId, ''),
-    walletKeyId: requireOptionalString(body.walletKeyId, ''),
+    evmFamilySigningKeySlotId: requireOptionalString(body.evmFamilySigningKeySlotId, ''),
     ecdsaThresholdKeyId: requireOptionalString(body.ecdsaThresholdKeyId, ''),
     signingRootId: requireOptionalString(body.signingRootId, ''),
     signingRootVersion: requireOptionalString(body.signingRootVersion, ''),
@@ -1323,8 +1368,10 @@ async function fetch(
         '/auth/google/options',
         '/session/exchange',
         '/session/state',
+        '/sponsorships/evm/call',
+        '/wallet-session/seal/apply-server-seal',
+        '/wallet-session/seal/remove-server-seal',
         '/v1/registration/bootstrap-grants',
-        '/relay/sponsorships/evm/call',
       ],
     },
     { status: 200 },

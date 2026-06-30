@@ -46,7 +46,7 @@ export type RouterAbEcdsaHssPoolFillSessionDestination =
 export type RouterAbEcdsaHssPoolFillSessionRecord = {
   expiresAtMs: number;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   relayerKeyId: string;
   presignPoolKey: string;
   poolFill: RouterAbEcdsaHssPoolFillSessionDestination;
@@ -206,6 +206,12 @@ export class InMemoryRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHs
     if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
 
     const list = this.availableByKey.get(relayerKeyId) || [];
+    if (list.some((entry) => entry.presignatureId === presignatureId)) {
+      return;
+    }
+    if (this.reservedByKey.get(relayerKeyId)?.has(presignatureId)) {
+      return;
+    }
     list.push(record);
     this.availableByKey.set(relayerKeyId, list);
   }

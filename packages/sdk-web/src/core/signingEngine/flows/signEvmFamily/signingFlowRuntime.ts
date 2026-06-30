@@ -97,10 +97,25 @@ function relayerKeyIdFromPasskeyEcdsaReconnectMaterial(
   return String(material.record.relayerKeyId || '').trim();
 }
 
-function runtimePolicyScopeFromPasskeyEcdsaReconnectMaterial(
-  material: PasskeyEcdsaReconnectMaterial,
-): ThresholdRuntimePolicyScope | undefined {
-  return material.record.runtimePolicyScope;
+function runtimePolicyScopeForPasskeyEcdsaReconnect(args: {
+  material: PasskeyEcdsaReconnectMaterial;
+  signingRootBinding: ReturnType<typeof resolveThresholdSigningRootBindingFromRecord>;
+}): ThresholdRuntimePolicyScope {
+  const runtimePolicyScope = args.material.record.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    throw new Error('[SigningEngine] passkey ECDSA reconnect requires runtimePolicyScope');
+  }
+  const signingRootId = String(args.signingRootBinding.signingRootId || '').trim();
+  const separator = signingRootId.lastIndexOf(':');
+  if (separator <= 0 || separator >= signingRootId.length - 1) {
+    throw new Error('[SigningEngine] passkey ECDSA reconnect requires project:env signingRootId');
+  }
+  return {
+    ...runtimePolicyScope,
+    projectId: signingRootId.slice(0, separator),
+    envId: signingRootId.slice(separator + 1),
+    signingRootVersion: String(args.signingRootBinding.signingRootVersion || 'default'),
+  };
 }
 
 function readPasskeyEcdsaReconnectMaterialForLane(args: {
@@ -185,7 +200,7 @@ function unavailableEcdsaSigningMaterialPlanForRecordState(
 async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
   record: ThresholdEcdsaSessionRecord | undefined;
   requestLabel: unknown;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
 }): Promise<EcdsaSigningMaterialPlan> {
   const recordState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
   if (recordState.kind !== 'runtime_validated') {
@@ -195,12 +210,12 @@ async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
     const material = await buildReadySecp256k1SigningMaterialFromRecord({
       record: recordState.record,
       requestLabel: args.requestLabel,
-      walletKeyId: args.walletKeyId,
+      evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     });
     return { kind: 'material_from_runtime_validated_record', material };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('walletKeyId mismatch')) {
+    if (message.includes('evmFamilySigningKeySlotId mismatch')) {
       return { kind: 'unavailable', reason: 'rp_id_mismatch' };
     }
     if (message.includes('chain mismatch')) {
@@ -311,9 +326,9 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           lane.identity,
           'passkey ECDSA reconnect runtime',
         );
-        const walletKeyId = String(signer.key.walletKeyId || '').trim();
-        if (!walletKeyId) {
-          throw new Error('[SigningEngine] missing walletKeyId for passkey ECDSA reconnect');
+        const evmFamilySigningKeySlotId = String(signer.key.evmFamilySigningKeySlotId || '').trim();
+        if (!evmFamilySigningKeySlotId) {
+          throw new Error('[SigningEngine] missing evmFamilySigningKeySlotId for passkey ECDSA reconnect');
         }
         const signingKeyContext = signingKeyContextFromPasskeyEcdsaReconnectMaterial(material);
         const materialRelayerKeyId = relayerKeyIdFromPasskeyEcdsaReconnectMaterial(material);
@@ -322,7 +337,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         }
         const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
           walletId,
-          walletKeyId,
+          evmFamilySigningKeySlotId,
         });
         if (materialRelayerKeyId !== relayerKeyId) {
           throw new Error('[SigningEngine] passkey ECDSA reconnect relayer key mismatch');
@@ -338,39 +353,40 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const participantIds = signingKeyContext.participantIds.map((participantId) =>
           Number(participantId),
         );
-        const runtimePolicyScope = runtimePolicyScopeFromPasskeyEcdsaReconnectMaterial(material);
+        const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+          record: material.record,
+        });
+        const runtimePolicyScope = runtimePolicyScopeForPasskeyEcdsaReconnect({
+          material,
+          signingRootBinding,
+        });
         const { policy } = await buildEcdsaSessionPolicy({
           walletId,
-          walletKeyId,
+          evmFamilySigningKeySlotId,
           relayerKeyId,
           chainTarget: signer.chainTarget,
           ecdsaThresholdKeyId,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          runtimePolicyScope,
           ...(participantIds?.length ? { participantIds } : {}),
           remainingUses,
         });
         const passkeyBootstrapDigest32B64u =
-          await (async () => {
-            const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-              record: material.record,
-            });
-            return computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-              walletId: policy.walletId,
-              walletKeyId: policy.walletKeyId,
-              rpId,
-              ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
-              signingRootId: String(signingRootBinding.signingRootId),
-              signingRootVersion: String(signingRootBinding.signingRootVersion || 'default'),
-              keyScope: 'evm-family',
-              relayerKeyId,
-              requestId,
-              sessionId: policy.sessionId,
-              signingGrantId: policy.signingGrantId,
-              ttlMs: policy.ttlMs,
-              remainingUses: policy.remainingUses,
-              participantIds: policy.participantIds || participantIds,
-            });
-          })();
+          await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+            walletId: policy.walletId,
+            evmFamilySigningKeySlotId: policy.evmFamilySigningKeySlotId,
+            rpId,
+            ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
+            signingRootId: String(signingRootBinding.signingRootId),
+            signingRootVersion: String(signingRootBinding.signingRootVersion || 'default'),
+            keyScope: 'evm-family',
+            relayerKeyId,
+            requestId,
+            sessionId: policy.sessionId,
+            signingGrantId: policy.signingGrantId,
+            ttlMs: policy.ttlMs,
+            remainingUses: policy.remainingUses,
+            participantIds: policy.participantIds || participantIds,
+          });
         return {
           webauthnChallenge: {
             kind: 'ecdsa_role_local_bootstrap' as const,
@@ -594,7 +610,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             await resolveRuntimeValidatedEcdsaSigningMaterialPlan({
               record: runtimeValidatedThresholdEcdsaRecord,
               requestLabel,
-              walletKeyId: args.getResolvedEcdsaSigningLane().key.walletKeyId,
+              evmFamilySigningKeySlotId: args.getResolvedEcdsaSigningLane().key.evmFamilySigningKeySlotId,
             }),
         }
       : {}),

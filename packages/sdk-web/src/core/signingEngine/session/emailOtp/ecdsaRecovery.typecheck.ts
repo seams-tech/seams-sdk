@@ -3,7 +3,8 @@ import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 import type { EmailOtpEcdsaRestoreSource } from './ecdsaRecovery';
-import { parseWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 
 declare const sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
 declare const ecdsaRecord: ThresholdEcdsaSessionRecord & {
@@ -15,11 +16,11 @@ declare const ecdsaRecord: ThresholdEcdsaSessionRecord & {
 };
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-const walletKeyIdResult = parseWalletKeyId('wallet-key-email-otp-restore');
-if (!walletKeyIdResult.ok) {
-  throw new Error(walletKeyIdResult.error.message);
-}
-const walletKeyId = walletKeyIdResult.value;
+const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+  walletId: toWalletId('wallet_email_otp_restore'),
+  signingRootId: 'project:dev',
+  signingRootVersion: 'default',
+});
 
 const restoreSourceCommon = {
   emailOtpAuthContext,
@@ -29,7 +30,7 @@ const restoreSourceCommon = {
   relayerUrl: 'https://relay.example',
   chainTarget,
   keyHandle: 'key-handle',
-  walletKeyId,
+  evmFamilySigningKeySlotId,
   relayerKeyId: 'relayer-key-id',
   participantIds: [1, 2],
   sessionKind: 'jwt',

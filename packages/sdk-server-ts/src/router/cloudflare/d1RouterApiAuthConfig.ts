@@ -58,6 +58,10 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly envId: string;
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
+  readonly relayerPrivateKey?: string;
+  readonly nearRpcUrl?: string;
+  readonly accountInitialBalance?: string;
+  readonly implicitNearAccountTestFundingEnabled?: boolean | string;
   readonly googleOidcClientId?: string;
   readonly oidcExchange?: CloudflareD1OidcExchangeConfig;
   readonly accountIdDerivationSecret?: string;
@@ -130,6 +134,10 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   CloudflareD1RouterApiAuthServiceOptions,
   | 'relayerAccount'
   | 'relayerPublicKey'
+  | 'relayerPrivateKey'
+  | 'nearRpcUrl'
+  | 'accountInitialBalance'
+  | 'implicitNearAccountTestFundingEnabled'
   | 'googleOidcClientId'
   | 'oidcExchange'
   | 'accountIdDerivationSecret'
@@ -159,6 +167,10 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
 > & {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
+  readonly relayerPrivateKey?: string;
+  readonly nearRpcUrl?: string;
+  readonly accountInitialBalance?: string;
+  readonly implicitNearAccountTestFundingEnabled: boolean;
   readonly googleOidcClientId?: string;
   readonly oidcExchange?: NormalizedCloudflareD1OidcExchangeConfig;
   readonly accountIdDerivationSecret?: string;
@@ -205,6 +217,14 @@ export function normalizeD1RouterApiAuthOptions(
     envId: requireD1RouterApiAuthScopeString(input.envId, 'envId'),
     relayerAccount: toOptionalTrimmedString(input.relayerAccount),
     relayerPublicKey: toOptionalTrimmedString(input.relayerPublicKey),
+    relayerPrivateKey: toOptionalTrimmedString(input.relayerPrivateKey),
+    nearRpcUrl: toOptionalTrimmedString(input.nearRpcUrl),
+    accountInitialBalance: toOptionalTrimmedString(input.accountInitialBalance),
+    implicitNearAccountTestFundingEnabled: parseBooleanFlag(
+      input.implicitNearAccountTestFundingEnabled,
+      false,
+      'implicitNearAccountTestFundingEnabled',
+    ),
     googleOidcClientId: toOptionalTrimmedString(input.googleOidcClientId),
     oidcExchange: normalizeOidcExchangeConfig(input),
     accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),

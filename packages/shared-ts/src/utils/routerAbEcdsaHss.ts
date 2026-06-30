@@ -93,7 +93,7 @@ export type RouterAbEcdsaHssNormalSigningStateV1 = {
 
 export type RouterAbEcdsaHssWalletRegistrationJwtBindingFactsV1 = {
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   relayerKeyId: string;
   ecdsaThresholdKeyId: string;
@@ -103,6 +103,7 @@ export type RouterAbEcdsaHssWalletRegistrationJwtBindingFactsV1 = {
   signingGrantId: string;
   expiresAtMs: number;
   participantIds: readonly number[];
+  applicationBindingDigestB64u: string;
   contextBinding32B64u: string;
   clientPublicKey33B64u: string;
   serverPublicKey33B64u: string;
@@ -797,9 +798,9 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
     actual: payload.walletId,
   });
   requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.walletKeyId',
-    expected: expected.walletKeyId,
-    actual: payload.walletKeyId,
+    field: 'walletSessionJwt.evmFamilySigningKeySlotId',
+    expected: expected.evmFamilySigningKeySlotId,
+    actual: payload.evmFamilySigningKeySlotId,
   });
   requireWalletRegistrationMatchingString({
     field: 'walletSessionJwt.keyScope',
@@ -871,7 +872,7 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
   });
   requireWalletRegistrationMatchingString({
     field: 'routerAbEcdsaHssNormalSigning.scope.wallet_key_id',
-    expected: expected.walletKeyId,
+    expected: expected.evmFamilySigningKeySlotId,
     actual: normalSigning.scope.wallet_key_id,
   });
   requireWalletRegistrationMatchingString({
@@ -888,6 +889,11 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
     field: 'routerAbEcdsaHssNormalSigning.scope.signing_root_version',
     expected: expected.signingRootVersion,
     actual: normalSigning.scope.signing_root_version,
+  });
+  requireWalletRegistrationMatchingString({
+    field: 'routerAbEcdsaHssNormalSigning.scope.context.application_binding_digest_b64u',
+    expected: expected.applicationBindingDigestB64u,
+    actual: normalSigning.scope.context.application_binding_digest_b64u,
   });
   const publicIdentity = normalSigning.scope.public_identity;
   requireWalletRegistrationMatchingString({

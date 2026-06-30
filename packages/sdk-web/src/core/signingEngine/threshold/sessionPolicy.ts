@@ -3,7 +3,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { parseWalletKeyId, type WalletKeyId } from '@shared/signing-lanes';
+import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
   normalizeRuntimePolicyScope,
@@ -110,7 +110,7 @@ export type EcdsaHssSessionPolicy = {
   walletId: WalletId;
   subjectId?: never;
   walletSessionUserId?: never;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
@@ -239,7 +239,7 @@ export async function buildEcdsaSessionPolicy(params: {
   walletId: unknown;
   subjectId?: never;
   walletSessionUserId?: never;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
   relayerKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: unknown;
@@ -275,7 +275,7 @@ export function buildEcdsaHssSessionPolicy(params: {
   walletId: unknown;
   subjectId?: never;
   walletSessionUserId?: never;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: unknown;
   ecdsaThresholdKeyId?: unknown;
@@ -296,14 +296,10 @@ export function buildEcdsaHssSessionPolicy(params: {
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
   const keyHandle = String(params.keyHandle || '').trim();
   const ecdsaThresholdKeyId = String(params.ecdsaThresholdKeyId || '').trim();
-  const walletKeyId = parseWalletKeyId(params.walletKeyId);
-  if (!walletKeyId.ok) {
-    throw new Error(`[threshold-ecdsa] ${walletKeyId.error.message}`);
-  }
   return {
     version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
     walletId: toWalletId(params.walletId),
-    walletKeyId: walletKeyId.value,
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(params.evmFamilySigningKeySlotId, 'threshold-ecdsa evmFamilySigningKeySlotId'),
     chainTarget: params.chainTarget,
     ...(keyHandle ? { keyHandle } : {}),
     ...(ecdsaThresholdKeyId

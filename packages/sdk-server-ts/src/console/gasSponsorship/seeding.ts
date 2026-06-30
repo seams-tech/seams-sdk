@@ -2,6 +2,7 @@ import type { ConsoleOrgProjectEnvService, ConsoleOrgProjectEnvContext } from '.
 import type { ConsoleRuntimeSnapshotService } from '../runtimeSnapshots';
 import type { ConsolePolicyService } from '../policies';
 import { ensureTempoTestnetOnboardingPolicyForEnvironment } from './onboarding';
+import type { ConsoleGasSponsorshipPolicyProjection } from './types';
 import { resolveConsoleRuntimeSnapshotPayload } from '../../router/runtimeSnapshotPayload';
 
 function toSnapshotContext(ctx: ConsoleOrgProjectEnvContext) {
@@ -39,8 +40,8 @@ async function seedEnvironment(input: {
   policies: ConsolePolicyService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   faucetContractAddress: `0x${string}`;
-}): Promise<void> {
-  await ensureTempoTestnetOnboardingPolicyForEnvironment({
+}): Promise<ConsoleGasSponsorshipPolicyProjection> {
+  const policy = await ensureTempoTestnetOnboardingPolicyForEnvironment({
     policies: input.policies,
     ctx: {
       orgId: input.ctx.orgId,
@@ -57,6 +58,7 @@ async function seedEnvironment(input: {
     runtimeSnapshots: input.runtimeSnapshots,
     policies: input.policies,
   });
+  return policy;
 }
 
 export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(input: {
@@ -103,20 +105,24 @@ export async function ensureTempoOnboardingSponsorshipForExistingEnvironments(in
   ctx: ConsoleOrgProjectEnvContext;
   faucetContractAddress: `0x${string}`;
   projectId?: string;
-}): Promise<void> {
+}): Promise<readonly ConsoleGasSponsorshipPolicyProjection[]> {
   const environments = await input.orgProjectEnv.listEnvironments(input.ctx, {
     ...(input.projectId ? { projectId: input.projectId } : {}),
   });
+  const policies: ConsoleGasSponsorshipPolicyProjection[] = [];
   for (const environment of environments) {
     if (environment.status === 'ARCHIVED') continue;
-    await seedEnvironment({
-      ctx: input.ctx,
-      environment,
-      policies: input.policies,
-      runtimeSnapshots: input.runtimeSnapshots,
-      faucetContractAddress: input.faucetContractAddress,
-    });
+    policies.push(
+      await seedEnvironment({
+        ctx: input.ctx,
+        environment,
+        policies: input.policies,
+        runtimeSnapshots: input.runtimeSnapshots,
+        faucetContractAddress: input.faucetContractAddress,
+      }),
+    );
   }
+  return policies;
 }
 
 export async function ensureTempoOnboardingSponsorshipForAllOrganizations(input: {

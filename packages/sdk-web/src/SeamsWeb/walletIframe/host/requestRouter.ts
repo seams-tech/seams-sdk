@@ -56,6 +56,7 @@ export type RecoveryWalletRequestType =
   | 'PM_STOP_EMAIL_RECOVERY'
   | 'PM_SYNC_ACCOUNT_FLOW';
 export type ExportWalletRequestType =
+  | 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE'
   | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI';
 export type DeviceLinkWalletRequestType =
@@ -189,6 +190,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_SYNC_ACCOUNT_FLOW':
       return { kind: 'recovery', type: request.type, request };
 
+    case 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE':
     case 'PM_EXPORT_KEYPAIR_UI':
     case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
       return { kind: 'export', type: request.type, request };

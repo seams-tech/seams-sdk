@@ -44,7 +44,7 @@ export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
 
 export type EcdsaHssRoleLocalBootstrapIdentity = {
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -132,7 +132,7 @@ export async function computeSdkEcdsaHssApplicationBindingDigestB64u(
 
 export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   signingRootId: string;
   signingRootVersion: string;
 }): Promise<string> {
@@ -141,7 +141,7 @@ export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
       version: 'threshold_ecdsa_hss_key_id_v7',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
       walletId: input.walletId,
-      walletKeyId: input.walletKeyId,
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,
     }),
@@ -151,14 +151,14 @@ export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
 
 export async function computeEcdsaHssRoleLocalRelayerKeyId(input: {
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
 }): Promise<string> {
   const digest32 = await sha256BytesUtf8(
     alphabetizeStringify({
       version: 'threshold_ecdsa_hss_relayer_key_id_v1',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
       walletId: input.walletId,
-      walletKeyId: input.walletKeyId,
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     }),
   );
   return `ehss-relayer-${base64UrlEncode(digest32)}`;
@@ -171,7 +171,7 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
     alphabetizeStringify({
       version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
       walletId: input.walletId,
-      walletKeyId: input.walletKeyId,
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,
@@ -203,7 +203,7 @@ export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(
     alphabetizeStringify({
       version: ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION,
       walletId: input.walletId,
-      walletKeyId: input.walletKeyId,
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       rpId: input.rpId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
       signingRootId: input.signingRootId,

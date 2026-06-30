@@ -6,7 +6,6 @@ import wasmSignerServerDefault, {
   threshold_ed25519_hss_public_key_from_base_shares as threshold_ed25519_hss_public_key_from_base_shares_server,
   threshold_ed25519_hss_prepare_server_ceremony as threshold_ed25519_hss_prepare_server_ceremony_server,
   threshold_ed25519_hss_release_prepared_server_session as threshold_ed25519_hss_release_prepared_server_session_server,
-  threshold_ed25519_hss_release_staged_evaluator_artifact as threshold_ed25519_hss_release_staged_evaluator_artifact_server,
   threshold_ed25519_hss_verifying_share_from_signing_share as threshold_ed25519_hss_verifying_share_from_signing_share_server,
   threshold_ed25519_recovery_keypair_from_seed as threshold_ed25519_recovery_keypair_from_seed_server,
 } from '../../../../../wasm/near_signer/pkg-server/wasm_signer_worker.js';
@@ -216,9 +215,8 @@ async function initThresholdEd25519HssSignerWasm(input: {
 
 async function loadBundledThresholdEd25519HssWasmModule(): Promise<WebAssembly.Module | null> {
   try {
-    const imported = (await import(
-      '../../../../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm'
-    )) as ThresholdEd25519HssWasmModuleImport;
+    const imported =
+      (await import('../../../../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm')) as ThresholdEd25519HssWasmModuleImport;
     return imported.default instanceof WebAssembly.Module ? imported.default : null;
   } catch {
     return null;
@@ -525,6 +523,7 @@ async function prepareThresholdEd25519HssServerCeremonyNative(input: {
   const result = JSON.parse(stdout) as {
     contextBindingB64u: string;
     stagedEvaluatorArtifactB64u: string;
+    serverEvalFinalizeOutputB64u: string;
   };
 
   return {
@@ -532,6 +531,9 @@ async function prepareThresholdEd25519HssServerCeremonyNative(input: {
       contextBindingB64u: String(result.contextBindingB64u || '').trim(),
       stagedEvaluatorArtifactBytes: base64UrlDecode(
         String(result.stagedEvaluatorArtifactB64u || '').trim(),
+      ),
+      serverEvalFinalizeOutputBytes: base64UrlDecode(
+        String(result.serverEvalFinalizeOutputB64u || '').trim(),
       ),
     },
   };
@@ -608,12 +610,6 @@ export function releaseThresholdEd25519HssPreparedServerSession(handleRaw: unkno
   threshold_ed25519_hss_release_prepared_server_session_server(handle);
 }
 
-export function releaseThresholdEd25519HssStagedEvaluatorArtifact(handleRaw: unknown): void {
-  const handle = String(handleRaw || '').trim();
-  if (!handle || !thresholdEd25519HssWasmReady) return;
-  threshold_ed25519_hss_release_staged_evaluator_artifact_server(handle);
-}
-
 export async function prepareThresholdEd25519HssServerCeremony(input: {
   operation: ThresholdEd25519HssSessionOperation | 'registration';
   preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession;
@@ -658,6 +654,7 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
   }) as {
     contextBindingB64u: string;
     stagedEvaluatorArtifactHandle: string;
+    serverEvalFinalizeOutputB64u: string;
     timings?: {
       decodeStatesMs?: number;
       decodeMessagesMs?: number;
@@ -686,6 +683,9 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
   const evaluationResult = {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     stagedEvaluatorArtifactHandle: String(result.stagedEvaluatorArtifactHandle || '').trim(),
+    serverEvalFinalizeOutputBytes: base64UrlDecode(
+      String(result.serverEvalFinalizeOutputB64u || '').trim(),
+    ),
   };
   if (evaluationResult.contextBindingB64u !== expectedBinding) {
     throw new Error('[threshold-ed25519-hss] staged evaluator artifact context binding mismatch');
@@ -833,11 +833,9 @@ export async function finalizeThresholdEd25519HssReport(input: {
   const result = threshold_ed25519_hss_finalize_report_server({
     preparedSessionHandle: String(input.preparedServerSession.preparedSessionHandle || '').trim(),
     garblerDriverStateBytes: input.preparedServerSession.garblerDriverStateBytes,
-    stagedEvaluatorArtifactHandle: String(
-      input.evaluationResult.stagedEvaluatorArtifactHandle || '',
-    ).trim(),
-    stagedEvaluatorArtifactBytes:
-      input.evaluationResult.stagedEvaluatorArtifactBytes ?? new Uint8Array(),
+    stagedEvaluatorArtifactHandle: '',
+    stagedEvaluatorArtifactBytes: input.evaluationResult.stagedEvaluatorArtifactBytes,
+    serverEvalFinalizeOutputBytes: input.evaluationResult.serverEvalFinalizeOutputBytes,
   }) as {
     contextBindingB64u: string;
     evaluationReportJson: string;

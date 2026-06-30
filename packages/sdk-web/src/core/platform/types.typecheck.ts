@@ -3,7 +3,7 @@ import {
   toWalletId,
 } from '../signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { parseWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId, parseWalletKeyId } from '@shared/signing-lanes';
 import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
@@ -67,14 +67,20 @@ declare const passkeyReadyRecord: Extract<
   { kind: 'ecdsa_role_local_ready_passkey_v1' }
 >;
 declare const requiredPrfAuthenticatorSuccess: RequiredPrfAuthenticatorSuccess;
-const walletKeyIdResult = parseWalletKeyId('wallet-key-example');
-if (!walletKeyIdResult.ok) throw new Error(walletKeyIdResult.error.message);
-const walletKeyId = walletKeyIdResult.value;
+const walletId = toWalletId('wallet_alice');
+const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+  walletId,
+  signingRootId: 'project:dev',
+  signingRootVersion: 'default',
+});
+const genericWalletKeyIdResult = parseWalletKeyId('wallet-key-generic');
+if (!genericWalletKeyIdResult.ok) throw new Error(genericWalletKeyIdResult.error.message);
+const genericWalletKeyId = genericWalletKeyIdResult.value;
 
 const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
-  walletId: toWalletId('wallet_alice'),
-  walletKeyId,
+  walletId,
+  evmFamilySigningKeySlotId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -276,8 +282,8 @@ void emailOtpWorkerSecretSource;
 const directEmailOtpWorkerSessionHandle = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'otp-session',
-  walletId: toWalletId('wallet_alice'),
-  walletKeyId,
+  walletId,
+  evmFamilySigningKeySlotId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -295,8 +301,8 @@ broadSpreadEmailOtpWorkerSessionHandle satisfies EmailOtpWorkerIssuedSessionHand
 // @ts-expect-error Email OTP worker-session handle requires authSubjectId.
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
-  walletId: toWalletId('wallet_alice'),
-  walletKeyId,
+  walletId,
+  evmFamilySigningKeySlotId,
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
@@ -305,11 +311,22 @@ buildEmailOtpWorkerIssuedSessionHandle({
 // @ts-expect-error ECDSA worker-session handles require chainTarget.
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
-  walletId: toWalletId('wallet_alice'),
-  walletKeyId,
+  walletId,
+  evmFamilySigningKeySlotId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
+});
+
+buildEmailOtpWorkerIssuedSessionHandle({
+  sessionId: 'otp-session',
+  walletId,
+  // @ts-expect-error ECDSA worker-session handles require EVM-family signing key slots.
+  evmFamilySigningKeySlotId: genericWalletKeyId,
+  authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'sign',
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
 });
 
 // @ts-expect-error Ed25519 worker-session handles must not include chainTarget.
@@ -417,7 +434,7 @@ broadSpreadMixedReadyRecord satisfies EcdsaRoleLocalReadyRecord;
 
 const validEcdsaLoadInput = {
   walletId: toWalletId('wallet_alice'),
-  walletKeyId,
+  evmFamilySigningKeySlotId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
@@ -433,7 +450,7 @@ void validEcdsaLoadInput;
 
 const ecdsaLoadInputWithoutAuth = {
   walletId: toWalletId('wallet_alice'),
-  walletKeyId,
+  evmFamilySigningKeySlotId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),

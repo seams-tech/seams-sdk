@@ -101,9 +101,6 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
               <span className="w3a-export-key-type-option-description">
                 Export the account signing key set for NEAR.
               </span>
-              {loadingChain === 'near' && (
-                <span className="w3a-export-key-type-option-status">Opening export drawer...</span>
-              )}
             </button>
             <button
               type="button"
@@ -119,9 +116,6 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
               <span className="w3a-export-key-type-option-description">
                 Export the account signing key set for EVM.
               </span>
-              {loadingChain === 'evm' && (
-                <span className="w3a-export-key-type-option-status">Opening export drawer...</span>
-              )}
             </button>
           </div>
         </div>

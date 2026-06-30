@@ -91,6 +91,7 @@ import {
 } from './ecdsaSelection';
 import {
   resolveEvmFamilyEcdsaPlannerReadiness,
+  type EvmFamilyPlannerReadiness,
   type EvmFamilyPreConfirmSigningDeps,
 } from './authPlanning';
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
@@ -302,11 +303,9 @@ function assertSelectionMatchesLaneCandidate(args: {
   }
 }
 
-function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult): {
-  readiness: SigningSessionReadiness;
-  expiresAtMs: number;
-  remainingUses: number;
-} {
+function readinessFromSelection(
+  selection: EvmFamilyEcdsaSigningSelectionResult,
+): EvmFamilyPlannerReadiness {
   switch (selection.kind) {
     case 'ready': {
       const expiresAtMs = Math.floor(Number(selection.material.record.expiresAtMs) || 0);
@@ -323,6 +322,9 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
         },
         expiresAtMs,
         remainingUses,
+        trustedBudgetStatusAuth: {
+          kind: 'no_trusted_budget_status_auth',
+        },
       };
     }
     case 'reauth_required': {
@@ -349,6 +351,9 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
           },
           expiresAtMs,
           remainingUses,
+          trustedBudgetStatusAuth: {
+            kind: 'no_trusted_budget_status_auth',
+          },
         };
       }
       const status =
@@ -374,6 +379,9 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
         readiness,
         expiresAtMs: 0,
         remainingUses: 0,
+        trustedBudgetStatusAuth: {
+          kind: 'no_trusted_budget_status_auth',
+        },
       };
     }
     case 'budget_blocked':
@@ -384,6 +392,9 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
         },
         expiresAtMs: Math.floor(Number(selection.material.record.expiresAtMs) || 0),
         remainingUses: 0,
+        trustedBudgetStatusAuth: {
+          kind: 'no_trusted_budget_status_auth',
+        },
       };
     case 'missing_material':
       return {
@@ -395,6 +406,9 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
         },
         expiresAtMs: 0,
         remainingUses: 0,
+        trustedBudgetStatusAuth: {
+          kind: 'no_trusted_budget_status_auth',
+        },
       };
   }
 }
@@ -892,6 +906,9 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             readiness: readiness.readiness,
             expiresAtMs: readiness.expiresAtMs,
             remainingUses: readiness.remainingUses,
+            ...(readiness.trustedBudgetStatusAuth.kind === 'trusted_budget_status_auth'
+              ? { trustedStatusAuth: readiness.trustedBudgetStatusAuth.auth }
+              : {}),
           },
           availableLanesGeneration: availableLanes.generation,
           metadata: {

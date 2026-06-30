@@ -2,7 +2,6 @@ export { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
 export { createIndexedDBNonceLaneCoordinationStore } from './nonceLaneCoordinationStore';
 export { seamsWalletDB } from './singletons';
 export {
-  LEGACY_INDEXED_DB_NAMES,
   SEAMS_WALLET_DB_NAME,
   SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
@@ -77,7 +76,7 @@ export type {
 
 import { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
 import { seamsWalletDB } from './singletons';
-import { LEGACY_INDEXED_DB_NAMES, SEAMS_WALLET_DB_NAME } from './schemaNames';
+import { SEAMS_WALLET_DB_NAME } from './schemaNames';
 
 export type IndexedDBMode = 'app' | 'wallet' | 'disabled';
 
@@ -147,7 +146,6 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
   configured = { mode, ...next };
   seamsWalletDB.setDbName(next.walletDbName);
   seamsWalletDB.setDisabled(next.disabled);
-  seamsWalletDB.setLegacyDatabaseCleanup(next.disabled ? [] : LEGACY_INDEXED_DB_NAMES);
   return {
     walletDbName: configured.walletDbName,
   };

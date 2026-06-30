@@ -162,6 +162,7 @@ export type NearPreparedSigningSessionFinalizer = (args: {
 
 export type NearEd25519TransactionAdmissionBoundary = {
   sessionId: string;
+  walletSessionJwt: string;
   signingSessionPlan: SigningSessionPlan;
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;

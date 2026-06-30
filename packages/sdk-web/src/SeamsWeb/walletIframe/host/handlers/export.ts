@@ -9,7 +9,7 @@ import {
   parseExactEd25519SigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
-import { respondOk } from './shared';
+import { respondOk, respondOkResult } from './shared';
 import type { PMExportKeypairUiPayload } from '../../shared/messages';
 
 function keyExportInputFromPayload(payload: PMExportKeypairUiPayload) {
@@ -56,6 +56,14 @@ function keyExportInputFromPayload(payload: PMExportKeypairUiPayload) {
 
 export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
+    PM_RESOLVE_EXACT_KEY_EXPORT_LANE: async (
+      req: Req<'PM_RESOLVE_EXACT_KEY_EXPORT_LANE'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      const result = await pm.keys.resolveExactKeyExportLane(req.payload!);
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_EXPORT_KEYPAIR_UI: async (req: Req<'PM_EXPORT_KEYPAIR_UI'>) => {
       const pm = deps.getSeamsWeb();
       const payload = req.payload!;

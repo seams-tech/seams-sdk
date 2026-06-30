@@ -6,6 +6,7 @@ import {
   UserConfirmationType,
   type UserConfirmDecision,
   type UserConfirmRequest,
+  type SignIntentDigestSubject,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -61,6 +62,30 @@ function accountIdForEmailOtpExportUi(identity: EmailOtpExportAuthorizationIdent
   }
 }
 
+function signingSubjectForEmailOtpExportUi(
+  identity: EmailOtpExportAuthorizationIdentity,
+): SignIntentDigestSubject {
+  switch (identity.kind) {
+    case 'near_account':
+      return {
+        kind: 'near_wallet',
+        walletId: String(toAccountId(identity.nearAccountId)),
+        nearAccountId: String(toAccountId(identity.nearAccountId)),
+      };
+    case 'wallet_session': {
+      const walletId = String(identity.walletId || '').trim();
+      if (!walletId) {
+        throw new Error('Email OTP export requires wallet identity');
+      }
+      return { kind: 'evm_wallet', walletId };
+    }
+    default: {
+      const exhaustive: never = identity;
+      return exhaustive;
+    }
+  }
+}
+
 function buildEmailOtpExportPrompt(args: {
   challenge: EmailOtpExportAuthorizationChallenge;
   onResend: () => Promise<EmailOtpExportAuthorizationChallenge>;
@@ -104,6 +129,7 @@ export async function requestEmailOtpExportAuthorization(args: {
     return challenge;
   };
   const emailOtpPrompt = buildEmailOtpExportPrompt({ challenge, onResend: resend });
+  const signingSubject = signingSubjectForEmailOtpExportUi(args.identity);
 
   const decision = await args.confirmer.requestUserConfirmation({
     requestId: createEmailOtpExportUiRequestId(`export-${args.curve}-email-otp-auth`),
@@ -116,7 +142,7 @@ export async function requestEmailOtpExportAuthorization(args: {
         'Enter the email code to export this key. Anyone with the private key can fully control the account.',
     },
     payload: {
-      nearAccountId: accountIdForUi,
+      signingSubject,
       publicKey: args.publicKey,
       challengeB64u: challenge.challengeId,
       signingAuthPlan: {

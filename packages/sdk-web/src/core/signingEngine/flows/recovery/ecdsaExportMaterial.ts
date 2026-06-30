@@ -196,7 +196,7 @@ function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
     cachedExportArtifact,
     expected: {
       walletId: args.exportLane.key.walletId,
-      walletKeyId: args.exportLane.key.walletKeyId,
+      evmFamilySigningKeySlotId: args.exportLane.key.evmFamilySigningKeySlotId,
       chainTarget: args.exportLane.session.chainTarget,
       authMethod: args.exportLane.session.authMethod,
       source: record.source,

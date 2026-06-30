@@ -37,10 +37,16 @@ export interface AccountInputState {
   inputUsername: string;
   lastLoggedInUsername: string;
   lastLoggedInDomain: string;
+  /** Sponsored named NEAR account target used only by named-account registration. */
   targetAccountId: string;
+  /** Wallet identity used for passkey login/session operations. */
+  targetWalletId: string;
   displayPostfix: string;
   isUsingExistingAccount: boolean;
+  /** On-chain NEAR account existence for sponsored named-account registration. */
   accountExists: boolean;
+  /** Local passkey credential existence for wallet-scoped passkey login. */
+  passkeyCredentialExists: boolean;
   indexDBAccounts: string[];
   indexDBAccountOptions: StoredAccountOption[];
 }
@@ -70,34 +76,43 @@ export function extractUsernameFromAccountId(accountId: string | null | undefine
 }
 
 function normalizeStoredAccountOptions(input: {
-  accountIds?: string[];
   accounts?: Array<{
+    walletId?: string | null;
     nearAccountId?: string | null;
+    displayName?: string | null;
     signerSlot?: number;
     authMethod?: StoredAccountOption['authMethod'];
   }> | null;
 }): StoredAccountOption[] {
   const accounts: Array<{
+    walletId?: string | null;
     nearAccountId?: string | null;
+    displayName?: string | null;
     signerSlot?: number;
     authMethod?: StoredAccountOption['authMethod'];
   }> =
-    input.accounts && input.accounts.length > 0
-      ? input.accounts
-      : (input.accountIds ?? []).map((nearAccountId) => ({ nearAccountId }));
+    input.accounts && input.accounts.length > 0 ? input.accounts : [];
 
-  const byAccountId = new Map<string, StoredAccountOption>();
+  const byWalletAuth = new Map<string, StoredAccountOption>();
   for (const account of accounts) {
+    const walletId = String(account.walletId || '').trim();
+    if (!walletId) continue;
+    const displayName = String(account.displayName || walletId).trim() || walletId;
     const nearAccountId = String(account.nearAccountId || '').trim();
-    if (!nearAccountId) continue;
     const authMethodKey = account.authMethod || 'passkey';
-    byAccountId.set(`${nearAccountId}:${authMethodKey}`, {
-      nearAccountId,
+    byWalletAuth.set(`${walletId}:${authMethodKey}:${displayName}`, {
+      walletId,
+      displayName,
+      ...(nearAccountId ? { nearAccountId } : {}),
       ...(typeof account.signerSlot === 'number' ? { signerSlot: account.signerSlot } : {}),
       ...(account.authMethod ? { authMethod: account.authMethod } : {}),
     });
   }
-  return [...byAccountId.values()];
+  return [...byWalletAuth.values()];
+}
+
+function isPasskeyStoredAccountOption(option: StoredAccountOption): boolean {
+  return option.authMethod !== 'email_otp';
 }
 
 export function useAccountInput({
@@ -108,6 +123,7 @@ export function useAccountInput({
 }: UseAccountInputOptions): UseAccountInputReturn {
   const [discoveredRelayerAccount, setDiscoveredRelayerAccount] = useState<string>('');
   const accountExistsCheckIdRef = useRef(0);
+  const passkeyCredentialExistsCheckIdRef = useRef(0);
   const suppressRefreshAutofillRef = useRef(false);
 
   // Best-effort: when the host app didn't explicitly configure `relayerAccount`, try to
@@ -152,9 +168,11 @@ export function useAccountInput({
     lastLoggedInUsername: '',
     lastLoggedInDomain: '',
     targetAccountId: '',
+    targetWalletId: '',
     displayPostfix: '',
     isUsingExistingAccount: false,
     accountExists: false,
+    passkeyCredentialExists: false,
     indexDBAccounts: [],
     indexDBAccountOptions: [],
   });
@@ -173,11 +191,16 @@ export function useAccountInput({
       const accountIds = recentUnlocks.accountIds ?? [];
       const accounts = recentUnlocks.accounts ?? [];
       const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
-      const storedAccountOptions = normalizeStoredAccountOptions({ accountIds, accounts });
+      const storedAccountOptions = normalizeStoredAccountOptions({ accounts });
 
-      const fallbackAccountId = accountIds[0] || '';
-      const selectedPrefillAccountId = lastUsedAccount?.nearAccountId || fallbackAccountId;
-      const parts = String(selectedPrefillAccountId || '').split('.');
+      const fallbackAccountId = storedAccountOptions[0]?.walletId || '';
+      const selectedPrefillAccountId = lastUsedAccount?.walletId || fallbackAccountId;
+      const selectedDisplayName =
+        lastUsedAccount?.displayName ||
+        storedAccountOptions.find((option) => option.walletId === selectedPrefillAccountId)
+          ?.displayName ||
+        selectedPrefillAccountId;
+      const parts = String(selectedDisplayName || '').split('.');
       const lastUsername = parts[0] || '';
       const lastDomain = parts.length > 1 ? `.${parts.slice(1).join('.')}` : '';
 
@@ -190,8 +213,8 @@ export function useAccountInput({
         inputUsername:
           !suppressRefreshAutofillRef.current &&
           prevState.inputUsername.trim().length === 0 &&
-          lastUsername
-            ? lastUsername
+          selectedPrefillAccountId
+            ? selectedPrefillAccountId
             : prevState.inputUsername,
       }));
     } catch (error) {
@@ -242,10 +265,52 @@ export function useAccountInput({
     [awaitWalletIframeIfNeeded, seams],
   );
 
+  const checkPasskeyCredentialExists = useCallback(
+    async (walletId: string) => {
+      const checkId = ++passkeyCredentialExistsCheckIdRef.current;
+      const candidateWalletId = String(walletId || '').trim();
+      if (!candidateWalletId) {
+        setState((prevState) =>
+          checkId === passkeyCredentialExistsCheckIdRef.current
+            ? { ...prevState, passkeyCredentialExists: false }
+            : prevState,
+        );
+        return;
+      }
+
+      try {
+        if (seams.configs.wallet.mode === 'iframe' && !seams.isWalletIframeReady()) {
+          const ready = await awaitWalletIframeIfNeeded();
+          if (!ready || !seams.isWalletIframeReady()) return;
+        }
+        const passkeyExists = await seams.auth.hasPasskeyCredential(candidateWalletId);
+        setState((prevState) => {
+          if (checkId !== passkeyCredentialExistsCheckIdRef.current) return prevState;
+          if (!passkeyExists) return { ...prevState, passkeyCredentialExists: false };
+          return {
+            ...prevState,
+            targetWalletId: candidateWalletId,
+            displayPostfix: '',
+            isUsingExistingAccount: true,
+            passkeyCredentialExists: true,
+          };
+        });
+      } catch (error) {
+        console.warn('Error checking passkey credential:', error);
+        setState((prevState) =>
+          checkId === passkeyCredentialExistsCheckIdRef.current
+            ? { ...prevState, passkeyCredentialExists: false }
+            : prevState,
+        );
+      }
+    },
+    [awaitWalletIframeIfNeeded, seams],
+  );
+
   // Update derived state when inputs change
   const updateDerivedState = useCallback(
-    (username: string, accounts: string[]) => {
-      // Normalize username to lowercase to avoid iOS autocapitalize causing invalid NEAR IDs
+    (username: string, accounts: string[], accountOptions: StoredAccountOption[]) => {
+      // Normalize the input to avoid iOS autocapitalize breaking wallet/name matching.
       const raw = (username || '').trim();
       const uname = raw.toLowerCase();
 
@@ -253,15 +318,14 @@ export function useAccountInput({
         setState((prevState) => ({
           ...prevState,
           targetAccountId: '',
+          targetWalletId: '',
           displayPostfix: '',
           isUsingExistingAccount: false,
           accountExists: false,
+          passkeyCredentialExists: false,
         }));
         return;
       }
-
-      // If user types a full accountId (or selects one via custom UI), prefer it when present in storage.
-      const accountByExactInput = accounts.find((accountId) => accountId.toLowerCase() === uname);
 
       // If the user typed a full accountId, don't append any postfix.
       const typedFullAccountId = uname.includes('.');
@@ -270,6 +334,11 @@ export function useAccountInput({
         : normalizedDomain
           ? `${uname}.${normalizedDomain}`
           : uname;
+      const existingOption = accountOptions.find((option) => {
+        const walletId = String(option.walletId || '').trim().toLowerCase();
+        const displayName = String(option.displayName || '').trim().toLowerCase();
+        return walletId === uname || displayName === uname;
+      });
       const derivedStoredMatch = accounts.find(
         (accountId) => accountId.toLowerCase() === derivedTarget,
       );
@@ -290,20 +359,26 @@ export function useAccountInput({
       const uniqueUsernameMatch = usernameMatches.length === 1 ? usernameMatches[0] : undefined;
       const usernameFallbackMatch = usernameMatchByConfiguredDomain || uniqueUsernameMatch;
 
-      const existingAccount = accountByExactInput || derivedStoredMatch || usernameFallbackMatch;
+      const existingAccount = derivedStoredMatch || usernameFallbackMatch;
 
       let targetAccountId: string;
+      let targetWalletId: string;
       let displayPostfix: string;
       let isUsingExistingAccount: boolean;
 
-      if (existingAccount) {
-        // Use existing account's full ID
+      if (existingOption) {
+        targetWalletId = existingOption.walletId;
+        targetAccountId = String(existingOption.nearAccountId || '');
+        displayPostfix = '';
+        isUsingExistingAccount = true;
+      } else if (existingAccount) {
+        targetWalletId = '';
         targetAccountId = existingAccount;
         const parts = existingAccount.split('.');
-        // If the user typed the full accountId, don't show an extra postfix overlay.
-        displayPostfix = accountByExactInput ? '' : `.${parts.slice(1).join('.')}`;
+        displayPostfix = typedFullAccountId ? '' : `.${parts.slice(1).join('.')}`;
         isUsingExistingAccount = true;
       } else {
+        targetWalletId = '';
         targetAccountId = derivedTarget;
         displayPostfix = !typedFullAccountId && normalizedDomain ? `.${normalizedDomain}` : '';
         isUsingExistingAccount = false;
@@ -312,14 +387,18 @@ export function useAccountInput({
       setState((prevState) => ({
         ...prevState,
         targetAccountId,
+        targetWalletId,
         displayPostfix,
         isUsingExistingAccount,
+        passkeyCredentialExists: existingOption
+          ? isPasskeyStoredAccountOption(existingOption)
+          : false,
       }));
 
-      // Check if account has credentials
+      if (!existingOption) void checkPasskeyCredentialExists(uname);
       void checkAccountExists(targetAccountId);
     },
-    [checkAccountExists, normalizedDomain],
+    [checkAccountExists, checkPasskeyCredentialExists, normalizedDomain],
   );
 
   // Handle username input changes
@@ -346,8 +425,11 @@ export function useAccountInput({
         await awaitWalletIframeIfNeeded();
         const recentUnlocks = await seams.auth.getRecentUnlocks();
         const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
-        const accountIds = recentUnlocks.accountIds ?? [];
-        const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
+        const storedAccountOptions = normalizeStoredAccountOptions({
+          accounts: recentUnlocks.accounts ?? [],
+        });
+        const prefillAccountId =
+          lastUsedAccount?.walletId || storedAccountOptions[0]?.walletId || '';
         if (prefillAccountId) {
           const username = extractUsernameFromAccountId(prefillAccountId);
           setState((prevState) => ({ ...prevState, inputUsername: username }));
@@ -367,8 +449,11 @@ export function useAccountInput({
           await awaitWalletIframeIfNeeded();
           const recentUnlocks = await seams.auth.getRecentUnlocks();
           const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
-          const accountIds = recentUnlocks.accountIds ?? [];
-          const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
+          const storedAccountOptions = normalizeStoredAccountOptions({
+            accounts: recentUnlocks.accounts ?? [],
+          });
+          const prefillAccountId =
+            lastUsedAccount?.walletId || storedAccountOptions[0]?.walletId || '';
           if (prefillAccountId) {
             const username = extractUsernameFromAccountId(prefillAccountId);
             setState((prevState) => ({ ...prevState, inputUsername: username }));
@@ -384,8 +469,8 @@ export function useAccountInput({
 
   // Update derived state when dependencies change
   useEffect(() => {
-    updateDerivedState(state.inputUsername, state.indexDBAccounts);
-  }, [state.inputUsername, state.indexDBAccounts, updateDerivedState]);
+    updateDerivedState(state.inputUsername, state.indexDBAccounts, state.indexDBAccountOptions);
+  }, [state.inputUsername, state.indexDBAccounts, state.indexDBAccountOptions, updateDerivedState]);
 
   // In iframe mode, account existence checks can race wallet boot.
   // Re-run checks once iframe becomes ready so login state is accurate.

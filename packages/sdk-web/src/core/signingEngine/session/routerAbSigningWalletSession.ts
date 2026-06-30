@@ -27,6 +27,7 @@ import {
 } from '../threshold/ed25519/workerMaterialBinding';
 import {
   parseEd25519RelayerKeyId,
+  parseEcdsaClientVerifyingShareB64u,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   type Ed25519ClientVerifyingShareB64u,
@@ -486,7 +487,9 @@ function buildEcdsaHssRoleLocalMaterialHandleFromRecord(input: {
       keyHandle: parseEcdsaKeyHandle(input.record.keyHandle),
       routerAbStateSessionId: input.signingMaterial.routerAbStateSessionId,
       chainTarget: input.record.chainTarget,
-      clientVerifyingShareB64u: input.signingMaterial.clientVerifier33B64u,
+      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
+        input.signingMaterial.clientVerifier33B64u,
+      ),
       ecdsaThresholdKeyId: input.signingMaterial.ecdsaThresholdKeyId,
       participantIds: input.record.participantIds,
       relayerKeyId: parseEcdsaRelayerKeyId(input.record.relayerKeyId),

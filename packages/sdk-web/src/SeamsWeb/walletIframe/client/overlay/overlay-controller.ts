@@ -156,6 +156,12 @@ export class OverlayController {
     iframe.setAttribute('tabindex', '-1');
   }
 
+  forceHide(): void {
+    this.sticky = false;
+    if (!this.visible) return;
+    this.hide();
+  }
+
   getState(): { visible: boolean; mode: Mode; sticky: boolean; rect?: DOMRectLike } {
     return {
       visible: this.visible,

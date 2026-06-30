@@ -8,6 +8,9 @@ import { createCloudflareRouter } from './createCloudflareRouter';
 import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
 import type { CloudflareD1EmailOtpServerSealConfig } from './d1RouterApiAuthConfig';
 import { createCloudflareD1RouterApiAuthService } from './d1RouterApiAuthService';
+import type { ThresholdStoreConfigInput } from '../../core/types';
+import { createSigningSessionSealOptions } from '../../threshold/session/signingSessionSeal/options';
+import type { SigningSessionSealRoutesOptions } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
@@ -43,6 +46,10 @@ interface CloudflareD1RouterApiStagingEnv
   readonly RELAY_CORS_ORIGINS?: string;
   readonly RELAYER_ACCOUNT_ID?: string;
   readonly RELAYER_PUBLIC_KEY?: string;
+  readonly RELAYER_PRIVATE_KEY?: string;
+  readonly NEAR_RPC_URL?: string;
+  readonly ACCOUNT_INITIAL_BALANCE?: string;
+  readonly ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING?: string;
   readonly GOOGLE_OIDC_CLIENT_ID?: string;
   readonly SEAMS_OIDC_EXCHANGE_JSON?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
@@ -73,6 +80,7 @@ const RELAY_CONSOLE_READY_TABLES = Object.freeze([
   'billing_accounts',
   'billing_prepaid_reservations',
   'sponsorship_spend_cap_reservations',
+  'sponsorship_pricing_rules',
   'sponsored_call_records',
 ]);
 const RELAY_SIGNER_READY_TABLES = Object.freeze([
@@ -102,6 +110,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       sponsoredEvmCallConfig,
     },
   });
+  const thresholdStoreConfig = stagingThresholdStoreConfig(env, namespace);
   const service = createCloudflareD1RouterApiAuthService({
     database: env.SIGNER_DB,
     namespace,
@@ -110,6 +119,13 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     envId: requireEnvString(env, 'SEAMS_STAGING_ENV_ID'),
     relayerAccount: readEnvString(env, 'RELAYER_ACCOUNT_ID'),
     relayerPublicKey: readEnvString(env, 'RELAYER_PUBLIC_KEY'),
+    relayerPrivateKey: readEnvString(env, 'RELAYER_PRIVATE_KEY'),
+    nearRpcUrl: readEnvString(env, 'NEAR_RPC_URL'),
+    accountInitialBalance: readEnvString(env, 'ACCOUNT_INITIAL_BALANCE'),
+    implicitNearAccountTestFundingEnabled: readEnvString(
+      env,
+      'ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING',
+    ),
     googleOidcClientId: readEnvString(env, 'GOOGLE_OIDC_CLIENT_ID'),
     oidcExchange: stagingOidcExchangeConfig(env),
     accountIdDerivationSecret: requireEnvString(env, 'ACCOUNT_ID_DERIVATION_SECRET'),
@@ -133,15 +149,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       env,
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
     ),
-    thresholdStore: {
-      kind: 'cloudflare-do',
-      namespace: env.THRESHOLD_STORE,
-      THRESHOLD_PREFIX: namespace,
-      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: requireEnvString(
-        env,
-        'ROUTER_AB_NORMAL_SIGNING_WORKER_ID',
-      ),
-    },
+    thresholdStore: thresholdStoreConfig,
   });
   const sponsoredEvmCall = bundle.routerApiRouterOptions.sponsoredEvmCall
     ? {
@@ -165,9 +173,41 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     readyCheck: createRouterApiReadyCheck(env),
     ed25519RegistrationPrepare: { authService: service },
+    signingSessionSeal: stagingSigningSessionSealOptions(env, thresholdStoreConfig),
     ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
   });
 }
+
+function stagingThresholdStoreConfig(
+  env: CloudflareD1RouterApiStagingEnv,
+  namespace: string,
+): ThresholdStoreConfigInput {
+  return {
+    kind: 'cloudflare-do',
+    namespace: env.THRESHOLD_STORE,
+    THRESHOLD_PREFIX: namespace,
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: requireEnvString(
+      env,
+      'ROUTER_AB_NORMAL_SIGNING_WORKER_ID',
+    ),
+  };
+}
+
+function stagingSigningSessionSealOptions(
+  env: CloudflareD1RouterApiStagingEnv,
+  thresholdStoreConfig: ThresholdStoreConfigInput,
+): SigningSessionSealRoutesOptions | undefined {
+  const seal = stagingEmailOtpServerSealConfig(env);
+  if (!seal) return undefined;
+  return createSigningSessionSealOptions({
+    keyVersion: seal.keyVersion,
+    shamirPrimeB64u: seal.shamirPrimeB64u,
+    serverEncryptExponentB64u: seal.serverEncryptExponentB64u,
+    serverDecryptExponentB64u: seal.serverDecryptExponentB64u,
+    thresholdStoreConfig,
+  });
+}
+
 
 function routerApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
   return createRouterApiHandler(env);

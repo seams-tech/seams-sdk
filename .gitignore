@@ -22,6 +22,8 @@ clients/ios/.build
 
 examples/relay-cloudflare-worker/.wrangler
 packages/sdk-server-ts/.wrangler/
+
+# Local Wrangler secrets. Use packages/sdk-server-ts/dev.vars as the checked-in template.
 packages/sdk-server-ts/.dev.vars
 packages/sdk-server-ts/wrangler.d1-staging-console.toml
 packages/sdk-server-ts/wrangler.d1-staging-router-api.toml

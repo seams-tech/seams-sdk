@@ -2697,6 +2697,7 @@ export class SeamsWalletRepositories {
       signerActivationCount: input.signerActivations.length,
       keyMaterialCount: keyMaterialRows.length,
     });
+    logWalletRegistrationFinalizeProgress('opening_transaction');
     await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.appState,

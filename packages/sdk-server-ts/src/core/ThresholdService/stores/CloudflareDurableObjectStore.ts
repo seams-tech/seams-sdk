@@ -2,6 +2,7 @@ import type { NormalizedLogger } from '../../logger';
 import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } from '../../types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   parseEcdsaHssRoleLocalKeyRecord,
@@ -53,7 +54,19 @@ import type {
   ThresholdEd25519KeyRecord,
   ThresholdEd25519KeyStore,
 } from './KeyStore';
-import type { EcdsaHssRoleLocalKeyRecord } from '../../types';
+import type {
+  EcdsaHssRoleLocalKeyRecord,
+  ThresholdEd25519HssCanonicalContext,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+  ThresholdEd25519HssSessionOperation,
+  ThresholdEd25519HssStoredPreparedServerSession,
+  ThresholdEd25519HssStoredServerInputs,
+  ThresholdEd25519HssStoredStagedEvaluatorArtifact,
+} from '../../types';
+import type {
+  ThresholdEd25519HssCeremonyRecord,
+  ThresholdEd25519HssCeremonyStore,
+} from '../ThresholdSigningService';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
   ThresholdEcdsaMpcSessionRecord,
@@ -83,6 +96,14 @@ import type {
   RouterAbEcdsaHssPresignaturePool,
   RouterAbEcdsaHssServerPresignatureShareRecord,
 } from './EcdsaSigningStore';
+import type {
+  RouterAbEcdsaHssPoolFillLiveSessionCreateInput,
+  RouterAbEcdsaHssPoolFillLiveSessionCreateValue,
+  RouterAbEcdsaHssPoolFillLiveSessionOwner,
+  RouterAbEcdsaHssPoolFillLiveSessionStepInput,
+  RouterAbEcdsaHssPoolFillParseResult,
+  RouterAbEcdsaHssPoolFillPreparedStep,
+} from '../routerAb/ecdsaHssPoolFillLiveSession';
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 
@@ -159,7 +180,12 @@ type DoAuthReserveReplayGuardRequest = {
   key: string;
   expiresAtMs: number;
 };
-type DoRouterAbEcdsaHssPresignaturePutRequest = { op: 'routerAbEcdsaHssPresignaturePut'; listKey: string; value: unknown };
+type DoRouterAbEcdsaHssPresignaturePutRequest = {
+  op: 'routerAbEcdsaHssPresignaturePut';
+  listKey: string;
+  dedupeKey: string;
+  value: unknown;
+};
 type DoRouterAbEcdsaHssPresignatureReserveRequest = {
   op: 'routerAbEcdsaHssPresignatureReserve';
   listKey: string;
@@ -185,6 +211,18 @@ type DoRouterAbEcdsaHssPoolFillSessionAdvanceCasRequest = {
   expectedVersion: number;
   value: unknown;
   ttlMs?: number;
+};
+type DoRouterAbEcdsaHssPoolFillLiveSessionCreateRequest = {
+  op: 'routerAbEcdsaHssPoolFillLiveSessionCreate';
+  input: RouterAbEcdsaHssPoolFillLiveSessionCreateInput;
+};
+type DoRouterAbEcdsaHssPoolFillLiveSessionStepRequest = {
+  op: 'routerAbEcdsaHssPoolFillLiveSessionStep';
+  input: RouterAbEcdsaHssPoolFillLiveSessionStepInput;
+};
+type DoRouterAbEcdsaHssPoolFillLiveSessionDeleteRequest = {
+  op: 'routerAbEcdsaHssPoolFillLiveSessionDelete';
+  presignSessionId: string;
 };
 type DoEd25519PresignTakeRequest = {
   op: 'ed25519PresignTake';
@@ -240,6 +278,9 @@ type DoRequest =
   | DoRouterAbEcdsaHssPresignatureReserveByIdRequest
   | DoRouterAbEcdsaHssPoolFillSessionCreateRequest
   | DoRouterAbEcdsaHssPoolFillSessionAdvanceCasRequest
+  | DoRouterAbEcdsaHssPoolFillLiveSessionCreateRequest
+  | DoRouterAbEcdsaHssPoolFillLiveSessionStepRequest
+  | DoRouterAbEcdsaHssPoolFillLiveSessionDeleteRequest
   | DoEd25519PresignCheckCapacityRequest
   | DoEd25519PresignConsumeRateLimitRequest
   | DoEd25519PresignPutWithCapacityRequest
@@ -299,7 +340,7 @@ function thresholdEcdsaSharedIdentityGuard(
     contextKey: [
       'evm-family',
       record.walletId,
-      record.walletKeyId,
+      record.evmFamilySigningKeySlotId,
       record.signingRootId,
       ecdsaSigningRootVersion(record),
     ]
@@ -411,6 +452,17 @@ function computeKeyPrefix(config: Record<string, unknown>): string {
   );
 }
 
+function computeEd25519HssCeremonyPrefix(config: Record<string, unknown>): string {
+  const explicit = toOptionalTrimmedString(config.THRESHOLD_ED25519_HSS_CEREMONY_PREFIX);
+  if (explicit) return explicit.endsWith(':') ? explicit : `${explicit}:`;
+  const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
+  if (basePrefix) {
+    const base = basePrefix.endsWith(':') ? basePrefix : `${basePrefix}:`;
+    return `${base}ed25519-hss-ceremony:`;
+  }
+  return 'w3a:threshold-ed25519:hss-ceremony:';
+}
+
 function computeWalletSessionPrefixEcdsa(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ECDSA_WALLET_SESSION_PREFIX);
@@ -449,9 +501,9 @@ function computePresignPrefixEcdsa(config: Record<string, unknown>): string {
   );
 }
 
-export class CloudflareDurableObjectWalletSessionStore<TRecord extends WalletSessionRecord>
-  implements WalletSessionStore<TRecord>
-{
+export class CloudflareDurableObjectWalletSessionStore<
+  TRecord extends WalletSessionRecord,
+> implements WalletSessionStore<TRecord> {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
   private readonly parseRecord: WalletSessionRecordParser<TRecord>;
@@ -501,9 +553,7 @@ export class CloudflareDurableObjectWalletSessionStore<TRecord extends WalletSes
     if (!resp.ok) return null;
     const raw = resp.value;
     const entry = isObject(raw) ? (raw as Record<string, unknown>) : null;
-    const record = entry
-      ? this.parseRecord((entry as { record?: unknown }).record)
-      : null;
+    const record = entry ? this.parseRecord((entry as { record?: unknown }).record) : null;
     const expiresAtMs = entry ? (entry as { expiresAtMs?: unknown }).expiresAtMs : null;
     if (!record || typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
     if (Date.now() > expiresAtMs) return null;
@@ -744,11 +794,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
     return `${this.presignRateLimitPrefix}${bucket.kind}:${encodeURIComponent(key)}:${windowStartMs}`;
   }
 
-  async putMpcSession(
-    id: string,
-    record: TMpcRecord,
-    ttlMs: number,
-  ): Promise<void> {
+  async putMpcSession(id: string, record: TMpcRecord, ttlMs: number): Promise<void> {
     const resp = await callDo<void>(this.stub, {
       op: 'set',
       key: this.key(id),
@@ -837,11 +883,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
     return parseThresholdEd25519CoordinatorSigningSessionRecord(resp.value);
   }
 
-  async putPresign(
-    id: string,
-    record: RouterAbEd25519PresignRecord,
-    ttlMs: number,
-  ): Promise<void> {
+  async putPresign(id: string, record: RouterAbEd25519PresignRecord, ttlMs: number): Promise<void> {
     const parsed = parseRouterAbEd25519PresignRecord(record);
     if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
@@ -960,6 +1002,292 @@ export class CloudflareDurableObjectThresholdEd25519KeyStore implements Threshol
 
   async del(relayerKeyId: string): Promise<void> {
     const id = toOptionalTrimmedString(relayerKeyId);
+    if (!id) return;
+    const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
+    if (!resp.ok) throw new Error(resp.message);
+  }
+}
+
+type DurableEd25519HssSessionCeremonyWireRecord = {
+  kind: 'session';
+  expiresAtMs: number;
+  relayerKeyId: string;
+  operation: ThresholdEd25519HssSessionOperation;
+  context: ThresholdEd25519HssCanonicalContext;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  preparedServerSession: {
+    evaluatorDriverStateB64u: string;
+    garblerDriverStateB64u: string;
+  };
+  serverInputs?: {
+    yRelayerB64u: string;
+    tauRelayerB64u: string;
+  };
+  evaluationResult?: {
+    stagedEvaluatorArtifactB64u: string;
+    serverEvalFinalizeOutputB64u: string;
+  };
+};
+
+const ED25519_HSS_SESSION_OPERATIONS: ReadonlySet<string> = new Set([
+  'tx_signing',
+  'link_device',
+  'email_recovery',
+  'warm_session_reconstruction',
+  'explicit_key_export',
+]);
+
+function parseDurableEd25519HssSessionOperation(raw: unknown): ThresholdEd25519HssSessionOperation {
+  const value = toOptionalTrimmedString(raw);
+  if (!ED25519_HSS_SESSION_OPERATIONS.has(value)) {
+    throw new Error('durable Ed25519 HSS ceremony operation is invalid');
+  }
+  return value as ThresholdEd25519HssSessionOperation;
+}
+
+function parseDurableEd25519HssContext(raw: unknown): ThresholdEd25519HssCanonicalContext {
+  if (!isObject(raw)) throw new Error('durable Ed25519 HSS ceremony context is invalid');
+  const applicationBindingDigestB64u = toOptionalTrimmedString(raw.applicationBindingDigestB64u);
+  if (!applicationBindingDigestB64u) {
+    throw new Error('durable Ed25519 HSS ceremony context digest is required');
+  }
+  if (!Array.isArray(raw.participantIds)) {
+    throw new Error('durable Ed25519 HSS ceremony participantIds are required');
+  }
+  const participantIds = raw.participantIds.map((id) => Number(id));
+  if (
+    participantIds.length === 0 ||
+    participantIds.some((id) => !Number.isSafeInteger(id) || id <= 0)
+  ) {
+    throw new Error('durable Ed25519 HSS ceremony participantIds are invalid');
+  }
+  return { applicationBindingDigestB64u, participantIds };
+}
+
+function parseDurableEd25519HssPreparedSession(
+  raw: unknown,
+): ThresholdEd25519HssPreparedSessionEnvelope {
+  if (!isObject(raw)) throw new Error('durable Ed25519 HSS preparedSession is invalid');
+  const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
+  const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
+  if (!contextBindingB64u || !evaluatorDriverStateB64u) {
+    throw new Error('durable Ed25519 HSS preparedSession is incomplete');
+  }
+  return { contextBindingB64u, evaluatorDriverStateB64u };
+}
+
+function parseDurableEd25519HssPreparedServerSession(
+  raw: unknown,
+): ThresholdEd25519HssStoredPreparedServerSession {
+  if (!isObject(raw)) {
+    throw new Error('durable Ed25519 HSS preparedServerSession is invalid');
+  }
+  if (toOptionalTrimmedString(raw.preparedSessionHandle)) {
+    throw new Error('durable Ed25519 HSS ceremony cannot store preparedSessionHandle');
+  }
+  const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
+  const garblerDriverStateB64u = toOptionalTrimmedString(raw.garblerDriverStateB64u);
+  if (!evaluatorDriverStateB64u || !garblerDriverStateB64u) {
+    throw new Error('durable Ed25519 HSS preparedServerSession is incomplete');
+  }
+  return {
+    evaluatorDriverStateBytes: base64UrlDecode(evaluatorDriverStateB64u),
+    garblerDriverStateBytes: base64UrlDecode(garblerDriverStateB64u),
+  };
+}
+
+function parseDurableEd25519HssServerInputs(
+  raw: unknown,
+): ThresholdEd25519HssStoredServerInputs | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isObject(raw)) throw new Error('durable Ed25519 HSS serverInputs are invalid');
+  const yRelayerB64u = toOptionalTrimmedString(raw.yRelayerB64u);
+  const tauRelayerB64u = toOptionalTrimmedString(raw.tauRelayerB64u);
+  if (!yRelayerB64u || !tauRelayerB64u) {
+    throw new Error('durable Ed25519 HSS serverInputs are incomplete');
+  }
+  return {
+    yRelayerBytes: base64UrlDecode(yRelayerB64u),
+    tauRelayerBytes: base64UrlDecode(tauRelayerB64u),
+  };
+}
+
+function parseDurableEd25519HssEvaluationResult(
+  raw: unknown,
+): ThresholdEd25519HssStoredStagedEvaluatorArtifact | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isObject(raw)) throw new Error('durable Ed25519 HSS evaluationResult is invalid');
+  if (toOptionalTrimmedString(raw.stagedEvaluatorArtifactHandle)) {
+    throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
+  }
+  const stagedEvaluatorArtifactB64u = toOptionalTrimmedString(raw.stagedEvaluatorArtifactB64u);
+  const serverEvalFinalizeOutputB64u = toOptionalTrimmedString(raw.serverEvalFinalizeOutputB64u);
+  if (!stagedEvaluatorArtifactB64u) {
+    throw new Error('durable Ed25519 HSS evaluationResult artifact is required');
+  }
+  if (!serverEvalFinalizeOutputB64u) {
+    throw new Error('durable Ed25519 HSS evaluationResult server finalize output is required');
+  }
+  return {
+    stagedEvaluatorArtifactBytes: base64UrlDecode(stagedEvaluatorArtifactB64u),
+    serverEvalFinalizeOutputBytes: base64UrlDecode(serverEvalFinalizeOutputB64u),
+  };
+}
+
+function durableEd25519HssPreparedServerSessionWire(
+  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession,
+): DurableEd25519HssSessionCeremonyWireRecord['preparedServerSession'] {
+  if (toOptionalTrimmedString(preparedServerSession.preparedSessionHandle)) {
+    throw new Error('durable Ed25519 HSS ceremony cannot store preparedSessionHandle');
+  }
+  return {
+    evaluatorDriverStateB64u: base64UrlEncode(preparedServerSession.evaluatorDriverStateBytes),
+    garblerDriverStateB64u: base64UrlEncode(preparedServerSession.garblerDriverStateBytes),
+  };
+}
+
+function durableEd25519HssServerInputsWire(
+  serverInputs: ThresholdEd25519HssStoredServerInputs | undefined,
+): DurableEd25519HssSessionCeremonyWireRecord['serverInputs'] {
+  if (!serverInputs) return undefined;
+  return {
+    yRelayerB64u: base64UrlEncode(serverInputs.yRelayerBytes),
+    tauRelayerB64u: base64UrlEncode(serverInputs.tauRelayerBytes),
+  };
+}
+
+function durableEd25519HssEvaluationResultWire(
+  evaluationResult: ThresholdEd25519HssStoredStagedEvaluatorArtifact | undefined,
+): DurableEd25519HssSessionCeremonyWireRecord['evaluationResult'] {
+  if (!evaluationResult) return undefined;
+  if (toOptionalTrimmedString(evaluationResult.stagedEvaluatorArtifactHandle)) {
+    throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
+  }
+  if (!evaluationResult.stagedEvaluatorArtifactBytes) {
+    throw new Error('durable Ed25519 HSS ceremony evaluationResult bytes are required');
+  }
+  if (!evaluationResult.serverEvalFinalizeOutputBytes) {
+    throw new Error(
+      'durable Ed25519 HSS ceremony evaluationResult server finalize output bytes are required',
+    );
+  }
+  return {
+    stagedEvaluatorArtifactB64u: base64UrlEncode(evaluationResult.stagedEvaluatorArtifactBytes),
+    serverEvalFinalizeOutputB64u: base64UrlEncode(evaluationResult.serverEvalFinalizeOutputBytes),
+  };
+}
+
+function durableEd25519HssSessionCeremonyWire(
+  record: ThresholdEd25519HssCeremonyRecord,
+): DurableEd25519HssSessionCeremonyWireRecord {
+  if (record.kind !== 'session') {
+    throw new Error('durable Ed25519 HSS ceremony store only accepts session ceremonies');
+  }
+  const serverInputs = durableEd25519HssServerInputsWire(record.serverInputs);
+  const evaluationResult = durableEd25519HssEvaluationResultWire(record.evaluationResult);
+  return {
+    kind: 'session',
+    expiresAtMs: record.expiresAtMs,
+    relayerKeyId: record.relayerKeyId,
+    operation: record.operation,
+    context: record.context,
+    preparedSession: record.preparedSession,
+    preparedServerSession: durableEd25519HssPreparedServerSessionWire(record.preparedServerSession),
+    ...(serverInputs ? { serverInputs } : {}),
+    ...(evaluationResult ? { evaluationResult } : {}),
+  };
+}
+
+function parseDurableEd25519HssSessionCeremonyWire(
+  raw: unknown,
+): ThresholdEd25519HssCeremonyRecord | null {
+  if (raw === undefined || raw === null) return null;
+  if (!isObject(raw)) throw new Error('durable Ed25519 HSS ceremony record is invalid');
+  if (raw.kind !== 'session') {
+    throw new Error('durable Ed25519 HSS ceremony record kind is invalid');
+  }
+  const expiresAtMs = Number(raw.expiresAtMs);
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+    throw new Error('durable Ed25519 HSS ceremony expiry is invalid');
+  }
+  const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
+  if (!relayerKeyId) throw new Error('durable Ed25519 HSS ceremony relayerKeyId is required');
+  const serverInputs = parseDurableEd25519HssServerInputs(raw.serverInputs);
+  const evaluationResult = parseDurableEd25519HssEvaluationResult(raw.evaluationResult);
+  return {
+    kind: 'session',
+    expiresAtMs,
+    relayerKeyId,
+    operation: parseDurableEd25519HssSessionOperation(raw.operation),
+    context: parseDurableEd25519HssContext(raw.context),
+    preparedSession: parseDurableEd25519HssPreparedSession(raw.preparedSession),
+    preparedServerSession: parseDurableEd25519HssPreparedServerSession(raw.preparedServerSession),
+    ...(serverInputs ? { serverInputs } : {}),
+    ...(evaluationResult ? { evaluationResult } : {}),
+  };
+}
+
+export class CloudflareDurableObjectThresholdEd25519HssCeremonyStore implements ThresholdEd25519HssCeremonyStore {
+  private readonly stub: DurableObjectStubLike;
+  private readonly keyPrefix: string;
+
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+    keyPrefix: string;
+  }) {
+    this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
+    this.keyPrefix = input.keyPrefix;
+  }
+
+  private key(handle: string): string {
+    return `${this.keyPrefix}${handle}`;
+  }
+
+  async cleanupExpired(_nowMs: number): Promise<void> {
+    return;
+  }
+
+  async put(handle: string, record: ThresholdEd25519HssCeremonyRecord): Promise<void> {
+    const id = toOptionalTrimmedString(handle);
+    if (!id) throw new Error('Missing Ed25519 HSS ceremony handle');
+    const ttlMs = Math.max(1, record.expiresAtMs - Date.now());
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(id),
+      value: durableEd25519HssSessionCeremonyWire(record),
+      ttlMs,
+    });
+    if (!resp.ok) throw new Error(resp.message);
+  }
+
+  async get(handle: string): Promise<ThresholdEd25519HssCeremonyRecord | null> {
+    const id = toOptionalTrimmedString(handle);
+    if (!id) return null;
+    const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
+    if (!resp.ok) return null;
+    const record = parseDurableEd25519HssSessionCeremonyWire(resp.value);
+    if (!record) return null;
+    if (record.expiresAtMs <= Date.now()) {
+      await this.delete(id);
+      return null;
+    }
+    return record;
+  }
+
+  async take(handle: string): Promise<ThresholdEd25519HssCeremonyRecord | null> {
+    const id = toOptionalTrimmedString(handle);
+    if (!id) return null;
+    const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.key(id) });
+    if (!resp.ok) return null;
+    const record = parseDurableEd25519HssSessionCeremonyWire(resp.value);
+    if (!record) return null;
+    if (record.expiresAtMs <= Date.now()) return null;
+    return record;
+  }
+
+  async delete(handle: string): Promise<void> {
+    const id = toOptionalTrimmedString(handle);
     if (!id) return;
     const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
     if (!resp.ok) throw new Error(resp.message);
@@ -1184,6 +1512,90 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore impleme
   }
 }
 
+export class CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner
+  implements RouterAbEcdsaHssPoolFillLiveSessionOwner
+{
+  private readonly namespace: CloudflareDurableObjectNamespaceLike;
+  private readonly objectNamePrefix: string;
+
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+  }) {
+    this.namespace = input.namespace;
+    this.objectNamePrefix = input.objectName;
+  }
+
+  private stubForPresignSession(presignSessionId: string): DurableObjectStubLike {
+    const id = toOptionalTrimmedString(presignSessionId);
+    if (!id) throw new Error('Missing presignSessionId');
+    return resolveDoStub({
+      namespace: this.namespace,
+      objectName: `${this.objectNamePrefix}:ecdsa-pool-fill:${id}`,
+    });
+  }
+
+  async createSession(
+    input: RouterAbEcdsaHssPoolFillLiveSessionCreateInput,
+  ): Promise<
+    RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillLiveSessionCreateValue>
+  > {
+    const parsedRecord = parseRouterAbEcdsaHssPoolFillSessionRecord(input.record);
+    if (!parsedRecord) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Invalid Router A/B ECDSA-HSS pool-fill session record',
+      };
+    }
+    const resp = await callDo<
+      RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillLiveSessionCreateValue>
+    >(this.stubForPresignSession(input.presignSessionId), {
+      op: 'routerAbEcdsaHssPoolFillLiveSessionCreate',
+      input: {
+        ...input,
+        record: parsedRecord,
+      },
+    });
+    if (!resp.ok) throw new Error(resp.message);
+    return resp.value;
+  }
+
+  async stepSession(
+    input: RouterAbEcdsaHssPoolFillLiveSessionStepInput,
+  ): Promise<RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillPreparedStep>> {
+    const parsedRecord = parseRouterAbEcdsaHssPoolFillSessionRecord(input.record);
+    if (!parsedRecord) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Invalid Router A/B ECDSA-HSS pool-fill session record',
+      };
+    }
+    const resp = await callDo<
+      RouterAbEcdsaHssPoolFillParseResult<RouterAbEcdsaHssPoolFillPreparedStep>
+    >(this.stubForPresignSession(input.presignSessionId), {
+      op: 'routerAbEcdsaHssPoolFillLiveSessionStep',
+      input: {
+        ...input,
+        record: parsedRecord,
+      },
+    });
+    if (!resp.ok) throw new Error(resp.message);
+    return resp.value;
+  }
+
+  async deleteSession(presignSessionId: string): Promise<void> {
+    const id = toOptionalTrimmedString(presignSessionId);
+    if (!id) return;
+    const resp = await callDo<void>(this.stubForPresignSession(id), {
+      op: 'routerAbEcdsaHssPoolFillLiveSessionDelete',
+      presignSessionId: id,
+    });
+    if (!resp.ok) throw new Error(resp.message);
+  }
+}
+
 export class CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool implements RouterAbEcdsaHssPresignaturePool {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
@@ -1212,12 +1624,18 @@ export class CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool implements 
     return `${this.reservedKeyPrefix(relayerKeyId)}${presignatureId}`;
   }
 
+  private dedupeKey(relayerKeyId: string, presignatureId: string): string {
+    return `${this.keyPrefix}done:${relayerKeyId}:${presignatureId}`;
+  }
+
   async put(record: RouterAbEcdsaHssServerPresignatureShareRecord): Promise<void> {
     const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
-    if (!relayerKeyId) throw new Error('Missing relayerKeyId');
+    const presignatureId = toOptionalTrimmedString(record.presignatureId);
+    if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
     const resp = await callDo<void>(this.stub, {
       op: 'routerAbEcdsaHssPresignaturePut',
       listKey: this.listKey(relayerKeyId),
+      dedupeKey: this.dedupeKey(relayerKeyId, presignatureId),
       value: record,
     });
     if (!resp.ok) throw new Error(resp.message);
@@ -1293,6 +1711,7 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   keyStore: ThresholdEd25519KeyStore;
   sessionStore: ThresholdEd25519SessionStore;
   walletSessionStore: Ed25519WalletSessionStore;
+  ed25519HssCeremonyStore: ThresholdEd25519HssCeremonyStore;
 } | null {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const kind = toOptionalTrimmedString(config.kind);
@@ -1313,6 +1732,7 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   const walletSessionPrefix = computeWalletSessionPrefix(config);
   const sessionPrefix = computeSessionPrefix(config);
   const keyPrefix = computeKeyPrefix(config);
+  const ed25519HssCeremonyPrefix = computeEd25519HssCeremonyPrefix(config);
 
   input.logger.info(
     '[threshold-ed25519] Using Cloudflare Durable Object store for threshold session persistence',
@@ -1334,6 +1754,11 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
       objectName,
       keyPrefix: walletSessionPrefix,
       parseRecord: parseEd25519WalletSessionRecord,
+    }),
+    ed25519HssCeremonyStore: new CloudflareDurableObjectThresholdEd25519HssCeremonyStore({
+      namespace,
+      objectName,
+      keyPrefix: ed25519HssCeremonyPrefix,
     }),
   };
 }
@@ -1385,6 +1810,7 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   sessionStore: ThresholdEcdsaSessionStore;
   walletSessionStore: EcdsaWalletSessionStore;
   poolFillSessionStore: RouterAbEcdsaHssPoolFillSessionStore;
+  poolFillLiveSessionOwner: RouterAbEcdsaHssPoolFillLiveSessionOwner;
   presignaturePool: RouterAbEcdsaHssPresignaturePool;
 } | null {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
@@ -1420,11 +1846,11 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
     }),
     sessionStore:
       new CloudflareDurableObjectThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
-      namespace,
-      objectName,
-      keyPrefix: sessionPrefix,
-      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
-    }),
+        namespace,
+        objectName,
+        keyPrefix: sessionPrefix,
+        parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
+      }),
     walletSessionStore: new CloudflareDurableObjectWalletSessionStore<EcdsaWalletSessionRecord>({
       namespace,
       objectName,
@@ -1435,6 +1861,10 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
       namespace,
       objectName,
       keyPrefix: presignPrefix,
+    }),
+    poolFillLiveSessionOwner: new CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner({
+      namespace,
+      objectName,
     }),
     presignaturePool: new CloudflareDurableObjectRouterAbEcdsaHssPresignaturePool({
       namespace,

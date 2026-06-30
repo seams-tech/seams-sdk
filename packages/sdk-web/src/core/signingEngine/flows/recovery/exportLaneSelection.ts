@@ -14,6 +14,7 @@ import { emitSigningSessionFlowFailure, emitSigningSessionFlowTrace } from '../.
 import { SigningSessionIds } from '../../session/operationState/types';
 import {
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -40,6 +41,10 @@ import {
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
 } from '../../session/keyMaterialBrands';
+import type {
+  SigningEngineResolveExactKeyExportLaneInput,
+  SigningEngineResolveExactKeyExportLaneResult,
+} from './keyExportFlow';
 
 export type ExactNearEd25519ExportLane = {
   curve: 'ed25519';
@@ -454,6 +459,56 @@ async function resolveEcdsaExportLane(
       source: selected.source,
     },
   };
+}
+
+export async function resolveExactKeyExportLane(
+  deps: Pick<
+    ExportLaneSelectionDeps,
+    'readPersistedAvailableSigningLanes' | 'readPersistedAvailableSigningLanesForTargets'
+  >,
+  input: SigningEngineResolveExactKeyExportLaneInput,
+): Promise<SigningEngineResolveExactKeyExportLaneResult> {
+  switch (input.kind) {
+    case 'near': {
+      const walletId = String(toWalletId(input.walletSession.walletId));
+      const nearAccountId = String(input.nearAccount.accountId).trim();
+      const availableLanes = await deps.readPersistedAvailableSigningLanes({ walletId });
+      const concreteCandidates = availableLanes.candidates.ed25519.near
+        .filter(isConcreteEd25519ExportLane)
+        .filter((lane) => String(lane.walletId) === walletId)
+        .filter((lane) => String(lane.nearAccountId) === nearAccountId);
+      const selected = selectExactExportAvailableLane({
+        context: 'ed25519-export-resolve',
+        candidates: concreteCandidates,
+      });
+      return {
+        kind: 'near',
+        laneIdentity: exactEd25519IdentityForExportLane(selected),
+      };
+    }
+    case 'ecdsa': {
+      const walletId = String(toWalletId(input.walletSession.walletId));
+      const targetAvailableLanes = await deps.readPersistedAvailableSigningLanesForTargets({
+        walletId,
+        ecdsaChainTargets: [input.chainTarget],
+      });
+      const targetCandidates = ecdsaAvailableLaneCandidatesForTarget(
+        targetAvailableLanes,
+        input.chainTarget,
+      ).filter(isConcreteEcdsaExportLane);
+      const selected = selectExactExportAvailableLane({
+        context: 'ecdsa-export-resolve',
+        candidates: targetCandidates,
+        ecdsaContext: { walletId },
+      });
+      return {
+        kind: 'ecdsa',
+        laneIdentity: exactEcdsaIdentityForExportLane({ lane: selected }),
+      };
+    }
+  }
+  input satisfies never;
+  throw new Error('[SigningEngine][key-export] unsupported export lane resolution kind');
 }
 
 export async function restoreNearEd25519SessionForExport(

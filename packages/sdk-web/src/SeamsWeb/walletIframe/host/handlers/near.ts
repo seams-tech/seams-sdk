@@ -30,9 +30,11 @@ import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator'
 import {
   extractBorshBytesFromPlainSignedTx,
   isObject,
+  isPlainObject,
   isPlainSignedTransactionLike,
   type PlainSignedTransactionLike,
 } from '@shared/utils/validation';
+import { type RegisterWalletInput, walletIdFromString } from '@shared/utils/registrationIntent';
 import type { ActionArgs } from '@/core/types';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
@@ -114,6 +116,26 @@ function registrationOptionsWithoutActivation(options: unknown): Record<string, 
   const out = isObject(options) ? { ...(options as Record<string, unknown>) } : {};
   delete out.walletIframeActivation;
   return out;
+}
+
+function parseRegistrationActivationProvidedWallet(
+  payload: PMRegistrationActivationPreparePayload,
+): Extract<RegisterWalletInput, { kind: 'provided' }> {
+  const wallet = payload.wallet;
+  if (!isPlainObject(wallet)) {
+    throw new Error('Registration activation requires a provided wallet');
+  }
+  if (wallet.kind !== 'provided') {
+    throw new Error('Registration activation requires a provided wallet');
+  }
+  const walletIdRaw = wallet.walletId;
+  if (typeof walletIdRaw !== 'string') {
+    throw new Error('Registration activation walletId is invalid');
+  }
+  return {
+    kind: 'provided',
+    walletId: walletIdFromString(walletIdRaw.trim()),
+  };
 }
 
 function removeRegistrationActivationRecord(activationId: string): void {
@@ -447,6 +469,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       if (Date.now() >= payload.expiresAtMs) {
         throw new Error('Registration activation expired');
       }
+      const wallet = parseRegistrationActivationProvidedWallet(payload);
       const presentation = normalizeRegistrationActivationPresentation(payload.presentation);
 
       removeRegistrationActivationRecord(payload.activationId);
@@ -479,6 +502,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
                 registrationOptionsWithoutActivation(payload.options),
               ) as RegistrationHooksOptions;
               const result = await pm.registration.registerPasskey({
+                wallet,
                 ...hooksOptions,
                 confirmationConfig: {
                   ...(payload.confirmationConfig || {}),

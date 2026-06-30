@@ -43,7 +43,7 @@ import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { computeSdkEcdsaHssApplicationBindingDigestB64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { assertNeverUseCase, useCaseFailure, type UseCaseFailure } from './lifecycle';
-import type { WalletKeyId } from '@shared/signing-lanes';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 export type ProvisionEcdsaDeps = {
   authenticator: Pick<AuthenticatorPort, 'run'>;
@@ -92,7 +92,7 @@ export type ProvisionEcdsaRouteFacts = {
 
 export type ProvisionEcdsaInput = {
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
@@ -212,7 +212,7 @@ function validateEmailOtpHandle(input: ProvisionEcdsaInput): ProvisionEcdsaFailu
   const handle = input.authMethod.handle;
   if (
     !sameString(handle.walletId, input.walletId) ||
-    !sameString(handle.walletKeyId, input.walletKeyId) ||
+    !sameString(handle.evmFamilySigningKeySlotId, input.evmFamilySigningKeySlotId) ||
     !sameString(handle.action, 'threshold_ecdsa_bootstrap') ||
     !thresholdEcdsaChainTargetsEqual(handle.chainTarget, input.chainTarget)
   ) {
@@ -249,7 +249,7 @@ function storageKeyFactsFromInput(
 ): LoadEcdsaRoleLocalReadyRecordInput {
   return {
     walletId: input.walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     chainTarget: input.chainTarget,
     keyHandle: input.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
@@ -305,7 +305,7 @@ function routeInputFromPrepared(args: {
   return {
     kind: 'bootstrap_ecdsa_session_route_v1',
     walletId: args.input.walletId,
-    walletKeyId: args.input.walletKeyId,
+    evmFamilySigningKeySlotId: args.input.evmFamilySigningKeySlotId,
     chainTarget: args.input.chainTarget,
     keyScope: 'evm-family',
     ecdsaThresholdKeyId: args.input.ecdsaThresholdKeyId,
@@ -332,7 +332,7 @@ function validateRelayerOutput(args: {
   const input = args.input;
   if (
     !sameString(output.walletId, input.walletId) ||
-    !sameString(output.walletKeyId, input.walletKeyId) ||
+    !sameString(output.evmFamilySigningKeySlotId, input.evmFamilySigningKeySlotId) ||
     !sameString(output.ecdsaThresholdKeyId, input.ecdsaThresholdKeyId) ||
     !sameString(output.keyHandle, input.keyHandle) ||
     !sameString(output.thresholdSessionId, input.route.sessionId) ||
@@ -439,7 +439,7 @@ export async function provisionEcdsa(
 
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: input.walletId,
-    walletKeyId: input.walletKeyId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     chainTarget: input.chainTarget,
     keyHandle: relayer.value.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,

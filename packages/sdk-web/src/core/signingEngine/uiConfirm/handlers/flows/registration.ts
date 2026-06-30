@@ -31,11 +31,6 @@ function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
-function derivePasskeyRegistrationIntendedUserName(walletId: string): string {
-  const baseUsername = walletId.split('.')[0]?.trim() || walletId;
-  return baseUsername;
-}
-
 function buildPasskeyRegistrationConfirmDisplay(args: {
   walletId: string;
   nearAccountId?: string;
@@ -44,7 +39,7 @@ function buildPasskeyRegistrationConfirmDisplay(args: {
 }): PasskeyRegistrationConfirmDisplay {
   return {
     kind: 'passkey_registration_confirm_display_v1',
-    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.walletId),
+    intendedUserName: args.walletId,
     accountId: args.walletId,
     rpId: args.rpId,
     signerSlot: args.signerSlot,
@@ -65,7 +60,7 @@ function buildPasskeyRegistrationCredentialArgs(args: {
     walletId: args.walletId,
     challengeB64u: args.challengeB64u,
     signerSlot: args.signerSlot,
-    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.walletId),
+    intendedUserName: args.walletId,
   };
 }
 

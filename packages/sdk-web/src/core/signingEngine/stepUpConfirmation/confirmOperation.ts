@@ -114,6 +114,10 @@ export type OrchestrateNearTransactionSigningConfirmationParams =
       txSigningRequests: TransactionInputWasm[];
       rpcCall: RpcCallPayload;
       nearPublicKeyStr?: string;
+      nearFundingAuth?: {
+        kind: 'wallet_session';
+        walletSessionJwt: string;
+      };
       title?: string;
       body?: string;
     };
@@ -156,13 +160,28 @@ export type OrchestrateIntentDigestSigningConfirmationParams =
   OrchestrateSigningConfirmationBaseParams &
     OrchestrateIntentDigestSigningConfirmationAuthParams & {
       kind: 'intentDigest';
-      signerAccountId: string;
       challengeB64u: string;
       intentDigest: string;
       displayModel?: TxDisplayModel;
       title?: string;
       body?: string;
-    };
+    } & (
+      | {
+          chain: 'near';
+          signingSubject: {
+            kind: 'near_wallet';
+            walletId: string;
+            nearAccountId: string;
+          };
+        }
+      | {
+          chain: Exclude<SigningConfirmationChain, 'near'>;
+          signingSubject: {
+            kind: 'evm_wallet';
+            walletId: string;
+          };
+        }
+    );
 
 export type OrchestrateSigningConfirmationParams =
   | OrchestrateNearTransactionSigningConfirmationParams

@@ -99,11 +99,24 @@ function assertNeverEcdsaReadinessSource(value: never): never {
   throw new Error(`[SigningEngine][ecdsa] unsupported readiness source: ${String(value)}`);
 }
 
-type EvmFamilyPlannerReadiness = {
+type BaseEvmFamilyPlannerReadiness = {
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
 };
+
+export type EvmFamilyPlannerReadiness =
+  | (BaseEvmFamilyPlannerReadiness & {
+      trustedBudgetStatusAuth: {
+        kind: 'trusted_budget_status_auth';
+        auth: SigningSessionBudgetStatusAuth;
+      };
+    })
+  | (BaseEvmFamilyPlannerReadiness & {
+      trustedBudgetStatusAuth: {
+        kind: 'no_trusted_budget_status_auth';
+      };
+    });
 
 function buildMissingEcdsaPlannerReadiness(
   thresholdSessionId: SigningSessionReadiness['thresholdSessionId'],
@@ -115,6 +128,9 @@ function buildMissingEcdsaPlannerReadiness(
     },
     expiresAtMs: 0,
     remainingUses: 0,
+    trustedBudgetStatusAuth: {
+      kind: 'no_trusted_budget_status_auth',
+    },
   };
 }
 
@@ -134,6 +150,9 @@ function buildReadyEcdsaBackingReadiness(input: {
     },
     expiresAtMs,
     remainingUses,
+    trustedBudgetStatusAuth: {
+      kind: 'no_trusted_budget_status_auth',
+    },
   };
 }
 
@@ -218,6 +237,10 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
+  trustedBudgetStatusAuth: {
+    kind: 'trusted_budget_status_auth';
+    auth: SigningSessionBudgetStatusAuth;
+  };
 } | null> {
   const record = getEcdsaMaterialRecord(args.material);
   if (
@@ -250,6 +273,10 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       },
       expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
       remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
+      trustedBudgetStatusAuth: {
+        kind: 'trusted_budget_status_auth',
+        auth: trustedStatusAuth,
+      },
     };
   } catch (error: unknown) {
     if (!isSigningSessionBudgetAdmissionBlockedError(error)) return null;
@@ -262,6 +289,10 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       },
       expiresAtMs: 0,
       remainingUses: 0,
+      trustedBudgetStatusAuth: {
+        kind: 'trusted_budget_status_auth',
+        auth: trustedStatusAuth,
+      },
     };
   }
 }

@@ -46,6 +46,28 @@ export type SigningEngineExportKeypairWithUIInput =
       };
     };
 
+export type SigningEngineResolveExactKeyExportLaneInput =
+  | {
+      kind: 'near';
+      walletSession: WalletSessionRef;
+      nearAccount: NearAccountRef;
+    }
+  | {
+      kind: 'ecdsa';
+      chainTarget: ThresholdEcdsaChainTarget;
+      walletSession: WalletSessionRef;
+    };
+
+export type SigningEngineResolveExactKeyExportLaneResult =
+  | {
+      kind: 'near';
+      laneIdentity: ExactEd25519SigningLaneIdentity;
+    }
+  | {
+      kind: 'ecdsa';
+      laneIdentity: ExactEcdsaSigningLaneIdentity;
+    };
+
 export function emitKeyExportEvent(
   onEvent: KeyExportEventCallback | undefined,
   input: CreateKeyExportFlowEventInput,

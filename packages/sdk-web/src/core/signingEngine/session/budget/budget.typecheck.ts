@@ -37,7 +37,7 @@ const ecdsaChainTarget = thresholdEcdsaChainTargetFromChainFamily({
 
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'wallet.testnet',
-  walletKeyId: 'wallet-key-localhost',
+  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',

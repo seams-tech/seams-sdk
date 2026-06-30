@@ -1097,10 +1097,24 @@ w3a-drawer .above-fold > .drawer-tx-confirmer-root {
   gap: 0.25rem;
   color: var(--w3a-colors-textPrimary);
   font-weight: 500;
+  min-block-size: 1.55rem;
   max-width: none;
   margin: 0.5rem auto;
   text-align: center;
   white-space: nowrap;
+}
+.confirmation-body--status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 1.55rem;
+  max-width: none;
+  margin: 0.5rem auto;
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  white-space: normal;
 }
 .confirmation-body__copy-target {
   appearance: none;

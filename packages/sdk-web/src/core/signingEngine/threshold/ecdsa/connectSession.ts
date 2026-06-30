@@ -2,7 +2,7 @@ import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { bootstrapEcdsaSession } from './bootstrapSession';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WalletKeyId } from '@shared/signing-lanes';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 /**
  * Wallet-origin helper for threshold-ECDSA session bootstrap.
@@ -15,7 +15,7 @@ export async function connectEcdsaSession(args: {
   relayerUrl: string;
   relayerKeyId: string;
   userId: string;
-  walletKeyId: WalletKeyId | string;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   participantIds?: number[];
   sessionKind?: 'jwt';
@@ -43,7 +43,7 @@ export async function connectEcdsaSession(args: {
     touchIdPrompt: args.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),
-    walletKeyId: args.walletKeyId,
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     chainTarget: args.chainTarget,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,

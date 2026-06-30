@@ -56,11 +56,6 @@ export interface CloudflareBillingMonthlyFinalizationCronOptions {
    */
   cronExpressions?: string[];
   /**
-   * Ensure schema before running finalization.
-   * Defaults to true.
-   */
-  ensureSchema?: boolean;
-  /**
    * Optional runner override for tests.
    */
   runner?: BillingMonthlyFinalizationRunner;
@@ -316,7 +311,6 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
           namespace: billingFinalization?.namespace,
           orgIds: billingFinalizationOrgIds,
           periodMonthUtc: billingFinalization?.periodMonthUtc,
-          ensureSchema: billingFinalization?.ensureSchema,
           now: billingFinalization?.now,
         });
         logger.info('[cron][billing-finalization] completed', {

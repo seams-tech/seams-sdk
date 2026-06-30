@@ -1,6 +1,7 @@
 import type { NormalizedLogger } from '../../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseEvmFamilySigningKeySlotIdOrNull } from '@shared/signing-lanes';
 import {
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
@@ -34,12 +35,12 @@ import {
   type RouterAbEcdsaHssPresignaturePoolFillAuth,
 } from './ecdsaHssPresignBridge';
 import type { ThresholdEcdsaSessionClaims } from '../validation';
+import { ensureEthSignerWasm, validateSecp256k1PublicKey33 } from '../ethSignerWasm';
 import {
-  ensureEthSignerWasm,
-  sha256BytesSync,
-  validateSecp256k1PublicKey33,
-} from '../ethSignerWasm';
-import { ThresholdEcdsaPresignSession } from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
+  InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner,
+  type RouterAbEcdsaHssPoolFillLiveSessionOwner,
+  type RouterAbEcdsaHssPresignatureMaterial,
+} from './ecdsaHssPoolFillLiveSession';
 import {
   formatEcdsaHssKeyVersionForWire,
   formatEcdsaKeyHandleForWire,
@@ -68,7 +69,7 @@ type ThresholdEcdsaMpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
@@ -88,6 +89,11 @@ type ParseResult<T> = ParseOk<T> | ParseErr;
 
 const ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARD_HOP_HEADER =
   'x-router-ab-ecdsa-hss-pool-fill-forward-hop';
+
+function parseEvmFamilySigningKeySlotString(value: unknown): string | null {
+  const parsed = parseEvmFamilySigningKeySlotIdOrNull(value);
+  return parsed ? String(parsed) : null;
+}
 const ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARDED_BY_HEADER =
   'x-router-ab-ecdsa-hss-pool-fill-forwarded-by';
 const ECDSA_PRESIGN_POOL_KEY_VERSION = 'v2';
@@ -344,7 +350,7 @@ function parseRouterAbEcdsaHssPoolFillInitRequest(
 function validateRouterAbEcdsaHssPresignPoolFill(input: {
   poolFill: RouterAbEcdsaHssSigningWorkerPoolFillDestination;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   keyMaterial: ThresholdEcdsaSigningKeyMaterial;
   sessionExpiresAtMs: number;
 }): ParseResult<RouterAbEcdsaHssSigningWorkerPoolFillDestination> {
@@ -362,7 +368,7 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
   const expected = input.keyMaterial;
   const signingRootVersion = expected.signingRootMetadata.signingRootVersion || 'default';
   const contextChecks: Array<[string, string, string]> = [
-    ['poolFill.scope.wallet_key_id', scope.wallet_key_id, input.walletKeyId],
+    ['poolFill.scope.wallet_key_id', scope.wallet_key_id, input.evmFamilySigningKeySlotId],
     ['poolFill.scope.wallet_id', scope.wallet_id, input.walletId],
     [
       'poolFill.scope.ecdsa_threshold_key_id',
@@ -446,11 +452,6 @@ function parseRouterAbEcdsaHssPoolFillStepRequest(
   return { ok: true, value: { presignSessionId, stage: stageRaw, outgoingMessagesB64u } };
 }
 
-function computePresignatureIdFromBigRBytes(bigR33: Uint8Array): string {
-  const digest = sha256BytesSync(bigR33);
-  return `presig-${base64UrlEncode(digest)}`;
-}
-
 function sameParticipantIds(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
@@ -458,88 +459,6 @@ function sameParticipantIds(a: number[], b: number[]): boolean {
   }
   return true;
 }
-
-type WasmPresignPoll = {
-  stage: 'triples' | 'triples_done' | 'presign' | 'done';
-  event: 'none' | 'triples_done' | 'presign_done';
-  outgoingMessagesB64u: string[];
-};
-
-type RouterAbEcdsaHssPresignatureMaterial = {
-  presignatureId: string;
-  bigRB64u: string;
-  kShareB64u: string;
-  sigmaShareB64u: string;
-};
-
-function normalizeWasmPresignStage(
-  rawStage: string,
-): 'triples' | 'triples_done' | 'presign' | 'done' {
-  if (rawStage === 'triples_done') return 'triples_done';
-  if (rawStage === 'presign') return 'presign';
-  if (rawStage === 'done') return 'done';
-  return 'triples';
-}
-
-function pollWasmPresignSession(session: ThresholdEcdsaPresignSession): WasmPresignPoll {
-  const polled = session.poll() as { stage?: string; outgoing?: Uint8Array[]; event?: string };
-  const outgoingMessages = Array.isArray(polled?.outgoing) ? polled.outgoing : [];
-  return {
-    stage: normalizeWasmPresignStage(String(polled?.stage || session.stage() || 'triples')),
-    event:
-      polled?.event === 'triples_done' || polled?.event === 'presign_done' ? polled.event : 'none',
-    outgoingMessagesB64u: outgoingMessages.map((msg) => base64UrlEncode(msg)),
-  };
-}
-
-function decodePresignIncomingMessages(outgoingMessagesB64u: string[]): ParseResult<Uint8Array[]> {
-  const decoded: Uint8Array[] = [];
-  for (const msgB64u of outgoingMessagesB64u) {
-    try {
-      decoded.push(base64UrlDecode(msgB64u));
-    } catch {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'outgoingMessagesB64u contains invalid base64url',
-      };
-    }
-  }
-  return { ok: true, value: decoded };
-}
-
-function takePresignatureFromSession(session: ThresholdEcdsaPresignSession): ParseResult<{
-  presignatureId: string;
-  bigRB64u: string;
-  kShareB64u: string;
-  sigmaShareB64u: string;
-}> {
-  const presig97 = session.take_presignature_97();
-  if (presig97.length !== 97) {
-    return {
-      ok: false,
-      code: 'internal',
-      message: `Invalid presignature bytes (expected 97, got ${presig97.length})`,
-    };
-  }
-  const bigR33 = presig97.slice(0, 33);
-  const kShare32 = presig97.slice(33, 65);
-  const sigmaShare32 = presig97.slice(65, 97);
-  return {
-    ok: true,
-    value: {
-      presignatureId: computePresignatureIdFromBigRBytes(bigR33),
-      bigRB64u: base64UrlEncode(bigR33),
-      kShareB64u: base64UrlEncode(kShare32),
-      sigmaShareB64u: base64UrlEncode(sigmaShare32),
-    },
-  };
-}
-
-type LivePresignSessionCacheEntry = {
-  session: ThresholdEcdsaPresignSession;
-  record: RouterAbEcdsaHssPoolFillSessionRecord;
-};
 
 type RouterAbEcdsaHssPoolFillStepTransport = {
   authorizationHeader?: string;
@@ -559,15 +478,15 @@ type RouterAbEcdsaHssPoolFillTarget =
       kind: 'strict_private_http';
       signingWorkerBaseUrl: string;
       auth: RouterAbEcdsaHssPresignaturePoolFillAuth;
-      fetchImpl: typeof fetch;
+      fetchImpl?: typeof fetch;
     };
 
-function freePresignSession(session: ThresholdEcdsaPresignSession): void {
-  try {
-    session.free();
-  } catch {
-    // Best-effort cleanup only.
-  }
+function poolFillGlobalFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return globalThis.fetch(input, init);
+}
+
+function resolvePoolFillFetchImpl(): typeof fetch | null {
+  return typeof globalThis.fetch === 'function' ? poolFillGlobalFetch : null;
 }
 
 export class RouterAbEcdsaHssPoolFillHandlers {
@@ -591,8 +510,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   private readonly coordinatorPeerUrlByInstanceId: Map<string, string>;
   private readonly maxPresignForwardHops: number;
   private readonly routerAbEcdsaHssPoolFillTarget: RouterAbEcdsaHssPoolFillTarget;
-  private readonly livePresignSessionById = new Map<string, LivePresignSessionCacheEntry>();
-  private readonly presignSessionStepInFlight = new Set<string>();
+  private readonly liveSessionOwner: RouterAbEcdsaHssPoolFillLiveSessionOwner;
 
   constructor(input: {
     logger: NormalizedLogger;
@@ -614,6 +532,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     ensureReady: () => Promise<void>;
     createPoolFillSessionId: () => string;
     maxPresignForwardHops?: number;
+    liveSessionOwner?: RouterAbEcdsaHssPoolFillLiveSessionOwner;
     routerAbEcdsaHssPoolFill?: {
       signingWorkerBaseUrl: string;
       auth: RouterAbEcdsaHssPresignaturePoolFillAuth;
@@ -647,19 +566,18 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     this.resolveRoleLocalKeyRecord = input.resolveRoleLocalKeyRecord;
     this.ensureReady = input.ensureReady;
     this.createPoolFillSessionId = input.createPoolFillSessionId;
+    this.liveSessionOwner =
+      input.liveSessionOwner || new InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner();
     const routerAbPoolFill = input.routerAbEcdsaHssPoolFill || null;
     if (routerAbPoolFill) {
       const signingWorkerBaseUrl = toOptionalTrimmedString(routerAbPoolFill.signingWorkerBaseUrl);
-      const fetchImpl =
-        routerAbPoolFill.fetchImpl ||
-        (typeof fetch === 'function' ? (fetch.bind(globalThis) as typeof fetch) : null);
       this.routerAbEcdsaHssPoolFillTarget =
-        signingWorkerBaseUrl && fetchImpl
+        signingWorkerBaseUrl && (routerAbPoolFill.fetchImpl || resolvePoolFillFetchImpl())
           ? {
               kind: 'strict_private_http',
               signingWorkerBaseUrl,
               auth: routerAbPoolFill.auth,
-              fetchImpl,
+              ...(routerAbPoolFill.fetchImpl ? { fetchImpl: routerAbPoolFill.fetchImpl } : {}),
             }
           : { kind: 'disabled' };
     } else {
@@ -670,7 +588,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   private async resolvePoolFillInitKeyMaterial(input: {
     keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
     walletId: string;
-    walletKeyId: string;
+    evmFamilySigningKeySlotId: string;
     participantIds: number[];
     tokenRelayerKeyId: string;
     tokenKeyHandle: string;
@@ -704,7 +622,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     }
     if (
       roleLocalKey.walletId !== input.walletId ||
-      roleLocalKey.walletKeyId !== input.walletKeyId
+      roleLocalKey.evmFamilySigningKeySlotId !== input.evmFamilySigningKeySlotId
     ) {
       return {
         ok: false,
@@ -769,22 +687,8 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     };
   }
 
-  private evictLivePresignSession(presignSessionId: string): void {
-    const existing = this.livePresignSessionById.get(presignSessionId);
-    if (!existing) return;
-    this.livePresignSessionById.delete(presignSessionId);
-    freePresignSession(existing.session);
-  }
-
-  private putLivePresignSession(
-    presignSessionId: string,
-    entry: LivePresignSessionCacheEntry,
-  ): void {
-    const existing = this.livePresignSessionById.get(presignSessionId);
-    if (existing && existing.session !== entry.session) {
-      freePresignSession(existing.session);
-    }
-    this.livePresignSessionById.set(presignSessionId, entry);
+  private async deleteLivePresignSession(presignSessionId: string): Promise<void> {
+    await this.liveSessionOwner.deleteSession(presignSessionId);
   }
 
   private emitPresignSecurityEvent(input: {
@@ -800,7 +704,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       event: input.event,
       presignSessionId: input.presignSessionId,
       walletId: record?.walletId || null,
-      walletKeyId: record?.walletKeyId || null,
+      evmFamilySigningKeySlotId: record?.evmFamilySigningKeySlotId || null,
       relayerKeyId: record?.relayerKeyId || null,
       ecdsaThresholdKeyId: null,
       presignPoolKey: record?.presignPoolKey || null,
@@ -836,6 +740,14 @@ export class RouterAbEcdsaHssPoolFillHandlers {
             message: 'Router A/B ECDSA-HSS presignature pool-fill target is not configured',
           };
         }
+        const fetchImpl = target.fetchImpl || resolvePoolFillFetchImpl();
+        if (!fetchImpl) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'Router A/B ECDSA-HSS presignature pool-fill target fetch is unavailable',
+          };
+        }
         const request = buildRouterAbEcdsaHssPresignaturePoolPutRequest({
           scope: input.record.poolFill.routerAbEcdsaHss.scope,
           presignature: {
@@ -852,7 +764,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           signingWorkerBaseUrl: target.signingWorkerBaseUrl,
           request,
           auth: target.auth,
-          fetchImpl: target.fetchImpl,
+          fetchImpl,
         });
         if (result.ok) return { ok: true, value: null };
         return {
@@ -984,7 +896,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         message: 'Missing walletId in Wallet Session token',
       };
     const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
-    const tokenWalletKeyId = toOptionalTrimmedString(claims?.walletKeyId);
+    const tokenWalletKeyId = parseEvmFamilySigningKeySlotString(claims?.evmFamilySigningKeySlotId);
     if (!tokenRelayerKeyId || !tokenWalletKeyId) {
       return { ok: false, code: 'unauthorized', message: 'Invalid Wallet Session token claims' };
     }
@@ -999,7 +911,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     const resolvedKeyMaterial = await this.resolvePoolFillInitKeyMaterial({
       keySelector,
       walletId,
-      walletKeyId: tokenWalletKeyId,
+      evmFamilySigningKeySlotId: tokenWalletKeyId,
       participantIds: claims.participantIds,
       tokenRelayerKeyId,
       tokenKeyHandle: claims.keyHandle,
@@ -1114,7 +1026,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     const sessionPoolFill = validateRouterAbEcdsaHssPresignPoolFill({
       poolFill,
       walletId,
-      walletKeyId: tokenWalletKeyId,
+      evmFamilySigningKeySlotId: tokenWalletKeyId,
       keyMaterial: resolvedKeyMaterial.value,
       sessionExpiresAtMs: expiresAtMs,
     });
@@ -1130,20 +1042,11 @@ export class RouterAbEcdsaHssPoolFillHandlers {
 
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const presignSessionId = this.createPoolFillSessionId();
-      const wasmSession = new ThresholdEcdsaPresignSession(
-        new Uint32Array(participantIds),
-        this.relayerParticipantId,
-        2,
-        relayerThresholdShare32,
-        groupPublicKeyBytes,
-      );
-      const polled = pollWasmPresignSession(wasmSession);
-
       const createdAtMs = Date.now();
-      const record: RouterAbEcdsaHssPoolFillSessionRecord = {
+      const initialRecord: RouterAbEcdsaHssPoolFillSessionRecord = {
         expiresAtMs,
         walletId,
-        walletKeyId: tokenWalletKeyId,
+        evmFamilySigningKeySlotId: tokenWalletKeyId,
         relayerKeyId,
         presignPoolKey,
         poolFill: sessionPoolFill.value,
@@ -1151,33 +1054,37 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         participantIds,
         clientParticipantId: this.clientParticipantId,
         relayerParticipantId: this.relayerParticipantId,
-        stage: polled.stage,
+        stage: 'triples',
         version: 1,
         createdAtMs,
         updatedAtMs: createdAtMs,
         ...signingRootMetadata,
       };
+      const liveCreated = await this.liveSessionOwner.createSession({
+        presignSessionId,
+        record: initialRecord,
+        participantIds,
+        relayerParticipantId: this.relayerParticipantId,
+        relayerThresholdShare32B64u: relayerSigningShare.share32B64u,
+        groupPublicKey33B64u: thresholdEcdsaPublicKeyB64u,
+      });
+      if (!liveCreated.ok) return liveCreated;
 
       const created = await this.poolFillSessionStore.createSession(
         presignSessionId,
-        record,
+        liveCreated.value.record,
         Math.max(1, expiresAtMs - Date.now()),
       );
       if (!created.ok) {
-        freePresignSession(wasmSession);
+        await this.deleteLivePresignSession(presignSessionId);
         continue;
       }
-
-      this.putLivePresignSession(presignSessionId, {
-        session: wasmSession,
-        record,
-      });
 
       return {
         ok: true,
         presignSessionId,
-        stage: polled.stage,
-        outgoingMessagesB64u: polled.outgoingMessagesB64u,
+        stage: liveCreated.value.stage,
+        outgoingMessagesB64u: liveCreated.value.outgoingMessagesB64u,
       };
     }
 
@@ -1199,7 +1106,6 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     }
 
     await this.ensureReady();
-    await ensureEthSignerWasm();
 
     const parsedRequest = parseRouterAbEcdsaHssPoolFillStepRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
@@ -1252,20 +1158,12 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       ...(forwardedByInstanceId ? { forwardedByInstanceId } : {}),
       forwardedByTrustedPeer: forwardedByTrustedPeer ? 1 : 0,
     };
-    if (this.presignSessionStepInFlight.has(presignSessionId)) {
-      return {
-        ok: false,
-        code: 'stale_session_state',
-        message: 'Presign session step already in progress; retry step',
-      };
-    }
-    this.presignSessionStepInFlight.add(presignSessionId);
     try {
       const storeGetStartedAtMs = Date.now();
       const record = await this.poolFillSessionStore.getSession(presignSessionId);
       perf.storeGetSessionMs = Math.max(0, Date.now() - storeGetStartedAtMs);
       if (!record) {
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         this.emitPresignSecurityEvent({
           event: 'presign_session_replay_or_missing',
           presignSessionId,
@@ -1277,7 +1175,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       }
       if (Date.now() > record.expiresAtMs) {
         await this.poolFillSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId expired' };
       }
@@ -1291,11 +1189,11 @@ export class RouterAbEcdsaHssPoolFillHandlers {
 
       const claims = input.claims;
       const tokenUserId = toOptionalTrimmedString(claims?.walletId);
-      const tokenWalletKeyId = toOptionalTrimmedString(claims?.walletKeyId);
+      const tokenWalletKeyId = parseEvmFamilySigningKeySlotString(claims?.evmFamilySigningKeySlotId);
       const tokenParticipantIds = normalizeThresholdEd25519ParticipantIds(claims?.participantIds);
       if (!tokenUserId || !tokenWalletKeyId || !tokenParticipantIds) {
         await maybeDeleteOwnedSession();
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         this.emitPresignSecurityEvent({
           event: 'presign_scope_mismatch',
           presignSessionId,
@@ -1312,11 +1210,11 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       }
       if (
         tokenUserId !== record.walletId ||
-        tokenWalletKeyId !== record.walletKeyId ||
+        tokenWalletKeyId !== record.evmFamilySigningKeySlotId ||
         !sameParticipantIds(tokenParticipantIds, record.participantIds)
       ) {
         await maybeDeleteOwnedSession();
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         this.emitPresignSecurityEvent({
           event: 'presign_scope_mismatch',
           presignSessionId,
@@ -1333,7 +1231,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       }
       if (toOptionalTrimmedString(claims?.relayerKeyId) !== record.relayerKeyId) {
         await maybeDeleteOwnedSession();
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         this.emitPresignSecurityEvent({
           event: 'presign_scope_mismatch',
           presignSessionId,
@@ -1350,12 +1248,12 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       }
       if (Date.now() > claims.thresholdExpiresAtMs) {
         await maybeDeleteOwnedSession();
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'Wallet Session expired' };
       }
       if (!ownedLocally && ownerInstanceId) {
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         if (trustedForwardedHop >= this.maxPresignForwardHops) {
           perf.presign_stale_session_state = 1;
           perf.ownerForwardReason = 'hop_limit_exceeded';
@@ -1440,185 +1338,18 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         };
       }
 
-      const liveResolveStartedAtMs = Date.now();
-      const cached = this.livePresignSessionById.get(presignSessionId);
-      let liveEntry: LivePresignSessionCacheEntry | null = null;
-      let liveCacheMissReason: string | null = null;
-      if (!cached) {
-        liveCacheMissReason = 'cache_miss';
-      } else if (Date.now() > cached.record.expiresAtMs) {
-        liveCacheMissReason = 'cache_expired';
-      } else if (cached.record.version !== record.version) {
-        liveCacheMissReason = 'cache_version_mismatch';
-      } else if (cached.record.stage !== record.stage) {
-        liveCacheMissReason = 'cache_stage_mismatch';
-      } else {
-        liveEntry = cached;
-      }
-      perf.liveResolveMs = Math.max(0, Date.now() - liveResolveStartedAtMs);
-      if (!liveEntry) {
-        perf.presign_live_cache_miss = 1;
-        perf.liveCacheStatus = 'miss';
-        perf.liveCacheMissReason = liveCacheMissReason || 'unknown';
-        if (cached) this.evictLivePresignSession(presignSessionId);
-        this.logger.warn('[router-ab-ecdsa-hss-pool-fill] live-session cache miss', {
-          presignSessionId,
-          recordVersion: record.version,
-          recordStage: record.stage,
-          reason: liveCacheMissReason || 'unknown',
-        });
-        if (ownedLocally) {
-          await this.poolFillSessionStore.deleteSession(presignSessionId);
-        }
-        perf.presign_stale_session_state = 1;
-        perf.resultCode = 'stale_session_state';
-        return {
-          ok: false,
-          code: 'stale_session_state',
-          message: `Router A/B ECDSA-HSS pool-fill live session unavailable; retry ${ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
-        };
-      }
-      perf.presign_live_cache_hit = 1;
-      perf.liveCacheStatus = 'hit';
-
-      type PreparedPoolFillStepValue =
-        | {
-            mode: 'terminal';
-            presignDone: {
-              presignatureId: string;
-              bigRB64u: string;
-              kShareB64u: string;
-              sigmaShareB64u: string;
-            };
-          }
-        | {
-            mode: 'immediate';
-            response: RouterAbEcdsaHssPoolFillStepResponse;
-          }
-        | {
-            mode: 'advance';
-            polled: WasmPresignPoll;
-            nextRecord: RouterAbEcdsaHssPoolFillSessionRecord;
-            presignDone: {
-              presignatureId: string;
-              bigRB64u: string;
-              kShareB64u: string;
-              sigmaShareB64u: string;
-            } | null;
-          };
-
       const wasmStepStartedAtMs = Date.now();
-      const prepared: ParseResult<PreparedPoolFillStepValue> = (() => {
-        const wasmSession = liveEntry.session;
-        const currentStage = normalizeWasmPresignStage(wasmSession.stage());
-        if (currentStage !== record.stage) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'presign session stage mismatch',
-          } as ParseErr;
-        }
-
-        if (currentStage === 'done') {
-          const terminal = takePresignatureFromSession(wasmSession);
-          if (!terminal.ok) return terminal;
-          return {
-            ok: true,
-            value: {
-              mode: 'terminal' as const,
-              presignDone: terminal.value,
-            },
-          };
-        }
-
-        if (currentStage === 'triples_done' && requestedStage === 'triples') {
-          return {
-            ok: true,
-            value: {
-              mode: 'immediate' as const,
-              response: {
-                ok: true,
-                stage: 'triples_done' as const,
-                event: 'triples_done' as const,
-                outgoingMessagesB64u: [],
-              },
-            },
-          };
-        }
-        if (requestedStage === 'presign' && currentStage === 'triples_done') {
-          try {
-            wasmSession.start_presign();
-          } catch {
-            return {
-              ok: false,
-              code: 'invalid_body',
-              message: 'server is not ready for presign',
-            } as ParseErr;
-          }
-        } else if (requestedStage === 'presign' && currentStage === 'triples') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'server is not ready for presign (triples still running)',
-          } as ParseErr;
-        } else if (requestedStage === 'triples' && currentStage !== 'triples') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'stage regression is not allowed',
-          } as ParseErr;
-        }
-
-        const decodedIncoming = decodePresignIncomingMessages(outgoingMessagesB64u);
-        if (!decodedIncoming.ok) return decodedIncoming;
-
-        for (const decoded of decodedIncoming.value) {
-          try {
-            wasmSession.message(record.clientParticipantId, decoded);
-          } catch (e: unknown) {
-            return {
-              ok: false,
-              code: 'invalid_body',
-              message: `Protocol rejected message: ${String(e || 'error')}`,
-            } as ParseErr;
-          }
-        }
-
-        const polled = pollWasmPresignSession(wasmSession);
-        const nextExpiresAtMs = Math.min(record.expiresAtMs, claims.thresholdExpiresAtMs);
-        const nextRecord: RouterAbEcdsaHssPoolFillSessionRecord = {
-          ...record,
-          stage: polled.stage,
-          version: record.version + 1,
-          expiresAtMs: nextExpiresAtMs,
-          updatedAtMs: Date.now(),
-        };
-
-        let presignDone: {
-          presignatureId: string;
-          bigRB64u: string;
-          kShareB64u: string;
-          sigmaShareB64u: string;
-        } | null = null;
-        if (polled.event === 'presign_done') {
-          const done = takePresignatureFromSession(wasmSession);
-          if (!done.ok) return done;
-          presignDone = done.value;
-        }
-
-        return {
-          ok: true,
-          value: {
-            mode: 'advance' as const,
-            polled,
-            nextRecord,
-            presignDone,
-          },
-        };
-      })();
+      const prepared = await this.liveSessionOwner.stepSession({
+        presignSessionId,
+        record,
+        requestedStage,
+        outgoingMessagesB64u,
+        thresholdExpiresAtMs: claims.thresholdExpiresAtMs,
+      });
       perf.wasmStepMs = Math.max(0, Date.now() - wasmStepStartedAtMs);
+      perf.liveResolveMs = perf.wasmStepMs;
       if (!prepared.ok) {
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         if (ownedLocally) {
           await this.poolFillSessionStore.deleteSession(presignSessionId);
         }
@@ -1633,11 +1364,18 @@ export class RouterAbEcdsaHssPoolFillHandlers {
           message: prepared.message,
         });
         perf.resultCode = prepared.code;
+        if (prepared.code === 'stale_session_state') {
+          perf.presign_live_cache_miss = 1;
+          perf.liveCacheStatus = 'miss';
+          perf.liveCacheMissReason = prepared.message;
+          perf.presign_stale_session_state = 1;
+        }
         return prepared;
       }
+      perf.presign_live_cache_hit = 1;
+      perf.liveCacheStatus = 'hit';
 
       if (prepared.value.mode === 'immediate') {
-        liveEntry.record = record;
         perf.resultCode = 'ok';
         return prepared.value.response;
       }
@@ -1649,12 +1387,12 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         });
         if (!published.ok) {
           await this.poolFillSessionStore.deleteSession(presignSessionId);
-          this.evictLivePresignSession(presignSessionId);
+          await this.deleteLivePresignSession(presignSessionId);
           perf.resultCode = published.code;
           return published;
         }
         await this.poolFillSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         perf.resultCode = 'ok';
         return {
           ok: true,
@@ -1670,7 +1408,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       const ttlMs = nextRecord.expiresAtMs - Date.now();
       if (ttlMs <= 0) {
         await this.poolFillSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'Wallet Session expired' };
       }
@@ -1684,7 +1422,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       });
       perf.storeCasMs = Math.max(0, Date.now() - storeCasStartedAtMs);
       if (!cas.ok) {
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         this.logger.warn('[router-ab-ecdsa-hss-pool-fill] live-session CAS conflict', {
           presignSessionId,
           expectedVersion: record.version,
@@ -1713,13 +1451,10 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         };
       }
 
-      liveEntry.record = cas.record;
-      this.putLivePresignSession(presignSessionId, liveEntry);
-
       if (polled.event === 'presign_done') {
         if (!presignDone) {
           await this.poolFillSessionStore.deleteSession(presignSessionId);
-          this.evictLivePresignSession(presignSessionId);
+          await this.deleteLivePresignSession(presignSessionId);
           perf.resultCode = 'internal';
           return {
             ok: false,
@@ -1733,12 +1468,12 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         });
         if (!published.ok) {
           await this.poolFillSessionStore.deleteSession(presignSessionId);
-          this.evictLivePresignSession(presignSessionId);
+          await this.deleteLivePresignSession(presignSessionId);
           perf.resultCode = published.code;
           return published;
         }
         await this.poolFillSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
+        await this.deleteLivePresignSession(presignSessionId);
         perf.resultCode = 'ok';
         return {
           ok: true,
@@ -1758,7 +1493,6 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         outgoingMessagesB64u: polled.outgoingMessagesB64u,
       };
     } finally {
-      this.presignSessionStepInFlight.delete(presignSessionId);
       this.logger.info('[router-ab-ecdsa-hss-pool-fill] step perf', {
         presignSessionId,
         requestedStage,

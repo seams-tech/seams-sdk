@@ -47,6 +47,20 @@ function assertSignedTransactionReadiness(signedTransaction: SignedTransaction):
   );
 }
 
+function signedTransactionWithSdkReadiness(args: {
+  signedTransaction: SignedTransaction;
+  signingResult: SignTransactionResult;
+}): SignedTransaction {
+  if (
+    !args.signedTransaction.serverDispatch &&
+    !args.signedTransaction.nonceLease &&
+    args.signingResult.nonceLease
+  ) {
+    args.signedTransaction.nonceLease = args.signingResult.nonceLease;
+  }
+  return args.signedTransaction;
+}
+
 async function yieldForUiPaint(): Promise<void> {
   if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
     await new Promise<void>((resolve) => {
@@ -248,23 +262,6 @@ export async function sendTransaction({
       };
     }
 
-    // Debug snapshot of the signed transaction shape to aid integration debugging.
-    try {
-      const st: unknown = signedTransaction;
-      const stObj = st && typeof st === 'object' ? (st as Record<string, unknown>) : null;
-      const snapshot = {
-        type: typeof st,
-        keys: stObj ? Object.keys(stObj) : null,
-        hasBase64Encode: typeof stObj?.base64Encode === 'function',
-        hasEncode: typeof stObj?.encode === 'function',
-        hasSnakeBytes: !!stObj?.borsh_bytes,
-        hasCamelBytes: !!stObj?.borshBytes,
-      };
-      console.debug('[sendTransaction] signedTransaction snapshot', snapshot);
-    } catch {
-      // best-effort logging only
-    }
-
     transactionResult = await context.nearClient.sendTransaction(
       signedTransaction,
       options?.waitUntil,
@@ -389,7 +386,10 @@ export async function executeActionInternal({
       context,
       nearAccountId,
       walletSession,
-      signedTransaction: signedTx.signedTransaction,
+      signedTransaction: signedTransactionWithSdkReadiness({
+        signedTransaction: signedTx.signedTransaction,
+        signingResult: signedTx,
+      }),
       options: { onEvent, onError, waitUntil },
     });
     afterCall?.(true, txResult);
@@ -447,7 +447,10 @@ export async function signAndSendTransactionInternal({
       context,
       nearAccountId,
       walletSession,
-      signedTransaction: signedTx.signedTransaction,
+      signedTransaction: signedTransactionWithSdkReadiness({
+        signedTransaction: signedTx.signedTransaction,
+        signingResult: signedTx,
+      }),
       options: {
         onEvent: options?.onEvent,
         waitUntil: options?.waitUntil,

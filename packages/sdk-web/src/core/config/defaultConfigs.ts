@@ -123,6 +123,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
   registration: {
     mode: 'backend_proxy',
     bootstrapUrl: '',
+    nearAccountProvisioning: { kind: 'implicit_account' },
   },
   signing: {
     // Warm signing session defaults used by login/unlock flows.

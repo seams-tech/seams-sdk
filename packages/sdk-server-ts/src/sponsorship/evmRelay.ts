@@ -343,7 +343,6 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
         routerApiSponsoredEvmCall: {
           billing: args.billing,
           config: args.config,
-          corsOrigins: args.corsOrigins,
           resolveExecutionAdapter: resolveSponsoredEvmExecutionAdapterForRoute,
           observabilityIngestion: args.observabilityIngestion || null,
           prepaidReservations: args.prepaidReservations || null,

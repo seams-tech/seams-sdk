@@ -119,7 +119,10 @@ export { ShowQRCode } from './components/ShowQRCode';
 export type { ShowQRCodeProps } from './components/ShowQRCode';
 // Sign Up / Sign In menu
 export { PasskeyAuthMenu, PasskeyAuthMenuSkeleton } from './components/PasskeyAuthMenu/public';
-export type { PasskeyAuthMenuProps } from './components/PasskeyAuthMenu/public';
+export type {
+  PasskeyAuthMenuProps,
+  PasskeyAuthMenuRegistrationRequest,
+} from './components/PasskeyAuthMenu/public';
 export { AuthMenuMode, AuthMenuModeMap } from './components/PasskeyAuthMenu/authMenuTypes';
 export type {
   AuthMenuModeLabel,

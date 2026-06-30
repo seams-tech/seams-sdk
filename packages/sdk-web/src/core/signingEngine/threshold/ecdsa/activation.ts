@@ -33,7 +33,7 @@ import type {
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   deriveEvmFamilyKeyFingerprint,
-  derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope,
+  deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
 import {
@@ -140,7 +140,7 @@ async function buildRouterAbEcdsaHssNormalSigningState(args: {
   config: RouterAbNormalSigningConfig;
   relayerUrl: string;
   walletId: WalletId;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -167,7 +167,7 @@ async function buildRouterAbEcdsaHssNormalSigningState(args: {
       const state = parseRouterAbEcdsaHssNormalSigningStateV1({
         kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
         scope: {
-          wallet_key_id: args.walletKeyId,
+          wallet_key_id: args.evmFamilySigningKeySlotId,
           wallet_id: String(args.walletId),
           ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
           signing_root_id: args.signingRootId,
@@ -388,13 +388,15 @@ function inferThresholdEcdsaBootstrapAuthMethod(
 
 function resolveEcdsaActivationWalletKeyId(args: ActivateEcdsaSessionRequest): string {
   if (args.kind === 'session_bootstrap') {
-    return String(args.key.walletKeyId);
+    return String(args.key.evmFamilySigningKeySlotId);
   }
   if (!args.runtimePolicyScope) {
-    throw new Error('Threshold ECDSA activation requires runtimePolicyScope to derive walletKeyId');
+    throw new Error(
+      'Threshold ECDSA activation requires runtimePolicyScope to derive signing key slot id',
+    );
   }
   return String(
-    derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope({
+    deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
       walletId: args.walletId,
       runtimePolicyScope: args.runtimePolicyScope,
     }),
@@ -587,7 +589,7 @@ export async function activateEcdsaSession(
   if (deps.routerAbNormalSigning.mode !== 'enabled') {
     throw new Error('Router A/B ECDSA-HSS normal signing must be enabled for activation');
   }
-  const walletKeyId = resolveEcdsaActivationWalletKeyId(args);
+  const evmFamilySigningKeySlotId = resolveEcdsaActivationWalletKeyId(args);
   const bootstrapSecretSourceArgs = bootstrapSecretSourceArgsForActivation(args);
   const baseBootstrapArgs = {
     credentialStore: deps.credentialStore,
@@ -595,7 +597,7 @@ export async function activateEcdsaSession(
     relayerUrl: args.relayerUrl,
     chainTarget,
     userId: walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     participantIds: exactActivation
       ? undefined
       : args.keyIntent
@@ -779,7 +781,7 @@ export async function activateEcdsaSession(
     config: deps.routerAbNormalSigning,
     relayerUrl: args.relayerUrl,
     walletId,
-    walletKeyId: String(bootstrap.walletKeyId || '').trim(),
+    evmFamilySigningKeySlotId: String(bootstrap.evmFamilySigningKeySlotId || '').trim(),
     ecdsaThresholdKeyId,
     signingRootId: bootstrap.signingRootId,
     signingRootVersion: bootstrap.signingRootVersion,
@@ -821,7 +823,7 @@ export async function activateEcdsaSession(
 	  const keygen: EcdsaKeygenSuccess = {
 	    ok: true,
 	    keygenSessionId: bootstrap.keygenSessionId,
-	    walletKeyId: bootstrap.walletKeyId,
+	    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
 	    ...(keyHandle ? { keyHandle } : {}),
     ecdsaThresholdKeyId,
     clientVerifyingShareB64u,
@@ -852,6 +854,7 @@ export async function activateEcdsaSession(
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: walletId,
+    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
     chainTarget,
     relayerUrl: args.relayerUrl,
     ...(bootstrap.keyHandle ? { keyHandle: bootstrap.keyHandle } : {}),

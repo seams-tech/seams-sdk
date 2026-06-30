@@ -29,7 +29,7 @@ import type {
   PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
 } from './generated/signerCoreCommands';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
-import type { WalletKeyId } from '@shared/signing-lanes';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { PlatformResult } from './http';
 import type {
   CleanupMalformedEcdsaRoleLocalRecordInput,
@@ -312,7 +312,7 @@ export type EcdsaBootstrapRouteAuth =
 export type BootstrapEcdsaSessionRouteInput = {
   kind: 'bootstrap_ecdsa_session_route_v1';
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyScope: 'evm-family';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -333,7 +333,7 @@ export type BootstrapEcdsaSessionRouteInput = {
 export type BootstrapEcdsaSessionRouteOutput = {
   kind: 'bootstrap_ecdsa_session_route_output_v1';
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
   relayerPublicIdentity: EcdsaRelayerPublicIdentity;

@@ -131,13 +131,6 @@
   color: var(--w3a-colors-textMuted);
 }
 
-.w3a-export-key-type-option-status {
-  margin-top: 0.1rem;
-  font-size: 0.825rem;
-  font-weight: 600;
-  color: var(--w3a-colors-primary);
-}
-
 @media (max-width: 480px) {
   .w3a-export-key-type-modal-content {
     min-width: 0;

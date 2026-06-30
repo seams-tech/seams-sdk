@@ -29,16 +29,13 @@ export { listConsoleSponsoredCallReconciliationPage } from './reconciliation';
 export type {
   ConsoleSponsoredCallD1Runtime,
   ConsoleSponsoredCallD1Service,
-  D1ConsoleSponsoredCallSchemaOptions,
   D1ConsoleSponsoredCallServiceOptions,
 } from './d1';
 export {
   CONSOLE_SPONSORED_CALL_D1_RUNTIME,
-  CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL,
   createD1ConsoleSponsoredCallRecordInsertStatement,
   createD1ConsoleSponsoredCallRecord,
   createD1ConsoleSponsoredCallService,
-  ensureConsoleSponsoredCallD1Schema,
   getConsoleSponsoredCallD1Runtime,
   loadD1ConsoleSponsoredCallRecordById,
   loadD1ConsoleSponsoredCallRecordByIdempotencyKey,

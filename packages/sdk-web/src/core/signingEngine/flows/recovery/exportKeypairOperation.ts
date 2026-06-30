@@ -15,6 +15,7 @@ import {
   type EcdsaExportFlowDeps,
 } from './ecdsaExportFlow';
 import {
+  resolveExactKeyExportLane as resolveExactKeyExportLaneValue,
   restoreEcdsaSessionForExport,
   restoreNearEd25519SessionForExport,
   type ExportLaneSelectionDeps,
@@ -22,6 +23,8 @@ import {
 import {
   runKeyExportWithFlowEvents,
   type SigningEngineExportKeypairWithUIInput,
+  type SigningEngineResolveExactKeyExportLaneInput,
+  type SigningEngineResolveExactKeyExportLaneResult,
 } from './keyExportFlow';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -187,4 +190,15 @@ export async function exportKeypairWithUI(
   return await runKeyExportWithFlowEvents(input, (args) => exportKeypairWithFlowId(deps, args));
 }
 
-export type { SigningEngineExportKeypairWithUIInput } from './keyExportFlow';
+export async function resolveExactKeyExportLane(
+  deps: ExportKeypairWithUIDeps,
+  input: SigningEngineResolveExactKeyExportLaneInput,
+): Promise<SigningEngineResolveExactKeyExportLaneResult> {
+  return await resolveExactKeyExportLaneValue(deps.laneSelection, input);
+}
+
+export type {
+  SigningEngineExportKeypairWithUIInput,
+  SigningEngineResolveExactKeyExportLaneInput,
+  SigningEngineResolveExactKeyExportLaneResult,
+} from './keyExportFlow';

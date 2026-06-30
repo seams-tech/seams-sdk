@@ -25,6 +25,7 @@ import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
   isObject,
+  thresholdEd25519AuthorityScopesMatch,
   type ParsedRouterAbEd25519PresignRecord,
 } from '../validation';
 import {
@@ -60,7 +61,7 @@ export type ThresholdEcdsaMpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
@@ -238,7 +239,7 @@ function authorityScopesMatch(
   left: ThresholdEd25519AuthorityScope,
   right: ThresholdEd25519AuthorityScope,
 ): boolean {
-  return left.kind === right.kind && left.rpId === right.rpId;
+  return thresholdEd25519AuthorityScopesMatch(left, right);
 }
 
 function presignRecordMatchesExpectedScope(

@@ -7,7 +7,9 @@ import type {
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 
 export interface ClientUserData {
+  walletId: string;
   nearAccountId: AccountId;
+  loginDisplayName: string;
   signerSlot: number;
   version?: number;
   registeredAt?: number;
@@ -21,8 +23,10 @@ export interface ClientUserData {
 
 export type StoreUserDataInput = Omit<
   ClientUserData,
-  'signerSlot' | 'lastLogin' | 'registeredAt'
+  'walletId' | 'loginDisplayName' | 'signerSlot' | 'lastLogin' | 'registeredAt'
 > & {
+  walletId?: string;
+  loginDisplayName?: string;
   signerSlot?: number;
   version?: number;
 };

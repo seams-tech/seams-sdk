@@ -9,6 +9,7 @@ import type {
   PMRegistrationActivationPreparePayload,
   ParentToChildType,
 } from '../shared/messages';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 
 declare const walletSession: WalletSessionRef;
 declare const nearAccount: NearAccountRef;
@@ -49,6 +50,7 @@ void staleRegisterRoute;
 const activationPreparePayload: PMRegistrationActivationPreparePayload = {
   activationId: 'activation-1',
   expiresAtMs: 1_900_000_000_000,
+  wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
   presentation: {
     kind: 'outline_overlay',
     label: 'Register',
@@ -58,9 +60,37 @@ const activationPreparePayload: PMRegistrationActivationPreparePayload = {
 };
 void activationPreparePayload;
 
+// @ts-expect-error Activation prepare must carry the displayed provided wallet ID.
+const activationPrepareWithoutWallet: PMRegistrationActivationPreparePayload = {
+  activationId: 'activation-1',
+  expiresAtMs: 1_900_000_000_000,
+  presentation: {
+    kind: 'outline_overlay',
+    label: 'Register',
+    busyLabel: 'Registering...',
+    accessibleLabel: 'Register wallet',
+  },
+};
+void activationPrepareWithoutWallet;
+
+const activationPrepareWithServerAllocatedWallet: PMRegistrationActivationPreparePayload = {
+  activationId: 'activation-1',
+  expiresAtMs: 1_900_000_000_000,
+  presentation: {
+    kind: 'outline_overlay',
+    label: 'Register',
+    busyLabel: 'Registering...',
+    accessibleLabel: 'Register wallet',
+  },
+  // @ts-expect-error Activation prepare must carry the displayed provided wallet ID.
+  wallet: { kind: 'server_allocated' },
+};
+void activationPrepareWithServerAllocatedWallet;
+
 const activationPrepareWithNearAccount: PMRegistrationActivationPreparePayload = {
   activationId: 'activation-1',
   expiresAtMs: 1_900_000_000_000,
+  wallet: { kind: 'provided', walletId: walletIdFromString('frost-fjord-rgcmpa') },
   presentation: {
     kind: 'outline_overlay',
     label: 'Register',

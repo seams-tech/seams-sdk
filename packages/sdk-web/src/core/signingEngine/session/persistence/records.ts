@@ -103,16 +103,17 @@ import {
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
 } from './ecdsaRoleLocalRecords';
 import {
-  assertMatchingWalletKeyId,
-  parseWalletKeyIdOrNull,
-  type WalletKeyId,
+  assertMatchingEvmFamilySigningKeySlotId,
+  assertEvmFamilySigningKeySlotIdMatchesPlan,
+  parseEvmFamilySigningKeySlotId,
+  type EvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
 type ThresholdEcdsaSessionRecordCore = {
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   keyHandle: EvmFamilyEcdsaKeyHandle;
@@ -552,7 +553,7 @@ function evmFamilyEcdsaSharedContextKey(key: EvmFamilyEcdsaKeyIdentity): string 
   return ecdsaIndexKey([
     key.walletId,
     deriveBaseEcdsaSubjectIdFromWalletId(key.walletId),
-    key.walletKeyId,
+    key.evmFamilySigningKeySlotId,
     key.keyScope,
     key.signingRootId,
     key.signingRootVersion,
@@ -1091,7 +1092,7 @@ function normalizeEthereumAddress20B64u(value: string): string {
 function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
   raw: unknown;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string | undefined;
@@ -1103,11 +1104,11 @@ function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
   const parsed = parseRouterAbEcdsaHssNormalSigningStateV1(args.raw);
   if (!parsed) return undefined;
   const publicIdentity = parsed.scope.public_identity;
-  const walletKeyId = parsed.scope.wallet_key_id;
+  const evmFamilySigningKeySlotId = parsed.scope.wallet_key_id;
   const expectedSigningRootVersion = args.signingRootVersion || 'default';
   const checks: Array<[string, string, string]> = [
     ['wallet_id', parsed.scope.wallet_id, args.walletId],
-    ['wallet_key_id', walletKeyId, args.walletKeyId],
+    ['wallet_key_id', evmFamilySigningKeySlotId, args.evmFamilySigningKeySlotId],
     ['ecdsa_threshold_key_id', parsed.scope.ecdsa_threshold_key_id, args.ecdsaThresholdKeyId],
     ['signing_root_id', parsed.scope.signing_root_id, args.signingRootId],
     ['signing_root_version', parsed.scope.signing_root_version, expectedSigningRootVersion],
@@ -1204,7 +1205,7 @@ function assertEcdsaRoleLocalPublicFactMatches(args: {
 function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
   readyRecord: EcdsaRoleLocalReadyRecord;
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
@@ -1215,12 +1216,12 @@ function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
 }): void {
   const facts = args.readyRecord.publicFacts;
   const expectedSigningRootVersion = args.signingRootVersion || 'default';
-  assertMatchingWalletKeyId({
-    expected: args.walletKeyId,
-    actual: facts.walletKeyId,
-    actualLabel: 'role-local publicFacts walletKeyId',
+  assertMatchingEvmFamilySigningKeySlotId({
+    expected: args.evmFamilySigningKeySlotId,
+    actual: facts.evmFamilySigningKeySlotId,
+    actualLabel: 'role-local publicFacts evmFamilySigningKeySlotId',
     message:
-      'Invalid threshold ECDSA canonical session record: role-local publicFacts walletKeyId mismatch',
+      'Invalid threshold ECDSA canonical session record: role-local publicFacts evmFamilySigningKeySlotId mismatch',
   });
   const checks: Array<[string, string, string]> = [
     ['walletId', String(facts.walletId), String(args.walletId)],
@@ -1255,7 +1256,8 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   if (obj.authMetadata !== undefined && obj.authMetadata !== null) {
     throw new Error('Invalid threshold ECDSA canonical session record: deleted authMetadata');
   }
-  const walletKeyId = parseWalletKeyIdOrNull(obj.walletKeyId);
+  const evmFamilySigningKeySlotIdResult = parseEvmFamilySigningKeySlotId(obj.evmFamilySigningKeySlotId);
+  let evmFamilySigningKeySlotId = evmFamilySigningKeySlotIdResult.ok ? evmFamilySigningKeySlotIdResult.value : null;
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
@@ -1282,6 +1284,16 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     );
   }
   const signingRootBinding = normalizeStoredSigningRootBinding(obj, runtimePolicyScope);
+  if (evmFamilySigningKeySlotId) {
+    evmFamilySigningKeySlotId = assertEvmFamilySigningKeySlotIdMatchesPlan({
+      evmFamilySigningKeySlotId,
+      walletId,
+      signingRootId: signingRootBinding.signingRootId,
+      signingRootVersion: signingRootBinding.signingRootVersion,
+      message:
+        'Invalid threshold ECDSA canonical session record: evmFamilySigningKeySlotId signing-root mismatch',
+    });
+  }
   const sourceRaw = String(obj.source || '').trim();
   const source: ThresholdEcdsaSessionStoreSource =
     sourceRaw === 'login' ||
@@ -1309,7 +1321,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
 
   if (
     !relayerUrl ||
-    !walletKeyId ||
+    !evmFamilySigningKeySlotId ||
     !keyHandle ||
     !relayerKeyId ||
     !clientVerifyingShareB64u ||
@@ -1322,7 +1334,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     throw new Error(
       formatMissingThresholdEcdsaCanonicalRecordFields({
         relayerUrl,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
         keyHandle,
         relayerKeyId,
         clientVerifyingShareB64u,
@@ -1350,7 +1362,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   assertEcdsaRoleLocalReadyRecordMatchesSessionRecord({
     readyRecord: ecdsaRoleLocalReadyRecord,
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     chainTarget,
     keyHandle,
     ecdsaThresholdKeyId,
@@ -1371,7 +1383,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const routerAbEcdsaHssNormalSigning = normalizeStoredRouterAbEcdsaHssNormalSigningState({
     raw: obj.routerAbEcdsaHssNormalSigning,
     walletId,
-    walletKeyId: ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     signingRootId: signingRootBinding.signingRootId,
     signingRootVersion: signingRootBinding.signingRootVersion,
@@ -1394,7 +1406,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   }
   const sharedRecord = {
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     relayerUrl,
     keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
     ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({
@@ -1446,7 +1458,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
 
 function formatMissingThresholdEcdsaCanonicalRecordFields(args: {
   relayerUrl: string;
-  walletKeyId: WalletKeyId | null;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId | null;
   keyHandle: string | null | undefined;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
@@ -1458,7 +1470,7 @@ function formatMissingThresholdEcdsaCanonicalRecordFields(args: {
 }): string {
   const missing: string[] = [];
   if (!args.relayerUrl) missing.push('relayerUrl');
-  if (!args.walletKeyId) missing.push('walletKeyId');
+  if (!args.evmFamilySigningKeySlotId) missing.push('evmFamilySigningKeySlotId');
   if (!args.keyHandle) missing.push('keyHandle');
   if (!args.relayerKeyId) missing.push('relayerKeyId');
   if (!args.clientVerifyingShareB64u) missing.push('clientVerifyingShareB64u');
@@ -2492,7 +2504,6 @@ function buildEcdsaRecordFromBootstrap(
   if (!keyHandle) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide keyHandle');
   }
-  const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle);
   const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
   if (!participantIds) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide participantIds');
@@ -2549,8 +2560,6 @@ function buildEcdsaRecordFromBootstrap(
   }
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
     record: {
-      keyHandle: canonicalKeyHandle,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       signingRootId: ecdsaRoleLocalReadyRecord.publicFacts.signingRootId,
       signingRootVersion: ecdsaRoleLocalReadyRecord.publicFacts.signingRootVersion,
     },
@@ -2558,7 +2567,7 @@ function buildEcdsaRecordFromBootstrap(
 
   return normalizeThresholdEcdsaSessionRecord({
     walletId,
-    walletKeyId: args.bootstrap.keygen.walletKeyId,
+    evmFamilySigningKeySlotId: args.bootstrap.keygen.evmFamilySigningKeySlotId,
     chainTarget: args.chainTarget,
     relayerUrl: keyRef.relayerUrl,
     keyHandle,

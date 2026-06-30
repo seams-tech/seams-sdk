@@ -10,7 +10,7 @@ import {
   type WasmPrepareThresholdEd25519HssSessionResult,
 } from '@/core/types/signer-worker';
 import { base64UrlDecode } from '@shared/utils/encoders';
-import { parseWalletKeyId } from '@shared/utils/domainIds';
+import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   executeWorkerOperation,
   type WorkerOperationContext,
@@ -56,7 +56,6 @@ import {
   type SigningRootId,
   type SigningRootVersion,
 } from '../../session/identity/emailOtpHssIdentity';
-import type { WalletKeyId } from '@shared/signing-lanes';
 
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
@@ -368,6 +367,7 @@ export type ThresholdEd25519HssServerAssistInitEnvelope = {
 export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope = {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
+  serverEvalFinalizeOutputB64u: string;
 };
 
 export type ThresholdEd25519HssFinalizedReportEnvelope = {
@@ -400,7 +400,7 @@ export type ThresholdEcdsaHssStableKeyContext = {
 declare const serverPlannedEcdsaHssContextBrand: unique symbol;
 
 export type ServerPlannedEcdsaHssContext = ThresholdEcdsaHssStableKeyContext & {
-  walletKeyId: WalletKeyId;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   readonly [serverPlannedEcdsaHssContextBrand]: true;
 };
@@ -428,12 +428,6 @@ function readThresholdEcdsaHssChainTarget(value: unknown): ThresholdEcdsaChainTa
   });
 }
 
-function readWalletKeyId(value: unknown): WalletKeyId {
-  const parsed = parseWalletKeyId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
-
 function buildThresholdEcdsaHssStableKeyContext(input: {
   walletId: unknown;
   ecdsaThresholdKeyId: unknown;
@@ -450,7 +444,7 @@ function buildThresholdEcdsaHssStableKeyContext(input: {
 
 export function parseServerPlannedEcdsaHssContext(input: {
   walletId: unknown;
-  walletKeyId: unknown;
+  evmFamilySigningKeySlotId: unknown;
   chainTarget: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
@@ -458,7 +452,7 @@ export function parseServerPlannedEcdsaHssContext(input: {
 }): ServerPlannedEcdsaHssContext {
   return {
     ...buildThresholdEcdsaHssStableKeyContext(input),
-    walletKeyId: readWalletKeyId(input.walletKeyId),
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(input.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
     chainTarget: readThresholdEcdsaHssChainTarget(input.chainTarget),
   } as ServerPlannedEcdsaHssContext;
 }
@@ -696,7 +690,9 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
     response.type !==
     HssClientCustomResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleSuccess
   ) {
-    throw new Error('BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle failed');
+    throw new Error(
+      'BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle failed',
+    );
   }
   emitHssClientWorkerDiagnostics(
     'build_client_owned_staged_evaluator_artifact',
@@ -708,6 +704,7 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     stagedEvaluatorArtifactB64u: String(result.stagedEvaluatorArtifactB64u || '').trim(),
+    serverEvalFinalizeOutputB64u: String(result.serverEvalFinalizeOutputB64u || '').trim(),
   };
 }
 

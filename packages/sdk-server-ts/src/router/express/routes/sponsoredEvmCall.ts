@@ -1,9 +1,12 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import { handleRouterApiSponsoredEvmCall } from '../../routerApiSponsoredEvmCall';
 import { findRouteDefinitionById } from '../../routeDefinitions';
-import { sendExpressRouteResponse } from '../../routeResponses';
+import { routeJson, sendExpressRouteResponse } from '../../routeResponses';
 import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import { resolveSponsoredEvmExecutionAdapter } from '../../../sponsorship/evmExecutionAdapter';
+
+const SPONSORED_EVM_MVP_DISABLED_MESSAGE =
+  'EVM gas sponsorship pricing is not configured on this server.';
 
 export function registerSponsoredEvmCallRoutes(
   router: ExpressRouter,
@@ -18,7 +21,6 @@ export function registerSponsoredEvmCallRoutes(
   const routerApiSponsoredEvmCall = {
     billing: options.billing,
     config: options.config,
-    corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
     resolveExecutionAdapter: options.resolveExecutionAdapter || resolveSponsoredEvmExecutionAdapter,
     observabilityIngestion: ctx.opts.observabilityIngestion || null,
     prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
@@ -33,6 +35,21 @@ export function registerSponsoredEvmCallRoutes(
   } as const;
 
   router.post(route.path, async (req: Request, res: Response) => {
+    if (!ctx.opts.sponsorship?.pricing) {
+      ctx.logger.warn('[sponsored-evm-call][pricing-unconfigured]', {
+        path: route.path,
+        reason: SPONSORED_EVM_MVP_DISABLED_MESSAGE,
+      });
+      sendExpressRouteResponse(
+        res,
+        routeJson(503, {
+          ok: false,
+          code: 'sponsorship_pricing_unavailable',
+          message: SPONSORED_EVM_MVP_DISABLED_MESSAGE,
+        }),
+      );
+      return;
+    }
     const response = await handleRouterApiSponsoredEvmCall({
       body: req.body,
       headers: (req.headers || {}) as Record<string, string | string[] | undefined>,

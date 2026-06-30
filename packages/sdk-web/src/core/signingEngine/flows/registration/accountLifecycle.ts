@@ -1,4 +1,9 @@
-import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import {
+  SIGNER_AUTH_METHODS,
+  SIGNER_KINDS,
+  SIGNER_SOURCES,
+  type WalletAuthMethod,
+} from '@shared/utils/signerDomain';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { compactImplicitNearAccountId } from '@shared/utils/near';
@@ -103,7 +108,7 @@ export type StoreWalletEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
@@ -152,6 +157,24 @@ function requireWebAuthnRpId(value: string): WebAuthnRpId {
   return parsed.value;
 }
 
+function toWalletAuthMethod(authMethod: unknown): WalletAuthMethod | null {
+  if (authMethod === SIGNER_AUTH_METHODS.emailOtp) return SIGNER_AUTH_METHODS.emailOtp;
+  if (authMethod === SIGNER_AUTH_METHODS.passkey) return SIGNER_AUTH_METHODS.passkey;
+  return null;
+}
+
+function signerLoginDisplayName(args: {
+  walletId: string;
+  authMethod: WalletAuthMethod | null;
+  metadata: Record<string, unknown>;
+}): string {
+  if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+    const email = String(args.metadata.email || '').trim();
+    if (email) return email;
+  }
+  return args.walletId;
+}
+
 function verifiedCredentialPublicKeyBytes(value: string, field: string): Uint8Array {
   const credentialPublicKeyB64u = String(value || '').trim();
   if (!credentialPublicKeyB64u) {
@@ -194,6 +217,9 @@ async function readNearUserData(
   if (!projection) return null;
 
   const metadata = projection.selectedSigner.metadata || {};
+  const walletId = String(metadata.walletId || '').trim();
+  if (!walletId) return null;
+  const authMethod = toWalletAuthMethod(projection.selectedSigner.signerAuthMethod);
   const passkeyCredentialRawId =
     typeof metadata.passkeyCredentialRawId === 'string'
       ? metadata.passkeyCredentialRawId
@@ -206,7 +232,13 @@ async function readNearUserData(
     typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey : '';
 
   return {
+    walletId,
     nearAccountId: accountId,
+    loginDisplayName: signerLoginDisplayName({
+      walletId,
+      authMethod,
+      metadata,
+    }),
     signerSlot: projection.selectedSigner.signerSlot,
     version: 2,
     registeredAt: projection.profile.createdAt,
@@ -217,6 +249,7 @@ async function readNearUserData(
       id: passkeyCredentialId,
       rawId: passkeyCredentialRawId,
     },
+    authMethod,
     preferences: projection.profile.preferences,
   };
 }
@@ -1170,7 +1203,7 @@ function prepareWalletEcdsaSignerActivations(
       walletKey.signingRootVersion,
       'wallet key signingRootVersion',
     );
-    const walletKeyId = requireStoreWalletString(walletKey.walletKeyId, 'wallet key walletKeyId');
+    const evmFamilySigningKeySlotId = requireStoreWalletString(walletKey.evmFamilySigningKeySlotId, 'wallet key evmFamilySigningKeySlotId');
     const relayerKeyId = requireStoreWalletString(
       walletKey.relayerKeyId,
       'wallet key relayerKeyId',
@@ -1215,7 +1248,7 @@ function prepareWalletEcdsaSignerActivations(
             keyScope: walletKey.keyScope,
             keyHandle,
             walletId: walletId,
-            walletKeyId,
+            evmFamilySigningKeySlotId,
             ecdsaThresholdKeyId,
             signingRootId,
             signingRootVersion,
@@ -1233,7 +1266,7 @@ function prepareWalletEcdsaSignerActivations(
             },
             sharedEvmFamilyKey: {
               walletId: walletId,
-              walletKeyId,
+              evmFamilySigningKeySlotId,
               keyScope: walletKey.keyScope,
               keyHandle,
               ecdsaThresholdKeyId,

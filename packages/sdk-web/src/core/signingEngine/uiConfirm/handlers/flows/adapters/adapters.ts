@@ -28,6 +28,7 @@ import {
   getNearAccountId,
   getSignTransactionPayload,
   getSigningAuthMode,
+  getSubjectLabel,
 } from './request';
 import type { ThemeName } from '@/core/types/seams';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
@@ -541,7 +542,7 @@ async function renderConfirmUI({
   theme,
   onMounted,
 }: BaseRenderConfirmUIArgs): Promise<RenderConfirmUIResult> {
-  const nearAccountIdForUi = getNearAccountId(request);
+  const nearAccountIdForUi = getSubjectLabel(request);
 
   const txSigningRequests =
     request.type === UserConfirmationType.SIGN_TRANSACTION

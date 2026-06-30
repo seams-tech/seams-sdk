@@ -22,7 +22,14 @@ import {
 import { createD1ConsoleAccountService } from '../../console/account/d1';
 import type { ConsoleAccountService } from '../../console/account/service';
 import { createD1ConsoleApiKeyService } from '../../console/apiKeys/d1';
-import type { ConsoleApiKeyService } from '../../console/apiKeys/service';
+import type {
+  ConsoleApiKeysContext,
+  ConsoleApiKeyService,
+} from '../../console/apiKeys/service';
+import type {
+  CreateConsoleApiKeyRequest,
+  CreateConsoleApiKeyResult,
+} from '../../console/apiKeys/types';
 import { createD1ConsoleApprovalService } from '../../console/approvals/d1';
 import type { ConsoleApprovalService } from '../../console/approvals/service';
 import { createD1ConsoleAuditService } from '../../console/audit/d1';
@@ -61,6 +68,11 @@ import { createD1ConsolePolicyService } from '../../console/policies/d1';
 import type { ConsolePolicyService } from '../../console/policies/service';
 import { createD1ConsoleSponsoredCallService } from '../../console/sponsoredCalls/d1';
 import type { ConsoleSponsoredCallService } from '../../console/sponsoredCalls/service';
+import {
+  createD1ConsoleSponsorshipPricingService,
+  ensureConsoleSponsorshipPricingD1Schema,
+  seedD1ConsoleStaticEvmSponsorshipPricingRule,
+} from '../../console/sponsorshipPricing/d1';
 import { createD1ConsoleSponsorshipSpendCapService } from '../../console/sponsorshipSpendCaps/d1';
 import type { ConsoleSponsorshipSpendCapService } from '../../console/sponsorshipSpendCaps/service';
 import { createD1ConsoleTeamRbacService } from '../../console/teamRbac/d1';
@@ -69,6 +81,12 @@ import { createD1ConsoleWalletService } from '../../console/wallets/d1';
 import type { ConsoleWalletService } from '../../console/wallets/service';
 import { createD1ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/service';
+import {
+  DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+  TEMPO_TESTNET_CHAIN_ID,
+} from '../../console/gasSponsorship/onboarding';
+import { ensureTempoOnboardingSponsorshipForExistingEnvironments } from '../../console/gasSponsorship/seeding';
+import type { ConsoleGasSponsorshipPolicyProjection } from '../../console/gasSponsorship/types';
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiBootstrapGrantBroker,
@@ -325,6 +343,156 @@ interface CloudflareD1ConsoleCommonServices {
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
 }
 
+type TempoStaticSponsorshipPricingSeed = {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly now?: () => Date;
+};
+
+const TEMPO_STATIC_SPONSORSHIP_PRICING_VERSION_PREFIX = 'tempo-testnet-static-v1';
+const TEMPO_STATIC_SPONSORSHIP_ESTIMATE_FEE_PER_GAS_WEI = 40_000_000_000n;
+const TEMPO_STATIC_SPONSORSHIP_MINOR_PER_WEI_NUMERATOR = 1n;
+const TEMPO_STATIC_SPONSORSHIP_MINOR_PER_WEI_DENOMINATOR = 1_000_000_000_000_000n;
+
+class TempoOnboardingApiKeyService implements ConsoleApiKeyService {
+  constructor(
+    private readonly base: ConsoleApiKeyService,
+    private readonly orgProjectEnv: ConsoleOrgProjectEnvService,
+    private readonly policies: ConsolePolicyService,
+    private readonly runtimeSnapshots: ConsoleRuntimeSnapshotService,
+    private readonly pricingSeed: TempoStaticSponsorshipPricingSeed | null,
+  ) {}
+
+  async listApiKeys(ctx: ConsoleApiKeysContext) {
+    return await this.base.listApiKeys(ctx);
+  }
+
+  async createApiKey(
+    ctx: ConsoleApiKeysContext,
+    request: CreateConsoleApiKeyRequest,
+  ): Promise<CreateConsoleApiKeyResult> {
+    if (request.kind === 'publishable_key') {
+      await this.ensureTempoSnapshot(ctx, request.environmentId);
+    }
+    return await this.base.createApiKey(ctx, request);
+  }
+
+  async revokeApiKey(
+    ctx: ConsoleApiKeysContext,
+    apiKeyId: string,
+    request?: Parameters<ConsoleApiKeyService['revokeApiKey']>[2],
+  ) {
+    return await this.base.revokeApiKey(ctx, apiKeyId, request);
+  }
+
+  async deleteApiKey(ctx: ConsoleApiKeysContext, apiKeyId: string) {
+    return await this.base.deleteApiKey(ctx, apiKeyId);
+  }
+
+  async rotateApiKey(
+    ctx: ConsoleApiKeysContext,
+    apiKeyId: string,
+    request?: Parameters<ConsoleApiKeyService['rotateApiKey']>[2],
+  ) {
+    return await this.base.rotateApiKey(ctx, apiKeyId, request);
+  }
+
+  async updateApiKey(
+    ctx: ConsoleApiKeysContext,
+    apiKeyId: string,
+    request: Parameters<ConsoleApiKeyService['updateApiKey']>[2],
+  ) {
+    return await this.base.updateApiKey(ctx, apiKeyId, request);
+  }
+
+  async authenticatePublishableKey(
+    request: Parameters<NonNullable<ConsoleApiKeyService['authenticatePublishableKey']>>[0],
+  ) {
+    return await this.base.authenticatePublishableKey?.(request) ?? {
+      ok: false,
+      status: 401,
+      code: 'publishable_key_invalid',
+      message: 'Publishable key auth is not configured',
+    };
+  }
+
+  async authenticateApiKey(
+    request: Parameters<NonNullable<ConsoleApiKeyService['authenticateApiKey']>>[0],
+  ) {
+    return await this.base.authenticateApiKey?.(request) ?? {
+      ok: false,
+      status: 401,
+      code: 'secret_key_invalid',
+      message: 'Secret key auth is not configured',
+    };
+  }
+
+  private async ensureTempoSnapshot(
+    ctx: ConsoleApiKeysContext,
+    environmentId: string,
+  ): Promise<void> {
+    const orgProjectEnvCtx = {
+      orgId: ctx.orgId,
+      actorUserId: ctx.actorUserId,
+      roles: [...ctx.roles],
+    };
+    const environments = await this.orgProjectEnv.listEnvironments(orgProjectEnvCtx);
+    const environment = environments.find((entry) => entry.id === environmentId);
+    if (!environment) return;
+    const seededPolicies = await ensureTempoOnboardingSponsorshipForExistingEnvironments({
+      orgProjectEnv: this.orgProjectEnv,
+      policies: this.policies,
+      runtimeSnapshots: this.runtimeSnapshots,
+      ctx: orgProjectEnvCtx,
+      faucetContractAddress: DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+      projectId: environment.projectId,
+    });
+    for (const policy of seededPolicies) {
+      await this.seedTempoPricingForPolicy(ctx, environment, policy);
+    }
+  }
+
+  private async seedTempoPricingForPolicy(
+    ctx: ConsoleApiKeysContext,
+    environment: { readonly id: string; readonly projectId: string },
+    policy: ConsoleGasSponsorshipPolicyProjection,
+  ): Promise<void> {
+    if (!this.pricingSeed || policy.kind !== 'evm_call') return;
+    await seedD1ConsoleStaticEvmSponsorshipPricingRule({
+      database: this.pricingSeed.database,
+      namespace: this.pricingSeed.namespace,
+      orgId: ctx.orgId,
+      projectId: environment.projectId,
+      environmentId: environment.id,
+      policyId: policy.id,
+      chainId: TEMPO_TESTNET_CHAIN_ID,
+      pricingVersion: `${TEMPO_STATIC_SPONSORSHIP_PRICING_VERSION_PREFIX}:${policy.id}`,
+      estimateFeePerGasWei: TEMPO_STATIC_SPONSORSHIP_ESTIMATE_FEE_PER_GAS_WEI,
+      minorPerWeiNumerator: TEMPO_STATIC_SPONSORSHIP_MINOR_PER_WEI_NUMERATOR,
+      minorPerWeiDenominator: TEMPO_STATIC_SPONSORSHIP_MINOR_PER_WEI_DENOMINATOR,
+      minSpendMinor: 1,
+      createdBy: ctx.actorUserId,
+      now: this.pricingSeed.now,
+    });
+  }
+}
+
+function createTempoOnboardingApiKeyService(input: {
+  readonly apiKeys: ConsoleApiKeyService;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly policies: ConsolePolicyService;
+  readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
+  readonly pricingSeed: TempoStaticSponsorshipPricingSeed | null;
+}): ConsoleApiKeyService {
+  return new TempoOnboardingApiKeyService(
+    input.apiKeys,
+    input.orgProjectEnv,
+    input.policies,
+    input.runtimeSnapshots,
+    input.pricingSeed,
+  );
+}
+
 function normalizeRequiredString(input: string | undefined, fallback: string, field: string): string {
   const value = String(input || fallback).trim();
   if (!value) {
@@ -547,7 +715,6 @@ async function createCloudflareD1PrepaidReservations(
   return await createD1ConsoleBillingPrepaidReservationService({
     database: options.consoleDatabase,
     namespace: options.namespace,
-    ensureSchema: options.ensureSchema,
     now: options.now,
     defaultReservationTtlMs: options.defaultPrepaidReservationTtlMs,
   });
@@ -559,7 +726,6 @@ async function createCloudflareD1Billing(
   return await createD1ConsoleBillingService({
     database: options.consoleDatabase,
     namespace: options.namespace,
-    ensureSchema: options.ensureSchema,
     now: options.now,
     providers: options.billingProviders,
   });
@@ -749,8 +915,16 @@ async function createCloudflareD1SponsoredCalls(
   return await createD1ConsoleSponsoredCallService({
     database: options.consoleDatabase,
     namespace: options.namespace,
-    ensureSchema: options.ensureSchema,
     now: options.now,
+  });
+}
+
+async function ensureCloudflareD1SponsorshipPricingSchema(
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
+): Promise<void> {
+  if (!options.ensureSchema) return;
+  await ensureConsoleSponsorshipPricingD1Schema({
+    database: options.consoleDatabase,
   });
 }
 
@@ -800,6 +974,7 @@ async function createCloudflareD1ConsoleCommonServices(
   const billing = await createCloudflareD1Billing(normalized);
   const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
   const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
+  await ensureCloudflareD1SponsorshipPricingSchema(normalized);
   const runtimeSnapshots = await createCloudflareD1RuntimeSnapshots(normalized);
   const onboarding = createCloudflareD1Onboarding({
     options: normalized,
@@ -918,6 +1093,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
 
 function createCloudflareD1RouterApiStorageOptions(input: {
   readonly options: NormalizedCloudflareD1ConsoleServiceBundleOptions;
+  readonly sponsorshipPricing: SponsorshipSpendPricingService | null;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
@@ -939,7 +1115,7 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   return {
     sponsorship: {
       spendCaps: input.spendCaps,
-      pricing: options.sponsorshipPricing || null,
+      pricing: input.sponsorshipPricing,
       prepaidReservations: input.prepaidReservations,
     },
     observabilityIngestion: input.observabilityIngestion,
@@ -982,36 +1158,68 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   };
 }
 
+async function createCloudflareD1RouterApiSponsorshipPricing(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<SponsorshipSpendPricingService | null> {
+  if (options.sponsorshipPricing !== undefined) return options.sponsorshipPricing;
+  if (!options.sponsoredEvmCallConfig) return null;
+  return await createD1ConsoleSponsorshipPricingService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: false,
+    now: options.now,
+  });
+}
+
 export async function createCloudflareD1ConsoleServiceBundle(
   options: CloudflareD1ConsoleServiceBundleOptions,
 ): Promise<CloudflareD1ConsoleServiceBundle> {
   const normalized = normalizeCloudflareD1ConsoleServiceBundleOptions(options);
   const tenantStorageRouteResolver = createCloudflareD1TenantRouteResolver(normalized);
   const services = await createCloudflareD1ConsoleCommonServices(normalized);
+  const apiKeys = normalized.sponsoredEvmCallConfig
+      ? createTempoOnboardingApiKeyService({
+          apiKeys: services.apiKeys,
+          orgProjectEnv: services.orgProjectEnv,
+          policies: services.policies,
+          runtimeSnapshots: services.runtimeSnapshots,
+          pricingSeed: {
+            database: normalized.consoleDatabase,
+            namespace: normalized.namespace,
+            now: normalized.now,
+          },
+        })
+    : services.apiKeys;
+  const servicesWithApiKeys = {
+    ...services,
+    apiKeys,
+  };
   const bootstrapTokens = await createCloudflareD1BootstrapTokens(normalized);
   const spendCaps = await createCloudflareD1SpendCaps(normalized);
+  const sponsorshipPricing = await createCloudflareD1RouterApiSponsorshipPricing(normalized);
   const consoleRouterOptions = createCloudflareD1ConsoleRouterStorageOptions({
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
-    ...services,
+    ...servicesWithApiKeys,
   });
   const routerApiRouterOptions = createCloudflareD1RouterApiStorageOptions({
     options: normalized,
-    orgProjectEnv: services.orgProjectEnv,
-    wallets: services.wallets,
-    apiKeys: services.apiKeys,
+    sponsorshipPricing,
+    orgProjectEnv: servicesWithApiKeys.orgProjectEnv,
+    wallets: servicesWithApiKeys.wallets,
+    apiKeys: servicesWithApiKeys.apiKeys,
     bootstrapTokens,
-    billing: services.billing,
-    prepaidReservations: services.prepaidReservations,
+    billing: servicesWithApiKeys.billing,
+    prepaidReservations: servicesWithApiKeys.prepaidReservations,
     spendCaps,
-    sponsoredCalls: services.sponsoredCalls,
-    runtimeSnapshots: services.runtimeSnapshots,
-    observabilityIngestion: services.observabilityIngestion,
+    sponsoredCalls: servicesWithApiKeys.sponsoredCalls,
+    runtimeSnapshots: servicesWithApiKeys.runtimeSnapshots,
+    observabilityIngestion: servicesWithApiKeys.observabilityIngestion,
   });
   return {
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
-    ...services,
+    ...servicesWithApiKeys,
     bootstrapTokens,
     spendCaps,
     consoleRouterOptions,

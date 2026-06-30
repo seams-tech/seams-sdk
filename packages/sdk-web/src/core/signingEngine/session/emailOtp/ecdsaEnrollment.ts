@@ -48,7 +48,7 @@ import {
   resolveSigningBudgetPolicyRemainingUses,
   resolveWalletUnlockBudgetPolicyFromRequestedUses,
 } from '../budget/policy';
-import { derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope } from '../identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../identity/evmFamilyEcdsaIdentity';
 
 export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
@@ -263,7 +263,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     runtimePolicyScope,
     walletSessionUserId,
   });
-  const walletKeyId = derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope({
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
     walletId: args.walletSession.walletId,
     runtimePolicyScope: registrationInput.runtimePolicyScope,
   });
@@ -283,7 +283,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     workerCtx,
     googleEmailOtpRegistrationAttemptId: registrationInput.registrationAttemptId,
     ecdsaClientRootHandleBinding: {
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       authSubjectId: emailOtpAuthSubjectId,
       operation: 'registration',
       chainTarget,
@@ -297,7 +297,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     walletId: String(args.walletSession.walletId),
     walletSessionUserId,
     userId: emailOtpAuthSubjectId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     clientRootShareHandle: enrollment.clientRootShareHandle,
     chainTarget,
     publicationChainTargets,

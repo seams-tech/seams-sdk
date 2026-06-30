@@ -15,7 +15,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/threshold/sessionPolicy';
-import { derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { sponsoredNamedRegistrationProvisioningFromAccountId } from '@/SeamsWeb/operations/registration/registrationSignerSet';
@@ -121,7 +121,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     relayUrl?: string;
     walletId: string;
     userId: string;
-    walletKeyId: string;
+    evmFamilySigningKeySlotId: string;
     appSessionJwt: string;
   }): Promise<EmailOtpRegistrationEnrollmentMaterial>;
   registerWallet(args: GoogleEmailOtpWalletRegistrationArgs): Promise<RegistrationResult>;
@@ -577,7 +577,7 @@ function googleEmailOtpRegistrationWalletKeyId(args: {
     throw new Error('Google Email OTP registration prewarm requires runtime policy scope');
   }
   return String(
-    derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope({
+    deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
       walletId: args.walletId,
       runtimePolicyScope,
     }),
@@ -602,7 +602,7 @@ function createRegistrationMaterialPrewarm(args: {
     throw new Error('Google Email OTP registration offer selected candidate is missing');
   }
   const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
-  const walletKeyId = googleEmailOtpRegistrationWalletKeyId({
+  const evmFamilySigningKeySlotId = googleEmailOtpRegistrationWalletKeyId({
     walletId: selectedCandidate.walletId,
     appSessionJwt,
   });
@@ -611,7 +611,7 @@ function createRegistrationMaterialPrewarm(args: {
       relayUrl: relayerUrlFromInput({ deps: args.deps, input: args.input }),
       walletId: selectedCandidate.walletId,
       userId: args.state.walletSessionUserId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       appSessionJwt,
     })
     .then((material) => {

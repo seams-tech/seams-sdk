@@ -1,6 +1,6 @@
 import { PasskeyAuthMenu } from './shell';
 import { PasskeyAuthMenuSkeleton } from './skeleton';
-import type { PasskeyAuthMenuProps } from './types';
+import type { PasskeyAuthMenuProps, PasskeyAuthMenuRegistrationRequest } from './types';
 import {
   AuthMenuMode,
   AuthMenuModeMap,
@@ -15,7 +15,7 @@ import {
  * public module without browser-only client dependencies.
  */
 export { PasskeyAuthMenu, PasskeyAuthMenuSkeleton };
-export type { PasskeyAuthMenuProps };
+export type { PasskeyAuthMenuProps, PasskeyAuthMenuRegistrationRequest };
 
 export { AuthMenuMode, AuthMenuModeMap };
 export type { AuthMenuModeLabel, AuthMenuHeadings };

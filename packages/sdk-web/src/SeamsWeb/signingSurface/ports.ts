@@ -47,6 +47,8 @@ import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/co
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
   KeyExportEventCallback,
+  SigningEngineResolveExactKeyExportLaneInput,
+  SigningEngineResolveExactKeyExportLaneResult,
   SigningEngineExportKeypairWithUIInput,
 } from '@/core/signingEngine/flows/recovery/public';
 import type {
@@ -378,6 +380,9 @@ export interface EmailOtpSigningSessionSurface {
 }
 
 export interface KeyExportSigningSurface {
+  resolveExactKeyExportLane(
+    input: SigningEngineResolveExactKeyExportLaneInput,
+  ): Promise<SigningEngineResolveExactKeyExportLaneResult>;
   exportKeypairWithUI(
     input: SigningEngineExportKeypairWithUIInput,
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }>;

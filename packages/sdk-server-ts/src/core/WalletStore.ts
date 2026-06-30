@@ -53,7 +53,7 @@ export type WalletEd25519SignerRecord = {
 export type WalletEcdsaSignerRecord = {
   version: 'wallet_signer_ecdsa_v1';
   walletId: WalletId;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   signerId: string;
   chainTargetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;

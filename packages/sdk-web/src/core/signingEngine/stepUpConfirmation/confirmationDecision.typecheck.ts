@@ -60,6 +60,13 @@ const workerSuccess: WorkerConfirmationResponse = {
   credential,
 };
 
+const workerTransactionSuccess: WorkerConfirmationResponse = {
+  request_id: 'request-5-transaction',
+  confirmed: true,
+  transaction_context: transactionContext,
+  nonce_leases: nonceLeases,
+};
+
 const invalidFailureCredential = {
   requestId: 'request-6',
   confirmed: false,
@@ -95,13 +102,38 @@ const invalidWorkerSuccessError = {
   // @ts-expect-error Successful worker responses cannot carry an error.
 } satisfies WorkerConfirmationResponse;
 
+const invalidWorkerSuccessNonceLeasesWithoutContext = {
+  request_id: 'request-10-nonce-without-context',
+  confirmed: true,
+  nonce_leases: nonceLeases,
+  // @ts-expect-error Worker nonce leases require transaction context.
+} satisfies WorkerConfirmationResponse;
+
+const invalidWorkerSuccessTransactionContextWithoutNonceLeases = {
+  request_id: 'request-10-context-without-nonce',
+  confirmed: true,
+  transaction_context: transactionContext,
+  // @ts-expect-error Worker transaction context requires nonce leases.
+} satisfies WorkerConfirmationResponse;
+
+const invalidWorkerFailureNonceLeases = {
+  request_id: 'request-11',
+  confirmed: false,
+  nonce_leases: nonceLeases,
+  // @ts-expect-error Failed worker responses cannot keep reserved nonce payload.
+} satisfies WorkerConfirmationResponse;
+
 void successDecision;
 void failureDecision;
 void failureWithDiagnostics;
 void workerFailure;
 void workerSuccess;
+void workerTransactionSuccess;
 void invalidFailureCredential;
 void invalidFailureOtp;
 void invalidFailureNonceLeases;
 void invalidWorkerFailureCredential;
 void invalidWorkerSuccessError;
+void invalidWorkerSuccessNonceLeasesWithoutContext;
+void invalidWorkerSuccessTransactionContextWithoutNonceLeases;
+void invalidWorkerFailureNonceLeases;

@@ -251,6 +251,7 @@ export interface ThresholdEd25519HssServerInputDeliveryEnvelope {
 export interface ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
+  serverEvalFinalizeOutputB64u: string;
   stagedEvaluatorArtifactHandle?: never;
   evaluatorOtStateB64u?: never;
   xClientBaseB64u?: never;
@@ -328,23 +329,21 @@ export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope =
   | {
       contextBindingB64u: string;
       stagedEvaluatorArtifactHandle: string;
+      serverEvalFinalizeOutputBytes: Uint8Array;
       stagedEvaluatorArtifactBytes?: undefined;
     }
   | {
       contextBindingB64u: string;
       stagedEvaluatorArtifactBytes: Uint8Array;
+      serverEvalFinalizeOutputBytes: Uint8Array;
       stagedEvaluatorArtifactHandle?: undefined;
     };
 
-export type ThresholdEd25519HssStoredStagedEvaluatorArtifact =
-  | {
-      stagedEvaluatorArtifactHandle: string;
-      stagedEvaluatorArtifactBytes?: undefined;
-    }
-  | {
-      stagedEvaluatorArtifactBytes: Uint8Array;
-      stagedEvaluatorArtifactHandle?: undefined;
-    };
+export interface ThresholdEd25519HssStoredStagedEvaluatorArtifact {
+  stagedEvaluatorArtifactBytes: Uint8Array;
+  serverEvalFinalizeOutputBytes: Uint8Array;
+  stagedEvaluatorArtifactHandle?: never;
+}
 
 export interface ThresholdEd25519HssFinalizedReportEnvelope {
   contextBindingB64u: string;
@@ -741,7 +740,7 @@ export type WalletRegistrationEcdsaPreparePayload = {
   prepare: {
     formatVersion: EcdsaHssRoleLocalFormatVersion;
     walletId: string;
-    walletKeyId: string;
+    evmFamilySigningKeySlotId: string;
     ecdsaThresholdKeyId: EcdsaThresholdKeyId;
     signingRootId: string;
     signingRootVersion: string;
@@ -761,7 +760,7 @@ export type WalletRegistrationEcdsaPreparePayload = {
 export type WalletRegistrationEcdsaClientBootstrap = {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -786,7 +785,7 @@ export type WalletRegistrationEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
@@ -1171,7 +1170,7 @@ export type ThresholdEd25519HssFinalizeAccountResolution =
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
   wallet_key_id: NearEd25519SigningKeyId;
-  rpId: WebAuthnRpId;
+  authorityScope: ThresholdEd25519AuthorityScope;
   ceremonyHandle: string;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   serverState: ThresholdEd25519HssRegistrationRespondedServerState;
@@ -1519,6 +1518,27 @@ export interface AccountCreationResult {
   message?: string;
 }
 
+export interface FundImplicitNearAccountRequest {
+  walletId: string;
+  nearAccountId: string;
+  nearPublicKeyStr: string;
+}
+
+export type FundImplicitNearAccountResult =
+  | {
+      ok: true;
+      walletId: string;
+      nearAccountId: string;
+      fundedAmountYocto: string;
+      transactionHash?: string;
+      message?: string;
+    }
+  | {
+      ok: false;
+      code: 'not_configured' | 'invalid_request' | 'funding_failed';
+      message: string;
+    };
+
 // Runtime-tested NEAR error types
 export interface NearActionErrorKind {
   AccountAlreadyExists?: {
@@ -1616,10 +1636,37 @@ export type ThresholdRuntimeSnapshotExpectation = {
 
 export type ThresholdEd25519Purpose = 'near_tx' | 'nep461_delegate' | 'nep413' | string;
 
-export type ThresholdEd25519AuthorityScope = {
-  kind: 'passkey_rp';
-  rpId: WebAuthnRpId;
-};
+export type ThresholdEd25519AuthorityScope =
+  | {
+      kind: 'passkey_rp';
+      rpId: WebAuthnRpId;
+      proofKind?: never;
+      email?: never;
+      challengeId?: never;
+      googleEmailOtpRegistrationAttemptId?: never;
+      googleEmailOtpRegistrationOfferId?: never;
+      googleEmailOtpRegistrationCandidateId?: never;
+    }
+  | {
+      kind: 'email_otp';
+      proofKind: 'otp_challenge';
+      email: string;
+      challengeId?: string;
+      rpId?: never;
+      googleEmailOtpRegistrationAttemptId?: never;
+      googleEmailOtpRegistrationOfferId?: never;
+      googleEmailOtpRegistrationCandidateId?: never;
+    }
+  | {
+      kind: 'email_otp';
+      proofKind: 'google_sso_registration';
+      email: string;
+      googleEmailOtpRegistrationAttemptId: string;
+      googleEmailOtpRegistrationOfferId: string;
+      googleEmailOtpRegistrationCandidateId: string;
+      rpId?: never;
+      challengeId?: never;
+    };
 
 export type Ed25519SessionPolicy = {
   version: 'threshold_session_v1';
@@ -1661,7 +1708,7 @@ export type ThresholdEd25519VerifiedWalletAuth =
         keyScope: 'evm-family';
         keyHandle: string;
         relayerKeyId: string;
-        walletKeyId: string;
+        evmFamilySigningKeySlotId: string;
         runtimePolicyScope?: ThresholdRuntimePolicyScope;
         thresholdExpiresAtMs: number;
         participantIds: number[];
@@ -1882,7 +1929,7 @@ export interface EcdsaHssPasskeyBootstrapAuthorization {
 interface EcdsaHssClientBootstrapRequestBase {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -1919,7 +1966,7 @@ export type EcdsaHssClientBootstrapRequest =
 export interface EcdsaHssServerBootstrapResponse {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   applicationBindingDigestB64u: string;
@@ -1948,7 +1995,7 @@ export interface EcdsaHssRoleLocalKeyRecord {
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   signingRootId: string;
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
@@ -1968,7 +2015,7 @@ export interface EcdsaHssRoleLocalKeyRecord {
 export interface EcdsaHssExportShareRequest {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1985,7 +2032,7 @@ export interface EcdsaHssExportShareRequest {
 export interface EcdsaHssExportShareResponse {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1997,7 +2044,7 @@ export interface EcdsaHssExportShareResponse {
 export type EcdsaSessionPolicy = {
   version: 'threshold_session_policy_v2';
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   relayerKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;
@@ -2014,7 +2061,7 @@ export type EcdsaSessionPolicy = {
 export type ThresholdEcdsaBootstrapSessionPolicy = {
   version: 'threshold_session_policy_v2';
   walletId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;

@@ -205,6 +205,38 @@ export async function readPersistedAvailableSigningLanesForSigning(
   );
 }
 
+function sealedRecordHasEd25519ThresholdSession(
+  record: SigningSessionSealedStoreRecord,
+): boolean {
+  return String(record.thresholdSessionIds?.ed25519 || '').trim().length > 0;
+}
+
+function sealedEcdsaRecordMatchesAnyChainTarget(
+  record: SigningSessionSealedStoreRecord,
+  chainTargets: readonly ThresholdEcdsaChainTarget[],
+): boolean {
+  const recordChainTarget = record.ecdsaRestore?.chainTarget;
+  if (!recordChainTarget) return false;
+  const recordChainTargetKey = thresholdEcdsaChainTargetKey(recordChainTarget);
+  for (const chainTarget of chainTargets) {
+    if (recordChainTargetKey === thresholdEcdsaChainTargetKey(chainTarget)) return true;
+  }
+  return false;
+}
+
+function filterEmailOtpCompanionEcdsaRecords(
+  records: readonly SigningSessionSealedStoreRecord[],
+  chainTargets: readonly ThresholdEcdsaChainTarget[],
+): SigningSessionSealedStoreRecord[] {
+  const matchingRecords: SigningSessionSealedStoreRecord[] = [];
+  for (const record of records) {
+    if (!sealedRecordHasEd25519ThresholdSession(record)) continue;
+    if (!sealedEcdsaRecordMatchesAnyChainTarget(record, chainTargets)) continue;
+    matchingRecords.push(record);
+  }
+  return matchingRecords;
+}
+
 export async function readPersistedAvailableSigningLanesForTargets(
   deps: PersistedAvailableSigningLanesDeps,
   args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'> & {
@@ -250,25 +282,16 @@ export async function readPersistedAvailableSigningLanesForTargets(
             filter: { authMethod, curve: 'ed25519' },
           });
           if (authMethod !== 'email_otp') return ed25519Records;
-          const companionEcdsaRecords = (
-            await Promise.all(
-              args.ecdsaChainTargets.map(
-                async (chainTarget) =>
-                  await listExactSealedSessionsForWallet({
-                    walletId: recordWalletId,
-                    filter: {
-                      authMethod: 'email_otp',
-                      curve: 'ecdsa',
-                      chainTarget,
-                    },
-                  }),
-              ),
-            )
-          )
-            .flat()
-            .filter(
-              (record) => String(record.thresholdSessionIds?.ed25519 || '').trim().length > 0,
-            );
+          const companionEcdsaRecords = filterEmailOtpCompanionEcdsaRecords(
+            await listEcdsaSealedSessionsForWallet({
+              walletId: recordWalletId,
+              filter: {
+                authMethod: 'email_otp',
+                curve: 'ecdsa',
+              },
+            }),
+            args.ecdsaChainTargets,
+          );
           return [...ed25519Records, ...companionEcdsaRecords];
         };
         if (filter.authMethod) {

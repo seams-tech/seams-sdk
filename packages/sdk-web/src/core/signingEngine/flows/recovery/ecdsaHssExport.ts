@@ -72,9 +72,12 @@ export async function exportEcdsaHssKeyWithWalletSession(
 
   const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(args.record);
   const readyRecord = roleLocalMaterial.readyRecord;
-  const walletKeyId = String(readyRecord.publicFacts.walletKeyId || '').trim();
-  if (!walletKeyId) {
-    throw new Error('[SigningEngine][ecdsa-export] ready export material is missing walletKeyId');
+  const evmFamilySigningKeySlotId = String(args.record.evmFamilySigningKeySlotId || '').trim();
+  if (!evmFamilySigningKeySlotId) {
+    throw new Error('[SigningEngine][ecdsa-export] session record is missing evmFamilySigningKeySlotId');
+  }
+  if (String(readyRecord.publicFacts.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId) {
+    throw new Error('[SigningEngine][ecdsa-export] role-local evmFamilySigningKeySlotId mismatch');
   }
   if (readyRecord.authMethod.kind !== 'passkey') {
     throw new Error('[SigningEngine][ecdsa-export] passkey export requires passkey ready material');
@@ -108,6 +111,7 @@ export async function exportEcdsaHssKeyWithWalletSession(
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
     walletId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
@@ -123,7 +127,7 @@ export async function exportEcdsaHssKeyWithWalletSession(
     operation: 'explicit_key_export',
     keyHandle,
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     signingRootId,
@@ -145,7 +149,7 @@ export async function exportEcdsaHssKeyWithWalletSession(
   const exportShare = await thresholdEcdsaHssRoleLocalExportShare(relayerUrl, {
     formatVersion: 'ecdsa-hss-role-local-export',
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
