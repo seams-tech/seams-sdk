@@ -149,7 +149,7 @@ export function DashboardLoginPage(): React.JSX.Element {
         onClick={homeProps.onClick}
         aria-label="Seams home"
       >
-        <SeamsLogo size={44} />
+        <SeamsLogo size={68} />
         <span>Seams Console</span>
       </a>
       <DashboardGoogleAuthCard

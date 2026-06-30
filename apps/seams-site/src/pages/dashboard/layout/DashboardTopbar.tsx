@@ -161,7 +161,7 @@ export function DashboardTopbar({
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsLogo size={22} />
+            <SeamsLogo size={34} />
             <span>Seams</span>
           </a>
         </div>
@@ -200,7 +200,7 @@ export function DashboardTopbar({
           onClick={homeProps.onClick}
           aria-label="Seams home"
         >
-          <SeamsLogo size={22} />
+          <SeamsLogo size={34} />
           <span>Seams</span>
         </a>
       </div>

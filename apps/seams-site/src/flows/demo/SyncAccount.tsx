@@ -20,7 +20,7 @@ export function SyncAccount() {
     loginState,
     lock,
     refreshLoginState,
-    accountInputState: { targetAccountId },
+    accountInputState: { targetWalletId },
     seams,
   } = useSeams();
   const [busy, setBusy] = React.useState(false);
@@ -29,13 +29,13 @@ export function SyncAccount() {
   const onSync = async () => {
     setBusy(true);
     try {
-      if (!targetAccountId) {
-        toast.error('Enter an account ID first (Register/Login tab).');
+      if (!targetWalletId) {
+        toast.error('Select a wallet first (Register/Login tab).');
         return;
       }
 
       const toastId = 'sync-account';
-      toast.loading(`Syncing ${targetAccountId}…`, { id: toastId });
+      toast.loading(`Syncing ${targetWalletId}…`, { id: toastId });
 
       // Best-effort: ensure we are logged out before starting recovery flows.
       try {
@@ -43,7 +43,7 @@ export function SyncAccount() {
       } catch {}
 
       const result = await seams.recovery.syncAccount({
-        accountId: targetAccountId,
+        walletId: targetWalletId,
         options: {
           onEvent: async (event: AccountSyncFlowEvent) => {
             try {
@@ -52,7 +52,7 @@ export function SyncAccount() {
                 event.phase === AccountSyncEventPhase.STEP_06_COMPLETED &&
                 event.status === 'succeeded'
               ) {
-                await refreshLoginState(targetAccountId);
+                await refreshLoginState(targetWalletId);
               }
             } catch {}
           },
@@ -63,7 +63,7 @@ export function SyncAccount() {
       });
 
       if (result?.success) {
-        toast.success(`Account ${targetAccountId} synced successfully!`, { id: toastId });
+        toast.success(`Wallet ${targetWalletId} synced successfully!`, { id: toastId });
       } else {
         throw new Error(result?.error || 'syncAccount failed');
       }

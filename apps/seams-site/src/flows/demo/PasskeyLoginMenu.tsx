@@ -7,7 +7,7 @@ import {
   UnlockEventPhase,
   type EmailOtpAuthPolicy,
   type AccountSyncFlowEvent,
-  type PasskeyRegistrationOptions,
+  type PasskeyAuthMenuRegistrationRequest,
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
@@ -285,9 +285,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     };
   }, [relayerBaseUrl]);
 
-  const onRegister = async (options?: PasskeyRegistrationOptions) => {
+  const onRegister = async (request: PasskeyAuthMenuRegistrationRequest) => {
     const result = await registerPasskey({
-      ...options,
+      wallet: request.wallet,
       onEvent: handleRegistrationEvent,
     });
 

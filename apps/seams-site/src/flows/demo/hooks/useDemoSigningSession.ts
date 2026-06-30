@@ -61,12 +61,12 @@ export type DemoNonceDiagnostics = {
 type UseDemoSigningSessionArgs = {
   clockMs: number;
   isLoggedIn: boolean;
-  nearAccountId?: string | null;
+  walletId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
 };
 
 export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
-  const { clockMs, isLoggedIn, nearAccountId, seams } = args;
+  const { clockMs, isLoggedIn, walletId, seams } = args;
 
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [sessionRemainingUsesInput, setSessionRemainingUsesInput] = useState(3);
@@ -78,7 +78,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
 
   const refreshSessionStatus = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (!nearAccountId) {
+      if (!walletId) {
         setWalletSession(null);
         setSessionStatus(null);
         setSessionStatusError('');
@@ -86,7 +86,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
       }
       if (!opts?.silent) setSessionStatusLoading(true);
       try {
-        const sess = await seams.auth.getWalletSession(nearAccountId);
+        const sess = await seams.auth.getWalletSession(walletId);
         const snapshot: DemoWalletSessionSnapshot = {
           login: {
             isLoggedIn: sess.login.isLoggedIn,
@@ -111,30 +111,30 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
         if (!opts?.silent) setSessionStatusLoading(false);
       }
     },
-    [nearAccountId, seams],
+    [seams, walletId],
   );
 
   useEffect(() => {
-    if (!isLoggedIn || !nearAccountId) {
+    if (!isLoggedIn || !walletId) {
       setWalletSession(null);
       setSessionStatus(null);
       setSessionStatusError('');
       return;
     }
     void refreshSessionStatus();
-  }, [isLoggedIn, nearAccountId, refreshSessionStatus]);
+  }, [isLoggedIn, refreshSessionStatus, walletId]);
 
   useEffect(() => {
-    if (!isLoggedIn || !nearAccountId) return undefined;
+    if (!isLoggedIn || !walletId) return undefined;
     const id = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
       void refreshSessionStatus({ silent: true });
     }, SESSION_STATUS_AUTO_REFRESH_MS);
     return () => window.clearInterval(id);
-  }, [isLoggedIn, nearAccountId, refreshSessionStatus]);
+  }, [isLoggedIn, refreshSessionStatus, walletId]);
 
   const handleUnlockSession = useCallback(async () => {
-    if (!nearAccountId) return;
+    if (!walletId) return;
 
     const remainingUses = Number.isFinite(sessionRemainingUsesInput)
       ? Math.max(0, Math.floor(sessionRemainingUsesInput))
@@ -147,7 +147,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
     setUnlockLoading(true);
     toast.loading('Creating signing session…', { id: 'unlock-session' });
     try {
-      const currentSession = await seams.auth.getWalletSession(nearAccountId);
+      const currentSession = await seams.auth.getWalletSession(walletId);
       const authMethod =
         currentSession.authMethod ||
         currentSession.signingSession?.authMethod ||
@@ -160,8 +160,8 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
         }
         const challenge = await seams.auth.requestEmailOtpSigningSessionChallenge({
           walletSession: walletSessionRefFromSession({
-            walletId: nearAccountId,
-            userId: nearAccountId,
+            walletId,
+            walletSessionUserId: walletId,
           }),
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
         });
@@ -178,8 +178,8 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
         }
         await seams.auth.refreshEmailOtpSigningSession({
           walletSession: walletSessionRefFromSession({
-            walletId: nearAccountId,
-            userId: nearAccountId,
+            walletId,
+            walletSessionUserId: walletId,
           }),
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
           challengeId: challenge.challengeId,
@@ -188,7 +188,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
           ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
         });
       } else {
-        await seams.auth.unlock(nearAccountId, {
+        await seams.auth.unlock(walletId, {
           signingSession: { ttlMs, remainingUses },
         });
       }
@@ -201,12 +201,12 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
       setUnlockLoading(false);
     }
   }, [
-    nearAccountId,
     refreshSessionStatus,
     sessionRemainingUsesInput,
     sessionTtlSecondsInput,
     seams,
     walletSession,
+    walletId,
   ]);
 
   const expiresInSec =

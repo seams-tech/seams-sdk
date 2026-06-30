@@ -25,7 +25,7 @@ import { handleSigningToastEvent } from './signingToast';
 
 type UseDemoTempoFeeTokenActionsArgs = {
   isLoggedIn: boolean;
-  nearAccountId?: string | null;
+  walletId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   tempoEip1559FeeCaps: Eip1559FeeCaps;
   resolveThresholdOwnerAddressForEvmFamily: () => Promise<EvmAddress>;
@@ -43,7 +43,7 @@ type UseDemoTempoFeeTokenActionsArgs = {
 export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArgs) {
   const {
     isLoggedIn,
-    nearAccountId,
+    walletId,
     seams,
     tempoEip1559FeeCaps,
     resolveThresholdOwnerAddressForEvmFamily,
@@ -57,7 +57,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
 
   const configureTempoFeeToken = useCallback(
     async (config: { token: EvmAddress; label: string; target: 'alpha' }) => {
-      if (!isLoggedIn || !nearAccountId) return;
+      if (!isLoggedIn || !walletId) return;
       const toastId = 'tempo-set-fee-token';
       try {
         toast.dismiss(toastId);
@@ -108,8 +108,8 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         })().catch(() => undefined);
         const execution = await seams.tempo.executeEvmFamilyTransaction({
           walletSession: walletSessionRefFromSession({
-            walletId: nearAccountId,
-            userId: nearAccountId,
+            walletId,
+            walletSessionUserId: walletId,
           }),
           request,
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', FRONTEND_CONFIG.chains),
@@ -236,12 +236,12 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
     },
     [
       isLoggedIn,
-      nearAccountId,
       refreshTempoUserFeeToken,
       refreshTempoUserFeeTokenBalance,
       resolveThresholdOwnerAddressForEvmFamily,
       seams,
       tempoEip1559FeeCaps,
+      walletId,
     ],
   );
 

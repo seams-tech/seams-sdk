@@ -24,7 +24,7 @@ import type { EvmAddress } from './demoThresholdTypes';
 
 type UseDemoArcSigningActionsArgs = {
   canSignEvm: boolean;
-  nearAccountId?: string | null;
+  walletId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   arcGreetingInput: string;
   arcEip1559FeeCaps: Eip1559FeeCaps;
@@ -70,7 +70,7 @@ function isArcNativeGasPreflightFailure(error: unknown): error is ArcNativeGasPr
 export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
   const {
     canSignEvm,
-    nearAccountId,
+    walletId,
     seams,
     arcGreetingInput,
     arcEip1559FeeCaps,
@@ -82,7 +82,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
   const [evmThresholdSignLoading, setEvmThresholdSignLoading] = useState(false);
 
   const handleSignEvmThresholdTx = useCallback(async () => {
-    if (!canSignEvm || !nearAccountId) return;
+    if (!canSignEvm || !walletId) return;
     const toastId = 'evm-threshold-sign';
     try {
       toast.dismiss(toastId);
@@ -114,8 +114,8 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       }
       const execution = await seams.tempo.executeEvmFamilyTransaction({
         walletSession: walletSessionRefFromSession({
-          walletId: nearAccountId,
-          userId: nearAccountId,
+          walletId,
+          walletSessionUserId: walletId,
         }),
         request,
         chainTarget: resolveDemoThresholdEcdsaChainTarget('evm', FRONTEND_CONFIG.chains),
@@ -222,10 +222,10 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     arcGreetingInput,
     canSignEvm,
     fetchArcGreeting,
-    nearAccountId,
     refreshThresholdOwnerAddress,
     resolveThresholdOwnerAddressForEvmFamily,
     seams,
+    walletId,
   ]);
 
   return {

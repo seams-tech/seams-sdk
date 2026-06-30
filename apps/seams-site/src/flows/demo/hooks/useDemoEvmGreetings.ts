@@ -12,11 +12,10 @@ import {
 
 type UseDemoEvmGreetingsArgs = {
   isLoggedIn: boolean;
-  nearAccountId?: string | null;
 };
 
 export function useDemoEvmGreetings(args: UseDemoEvmGreetingsArgs) {
-  const { isLoggedIn, nearAccountId } = args;
+  const { isLoggedIn } = args;
 
   const [tempoGreeting, setTempoGreeting] = useState<string | null>(null);
   const [arcGreeting, setArcGreeting] = useState<string | null>(null);
@@ -72,10 +71,10 @@ export function useDemoEvmGreetings(args: UseDemoEvmGreetingsArgs) {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn || !nearAccountId) return;
+    if (!isLoggedIn) return;
     void fetchTempoGreeting({ silent: true });
     void fetchArcGreeting({ silent: true });
-  }, [fetchArcGreeting, fetchTempoGreeting, isLoggedIn, nearAccountId]);
+  }, [fetchArcGreeting, fetchTempoGreeting, isLoggedIn]);
 
   return {
     tempoGreeting,

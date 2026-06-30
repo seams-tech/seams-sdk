@@ -8,7 +8,7 @@ import type { EvmAddress } from './demoThresholdTypes';
 
 type UseDemoThresholdAccountStateArgs = {
   isLoggedIn: boolean;
-  nearAccountId?: string | null;
+  walletId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   frontendConfig?: Pick<FrontendConfig, 'chains' | 'relayerUrl'>;
 };
@@ -26,17 +26,17 @@ type ThresholdOwnerAddressReadResult =
     };
 
 export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateArgs) {
-  const { isLoggedIn, nearAccountId, seams } = args;
+  const { isLoggedIn, walletId, seams } = args;
   const [thresholdOwnerAddress, setThresholdOwnerAddress] = useState<string | null>(null);
   const [tempoUserFeeToken, setTempoUserFeeToken] = useState<EvmAddress | null>(null);
 
   const readWalletSessionThresholdOwnerAddress =
     useCallback(async (): Promise<ThresholdOwnerAddressReadResult> => {
-      if (!isLoggedIn || !nearAccountId) {
+      if (!isLoggedIn || !walletId) {
         return { ok: false, reason: 'not_logged_in' };
       }
       try {
-        const session = await seams.auth.getWalletSession(nearAccountId);
+        const session = await seams.auth.getWalletSession(walletId);
         const address = String(session.login.thresholdEcdsaEthereumAddress || '').trim();
         if (!isEvmAddress(address)) {
           return { ok: false, reason: 'missing_wallet_session_address' };
@@ -45,10 +45,10 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       } catch {
         return { ok: false, reason: 'wallet_session_read_failed' };
       }
-    }, [isLoggedIn, nearAccountId, seams]);
+    }, [isLoggedIn, seams, walletId]);
 
   const refreshThresholdOwnerAddress = useCallback(async () => {
-    if (!isLoggedIn || !nearAccountId) {
+    if (!isLoggedIn || !walletId) {
       setThresholdOwnerAddress(null);
       return null;
     }
@@ -60,7 +60,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
     }
     setThresholdOwnerAddress(result.address);
     return result.address;
-  }, [isLoggedIn, nearAccountId, readWalletSessionThresholdOwnerAddress]);
+  }, [isLoggedIn, readWalletSessionThresholdOwnerAddress, walletId]);
 
   const resolveThresholdOwnerAddressForEvmFamily = useCallback(async (): Promise<EvmAddress> => {
     let resolvedThresholdOwnerAddress = isEvmAddress(String(thresholdOwnerAddress || '').trim())
@@ -139,9 +139,9 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
   );
 
   useEffect(() => {
-    if (!isLoggedIn || !nearAccountId) return;
+    if (!isLoggedIn || !walletId) return;
     void refreshThresholdOwnerAddress();
-  }, [isLoggedIn, nearAccountId, refreshThresholdOwnerAddress]);
+  }, [isLoggedIn, refreshThresholdOwnerAddress, walletId]);
 
   useEffect(() => {
     if (!thresholdOwnerAddress || !isEvmAddress(thresholdOwnerAddress)) {

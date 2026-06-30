@@ -2,7 +2,7 @@ import React from 'react';
 import { BookOpen, ChevronDown, MessageCircle, Menu, X } from 'lucide-react';
 import { MoonIcon, SunIcon, useTheme } from '@seams/sdk/react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
-import SeamsLogo from '../icons/SeamsLogo';
+import SeamsWordmark from '../icons/SeamsWordmark';
 import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { FRONTEND_CONFIG } from '@/config';
@@ -1175,12 +1175,7 @@ export function NavbarStatic(): React.JSX.Element {
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsLogo
-              className="navbar-static__brand-logo"
-              variant="transparent-mark"
-              size={28}
-            />
-            <span>Seams</span>
+            <SeamsWordmark className="navbar-static__brand-wordmark" height={28} />
           </a>
         </div>
 

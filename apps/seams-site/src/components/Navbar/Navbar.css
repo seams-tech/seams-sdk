@@ -164,10 +164,10 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 .navbar-static__brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0;
   min-width: fit-content;
   height: 40px;
-  padding: 0 0.45rem;
+  padding: 0 0.4rem;
   border-radius: 10px;
   border: 1px solid transparent;
   color: var(--navbar-text);
@@ -185,12 +185,10 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   background: transparent;
 }
 
-.navbar-static__brand-logo {
-  opacity: 0.92;
-}
-
-html[data-w3a-theme='dark'] .navbar-static__brand-logo.seams-logo-icon--transparent-mark {
-  filter: invert(1);
+.navbar-static__brand-wordmark {
+  display: block;
+  height: 28px;
+  width: auto;
 }
 
 .navbar-static__links {

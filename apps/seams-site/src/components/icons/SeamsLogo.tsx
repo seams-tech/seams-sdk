@@ -1,5 +1,6 @@
 import React from 'react';
-import { SEAMS_LOGO_ASSETS, type SeamsLogoVariant } from '@/context/seamsBranding';
+import { resolveSeamsLogoAsset, type SeamsLogoVariant } from '@/context/seamsBranding';
+import { useSiteTheme } from '@/shared/hooks/useSiteTheme';
 
 export type SeamsLogoProps = Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   size?: number | string;
@@ -7,7 +8,7 @@ export type SeamsLogoProps = Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'sr
 };
 
 const SeamsLogo: React.FC<SeamsLogoProps> = ({
-  size = 24,
+  size = 36,
   variant = 'app-icon',
   className,
   alt = '',
@@ -16,11 +17,12 @@ const SeamsLogo: React.FC<SeamsLogoProps> = ({
   ...rest
 }) => {
   const numericSize = typeof size === 'number' ? size : undefined;
+  const { theme } = useSiteTheme();
 
   return (
     <img
       {...rest}
-      src={SEAMS_LOGO_ASSETS[variant]}
+      src={resolveSeamsLogoAsset(variant, theme)}
       alt={alt}
       width={numericSize}
       height={numericSize}

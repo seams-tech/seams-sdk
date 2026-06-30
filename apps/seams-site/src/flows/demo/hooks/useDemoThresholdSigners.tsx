@@ -12,19 +12,30 @@ import { useDemoThresholdAccountState } from './useDemoThresholdAccountState';
 
 type UseDemoThresholdSignersArgs = {
   isLoggedIn: boolean;
-  nearAccountId?: string | null;
+  walletId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   frontendConfig?: Pick<
     FrontendConfig,
-    'chains' | 'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
+    | 'chains'
+    | 'managedRegistration'
+    | 'relayerUrl'
+    | 'tempoExplorerUrl'
+    | 'tempoFeeToken'
+    | 'tempoRpcUrl'
   >;
   tempoGreetingInput: string;
   arcGreetingInput: string;
 };
 
 export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
-  const { isLoggedIn, nearAccountId, seams, frontendConfig, tempoGreetingInput, arcGreetingInput } =
-    args;
+  const {
+    isLoggedIn,
+    walletId,
+    seams,
+    frontendConfig,
+    tempoGreetingInput,
+    arcGreetingInput,
+  } = args;
 
   const { tempoEip1559FeeCaps, arcEip1559FeeCaps } = useDemoEip1559FeeCaps();
   const {
@@ -36,7 +47,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     arcGreetingError,
     fetchTempoGreeting,
     fetchArcGreeting,
-  } = useDemoEvmGreetings({ isLoggedIn, nearAccountId });
+  } = useDemoEvmGreetings({ isLoggedIn });
   const {
     thresholdOwnerAddress,
     tempoUserFeeToken,
@@ -46,14 +57,14 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     refreshTempoUserFeeTokenBalance,
   } = useDemoThresholdAccountState({
     isLoggedIn,
-    nearAccountId,
+    walletId,
     seams,
     frontendConfig,
   });
 
   const canSignTempo =
-    Boolean(tempoGreetingInput.trim()) && isLoggedIn && Boolean(nearAccountId);
-  const canSignEvm = Boolean(arcGreetingInput.trim()) && isLoggedIn && Boolean(nearAccountId);
+    Boolean(tempoGreetingInput.trim()) && isLoggedIn && Boolean(walletId);
+  const canSignEvm = Boolean(arcGreetingInput.trim()) && isLoggedIn && Boolean(walletId);
   const tempoFeeTokenIsAlpha =
     String(tempoUserFeeToken || '').toLowerCase() === TEMPO_ALPHA_USD_FEE_TOKEN.toLowerCase();
 
@@ -63,7 +74,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     handleSetTempoFeeTokenAlphaUsd,
   } = useDemoTempoFeeTokenActions({
     isLoggedIn,
-    nearAccountId,
+    walletId,
     seams,
     tempoEip1559FeeCaps,
     resolveThresholdOwnerAddressForEvmFamily,
@@ -79,7 +90,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     handleSignTempoThresholdTx,
   } = useDemoTempoSigningActions({
     isLoggedIn,
-    nearAccountId,
+    walletId,
     seams,
     frontendConfig,
     canSignTempo,
@@ -94,7 +105,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
 
   const { evmThresholdSignLoading, handleSignEvmThresholdTx } = useDemoArcSigningActions({
     canSignEvm,
-    nearAccountId,
+    walletId,
     seams,
     arcGreetingInput,
     arcEip1559FeeCaps,

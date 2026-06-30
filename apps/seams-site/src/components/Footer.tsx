@@ -74,7 +74,7 @@ export function Footer(): React.JSX.Element {
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsLogo size={26} />
+            <SeamsLogo size={40} />
             <span>Seams</span>
           </a>
         </div>
