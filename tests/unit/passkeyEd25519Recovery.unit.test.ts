@@ -75,7 +75,6 @@ function writeEd25519Record(args: {
           materialFormatVersion: 'ed25519_sealed_worker_material_v1',
           materialKeyId: 'material-key-reconnect',
           materialCreatedAtMs: 1_800_000_100_000,
-          keyVersion: 'threshold-ed25519-hss-v1',
         }
       : {}),
     thresholdSessionKind: 'jwt',
@@ -214,7 +213,6 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
         expect(plannedRecord?.sealedWorkerMaterialRef).toBe('sealed-ref-reconnect');
         expect(plannedRecord?.sealedWorkerMaterialB64u).toBe('sealed-blob-reconnect');
         expect(plannedRecord?.materialKeyId).toBe('material-key-reconnect');
-        expect(plannedRecord?.keyVersion).toBe('threshold-ed25519-hss-v1');
       },
     });
 

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import { toAccountId } from '@/core/types/accountIds';
@@ -43,7 +43,7 @@ type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 
 type DirectEcdsaLaneCandidate = Extract<
   EcdsaLaneCandidate,
   {
-    source: 'durable_sealed_record' | 'runtime_session_record' | 'runtime_and_durable' | 'unknown';
+    source: 'durable_sealed_record' | 'runtime_session_record' | 'unknown';
   }
 >;
 
@@ -68,7 +68,6 @@ const contextBinding32B64u = base64UrlEncode(new Uint8Array(32).fill(8));
 const stateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(9));
 const passkeyCredentialIdB64u = 'restorable-passkey-credential';
 const rpId = toRpId('example.localhost');
-const walletKeyId = requireWalletKeyId('wallet-key-restorable');
 const passkeyAuth = {
   kind: 'passkey',
   rpId,
@@ -105,7 +104,7 @@ function routerAbEcdsaHssNormalSigningStateForCandidate(
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
-      wallet_key_id: input.key.walletKeyId,
+      wallet_key_id: input.key.evmFamilySigningKeySlotId,
       wallet_id: input.walletId,
       ecdsa_threshold_key_id: input.key.ecdsaThresholdKeyId,
       signing_root_id: input.key.signingRootId,
@@ -142,7 +141,11 @@ function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate
     walletId,
     key: buildEvmFamilyEcdsaKeyIdentity({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+        walletId,
+        signingRootId: 'proj_local:dev',
+        signingRootVersion: 'default',
+      }),
       ecdsaThresholdKeyId: 'ek-restorable',
       signingRootId: 'proj_local:dev',
       signingRootVersion: 'default',
@@ -282,7 +285,7 @@ function roleLocalReadyRecordForCandidate(
 ) {
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: input.walletId,
-    walletKeyId: input.key.walletKeyId,
+    evmFamilySigningKeySlotId: input.key.evmFamilySigningKeySlotId,
     chainTarget: materialChainTarget,
     keyHandle: input.keyHandle,
     ecdsaThresholdKeyId: input.key.ecdsaThresholdKeyId,
@@ -325,7 +328,7 @@ function recordForChainTarget(
 ): PasskeyEcdsaSessionRecord {
   return markRuntimeValidated({
     walletId: input.walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId: input.key.evmFamilySigningKeySlotId,
     chainTarget: materialChainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),

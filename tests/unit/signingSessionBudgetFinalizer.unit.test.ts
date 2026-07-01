@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { BudgetCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/budget/BudgetCoordinator';
 import type {
@@ -58,6 +59,8 @@ type ExternallyConsumedSuccessInput = Extract<
 const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
+const ECDSA_SIGNING_ROOT_ID = 'project:dev';
+const ECDSA_SIGNING_ROOT_VERSION = 'default';
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
   rpId: toRpId('localhost'),
@@ -111,13 +114,18 @@ function makeTempoSpend(args?: {
   operationId?: string;
 }): WalletSigningSpendPlan {
   const walletId = toWalletId('alice.testnet');
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId,
+    signingRootId: ECDSA_SIGNING_ROOT_ID,
+    signingRootVersion: ECDSA_SIGNING_ROOT_VERSION,
+  });
   const lane = buildTempoTransactionSigningLane({
     key: buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId,
-      walletKeyId: 'wallet-key-tempo-budget',
+      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: 'ehss-tempo-budget',
-      signingRootId: 'project:dev',
-      signingRootVersion: 'default',
+      signingRootId: ECDSA_SIGNING_ROOT_ID,
+      signingRootVersion: ECDSA_SIGNING_ROOT_VERSION,
       participantIds: [1, 2],
       thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
     }),
@@ -289,6 +297,9 @@ function makeBudgetRecorder(): {
     recordedZeroSpends,
     budget: {
       async reserve() {
+        return null;
+      },
+      async reservePrepared() {
         return null;
       },
       async getAvailableStatus() {
@@ -586,10 +597,10 @@ test.describe('budget coordinator reserved success handling', () => {
         spend: thirdSpend,
         expectedBudgetProjectionVersion: 'projection-1',
       }),
-    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is reserved by in-flight operations');
+    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is exhausted');
   });
 
-  test('rejects admission when server status reports all uses reserved in flight', async () => {
+  test('admits while committed server budget remains despite server in-flight reservations', async () => {
     const coordinator = new BudgetCoordinator({
       async readStatus() {
         return {
@@ -617,7 +628,10 @@ test.describe('budget coordinator reserved success handling', () => {
         }),
         expectedBudgetProjectionVersion: 'projection-1',
       }),
-    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is reserved by in-flight operations');
+    ).resolves.toMatchObject({
+      kind: 'reserved',
+      operationId: 'server-inflight-operation',
+    });
   });
 
   test('emits one budget reservation and one nonce lease for a transaction operation', async () => {

@@ -243,7 +243,7 @@ test.describe('step-up freshness identity', () => {
         curve: 'ecdsa',
         chainTarget: tempoChainTarget,
         state: 'exhausted',
-        source: 'runtime_and_durable',
+        source: 'runtime_session_record',
         signingGrantId: 'wallet-session-ecdsa',
         thresholdSessionId: 'threshold-session-ecdsa',
         remainingUses: 0,
@@ -255,7 +255,7 @@ test.describe('step-up freshness identity', () => {
     expect(anchor).toMatchObject({
       kind: 'reauth_anchor_identity',
       sourceState: {
-        availabilitySource: 'runtime_and_durable',
+        availabilitySource: 'runtime_session_record',
         storeSource: 'email_otp',
         retention: 'single_use',
         remainingUses: 0,

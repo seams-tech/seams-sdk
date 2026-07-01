@@ -133,7 +133,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(loginFlow).not.toContain('prewarmThresholdEd25519ClientBaseFromCredential');
     expect(loginFlow).not.toContain('prewarmEd25519MaterialForWarmup');
     expect(loginFlow).toContain('parseWarmEd25519SigningSessionAuthorizationFromRecord');
-    expect(loginFlow).toContain('restoreThresholdEd25519WorkerMaterialFromCredential');
+    expect(loginFlow).toContain('resolveReusableEd25519WorkerMaterialForLoginSession');
     expect(loginFlow).not.toContain('ed25519WorkerMaterialHandle');
     expect(loginFlow).not.toContain('clientVerifyingShareB64u');
     expect(loginSurface).not.toContain('ThresholdEd25519HssClientSurface');
@@ -148,15 +148,18 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const bootstrap = readRepoSource(
       'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
     );
+    const sealedStore = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts',
+    );
     const reconnectRestore = sourceBetween(
       bootstrap,
       'export async function restoreThresholdEd25519WorkerMaterialFromCredential',
       'function parsePositiveInt',
     );
-    const durableMaterialPredicate = sourceBetween(
-      bootstrap,
-      'function sealedEd25519RestoreHasWorkerMaterial',
-      'function sealedEd25519RestoreMatchesCurrentRecord',
+    const currentRestoreMetadata = sourceBetween(
+      sealedStore,
+      'export type CurrentEd25519RestoreMetadata',
+      'export type CurrentEd25519SealedSessionRecord',
     );
     const durableLookup = sourceBetween(
       bootstrap,
@@ -170,19 +173,22 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     );
     const loginRestore = sourceBetween(
       loginFlow,
-      'const restoredMaterial = await restoreThresholdEd25519WorkerMaterialFromCredential',
+      'const resolution = await resolveReusableEd25519WorkerMaterialForLoginSession',
       "if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519')",
     );
 
     expect(reconnectRestore).toContain(
       'restoreDurableThresholdEd25519WorkerMaterialFromCredential',
     );
-    expect(sessionProvision).toContain("if (args.source === 'login') return undefined");
+    expect(sessionProvision).not.toContain("args.source === 'login'");
+    expect(sessionProvision).toContain("curve: 'ed25519'");
     expect(durableLookup).toContain('hasEd25519RestoreMetadata');
     expect(durableLookup).toContain('listEcdsaSealedSessionsForWallet');
     expect(durableLookup).not.toContain("sealedRecord.curve === 'ed25519'");
-    expect(durableMaterialPredicate).toContain('restore.sealedWorkerMaterialRef');
-    expect(durableMaterialPredicate).not.toContain('restore.sealedWorkerMaterialB64u');
+    expect(currentRestoreMetadata).toContain('sealedWorkerMaterialRef: string');
+    expect(currentRestoreMetadata).toContain('materialKeyId: string');
+    expect(currentRestoreMetadata).toContain('routerAbNormalSigning: RouterAbEd25519NormalSigningState');
+    expect(currentRestoreMetadata).toContain('sealedWorkerMaterialB64u?: string');
     expect(reconstruction).toContain('persistStoredThresholdEd25519SessionMaterialHandle');
     expect(reconstruction).toContain(
       'refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial',
@@ -192,7 +198,8 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     ).toBeLessThan(
       reconstruction.indexOf('refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial'),
     );
-    expect(loginRestore).toContain('requireThresholdLoginEd25519WorkerMaterialReady');
+    expect(loginRestore).toContain('persistThresholdLoginEd25519ReusableMaterial');
+    expect(loginRestore).not.toContain('restoreThresholdEd25519WorkerMaterialFromCredential');
   });
 
   test('wallet-session reads do not treat pending Ed25519 records as logged-in capability', () => {

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   OrchestrateIntentDigestSigningConfirmationParams,
   OrchestrateSigningConfirmationParams,
@@ -45,7 +46,6 @@ import { parseEcdsaThresholdKeyId } from '../../packages/sdk-web/src/core/signin
 const WALLET_ID = 'alice.testnet';
 const SUBJECT_ID = toWalletId(WALLET_ID);
 const RP_ID = 'localhost';
-const WALLET_KEY_ID = 'wallet-key-ready-flow';
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
   rpId: toRpId(RP_ID),
@@ -54,6 +54,11 @@ const PASSKEY_AUTH = {
 const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ehss-shared-key');
 const SIGNING_ROOT_ID = 'project:dev';
 const SIGNING_ROOT_VERSION = 'default';
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: SUBJECT_ID,
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+});
 const THRESHOLD_SESSION_ID = 'threshold-session-1';
 const WALLET_SIGNING_SESSION_ID = 'signing-grant-1';
 const EXPIRES_AT_MS = 1_900_000_000_000;
@@ -78,12 +83,13 @@ const ROLE_LOCAL_READY_RECORD = buildEcdsaRoleLocalReadyRecord({
   },
   publicFacts: buildEcdsaRoleLocalPublicFacts({
     walletId: SUBJECT_ID,
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     chainTarget: EVM_TARGET,
     keyHandle: 'key-handle-ready-flow',
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
+    applicationBindingDigestB64u: VALID_CONTEXT_BINDING_B64U,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],
@@ -107,7 +113,7 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
-      wallet_key_id: WALLET_KEY_ID,
+      wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       wallet_id: WALLET_ID,
       ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
       signing_root_id: SIGNING_ROOT_ID,
@@ -178,6 +184,7 @@ function makeThresholdKeyRef(
     chainTarget: EVM_TARGET,
     relayerUrl: 'https://relayer.test',
     keyHandle: 'key-handle-ready-flow',
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     backendBinding: {
       materialKind: 'role_local_ready_state_blob',
@@ -206,7 +213,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
   test('uses admitted ready signer material before key-ref fallback', async () => {
     const key = buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: SUBJECT_ID,
-      walletKeyId: WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: SIGNING_ROOT_VERSION,
@@ -273,6 +280,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
     const signature = new Uint8Array(65).fill(7);
     let signReadyCalls = 0;
     let signCalls = 0;
+    let reserveBudgetCalls = 0;
     let finalizedSignature: SignatureBytes | null = null;
     const readyEngine: Signer<SignRequest, KeyRef, SignatureBytes> & ReadySecp256k1Signer = {
       algorithm: 'secp256k1',
@@ -366,11 +374,20 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
           singleUseEmailOtpSession: false,
           runtime: {},
         },
+        reserveSigningGrantBudget: async (reservation) => {
+          reserveBudgetCalls += 1;
+          expect(reservation.operation).toBe(operation);
+          expect(reservation.signerSession).toBe(signerSession);
+          expect(reservation.signerSession.session.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
+          expect(reservation.signerSession.session.signingGrantId).toBe(WALLET_SIGNING_SESSION_ID);
+          return null;
+        },
       },
     });
 
     expect(result).toEqual({ ok: true });
     expect(finalizedSignature).toBe(signature);
+    expect(reserveBudgetCalls).toBe(1);
     expect(signReadyCalls).toBe(1);
     expect(signCalls).toBe(0);
   });

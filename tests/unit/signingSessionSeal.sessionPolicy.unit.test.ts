@@ -25,10 +25,6 @@ function makeStatus(input: {
   participantIds: number[];
   expiresAtMs: number;
   remainingUses: number;
-  walletBudgetBinding?: {
-    curve: 'ed25519' | 'ecdsa';
-    thresholdSessionId: string;
-  };
 }): Ed25519WalletSessionStatus {
   return {
     record: {
@@ -40,7 +36,6 @@ function makeStatus(input: {
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,
-      ...(input.walletBudgetBinding ? { walletBudgetBinding: input.walletBudgetBinding } : {}),
     },
     expiresAtMs: input.expiresAtMs,
     committedRemainingUses: input.remainingUses,
@@ -52,7 +47,7 @@ function makeStatus(input: {
 
 function makeEcdsaStatus(input: {
   userId: string;
-  walletKeyId: string;
+  evmFamilySigningKeySlotId: string;
   relayerKeyId: string;
   participantIds: number[];
   expiresAtMs: number;
@@ -61,7 +56,7 @@ function makeEcdsaStatus(input: {
   return {
     record: {
       walletId: input.userId,
-      walletKeyId: input.walletKeyId,
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,
@@ -76,13 +71,6 @@ function makeEcdsaStatus(input: {
 
 function makeBudgetStatus(input: {
   userId: string;
-  budgetScope:
-    | { kind: 'passkey_rp'; rpId: string }
-    | { kind: 'wallet_key'; walletKeyId: string };
-  binding: {
-    curve: 'ed25519' | 'ecdsa';
-    thresholdSessionId: string;
-  };
   relayerKeyId: string;
   participantIds: number[];
   expiresAtMs: number;
@@ -92,8 +80,6 @@ function makeBudgetStatus(input: {
     record: {
       kind: 'wallet_signing_budget_session',
       walletId: input.userId,
-      budgetScope: input.budgetScope,
-      binding: input.binding,
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,
@@ -292,7 +278,7 @@ test.describe('signing session seal session policy', () => {
           sessions: {
             [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              walletKeyId: 'wallet-key-ecdsa.example',
+              evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,
@@ -330,7 +316,7 @@ test.describe('signing session seal session policy', () => {
       userId: 'alice',
       expiresAtMs: 222_000,
       relayerKeyId: 'relayer-ecdsa',
-      walletKeyId: 'wallet-key-ecdsa.example',
+      evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
       participantIds: [3, 4],
     });
   });
@@ -358,7 +344,7 @@ test.describe('signing session seal session policy', () => {
           sessions: {
             [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              walletKeyId: 'wallet-key-ecdsa.example',
+              evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,
@@ -403,7 +389,7 @@ test.describe('signing session seal session policy', () => {
         expiresAtMs: 222_000,
         remainingUses: 9,
         relayerKeyId: 'relayer-ecdsa',
-        walletKeyId: 'wallet-key-ecdsa.example',
+        evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
         participantIds: [3, 4],
       },
     ]);
@@ -411,109 +397,15 @@ test.describe('signing session seal session policy', () => {
 
   test('looks up wallet budget status from the shared wallet budget store', async () => {
     const budgetSessionId = 'budget-session';
-    const walletBudgetThresholdSessionId = 'threshold-ed25519-budget-session';
     const walletBudgetStoreSessionId = walletSigningBudgetSessionId({
-      curve: 'ed25519',
       signingGrantId: budgetSessionId,
     });
     const walletBudgetStore = makeBudgetStore({
       sessions: {
         [walletBudgetStoreSessionId]: makeBudgetStatus({
           userId: 'alice',
-          budgetScope: { kind: 'passkey_rp', rpId: 'rp-wallet-budget.example' },
-          binding: {
-            curve: 'ed25519',
-            thresholdSessionId: walletBudgetThresholdSessionId,
-          },
           relayerKeyId: 'relayer-wallet-budget',
           participantIds: [5, 6],
-          expiresAtMs: 333_000,
-          remainingUses: 2,
-        }),
-      },
-    });
-    const policy = createSigningSessionSealPolicyFromWalletSessionStores({
-      ed25519Stores: [
-        makeStore({
-          sessions: {
-            [walletBudgetThresholdSessionId]: makeStatus({
-              userId: 'alice',
-              rpId: 'rp-ed25519.example',
-              relayerKeyId: 'relayer-ed25519',
-              participantIds: [5, 6],
-              expiresAtMs: 333_000,
-              remainingUses: 2,
-            }),
-          },
-        }),
-      ],
-      ecdsaStores: [
-        makeEcdsaStore({
-          sessions: {
-            [walletBudgetThresholdSessionId]: makeEcdsaStatus({
-              userId: 'alice',
-              walletKeyId: 'wallet-key-ecdsa.example',
-              relayerKeyId: 'relayer-ecdsa',
-              participantIds: [7, 8],
-              expiresAtMs: 444_000,
-              remainingUses: 8,
-            }),
-          },
-        }),
-      ],
-      walletBudgetStores: [walletBudgetStore],
-    });
-
-    await expect(
-      policy.getWalletBudgetStatus?.({
-        curve: 'ed25519',
-        signingGrantId: budgetSessionId,
-        thresholdSessionId: walletBudgetThresholdSessionId,
-      }),
-    ).resolves.toEqual({
-      kind: 'wallet_budget',
-      curve: 'ed25519',
-      thresholdSessionId: walletBudgetThresholdSessionId,
-      signingGrantId: budgetSessionId,
-      userId: 'alice',
-      expiresAtMs: 333_000,
-      remainingUses: 2,
-      committedRemainingUses: 2,
-      reservedUses: 0,
-      availableUses: 2,
-      relayerKeyId: 'relayer-wallet-budget',
-      rpId: 'rp-wallet-budget.example',
-      participantIds: [5, 6],
-    });
-
-    await expect(
-      policy.getWalletBudgetStatus?.({
-        curve: 'ecdsa',
-        signingGrantId: budgetSessionId,
-        thresholdSessionId: walletBudgetThresholdSessionId,
-      }),
-    ).resolves.toBeNull();
-  });
-
-  test('wallet budget status requires exact curve and threshold binding', async () => {
-    const signingGrantId = 'shared-wallet-session';
-    const ed25519ThresholdSessionId = 'threshold-ed25519-shared-wallet';
-    const ecdsaThresholdSessionId = 'threshold-ecdsa-shared-wallet';
-    const walletBudgetSessionId = walletSigningBudgetSessionId({
-      curve: 'ed25519',
-      signingGrantId,
-    });
-    const walletBudgetStore = makeBudgetStore({
-      sessions: {
-        [walletBudgetSessionId]: makeBudgetStatus({
-          userId: 'alice',
-          budgetScope: { kind: 'passkey_rp', rpId: 'rp-wallet-budget.example' },
-          binding: {
-            curve: 'ed25519',
-            thresholdSessionId: ed25519ThresholdSessionId,
-          },
-          relayerKeyId: 'relayer-wallet-budget',
-          participantIds: [1, 2],
           expiresAtMs: 333_000,
           remainingUses: 2,
         }),
@@ -527,57 +419,35 @@ test.describe('signing session seal session policy', () => {
 
     await expect(
       policy.getWalletBudgetStatus?.({
-        curve: 'ed25519',
-        signingGrantId,
-        thresholdSessionId: ed25519ThresholdSessionId,
+        signingGrantId: budgetSessionId,
       }),
-    ).resolves.toMatchObject({
-      curve: 'ed25519',
-      thresholdSessionId: ed25519ThresholdSessionId,
+    ).resolves.toEqual({
+      kind: 'wallet_budget',
+      signingGrantId: budgetSessionId,
+      userId: 'alice',
+      expiresAtMs: 333_000,
       remainingUses: 2,
+      committedRemainingUses: 2,
+      reservedUses: 0,
+      availableUses: 2,
+      relayerKeyId: 'relayer-wallet-budget',
+      participantIds: [5, 6],
     });
+
     await expect(
       policy.getWalletBudgetStatus?.({
-        curve: 'ecdsa',
-        signingGrantId,
-        thresholdSessionId: ecdsaThresholdSessionId,
-      }),
-    ).resolves.toBeNull();
-    await expect(
-      policy.getWalletBudgetStatus?.({
-        curve: 'ed25519',
-        signingGrantId,
-        thresholdSessionId: ecdsaThresholdSessionId,
+        signingGrantId: 'missing-budget-session',
       }),
     ).resolves.toBeNull();
   });
 
-  test('wallet budget status keeps shared grant strings separate by curve', async () => {
+  test('wallet budget status is shared across curve-specific threshold sessions', async () => {
     const signingGrantId = 'combined-registration-shared-grant';
-    const ed25519ThresholdSessionId = 'threshold-ed25519-combined-registration';
-    const ecdsaThresholdSessionId = 'threshold-ecdsa-combined-registration';
     const walletBudgetStore = makeBudgetStore({
       sessions: {
-        [walletSigningBudgetSessionId({ curve: 'ed25519', signingGrantId })]: makeBudgetStatus({
+        [walletSigningBudgetSessionId({ signingGrantId })]: makeBudgetStatus({
           userId: 'alice',
-          budgetScope: { kind: 'passkey_rp', rpId: 'rp-wallet-budget.example' },
-          binding: {
-            curve: 'ed25519',
-            thresholdSessionId: ed25519ThresholdSessionId,
-          },
-          relayerKeyId: 'relayer-ed25519-budget',
-          participantIds: [1, 2],
-          expiresAtMs: 333_000,
-          remainingUses: 2,
-        }),
-        [walletSigningBudgetSessionId({ curve: 'ecdsa', signingGrantId })]: makeBudgetStatus({
-          userId: 'alice',
-          budgetScope: { kind: 'wallet_key', walletKeyId: 'wallet-key-ecdsa.example' },
-          binding: {
-            curve: 'ecdsa',
-            thresholdSessionId: ecdsaThresholdSessionId,
-          },
-          relayerKeyId: 'relayer-ecdsa-budget',
+          relayerKeyId: 'relayer-wallet-budget',
           participantIds: [1, 2],
           expiresAtMs: 444_000,
           remainingUses: 7,
@@ -592,25 +462,12 @@ test.describe('signing session seal session policy', () => {
 
     await expect(
       policy.getWalletBudgetStatus?.({
-        curve: 'ed25519',
         signingGrantId,
-        thresholdSessionId: ed25519ThresholdSessionId,
       }),
     ).resolves.toMatchObject({
-      curve: 'ed25519',
-      rpId: 'rp-wallet-budget.example',
-      remainingUses: 2,
-    });
-    await expect(
-      policy.getWalletBudgetStatus?.({
-        curve: 'ecdsa',
-        signingGrantId,
-        thresholdSessionId: ecdsaThresholdSessionId,
-      }),
-    ).resolves.toMatchObject({
-      curve: 'ecdsa',
-      walletKeyId: 'wallet-key-ecdsa.example',
+      signingGrantId,
       remainingUses: 7,
+      participantIds: [1, 2],
     });
   });
 
@@ -640,7 +497,7 @@ test.describe('signing session seal session policy', () => {
           sessions: {
             [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              walletKeyId: 'wallet-key-ecdsa.example',
+              evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,

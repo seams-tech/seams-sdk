@@ -12,6 +12,8 @@ import type {
   SigningSessionSealWalletBudgetStatus,
 } from '@server/threshold/session/signingSessionSeal/signingSessionSeal.types';
 
+const ECDSA_SIGNING_KEY_SLOT_ID = 'wallet-key:evm-family:wallet-ecdsa:signing-root-1:v1';
+
 function makeSession(claims: Record<string, unknown>) {
   return {
     parse: async () => ({ ok: true as const, claims }),
@@ -31,8 +33,8 @@ type ThresholdStatusFixtureInput = {
   expiresAtMs: number;
   remainingUses: number;
 } & (
-  | { curve: 'ecdsa'; walletKeyId: string; rpId?: never }
-  | { curve: 'ed25519'; rpId: string; walletKeyId?: never }
+  | { curve: 'ecdsa'; evmFamilySigningKeySlotId: string; rpId?: never }
+  | { curve: 'ed25519'; rpId: string; evmFamilySigningKeySlotId?: never }
 );
 
 function makeThresholdStatus(input: ThresholdStatusFixtureInput): SigningSessionSealThresholdSessionStatus {
@@ -51,7 +53,7 @@ function makeThresholdStatus(input: ThresholdStatusFixtureInput): SigningSession
       return {
         ...base,
         curve: 'ecdsa',
-        walletKeyId: input.walletKeyId,
+        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       };
     case 'ed25519':
       return {
@@ -63,25 +65,18 @@ function makeThresholdStatus(input: ThresholdStatusFixtureInput): SigningSession
 }
 
 type WalletBudgetStatusFixtureInput = {
-  curve: 'ecdsa' | 'ed25519';
-  thresholdSessionId: string;
   signingGrantId: string;
   userId: string;
   participantIds: number[];
   expiresAtMs: number;
   remainingUses: number;
-} & (
-  | { curve: 'ecdsa'; walletKeyId: string; rpId?: never }
-  | { curve: 'ed25519'; rpId: string; walletKeyId?: never }
-);
+};
 
 function makeWalletBudgetStatus(
   input: WalletBudgetStatusFixtureInput,
 ): SigningSessionSealWalletBudgetStatus {
-  const base = {
+  return {
     kind: 'wallet_budget' as const,
-    curve: input.curve,
-    thresholdSessionId: input.thresholdSessionId,
     signingGrantId: input.signingGrantId,
     userId: input.userId,
     expiresAtMs: input.expiresAtMs,
@@ -92,20 +87,6 @@ function makeWalletBudgetStatus(
     relayerKeyId: 'wallet-signing-budget',
     participantIds: input.participantIds,
   };
-  switch (input.curve) {
-    case 'ecdsa':
-      return {
-        ...base,
-        curve: 'ecdsa',
-        walletKeyId: input.walletKeyId,
-      };
-    case 'ed25519':
-      return {
-        ...base,
-        curve: 'ed25519',
-        rpId: input.rpId,
-      };
-  }
 }
 
 function makePolicy(input: {
@@ -142,13 +123,13 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
     },
     keyHandle: 'ehss-key-1',
     relayerKeyId: 'ecdsa-relayer-1',
-    walletKeyId: 'wallet-key-ecdsa',
+    evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
-        wallet_key_id: 'wallet-key-ecdsa',
+        wallet_key_id: ECDSA_SIGNING_KEY_SLOT_ID,
         wallet_id: 'wallet-ecdsa',
         ecdsa_threshold_key_id: 'ehss-key-1',
         signing_root_id: 'signing-root-1',
@@ -215,7 +196,7 @@ test.describe('signing budget status parser', () => {
             curve: 'ecdsa',
             thresholdSessionId: 'threshold-session-ecdsa',
             userId: 'wallet-ecdsa',
-            walletKeyId: 'wallet-key-ecdsa',
+            evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
             relayerKeyId: 'ecdsa-relayer-1',
             participantIds: [1, 2],
             expiresAtMs: Date.now() + 60_000,
@@ -223,11 +204,8 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ecdsa',
-          thresholdSessionId: 'threshold-session-ecdsa',
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
-          walletKeyId: 'wallet-key-ecdsa',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -255,7 +233,7 @@ test.describe('signing budget status parser', () => {
             curve: 'ecdsa',
             thresholdSessionId: 'threshold-session-ecdsa',
             userId: 'wallet-ecdsa',
-            walletKeyId: 'wallet-key-ecdsa',
+            evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
             relayerKeyId: 'ecdsa-relayer-1',
             participantIds: [1, 2],
             expiresAtMs: Date.now() + 60_000,
@@ -263,11 +241,8 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ecdsa',
-          thresholdSessionId: 'threshold-session-ecdsa',
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
-          walletKeyId: 'wallet-key-ecdsa',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -303,11 +278,8 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ed25519',
-          thresholdSessionId: 'threshold-session-ed25519',
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
-          rpId: 'example.localhost',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -341,82 +313,6 @@ test.describe('signing budget status parser', () => {
     }
   });
 
-  test('rejects wallet budget status from another curve authority namespace', async () => {
-    const result = await parseWalletSigningBudgetStatusRequest({
-      headers: { Authorization: 'Bearer ecdsa-token' },
-      session: makeSession(
-        makeEcdsaClaims({
-          signingGrantId: 'shared-signing-grant',
-        }),
-      ),
-      sessionPolicy: makePolicy({
-        thresholdStatuses: [
-          makeThresholdStatus({
-            curve: 'ecdsa',
-            thresholdSessionId: 'threshold-session-ecdsa',
-            userId: 'wallet-ecdsa',
-            walletKeyId: 'wallet-key-ecdsa',
-            relayerKeyId: 'ecdsa-relayer-1',
-            participantIds: [1, 2],
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 5,
-          }),
-        ],
-        walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ed25519',
-          thresholdSessionId: 'threshold-session-ed25519',
-          signingGrantId: 'shared-signing-grant',
-          userId: 'wallet-ecdsa',
-          rpId: 'example.localhost',
-          participantIds: [1, 2],
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 3,
-        }),
-      }),
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
-  });
-
-  test('rejects wallet budget status from another threshold session', async () => {
-    const result = await parseWalletSigningBudgetStatusRequest({
-      headers: { Authorization: 'Bearer wrong-wallet-budget-threshold-session' },
-      session: makeSession(makeEd25519Claims()),
-      sessionPolicy: makePolicy({
-        thresholdStatuses: [
-          makeThresholdStatus({
-            curve: 'ed25519',
-            thresholdSessionId: 'threshold-session-ed25519',
-            userId: 'wallet-ed25519',
-            rpId: 'example.localhost',
-            relayerKeyId: 'ed25519-relayer-1',
-            participantIds: [1, 2],
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 4,
-          }),
-        ],
-        walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ed25519',
-          thresholdSessionId: 'different-threshold-session-ed25519',
-          signingGrantId: 'signing-grant-ed25519',
-          userId: 'wallet-ed25519',
-          rpId: 'example.localhost',
-          participantIds: [1, 2],
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 3,
-        }),
-      }),
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
-  });
-
   test('rejects claims when backend wallet budget record is expired', async () => {
     const nowMs = Date.now();
     const result = await parseWalletSigningBudgetStatusRequest({
@@ -440,11 +336,8 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ed25519',
-          thresholdSessionId: 'threshold-session-ed25519',
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
-          rpId: 'example.localhost',
           participantIds: [1, 2],
           expiresAtMs: nowMs - 1,
           remainingUses: 3,
@@ -479,11 +372,8 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ed25519',
-          thresholdSessionId: 'threshold-session-ed25519',
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
-          rpId: 'example.localhost',
           participantIds: [1, 2],
           expiresAtMs: nowMs + 60_000,
           remainingUses: 3,
@@ -571,11 +461,8 @@ test.describe('signing budget status parser', () => {
       sessionPolicy: makePolicy({
         thresholdStatuses: [],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ed25519',
-          thresholdSessionId: 'threshold-session-ed25519',
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
-          rpId: 'example.localhost',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -599,7 +486,7 @@ test.describe('signing budget status parser', () => {
             curve: 'ecdsa',
             thresholdSessionId: 'threshold-session-ecdsa',
             userId: 'wallet-ecdsa',
-            walletKeyId: 'wallet-key-ecdsa',
+            evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
             relayerKeyId: 'ecdsa-relayer-1',
             participantIds: [1, 2],
             expiresAtMs: Date.now() + 60_000,
@@ -634,11 +521,8 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ed25519',
-          thresholdSessionId: 'threshold-session-ed25519',
           signingGrantId: 'signing-grant-ed25519',
           userId: 'wallet-ed25519',
-          rpId: 'example.localhost',
           participantIds: [7, 8],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -662,7 +546,7 @@ test.describe('signing budget status parser', () => {
             curve: 'ecdsa',
             thresholdSessionId: 'threshold-session-ecdsa',
             userId: 'wallet-ecdsa',
-            walletKeyId: 'wallet-key-ecdsa',
+            evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
             relayerKeyId: 'wrong-relayer-key',
             participantIds: [1, 2],
             expiresAtMs: Date.now() + 60_000,
@@ -670,11 +554,8 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ecdsa',
-          thresholdSessionId: 'threshold-session-ecdsa',
           signingGrantId: 'signing-grant-ecdsa',
           userId: 'wallet-ecdsa',
-          walletKeyId: 'wallet-key-ecdsa',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,

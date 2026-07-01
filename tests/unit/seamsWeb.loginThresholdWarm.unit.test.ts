@@ -1325,8 +1325,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     const sharedKey = bootstrapArgs?.['key'] as Record<string, unknown> | undefined;
     const lanePolicy = bootstrapArgs?.['lanePolicy'] as Record<string, unknown> | undefined;
     expect(String(lanePolicy?.thresholdSessionId || '')).toMatch(/^threshold-ecdsa-login-/);
-    expect(String(lanePolicy?.signingGrantId || '')).toMatch(/^wallet-ecdsa-login-/);
-    expect(lanePolicy?.signingGrantId).not.toBe(WALLET_SIGNING_SESSION_ID);
+    expect(lanePolicy?.signingGrantId).toBe(WALLET_SIGNING_SESSION_ID);
     expect(sharedKey?.keyScope).toBe('evm-family');
     expect(sharedKey?.ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
     expect(lanePolicy?.chainTarget).toEqual(EVM_CHAIN_TARGET);
@@ -3538,7 +3537,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     const signingGrantIds = bootstrapArgs.map((args) =>
       String(bootstrapLanePolicy(args).signingGrantId || ''),
     );
-    expect(new Set(signingGrantIds).size).toBe(2);
+    expect(new Set(signingGrantIds).size).toBe(1);
     expect(
       signingGrantIds.every((signingGrantId) =>
         signingGrantId.startsWith('wallet-ecdsa-login-'),

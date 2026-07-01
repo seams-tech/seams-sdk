@@ -218,7 +218,7 @@ test('Refactor 74 Phase 9 keeps budget compatibility fallback at the boundary pa
   );
   expect(nearPlanner).toContain('committedRemainingUses: number;');
   expect(nearPlanner).toContain('inFlightReservedUses: number;');
-  expect(nearPlanner).toContain('availableUsesForBudgetAdmission(args.trustedStatus)');
+  expect(nearPlanner).toContain('committedUsesForBudgetAdmission(args.trustedStatus)');
   expect(nearPlanner).not.toContain('record.availableUses ?? record.remainingUses');
   expect(nearPlanner).not.toContain('policyHint');
 });
@@ -352,13 +352,13 @@ test('Refactor 74 Phase 9 keeps exact signing out of account-scoped restore disc
   expect(exactRestoreSelection).toContain("kind: 'duplicate_records'");
   expect(exactRestoreSelection).toContain("kind: 'not_found'");
   expect(exactHydrateImplementation).toContain(
-    'selectSingleEd25519WorkerMaterialRestoreRecord(materialRecords)',
+    'selectSingleEd25519WorkerMaterialRestoreRecord(records)',
   );
   expect(exactHydrateImplementation).toContain(
     "pendingReason: 'duplicate_worker_material_records'",
   );
   expect(exactHydrateImplementation).not.toContain(
-    'mostRecentEd25519SealedSessionRecord(materialRecords)',
+    'mostRecentEd25519SealedSessionRecord(records)',
   );
   expect(exactHydrateMatcher).toContain('signingGrantId: string;');
   expect(exactHydrateMatcher).toContain('normalizedRestoreString(args.record.signingGrantId)');
@@ -379,8 +379,8 @@ test('Refactor 74 Phase 9 keeps exact signing out of account-scoped restore disc
   );
   expect(loginUnsealInstaller).toContain('signingGrantId: string;');
   expect(loginUnsealInstaller).toContain('recordSigningGrantId !== signingGrantId');
-  expect(loginSource).toContain('hydrateExactEd25519SessionFromDurableSealedWorkerMaterial({');
-  expect(loginSource).toContain('signingGrantId: warmState.signingGrantId');
+  expect(loginSource).toContain('resolveReusableEd25519WorkerMaterialForLoginSession');
+  expect(loginSource).toContain('persistThresholdLoginEd25519ReusableMaterial');
   expect(loginSource).not.toContain(
     'hydrateAccountScopedDiscoveryEd25519SessionFromDurableSealedWorkerMaterial',
   );

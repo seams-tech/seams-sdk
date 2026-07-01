@@ -1133,7 +1133,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(ecdsaHssCore).toContain('withBudgetReservationMetadata(');
   });
 
-  test('SDK budget projection uses server availableUses as active signing authority', () => {
+  test('SDK budget projection uses committed remainingUses as active signing authority', () => {
     const source = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.ts',
     );
@@ -1148,8 +1148,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
 
     expect(activeStatusType).toContain("status: 'active'");
     expect(activeStatusType).toContain('availableUses: number;');
-    expect(projectionState).toContain('Number(status.availableUses)');
-    expect(projectionState).not.toContain('Number(status.remainingUses)');
+    expect(projectionState).toContain('Number(status.remainingUses)');
   });
 
   test('wallet budget success reconciliation never falls back to local warm-session consume ports', () => {

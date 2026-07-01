@@ -1,7 +1,7 @@
 import {
   readAvailableSigningLanes,
-  runtimeEcdsaRecordClaimKey,
-  type AvailableSigningLanesRuntimeClaim,
+  runtimeEcdsaRecordAdvisoryKey,
+  type AvailableLaneStateAdvisory,
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
@@ -45,7 +45,11 @@ export const AVAILABLE_LANES_ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromS
   'scope-frost-vermillion-k7p9m2',
 );
 export const AVAILABLE_LANES_ECDSA_RP_ID = 'wallet.example.localhost';
-export const AVAILABLE_LANES_ECDSA_WALLET_KEY_ID = 'wallet-key-available-lanes';
+export const AVAILABLE_LANES_ECDSA_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: AVAILABLE_LANES_WALLET_ID,
+  signingRootId: 'sr-test:dev',
+  signingRootVersion: 'default',
+});
 export const AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID = 'credential-available-lanes';
 export const AVAILABLE_LANES_EXPIRES_AT_MS = 2_000_000_000_000;
 export const AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U =
@@ -83,7 +87,7 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
   return {
     kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: args.key.walletKeyId,
+      wallet_key_id: args.key.evmFamilySigningKeySlotId,
       wallet_id: args.key.walletId,
       ecdsa_threshold_key_id: args.key.ecdsaThresholdKeyId,
       signing_root_id: args.key.signingRootId,
@@ -160,17 +164,22 @@ export function sealedEcdsaAvailableLaneRecord(args: {
   const restoreMetadata = args.restoreMetadata || 'valid';
   const keyHandle = args.keyHandle || AVAILABLE_LANES_ECDSA_KEY_HANDLE;
   const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'ek-passkey';
-	  const validEcdsaRestore: SealedSigningSessionEcdsaRestoreMetadata = {
-	    chainTarget,
-	    ...(authMethod === 'passkey'
-	      ? {
-	          rpId: AVAILABLE_LANES_ECDSA_RP_ID,
-	          credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
-	        }
-	      : {
-	          walletKeyId: AVAILABLE_LANES_ECDSA_WALLET_KEY_ID,
-	          providerSubjectId: 'google:available-lanes',
-	        }),
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: AVAILABLE_LANES_WALLET_ID,
+    signingRootId: 'sr-test:dev',
+    signingRootVersion: 'default',
+  });
+  const validEcdsaRestore: SealedSigningSessionEcdsaRestoreMetadata = {
+    chainTarget,
+    evmFamilySigningKeySlotId,
+    ...(authMethod === 'passkey'
+      ? {
+          rpId: AVAILABLE_LANES_ECDSA_RP_ID,
+          credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+        }
+      : {
+          providerSubjectId: 'google:available-lanes',
+        }),
     sessionKind,
     ...(sessionKind === 'jwt'
       ? {
@@ -263,14 +272,14 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
 }): AvailableSigningLanesRuntimeEcdsaRecord {
   const keyId = args.ecdsaThresholdKeyId || 'shared-ecdsa-key';
   const thresholdOwnerAddress = args.thresholdOwnerAddress;
-  const walletKeyId = deriveEvmFamilySigningKeySlotId({
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
     walletId: AVAILABLE_LANES_WALLET_ID,
     signingRootId: 'sr-test:dev',
     signingRootVersion: 'default',
   });
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: AVAILABLE_LANES_WALLET_ID,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: keyId,
     signingRootId: 'sr-test:dev',
     signingRootVersion: 'default',
@@ -315,8 +324,8 @@ export async function readAvailableLanesFixture(args: {
   ecdsaChainTargets?: [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   runtimeEcdsaRecords?: AvailableSigningLanesRuntimeEcdsaRecord[];
   runtimeEd25519Records?: AvailableSigningLanesRuntimeEd25519Record[];
-  runtimeEcdsaClaims?: Map<string, AvailableSigningLanesRuntimeClaim>;
-  runtimeClaims?: Map<string, AvailableSigningLanesRuntimeClaim>;
+  warmEcdsaAdvisories?: Map<string, AvailableLaneStateAdvisory>;
+  warmStatusAdvisories?: Map<string, AvailableLaneStateAdvisory>;
 }) {
   return await readAvailableSigningLanes(
     {
@@ -343,26 +352,26 @@ export async function readAvailableLanesFixture(args: {
         }),
       listRuntimeEcdsaLanesForWallet: async () => args.runtimeEcdsaRecords || [],
       listRuntimeEd25519RecordsForWallet: async () => args.runtimeEd25519Records || [],
-      readRuntimeEcdsaClaimsForRecords: async (records) => {
-        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+      readEcdsaWarmStatusAdvisoriesForRecords: async (records) => {
+        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
         for (const record of records) {
-          const claimKey = runtimeEcdsaRecordClaimKey(record);
-          if (!claimKey) continue;
-          claims.set(
-            claimKey,
-            args.runtimeEcdsaClaims?.get(claimKey) ||
-              args.runtimeClaims?.get(record.thresholdSessionId) ||
+          const advisoryKey = runtimeEcdsaRecordAdvisoryKey(record);
+          if (!advisoryKey) continue;
+          advisories.set(
+            advisoryKey,
+            args.warmEcdsaAdvisories?.get(advisoryKey) ||
+              args.warmStatusAdvisories?.get(record.thresholdSessionId) ||
               null,
           );
         }
-        return claims;
+        return advisories;
       },
-      readRuntimeClaimsForSessions: async (sessionIds) => {
-        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+      readWarmStatusAdvisoriesForSessions: async (sessionIds) => {
+        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
         for (const sessionId of sessionIds) {
-          claims.set(sessionId, args.runtimeClaims?.get(sessionId) || null);
+          advisories.set(sessionId, args.warmStatusAdvisories?.get(sessionId) || null);
         }
-        return claims;
+        return advisories;
       },
     },
   );

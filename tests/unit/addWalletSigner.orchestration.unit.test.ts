@@ -428,8 +428,15 @@ function createContext(captures: Record<string, unknown>): any {
     const record = persistStoredThresholdEd25519SessionMaterialHandle({
       thresholdSessionId: String(input.sessionId || ''),
       ed25519WorkerMaterialHandle: 'registration-ed25519-worker-material',
+      materialKeyId: 'registration-ed25519-material-key',
       ed25519WorkerMaterialBindingDigest: 'registration-ed25519-worker-binding',
       clientVerifyingShareB64u: 'registration-ed25519-client-verifying-share',
+      sealedWorkerMaterialRef: 'registration-ed25519-sealed-ref',
+      sealedWorkerMaterialB64u: 'registration-ed25519-sealed-blob',
+      materialFormatVersion: 'ed25519_worker_material_v1',
+      materialCreatedAtMs: 1_700_000_000_000,
+      signerSlot: 1,
+      keyVersion: 'threshold-ed25519-hss-v1',
     });
     if (record) {
       markRouterAbEd25519WorkerMaterialRuntimeValidated(record);

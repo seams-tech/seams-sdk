@@ -24,6 +24,7 @@ import {
   toRpId,
   type EvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ID = 'runtime-postconditions.testnet';
@@ -47,7 +48,6 @@ const ARC_TARGET: ThresholdEcdsaChainTarget = {
 const ARC_TARGET_KEY = thresholdEcdsaChainTargetKey(ARC_TARGET);
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const WALLET_KEY_ID = 'wallet-key-runtime-postconditions';
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
   rpId: toRpId('localhost'),
@@ -62,7 +62,7 @@ const REQUIRED_TARGETS = [
   { curve: 'ecdsa' as const, chainTarget: TARGET },
   { curve: 'ecdsa' as const, chainTarget: ARC_TARGET },
 ] as const;
-type TestLaneSource = 'durable_sealed_record' | 'runtime_session_record' | 'runtime_and_durable';
+type TestLaneSource = 'durable_sealed_record' | 'runtime_session_record';
 type TestLaneOptions = {
   state?: 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
   source?: TestLaneSource;
@@ -90,6 +90,8 @@ function ed25519Lane(
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
     source: options.source ?? 'runtime_session_record',
+    ed25519WorkerMaterialBindingDigest: `binding-digest-${suffix}`,
+    materialKeyId: `material-key-${suffix}`,
   };
 }
 
@@ -101,7 +103,11 @@ function ecdsaLane(
 ): ConcreteAvailableEcdsaSigningLane {
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: WALLET_ID,
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: WALLET_ID,
+      signingRootId: 'root-runtime-postconditions',
+      signingRootVersion: 'default',
+    }),
     ecdsaThresholdKeyId: 'ecdsa-key-runtime-postconditions',
     signingRootId: 'root-runtime-postconditions',
     signingRootVersion: 'default',
@@ -204,6 +210,30 @@ test.describe('wallet runtime postconditions', () => {
     });
   });
 
+  test('accepts candidate-backed Ed25519 lanes when the aggregate slot is stale', async () => {
+    const lanes = availableLanes('candidate-backed-unlock', 'passkey');
+    lanes.lanes.ed25519.near = {
+      curve: 'ed25519',
+      chain: 'near',
+      state: 'missing',
+    };
+
+    const inventory = await assertWalletRuntimePostconditions({
+      source: 'wallet_unlock',
+      walletId: WALLET_ID,
+      authMethod: 'passkey',
+      requiredTargets: [{ curve: 'ed25519' }],
+      readPersistedAvailableSigningLanes: async () => lanes,
+    });
+
+    expect(inventory.ed25519).toMatchObject({
+      authMethod: 'passkey',
+      target: { curve: 'ed25519' },
+      signingGrantId: 'wss-ed25519-candidate-backed-unlock',
+      material: { kind: 'runtime_session_record' },
+    });
+  });
+
   test('rejects auth-method route mismatches before reporting unlock success', async () => {
     const result = await readWalletRuntimePostconditions({
       source: 'wallet_unlock',
@@ -216,6 +246,28 @@ test.describe('wallet runtime postconditions', () => {
     expect(result).toMatchObject({
       ok: false,
       code: 'auth_method_route_mismatch',
+    });
+  });
+
+  test('rejects ready-looking Ed25519 lanes without complete worker material identity', async () => {
+    const lanes = availableLanes('missing-material-key');
+    const ed25519 = lanes.lanes.ed25519.near;
+    if (ed25519.state !== 'missing') {
+      delete ed25519.materialKeyId;
+      lanes.candidates.ed25519.near = [ed25519];
+    }
+
+    const result = await readWalletRuntimePostconditions({
+      source: 'wallet_unlock',
+      walletId: WALLET_ID,
+      authMethod: 'email_otp',
+      requiredTargets: [{ curve: 'ed25519' }],
+      readPersistedAvailableSigningLanes: async () => lanes,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'lane_material_missing',
     });
   });
 

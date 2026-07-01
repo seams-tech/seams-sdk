@@ -365,6 +365,64 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     ]);
   });
 
+  test('register path uses the selected offer candidate instead of a stale exchange wallet id', async () => {
+    const { deps, calls } = makeDeps({
+      exchangeGoogleEmailOtpSession: async (args) => {
+        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
+        return {
+          session: {
+            userId: 'google-subject-1',
+            walletId: 'stale-wallet.testnet',
+            email: 'alice@example.com',
+            googleEmailOtpResolution: makeRegisterResolution({
+              walletId: 'alice-2.testnet',
+              attemptId: 'registration-attempt-1',
+            }),
+          },
+          jwt: APP_SESSION_JWT,
+        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
+      },
+    });
+
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'register',
+      relayUrl: 'https://relay.example',
+      sessionKind: 'jwt',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'register') throw new Error('expected register flow');
+    expect(started.value.walletId).toBe('alice-2.testnet');
+    expect(calls[1]?.args).toMatchObject({
+      walletId: 'alice-2.testnet',
+      userId: 'google-subject-1',
+      appSessionJwt: APP_SESSION_JWT,
+    });
+    expect(calls[2]?.args).toMatchObject({
+      wallet: { kind: 'provided', walletId: 'alice-2.testnet' },
+    });
+
+    const completed = await started.value.completeRegistration();
+
+    expect(completed.ok).toBe(true);
+    if (!completed.ok) throw new Error(completed.error.message);
+    expect(completed.value.walletId).toBe('alice-2.testnet');
+    const registerCall = calls.find((call) => call.type === 'registerWallet');
+    expect(registerCall?.args).toMatchObject({
+      wallet: { kind: 'provided', walletId: 'alice-2.testnet' },
+      authMethod: {
+        googleEmailOtpRegistrationCandidateId: 'registration-candidate-2',
+      },
+    });
+    expect(calls.at(-1)).toMatchObject({
+      type: 'getWalletSession',
+      args: { walletId: 'alice-2.testnet' },
+    });
+    expect(JSON.stringify(calls)).not.toContain('stale-wallet.testnet');
+  });
+
   test('register path falls back to routed registration when precompute is unavailable', async () => {
     const { deps, calls } = makeDeps({
       startWalletRegistrationPrecompute: (args) => {

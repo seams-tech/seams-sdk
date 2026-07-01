@@ -123,6 +123,25 @@ function timestampSelectorMarkerLines(relativePath: string): string[] {
     .map((line) => `${relativePath}: ${line.trim()}`);
 }
 
+function warmStatusAuthorityMarkerLines(relativePath: string): string[] {
+  const source = readRepoSource(relativePath);
+  const forbidden = [
+    /\bgetWarmSessionStatus\b/,
+    /\bWarmSessionStatusResult\b/,
+    /\bAvailableLaneStateAdvisory\b/,
+    /\bcache_miss\b/,
+    /\bstatus\s*={2,3}\s*['"]not_found['"]/,
+    /\bcode\s*={2,3}\s*['"]not_found['"]/,
+  ];
+  const markers: string[] = [];
+  for (const pattern of forbidden) {
+    if (pattern.test(source)) {
+      markers.push(`${relativePath}: ${pattern.source}`);
+    }
+  }
+  return markers;
+}
+
 test('Refactor 79 keeps ExactSigningLaneIdentity as the only public exact authority type', () => {
   const duplicateTypeExports: string[] = [];
   const exactSigningLaneExports: string[] = [];
@@ -267,7 +286,7 @@ test('Refactor 79 planning lane base does not carry optional session identity', 
   expect(summarySource).not.toContain('lane.keyHandle');
 });
 
-test('Refactor 79 Email OTP ECDSA worker handles are wallet-key scoped', () => {
+test('Refactor 79 Email OTP ECDSA worker handles are EVM-family signing-key scoped', () => {
   const generatedSignerCore = readRepoSource(
     'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts',
   );
@@ -275,7 +294,7 @@ test('Refactor 79 Email OTP ECDSA worker handles are wallet-key scoped', () => {
 
   expect(generatedSignerCore).not.toContain('EcdsaBootstrapEmailOtpWorkerSessionHandle');
   expect(generatedSignerCore).not.toContain('email_otp_worker_session');
-  expect(secretSources).toContain('walletKeyId: WalletKeyId;');
+  expect(secretSources).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;');
   expect(secretSources).toContain('rpId?: never;');
 });
 
@@ -416,13 +435,15 @@ test('Refactor 79 Ed25519 registration HSS scope keeps passkey rpId out of walle
   expect(scopeType).not.toContain('walletKeyId: string;');
   expect(scopeType).not.toContain('rpId: string;');
   expect(finalizeRequestType).toContain('wallet_key_id: NearEd25519SigningKeyId;');
-  expect(finalizeRequestType).toContain('rpId: WebAuthnRpId;');
+  expect(finalizeRequestType).toContain('authorityScope: ThresholdEd25519AuthorityScope;');
   expect(finalizeRequestType).not.toContain('rpId: string;');
   expect(registrationScopeBuilder).toContain(
     'nearEd25519SigningKeyId: input.nearEd25519SigningKeyId',
   );
   expect(registrationScopeBuilder).not.toContain('walletKeyId: nearEd25519SigningKeyId');
-  expect(parser).toContain('registrationAccountScope.walletKeyId is not valid for Ed25519 HSS');
+  expect(parser).toContain(
+    'registrationAccountScope.evmFamilySigningKeySlotId is not valid for Ed25519 HSS',
+  );
   expect(parser).toContain('parseNearEd25519SigningKeyIdField(');
   expect(thresholdService).toContain('parseWebAuthnRpIdField(');
   expect(thresholdService).toContain(
@@ -435,6 +456,21 @@ test('Refactor 79 timestamp authority selectors stay explicitly inventoried', ()
   const markerLines = authorityTypeScriptFiles().flatMap(timestampSelectorMarkerLines);
 
   expect(markerLines).toEqual([]);
+});
+
+test('Refactor 79 transaction/export/restore authority paths do not read warm-status telemetry', () => {
+  const guardedFiles = [
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+    'packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts',
+    'packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection.ts',
+    'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts',
+    'packages/sdk-web/src/core/signingEngine/flows/recovery/exportKeypairOperation.ts',
+    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts',
+    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts',
+  ];
+  const markerLines = guardedFiles.flatMap(warmStatusAuthorityMarkerLines);
+
+  expect(markerLines, markerLines.join('\n')).toEqual([]);
 });
 
 test('Refactor 79 wallet-scoped authority state uses WalletId, not AccountId', () => {
@@ -707,15 +743,15 @@ test('Refactor 79 wallet budget sessions do not synthesize NEAR signer identity'
   expect(ensureBudgetSource).toContain("kind: 'wallet_signing_budget_session'");
   expect(ensureBudgetSource).not.toContain('nearAccountId: input.userId');
   expect(ensureBudgetSource).not.toContain('nearEd25519SigningKeyId: input.userId');
-  expect(ensureBudgetSource).not.toContain('rpId: budgetScopeId');
-  expect(budgetRecordSource).toContain('budgetScope:');
-  expect(budgetRecordSource).toContain('binding: WalletSigningBudgetBinding;');
+  expect(ensureBudgetSource).not.toContain('budgetScope');
+  expect(budgetRecordSource).not.toContain('budgetScope:');
+  expect(budgetRecordSource).not.toContain('binding:');
   expect(budgetRecordSource).not.toContain('nearAccountId');
   expect(budgetRecordSource).not.toContain('nearEd25519SigningKeyId');
   expect(budgetRecordSource).not.toContain('rpId: string;');
 });
 
-test('Refactor 79 ECDSA MPC sessions are native wallet-key records', () => {
+test('Refactor 79 ECDSA MPC sessions are native EVM-family signing-key records', () => {
   const serviceSource = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
   );
@@ -729,7 +765,7 @@ test('Refactor 79 ECDSA MPC sessions are native wallet-key records', () => {
   );
 
   expect(ecdsaMpcType).toContain('walletId: string;');
-  expect(ecdsaMpcType).toContain('walletKeyId: string;');
+  expect(ecdsaMpcType).toContain('evmFamilySigningKeySlotId: string;');
   expect(ecdsaMpcType).not.toContain('walletSessionUserId: string;');
   expect(ecdsaMpcType).not.toContain('userId: string;');
   expect(ecdsaMpcType).not.toContain('rpId: string;');

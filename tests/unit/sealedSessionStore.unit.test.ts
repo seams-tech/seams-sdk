@@ -4,12 +4,16 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   indexedDB: '/sdk/esm/core/indexedDB/index.js',
   sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
+  thresholdWarmSessionBootstrap:
+    '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
+  records: '/sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 const ECDSA_RESTORE = {
-  chain: 'tempo',
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+  evmFamilySigningKeySlotId: 'wallet-key:evm-family:passkey-fixture',
   rpId: 'wallet.example.localhost',
+  credentialIdB64u: 'passkey-ecdsa-credential',
   sessionKind: 'cookie',
   keyHandle: 'key-handle-ecdsa',
   ethereumAddress: `0x${'33'.repeat(20)}`,
@@ -19,8 +23,16 @@ const ECDSA_RESTORE = {
 } as const;
 
 const EMAIL_OTP_ECDSA_RESTORE = {
-  ...ECDSA_RESTORE,
+  chainTarget: ECDSA_RESTORE.chainTarget,
+  evmFamilySigningKeySlotId: 'wallet-key:evm-family:email-otp-fixture',
+  providerSubjectId: 'email-otp-subject',
+  authSubjectId: 'email:test@example.com',
   sessionKind: 'cookie',
+  keyHandle: ECDSA_RESTORE.keyHandle,
+  ethereumAddress: ECDSA_RESTORE.ethereumAddress,
+  relayerKeyId: ECDSA_RESTORE.relayerKeyId,
+  thresholdEcdsaPublicKeyB64u: ECDSA_RESTORE.thresholdEcdsaPublicKeyB64u,
+  participantIds: ECDSA_RESTORE.participantIds,
   walletSessionJwt: 'threshold-session-jwt',
 } as const;
 
@@ -38,7 +50,6 @@ const PASSKEY_ED25519_RESTORE = {
   materialKeyId: 'ed25519-material-key-id',
   materialCreatedAtMs: 1_789_000_000_000,
   signerSlot: 1,
-  keyVersion: 'kek-s-test',
 } as const;
 
 const EMAIL_OTP_ED25519_RESTORE = {
@@ -51,10 +62,6 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown): string =>
     Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
-}
-
-function legacySigningGrantFieldName(): string {
-  return ['wallet', 'SigningSessionId'].join('');
 }
 
 test.describe('signing session sealed store', () => {
@@ -95,75 +102,129 @@ test.describe('signing session sealed store', () => {
     );
   });
 
-  test('normalizes legacy sealed-store id fields at the storage boundary', async ({ page }) => {
+  test('resolves reusable passkey Ed25519 worker material for a new login session without nested keyVersion', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
-      async ({ paths, legacySigningGrantField }) => {
-        const mod = await import(paths.sealedSessionStore);
-        const now = Date.now();
-        const classification = mod.classifyRawSealedSessionRecord({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          authMethod: 'passkey',
-          secretKind: 'signing_session_secret32',
-          [legacySigningGrantField]: 'legacy-signing-grant',
-          thresholdSessionId: 'legacy-threshold-session',
-          sealedSecretB64u: 'sealed-secret-b64u',
-          curve: 'ecdsa',
-          walletId: 'legacy-sealed-store.testnet',
+      async ({ paths }) => {
+        const sealedStore = await import(paths.sealedSessionStore);
+        const records = await import(paths.records);
+        const warmBootstrap = await import(paths.thresholdWarmSessionBootstrap);
+        await sealedStore.clearAllSealedSessions();
+        records.clearAllStoredThresholdEd25519SessionRecords();
+
+        const issuedAtMs = Date.now();
+        const passkeyEd25519Restore = (globalThis as any).PASSKEY_ED25519_RESTORE;
+        const base64urlJson = (value: unknown) =>
+          btoa(JSON.stringify(value))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/g, '');
+        const newEd25519LoginJwt = [
+          base64urlJson({ alg: 'none', typ: 'JWT' }),
+          base64urlJson({
+            kind: 'router_ab_ed25519_wallet_session_v1',
+            sub: 'sealed-ed25519-wallet',
+            walletId: 'sealed-ed25519-wallet',
+            nearAccountId: passkeyEd25519Restore.nearAccountId,
+            nearEd25519SigningKeyId: passkeyEd25519Restore.nearEd25519SigningKeyId,
+            thresholdSessionId: 'new-ed25519-login-threshold-session',
+            signingGrantId: 'new-ed25519-login-signing-grant',
+          }),
+          'fixture',
+        ].join('.');
+        const ed25519Restore = {
+          ...passkeyEd25519Restore,
+          credentialIdB64u: 'passkey-credential-ed25519',
+          sessionKind: 'jwt',
+          walletSessionJwt: 'old-ed25519-wallet-session-jwt',
+        };
+        await sealedStore.writeExactSealedSession(
+          sealedStore.buildCurrentSealedSessionRecord({
+            thresholdSessionId: 'old-ed25519-threshold-session',
+            signingGrantId: 'old-ed25519-signing-grant',
+            thresholdSessionIds: { ed25519: 'old-ed25519-threshold-session' },
+            curve: 'ed25519',
+            authMethod: 'passkey',
+            walletId: 'sealed-ed25519-wallet',
+            userId: 'sealed-ed25519-wallet',
+            ed25519Restore,
+            relayerUrl: 'https://relay.example',
+            signingRootId: 'sr-test:dev',
+            signingRootVersion: 'default',
+            sealedSecretB64u: 'sealed-ed25519-secret',
+            keyVersion: 'signing-session-seal-kek-test-r1',
+            expiresAtMs: issuedAtMs + 60_000,
+            remainingUses: 3,
+            updatedAtMs: issuedAtMs,
+          })!,
+        );
+        const currentRecord = records.upsertStoredThresholdEd25519SessionRecord({
+          walletId: 'sealed-ed25519-wallet',
+          nearAccountId: passkeyEd25519Restore.nearAccountId,
+          nearEd25519SigningKeyId: passkeyEd25519Restore.nearEd25519SigningKeyId,
+          rpId: passkeyEd25519Restore.rpId,
+          passkeyCredentialIdB64u: ed25519Restore.credentialIdB64u,
           relayerUrl: 'https://relay.example',
-          ecdsaRestore: {
-            chainTarget: {
-              kind: 'tempo',
-              chainId: 42431,
-              networkSlug: 'tempo-moderato',
-            },
-            rpId: 'wallet.example.localhost',
-            sessionKind: 'cookie',
-            keyHandle: 'key-handle-ecdsa',
-            ethereumAddress: `0x${'33'.repeat(20)}`,
-            relayerKeyId: 'relayer-key',
-            thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-            participantIds: [1, 2, 3],
+          relayerKeyId: passkeyEd25519Restore.relayerKeyId,
+          participantIds: [...passkeyEd25519Restore.participantIds],
+          signingRootId: 'sr-test:dev',
+          signingRootVersion: 'default',
+          signerSlot: passkeyEd25519Restore.signerSlot,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1',
+            signingWorkerId: 'signing-worker-local',
           },
-          issuedAtMs: now - 1_000,
-          expiresAtMs: now + 60_000,
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'new-ed25519-login-threshold-session',
+          signingGrantId: 'new-ed25519-login-signing-grant',
+          walletSessionJwt: newEd25519LoginJwt,
+          expiresAtMs: issuedAtMs + 60_000,
           remainingUses: 3,
-          updatedAtMs: now,
+          updatedAtMs: issuedAtMs,
+          source: 'login',
         });
-        if (classification.kind !== 'current') {
-          return {
-            kind: classification.kind,
-            reason: classification.reason,
-            safeSummary: classification.safeSummary,
-          };
+        if (!currentRecord) throw new Error('expected current Ed25519 login record');
+
+        const resolution =
+          await warmBootstrap.resolveReusableEd25519WorkerMaterialForLoginSession(currentRecord);
+        if (resolution.kind === 'ready_from_reusable_durable_material') {
+          warmBootstrap.persistEd25519LoginSessionFromReusableWorkerMaterial({
+            record: currentRecord,
+            authority: resolution.authority,
+            material: resolution.material,
+          });
         }
-        const record = classification.record as Record<string, unknown>;
+        const stored = records.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+          'new-ed25519-login-threshold-session',
+        );
+
         return {
-          kind: classification.kind,
-          signingGrantId: classification.record.signingGrantId,
-          thresholdSessionIds: classification.record.thresholdSessionIds,
-          hasLegacySigningGrantField: Object.prototype.hasOwnProperty.call(
-            record,
-            legacySigningGrantField,
-          ),
-          hasTopLevelThresholdSessionId: Object.prototype.hasOwnProperty.call(
-            record,
-            'thresholdSessionId',
-          ),
+          resolutionKind: resolution.kind,
+          pendingReason: resolution.kind === 'pending_material' ? resolution.reason : undefined,
+          pendingDetails: resolution.kind === 'pending_material' ? resolution.details : undefined,
+          materialState: stored?.materialState,
+          thresholdSessionId: stored?.thresholdSessionId,
+          signingGrantId: stored?.signingGrantId,
+          sealedWorkerMaterialRef: stored?.sealedWorkerMaterialRef,
+          materialKeyId: stored?.materialKeyId,
+          materialBindingDigest: stored?.ed25519WorkerMaterialBindingDigest,
         };
       },
-      { paths: IMPORT_PATHS, legacySigningGrantField: legacySigningGrantFieldName() },
+      { paths: IMPORT_PATHS },
     );
 
-    expect(result).toEqual({
-      kind: 'current',
-      signingGrantId: 'legacy-signing-grant',
-      thresholdSessionIds: {
-        ecdsa: 'legacy-threshold-session',
-      },
-      hasLegacySigningGrantField: false,
-      hasTopLevelThresholdSessionId: false,
+    expect(result.resolutionKind, JSON.stringify(result)).toBe(
+      'ready_from_reusable_durable_material',
+    );
+    expect(result).toMatchObject({
+      resolutionKind: 'ready_from_reusable_durable_material',
+      materialState: 'restore_available',
+      thresholdSessionId: 'new-ed25519-login-threshold-session',
+      signingGrantId: 'new-ed25519-login-signing-grant',
+      sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+      materialKeyId: 'ed25519-material-key-id',
+      materialBindingDigest: 'ed25519-worker-material-binding-digest',
     });
   });
 
@@ -417,26 +478,26 @@ test.describe('signing session sealed store', () => {
 
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
-            thresholdSessionId: 'legacy-chain-only-session',
-            signingGrantId: 'legacy-chain-only-wallet-session',
+            thresholdSessionId: 'chain-only-session',
+            signingGrantId: 'chain-only-wallet-session',
             curve: 'ecdsa',
             authMethod: 'email_otp',
             ecdsaRestore: {
               chain: 'evm',
               sessionKind: 'jwt',
               keyHandle: 'key-handle-ecdsa',
-              ecdsaThresholdKeyId: 'legacy-ecdsa-key',
-              relayerKeyId: 'legacy-relayer-key',
+              ecdsaThresholdKeyId: 'chain-only-ecdsa-key',
+              relayerKeyId: 'chain-only-relayer-key',
               participantIds: [1, 2],
             },
-            sealedSecretB64u: 'sealed-legacy-chain-only',
+            sealedSecretB64u: 'sealed-chain-only',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 1,
             updatedAtMs: Date.now(),
           })!,
         );
 
-        return await mod.readExactSealedSession('legacy-chain-only-session', {
+        return await mod.readExactSealedSession('chain-only-session', {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'evm',
@@ -452,165 +513,6 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result).toBeNull();
-  });
-
-  test('ignores legacy sealed ECDSA records from the retired v1 database', async ({ page }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        await new Promise<void>((resolve) => {
-          const req = indexedDB.deleteDatabase('seams_wallet_v1');
-          req.onsuccess = () => resolve();
-          req.onerror = () => resolve();
-          req.onblocked = () => resolve();
-        });
-
-        const legacyDb = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet_v1', 4);
-          req.onupgradeneeded = () => {
-            const db = req.result;
-            if (!db.objectStoreNames.contains('signing_session_seals')) {
-              db.createObjectStore('signing_session_seals_v1', {
-                keyPath: 'signingGrantId',
-              });
-            }
-            if (!db.objectStoreNames.contains('signing_session_restore_leases_v1')) {
-              db.createObjectStore('signing_session_restore_leases_v1', {
-                keyPath: 'leaseKey',
-              });
-            }
-          };
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
-
-        const tx = legacyDb.transaction('signing_session_seals_v1', 'readwrite');
-        tx.objectStore('signing_session_seals_v1').put({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          authMethod: 'email_otp',
-          secretKind: 'signing_session_secret32',
-          signingGrantId: 'legacy-upgrade-wallet-session',
-          thresholdSessionIds: { ecdsa: 'legacy-upgrade-threshold-session' },
-          curve: 'ecdsa',
-          subjectId: 'legacy-subject',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          signingRootId: 'legacy-signing-root',
-          signingRootVersion: 'legacy-signing-root-v1',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-legacy-upgrade',
-          ecdsaRestore: {
-            chain: 'evm',
-            sessionKind: 'jwt',
-            ecdsaThresholdKeyId: 'legacy-key-id',
-            signingRootId: 'legacy-signing-root',
-            signingRootVersion: 'legacy-signing-root-v1',
-            rpId: 'wallet.example.localhost',
-            ethereumAddress: `0x${'AB'.repeat(20)}`,
-            relayerKeyId: 'legacy-relayer-key',
-            participantIds: [1, 2],
-          },
-          issuedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 1,
-          updatedAtMs: Date.now(),
-        });
-        await new Promise<void>((resolve, reject) => {
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-          tx.onabort = () => reject(tx.error);
-        });
-        legacyDb.close();
-
-        const mod = await import(paths.sealedSessionStore);
-        const staleEcdsaFilter = {
-          authMethod: 'email_otp' as const,
-          curve: 'ecdsa' as const,
-          chain: 'tempo' as const,
-          chainTarget: ECDSA_RESTORE.chainTarget,
-        };
-        const passkeyEcdsaFilter = {
-          authMethod: 'passkey' as const,
-          curve: 'ecdsa' as const,
-          chain: 'tempo' as const,
-          chainTarget: ECDSA_RESTORE.chainTarget,
-        };
-        const staleRead = await mod.readExactSealedSession(
-          'legacy-upgrade-threshold-session',
-          staleEcdsaFilter,
-        );
-
-        await mod.writeExactSealedSession(
-          mod.buildCurrentSealedSessionRecord({
-            thresholdSessionId: 'current-upgrade-threshold-session',
-            signingGrantId: 'current-upgrade-wallet-session',
-            curve: 'ecdsa',
-            authMethod: 'passkey',
-            ecdsaRestore: {
-              ...ECDSA_RESTORE,
-              sessionKind: 'cookie',
-            },
-            walletId: 'current.testnet',
-            userId: 'current.testnet',
-            signingRootId: 'signing-root',
-            relayerUrl: 'https://relay.example',
-            sealedSecretB64u: 'sealed-current-upgrade',
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 1,
-            updatedAtMs: Date.now(),
-          })!,
-        );
-
-        const currentRead = await mod.readExactSealedSession(
-          'current-upgrade-threshold-session',
-          passkeyEcdsaFilter,
-        );
-        const recordsAfterUpgrade = await new Promise<string[]>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet');
-          req.onsuccess = () => {
-            const db = req.result;
-            const readTx = db.transaction('signing_session_seals', 'readonly');
-            const getAllReq = readTx.objectStore('signing_session_seals').getAll();
-            getAllReq.onsuccess = () => {
-              const keys = (getAllReq.result as Array<Record<string, unknown>>).map((entry) =>
-                String(
-                  entry.store_key ||
-                    (entry.sealed_record &&
-                    typeof entry.sealed_record === 'object' &&
-                    !Array.isArray(entry.sealed_record)
-                      ? (entry.sealed_record as Record<string, unknown>).storeKey
-                      : '') ||
-                    entry.signingGrantId ||
-                    '',
-                ),
-              );
-              db.close();
-              resolve(keys);
-            };
-            getAllReq.onerror = () => {
-              db.close();
-              reject(getAllReq.error);
-            };
-          };
-          req.onerror = () => reject(req.error);
-        });
-
-        return {
-          staleRead,
-          currentRead,
-          recordsAfterUpgrade,
-        };
-      },
-      { paths: IMPORT_PATHS },
-    );
-
-    expect(result.staleRead).toBeNull();
-    expect(result.currentRead?.signingGrantId).toBe('current-upgrade-wallet-session');
-    expect(result.recordsAfterUpgrade).toContain(
-      'current-upgrade-wallet-session:passkey:ecdsa:tempo%3A42431',
-    );
-    expect(result.recordsAfterUpgrade).not.toContain('legacy-upgrade-wallet-session');
   });
 
   test('validates Email OTP sealed record schema and rejects malformed Email OTP records', async ({
@@ -715,350 +617,6 @@ test.describe('signing session sealed store', () => {
     });
     expect(result.validByEd25519?.signingGrantId).toBe('email-otp-wallet-session');
     expect(result.malformed).toBeNull();
-  });
-
-  test('classifies legacy missing-field ECDSA records at the persistence boundary', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const mod = await import(paths.sealedSessionStore);
-        await mod.clearAllSealedSessions();
-        const now = Date.now();
-        const deleteStoreKey = 'legacy-delete-wallet-session:email_otp:ecdsa:tempo%3A42431';
-        const missingSigningRootStoreKey =
-          'legacy-missing-signing-root-wallet-session:email_otp:ecdsa:tempo%3A42431';
-        const missingTokenStoreKey =
-          'legacy-missing-token-wallet-session:email_otp:ecdsa:tempo%3A42431';
-        const missingOwnerStoreKey =
-          'legacy-missing-owner-wallet-session:email_otp:ecdsa:tempo%3A42431';
-        const missingKeyIdStoreKey =
-          'legacy-missing-key-id-wallet-session:email_otp:ecdsa:tempo%3A42431';
-        const missingWalletSessionStoreKey =
-          'legacy-missing-wallet-session:email_otp:ecdsa:tempo%3A42431';
-
-        await mod.writeExactSealedSession(
-          mod.buildCurrentSealedSessionRecord({
-            thresholdSessionId: 'legacy-current-ecdsa-session',
-            signingGrantId: 'legacy-current-wallet-session',
-            curve: 'ecdsa',
-            authMethod: 'email_otp',
-            thresholdSessionIds: { ecdsa: 'legacy-current-ecdsa-session' },
-            walletId: 'legacy.testnet',
-            userId: 'legacy.testnet',
-            signingRootId: 'legacy-signing-root',
-            relayerUrl: 'https://relay.example',
-            ecdsaRestore: {
-              ...ECDSA_RESTORE,
-              walletSessionJwt: 'threshold-session-jwt',
-            },
-            sealedSecretB64u: 'sealed-current',
-            issuedAtMs: now,
-            expiresAtMs: now + 60_000,
-            remainingUses: 2,
-            updatedAtMs: now,
-          })!,
-        );
-
-        const deleteRequiredRaw = {
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'signing_session_secret32',
-          storeKey: deleteStoreKey,
-          authMethod: 'email_otp',
-          signingGrantId: 'legacy-delete-wallet-session',
-          thresholdSessionIds: { ecdsa: 'legacy-delete-ecdsa-session' },
-          curve: 'ecdsa',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          signingRootId: 'legacy-signing-root',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-delete',
-          ecdsaRestore: {
-            ...ECDSA_RESTORE,
-            walletSessionJwt: 'threshold-session-jwt',
-            participantIds: [],
-          },
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 2,
-          updatedAtMs: now,
-        };
-        const rebuildRequiredRaw = {
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'signing_session_secret32',
-          storeKey: 'legacy-rebuild-required',
-          authMethod: 'email_otp',
-          signingGrantId: 'legacy-rebuild-wallet-session',
-          thresholdSessionIds: { ecdsa: 'legacy-rebuild-ecdsa-session' },
-          curve: 'ecdsa',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          signingRootId: 'legacy-signing-root',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-rebuild',
-          ecdsaRestore: undefined,
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 2,
-          updatedAtMs: now,
-        };
-        const missingSigningRootRaw = {
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'signing_session_secret32',
-          storeKey: missingSigningRootStoreKey,
-          authMethod: 'email_otp',
-          signingGrantId: 'legacy-missing-signing-root-wallet-session',
-          thresholdSessionIds: { ecdsa: 'legacy-missing-signing-root-ecdsa-session' },
-          curve: 'ecdsa',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-missing-signing-root',
-          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 2,
-          updatedAtMs: now,
-        };
-        const missingTokenRaw = {
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'signing_session_secret32',
-          storeKey: missingTokenStoreKey,
-          authMethod: 'email_otp',
-          signingGrantId: 'legacy-missing-token-wallet-session',
-          thresholdSessionIds: { ecdsa: 'legacy-missing-token-ecdsa-session' },
-          curve: 'ecdsa',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          signingRootId: 'legacy-signing-root',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-missing-token',
-          ecdsaRestore: ECDSA_RESTORE,
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 2,
-          updatedAtMs: now,
-        };
-        const { ethereumAddress: _missingOwnerAddress, ...restoreWithoutOwner } =
-          EMAIL_OTP_ECDSA_RESTORE;
-        const { keyHandle: _missingKeyHandle, ...restoreWithoutKeyId } = EMAIL_OTP_ECDSA_RESTORE;
-        const missingOwnerRaw = {
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'signing_session_secret32',
-          storeKey: missingOwnerStoreKey,
-          authMethod: 'email_otp',
-          signingGrantId: 'legacy-missing-owner-wallet-session',
-          thresholdSessionIds: { ecdsa: 'legacy-missing-owner-ecdsa-session' },
-          curve: 'ecdsa',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          signingRootId: 'legacy-signing-root',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-missing-owner',
-          ecdsaRestore: restoreWithoutOwner,
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 2,
-          updatedAtMs: now,
-        };
-        const missingKeyIdRaw = {
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'signing_session_secret32',
-          storeKey: missingKeyIdStoreKey,
-          authMethod: 'email_otp',
-          signingGrantId: 'legacy-missing-key-id-wallet-session',
-          thresholdSessionIds: { ecdsa: 'legacy-missing-key-id-ecdsa-session' },
-          curve: 'ecdsa',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          signingRootId: 'legacy-signing-root',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-missing-key-id',
-          ecdsaRestore: restoreWithoutKeyId,
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 2,
-          updatedAtMs: now,
-        };
-        const missingWalletSessionRaw = {
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'signing_session_secret32',
-          storeKey: missingWalletSessionStoreKey,
-          authMethod: 'email_otp',
-          thresholdSessionIds: { ecdsa: 'legacy-missing-wallet-session-ecdsa-session' },
-          curve: 'ecdsa',
-          walletId: 'legacy.testnet',
-          userId: 'legacy.testnet',
-          signingRootId: 'legacy-signing-root',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-missing-wallet-session',
-          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 2,
-          updatedAtMs: now,
-        };
-
-        const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet');
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
-        const tx = db.transaction('signing_session_seals', 'readwrite');
-        tx.objectStore('signing_session_seals').put({
-          store_key: deleteRequiredRaw.storeKey,
-          ...deleteRequiredRaw,
-        });
-        tx.objectStore('signing_session_seals').put({
-          store_key: rebuildRequiredRaw.storeKey,
-          ...rebuildRequiredRaw,
-        });
-        tx.objectStore('signing_session_seals').put({
-          store_key: missingSigningRootRaw.storeKey,
-          ...missingSigningRootRaw,
-        });
-        tx.objectStore('signing_session_seals').put({
-          store_key: missingTokenRaw.storeKey,
-          ...missingTokenRaw,
-        });
-        tx.objectStore('signing_session_seals').put({
-          store_key: missingOwnerRaw.storeKey,
-          ...missingOwnerRaw,
-        });
-        tx.objectStore('signing_session_seals').put({
-          store_key: missingKeyIdRaw.storeKey,
-          ...missingKeyIdRaw,
-        });
-        tx.objectStore('signing_session_seals').put({
-          store_key: missingWalletSessionRaw.storeKey,
-          ...missingWalletSessionRaw,
-        });
-        await new Promise<void>((resolve, reject) => {
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-          tx.onabort = () => reject(tx.error);
-        });
-
-        const filter = {
-          authMethod: 'email_otp' as const,
-          curve: 'ecdsa' as const,
-          chain: 'tempo' as const,
-          chainTarget: ECDSA_RESTORE.chainTarget,
-        };
-        const currentRead = await mod.readExactSealedSession(
-          'legacy-current-ecdsa-session',
-          filter,
-        );
-        const deleteRead = await mod.readExactSealedSession('legacy-delete-ecdsa-session', filter);
-        const rebuildRead = await mod.readExactSealedSession(
-          'legacy-rebuild-ecdsa-session',
-          filter,
-        );
-        const missingSigningRootRead = await mod.readExactSealedSession(
-          'legacy-missing-signing-root-ecdsa-session',
-          filter,
-        );
-        const missingTokenRead = await mod.readExactSealedSession(
-          'legacy-missing-token-ecdsa-session',
-          filter,
-        );
-        const missingOwnerRead = await mod.readExactSealedSession(
-          'legacy-missing-owner-ecdsa-session',
-          filter,
-        );
-        const missingKeyIdRead = await mod.readExactSealedSession(
-          'legacy-missing-key-id-ecdsa-session',
-          filter,
-        );
-        const missingWalletSessionRead = await mod.readExactSealedSession(
-          'legacy-missing-wallet-session-ecdsa-session',
-          filter,
-        );
-
-        const remainingKeys = await new Promise<string[]>((resolve, reject) => {
-          const readTx = db.transaction('signing_session_seals', 'readonly');
-          const getReq = readTx.objectStore('signing_session_seals').getAll();
-          getReq.onsuccess = () => {
-            resolve(
-              (getReq.result as Array<Record<string, unknown>>).map((entry) => {
-                if (typeof entry.store_key === 'string') return entry.store_key;
-                if (
-                  entry.sealed_record &&
-                  typeof entry.sealed_record === 'object' &&
-                  !Array.isArray(entry.sealed_record)
-                ) {
-                  return String((entry.sealed_record as Record<string, unknown>).storeKey);
-                }
-                return String(entry.storeKey);
-              }),
-            );
-          };
-          getReq.onerror = () => reject(getReq.error);
-        });
-        db.close();
-
-        return {
-          currentRead,
-          deleteRead,
-          rebuildRead,
-          missingSigningRootRead,
-          missingTokenRead,
-          missingOwnerRead,
-          missingKeyIdRead,
-          missingWalletSessionRead,
-          remainingKeys,
-        };
-      },
-      { paths: IMPORT_PATHS },
-    );
-
-    expect(result.currentRead?.signingRootVersion).toBeUndefined();
-    expect(result.deleteRead).toBeNull();
-    expect(result.rebuildRead).toBeNull();
-    expect(result.missingSigningRootRead?.signingGrantId).toBe(
-      'legacy-missing-signing-root-wallet-session',
-    );
-    expect(result.missingTokenRead?.signingGrantId).toBe('legacy-missing-token-wallet-session');
-    expect(result.missingOwnerRead).toBeNull();
-    expect(result.missingKeyIdRead).toBeNull();
-    expect(result.missingWalletSessionRead).toBeNull();
-    expect(result.currentRead?.storeKey).toBe(
-      'legacy-current-wallet-session:email_otp:ecdsa:tempo%3A42431',
-    );
-    expect(result.remainingKeys).toContain(result.currentRead?.storeKey);
-    expect(result.remainingKeys).not.toContain(
-      'legacy-delete-wallet-session:email_otp:ecdsa:tempo%3A42431',
-    );
-    expect(result.remainingKeys).toContain(
-      'legacy-missing-signing-root-wallet-session:email_otp:ecdsa:tempo%3A42431',
-    );
-    expect(result.remainingKeys).toContain(
-      'legacy-missing-token-wallet-session:email_otp:ecdsa:tempo%3A42431',
-    );
-    expect(result.remainingKeys).not.toContain(
-      'legacy-missing-wallet-session:email_otp:ecdsa:tempo%3A42431',
-    );
-    expect(result.remainingKeys).toContain(
-      'legacy-missing-owner-wallet-session:email_otp:ecdsa:tempo%3A42431',
-    );
-    expect(result.remainingKeys).toContain(
-      'legacy-missing-key-id-wallet-session:email_otp:ecdsa:tempo%3A42431',
-    );
-    expect(result.remainingKeys).toContain('legacy-rebuild-required');
   });
 
   test('filters colliding passkey and Email OTP sealed records by auth method and curve', async ({
@@ -1295,17 +853,18 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.classification).toMatchObject({
-      kind: 'delete_required',
+      kind: 'rebuild_required',
       reason: 'missing_restore_metadata',
       safeSummary: {
         ed25519WorkerMaterialMissingFields: [
+          'nearAccountId',
+          'nearEd25519SigningKeyId',
           'clientVerifyingShareB64u',
           'ed25519WorkerMaterialBindingDigest',
           'sealedWorkerMaterialRef',
           'materialFormatVersion',
           'materialKeyId',
           'materialCreatedAtMs',
-          'keyVersion',
         ],
       },
     });

@@ -5,7 +5,7 @@ import {
   ecdsaAvailableLaneAuthKey,
   ecdsaAvailableLaneIdentityKey,
   runtimeEcdsaAvailableLaneIdentityKey,
-  runtimeEcdsaRecordClaimKey,
+  runtimeEcdsaRecordAdvisoryKey,
   type AvailableEcdsaSigningLane,
   type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
@@ -22,7 +22,7 @@ import {
   AVAILABLE_LANES_ECDSA_KEY_HANDLE as TEST_ECDSA_KEY_HANDLE,
   AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U as VALID_ECDSA_PUBLIC_KEY_B64U,
   AVAILABLE_LANES_ECDSA_RP_ID as RP_ID,
-  AVAILABLE_LANES_ECDSA_WALLET_KEY_ID as WALLET_KEY_ID,
+  AVAILABLE_LANES_ECDSA_SIGNING_KEY_SLOT_ID as SIGNING_KEY_SLOT_ID,
   AVAILABLE_LANES_ECDSA_TARGET as ECDSA_TARGET,
   AVAILABLE_LANES_EXPIRES_AT_MS as EXPIRES_AT_MS,
   AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID as PASSKEY_CREDENTIAL_ID,
@@ -179,11 +179,12 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
         }),
       ],
       runtimeEcdsaRecords: [runtimeRecord],
-      runtimeClaims: new Map([
+      warmStatusAdvisories: new Map([
         [
           'tsess-runtime-durable',
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: 'tsess-runtime-durable',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
@@ -197,7 +198,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     const lane = availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0];
     expectEcdsaLaneAuthMethod(lane, 'email_otp');
     expect(lane).toMatchObject({
-      source: 'runtime_and_durable',
+      source: 'runtime_session_record',
       state: 'ready',
       remainingUses: 2,
       signingGrantId: 'wsess-runtime-durable',
@@ -219,11 +220,12 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
 
     const availableLanes = await readAvailableLanes({
       runtimeEcdsaRecords: [staleRecord as never],
-      runtimeClaims: new Map([
+      warmStatusAdvisories: new Map([
         [
           'tsess-ecdsa-stale-router-ab',
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
@@ -268,11 +270,12 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           updatedAtMs: 700,
         }),
       ],
-      runtimeClaims: new Map([
+      warmStatusAdvisories: new Map([
         [
           tempoThresholdSessionId,
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: tempoThresholdSessionId,
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
@@ -303,9 +306,9 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     });
   });
 
-  test('does not share Email OTP runtime claims across ECDSA chain targets with the same threshold session id', async () => {
-    const thresholdSessionId = 'tsess-email-otp-shared-session-target-claims';
-    const signingGrantId = 'wsess-email-otp-shared-session-target-claims';
+  test('does not share Email OTP runtime advisories across ECDSA chain targets with the same threshold session id', async () => {
+    const thresholdSessionId = 'tsess-email-otp-shared-session-target-advisories';
+    const signingGrantId = 'wsess-email-otp-shared-session-target-advisories';
     const ecdsaThresholdKeyId = 'shared-ecdsa-key-target-claim';
     const thresholdOwnerAddress = `0x${'EF'.repeat(20)}`;
     const tempoRecord = runtimeEcdsaRecord({
@@ -330,17 +333,18 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       remainingUses: 2,
       updatedAtMs: 900,
     });
-    const tempoClaimKey = runtimeEcdsaRecordClaimKey(tempoRecord);
+    const tempoClaimKey = runtimeEcdsaRecordAdvisoryKey(tempoRecord);
     if (!tempoClaimKey) throw new Error('tempo runtime record claim key missing');
 
     const availableLanes = await readAvailableLanes({
       ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
       runtimeEcdsaRecords: [arcRecord, tempoRecord],
-      runtimeEcdsaClaims: new Map([
+      warmEcdsaAdvisories: new Map([
         [
           tempoClaimKey,
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: thresholdSessionId,
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
@@ -406,7 +410,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
   test('passkey ECDSA availability identity uses auth binding rpId', () => {
     const key = buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: WALLET_ID,
-      walletKeyId: WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: SIGNING_KEY_SLOT_ID,
       ecdsaThresholdKeyId: 'shared-ecdsa-key-auth-binding-rp',
       signingRootId: 'sr-test:dev',
       signingRootVersion: 'default',

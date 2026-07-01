@@ -71,16 +71,16 @@ function sealedEd25519Record(args: {
       relayerKeyId: 'relayer-key',
       participantIds: [1, 2],
       sessionKind: 'jwt',
-	      walletSessionJwt: 'jwt-ed25519',
-	      clientVerifyingShareB64u: 'client-verifying-share-ed25519',
-	      ed25519WorkerMaterialBindingDigest: 'material-binding-ed25519',
-	      sealedWorkerMaterialRef: 'sealed-worker-material-ed25519',
-	      materialFormatVersion: 'ed25519_worker_material_v1',
-	      materialKeyId: 'material-key-ed25519',
-	      materialCreatedAtMs: issuedAtMs,
-	      signerSlot: 1,
-	      keyVersion: 'threshold-ed25519-hss-v1',
-	      runtimePolicyScope: {
+      walletSessionJwt: 'jwt-ed25519',
+      clientVerifyingShareB64u: 'client-verifying-share-ed25519',
+      ed25519WorkerMaterialBindingDigest: 'material-binding-ed25519',
+      sealedWorkerMaterialRef: 'sealed-worker-material-ed25519',
+      materialFormatVersion: 'ed25519_worker_material_v1',
+      materialKeyId: 'material-key-ed25519',
+      materialCreatedAtMs: issuedAtMs,
+      signerSlot: 1,
+      routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
+      runtimePolicyScope: {
         orgId: 'org-test',
         projectId: 'sr-test',
         envId: 'dev',
@@ -173,11 +173,12 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           thresholdSessionId: 'tsess-1',
         },
       ],
-      runtimeClaims: new Map([
+      warmStatusAdvisories: new Map([
         [
           'tsess-1',
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: 'tsess-1',
             remainingUses: 1,
             expiresAtMs: EXPIRES_AT_MS,
@@ -190,10 +191,17 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     expect(availableLanes.candidates.ed25519.near[0]).toMatchObject({
       auth: { kind: 'email_otp' },
       state: 'ready',
-      source: 'runtime_and_durable',
+      source: 'runtime_session_record',
       signingGrantId: 'wsess-1',
       thresholdSessionId: 'tsess-1',
       remainingUses: 1,
+      materialKeyId: 'material-key-ed25519',
+      ed25519WorkerMaterialBindingDigest: 'material-binding-ed25519',
+    });
+    expect(availableLanes.lanes.ed25519.near).toMatchObject({
+      source: 'runtime_session_record',
+      materialKeyId: 'material-key-ed25519',
+      ed25519WorkerMaterialBindingDigest: 'material-binding-ed25519',
     });
   });
 
@@ -208,11 +216,12 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           thresholdSessionId: 'tsess-stale-router-ab',
         } as never,
       ],
-      runtimeClaims: new Map([
+      warmStatusAdvisories: new Map([
         [
           'tsess-stale-router-ab',
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: 'tsess-stale-router-ab',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
@@ -223,16 +232,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
 
     expect(availableLanes.lanes.ed25519.near.state).toBe('missing');
     expect(availableLanes.candidates.ed25519.near).toEqual([]);
-    expect(availableLanes.diagnostics?.invalidLanes).toEqual([
-      {
-        authMethod: 'passkey',
-        curve: 'ed25519',
-        reason: 'missing_router_ab_state',
-        source: 'runtime_session_record',
-        thresholdSessionId: 'tsess-stale-router-ab',
-        signingGrantId: 'wsess-stale-router-ab',
-      },
-    ]);
+    expect(availableLanes.diagnostics?.invalidLanes || []).toEqual([]);
   });
 
   test('does not advertise a warm ECDSA runtime lane without Router A/B normal-signing state', async () => {
@@ -252,11 +252,12 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     const availableLanes = await readAvailableLanes({
       ecdsaChainTargets: [ECDSA_TARGET],
       runtimeEcdsaRecords: [staleEcdsaRecord as never],
-      runtimeEcdsaClaims: new Map([
+      warmEcdsaAdvisories: new Map([
         [
           thresholdEcdsaChainTargetKey(ECDSA_TARGET),
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
@@ -308,11 +309,12 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           thresholdSessionId: 'tsess-1',
         },
       ],
-      runtimeClaims: new Map([
+      warmStatusAdvisories: new Map([
         [
           'tsess-1',
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: 'tsess-1',
             remainingUses: 1,
             expiresAtMs: EXPIRES_AT_MS,
@@ -407,11 +409,12 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           remainingUses: 1,
         }),
       ],
-      runtimeClaims: new Map([
+      warmStatusAdvisories: new Map([
         [
           thresholdSessionId,
           {
-            state: 'warm',
+            kind: 'warm_status',
+            status: 'active',
             thresholdSessionId: thresholdSessionId,
             remainingUses: 1,
             expiresAtMs: EXPIRES_AT_MS,

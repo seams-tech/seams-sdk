@@ -56,6 +56,9 @@ function ed25519Record(
     walletSessionJwt: 'wallet-session-jwt',
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
+    signerSlot: 1,
+    keyVersion: 'threshold-ed25519-hss-v1',
+    materialState: 'auth_ready_material_pending',
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
     ...overrides,
@@ -92,9 +95,15 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('accepts ready material records without exposing material fields as unlock authorization', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({
+        materialState: 'material_ready',
+        clientVerifyingShareB64u: 'client-verifier',
         ed25519WorkerMaterialHandle: 'ed25519-material-handle',
         ed25519WorkerMaterialBindingDigest: 'binding-digest',
-        clientVerifyingShareB64u: 'client-verifier',
+        sealedWorkerMaterialRef: 'sealed-material-ref',
+        sealedWorkerMaterialB64u: 'sealed-material-blob',
+        materialFormatVersion: 'ed25519_worker_material_v1',
+        materialKeyId: 'material-key-id',
+        materialCreatedAtMs: 1_800_000_000_000,
       }),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,

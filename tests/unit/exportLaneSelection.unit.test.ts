@@ -1,12 +1,15 @@
 import { expect, test } from '@playwright/test';
 import {
+  resolveExactKeyExportLane,
   restoreEcdsaSessionForExport,
   restoreNearEd25519SessionForExport,
   type ExportLaneSelectionDeps,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection';
 import {
+  nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetKey,
   toWalletId,
+  walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -36,10 +39,10 @@ import {
 } from '@shared/utils/walletCapabilityBindings';
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
-const WALLET_KEY_ID = 'wallet-key-export-lane';
 const PASSKEY_CREDENTIAL_ID = 'credential-export-lane';
 const EMAIL_OTP_PROVIDER_SUBJECT_ID = 'google:export-lane';
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
@@ -77,7 +80,6 @@ type EcdsaLaneOverrides = Partial<ConcreteAvailableEcdsaSigningLane> & {
   ecdsaThresholdKeyId?: string;
   thresholdOwnerAddress?: string;
   authBindingRpId?: string;
-  keyWalletKeyId?: string;
   authMethod?: 'email_otp' | 'passkey';
 };
 
@@ -105,7 +107,6 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     ecdsaThresholdKeyId,
     thresholdOwnerAddress,
     authBindingRpId,
-    keyWalletKeyId,
     auth: authOverride,
     authMethod: authMethodOverride,
     resolvedKey: _resolvedKeyOverride,
@@ -128,7 +129,11 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     keyOverride ||
     buildEvmFamilyEcdsaKeyIdentity({
       walletId: WALLET_ID,
-      walletKeyId: keyWalletKeyId || WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+        walletId: WALLET_ID,
+        signingRootId: 'root-1',
+        signingRootVersion: 'default',
+      }),
       ecdsaThresholdKeyId: ecdsaThresholdKeyId || 'ecdsa-key-1',
       signingRootId: 'root-1',
       signingRootVersion: 'default',
@@ -408,6 +413,7 @@ test.describe('Ed25519 export lane selection', () => {
 
     expect(selected.authMethod).toBe('email_otp');
     expect(selected.signingGrantId).toBe('wallet-ed25519-email-registration');
+    expect(selected.material.kind).toBe('loaded_worker_material');
     expect(restoreCalls).toEqual({ passkey: 0, emailOtp: 0 });
   });
 
@@ -427,7 +433,26 @@ test.describe('Ed25519 export lane selection', () => {
 
     expect(selected.authMethod).toBe('passkey');
     expect(selected.signingGrantId).toBe('wallet-ed25519-passkey-registration');
+    expect(selected.material.kind).toBe('loaded_worker_material');
     expect(restoreCalls).toEqual({ passkey: 0, emailOtp: 0 });
+  });
+
+  test('restores sealed passkey Ed25519 export material by material branch', async () => {
+    const restoreCalls = { passkey: 0, emailOtp: 0 };
+    const lane = ed25519Lane({
+      authMethod: 'passkey',
+      state: 'restorable',
+      source: 'durable_sealed_record',
+      signingGrantId: 'wallet-ed25519-passkey-restorable',
+      thresholdSessionId: 'threshold-ed25519-passkey-restorable',
+    });
+    const selected = await restoreNearEd25519SessionForExport(
+      depsForEd25519([lane], restoreCalls),
+      { signer: NEAR_EXPORT_SIGNER, laneIdentity: ed25519LaneIdentity(lane) },
+    );
+
+    expect(selected.material.kind).toBe('sealed_worker_material');
+    expect(restoreCalls).toEqual({ passkey: 1, emailOtp: 0 });
   });
 
   test('rejects duplicate Ed25519 export lanes without auth ranking', async () => {
@@ -452,6 +477,44 @@ test.describe('Ed25519 export lane selection', () => {
 
     expect(restoreCalls.emailOtp).toBe(0);
     expect(restoreCalls.passkey).toBe(0);
+  });
+
+  test('resolves AccountMenu Ed25519 export from the canonical lane when runtime candidates share a grant', async () => {
+    const restoreCalls = { passkey: 0, emailOtp: 0 };
+    const canonicalLane = ed25519Lane({
+      authMethod: 'passkey',
+      state: 'ready',
+      source: 'runtime_session_record',
+      signingGrantId: 'wallet-ed25519-shared-grant',
+      thresholdSessionId: 'threshold-ed25519-current',
+      remainingUses: 1,
+      updatedAtMs: 1_800_000_010_000,
+    });
+    const olderLane = ed25519Lane({
+      auth: canonicalLane.auth,
+      state: 'ready',
+      source: 'runtime_session_record',
+      signingGrantId: canonicalLane.signingGrantId,
+      thresholdSessionId: 'threshold-ed25519-previous',
+      remainingUses: 3,
+      updatedAtMs: 1_800_000_000_000,
+    });
+
+    const resolved = await resolveExactKeyExportLane(
+      depsForEd25519([canonicalLane, olderLane], restoreCalls),
+      {
+        kind: 'near',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: nearAccountRefFromAccountId(NEAR_EXPORT_SIGNER.account.nearAccountId),
+      },
+    );
+
+    expect(resolved.kind).toBe('near');
+    expect(resolved.laneIdentity.thresholdSessionId).toBe('threshold-ed25519-current');
+    expect(resolved.laneIdentity.signingGrantId).toBe('wallet-ed25519-shared-grant');
   });
 });
 
@@ -494,12 +557,14 @@ test.describe('ECDSA export lane selection', () => {
       signingGrantId: 'wallet-ecdsa-email-evm-registration',
       thresholdSessionId: 'threshold-ecdsa-email-evm-registration',
       chainTarget: EVM_TARGET,
+      material: { kind: 'loaded_worker_material' },
     });
     expect(selectedTempo.session).toMatchObject({
       authMethod: 'email_otp',
       signingGrantId: 'wallet-ecdsa-email-tempo-registration',
       thresholdSessionId: 'threshold-ecdsa-email-tempo-registration',
       chainTarget: TEMPO_TARGET,
+      material: { kind: 'loaded_worker_material' },
     });
   });
 
@@ -545,21 +610,45 @@ test.describe('ECDSA export lane selection', () => {
       signingGrantId: 'wallet-ecdsa-passkey-evm-registration',
       thresholdSessionId: 'threshold-ecdsa-passkey-evm-registration',
       chainTarget: EVM_TARGET,
+      material: { kind: 'loaded_worker_material' },
     });
     expect(selectedTempo.session).toMatchObject({
       authMethod: 'passkey',
       signingGrantId: 'wallet-ecdsa-passkey-tempo-registration',
       thresholdSessionId: 'threshold-ecdsa-passkey-tempo-registration',
       chainTarget: TEMPO_TARGET,
+      material: { kind: 'loaded_worker_material' },
     });
     expect(restoreCalls.passkeyChainTargets).toEqual([]);
   });
 
+  test('keeps Email OTP ECDSA export material pending until route auth provides material', async () => {
+    const lane = ecdsaLane({
+      authMethod: 'email_otp',
+      chainTarget: EVM_TARGET,
+      state: 'restorable',
+      source: 'durable_sealed_record',
+      signingGrantId: 'wallet-ecdsa-email-restorable',
+      thresholdSessionId: 'threshold-ecdsa-email-restorable',
+    });
+
+    const selected = await restoreEcdsaSessionForExport(depsFor([lane]), {
+      walletId: WALLET_ID,
+      signingTarget: EVM_TARGET,
+      laneIdentity: ecdsaLaneIdentity(lane),
+    });
+
+    expect(selected.session.material).toEqual({
+      kind: 'material_pending',
+      reason: 'email_otp_route_auth',
+    });
+  });
+
   test('rejects duplicate live sessions for the same ECDSA key identity', async () => {
     const auth = passkeySigningAuth();
-    const runtimeAndDurableLane = ecdsaLane({
+    const runtimeLane = ecdsaLane({
       auth,
-      source: 'runtime_and_durable',
+      source: 'runtime_session_record',
       signingGrantId: 'wallet-session-runtime-durable',
       thresholdSessionId: 'threshold-session-runtime-durable',
       remainingUses: 2,
@@ -567,20 +656,20 @@ test.describe('ECDSA export lane selection', () => {
     });
     const runtimeOnlyLane = ecdsaLane({
       source: 'runtime_session_record',
-      signingGrantId: runtimeAndDurableLane.signingGrantId,
-      thresholdSessionId: runtimeAndDurableLane.thresholdSessionId,
+      signingGrantId: runtimeLane.signingGrantId,
+      thresholdSessionId: runtimeLane.thresholdSessionId,
       auth,
-      key: runtimeAndDurableLane.key,
-      publicFacts: runtimeAndDurableLane.publicFacts,
+      key: runtimeLane.key,
+      publicFacts: runtimeLane.publicFacts,
       remainingUses: 3,
       updatedAtMs: 1_800_000_001_000,
     });
 
     await expect(
-      restoreEcdsaSessionForExport(depsFor([runtimeAndDurableLane, runtimeOnlyLane]), {
+      restoreEcdsaSessionForExport(depsFor([runtimeLane, runtimeOnlyLane]), {
         walletId: WALLET_ID,
         signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(runtimeAndDurableLane),
+        laneIdentity: ecdsaLaneIdentity(runtimeLane),
       }),
     ).rejects.toThrow('exact lane selection failed: duplicate_records');
   });
@@ -683,7 +772,6 @@ test.describe('ECDSA export lane selection', () => {
 
   test('uses passkey auth binding rpId for export selection', async () => {
     const lane = ecdsaLane({
-      keyWalletKeyId: 'wallet-key-stale-export-lane',
       authBindingRpId: RP_ID,
       signingGrantId: 'wallet-session-passkey-auth-binding',
       thresholdSessionId: 'threshold-session-passkey-auth-binding',
@@ -781,7 +869,7 @@ test.describe('ECDSA export lane selection', () => {
       updatedAtMs: sourceLane.updatedAtMs,
     });
 
-    await restoreEcdsaSessionForExport(
+    const selected = await restoreEcdsaSessionForExport(
       depsForTargets(
         {
           [thresholdEcdsaChainTargetKey(EVM_TARGET)]: [sourceLane],
@@ -796,6 +884,7 @@ test.describe('ECDSA export lane selection', () => {
       },
     );
 
+    expect(selected.session.material.kind).toBe('sealed_worker_material');
     expect(restoreCalls.passkeyChainTargets).toEqual([EVM_TARGET]);
   });
 
@@ -826,6 +915,7 @@ test.describe('ECDSA export lane selection', () => {
 
     expect(selected.session.chainTarget).toEqual(EVM_TARGET);
     expect(selected.session.thresholdSessionId).toBe('threshold-session-shared-only');
+    expect(selected.session.material.kind).toBe('sealed_worker_material');
     expect(restoreCalls.passkeyChainTargets).toEqual([EVM_TARGET]);
   });
 });

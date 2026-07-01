@@ -132,10 +132,6 @@ async function putWalletSessionOnStore(
       relayerKeyId: 'relayer-1',
       participantIds: [1, 2],
       expiresAtMs: input.expiresAtMs,
-      walletBudgetBinding: {
-        curve: 'ed25519',
-        thresholdSessionId: input.thresholdSessionId,
-      },
     },
     { ttlMs: Math.max(1, input.expiresAtMs - Date.now()), remainingUses: input.remainingUses },
   );

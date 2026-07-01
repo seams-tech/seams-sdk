@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
@@ -23,13 +24,18 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/budgetSpending';
 import {
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
-  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 import type { BudgetAdmittedOperation } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/transactionState';
 import type { SigningSessionStatus } from '../../packages/sdk-web/src/core/types/seams';
 
 const WALLET_ID = toWalletId('budget-refresh.testnet');
-const WALLET_KEY_ID = 'wallet-key-budget-refresh';
+const SIGNING_ROOT_ID = 'project:dev';
+const SIGNING_ROOT_VERSION = 'default';
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: WALLET_ID,
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+});
 const EMAIL_OTP_AUTH = {
   kind: 'email_otp',
   providerSubjectId: 'google:budget-refresh',
@@ -42,10 +48,10 @@ const CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 const EXPIRES_AT_MS = 1_900_000_000_000;
 const ECDSA_KEY = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: WALLET_ID,
-  walletKeyId: WALLET_KEY_ID,
+  evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
   ecdsaThresholdKeyId: 'ehss-shared-key',
-  signingRootId: 'project:dev',
-  signingRootVersion: 'default',
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
   participantIds: [1, 2],
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
@@ -77,6 +83,7 @@ function makeAdmittedOperation(args: {
   exhaustedThresholdSessionId: string;
   refreshedSigningGrantId: string;
   projectionVersion: string;
+  remainingUses?: number;
 }): BudgetAdmittedOperation<SelectedEcdsaLane> {
   return {
     intent: {
@@ -111,7 +118,7 @@ function makeAdmittedOperation(args: {
           sessionId: args.refreshedSigningGrantId,
           status: 'active',
           projectionVersion: args.projectionVersion,
-          remainingUses: 1,
+          remainingUses: args.remainingUses ?? 1,
           expiresAtMs: EXPIRES_AT_MS,
         },
       },
@@ -187,18 +194,10 @@ test.describe('EVM-family budget finalization spending', () => {
     });
 
     expect(reservation).not.toBeNull();
-    expect(statusChecks).toHaveLength(1);
-    expect(statusChecks[0]).toMatchObject({
-      signingGrantId: freshSigningGrantId,
-      budgetStatusCheck: {
-        kind: 'ecdsa_lane_budget_status_check',
-        signingGrantId: freshSigningGrantId,
-        thresholdSessionId: freshThresholdSessionId,
-      },
-    });
+    expect(statusChecks).toHaveLength(0);
   });
 
-  test('rejects budget identity admission when server reports in-flight reserved uses', async () => {
+  test('admits budget identity when committed uses remain despite server in-flight reservations', async () => {
     const signingGrantId = 'wallet-session-server-inflight';
     const thresholdSessionId = 'threshold-session-server-inflight';
     const lane = buildTempoTransactionSigningLane({
@@ -230,7 +229,14 @@ test.describe('EVM-family budget finalization spending', () => {
         lane,
         operationUsesNeeded: 1,
       }),
-    ).rejects.toThrow(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
+    ).resolves.toMatchObject({
+      signingGrantId,
+      status: {
+        status: 'active',
+        remainingUses: 3,
+        availableUses: 3,
+      },
+    });
   });
 
   test('rejects the fourth signing admission after three committed server spends', async () => {
@@ -375,7 +381,7 @@ test.describe('EVM-family budget finalization spending', () => {
     });
 
     expect(reservation).not.toBeNull();
-    expect(statusChecks).toEqual([refreshedSigningGrantId]);
+    expect(statusChecks).toEqual([]);
   });
 
   test('fails reservation when the refreshed lane is already exhausted', async () => {
@@ -415,6 +421,7 @@ test.describe('EVM-family budget finalization spending', () => {
           exhaustedThresholdSessionId,
           refreshedSigningGrantId,
           projectionVersion: 'projection-exhausted',
+          remainingUses: 0,
         }),
         finalizedSigningLane: makeResolvedFinalizedLane({
           signingGrantId: refreshedSigningGrantId,

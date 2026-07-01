@@ -232,11 +232,9 @@ test('threshold-ed25519 passkey session mint creates wallet budgets per signing 
   const firstSigningGrantId = 'wsess-wallet-budget-refresh-1';
   const secondSigningGrantId = 'wsess-wallet-budget-refresh-2';
   const firstWalletBudgetSessionId = walletSigningBudgetSessionId({
-    curve: 'ed25519',
     signingGrantId: firstSigningGrantId,
   });
   const secondWalletBudgetSessionId = walletSigningBudgetSessionId({
-    curve: 'ed25519',
     signingGrantId: secondSigningGrantId,
   });
 

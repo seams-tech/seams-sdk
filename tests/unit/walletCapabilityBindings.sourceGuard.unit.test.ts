@@ -25,6 +25,22 @@ const FORBIDDEN_PATTERNS: ForbiddenPattern[] = [
     id: 'record-wallet-near-fallback',
     regex: /\brecord\.walletId\s*\?\?\s*record\.nearAccountId\b/g,
   },
+  {
+    id: 'wallet-id-from-near-profile-fallback',
+    regex: /\binput\.walletId\s*\|\|\s*buildNearProfileId\(/g,
+  },
+  {
+    id: 'login-challenge-user-id-from-near-account',
+    regex: /\buserId:\s*String\(nearAccountId\)/g,
+  },
+  {
+    id: 'wallet-id-from-to-account-id',
+    regex: /\bwalletId:\s*String\(toAccountId\(/g,
+  },
+  {
+    id: 'ed25519-session-wallet-id-legacy-migration',
+    regex: /\bmigratedWalletIdRaw\b/g,
+  },
   { id: 'to-wallet-id-from-near-account', regex: /\btoWalletId\(nearAccountId\)/g },
   {
     id: 'to-wallet-id-from-near-account-expression',

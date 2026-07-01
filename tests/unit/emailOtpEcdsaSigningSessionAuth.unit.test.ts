@@ -87,10 +87,10 @@ function reauthAnchorForLane(
     kind: 'reauth_anchor_identity',
     laneIdentity,
     laneIdentityKey,
-    sourceState: {
-      kind: 'reauth_anchor_source_state',
-      availabilitySource: 'runtime_and_durable',
-      storeSource: 'email_otp',
+      sourceState: {
+        kind: 'reauth_anchor_source_state',
+        availabilitySource: 'runtime_session_record',
+        storeSource: 'email_otp',
       retention: 'single_use',
       remainingUses: 0,
       expiry: { kind: 'known', expiresAtMs: 1 },

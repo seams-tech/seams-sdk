@@ -1052,7 +1052,11 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     await expect(
       requestEmailOtpExportAuthorization({
-        identity: { kind: 'near_account', nearAccountId: 'alice.testnet' },
+        identity: {
+          kind: 'near_account',
+          walletId: TEST_WALLET_SESSION.walletId,
+          nearAccountId: 'alice.testnet',
+        },
         chain: 'evm',
         publicKey: '02'.padEnd(66, '1'),
         curve: 'ecdsa',
