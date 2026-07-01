@@ -24,11 +24,6 @@ import {
 import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
 import { secureRandomIdFragment } from '../secureRandomId';
 
-export type WalletSigningBudgetBinding = {
-  curve: 'ed25519' | 'ecdsa';
-  thresholdSessionId: string;
-};
-
 export type Ed25519WalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
@@ -38,7 +33,6 @@ export type Ed25519WalletSessionRecord = {
   nearEd25519SigningKeyId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   participantIds: number[];
-  walletBudgetBinding?: WalletSigningBudgetBinding;
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
 export type EcdsaWalletSessionRecord = {
@@ -54,10 +48,6 @@ export type WalletSigningBudgetSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
-  budgetScope:
-    | { kind: 'passkey_rp'; rpId: string }
-    | { kind: 'wallet_key'; evmFamilySigningKeySlotId: string };
-  binding: WalletSigningBudgetBinding;
   participantIds: number[];
 };
 

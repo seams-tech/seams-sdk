@@ -264,26 +264,6 @@ function participantIdsEqual(left: readonly number[], right: readonly number[]):
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
-function budgetScopeFromBinding(input: {
-  curve: 'ed25519' | 'ecdsa';
-  budgetScopeId: string;
-}): WalletSigningBudgetSessionRecord['budgetScope'] {
-  return input.curve === 'ecdsa'
-    ? { kind: 'wallet_key', evmFamilySigningKeySlotId: input.budgetScopeId }
-    : { kind: 'passkey_rp', rpId: input.budgetScopeId };
-}
-
-function walletBudgetScopeId(scope: WalletSigningBudgetSessionRecord['budgetScope']): string {
-  switch (scope.kind) {
-    case 'passkey_rp':
-      return scope.rpId;
-    case 'wallet_key':
-      return scope.evmFamilySigningKeySlotId;
-  }
-  scope satisfies never;
-  return '';
-}
-
 function passkeyRpAuthorityScope(rpId: WebAuthnRpId): ThresholdEd25519AuthorityScope {
   return { kind: 'passkey_rp', rpId };
 }
@@ -322,17 +302,6 @@ function verifyImplicitNearAccountPublicKeyBinding(input: {
       message: `Failed to verify implicit account scope: ${errorMessage(error)}`,
     };
   }
-}
-
-function walletBudgetBindingMatches(input: {
-  record: WalletSigningBudgetSessionRecord;
-  curve: 'ed25519' | 'ecdsa';
-  thresholdSessionId: string;
-}): boolean {
-  return (
-    input.record.binding.curve === input.curve &&
-    input.record.binding.thresholdSessionId === input.thresholdSessionId
-  );
 }
 
 function requireSdkEcdsaHssWalletId(value: unknown): WalletId {
@@ -3005,13 +2974,8 @@ export class ThresholdSigningService {
 
   private walletSigningBudgetSessionId(input: {
     signingGrantId: string;
-    binding: {
-      curve: 'ed25519' | 'ecdsa';
-      thresholdSessionId: string;
-    };
   }): string {
     return walletSigningBudgetSessionId({
-      curve: input.binding.curve,
       signingGrantId: input.signingGrantId,
     });
   }
@@ -3050,14 +3014,14 @@ export class ThresholdSigningService {
       curve: input.binding.curve,
       thresholdSessionId: toOptionalTrimmedString(input.binding.thresholdSessionId) || '',
     };
-    const budgetScopeId =
+    const branchScopeId =
       input.binding.curve === 'ecdsa'
         ? toOptionalTrimmedString(input.evmFamilySigningKeySlotId)
         : toOptionalTrimmedString(input.rpId);
-    const budgetScopeLabel = input.binding.curve === 'ecdsa' ? 'evmFamilySigningKeySlotId' : 'rpId';
+    const branchScopeLabel =
+      input.binding.curve === 'ecdsa' ? 'evmFamilySigningKeySlotId' : 'rpId';
     const sessionId = this.walletSigningBudgetSessionId({
       signingGrantId: input.signingGrantId,
-      binding,
     });
     if (!binding.thresholdSessionId) {
       return {
@@ -3066,11 +3030,11 @@ export class ThresholdSigningService {
         message: 'signing grant budget binding thresholdSessionId is required',
       };
     }
-    if (!budgetScopeId) {
+    if (!branchScopeId) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: `signing grant budget ${budgetScopeLabel} is required`,
+        message: `signing grant budget ${branchScopeLabel} is required`,
       };
     }
     if (!sessionId) {
@@ -3080,10 +3044,6 @@ export class ThresholdSigningService {
         message: 'signingGrantId is required',
       };
     }
-    const budgetScope = budgetScopeFromBinding({
-      curve: input.binding.curve,
-      budgetScopeId,
-    });
     const existingSession = await this.walletBudgetSessionStore.getSession(sessionId);
     if (existingSession) {
       if (existingSession.walletId !== input.userId) {
@@ -3091,13 +3051,6 @@ export class ThresholdSigningService {
           ok: false,
           code: 'unauthorized',
           message: 'signingGrantId already exists for a different user',
-        };
-      }
-      if (walletBudgetScopeId(existingSession.budgetScope) !== budgetScopeId) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: `signingGrantId already exists for a different ${budgetScopeLabel}`,
         };
       }
       const sameParticipantIds =
@@ -3108,20 +3061,6 @@ export class ThresholdSigningService {
           ok: false,
           code: 'unauthorized',
           message: 'signingGrantId already exists for a different participant set',
-        };
-      }
-      if (
-        !walletBudgetBindingMatches({
-          record: existingSession,
-          curve: input.binding.curve,
-          thresholdSessionId: binding.thresholdSessionId,
-        }) &&
-        !input.refreshExisting
-      ) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'signingGrantId already exists for a different threshold session',
         };
       }
       if (!input.refreshExisting) {
@@ -3142,8 +3081,6 @@ export class ThresholdSigningService {
           expiresAtMs,
           relayerKeyId: WALLET_SIGNING_BUDGET_RELAYER_KEY_ID,
           walletId: input.userId,
-          budgetScope,
-          binding,
           participantIds: input.participantIds,
         },
         ttlMs: input.ttlMs,
@@ -3164,8 +3101,6 @@ export class ThresholdSigningService {
         expiresAtMs,
         relayerKeyId: WALLET_SIGNING_BUDGET_RELAYER_KEY_ID,
         walletId: input.userId,
-        budgetScope,
-        binding,
         participantIds: input.participantIds,
       },
       ttlMs: input.ttlMs,
@@ -3394,10 +3329,6 @@ export class ThresholdSigningService {
   > {
     const walletBudgetSessionId = this.walletSigningBudgetSessionId({
       signingGrantId: input.signingGrantId || '',
-      binding: {
-        curve: input.curve,
-        thresholdSessionId: input.curveSessionId,
-      },
     });
     if (!walletBudgetSessionId) {
       const store =
@@ -3419,13 +3350,7 @@ export class ThresholdSigningService {
         if (
           !curveSession ||
           walletBudgetSession.walletId !== curveSession.userId ||
-          walletBudgetScopeId(walletBudgetSession.budgetScope) !==
-            String(thresholdEd25519PasskeyAuthorityRpId(curveSession.authorityScope) || '') ||
-          !walletBudgetBindingMatches({
-            record: walletBudgetSession,
-            curve: 'ed25519',
-            thresholdSessionId: input.curveSessionId,
-          }) ||
+          !thresholdEd25519PasskeyAuthorityRpId(curveSession.authorityScope) ||
           !participantIdsEqual(walletBudgetSession.participantIds, curveSession.participantIds)
         ) {
           return {
@@ -3441,12 +3366,7 @@ export class ThresholdSigningService {
         if (
           !curveSession ||
           walletBudgetSession.walletId !== curveSession.walletId ||
-          walletBudgetScopeId(walletBudgetSession.budgetScope) !== curveSession.evmFamilySigningKeySlotId ||
-          !walletBudgetBindingMatches({
-            record: walletBudgetSession,
-            curve: 'ecdsa',
-            thresholdSessionId: input.curveSessionId,
-          }) ||
+          !curveSession.evmFamilySigningKeySlotId ||
           !participantIdsEqual(walletBudgetSession.participantIds, curveSession.participantIds)
         ) {
           return {

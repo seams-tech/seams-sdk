@@ -48,7 +48,10 @@ function toPositiveInt(value: unknown, defaultValue: number): number {
   return Math.floor(parsed);
 }
 
-function isExpired(session: SigningSessionSealThresholdSessionRecord, nowMs: number): boolean {
+function isExpired(
+  session: Pick<SigningSessionSealThresholdSessionRecord, 'expiresAtMs'>,
+  nowMs: number,
+): boolean {
   return !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= nowMs;
 }
 
@@ -220,24 +223,17 @@ function hasSigningGrantBudgetClaim(auth: { claims: Record<string, unknown> }): 
 
 function parseCurveBoundWalletBudgetLookup(
   claims: Record<string, unknown>,
-):
-  | { curve: 'ecdsa'; signingGrantId: string; thresholdSessionId: string }
-  | { curve: 'ed25519'; signingGrantId: string; thresholdSessionId: string }
-  | null {
+): { signingGrantId: string } | null {
   const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(claims);
   if (ecdsaClaims) {
     return {
-      curve: 'ecdsa',
       signingGrantId: ecdsaClaims.signingGrantId,
-      thresholdSessionId: ecdsaClaims.thresholdSessionId,
     };
   }
   const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(claims);
   if (ed25519Claims) {
     return {
-      curve: 'ed25519',
       signingGrantId: ed25519Claims.signingGrantId,
-      thresholdSessionId: ed25519Claims.thresholdSessionId,
     };
   }
   return null;

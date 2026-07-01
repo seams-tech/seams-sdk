@@ -97,12 +97,11 @@ function normalizeSessionRecord(
 }
 
 function normalizeWalletBudgetRecord(
-  input: {
-    curve: SigningSessionSealCurve;
-    thresholdSessionId: string;
-  },
   raw: WalletSigningBudgetSessionRecord | null,
-): SigningSessionSealThresholdSessionRecord | null {
+): Pick<
+  SigningSessionSealWalletBudgetStatus,
+  'userId' | 'expiresAtMs' | 'relayerKeyId' | 'participantIds'
+> | null {
   if (!raw) return null;
   const userId = String(raw.walletId || '').trim();
   const expiresAtMs = Number(raw.expiresAtMs);
@@ -110,42 +109,21 @@ function normalizeWalletBudgetRecord(
   const participantIds = Array.isArray(raw.participantIds)
     ? raw.participantIds.map((value) => Math.floor(Number(value))).filter(Number.isFinite)
     : [];
-  const bindingMatches =
-    raw.binding.curve === input.curve && raw.binding.thresholdSessionId === input.thresholdSessionId;
   if (
     !userId ||
     !relayerKeyId ||
-    !bindingMatches ||
     participantIds.length < 2 ||
     !Number.isFinite(expiresAtMs) ||
     expiresAtMs <= 0
   ) {
     return null;
   }
-  const base = {
-    curve: input.curve,
-    thresholdSessionId: input.thresholdSessionId,
+  return {
     userId,
     expiresAtMs: Math.floor(expiresAtMs),
     relayerKeyId,
     participantIds,
   };
-  switch (input.curve) {
-    case 'ecdsa':
-      if (raw.budgetScope.kind !== 'wallet_key') return null;
-      return {
-        ...base,
-        curve: 'ecdsa',
-        evmFamilySigningKeySlotId: raw.budgetScope.evmFamilySigningKeySlotId,
-      };
-    case 'ed25519':
-      if (raw.budgetScope.kind !== 'passkey_rp') return null;
-      return {
-        ...base,
-        curve: 'ed25519',
-        rpId: raw.budgetScope.rpId,
-      };
-  }
 }
 
 function normalizeThresholdSessionStatus(
@@ -169,20 +147,12 @@ function normalizeThresholdSessionStatus(
 
 function normalizeWalletBudgetStatus(
   input: {
-    curve: SigningSessionSealCurve;
     signingGrantId: string;
-    thresholdSessionId: string;
   },
   raw: WalletSigningBudgetSessionStatus | null,
 ): SigningSessionSealWalletBudgetStatus | null {
   if (!raw) return null;
-  const normalized = normalizeWalletBudgetRecord(
-    {
-      curve: input.curve,
-      thresholdSessionId: input.thresholdSessionId,
-    },
-    raw.record,
-  );
+  const normalized = normalizeWalletBudgetRecord(raw.record);
   const committedRemainingUses = toNonNegativeInt(raw.committedRemainingUses);
   const reservedUses = toNonNegativeInt(raw.reservedUses);
   const availableUses = toNonNegativeInt(raw.availableUses);
@@ -252,7 +222,6 @@ function normalizeWalletBudgetStatusAcrossStores(
 ): Promise<SigningSessionSealWalletBudgetStatus | null> {
   return (async () => {
     const thresholdSessionId = walletSigningBudgetSessionId({
-      curve: input.curve,
       signingGrantId: input.signingGrantId,
     });
     for (const store of stores) {
@@ -294,7 +263,7 @@ export function createSigningSessionSealPolicyFromWalletSessionStores(input: {
   const walletBudgetStores = input.walletBudgetStores.filter(Boolean);
 
   function storesForLookup(
-    input: SigningSessionSealThresholdStatusLookup | SigningSessionSealWalletBudgetStatusLookup,
+    input: SigningSessionSealThresholdStatusLookup,
   ): readonly SigningSessionSealWalletSessionStore[] {
     return input.curve === 'ecdsa' ? ecdsaStores : ed25519Stores;
   }

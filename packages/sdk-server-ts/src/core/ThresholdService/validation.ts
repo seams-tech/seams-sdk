@@ -1131,21 +1131,7 @@ export type ParsedEd25519WalletSessionRecord = {
   nearEd25519SigningKeyId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   participantIds: number[];
-  walletBudgetBinding?: {
-    curve: 'ed25519' | 'ecdsa';
-    thresholdSessionId: string;
-  };
 } & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
-
-function parseWalletBudgetBinding(
-  raw: unknown,
-): ParsedEd25519WalletSessionRecord['walletBudgetBinding'] {
-  if (!isObject(raw)) return undefined;
-  const curve = toOptionalString(raw.curve);
-  const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
-  if ((curve !== 'ed25519' && curve !== 'ecdsa') || !thresholdSessionId) return undefined;
-  return { curve, thresholdSessionId };
-}
 
 export function parseEd25519WalletSessionRecord(
   raw: unknown,
@@ -1162,7 +1148,6 @@ export function parseEd25519WalletSessionRecord(
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
-  const walletBudgetBinding = parseWalletBudgetBinding(raw.walletBudgetBinding);
   if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) return null;
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
@@ -1185,7 +1170,6 @@ export function parseEd25519WalletSessionRecord(
     nearEd25519SigningKeyId,
     authorityScope,
     participantIds,
-    ...(walletBudgetBinding ? { walletBudgetBinding } : {}),
     ...(signingRootMetadata.value ? signingRootMetadata.value : {}),
   };
 }
@@ -1226,29 +1210,8 @@ export type ParsedWalletSigningBudgetSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
-  budgetScope: { kind: 'passkey_rp'; rpId: string } | { kind: 'wallet_key'; evmFamilySigningKeySlotId: string };
-  binding: {
-    curve: 'ed25519' | 'ecdsa';
-    thresholdSessionId: string;
-  };
   participantIds: number[];
 };
-
-function parseWalletSigningBudgetScope(
-  raw: unknown,
-): ParsedWalletSigningBudgetSessionRecord['budgetScope'] | null {
-  if (!isObject(raw)) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind === 'passkey_rp') {
-    const rpId = toOptionalString(raw.rpId);
-    return rpId ? { kind, rpId } : null;
-  }
-  if (kind === 'wallet_key') {
-    const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(raw.evmFamilySigningKeySlotId);
-    return evmFamilySigningKeySlotId ? { kind, evmFamilySigningKeySlotId } : null;
-  }
-  return null;
-}
 
 export function parseWalletSigningBudgetSessionRecord(
   raw: unknown,
@@ -1258,21 +1221,17 @@ export function parseWalletSigningBudgetSessionRecord(
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const walletId = toOptionalString(raw.walletId);
-  const budgetScope = parseWalletSigningBudgetScope(raw.budgetScope);
-  const binding = parseWalletBudgetBinding(raw.binding);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   if (kind !== 'wallet_signing_budget_session') return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !walletId || !budgetScope || !binding) return null;
+  if (!relayerKeyId || !walletId) return null;
   return {
     kind,
     expiresAtMs,
     relayerKeyId,
     walletId,
-    budgetScope,
-    binding,
     participantIds,
   };
 }

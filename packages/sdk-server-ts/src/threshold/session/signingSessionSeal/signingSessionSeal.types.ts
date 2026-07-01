@@ -142,9 +142,13 @@ export type SigningSessionSealThresholdSessionStatus =
     remainingUses: number;
   };
 
-export type SigningSessionSealWalletBudgetStatus = SigningSessionSealThresholdSessionRecord & {
+export type SigningSessionSealWalletBudgetStatus = {
   kind: 'wallet_budget';
   signingGrantId: string;
+  userId: string;
+  expiresAtMs: number;
+  relayerKeyId: string;
+  participantIds: readonly number[];
   committedRemainingUses: number;
   reservedUses: number;
   availableUses: number;
@@ -161,17 +165,9 @@ export type SigningSessionSealThresholdStatusLookup =
       thresholdSessionId: string;
     };
 
-export type SigningSessionSealWalletBudgetStatusLookup =
-  | {
-      curve: 'ecdsa';
-      signingGrantId: string;
-      thresholdSessionId: string;
-    }
-  | {
-      curve: 'ed25519';
-      signingGrantId: string;
-      thresholdSessionId: string;
-    };
+export type SigningSessionSealWalletBudgetStatusLookup = {
+  signingGrantId: string;
+};
 
 export type SigningSessionSealConsumeUseResult =
   | { ok: true; remainingUses?: number }

@@ -104,7 +104,7 @@ function sameParticipants(expected: readonly number[], actual: unknown): boolean
 
 function statusMatchesAuthScope(
   auth: VerifiedWalletSessionAuth,
-  status: SigningSessionSealThresholdSessionStatus | SigningSessionSealWalletBudgetStatus,
+  status: SigningSessionSealThresholdSessionStatus,
 ): boolean {
   switch (auth.curve) {
     case 'ecdsa':
@@ -141,9 +141,7 @@ function walletBudgetMatches(
     status &&
       status.kind === 'wallet_budget' &&
       status.signingGrantId === auth.signingGrantId &&
-      status.thresholdSessionId === auth.thresholdSessionId &&
       status.userId === auth.userId &&
-      statusMatchesAuthScope(auth, status) &&
       sameParticipants(auth.participantIds, status.participantIds),
   );
 }
@@ -287,9 +285,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
   });
   const curveStatus = selectMatchingCurveStatus(curveStatuses, args.auth);
   const walletBudgetStatus = await sessionPolicy.getWalletBudgetStatus({
-    curve: args.auth.curve,
     signingGrantId: args.auth.signingGrantId,
-    thresholdSessionId: args.auth.thresholdSessionId,
   });
   if (
     !curveStatus ||

@@ -2767,9 +2767,9 @@ export class AuthService {
     };
   }
 
-  private isHostedHmacReadableRelayerSubaccount(accountId: string): boolean {
+  private isHostedHmacReadableRelayerSubaccount(walletId: string): boolean {
     return isHostedHmacReadableRelayerWalletId({
-      walletId: accountId,
+      walletId,
       relayerAccount: this.config.relayerAccount,
     });
   }
