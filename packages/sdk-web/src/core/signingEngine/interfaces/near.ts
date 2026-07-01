@@ -89,6 +89,18 @@ export type NearEd25519StepUpAuthorization =
   | NearEd25519EmailOtpStepUpAuthorization
   | NearEd25519PasskeyStepUpAuthorization;
 
+export type NearEd25519PersistableSigningMaterial = {
+  materialHandle: Ed25519WorkerMaterialHandle;
+  bindingDigest: Ed25519WorkerMaterialBindingDigest;
+  clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+  sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
+  sealedWorkerMaterialB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
+  materialCreatedAtMs: number;
+  signerSlot: number;
+};
+
 export type NearResolvedEd25519SigningSessionState = {
   walletSessionAuth: NearResolvedEd25519WalletSessionAuth;
   thresholdSessionId: string;
@@ -101,18 +113,7 @@ export type NearResolvedEd25519SigningSessionState = {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   relayerUrl: string;
-  persistSigningMaterial: (material: {
-    materialHandle: Ed25519WorkerMaterialHandle;
-    bindingDigest: Ed25519WorkerMaterialBindingDigest;
-    clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
-    sealedWorkerMaterialRef?: Ed25519SealedWorkerMaterialRef;
-    sealedWorkerMaterialB64u?: string;
-    materialFormatVersion?: string;
-    materialKeyId?: Ed25519WorkerMaterialKeyId;
-    materialCreatedAtMs?: number;
-    signerSlot?: number;
-    keyVersion?: string;
-  }) => boolean;
+  persistSigningMaterial: (material: NearEd25519PersistableSigningMaterial) => boolean;
   signingWalletSession: RouterAbEd25519SigningWalletSession;
   sessionKind?: never;
 };

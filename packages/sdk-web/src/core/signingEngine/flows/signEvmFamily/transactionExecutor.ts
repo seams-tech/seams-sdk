@@ -6,9 +6,9 @@ import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { SigningSessionBudgetReserveResult } from '../../session/budget/budget';
-import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
+import type { EvmFamilySigningGrantBudgetReservationInput } from './signingFlow';
 import {
   evmReserveNonceInputToLane,
   type PreparedNonceOperationContext,
@@ -68,7 +68,7 @@ type EvmFamilyTransactionSigningExecutorArgs<TRequest extends EvmFamilyTransacti
     onConfirmationDisplayed: () => void;
     thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
     reserveSigningGrantBudget: (
-      operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
+      input: EvmFamilySigningGrantBudgetReservationInput,
     ) => Promise<SigningSessionBudgetReserveResult>;
     recordSuccessfulSigningGrantSpend: () => Promise<void>;
     recordFailedSigningGrantSpend: (error: unknown) => void;
@@ -210,7 +210,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   onConfirmationDisplayed: () => void;
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
   reserveSigningGrantBudget: (
-    operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
+    input: EvmFamilySigningGrantBudgetReservationInput,
   ) => Promise<SigningSessionBudgetReserveResult>;
   recordSuccessfulSigningGrantSpend: () => Promise<void>;
   recordFailedSigningGrantSpend: (error: unknown) => void;

@@ -184,7 +184,6 @@ export type ReauthAnchorSourceState = {
   availabilitySource:
     | 'durable_sealed_record'
     | 'runtime_session_record'
-    | 'runtime_and_durable'
     | 'evm_family_shared_key';
   storeSource: ThresholdEcdsaSessionStoreSource | ThresholdEd25519SessionStoreSource;
   retention: 'session' | 'single_use' | 'unknown';

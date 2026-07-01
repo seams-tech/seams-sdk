@@ -154,6 +154,7 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
   }
   const signingMaterialRef = buildRouterAbEd25519SigningMaterialRef({
     materialHandle: workerMaterial.materialHandle,
+    materialKeyId: material.materialBinding.materialKeyId,
     bindingDigest: workerMaterial.bindingDigest,
     clientVerifyingShareB64u: workerMaterial.clientVerifyingShareB64u,
   });

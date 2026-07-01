@@ -79,6 +79,7 @@ void warmAuthorizationMissingSigningGrant;
 
 const signingMaterialRef = buildRouterAbEd25519SigningMaterialRef({
   materialHandle: 'ed25519-material-handle',
+  materialKeyId: 'material-key-id',
   bindingDigest: 'binding-digest',
   clientVerifyingShareB64u: 'client-verifying-share',
 });

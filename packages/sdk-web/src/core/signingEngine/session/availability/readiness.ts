@@ -35,7 +35,7 @@ import {
 } from '../warmCapabilities/readModel';
 import { budgetUnknownSigningSessionStatus } from '../budget/budgetProjection';
 import {
-  availableUsesForBudgetAdmission,
+  committedUsesForBudgetAdmission,
   ecdsaWalletBudgetOwner,
   ed25519WalletBudgetOwner,
   isEcdsaLaneBudgetStatusCheck,
@@ -1067,7 +1067,7 @@ function admitActiveRecordPolicyLaneFromTrustedStatus(args: {
     expiresAtMs,
     ...(availableUsesValue !== undefined ? { availableUses: availableUsesValue } : {}),
   };
-  const availableUses = availableUsesForBudgetAdmission(activeStatus);
+  const committedUses = committedUsesForBudgetAdmission(activeStatus);
   if (expiresAtMs <= args.nowMs) {
     return {
       ok: false,
@@ -1075,7 +1075,7 @@ function admitActiveRecordPolicyLaneFromTrustedStatus(args: {
       message: 'record-policy signing session expired',
     };
   }
-  if (availableUses < args.uses) {
+  if (committedUses < args.uses) {
     return {
       ok: false,
       code: 'exhausted',
@@ -1084,7 +1084,7 @@ function admitActiveRecordPolicyLaneFromTrustedStatus(args: {
   }
   return {
     ok: true,
-    remainingUses: availableUses - args.uses,
+    remainingUses: committedUses - args.uses,
     expiresAtMs,
   };
 }

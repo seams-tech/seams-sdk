@@ -18,10 +18,10 @@ import type { listExactSealedSessionsForWallet } from '@/core/signingEngine/sess
 import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
-  runtimeEcdsaRecordClaimKey,
-  warmStatusToAvailableSigningLanesRuntimeClaim,
+  runtimeEcdsaRecordAdvisoryKey,
+  warmStatusToAvailableLaneStateAdvisory,
   type AvailableSigningLanes,
-  type AvailableSigningLanesRuntimeClaim,
+  type AvailableLaneStateAdvisory,
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
   type ReadAvailableSigningLanesInput,
@@ -183,7 +183,6 @@ export async function readEmailOtpPersistedSessionSnapshot(
           if (!laneCandidate) continue;
           const candidateAuthMethod = laneCandidateAuthMethod(laneCandidate);
           if (args.authMethod && args.authMethod !== candidateAuthMethod) continue;
-          if (!runtimeRecord.routerAbNormalSigning) continue;
           pushRecord({
             auth: laneCandidate.auth,
             curve: 'ed25519',
@@ -211,19 +210,19 @@ export async function readEmailOtpPersistedSessionSnapshot(
         }
         return records;
       },
-      readRuntimeEcdsaClaimsForRecords: async (runtimeRecords) => {
-        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+      readEcdsaWarmStatusAdvisoriesForRecords: async (runtimeRecords) => {
+        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
         await Promise.all(
           runtimeRecords.map(async (runtimeRecord) => {
-            const claimKey = runtimeEcdsaRecordClaimKey(runtimeRecord);
-            if (!claimKey) return;
+            const advisoryKey = runtimeEcdsaRecordAdvisoryKey(runtimeRecord);
+            if (!advisoryKey) return;
             const sessionId = String(runtimeRecord.thresholdSessionId || '').trim();
             const storedRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
               thresholdSessionId: sessionId,
               chainTarget: runtimeRecord.chainTarget,
             });
             if (!storedRecord || storedRecord.source !== SIGNER_AUTH_METHODS.emailOtp) {
-              claims.set(claimKey, null);
+              advisories.set(advisoryKey, null);
               return;
             }
             if (
@@ -232,35 +231,35 @@ export async function readEmailOtpPersistedSessionSnapshot(
               String(storedRecord.signingGrantId || '').trim() !==
                 String(runtimeRecord.signingGrantId || '').trim()
             ) {
-              claims.set(claimKey, null);
+              advisories.set(advisoryKey, null);
               return;
             }
             const statusSessionId = resolveEmailOtpEcdsaWorkerSessionId(storedRecord);
             if (!statusSessionId) {
-              claims.set(claimKey, null);
+              advisories.set(advisoryKey, null);
               return;
             }
             const status = await ports.readWarmSessionStatusOnly(statusSessionId);
-            claims.set(
-              claimKey,
-              warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status }),
+            advisories.set(
+              advisoryKey,
+              warmStatusToAvailableLaneStateAdvisory({ thresholdSessionId: sessionId, status }),
             );
           }),
         );
-        return claims;
+        return advisories;
       },
-      readRuntimeClaimsForSessions: async (sessionIds) => {
-        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+      readWarmStatusAdvisoriesForSessions: async (sessionIds) => {
+        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
         await Promise.all(
           sessionIds.map(async (sessionId) => {
             const status = await ports.readWarmSessionStatusOnly(sessionId);
-            claims.set(
+            advisories.set(
               sessionId,
-              warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status }),
+              warmStatusToAvailableLaneStateAdvisory({ thresholdSessionId: sessionId, status }),
             );
           }),
         );
-        return claims;
+        return advisories;
       },
     },
   );

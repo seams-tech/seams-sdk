@@ -337,7 +337,7 @@ function trustedStatusProjectionState(
     return {
       kind: 'known',
       trustedStatus: status,
-      effectiveRemainingUses: Math.max(0, Math.floor(Number(status.availableUses) || 0)),
+      effectiveRemainingUses: Math.max(0, Math.floor(Number(status.remainingUses) || 0)),
       projectionVersion,
     };
   }

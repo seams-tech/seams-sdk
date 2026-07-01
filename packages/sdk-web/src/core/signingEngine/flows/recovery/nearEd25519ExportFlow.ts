@@ -136,8 +136,8 @@ export function resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(
   if (participantIds.length === 0) return { ok: false, reason: 'missing_participant_ids' };
   if (!record.runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
   const routerAbNormalSigning = record.routerAbNormalSigning;
-  const signingWorkerId = nonEmptyString(routerAbNormalSigning?.signingWorkerId);
-  if (!routerAbNormalSigning || !signingWorkerId) {
+  const signingWorkerId = nonEmptyString(routerAbNormalSigning.signingWorkerId);
+  if (!signingWorkerId) {
     return { ok: false, reason: 'missing_router_ab_state' };
   }
   const expiresAtMs = positiveInteger(record.expiresAtMs);

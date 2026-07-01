@@ -56,6 +56,7 @@ void ed25519RouterAbNormalSigning;
 
 const ed25519SigningMaterial = buildRouterAbEd25519SigningMaterialRef({
   materialHandle: 'ed25519-worker-material:threshold-session-1:binding',
+  materialKeyId: 'material-key-id',
   bindingDigest: 'binding-digest',
   clientVerifyingShareB64u: 'client-verifying-share',
 });
@@ -193,6 +194,13 @@ const validEd25519SessionRecord = {
   clientVerifyingShareB64u: 'client-verifying-share',
   ed25519WorkerMaterialHandle: 'ed25519-worker-material:threshold-session-1:binding',
   ed25519WorkerMaterialBindingDigest: 'binding-digest',
+  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+  sealedWorkerMaterialB64u: 'sealed-worker-material-b64u',
+  materialFormatVersion: 'ed25519-worker-material-v1',
+  materialKeyId: 'ed25519-material-key-id',
+  materialCreatedAtMs: 1_800_000_000_000,
+  signerSlot: 1,
+  materialState: 'material_ready',
   routerAbNormalSigning: ed25519RouterAbNormalSigning,
   thresholdSessionKind: 'jwt',
   thresholdSessionId: 'threshold-session-1',

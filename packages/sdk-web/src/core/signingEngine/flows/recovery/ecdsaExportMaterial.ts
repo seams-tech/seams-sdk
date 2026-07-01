@@ -46,6 +46,11 @@ import {
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 
+export type EcdsaExportMaterialAvailability =
+  | { kind: 'loaded_worker_material' }
+  | { kind: 'sealed_worker_material' }
+  | { kind: 'material_pending'; reason: 'email_otp_route_auth' };
+
 export type ExactEcdsaExportLane = {
   curve: 'ecdsa';
   laneIdentity: ExactEcdsaSigningLaneIdentity;
@@ -58,6 +63,7 @@ export type ExactEcdsaExportLane = {
     thresholdSessionId: ThresholdEcdsaSessionId;
     state: ConcreteAvailableEcdsaSigningLane['state'];
     source: ConcreteAvailableEcdsaSigningLane['source'];
+    material: EcdsaExportMaterialAvailability;
     ecdsaThresholdKeyId?: never;
     signingRootId?: never;
     signingRootVersion?: never;

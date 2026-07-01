@@ -177,7 +177,7 @@ function ed25519ReconstructionKeyFromRecord(
       signerSlot,
     }),
     relayerKeyId: record.relayerKeyId,
-    keyVersion: record.keyVersion || EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+    keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
     participantIds: record.participantIds,
   };
 }

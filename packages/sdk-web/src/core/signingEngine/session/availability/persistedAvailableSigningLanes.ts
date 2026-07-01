@@ -39,13 +39,13 @@ import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
   runtimeEcdsaAvailableLaneIdentityKey,
-  runtimeEcdsaRecordClaimKey,
-  runtimeRecordPolicyClaim,
-  warmStatusToAvailableSigningLanesRuntimeClaim,
+  runtimeEcdsaRecordAdvisoryKey,
+  durableRecordPolicyAdvisory,
+  warmStatusToAvailableLaneStateAdvisory,
   type ReadAvailableSigningLanesForSigningInput,
   type ReadAvailableSigningLanesInput,
   type AvailableSigningLanes,
-  type AvailableSigningLanesRuntimeClaim,
+  type AvailableLaneStateAdvisory,
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
@@ -61,86 +61,104 @@ export type PersistedAvailableSigningLanesDeps = {
   ) => Promise<SigningSessionStatus | null>;
 };
 
-function applyWalletBudgetStatusToRuntimeClaim(args: {
+function applyWalletBudgetStatusToAdvisory(args: {
   sessionId: string;
-  localClaim: AvailableSigningLanesRuntimeClaim | null;
+  localAdvisory: AvailableLaneStateAdvisory | null;
   walletBudgetStatus: SigningSessionStatus | null;
-}): AvailableSigningLanesRuntimeClaim | null {
+}): AvailableLaneStateAdvisory | null {
   const budgetStatus = args.walletBudgetStatus;
-  if (!budgetStatus) return args.localClaim;
+  if (!budgetStatus) return args.localAdvisory;
   if (budgetStatus.status === 'active') {
     const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
-    if (args.localClaim?.state === 'record_policy') {
+    if (args.localAdvisory?.kind === 'durable_policy') {
       return {
-        state: 'record_policy',
+        kind: 'durable_policy',
         thresholdSessionId: args.sessionId,
         remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
-        expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localClaim.expiresAtMs,
-        laneState: args.localClaim.laneState,
+        expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
+        state: args.localAdvisory.state,
       };
     }
-    if (args.localClaim?.state !== 'warm') return args.localClaim;
+    if (
+      args.localAdvisory?.kind !== 'warm_status' ||
+      args.localAdvisory.status !== 'active'
+    ) {
+      return args.localAdvisory;
+    }
     return {
-      state: 'warm',
+      kind: 'warm_status',
+      status: 'active',
       thresholdSessionId: args.sessionId,
       remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
-      expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localClaim.expiresAtMs,
+      expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
     };
   }
   if (budgetStatus.status === 'not_found') {
-    return { state: 'missing', thresholdSessionId: args.sessionId, code: 'wallet_budget_not_found' };
+    return args.localAdvisory;
   }
-  if (budgetStatus.status === 'expired') return { state: 'expired', thresholdSessionId: args.sessionId };
+  if (budgetStatus.status === 'expired') {
+    return { kind: 'warm_status', status: 'expired', thresholdSessionId: args.sessionId };
+  }
   if (budgetStatus.status === 'exhausted') {
-    return { state: 'exhausted', thresholdSessionId: args.sessionId, remainingUses: 0 };
+    return {
+      kind: 'warm_status',
+      status: 'exhausted',
+      thresholdSessionId: args.sessionId,
+      remainingUses: 0,
+    };
   }
-  return {
-    state: 'unavailable',
-    thresholdSessionId: args.sessionId,
-    code: budgetStatus.status,
-  };
+  return args.localAdvisory;
 }
 
 async function readValidatedEd25519WarmClaim(args: {
   deps: Pick<PersistedAvailableSigningLanesDeps, 'statusReader' | 'getEmailOtpWarmSessionStatus'>;
   record: ThresholdEd25519SessionRecord;
   sessionId: string;
-}): Promise<AvailableSigningLanesRuntimeClaim | null> {
+}): Promise<AvailableLaneStateAdvisory | null> {
   const status =
     args.record.source === SIGNER_AUTH_METHODS.emailOtp
       ? await args.deps.getEmailOtpWarmSessionStatus(args.sessionId).catch(() => null)
       : await args.deps.statusReader
           .getWarmSessionStatus({ sessionId: args.sessionId })
           .catch(() => null);
-  return status
-    ? warmStatusToAvailableSigningLanesRuntimeClaim({
-        thresholdSessionId: args.sessionId,
-        status,
-      })
-    : null;
+  if (!status) return null;
+  const advisory = warmStatusToAvailableLaneStateAdvisory({
+    thresholdSessionId: args.sessionId,
+    status,
+  });
+  return advisory.kind === 'warm_status' &&
+    (advisory.status === 'cache_miss' || advisory.status === 'unavailable')
+    ? null
+    : advisory;
 }
 
 function policyClaimForEd25519PersistedState(args: {
   state: RouterAbEd25519PersistedSigningRecordState;
   sessionId: string;
-}): AvailableSigningLanesRuntimeClaim | null {
+}): AvailableLaneStateAdvisory | null {
   switch (args.state.kind) {
     case 'restore_available':
-      return runtimeRecordPolicyClaim({
+      return durableRecordPolicyAdvisory({
         thresholdSessionId: args.sessionId,
         remainingUses: args.state.record.remainingUses,
         expiresAtMs: args.state.record.expiresAtMs,
-        laneState: 'restorable',
+        state: 'restorable',
       });
     case 'material_hint_unvalidated':
     case 'auth_ready_material_pending':
-      return runtimeRecordPolicyClaim({
+      return durableRecordPolicyAdvisory({
         thresholdSessionId: args.sessionId,
         remainingUses: args.state.record.remainingUses,
         expiresAtMs: args.state.record.expiresAtMs,
-        laneState: 'deferred',
+        state: 'deferred',
       });
     case 'runtime_validated':
+      return durableRecordPolicyAdvisory({
+        thresholdSessionId: args.sessionId,
+        remainingUses: args.state.value.remainingUses,
+        expiresAtMs: args.state.value.expiresAtMs,
+        state: 'ready',
+      });
     case 'non_signing':
     case 'invalid':
       return null;
@@ -151,18 +169,25 @@ function policyClaimForEd25519PersistedState(args: {
   }
 }
 
-async function readEd25519RuntimeClaimForRecord(args: {
+async function readEd25519StateAdvisoryForRecord(args: {
   deps: Pick<PersistedAvailableSigningLanesDeps, 'statusReader' | 'getEmailOtpWarmSessionStatus'>;
   record: ThresholdEd25519SessionRecord | null | undefined;
   sessionId: string;
-}): Promise<AvailableSigningLanesRuntimeClaim | null> {
+}): Promise<AvailableLaneStateAdvisory | null> {
   const state = classifyRouterAbEd25519PersistedSigningRecord(args.record);
   if (state.kind === 'runtime_validated') {
-    return await readValidatedEd25519WarmClaim({
+    const warmAdvisory = await readValidatedEd25519WarmClaim({
       deps: args.deps,
       record: state.record,
       sessionId: args.sessionId,
     });
+    return (
+      warmAdvisory ||
+      policyClaimForEd25519PersistedState({
+        state,
+        sessionId: args.sessionId,
+      })
+    );
   }
   return policyClaimForEd25519PersistedState({
     state,
@@ -383,7 +408,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
           const authMethod =
             runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
           if (args.authMethod && args.authMethod !== authMethod) continue;
-          if (!runtimeRecord.routerAbNormalSigning) continue;
           const candidate = thresholdEd25519LaneCandidateFromSessionRecord({
             record: runtimeRecord,
           });
@@ -415,15 +439,15 @@ export async function readPersistedAvailableSigningLanesForTargets(
         }
         return records;
       },
-      readRuntimeEcdsaClaimsForRecords: async (runtimeRecords) => {
-        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+      readEcdsaWarmStatusAdvisoriesForRecords: async (runtimeRecords) => {
+        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
         await Promise.all(
           runtimeRecords.map(async (runtimeRecord) => {
-            const claimKey = runtimeEcdsaRecordClaimKey(runtimeRecord);
-            if (!claimKey) return;
+            const advisoryKey = runtimeEcdsaRecordAdvisoryKey(runtimeRecord);
+            if (!advisoryKey) return;
             const keyHandle = String(runtimeRecord.keyHandle || '').trim();
             if (!keyHandle) {
-              claims.set(claimKey, null);
+              advisories.set(advisoryKey, null);
               return;
             }
             const sessionId = String(runtimeRecord.thresholdSessionId || '').trim();
@@ -439,9 +463,9 @@ export async function readPersistedAvailableSigningLanesForTargets(
               signingGrantId,
               thresholdSessionId: sessionId,
             });
-            let localClaim: AvailableSigningLanesRuntimeClaim | null = null;
+            let localAdvisory: AvailableLaneStateAdvisory | null = null;
             if (!ecdsaRecord) {
-              localClaim = null;
+              localAdvisory = null;
             } else if (ecdsaRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
               const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
                 record: ecdsaRecord,
@@ -456,21 +480,21 @@ export async function readPersistedAvailableSigningLanesForTargets(
                     roleLocalState.inlineSigningMaterial.workerSessionId,
                   )
                   .catch(() => null);
-                localClaim = status
-                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
+                localAdvisory = status
+                  ? warmStatusToAvailableLaneStateAdvisory({ thresholdSessionId: sessionId, status })
                   : null;
               } else if (
                 roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
                 roleLocalState.inlineSigningMaterial.kind === 'role_local_ready_state_blob'
               ) {
-                localClaim = runtimeRecordPolicyClaim({
+                localAdvisory = durableRecordPolicyAdvisory({
                   thresholdSessionId: sessionId,
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
-                  laneState: 'restorable',
+                  state: 'restorable',
                 });
               } else {
-                localClaim = null;
+                localAdvisory = null;
               }
             } else {
               const materialState = classifyRouterAbEcdsaHssPersistedSigningRecord(ecdsaRecord);
@@ -478,25 +502,25 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 const status = await deps.statusReader
                   .getWarmSessionStatus({ sessionId })
                   .catch(() => null);
-                localClaim = status
-                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
+                localAdvisory = status
+                  ? warmStatusToAvailableLaneStateAdvisory({ thresholdSessionId: sessionId, status })
                   : null;
               } else if (materialState.kind === 'restore_available') {
-                localClaim = runtimeRecordPolicyClaim({
+                localAdvisory = durableRecordPolicyAdvisory({
                   thresholdSessionId: sessionId,
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
-                  laneState: 'restorable',
+                  state: 'restorable',
                 });
               } else if (materialState.kind === 'material_hint_unvalidated') {
-                localClaim = runtimeRecordPolicyClaim({
+                localAdvisory = durableRecordPolicyAdvisory({
                   thresholdSessionId: sessionId,
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
-                  laneState: 'deferred',
+                  state: 'deferred',
                 });
               } else {
-                localClaim = null;
+                localAdvisory = null;
               }
             }
             const walletBudgetStatus =
@@ -514,25 +538,25 @@ export async function readPersistedAvailableSigningLanesForTargets(
                     )
                     .catch(() => null)
                 : null;
-            claims.set(
-              claimKey,
-              applyWalletBudgetStatusToRuntimeClaim({
+            advisories.set(
+              advisoryKey,
+              applyWalletBudgetStatusToAdvisory({
                 sessionId,
-                localClaim,
+                localAdvisory,
                 walletBudgetStatus,
               }),
             );
           }),
         );
-        return claims;
+        return advisories;
       },
-      readRuntimeClaimsForSessions: async (sessionIds) => {
-        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+      readWarmStatusAdvisoriesForSessions: async (sessionIds) => {
+        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
         await Promise.all(
           sessionIds.map(async (sessionId) => {
             const ed25519Record =
               getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
-            const localClaim = await readEd25519RuntimeClaimForRecord({
+            const localAdvisory = await readEd25519StateAdvisoryForRecord({
               deps,
               record: ed25519Record,
               sessionId,
@@ -552,17 +576,17 @@ export async function readPersistedAvailableSigningLanesForTargets(
                     )
                     .catch(() => null)
                 : null;
-            claims.set(
+            advisories.set(
               sessionId,
-              applyWalletBudgetStatusToRuntimeClaim({
+              applyWalletBudgetStatusToAdvisory({
                 sessionId,
-                localClaim,
+                localAdvisory,
                 walletBudgetStatus,
               }),
             );
           }),
         );
-        return claims;
+        return advisories;
       },
     },
   );

@@ -9,6 +9,7 @@ import type {
 import {
   ecdsaLaneCandidateFromAvailableLane,
   ecdsaAvailableLaneCandidatesForTarget,
+  ed25519AvailableLaneIdentityKey,
   ed25519LaneCandidateFromAvailableLane,
   isConcreteAvailableSigningLane,
 } from '../availability/availableSigningLanes';
@@ -24,6 +25,12 @@ import {
   type SelectedLane,
 } from './laneIdentity';
 import type { SigningAuthMethod } from '../operationState/types';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+  type Ed25519WorkerMaterialBindingDigest,
+  type Ed25519WorkerMaterialKeyId,
+} from '../keyMaterialBrands';
 import type {
   EvmFamilyEcdsaTransactionSigningIntent,
   TransactionLane,
@@ -35,7 +42,6 @@ export type TransactionLaneSelectionFailure =
   | { kind: 'unsupported_intent'; curve: string; chain: string }
   | { kind: 'no_candidate'; authMethod?: SigningAuthMethod }
   | { kind: 'duplicate_authority_records'; allowedAuthMethods: readonly SigningAuthMethod[] }
-  | { kind: 'incomplete_candidate'; missing: readonly string[] }
   | { kind: 'policy_blocked'; reason: string };
 
 export type NearEd25519AvailableLane = AvailableEd25519SigningLane &
@@ -50,12 +56,49 @@ export type TransactionConcreteAvailableLane =
   | NearEd25519AvailableLane
   | EvmFamilyEcdsaAvailableLane;
 
+export type Ed25519LaneAuthorityKey = string & { readonly __brand: 'Ed25519LaneAuthorityKey' };
+
+export type NearEd25519TransactionReadyAvailableLane = Omit<
+  NearEd25519AvailableLane,
+  'source' | 'ed25519WorkerMaterialBindingDigest' | 'materialKeyId'
+> & {
+  state: 'ready' | 'restorable';
+};
+
+export type Ed25519TransactionMaterialIdentity = {
+  bindingDigest: Ed25519WorkerMaterialBindingDigest;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
+};
+
+export type Ed25519TransactionMaterialAvailability =
+  | {
+      kind: 'loaded_worker_material';
+      identity: Ed25519TransactionMaterialIdentity;
+    }
+  | {
+      kind: 'sealed_worker_material';
+      identity: Ed25519TransactionMaterialIdentity;
+    };
+
+export type NearEd25519TransactionMaterial = Ed25519TransactionMaterialAvailability;
+
+export type NearEd25519TransactionReadyLane = TransactionCandidatePair<
+  Ed25519LaneCandidate,
+  NearEd25519TransactionReadyAvailableLane
+> & {
+  kind: 'near_ed25519_transaction_ready_lane';
+  selectedLane: SelectedEd25519Lane;
+  authorityKey: Ed25519LaneAuthorityKey;
+  material: NearEd25519TransactionMaterial;
+};
+
 export type TransactionLaneSelectionResult =
   | {
       ok: true;
       lane: TransactionLane;
       candidate: LaneCandidate;
       availableLane: TransactionConcreteAvailableLane;
+      selectionCandidate: ConcreteTransactionCandidate;
     }
   | { ok: false; failure: TransactionLaneSelectionFailure };
 
@@ -64,18 +107,13 @@ type TransactionCandidatePair<TCandidate extends LaneCandidate, TAvailableLane> 
   availableLane: TAvailableLane;
 };
 
-type NearEd25519TransactionCandidate = TransactionCandidatePair<
-  Ed25519LaneCandidate,
-  NearEd25519AvailableLane
->;
-
 type EvmFamilyEcdsaTransactionCandidate = TransactionCandidatePair<
   EcdsaLaneCandidate,
   EvmFamilyEcdsaAvailableLane
 >;
 
-type ConcreteTransactionCandidate =
-  | NearEd25519TransactionCandidate
+export type ConcreteTransactionCandidate =
+  | NearEd25519TransactionReadyLane
   | EvmFamilyEcdsaTransactionCandidate;
 
 export type TransactionIntentReceivedState = {
@@ -87,19 +125,20 @@ export type TransactionAvailableLanesReadState = {
   tag: 'AvailableLanesRead';
   intent: TransactionSigningIntent;
   availableLanes: AvailableSigningLanes | null;
-  currentRuntimeLane?: AvailableEd25519SigningLane | AvailableEcdsaSigningLane | null;
 };
 
 export type TransactionLaneSelectedState<
   TLane extends TransactionLane = TransactionLane,
   TAvailableLane extends TransactionConcreteAvailableLane = TransactionConcreteAvailableLane,
   TCandidate extends LaneCandidate = LaneCandidate,
+  TSelectionCandidate extends ConcreteTransactionCandidate = ConcreteTransactionCandidate,
 > = {
   tag: 'LaneSelected';
   intent: TransactionSigningIntent;
   lane: TLane;
   candidate: TCandidate;
   availableLane: TAvailableLane;
+  selectionCandidate: TSelectionCandidate;
 };
 
 export type TransactionLaneSelectionFailedState = {
@@ -111,7 +150,6 @@ export type TransactionLaneSelectionFailedState = {
 export type SelectTransactionLaneInput = {
   intent: TransactionSigningIntent;
   availableLanes: AvailableSigningLanes | null;
-  currentRuntimeLane?: AvailableEd25519SigningLane | AvailableEcdsaSigningLane | null;
 };
 
 export function receiveTransactionIntent(
@@ -124,16 +162,12 @@ export function recordAvailableSigningLanesRead(
   state: TransactionIntentReceivedState,
   args: {
     availableLanes: AvailableSigningLanes | null;
-    currentRuntimeLane?: AvailableEd25519SigningLane | AvailableEcdsaSigningLane | null;
   },
 ): TransactionAvailableLanesReadState {
   return {
     tag: 'AvailableLanesRead',
     intent: state.intent,
     availableLanes: args.availableLanes,
-    ...(args.currentRuntimeLane !== undefined
-      ? { currentRuntimeLane: args.currentRuntimeLane }
-      : {}),
   };
 }
 
@@ -159,31 +193,110 @@ function isConcreteEvmFamilyEcdsaLane(
   );
 }
 
-function missingConcreteFields(
-  lane: AvailableEd25519SigningLane | AvailableEcdsaSigningLane | null | undefined,
-): string[] {
-  if (!lane) return ['lane'];
-  const missing: string[] = [];
-  if (!('auth' in lane) || (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey')) {
-    missing.push('auth');
-  }
-  if (!('signingGrantId' in lane) || !String(lane.signingGrantId || '').trim()) {
-    missing.push('signingGrantId');
-  }
-  if (!('thresholdSessionId' in lane) || !String(lane.thresholdSessionId || '').trim()) {
-    missing.push('thresholdSessionId');
-  }
-  return missing;
+function nonEmptyString(value: unknown): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized ? normalized : null;
 }
 
-function hasEd25519TransactionMaterial(
+function toEd25519LaneAuthorityKey(lane: NearEd25519AvailableLane): Ed25519LaneAuthorityKey | null {
+  const key = ed25519AvailableLaneIdentityKey(lane);
+  return key ? (key as Ed25519LaneAuthorityKey) : null;
+}
+
+function nearEd25519TransactionReadyState(
+  lane: NearEd25519AvailableLane,
+): NearEd25519TransactionReadyAvailableLane['state'] | null {
+  if (lane.state === 'ready') return 'ready';
+  if (lane.state === 'restorable') return 'restorable';
+  return null;
+}
+
+function nearEd25519TransactionReadyAvailableLaneProjection(
+  lane: NearEd25519AvailableLane,
+): NearEd25519TransactionReadyAvailableLane {
+  const state = nearEd25519TransactionReadyState(lane);
+  if (!state) {
+    throw new Error('[SigningSessionSelectLane] Ed25519 lane is not transaction-ready');
+  }
+  return {
+    auth: lane.auth,
+    curve: 'ed25519',
+    chain: 'near',
+    walletId: lane.walletId,
+    nearAccountId: lane.nearAccountId,
+    nearEd25519SigningKeyId: lane.nearEd25519SigningKeyId,
+    signerSlot: lane.signerSlot,
+    state,
+    signingGrantId: lane.signingGrantId,
+    thresholdSessionId: lane.thresholdSessionId,
+    ...(lane.remainingUses == null ? {} : { remainingUses: lane.remainingUses }),
+    ...(lane.expiresAtMs == null ? {} : { expiresAtMs: lane.expiresAtMs }),
+    ...(lane.policyHint ? { policyHint: lane.policyHint } : {}),
+    ...(lane.updatedAtMs == null ? {} : { updatedAtMs: lane.updatedAtMs }),
+  };
+}
+
+export function ed25519TransactionMaterialAvailabilityFromLane(
   lane: AvailableEd25519SigningLane | null | undefined,
-): lane is NearEd25519AvailableLane {
-  return (
-    isConcreteNearEd25519Lane(lane) &&
-    Boolean(String(lane.ed25519WorkerMaterialBindingDigest || '').trim()) &&
-    Boolean(String(lane.materialKeyId || '').trim())
-  );
+): NearEd25519TransactionMaterial | null {
+  if (!isConcreteNearEd25519Lane(lane)) return null;
+  const state = nearEd25519TransactionReadyState(lane);
+  if (!state) return null;
+  const bindingDigest = nonEmptyString(lane.ed25519WorkerMaterialBindingDigest);
+  const materialKeyId = nonEmptyString(lane.materialKeyId);
+  if (!bindingDigest || !materialKeyId) return null;
+  const identity = {
+    bindingDigest: parseEd25519WorkerMaterialBindingDigest(bindingDigest),
+    materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
+  };
+  if (state === 'ready') {
+    return {
+      kind: 'loaded_worker_material',
+      identity,
+    };
+  }
+  return {
+    kind: 'sealed_worker_material',
+    identity,
+  };
+}
+
+export function toNearEd25519TransactionReadyLane(
+  lane: AvailableEd25519SigningLane | null | undefined,
+): NearEd25519TransactionReadyLane | null {
+  if (!isConcreteNearEd25519Lane(lane)) return null;
+  if (!nearEd25519TransactionReadyState(lane)) return null;
+  const material = ed25519TransactionMaterialAvailabilityFromLane(lane);
+  if (!material) return null;
+  const authorityKey = toEd25519LaneAuthorityKey(lane);
+  if (!authorityKey) return null;
+  const candidate = ed25519LaneCandidateFromAvailableLane({ lane });
+  if (!candidate) return null;
+  const availableLane = nearEd25519TransactionReadyAvailableLaneProjection(lane);
+  return {
+    kind: 'near_ed25519_transaction_ready_lane',
+    candidate,
+    availableLane,
+    selectedLane: selectedEd25519Lane({
+      walletId: candidate.walletId,
+      nearAccountId: candidate.nearAccountId,
+      nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
+      signerSlot: candidate.signerSlot,
+      auth: candidate.auth,
+      signingGrantId: candidate.signingGrantId,
+      thresholdSessionId: candidate.thresholdSessionId,
+    }),
+    authorityKey,
+    material,
+  };
+}
+
+export function listNearEd25519TransactionReadyLanes(
+  lanes: readonly AvailableEd25519SigningLane[] | null | undefined,
+): NearEd25519TransactionReadyLane[] {
+  return (lanes || [])
+    .map(toNearEd25519TransactionReadyLane)
+    .filter((lane): lane is NearEd25519TransactionReadyLane => lane !== null);
 }
 
 function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
@@ -255,69 +368,14 @@ function selectSelectedEd25519Lane(
   input: SelectTransactionLaneInput,
 ): TransactionLaneSelectionResult {
   const intent = input.intent;
-  const runtimeLane = input.currentRuntimeLane || null;
-  if (runtimeLane && !isConcreteNearEd25519Lane(runtimeLane as AvailableEd25519SigningLane)) {
-    return {
-      ok: false,
-      failure: {
-        kind: 'incomplete_candidate',
-        missing: missingConcreteFields(runtimeLane),
-      },
-    };
-  }
-
-  const nearRuntimeLane = runtimeLane as NearEd25519AvailableLane | null;
-
-  // Runtime lanes are accepted only after availability assembly has produced a
-  // concrete candidate. Account metadata cannot create or override this anchor.
-  if (nearRuntimeLane && hasEd25519TransactionMaterial(nearRuntimeLane)) {
-    const candidate = ed25519LaneCandidateFromAvailableLane({
-      lane: nearRuntimeLane,
-    });
-    if (!candidate) {
-      return {
-        ok: false,
-        failure: {
-          kind: 'incomplete_candidate',
-          missing: missingConcreteFields(nearRuntimeLane),
-        },
-      };
-    }
-    if (
-      intent.authSelectionPolicy.kind === 'explicit' &&
-      laneCandidateAuthMethod(candidate) !== intent.authSelectionPolicy.authMethod
-    ) {
-      return {
-        ok: false,
-        failure: {
-          kind: 'policy_blocked',
-          reason: 'explicit auth method does not match current runtime lane',
-        },
-      };
-    }
-    return {
-      ok: true,
-      lane: selectedLaneFromCandidate(candidate) as SelectedEd25519Lane,
-      candidate,
-      availableLane: nearRuntimeLane,
-    };
-  }
-
   const concreteCandidates =
     input.availableLanes?.candidates?.ed25519?.near
-      ?.filter(hasEd25519TransactionMaterial)
-      .map((availableLane) => ({
-        availableLane,
-        candidate: ed25519LaneCandidateFromAvailableLane({
-          lane: availableLane,
-        }),
-      }))
-      .filter((entry): entry is NearEd25519TransactionCandidate => entry.candidate !== null) || [];
+      ? listNearEd25519TransactionReadyLanes(input.availableLanes.candidates.ed25519.near)
+      : [];
   return selectConcreteTransactionCandidate({
     intent,
     candidates: concreteCandidates,
-    buildLane: (entry) =>
-      selectedLaneFromCandidate(entry.candidate) as SelectedEd25519Lane,
+    buildLane: (entry) => entry.selectedLane,
   });
 }
 
@@ -325,64 +383,6 @@ function selectEvmFamilyEcdsaTransactionLane(
   input: SelectTransactionLaneInput & { intent: EvmFamilyEcdsaTransactionSigningIntent },
 ): TransactionLaneSelectionResult {
   const intent = input.intent;
-  const runtimeLane = input.currentRuntimeLane || null;
-  if (
-    runtimeLane &&
-    !isConcreteEvmFamilyEcdsaLane(runtimeLane as AvailableEcdsaSigningLane)
-  ) {
-    return {
-      ok: false,
-      failure: {
-        kind: 'incomplete_candidate',
-        missing: missingConcreteFields(runtimeLane),
-      },
-    };
-  }
-
-  const ecdsaRuntimeLane = runtimeLane as EvmFamilyEcdsaAvailableLane | null;
-  if (ecdsaRuntimeLane) {
-    const candidate = ecdsaLaneCandidateFromAvailableLane({
-      walletId: intent.walletId,
-      lane: ecdsaRuntimeLane,
-    });
-    if (!candidate) {
-      return {
-        ok: false,
-        failure: {
-          kind: 'incomplete_candidate',
-          missing: missingConcreteFields(ecdsaRuntimeLane),
-        },
-      };
-    }
-    if (!thresholdEcdsaChainTargetsEqual(ecdsaRuntimeLane.chainTarget, intent.chainTarget)) {
-      return {
-        ok: false,
-        failure: {
-          kind: 'policy_blocked',
-          reason: 'current runtime lane chain does not match requested chain target',
-        },
-      };
-    }
-    if (
-      intent.authSelectionPolicy.kind === 'explicit' &&
-      laneCandidateAuthMethod(candidate) !== intent.authSelectionPolicy.authMethod
-    ) {
-      return {
-        ok: false,
-        failure: {
-          kind: 'policy_blocked',
-          reason: 'explicit auth method does not match current runtime lane',
-        },
-      };
-    }
-    return {
-      ok: true,
-      lane: selectedEvmFamilyLaneFromCandidate({ intent, candidate }),
-      candidate,
-      availableLane: ecdsaRuntimeLane,
-    };
-  }
-
   const concreteCandidates = input.availableLanes
     ? ecdsaAvailableLaneCandidatesForTarget(input.availableLanes, intent.chainTarget)
         .filter(isConcreteEvmFamilyEcdsaLane)
@@ -413,6 +413,17 @@ function selectedEvmFamilyLaneFromCandidate(args: {
   return selectedLaneFromCandidate(args.candidate) as SelectedEcdsaLane;
 }
 
+function transactionCandidatesAllowedByAuthPolicy<TCandidate extends ConcreteTransactionCandidate>(
+  intent: TransactionSigningIntent,
+  candidates: readonly TCandidate[],
+): readonly TCandidate[] {
+  if (intent.authSelectionPolicy.kind === 'any') return candidates;
+  const policyAuthMethod = intent.authSelectionPolicy.authMethod;
+  return candidates.filter(
+    (candidate) => laneCandidateAuthMethod(candidate.candidate) === policyAuthMethod,
+  );
+}
+
 function selectConcreteTransactionCandidate<
   TCandidate extends ConcreteTransactionCandidate,
   TLane extends TransactionLane,
@@ -422,15 +433,7 @@ function selectConcreteTransactionCandidate<
   buildLane: (candidate: TCandidate) => TLane;
 }): TransactionLaneSelectionResult {
   const { intent } = args;
-  const candidates =
-    intent.authSelectionPolicy.kind === 'any'
-      ? args.candidates
-      : (() => {
-          const policyAuthMethod = intent.authSelectionPolicy.authMethod;
-          return args.candidates.filter(
-            (candidate) => laneCandidateAuthMethod(candidate.candidate) === policyAuthMethod,
-          );
-        })();
+  const candidates = transactionCandidatesAllowedByAuthPolicy(intent, args.candidates);
 
   if (!candidates.length) {
     return {
@@ -458,6 +461,7 @@ function selectConcreteTransactionCandidate<
     lane: args.buildLane(selected),
     candidate: selected.candidate,
     availableLane: selected.availableLane,
+    selectionCandidate: selected,
   };
 }
 
@@ -467,7 +471,6 @@ export function selectTransactionLaneFromAvailableLanes(
   const selection = selectTransactionLane({
     intent: state.intent,
     availableLanes: state.availableLanes,
-    currentRuntimeLane: state.currentRuntimeLane,
   });
   if (!selection.ok) {
     return {
@@ -482,5 +485,6 @@ export function selectTransactionLaneFromAvailableLanes(
     lane: selection.lane,
     candidate: selection.candidate,
     availableLane: selection.availableLane,
+    selectionCandidate: selection.selectionCandidate,
   };
 }

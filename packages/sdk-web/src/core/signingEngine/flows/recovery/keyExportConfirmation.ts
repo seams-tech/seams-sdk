@@ -180,7 +180,11 @@ export async function requestEmailOtpKeyExportAuthorization(
     identity:
       args.kind === 'wallet_session_export_auth'
         ? { kind: 'wallet_session', walletId: accountIdForUi }
-        : { kind: 'near_account', nearAccountId: accountIdForUi },
+        : {
+            kind: 'near_account',
+            walletId: String(args.walletSession.walletId),
+            nearAccountId: args.nearAccountId,
+          },
     chain: args.chain,
     publicKey: args.publicKey,
     curve: args.curve,

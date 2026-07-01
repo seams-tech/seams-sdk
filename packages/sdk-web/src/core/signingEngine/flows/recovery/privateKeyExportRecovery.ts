@@ -25,14 +25,14 @@ function createExportRecoveryError(args: {
 
 function emitExportRecoveryTelemetry(args: {
   event: 'signer.export.worker_boundary_required';
-  accountId: string;
+  subjectId: string;
   signerSlot?: number;
   reason: string;
 }): void {
   // Structured logs are currently the canonical low-overhead telemetry surface in wallet origin.
   console.warn('[signer-export-telemetry]', {
     event: args.event,
-    accountId: args.accountId,
+    subjectId: args.subjectId,
     ...(typeof args.signerSlot === 'number' ? { signerSlot: args.signerSlot } : {}),
     reason: args.reason,
     timestamp: Date.now(),
@@ -40,13 +40,13 @@ function emitExportRecoveryTelemetry(args: {
 }
 
 function throwExportWorkerBoundaryRequired(args: {
-  accountId: string;
+  subjectId: string;
   signerSlot?: number;
   reason: string;
 }): never {
   emitExportRecoveryTelemetry({
     event: 'signer.export.worker_boundary_required',
-    accountId: args.accountId,
+    subjectId: args.subjectId,
     signerSlot: args.signerSlot,
     reason: args.reason,
   });
@@ -71,7 +71,7 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
   const accountId = toAccountId(args.nearAccountId);
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwExportWorkerBoundaryRequired({
-      accountId,
+      subjectId: accountId,
       reason: 'missing_export_worker_operation',
     });
   }
@@ -111,7 +111,7 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
         message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
       ) {
         throwExportWorkerBoundaryRequired({
-          accountId,
+          subjectId: accountId,
           signerSlot,
           reason: 'worker_missing_export_operation',
         });
@@ -169,7 +169,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   const walletId = String(parsedWalletId.value);
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwExportWorkerBoundaryRequired({
-      accountId: walletId,
+      subjectId: walletId,
       reason: 'missing_export_worker_operation',
     });
   }
@@ -204,7 +204,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
         message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
       ) {
         throwExportWorkerBoundaryRequired({
-          accountId: walletId,
+          subjectId: walletId,
           reason: 'worker_missing_export_operation',
         });
       }

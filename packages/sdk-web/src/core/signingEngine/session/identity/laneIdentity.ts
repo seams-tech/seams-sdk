@@ -186,7 +186,6 @@ export type LaneCandidateState = 'ready' | 'restorable' | 'deferred' | 'expired'
 export type LaneCandidateSource =
   | 'durable_sealed_record'
   | 'runtime_session_record'
-  | 'runtime_and_durable'
   | 'evm_family_shared_key'
   | 'unknown';
 

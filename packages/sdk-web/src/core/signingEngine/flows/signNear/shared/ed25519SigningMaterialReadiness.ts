@@ -1,7 +1,11 @@
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import { restoreThresholdEd25519WorkerMaterialNearSignerWasm } from '@/core/signingEngine/chains/near/nearSignerWasm';
 import {
+  isThresholdEd25519MaterialReadyRecord,
+  isThresholdEd25519RestoreAvailableRecord,
   persistStoredThresholdEd25519SessionMaterialHandle,
+  type ThresholdEd25519MaterialReadySessionRecord,
+  type ThresholdEd25519RestoreAvailableSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
@@ -9,6 +13,7 @@ import {
   classifyRouterAbEd25519PersistedSigningRecord,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
   resolveRouterAbEd25519SigningRootFromRecord,
+  routerAbEd25519WorkerMaterialIdentityFromPersistedState,
   type RouterAbEd25519PersistedSigningRecordState,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -256,6 +261,13 @@ async function requireLoadedRouterAbEd25519SigningMaterial(args: {
       reason: 'pending_material',
     });
   }
+  if (!isThresholdEd25519MaterialReadyRecord(args.record)) {
+    throwEd25519MaterialRestoreRequired({
+      operation: args.operation,
+      thresholdSessionId: args.thresholdSessionId,
+      reason: 'pending_material',
+    });
+  }
   const routerAbReadyState = requireRouterAbEd25519NormalSigningReadyState({
     state: walletSessionState,
     thresholdSessionId: args.thresholdSessionId,
@@ -305,6 +317,18 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
       thresholdSessionId: args.thresholdSessionId,
     });
   }
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  if (
+    !routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState) ||
+    (!isThresholdEd25519MaterialReadyRecord(args.record) &&
+      !isThresholdEd25519RestoreAvailableRecord(args.record))
+  ) {
+    throwEd25519MaterialRestoreRequired({
+      operation: args.operation,
+      thresholdSessionId: args.thresholdSessionId,
+      reason: 'pending_material',
+    });
+  }
   const material = await buildExpectedWorkerMaterialBindingForRestore({
     record: args.record,
     operation: args.operation,
@@ -344,7 +368,6 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
     materialKeyId: restored.materialKeyId,
     materialCreatedAtMs: material.materialBinding.createdAtMs,
     signerSlot: restored.signerSlot,
-    keyVersion: args.thresholdKeyMaterial.keyVersion,
   });
   if (!persistedRecord) {
     throw new Error('Router A/B Ed25519 restored worker material persistence failed');
@@ -388,24 +411,24 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
 }
 
 async function buildExpectedWorkerMaterialBindingForRestore(args: {
-  record: ThresholdEd25519SessionRecord;
+  record:
+    | ThresholdEd25519MaterialReadySessionRecord
+    | ThresholdEd25519RestoreAvailableSessionRecord;
   operation: Ed25519MaterialRestoreOperation;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
 }): Promise<Awaited<ReturnType<typeof buildRouterAbEd25519WorkerMaterialBinding>>> {
-  const materialCreatedAtMs = Math.floor(Number(args.record.materialCreatedAtMs) || 0);
-  if (materialCreatedAtMs <= 0) {
-    throwEd25519MaterialRestoreRequired({
-      operation: args.operation,
-      thresholdSessionId: args.thresholdSessionId,
-      reason: 'restore_available',
-    });
-  }
   const signingRoot = resolveRouterAbEd25519SigningRootFromRecord(args.record);
   if (!signingRoot.ok) {
     throw new Error(
       `Router A/B Ed25519 sealed material signing root invalid: ${signingRoot.reason}`,
     );
+  }
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  const materialIdentity =
+    routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
+  if (!materialIdentity) {
+    throw new Error('Router A/B Ed25519 sealed material identity is missing');
   }
   const material = await buildRouterAbEd25519WorkerMaterialBinding({
     nearAccountId: String(args.record.nearAccountId || '').trim(),
@@ -417,15 +440,12 @@ async function buildExpectedWorkerMaterialBindingForRestore(args: {
     clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
       args.record.clientVerifyingShareB64u,
     ),
-    createdAtMs: materialCreatedAtMs,
+    createdAtMs: args.record.materialCreatedAtMs,
   });
-  if (
-    material.materialBindingDigest !==
-    String(args.record.ed25519WorkerMaterialBindingDigest || '').trim()
-  ) {
+  if (material.materialBindingDigest !== materialIdentity.bindingDigest) {
     throw new Error('Router A/B Ed25519 sealed material binding digest mismatch');
   }
-  if (material.materialBinding.materialKeyId !== String(args.record.materialKeyId || '').trim()) {
+  if (material.materialBinding.materialKeyId !== materialIdentity.materialKeyId) {
     throw new Error('Router A/B Ed25519 sealed material key id mismatch');
   }
   if (String(args.thresholdKeyMaterial.nearAccountId) !== material.materialBinding.nearAccountId) {
@@ -444,23 +464,20 @@ async function buildExpectedWorkerMaterialBindingForRestore(args: {
 }
 
 function sealedMaterialTransportFromRecord(
-  record: ThresholdEd25519SessionRecord,
+  record:
+    | ThresholdEd25519MaterialReadySessionRecord
+    | ThresholdEd25519RestoreAvailableSessionRecord,
 ): ThresholdEd25519RestoreWorkerMaterialRequest['sealedMaterial'] {
-  const sealedWorkerMaterialRef = String(record.sealedWorkerMaterialRef || '').trim();
-  const sealedWorkerMaterialB64u = String(record.sealedWorkerMaterialB64u || '').trim();
-  if (!sealedWorkerMaterialRef) {
-    throw new Error('Router A/B Ed25519 sealed worker material ref is missing');
-  }
-  if (sealedWorkerMaterialB64u) {
+  if (record.sealedWorkerMaterialB64u) {
     return {
       kind: 'inline_sealed_blob',
-      sealedWorkerMaterialRef,
-      sealedWorkerMaterialB64u,
+      sealedWorkerMaterialRef: record.sealedWorkerMaterialRef,
+      sealedWorkerMaterialB64u: record.sealedWorkerMaterialB64u,
     };
   }
   return {
     kind: 'storage_ref',
-    sealedWorkerMaterialRef,
+    sealedWorkerMaterialRef: record.sealedWorkerMaterialRef,
   };
 }
 

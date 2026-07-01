@@ -23,6 +23,7 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
+import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   createSigningFlowEvent,
   SigningEventPhase,
@@ -42,7 +43,6 @@ import {
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { SigningOperationContext, SigningSessionPlan } from '../../session/operationState/types';
-import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningOperationCommandKind,
@@ -192,8 +192,13 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   onConfirmationDisplayed?: () => void;
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
   reserveSigningGrantBudget?: (
-    operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
+    input: EvmFamilySigningGrantBudgetReservationInput,
   ) => Promise<SigningSessionBudgetReserveResult>;
+};
+
+export type EvmFamilySigningGrantBudgetReservationInput = {
+  operation: BudgetAdmittedOperation<SelectedEcdsaLane>;
+  signerSession: ReadyEcdsaSignerSession;
 };
 
 export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends object>(args: {
@@ -318,8 +323,16 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     walletBudgetReservationAttempted = true;
     const thresholdEcdsaOperation = await getBudgetAdmittedThresholdEcdsaOperation();
     if (!input.reserveSigningGrantBudget) return;
-    const reservationResult =
-      await input.reserveSigningGrantBudget(thresholdEcdsaOperation);
+    const signerSession = thresholdEcdsaSignerSession;
+    if (!signerSession) {
+      throw new Error(
+        '[SigningSessionBudget] ECDSA budget reservation requires a ready signer session',
+      );
+    }
+    const reservationResult = await input.reserveSigningGrantBudget({
+      operation: thresholdEcdsaOperation,
+      signerSession,
+    });
     if (reservationResult?.kind === 'reservation_identity_mismatch') {
       throw new Error('[SigningSessionBudget] signing grant reservation identity mismatch');
     }

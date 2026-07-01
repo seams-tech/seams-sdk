@@ -127,7 +127,6 @@ import {
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
-import { parseEd25519HssKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
@@ -3092,7 +3091,6 @@ async function registerWalletInternal(
           relayerKeyId: finalizedEd25519.relayerKeyId,
           signerSlot,
           session: registrationWarmSession,
-          ed25519HssKeyVersion: parseEd25519HssKeyVersion(finalizedEd25519.keyVersion),
           materialCreatedAtMs: Date.now(),
           participantIdsHint: finalizedEd25519.participantIds,
         });

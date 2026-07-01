@@ -5,13 +5,16 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   AvailableSigningLanes,
+  AvailableEd25519SigningLane,
   ConcreteAvailableEcdsaSigningLane,
-  ConcreteAvailableEd25519SigningLane,
 } from '../availability/availableSigningLanes';
 import {
   availableEd25519SigningLaneAuthMethod,
   availableEcdsaSigningLaneAuthMethod,
 } from '../availability/availableSigningLanes';
+import { laneCandidateAuthMethod } from '../identity/laneIdentity';
+import type { NearEd25519TransactionReadyLane } from '../identity/selectLane';
+import { listNearEd25519TransactionReadyLanes } from '../identity/selectLane';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
 export type RuntimePostconditionAuthMethod = 'email_otp' | 'passkey';
@@ -23,7 +26,6 @@ export type RuntimePostconditionTarget =
 export type RuntimeLaneMaterial =
   | { kind: 'durable_sealed_record'; sourceChainTarget?: never }
   | { kind: 'runtime_session_record'; sourceChainTarget?: never }
-  | { kind: 'runtime_and_durable'; sourceChainTarget?: never }
   | { kind: 'evm_family_shared_key'; sourceChainTarget: ThresholdEcdsaChainTarget };
 
 export type ReadyRuntimeLane =
@@ -105,51 +107,113 @@ function ecdsaMaterialForLane(lane: ConcreteAvailableEcdsaSigningLane): RuntimeL
   }
   if (
     lane.source === 'durable_sealed_record' ||
-    lane.source === 'runtime_session_record' ||
-    lane.source === 'runtime_and_durable'
+    lane.source === 'runtime_session_record'
   ) {
     return { kind: lane.source };
   }
   return null;
 }
 
-function ed25519MaterialForLane(
-  lane: ConcreteAvailableEd25519SigningLane,
+function ed25519MaterialForTransactionReadyLane(
+  lane: NearEd25519TransactionReadyLane,
 ): RuntimeLaneMaterial | null {
   if (
-    lane.source === 'durable_sealed_record' ||
-    lane.source === 'runtime_session_record' ||
-    lane.source === 'runtime_and_durable'
+    lane.candidate.source === 'durable_sealed_record' ||
+    lane.candidate.source === 'runtime_session_record'
   ) {
-    return { kind: lane.source };
+    return { kind: lane.candidate.source };
   }
   return null;
+}
+
+function concreteEd25519CandidatesForAuth(args: {
+  candidates: readonly AvailableEd25519SigningLane[];
+  authMethod: RuntimePostconditionAuthMethod;
+}): AvailableEd25519SigningLane[] {
+  const matches: AvailableEd25519SigningLane[] = [];
+  for (const candidate of args.candidates) {
+    if (candidate.state === 'missing') continue;
+    if (availableEd25519SigningLaneAuthMethod(candidate) === args.authMethod) {
+      matches.push(candidate);
+    }
+  }
+  return matches;
+}
+
+function transactionReadyEd25519CandidatesForAuth(args: {
+  candidates: readonly NearEd25519TransactionReadyLane[];
+  authMethod: RuntimePostconditionAuthMethod;
+}): NearEd25519TransactionReadyLane[] {
+  const matches: NearEd25519TransactionReadyLane[] = [];
+  for (const candidate of args.candidates) {
+    if (laneCandidateAuthMethod(candidate.candidate) === args.authMethod) {
+      matches.push(candidate);
+    }
+  }
+  return matches;
+}
+
+function hasEd25519TransactionReadyState(
+  candidates: readonly AvailableEd25519SigningLane[],
+): boolean {
+  for (const candidate of candidates) {
+    if (candidate.state === 'ready' || candidate.state === 'restorable') return true;
+  }
+  return false;
 }
 
 function readReadyEd25519Lane(args: {
-  lane: AvailableSigningLanes['lanes']['ed25519']['near'];
+  lanes: AvailableSigningLanes;
   authMethod: RuntimePostconditionAuthMethod;
   nowMs: number;
 }): ReadyRuntimeLane | WalletRuntimePostconditionFailureCode {
-  const lane = args.lane;
-  if (lane.state === 'missing') return 'ed25519_lane_missing';
-  if (availableEd25519SigningLaneAuthMethod(lane) !== args.authMethod) {
-    return 'auth_method_route_mismatch';
+  const candidates = args.lanes.candidates.ed25519.near;
+  const readyCandidates = listNearEd25519TransactionReadyLanes(candidates);
+  const authReadyCandidates = transactionReadyEd25519CandidatesForAuth({
+    candidates: readyCandidates,
+    authMethod: args.authMethod,
+  });
+  if (authReadyCandidates.length > 1) return 'lane_inventory_mismatch';
+  const [lane] = authReadyCandidates;
+  if (!lane) {
+    if (readyCandidates.length > 0) return 'auth_method_route_mismatch';
+    const authCandidates = concreteEd25519CandidatesForAuth({
+      candidates,
+      authMethod: args.authMethod,
+    });
+    if (hasEd25519TransactionReadyState(authCandidates)) {
+      return 'lane_material_missing';
+    }
+    const aggregateLane = args.lanes.lanes.ed25519.near;
+    if (aggregateLane.state !== 'missing') {
+      if (availableEd25519SigningLaneAuthMethod(aggregateLane) !== args.authMethod) {
+        return 'auth_method_route_mismatch';
+      }
+      if (aggregateLane.state === 'ready' || aggregateLane.state === 'restorable') {
+        return 'lane_material_missing';
+      }
+    }
+    return 'ed25519_lane_missing';
   }
-  if (lane.state !== 'ready') return 'ed25519_lane_missing';
-  const remainingSignatureUses = positiveInteger(lane.remainingUses);
-  const expiresAtMs = futureEpochMs(lane.expiresAtMs, args.nowMs);
-  if (!lane.signingGrantId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
+  const availableLane = lane.availableLane;
+  const remainingSignatureUses = positiveInteger(availableLane.remainingUses);
+  const expiresAtMs = futureEpochMs(availableLane.expiresAtMs, args.nowMs);
+  if (
+    !availableLane.signingGrantId ||
+    !availableLane.thresholdSessionId ||
+    !remainingSignatureUses ||
+    !expiresAtMs
+  ) {
     return 'lane_inventory_mismatch';
   }
-  const material = ed25519MaterialForLane(lane);
+  const material = ed25519MaterialForTransactionReadyLane(lane);
   if (!material) return 'lane_material_missing';
   return {
     state: 'ready',
     authMethod: args.authMethod,
     target: { curve: 'ed25519' },
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
+    signingGrantId: availableLane.signingGrantId,
+    thresholdSessionId: availableLane.thresholdSessionId,
     remainingSignatureUses,
     expiresAtMs,
     material,
@@ -210,7 +274,7 @@ export async function readWalletRuntimePostconditions(args: {
   for (const target of args.requiredTargets) {
     if (target.curve === 'ed25519') {
       const readyLane = readReadyEd25519Lane({
-        lane: lanes.lanes.ed25519.near,
+        lanes,
         authMethod: args.authMethod,
         nowMs,
       });

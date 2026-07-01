@@ -246,6 +246,7 @@ export async function syncAccount(
     // 2) Persist user + authenticator data locally.
     const normalizedNearAccountId = resolvedWalletBinding.nearAccountId;
     await context.signingEngine.storeUserData({
+      walletId: String(resolvedWalletBinding.walletId),
       nearAccountId: normalizedNearAccountId,
       signerSlot,
       operationalPublicKey: publicKey,
@@ -337,7 +338,6 @@ export async function syncAccount(
           relayerUrl,
           relayerKeyId,
           session: thresholdSession,
-          ed25519HssKeyVersion,
           signerSlot,
           materialCreatedAtMs: thresholdKeyMaterialCreatedAtMs,
           participantIdsHint: Array.isArray(thresholdEd25519.participantIds)

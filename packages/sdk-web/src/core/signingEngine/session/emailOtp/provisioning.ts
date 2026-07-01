@@ -402,7 +402,6 @@ export async function reconstructEmailOtpEd25519Session(args: {
     materialKeyId: parseEd25519WorkerMaterialKeyId(signingMaterial.materialKeyId),
     materialCreatedAtMs,
     signerSlot: signingMaterial.signerSlot,
-    keyVersion,
     routerAbNormalSigning,
     emailOtpAuthContext: input.emailOtpAuthContext,
     source: 'email_otp',

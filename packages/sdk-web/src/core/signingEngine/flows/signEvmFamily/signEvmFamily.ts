@@ -42,6 +42,7 @@ import { computeSigningOperationFingerprint } from '../../session/planning/opera
 import {
   type SigningSessionBudgetStatusAuth,
   type SigningSessionPreparedBudgetIdentity,
+  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
   isSigningSessionBudgetReservation,
   type SigningSessionBudgetReserveResult,
 } from '../../session/budget/budget';
@@ -157,7 +158,6 @@ import {
   toReadyEcdsaSignerSessionFromReadyMaterial,
   toVerifiedEcdsaPublicFactsFromRecord,
   type ReadyEcdsaSignerSession,
-  type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   reconcileEvmFamilyNonceLane,
@@ -194,6 +194,151 @@ function getAdmittedEcdsaBudgetIdentity(
     : null;
 }
 
+type EcdsaBudgetAdmissionAuthority =
+  | {
+      kind: 'fresh_signer_session';
+      signerSession: ReadyEcdsaSignerSession;
+    }
+  | {
+      kind: 'status_reader';
+      trustedStatusAuth: SigningSessionBudgetStatusAuth | null;
+    };
+
+function walletBudgetProjectionVersion(args: {
+  signingGrantId: string;
+  expiresAtMs: number;
+  committedRemainingUses: number;
+  reservedUses: number;
+  availableUses: number;
+}): string {
+  return [
+    'wallet-budget',
+    args.signingGrantId,
+    args.expiresAtMs,
+    args.committedRemainingUses,
+    args.reservedUses,
+    args.availableUses,
+  ].join(':');
+}
+
+function buildFreshEcdsaBudgetIdentityFromReadySignerSession(args: {
+  prepared: PreparedEvmFamilyEcdsaSigningSession;
+  signerSession: ReadyEcdsaSignerSession;
+  usesNeeded: number;
+}): SigningSessionPreparedBudgetIdentity {
+  const session = args.signerSession.session;
+  const signingGrantId = String(session.signingGrantId);
+  const thresholdSessionId = String(session.thresholdSessionId);
+  if (
+    signingGrantId !== String(args.prepared.signingLane.signingGrantId) ||
+    thresholdSessionId !== String(args.prepared.signingLane.thresholdSessionId)
+  ) {
+    throw new Error(
+      '[SigningSessionBudget] fresh ECDSA signer session does not match prepared lane',
+    );
+  }
+  const remainingUses = Math.max(0, Math.floor(Number(session.policy.remainingUses) || 0));
+  const usesNeeded = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
+  if (remainingUses < usesNeeded) {
+    throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+  }
+  const expiresAtMs = Math.max(0, Math.floor(Number(session.policy.expiresAtMs) || 0));
+  const projectionVersion = walletBudgetProjectionVersion({
+    signingGrantId,
+    expiresAtMs,
+    committedRemainingUses: remainingUses,
+    reservedUses: 0,
+    availableUses: remainingUses,
+  });
+  return {
+    signingGrantId,
+    projectionVersion,
+    status: {
+      sessionId: signingGrantId,
+      status: 'active',
+      committedRemainingUses: remainingUses,
+      inFlightReservedUses: 0,
+      availableUses: remainingUses,
+      remainingUses,
+      expiresAtMs,
+      projectionVersion,
+    },
+  };
+}
+
+function trustedBudgetStatusAuthFromBudgetAdmissionAuthority(
+  authority: EcdsaBudgetAdmissionAuthority,
+): SigningSessionBudgetStatusAuth | null {
+  switch (authority.kind) {
+    case 'fresh_signer_session':
+      return trustedBudgetStatusAuthFromReadySignerSession(authority.signerSession);
+    case 'status_reader':
+      return authority.trustedStatusAuth;
+  }
+}
+
+function ecdsaBudgetOperationMatchesPreparedSession(args: {
+  operation: BudgetAdmittedOperation<SelectedEcdsaLane>;
+  prepared: PreparedEvmFamilyEcdsaSigningSession | undefined;
+}): boolean {
+  const prepared = args.prepared;
+  if (!prepared) return false;
+  return (
+    String(args.operation.lane.signingGrantId) ===
+      String(prepared.signingLane.signingGrantId) &&
+    String(args.operation.lane.thresholdSessionId) ===
+      String(prepared.signingLane.thresholdSessionId)
+  );
+}
+
+function resolvedEcdsaBudgetSpendLaneForOperation(args: {
+  operation: BudgetAdmittedOperation<SelectedEcdsaLane>;
+  planningLane: ResolvedEvmFamilyEcdsaSigningLane;
+  chain: EvmFamilyChain;
+  context: string;
+  diagnostics?: Record<string, unknown>;
+}): ResolvedEvmFamilyEcdsaSigningLane {
+  const operationSigner = requireEvmFamilyEcdsaSigner(
+    args.operation.lane.identity,
+    `${args.context} admitted operation`,
+  );
+  const planningSigner = requireEvmFamilyEcdsaSigner(
+    args.planningLane.identity,
+    `${args.context} planning lane`,
+  );
+  const sameSigner =
+    String(operationSigner.walletId) === String(planningSigner.walletId) &&
+    String(operationSigner.keyHandle) === String(planningSigner.keyHandle) &&
+    thresholdEcdsaChainTargetKey(operationSigner.chainTarget) ===
+      thresholdEcdsaChainTargetKey(planningSigner.chainTarget);
+  if (!sameSigner) {
+    emitSigningSessionFlowFailure('evm-family', {
+      stage: 'ecdsa_attempt.budget_operation_signer_mismatch',
+      lane: summarizeEvmFamilyEcdsaLane(args.planningLane),
+      admittedLane: summarizeEvmFamilyEcdsaLane(args.operation.lane),
+      ...args.diagnostics,
+    });
+    throw new Error('[SigningEngine][ecdsa] budget operation signer did not match planning lane');
+  }
+  const updatedLane = updateResolvedEvmFamilyEcdsaSigningLaneIdentity({
+    lane: args.planningLane,
+    chain: args.chain,
+    thresholdSessionId: String(args.operation.lane.thresholdSessionId),
+    signingGrantId: String(args.operation.lane.signingGrantId),
+    context: args.context,
+    diagnostics: args.diagnostics,
+  });
+  return {
+    ...updatedLane,
+    ...args.operation.lane,
+    key: operationSigner.key,
+    keyHandle: operationSigner.keyHandle,
+    chainTarget: operationSigner.chainTarget,
+    keyKind: 'threshold_ecdsa_secp256k1',
+    chainFamily: operationSigner.chainTarget.kind,
+  };
+}
+
 function trustedBudgetStatusAuthFromReadySignerSession(
   signerSession: ReadyEcdsaSignerSession,
 ): SigningSessionBudgetStatusAuth {
@@ -206,12 +351,20 @@ function trustedBudgetStatusAuthFromReadySignerSession(
   };
 }
 
-async function trustedBudgetStatusAuthFromReadyMaterial(
-  readyMaterial: ReadyEvmFamilyEcdsaMaterial,
-): Promise<SigningSessionBudgetStatusAuth> {
-  return trustedBudgetStatusAuthFromReadySignerSession(
-    await toReadyEcdsaSignerSessionFromReadyMaterial({ material: readyMaterial }),
-  );
+function trustedBudgetStatusAuthForEcdsaBudgetOperation(args: {
+  operation: BudgetAdmittedOperation<SelectedEcdsaLane>;
+  signerSession: ReadyEcdsaSignerSession;
+}): SigningSessionBudgetStatusAuth {
+  const session = args.signerSession.session;
+  if (
+    String(session.thresholdSessionId) !== String(args.operation.lane.thresholdSessionId) ||
+    String(session.signingGrantId) !== String(args.operation.lane.signingGrantId)
+  ) {
+    throw new Error(
+      '[SigningSessionBudget] ECDSA budget auth session does not match admitted operation',
+    );
+  }
+  return trustedBudgetStatusAuthFromReadySignerSession(args.signerSession);
 }
 
 export {
@@ -737,7 +890,7 @@ async function signEvmFamilyAttempt(
             },
       coordinator: signingSessionCoordinator,
       missingWhenExpiresAtMissing: true,
-      prepareBudgetIdentity: true,
+      prepareBudgetIdentity: false,
       lifecycleAdapter: {
         prepare: async () => {
           const expiresAtMs = Math.floor(
@@ -822,7 +975,7 @@ async function signEvmFamilyAttempt(
   };
   const admitPreparedEcdsaTransactionBudget = async (
     prepared: PreparedEvmFamilyEcdsaSigningSession,
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth,
+    authority: EcdsaBudgetAdmissionAuthority,
   ): Promise<PreparedEvmFamilyEcdsaSigningSession> => {
     assertPreparedEcdsaOperationLane(prepared, 'budget identity preparation');
     const admittedBudgetIdentity = getAdmittedEcdsaBudgetIdentity(prepared);
@@ -844,13 +997,21 @@ async function signEvmFamilyAttempt(
       });
       return prepared;
     }
-    const budgetIdentity = await signingSessionCoordinator.prepareBudgetIdentity({
-      lane: prepared.signingLane,
-      operationUsesNeeded: requiredSignatureUses,
-      ...(trustedStatusAuth || prepared.budgetStatusAuth
-        ? { trustedStatusAuth: trustedStatusAuth || prepared.budgetStatusAuth }
-        : {}),
-    });
+    const trustedStatusAuth = trustedBudgetStatusAuthFromBudgetAdmissionAuthority(authority);
+    const budgetIdentity =
+      authority.kind === 'fresh_signer_session'
+        ? buildFreshEcdsaBudgetIdentityFromReadySignerSession({
+            prepared,
+            signerSession: authority.signerSession,
+            usesNeeded: requiredSignatureUses,
+          })
+        : await signingSessionCoordinator.prepareBudgetIdentity({
+            lane: prepared.signingLane,
+            operationUsesNeeded: requiredSignatureUses,
+            ...(trustedStatusAuth || prepared.budgetStatusAuth
+              ? { trustedStatusAuth: trustedStatusAuth || prepared.budgetStatusAuth }
+              : {}),
+          });
     const updatedPrepared = admitPreparedEcdsaBudgetIdentity(
       prepared,
       budgetIdentity,
@@ -935,7 +1096,10 @@ async function signEvmFamilyAttempt(
     try {
       const admittedWarmSession = await admitPreparedEcdsaTransactionBudget(
         preparedEcdsaSigningSession,
-        preparedEcdsaSigningSession.budgetStatusAuth,
+        {
+          kind: 'status_reader',
+          trustedStatusAuth: preparedEcdsaSigningSession.budgetStatusAuth || null,
+        },
       );
       if (admittedWarmSession.budget.kind === 'BudgetAdmitted') {
         preparedEcdsaSigningSession = admittedWarmSession;
@@ -1003,9 +1167,11 @@ async function signEvmFamilyAttempt(
             refreshedLane: summarizeEvmFamilyEcdsaLane(refreshed.lane),
             refreshedRecord: summarizeEvmFamilyEcdsaSessionRecord(refreshed.record),
           });
-          const refreshedTrustedBudgetStatusAuth = await trustedBudgetStatusAuthFromReadyMaterial(
-            refreshed.readyMaterial,
-          );
+          const refreshedSignerSession = await toReadyEcdsaSignerSessionFromReadyMaterial({
+            material: refreshed.readyMaterial,
+          });
+          const refreshedTrustedBudgetStatusAuth =
+            trustedBudgetStatusAuthFromReadySignerSession(refreshedSignerSession);
           const preparedAfterReauth = await replacePreparedEcdsaSigningOperationAfterReauth({
             authMethod: SIGNER_AUTH_METHODS.emailOtp,
             source: SIGNER_AUTH_METHODS.emailOtp,
@@ -1020,7 +1186,10 @@ async function signEvmFamilyAttempt(
           });
           const admittedAfterReauth = await admitPreparedEcdsaTransactionBudget(
             preparedAfterReauth,
-            refreshedTrustedBudgetStatusAuth,
+            {
+              kind: 'fresh_signer_session',
+              signerSession: refreshedSignerSession,
+            },
           );
           if (admittedAfterReauth.budget.kind !== 'BudgetAdmitted') {
             emitSigningSessionFlowFailure('evm-family', {
@@ -1140,7 +1309,10 @@ async function signEvmFamilyAttempt(
         );
         const admittedPrepared = await admitPreparedEcdsaTransactionBudget(
           updatedPrepared,
-          trustedBudgetStatusAuthFromReadySignerSession(refreshedReadyToSignMaterial.signerSession),
+          {
+            kind: 'fresh_signer_session',
+            signerSession: refreshedReadyToSignMaterial.signerSession,
+          },
         );
         if (admittedPrepared.budget.kind !== 'BudgetAdmitted') {
           throw new Error(
@@ -1278,31 +1450,44 @@ async function signEvmFamilyAttempt(
     }
   };
   let signingGrantBudgetReserved = false;
-  const reserveSigningGrantBudget = async (
-    operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
-  ): Promise<SigningSessionBudgetReserveResult> => {
+  const reserveSigningGrantBudget = async (input: {
+    operation: BudgetAdmittedOperation<SelectedEcdsaLane>;
+    signerSession: ReadyEcdsaSignerSession;
+  }): Promise<SigningSessionBudgetReserveResult> => {
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return null;
-    const prepared = requireBudgetAdmittedPreparedEcdsaSession(
-      undefined,
-      'signing grant reservation',
-    );
-    if (
-      String(operation.lane.signingGrantId) !==
-        String(prepared.transactionOperation.lane.signingGrantId) ||
-      String(operation.lane.thresholdSessionId) !==
-        String(prepared.transactionOperation.lane.thresholdSessionId)
-    ) {
-      throw new Error(
-        '[SigningEngine][ecdsa] budget reservation operation does not match prepared transaction lane',
-      );
+    const { operation } = input;
+    const operationBudgetStatusAuth = trustedBudgetStatusAuthForEcdsaBudgetOperation(input);
+    const prepared = preparedEcdsaSigningSession;
+    const operationLane = resolvedEcdsaBudgetSpendLaneForOperation({
+      operation,
+      planningLane: getResolvedEcdsaSigningLane(),
+      chain: requestChain,
+      context: 'signing grant reservation',
+      diagnostics: ecdsaAttemptDiagnostics,
+    });
+    const preparedMatchesOperation = ecdsaBudgetOperationMatchesPreparedSession({
+      operation,
+      prepared,
+    });
+    if (!preparedMatchesOperation) {
+      emitSigningSessionFlowTrace('evm-family', {
+        stage: 'ecdsa_attempt.budget_reservation_uses_admitted_operation',
+        accountId: walletId,
+        chain: args.request.chain,
+        chainTarget: requestChainTarget,
+        admittedLane: summarizeEvmFamilyEcdsaLane(operationLane),
+        preparedLane: prepared
+          ? summarizeEvmFamilyEcdsaLane(prepared.signingLane)
+          : { present: false },
+      });
     }
     const reservation = await reserveEvmFamilySigningGrantBudget({
       signingSessionCoordinator,
       walletSession: args.walletSession,
       operation: createTransactionSigningOperation(),
       admittedTransaction: operation,
-      finalizedSigningLane: prepared.signingLane,
-      ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
+      finalizedSigningLane: operationLane,
+      trustedStatusAuth: operationBudgetStatusAuth,
     });
     signingGrantBudgetReserved = isSigningSessionBudgetReservation(reservation);
     return reservation;

@@ -10,6 +10,7 @@ import {
   parseEd25519RelayerKeyId,
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialHandle,
+  parseEd25519WorkerMaterialKeyId,
   type Ed25519ClientVerifyingShareB64u,
   type Ed25519RelayerKeyId,
   type Ed25519SealedWorkerMaterialRef,
@@ -56,24 +57,28 @@ export type RouterAbEd25519WorkerMaterialSessionBindingInput = {
 export type RouterAbEd25519SigningMaterialRef = {
   kind: 'router_ab_ed25519_worker_material_ref_v1';
   materialHandle: Ed25519WorkerMaterialHandle;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
   bindingDigest: Ed25519WorkerMaterialBindingDigest;
   clientVerifierB64u: Ed25519ClientVerifyingShareB64u;
 };
 
 export function buildRouterAbEd25519SigningMaterialRef(input: {
   materialHandle: string;
+  materialKeyId: string;
   bindingDigest: string;
   clientVerifyingShareB64u: string;
 }): RouterAbEd25519SigningMaterialRef {
   const materialHandle = String(input.materialHandle || '').trim();
+  const materialKeyId = String(input.materialKeyId || '').trim();
   const bindingDigest = String(input.bindingDigest || '').trim();
   const clientVerifierB64u = String(input.clientVerifyingShareB64u || '').trim();
-  if (!materialHandle || !bindingDigest || !clientVerifierB64u) {
+  if (!materialHandle || !materialKeyId || !bindingDigest || !clientVerifierB64u) {
     throw new Error('Router A/B Ed25519 signing material ref is missing binding input');
   }
   return {
     kind: 'router_ab_ed25519_worker_material_ref_v1',
     materialHandle: parseEd25519WorkerMaterialHandle(materialHandle),
+    materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
     bindingDigest: parseEd25519WorkerMaterialBindingDigest(bindingDigest),
     clientVerifierB64u: parseEd25519ClientVerifyingShareB64u(clientVerifierB64u),
   };

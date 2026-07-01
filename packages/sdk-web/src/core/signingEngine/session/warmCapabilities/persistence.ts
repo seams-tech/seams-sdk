@@ -5,7 +5,10 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
   listStoredThresholdEd25519SessionLaneRecordsForAccount,
+  type ThresholdEd25519MaterialReadySessionRecord,
+  type ThresholdEd25519RestoreAvailableSessionRecord,
   type ThresholdEd25519SessionRecord,
+  type ThresholdEd25519UpsertMaterialFields,
   upsertStoredThresholdEd25519SessionRecord,
 } from '../persistence/records';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
@@ -48,7 +51,7 @@ type PersistWarmSessionEd25519CapabilityIdentity = {
   expiresAtMs: number;
   remainingUses: number;
   signerSlot: number;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   updatedAtMs?: number;
 };
 
@@ -61,19 +64,6 @@ type PersistWarmSessionEd25519NoWorkerMaterial = {
   materialFormatVersion?: never;
   materialKeyId?: never;
   materialCreatedAtMs?: never;
-  keyVersion?: never;
-};
-
-type PersistWarmSessionEd25519RuntimeWorkerMaterial = {
-  clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
-  ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
-  ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
-  sealedWorkerMaterialRef?: never;
-  sealedWorkerMaterialB64u?: never;
-  materialFormatVersion?: never;
-  materialKeyId: Ed25519WorkerMaterialKeyId;
-  materialCreatedAtMs: number;
-  keyVersion: string;
 };
 
 type PersistWarmSessionEd25519SealedWorkerMaterial = {
@@ -85,12 +75,10 @@ type PersistWarmSessionEd25519SealedWorkerMaterial = {
   materialFormatVersion: string;
   materialKeyId: Ed25519WorkerMaterialKeyId;
   materialCreatedAtMs: number;
-  keyVersion: string;
 };
 
 type PersistWarmSessionEd25519WorkerMaterialFacts =
   | PersistWarmSessionEd25519NoWorkerMaterial
-  | PersistWarmSessionEd25519RuntimeWorkerMaterial
   | PersistWarmSessionEd25519SealedWorkerMaterial;
 
 type PersistWarmSessionEd25519CapabilityCommon = PersistWarmSessionEd25519CapabilityIdentity &
@@ -130,19 +118,6 @@ type RetainedEd25519WorkerMaterialFacts =
       materialFormatVersion?: never;
       materialKeyId?: never;
       materialCreatedAtMs?: never;
-      keyVersion?: never;
-    }
-  | {
-      kind: 'runtime_worker_material';
-      clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
-      ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
-      ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
-      sealedWorkerMaterialRef?: never;
-      sealedWorkerMaterialB64u?: never;
-      materialFormatVersion?: never;
-      materialKeyId: Ed25519WorkerMaterialKeyId;
-      materialCreatedAtMs: number;
-      keyVersion: string;
     }
   | {
       kind: 'sealed_worker_material';
@@ -154,7 +129,6 @@ type RetainedEd25519WorkerMaterialFacts =
       materialFormatVersion: string;
       materialKeyId: Ed25519WorkerMaterialKeyId;
       materialCreatedAtMs: number;
-      keyVersion: string;
     };
 
 function nonEmptyString(value: unknown): string {
@@ -237,65 +211,266 @@ function readRetainedEd25519WorkerMaterialFacts(args: {
   }
   if (positiveInteger(existing.signerSlot) !== args.signerSlot) return { kind: 'none' };
 
-  const clientVerifyingShareB64u = nonEmptyString(existing.clientVerifyingShareB64u);
-  const ed25519WorkerMaterialHandle = nonEmptyString(existing.ed25519WorkerMaterialHandle);
-  const ed25519WorkerMaterialBindingDigest = nonEmptyString(
-    existing.ed25519WorkerMaterialBindingDigest,
-  );
-  const sealedWorkerMaterialRef = nonEmptyString(existing.sealedWorkerMaterialRef);
-  const sealedWorkerMaterialB64u = nonEmptyString(existing.sealedWorkerMaterialB64u);
-  const materialFormatVersion = nonEmptyString(existing.materialFormatVersion);
-  const materialKeyId = nonEmptyString(existing.materialKeyId);
-  const materialCreatedAtMs = positiveInteger(existing.materialCreatedAtMs);
-  const keyVersion = nonEmptyString(existing.keyVersion);
-  if (
-    clientVerifyingShareB64u &&
-    ed25519WorkerMaterialBindingDigest &&
-    materialCreatedAtMs &&
-    keyVersion
-  ) {
-    if (
-      sealedWorkerMaterialRef &&
-      sealedWorkerMaterialB64u &&
-      materialFormatVersion &&
-      materialKeyId
-    ) {
-      return {
-        kind: 'sealed_worker_material',
-        clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
-        ...(ed25519WorkerMaterialHandle
-          ? {
-              ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
-                ed25519WorkerMaterialHandle,
-              ),
-            }
-          : {}),
-        ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
-          ed25519WorkerMaterialBindingDigest,
-        ),
-        sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(sealedWorkerMaterialRef),
-        sealedWorkerMaterialB64u,
-        materialFormatVersion,
-        materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
-        materialCreatedAtMs,
-        keyVersion,
-      };
-    }
-    if (ed25519WorkerMaterialHandle && materialKeyId) {
-      return {
-        kind: 'runtime_worker_material',
-        clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
-        ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(ed25519WorkerMaterialHandle),
-        ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
-          ed25519WorkerMaterialBindingDigest,
-        ),
-        materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
-        materialCreatedAtMs,
-        keyVersion,
-      };
-    }
+  switch (existing.materialState) {
+    case 'material_ready':
+      return retainedEd25519WorkerMaterialFactsFromReadyRecord(existing);
+    case 'restore_available':
+      return retainedEd25519WorkerMaterialFactsFromRestoreRecord(existing);
+    case 'auth_ready_material_pending':
+      return { kind: 'none' };
   }
-  return { kind: 'none' };
+}
+
+function retainedEd25519WorkerMaterialFactsFromReadyRecord(
+  record: ThresholdEd25519MaterialReadySessionRecord,
+): RetainedEd25519WorkerMaterialFacts {
+  return {
+    kind: 'sealed_worker_material',
+    clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
+      record.clientVerifyingShareB64u,
+    ),
+    ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
+      record.ed25519WorkerMaterialHandle,
+    ),
+    ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+      record.ed25519WorkerMaterialBindingDigest,
+    ),
+    sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(record.sealedWorkerMaterialRef),
+    sealedWorkerMaterialB64u: record.sealedWorkerMaterialB64u,
+    materialFormatVersion: record.materialFormatVersion,
+    materialKeyId: parseEd25519WorkerMaterialKeyId(record.materialKeyId),
+    materialCreatedAtMs: record.materialCreatedAtMs,
+  };
+}
+
+function retainedEd25519WorkerMaterialFactsFromRestoreRecord(
+  record: ThresholdEd25519RestoreAvailableSessionRecord,
+): RetainedEd25519WorkerMaterialFacts {
+  const sealedWorkerMaterialB64u = nonEmptyString(record.sealedWorkerMaterialB64u);
+  if (!sealedWorkerMaterialB64u) return { kind: 'none' };
+  return {
+    kind: 'sealed_worker_material',
+    clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
+      record.clientVerifyingShareB64u,
+    ),
+    ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+      record.ed25519WorkerMaterialBindingDigest,
+    ),
+    sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(record.sealedWorkerMaterialRef),
+    sealedWorkerMaterialB64u,
+    materialFormatVersion: record.materialFormatVersion,
+    materialKeyId: parseEd25519WorkerMaterialKeyId(record.materialKeyId),
+    materialCreatedAtMs: record.materialCreatedAtMs,
+  };
+}
+
+function hasAnyDirectEd25519WorkerMaterialFacts(args: {
+  clientVerifyingShareB64u: string;
+  ed25519WorkerMaterialHandle: string;
+  ed25519WorkerMaterialBindingDigest: string;
+  sealedWorkerMaterialRef: string;
+  sealedWorkerMaterialB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: string;
+  materialCreatedAtMs: number;
+}): boolean {
+  return Boolean(
+    args.clientVerifyingShareB64u ||
+      args.ed25519WorkerMaterialHandle ||
+      args.ed25519WorkerMaterialBindingDigest ||
+      args.sealedWorkerMaterialRef ||
+      args.sealedWorkerMaterialB64u ||
+      args.materialFormatVersion ||
+      args.materialKeyId ||
+      args.materialCreatedAtMs > 0,
+  );
+}
+
+function hasCompleteDirectRuntimeEd25519WorkerMaterialFacts(args: {
+  clientVerifyingShareB64u: string;
+  ed25519WorkerMaterialHandle: string;
+  ed25519WorkerMaterialBindingDigest: string;
+  materialKeyId: string;
+  materialCreatedAtMs: number;
+}): boolean {
+  return Boolean(
+    args.clientVerifyingShareB64u &&
+      args.ed25519WorkerMaterialHandle &&
+      args.ed25519WorkerMaterialBindingDigest &&
+      args.materialKeyId &&
+      args.materialCreatedAtMs > 0,
+  );
+}
+
+function hasCompleteDirectSealedEd25519WorkerMaterialFacts(args: {
+  clientVerifyingShareB64u: string;
+  ed25519WorkerMaterialBindingDigest: string;
+  sealedWorkerMaterialRef: string;
+  sealedWorkerMaterialB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: string;
+  materialCreatedAtMs: number;
+}): boolean {
+  return Boolean(
+    args.clientVerifyingShareB64u &&
+      args.ed25519WorkerMaterialBindingDigest &&
+      args.sealedWorkerMaterialRef &&
+      args.sealedWorkerMaterialB64u &&
+      args.materialFormatVersion &&
+      args.materialKeyId &&
+      args.materialCreatedAtMs > 0,
+  );
+}
+
+function shouldResolveRetainedEd25519WorkerMaterialFacts(args: {
+  signingRootId: string;
+  signingRootVersion: string;
+  clientVerifyingShareB64u: string;
+  ed25519WorkerMaterialHandle: string;
+  ed25519WorkerMaterialBindingDigest: string;
+  sealedWorkerMaterialRef: string;
+  sealedWorkerMaterialB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: string;
+  materialCreatedAtMs: number;
+}): boolean {
+  if (!args.signingRootId || !args.signingRootVersion) return false;
+  const hasAnyMaterial = hasAnyDirectEd25519WorkerMaterialFacts(args);
+  if (!hasAnyMaterial) return true;
+  return !(
+    hasCompleteDirectRuntimeEd25519WorkerMaterialFacts(args) ||
+    hasCompleteDirectSealedEd25519WorkerMaterialFacts(args)
+  );
+}
+
+function assertDirectEd25519WorkerMaterialFactsMatchRetained(args: {
+  direct: {
+    clientVerifyingShareB64u: string;
+    ed25519WorkerMaterialHandle: string;
+    ed25519WorkerMaterialBindingDigest: string;
+    sealedWorkerMaterialRef: string;
+    sealedWorkerMaterialB64u: string;
+    materialFormatVersion: string;
+    materialKeyId: string;
+    materialCreatedAtMs: number;
+  };
+  retained: Exclude<RetainedEd25519WorkerMaterialFacts, { kind: 'none' }>;
+}): void {
+  const retained = args.retained;
+  const direct = args.direct;
+  const conflicts = [
+    direct.clientVerifyingShareB64u &&
+    direct.clientVerifyingShareB64u !== String(retained.clientVerifyingShareB64u),
+    direct.ed25519WorkerMaterialBindingDigest &&
+    direct.ed25519WorkerMaterialBindingDigest !==
+      String(retained.ed25519WorkerMaterialBindingDigest),
+    direct.materialKeyId && direct.materialKeyId !== String(retained.materialKeyId),
+    direct.materialCreatedAtMs > 0 &&
+    direct.materialCreatedAtMs !== Number(retained.materialCreatedAtMs),
+    retained.kind === 'sealed_worker_material' &&
+    direct.ed25519WorkerMaterialHandle &&
+    retained.ed25519WorkerMaterialHandle &&
+    direct.ed25519WorkerMaterialHandle !== String(retained.ed25519WorkerMaterialHandle),
+    retained.kind === 'sealed_worker_material' &&
+    direct.sealedWorkerMaterialRef &&
+    direct.sealedWorkerMaterialRef !== String(retained.sealedWorkerMaterialRef),
+    retained.kind === 'sealed_worker_material' &&
+    direct.sealedWorkerMaterialB64u &&
+    direct.sealedWorkerMaterialB64u !== retained.sealedWorkerMaterialB64u,
+    retained.kind === 'sealed_worker_material' &&
+    direct.materialFormatVersion &&
+    direct.materialFormatVersion !== retained.materialFormatVersion,
+  ];
+  if (conflicts.some(Boolean)) {
+    throw new Error(
+      'Warm threshold-ed25519 capability supplied partial worker material that conflicts with retained material',
+    );
+  }
+}
+
+function resolveEd25519WarmSessionUpsertMaterialFields(args: {
+  direct: {
+    clientVerifyingShareB64u: string;
+    ed25519WorkerMaterialHandle: string;
+    ed25519WorkerMaterialBindingDigest: string;
+    sealedWorkerMaterialRef: string;
+    sealedWorkerMaterialB64u: string;
+    materialFormatVersion: string;
+    materialKeyId: string;
+    materialCreatedAtMs: number;
+  };
+  retained: RetainedEd25519WorkerMaterialFacts;
+}): ThresholdEd25519UpsertMaterialFields {
+  const direct = args.direct;
+  const hasDirectMaterial = Boolean(
+    direct.clientVerifyingShareB64u ||
+      direct.ed25519WorkerMaterialHandle ||
+      direct.ed25519WorkerMaterialBindingDigest ||
+      direct.sealedWorkerMaterialRef ||
+      direct.sealedWorkerMaterialB64u ||
+      direct.materialFormatVersion ||
+      direct.materialKeyId ||
+      direct.materialCreatedAtMs > 0,
+  );
+  if (hasDirectMaterial) {
+    if (
+      !direct.clientVerifyingShareB64u ||
+      !direct.ed25519WorkerMaterialBindingDigest ||
+      !direct.sealedWorkerMaterialRef ||
+      !direct.sealedWorkerMaterialB64u ||
+      !direct.materialFormatVersion ||
+      !direct.materialKeyId ||
+      direct.materialCreatedAtMs <= 0
+    ) {
+      throw new Error('Warm threshold-ed25519 capability supplied incomplete worker material');
+    }
+    if (direct.ed25519WorkerMaterialHandle) {
+      return {
+        clientVerifyingShareB64u: direct.clientVerifyingShareB64u,
+        ed25519WorkerMaterialHandle: direct.ed25519WorkerMaterialHandle,
+        ed25519WorkerMaterialBindingDigest: direct.ed25519WorkerMaterialBindingDigest,
+        sealedWorkerMaterialRef: direct.sealedWorkerMaterialRef,
+        sealedWorkerMaterialB64u: direct.sealedWorkerMaterialB64u,
+        materialFormatVersion: direct.materialFormatVersion,
+        materialKeyId: direct.materialKeyId,
+        materialCreatedAtMs: direct.materialCreatedAtMs,
+      };
+    }
+    return {
+      clientVerifyingShareB64u: direct.clientVerifyingShareB64u,
+      ed25519WorkerMaterialBindingDigest: direct.ed25519WorkerMaterialBindingDigest,
+      sealedWorkerMaterialRef: direct.sealedWorkerMaterialRef,
+      sealedWorkerMaterialB64u: direct.sealedWorkerMaterialB64u,
+      materialFormatVersion: direct.materialFormatVersion,
+      materialKeyId: direct.materialKeyId,
+      materialCreatedAtMs: direct.materialCreatedAtMs,
+    };
+  }
+  if (args.retained.kind === 'sealed_worker_material') {
+    const retained = args.retained;
+    if (retained.ed25519WorkerMaterialHandle) {
+      return {
+        clientVerifyingShareB64u: retained.clientVerifyingShareB64u,
+        ed25519WorkerMaterialHandle: retained.ed25519WorkerMaterialHandle,
+        ed25519WorkerMaterialBindingDigest: retained.ed25519WorkerMaterialBindingDigest,
+        sealedWorkerMaterialRef: retained.sealedWorkerMaterialRef,
+        sealedWorkerMaterialB64u: retained.sealedWorkerMaterialB64u,
+        materialFormatVersion: retained.materialFormatVersion,
+        materialKeyId: retained.materialKeyId,
+        materialCreatedAtMs: retained.materialCreatedAtMs,
+      };
+    }
+    return {
+      clientVerifyingShareB64u: retained.clientVerifyingShareB64u,
+      ed25519WorkerMaterialBindingDigest: retained.ed25519WorkerMaterialBindingDigest,
+      sealedWorkerMaterialRef: retained.sealedWorkerMaterialRef,
+      sealedWorkerMaterialB64u: retained.sealedWorkerMaterialB64u,
+      materialFormatVersion: retained.materialFormatVersion,
+      materialKeyId: retained.materialKeyId,
+      materialCreatedAtMs: retained.materialCreatedAtMs,
+    };
+  }
+  return {};
 }
 
 export function persistWarmSessionEd25519Capability(
@@ -337,7 +512,6 @@ export function persistWarmSessionEd25519Capability(
   if (signerSlot <= 0) {
     throw new Error('Invalid signerSlot for warm threshold-ed25519 capability');
   }
-  const keyVersion = String(args.keyVersion || '').trim();
   const jwt = String(args.jwt || '').trim();
   const runtimePolicyScope =
     args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
@@ -365,23 +539,56 @@ export function persistWarmSessionEd25519Capability(
   if (args.kind === 'jwt_passkey' && !passkeyCredentialIdB64u) {
     throw new Error('Missing passkeyCredentialIdB64u for warm threshold-ed25519 capability');
   }
-  const retainedMaterial =
-    !clientVerifyingShareB64u &&
-    !ed25519WorkerMaterialBindingDigest &&
-    !sealedWorkerMaterialRef &&
-    !sealedWorkerMaterialB64u &&
-    signingRootId &&
-    signingRootVersion
-      ? resolveRetainedEd25519WorkerMaterialFacts({
-          sessionId,
-          nearAccountId: args.nearAccountId,
-          relayerKeyId: String(args.relayerKeyId || '').trim(),
-          participantIds,
-          signingRootId,
-          signingRootVersion,
-          signerSlot,
-        })
-      : { kind: 'none' as const };
+  const retainedMaterial = shouldResolveRetainedEd25519WorkerMaterialFacts({
+    signingRootId,
+    signingRootVersion,
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialHandle,
+    ed25519WorkerMaterialBindingDigest,
+    sealedWorkerMaterialRef,
+    sealedWorkerMaterialB64u,
+    materialFormatVersion,
+    materialKeyId,
+    materialCreatedAtMs,
+  })
+    ? resolveRetainedEd25519WorkerMaterialFacts({
+        sessionId,
+        nearAccountId: args.nearAccountId,
+        relayerKeyId: String(args.relayerKeyId || '').trim(),
+        participantIds,
+        signingRootId,
+        signingRootVersion,
+        signerSlot,
+      })
+    : { kind: 'none' as const };
+  if (retainedMaterial.kind !== 'none') {
+    assertDirectEd25519WorkerMaterialFactsMatchRetained({
+      direct: {
+        clientVerifyingShareB64u,
+        ed25519WorkerMaterialHandle,
+        ed25519WorkerMaterialBindingDigest,
+        sealedWorkerMaterialRef,
+        sealedWorkerMaterialB64u,
+        materialFormatVersion,
+        materialKeyId,
+        materialCreatedAtMs,
+      },
+      retained: retainedMaterial,
+    });
+  }
+  const materialFields = resolveEd25519WarmSessionUpsertMaterialFields({
+    direct: {
+      clientVerifyingShareB64u,
+      ed25519WorkerMaterialHandle,
+      ed25519WorkerMaterialBindingDigest,
+      sealedWorkerMaterialRef,
+      sealedWorkerMaterialB64u,
+      materialFormatVersion,
+      materialKeyId,
+      materialCreatedAtMs,
+    },
+    retained: retainedMaterial,
+  });
 
   const record = upsertStoredThresholdEd25519SessionRecord({
     walletId,
@@ -397,56 +604,9 @@ export function persistWarmSessionEd25519Capability(
     ...(signingRootId ? { signingRootId } : {}),
     ...(signingRootVersion ? { signingRootVersion } : {}),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(clientVerifyingShareB64u
-      ? { clientVerifyingShareB64u }
-      : retainedMaterial.kind !== 'none'
-        ? { clientVerifyingShareB64u: retainedMaterial.clientVerifyingShareB64u }
-        : {}),
-    ...(ed25519WorkerMaterialHandle ? { ed25519WorkerMaterialHandle } : {}),
-    ...(!ed25519WorkerMaterialHandle &&
-    retainedMaterial.kind !== 'none' &&
-    retainedMaterial.ed25519WorkerMaterialHandle
-      ? { ed25519WorkerMaterialHandle: retainedMaterial.ed25519WorkerMaterialHandle }
-      : {}),
-    ...(ed25519WorkerMaterialBindingDigest
-      ? { ed25519WorkerMaterialBindingDigest }
-      : retainedMaterial.kind !== 'none'
-        ? {
-            ed25519WorkerMaterialBindingDigest: retainedMaterial.ed25519WorkerMaterialBindingDigest,
-          }
-        : {}),
-    ...(sealedWorkerMaterialRef
-      ? { sealedWorkerMaterialRef }
-      : retainedMaterial.kind === 'sealed_worker_material'
-        ? { sealedWorkerMaterialRef: retainedMaterial.sealedWorkerMaterialRef }
-        : {}),
-    ...(sealedWorkerMaterialB64u
-      ? { sealedWorkerMaterialB64u }
-      : retainedMaterial.kind === 'sealed_worker_material'
-        ? { sealedWorkerMaterialB64u: retainedMaterial.sealedWorkerMaterialB64u }
-        : {}),
-    ...(materialFormatVersion
-      ? { materialFormatVersion }
-      : retainedMaterial.kind === 'sealed_worker_material'
-        ? { materialFormatVersion: retainedMaterial.materialFormatVersion }
-        : {}),
-    ...(materialKeyId
-      ? { materialKeyId }
-      : retainedMaterial.kind !== 'none'
-        ? { materialKeyId: retainedMaterial.materialKeyId }
-        : {}),
-    ...(materialCreatedAtMs > 0
-      ? { materialCreatedAtMs }
-      : retainedMaterial.kind !== 'none'
-        ? { materialCreatedAtMs: retainedMaterial.materialCreatedAtMs }
-        : {}),
+    ...materialFields,
     signerSlot,
-    ...(keyVersion
-      ? { keyVersion }
-      : retainedMaterial.kind !== 'none'
-        ? { keyVersion: retainedMaterial.keyVersion }
-        : {}),
-    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
+    routerAbNormalSigning: args.routerAbNormalSigning,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: sessionId,
     signingGrantId,

@@ -93,7 +93,7 @@ export type Ed25519SessionPolicy = {
   thresholdSessionId: string;
   signingGrantId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   /**
    * Optional signer set binding (participant ids).
    *
@@ -191,7 +191,7 @@ export async function buildEd25519SessionPolicy(params: {
   rpId: string;
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   participantIds?: number[];
   thresholdSessionId?: string;
   signingGrantId?: string;
@@ -224,9 +224,7 @@ export async function buildEd25519SessionPolicy(params: {
     thresholdSessionId,
     signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(params.routerAbNormalSigning
-      ? { routerAbNormalSigning: params.routerAbNormalSigning }
-      : {}),
+    routerAbNormalSigning: params.routerAbNormalSigning,
     ...(participantIds ? { participantIds } : {}),
     ttlMs,
     remainingUses,

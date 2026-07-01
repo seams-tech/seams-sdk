@@ -39,6 +39,8 @@ import {
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
   type BuildCurrentSealedSessionRecordInput,
+  type CurrentEd25519RestoreMetadata,
+  type CurrentSealedSessionRecord,
   type SigningSessionSealedStoreRecord,
   type SigningSessionSealedRecordFilter,
 } from '../session/persistence/sealedSessionStore';
@@ -52,6 +54,7 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   thresholdEcdsaRecordRpId,
+  type ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
 import { normalizeThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import {
@@ -134,7 +137,7 @@ type PersistedWalletSessionAuthRecord = {
 
 type PersistedSealedRestoreAuthMetadata =
   | NonNullable<SigningSessionSealedStoreRecord['ecdsaRestore']>
-  | NonNullable<SigningSessionSealedStoreRecord['ed25519Restore']>;
+  | CurrentEd25519RestoreMetadata;
 
 function walletSessionJwtFromPersistedSessionAuthRecord(
   record: PersistedWalletSessionAuthRecord | null | undefined,
@@ -166,7 +169,7 @@ type PasskeySealedRecordAccountMetadata = {
   signingRootId?: string;
   signingRootVersion?: string;
   ecdsaRestore?: SigningSessionSealedStoreRecord['ecdsaRestore'];
-  ed25519Restore?: SigningSessionSealedStoreRecord['ed25519Restore'];
+  ed25519Restore?: CurrentEd25519RestoreMetadata;
 };
 
 type SigningSessionSealedAuthMethod = SigningSessionSealAuthMethod;
@@ -204,7 +207,7 @@ function ed25519SealedWorkerMaterialMissingFields(
     materialKeyId?: unknown;
     materialCreatedAtMs?: unknown;
     signerSlot?: unknown;
-    keyVersion?: unknown;
+    routerAbNormalSigning?: unknown;
   } | null | undefined,
 ): string[] {
   const missing: string[] = [];
@@ -235,17 +238,78 @@ function ed25519SealedWorkerMaterialMissingFields(
   if (!positiveInteger(value?.signerSlot)) {
     missing.push('signerSlot');
   }
-  if (!String(value?.keyVersion || '').trim()) {
-    missing.push('keyVersion');
+  if (!value?.routerAbNormalSigning) {
+    missing.push('routerAbNormalSigning');
   }
   return missing;
 }
 
+function hasCompleteEd25519RestoreMetadata(
+  value: SigningSessionSealedStoreRecord['ed25519Restore'] | undefined,
+): value is CurrentEd25519RestoreMetadata {
+  return Boolean(value) && ed25519SealedWorkerMaterialMissingFields(value).length === 0;
+}
+
 function completeEd25519RestoreMetadata(
   value: SigningSessionSealedStoreRecord['ed25519Restore'] | undefined,
-): SigningSessionSealedStoreRecord['ed25519Restore'] | undefined {
-  if (!value) return undefined;
-  return ed25519SealedWorkerMaterialMissingFields(value).length === 0 ? value : undefined;
+): CurrentEd25519RestoreMetadata | undefined {
+  return hasCompleteEd25519RestoreMetadata(value) ? value : undefined;
+}
+
+function currentEd25519RestoreMetadataFromSessionRecord(
+  record: ThresholdEd25519SessionRecord | null | undefined,
+): CurrentEd25519RestoreMetadata | undefined {
+  if (!record) return undefined;
+  const rpId = String(record.rpId || '').trim();
+  const nearAccountId = String(record.nearAccountId || '').trim();
+  const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
+  const relayerKeyId = String(record.relayerKeyId || '').trim();
+  const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
+  const ed25519WorkerMaterialBindingDigest = String(
+    record.ed25519WorkerMaterialBindingDigest || '',
+  ).trim();
+  const sealedWorkerMaterialRef = String(record.sealedWorkerMaterialRef || '').trim();
+  const sealedWorkerMaterialB64u = String(record.sealedWorkerMaterialB64u || '').trim();
+  const materialFormatVersion = String(record.materialFormatVersion || '').trim();
+  const materialKeyId = String(record.materialKeyId || '').trim();
+  const materialCreatedAtMs = positiveInteger(record.materialCreatedAtMs);
+  const signerSlot = positiveInteger(record.signerSlot);
+  const routerAbNormalSigning = record.routerAbNormalSigning;
+  if (
+    !rpId ||
+    !nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !relayerKeyId ||
+    !record.participantIds.length ||
+    !clientVerifyingShareB64u ||
+    !ed25519WorkerMaterialBindingDigest ||
+    !sealedWorkerMaterialRef ||
+    !materialFormatVersion ||
+    !materialKeyId ||
+    !materialCreatedAtMs ||
+    !signerSlot ||
+    !routerAbNormalSigning
+  ) {
+    return undefined;
+  }
+  return {
+    rpId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    relayerKeyId,
+    participantIds: record.participantIds,
+    ...persistedRestoreWalletSessionAuthFields(record),
+    signerSlot,
+    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialBindingDigest,
+    sealedWorkerMaterialRef,
+    ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
+    materialFormatVersion,
+    materialKeyId,
+    materialCreatedAtMs,
+    routerAbNormalSigning,
+  };
 }
 
 type WarmSessionSealAuthMethodInput =
@@ -792,8 +856,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ...(purpose.curve === 'ecdsa' ? { chainTarget: purpose.chainTarget } : {}),
       }),
     });
-    const refreshedCurve = existing.curve || purpose.curve;
-    if (refreshedCurve === 'ecdsa') {
+    if (existing.curve === 'ecdsa') {
       const walletId = String(refreshedMetadata.walletId || '').trim();
       const relayerUrl = String(existing.relayerUrl || '').trim();
       if (!walletId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
@@ -940,7 +1003,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   }
 
   private mergePasskeySealedRecordMetadata(args: {
-    existing?: SigningSessionSealedStoreRecord | null;
+    existing?: CurrentSealedSessionRecord | null;
     refreshed: PasskeySealedRecordAccountMetadata;
   }): PasskeySealedRecordAccountMetadata {
     const existing = args.existing;
@@ -980,7 +1043,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
       shamirPrimeB64u?: string;
     } | null,
-    sealedRecordInput?: SigningSessionSealedStoreRecord | null,
+    sealedRecordInput?: CurrentSealedSessionRecord | null,
   ): Promise<WarmSessionSealTransportInput | null> {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
@@ -1036,7 +1099,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const walletId = String(
       explicitTransport?.walletId ||
         sealedRecord?.walletId ||
-        ed25519Record?.nearAccountId ||
+        ed25519Record?.walletId ||
         ecdsaRecord?.walletId ||
         '',
     ).trim();
@@ -1141,11 +1204,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               : {}),
           }
         : undefined;
-    const ed25519SignerSlot = Math.floor(Number(ed25519Record?.signerSlot) || 0);
     const ed25519MaterialMissingFields = ed25519Record
       ? ed25519SealedWorkerMaterialMissingFields(ed25519Record)
       : [];
-    if (ed25519Record && ed25519SignerSlot > 0 && ed25519MaterialMissingFields.length > 0) {
+    const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);
+    if (ed25519Record && !ed25519Restore) {
       console.warn('[UiConfirm] skipping Ed25519 durable restore metadata without worker material', {
         thresholdSessionId: args.thresholdSessionId,
         curve: args.curve,
@@ -1163,38 +1226,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           String(ed25519Record.sealedWorkerMaterialRef || '').trim(),
         ),
         hasMaterialKeyId: Boolean(String(ed25519Record.materialKeyId || '').trim()),
-        hasKeyVersion: Boolean(String(ed25519Record.keyVersion || '').trim()),
       });
     }
-    const ed25519Restore =
-      ed25519Record && ed25519SignerSlot > 0 && ed25519MaterialMissingFields.length === 0
-        ? {
-            rpId: ed25519Record.rpId,
-            nearAccountId: ed25519Record.nearAccountId,
-            nearEd25519SigningKeyId: ed25519Record.nearEd25519SigningKeyId,
-            relayerKeyId: ed25519Record.relayerKeyId,
-            participantIds: ed25519Record.participantIds,
-            ...persistedRestoreWalletSessionAuthFields(ed25519Record),
-            signerSlot: ed25519SignerSlot,
-            ...(ed25519Record.runtimePolicyScope
-              ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
-              : {}),
-            clientVerifyingShareB64u: ed25519Record.clientVerifyingShareB64u,
-            ed25519WorkerMaterialBindingDigest:
-              ed25519Record.ed25519WorkerMaterialBindingDigest,
-            sealedWorkerMaterialRef: ed25519Record.sealedWorkerMaterialRef,
-            ...(ed25519Record.sealedWorkerMaterialB64u
-              ? { sealedWorkerMaterialB64u: ed25519Record.sealedWorkerMaterialB64u }
-              : {}),
-            materialFormatVersion: ed25519Record.materialFormatVersion,
-            materialKeyId: ed25519Record.materialKeyId,
-            materialCreatedAtMs: ed25519Record.materialCreatedAtMs,
-            keyVersion: ed25519Record.keyVersion,
-            ...(ed25519Record.routerAbNormalSigning
-              ? { routerAbNormalSigning: ed25519Record.routerAbNormalSigning }
-              : {}),
-          }
-        : undefined;
     return {
       ...(walletId ? { walletId } : {}),
       ...(ed25519Record?.signingRootId ? { signingRootId: ed25519Record.signingRootId } : {}),
@@ -1808,8 +1841,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           existing: existingRecord,
           refreshed: recordMetadata,
         });
-        const persistedCurve = existingRecord.curve || curve;
-        if (persistedCurve === 'ecdsa') {
+        if (existingRecord.curve === 'ecdsa') {
           const walletId = String(refreshedMetadata.walletId || '').trim();
           const relayerUrl = String(existingRecord.relayerUrl || '').trim();
           if (!walletId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {

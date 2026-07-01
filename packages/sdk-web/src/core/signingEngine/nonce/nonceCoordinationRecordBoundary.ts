@@ -267,7 +267,7 @@ function malformedRecordResult(
   }
   const networkKey = rawString(obj.networkKey);
   if (networkKey) degradation.networkKey = networkKey;
-  const accountId = rawString(obj.walletId) || rawString(obj.accountId) || rawString(obj.nearAccountId);
+  const accountId = rawString(obj.walletId) || rawString(obj.accountId);
   if (accountId) degradation.accountId = accountId;
   return {
     ok: false,

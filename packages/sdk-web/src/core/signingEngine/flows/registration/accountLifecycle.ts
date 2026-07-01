@@ -262,7 +262,7 @@ export async function storeUserData(
   const signerSlot = Number(userData.signerSlot);
   const normalizedSignerSlot =
     Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1;
-  const profileId = buildNearProfileId(nearAccountId);
+  const profileId = toWalletId(userData.walletId);
   const chainIdKey = inferNearChainIdKey(nearAccountId, userData.preferences?.useNetwork);
   const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
   const signerId =
@@ -655,6 +655,7 @@ export async function hasPasskeyCredential(
 export async function atomicStoreRegistrationData(
   deps: RegistrationAccountLifecycleDeps,
   args: {
+    walletId: WalletId;
     nearAccountId: AccountId;
     credential: WebAuthnRegistrationCredential;
     credentialPublicKeyB64u: string;
@@ -669,6 +670,7 @@ export async function atomicStoreRegistrationData(
   );
 
   const activation = await storeUserData(deps, {
+    walletId: args.walletId,
     nearAccountId: args.nearAccountId,
     signerSlot: 1,
     operationalPublicKey: args.operationalPublicKey,

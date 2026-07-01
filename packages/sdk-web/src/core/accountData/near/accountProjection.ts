@@ -37,6 +37,14 @@ import { getNearChainCandidates, inferNearChainIdKey } from './accountRefs';
 import { buildNearProfileId } from './profileId';
 import { normalizeIndexedDbAccountAddress as normalizeAccountAddress } from '../../indexedDB/normalization';
 
+function requireProjectionWalletId(value: string): string {
+  const walletId = toTrimmedString(value);
+  if (!walletId) {
+    throw new Error('SeamsWalletDB: walletId is required for NEAR account projection');
+  }
+  return walletId;
+}
+
 export interface UpsertNearProjectionOperations {
   upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
   getAccountSigner: (args: {
@@ -60,7 +68,7 @@ export async function upsertNearAccountProjectionRecords(args: {
     throw new Error('SeamsWalletDB: signerSlot must be an integer >= 1');
   }
 
-  const profileId = buildNearProfileId(accountId);
+  const profileId = requireProjectionWalletId(userData.walletId);
   const chainIdKey = inferNearChainIdKey(accountId, userData.preferences?.useNetwork);
   const accountAddress = normalizeAccountAddress(accountId);
   const signerId =
@@ -392,10 +400,11 @@ export async function upsertNearAccountProjection(
   const signerSlot = Number(input.signerSlot);
   const normalizedSignerSlot =
     Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1;
+  const walletId = requireProjectionWalletId(input.walletId);
   const userData: ClientUserData = {
-    walletId: input.walletId || buildNearProfileId(accountId),
+    walletId,
     nearAccountId: accountId,
-    loginDisplayName: input.loginDisplayName || input.walletId || buildNearProfileId(accountId),
+    loginDisplayName: input.loginDisplayName || walletId,
     signerSlot: normalizedSignerSlot,
     version: input.version || 2,
     registeredAt: now,

@@ -1,8 +1,13 @@
 import { prepareThresholdEd25519PasskeyPrfWorkerMaterialUnsealAuthorizationNearSignerWasm } from '@/core/signingEngine/chains/near/nearSignerWasm';
 import { prepareThresholdEd25519PasskeyMaterialUnsealAuthorizationFromCredential } from '@/core/signingEngine/session/passkey/prfClaim';
-import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  classifyRouterAbEd25519PersistedSigningRecord,
+  routerAbEd25519WorkerMaterialIdentityFromPersistedState,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
+import {
+  type ThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { WarmSessionEd25519UnsealAuthorizationStore } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
@@ -88,8 +93,10 @@ async function resolveWarmSessionRestoreAuthorization(args: {
   const sessionId = nonEmptyString(args.record.thresholdSessionId);
   const signingGrantId = nonEmptyString(args.record.signingGrantId);
   const walletId = nonEmptyString(args.record.walletId);
-  const materialBindingDigest = nonEmptyString(args.record.ed25519WorkerMaterialBindingDigest);
-  if (!sessionId || !signingGrantId || !walletId || !materialBindingDigest) {
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  const materialIdentity =
+    routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
+  if (!sessionId || !signingGrantId || !walletId || !materialIdentity) {
     return unavailableRestoreAuthorization();
   }
   const claimed = await args.signingSessionCoordinator.claimWarmSessionEd25519UnsealAuthorization({
@@ -97,7 +104,7 @@ async function resolveWarmSessionRestoreAuthorization(args: {
     signingGrantId,
     walletId,
     authMethod: authMethodForEd25519Record(args.record),
-    materialBindingDigest,
+    materialBindingDigest: materialIdentity.bindingDigest,
     consume: true,
   });
   if (!claimed.ok) return unavailableRestoreAuthorization();
@@ -112,15 +119,19 @@ async function preparePasskeyRestoreAuthorization(args: {
   record: ThresholdEd25519SessionRecord;
   credential: WebAuthnAuthenticationCredential;
 }): Promise<RouterAbEd25519WorkerMaterialRestoreAuthorization> {
-  const materialBindingDigest = nonEmptyString(args.record.ed25519WorkerMaterialBindingDigest);
   const rpId = nonEmptyString(args.record.rpId);
-  if (!materialBindingDigest || !rpId) return unavailableRestoreAuthorization();
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  const materialIdentity =
+    routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
+  if (!rpId || !materialIdentity) {
+    return unavailableRestoreAuthorization();
+  }
   const prepared = await prepareThresholdEd25519PasskeyMaterialUnsealAuthorizationFromCredential({
     authorizationPort: {
-      prepareThresholdEd25519PasskeyPrfWorkerMaterialUnsealAuthorization:
+        prepareThresholdEd25519PasskeyPrfWorkerMaterialUnsealAuthorization:
         preparePasskeyWorkerMaterialUnsealAuthorizationWithContext.bind(null, args.ctx),
     },
-    materialBindingDigest,
+    materialBindingDigest: materialIdentity.bindingDigest,
     rpId,
     credential: args.credential,
     expiresAtMs: unsealAuthorizationExpiresAtMs(args.record),

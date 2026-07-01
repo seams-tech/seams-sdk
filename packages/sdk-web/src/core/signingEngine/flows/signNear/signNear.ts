@@ -32,7 +32,6 @@ import {
   type ThresholdEd25519SessionRecord,
 } from '../../session/persistence/records';
 import {
-  selectedEd25519Lane,
   type Ed25519LaneCandidate,
   type SelectedEd25519Lane,
   type ThresholdEd25519SessionStoreSource,
@@ -42,10 +41,6 @@ import {
   exactEd25519SigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
 } from '../../session/identity/exactSigningLaneIdentity';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-} from '../../session/keyMaterialBrands';
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
@@ -99,7 +94,10 @@ import {
   resolveRouterAbEd25519WalletSessionStateFromRecord,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from './shared/routerAbEd25519WalletSessionState';
-import { classifyRouterAbEd25519PersistedSigningRecord } from '../../session/routerAbSigningWalletSession';
+import {
+  classifyRouterAbEd25519PersistedSigningRecord,
+  routerAbEd25519WorkerMaterialIdentityFromPersistedState,
+} from '../../session/routerAbSigningWalletSession';
 import {
   isEd25519MaterialUnsealAuthorizationRequiredError,
   throwEd25519MaterialRestoreRequired,
@@ -111,6 +109,9 @@ import {
   recordAvailableSigningLanesRead,
   selectTransactionLaneFromAvailableLanes,
   type NearEd25519AvailableLane,
+  type NearEd25519TransactionMaterial,
+  type NearEd25519TransactionReadyAvailableLane,
+  type NearEd25519TransactionReadyLane,
   type TransactionLaneSelectedState,
 } from '../../session/identity/selectLane';
 import {
@@ -120,6 +121,7 @@ import {
   recordExactRestoreAttempt,
   replacePreparedTransactionLane,
   type BudgetAdmittedOperation,
+  type NearEd25519TransactionSigningIntent,
   type PreparedTransactionBudgetState,
   type PreparedTransactionOperation,
   type TransactionAuthSelectionPolicy,
@@ -311,8 +313,9 @@ type NearEd25519PasskeyReconnectMode = 'session_reconnect' | 'material_restore';
 
 type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState<
   SelectedEd25519Lane,
-  NearEd25519AvailableLane,
-  Ed25519LaneCandidate
+  NearEd25519TransactionReadyAvailableLane,
+  Ed25519LaneCandidate,
+  NearEd25519TransactionReadyLane
 >;
 
 function exactEd25519IdentityFromSelectedLane(lane: SelectedEd25519Lane) {
@@ -399,6 +402,10 @@ function summarizeNearEd25519Lane(lane: AvailableEd25519SigningLane): Record<str
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
     expiresAtMs: lane.expiresAtMs,
+    hasMaterialBindingDigest: Boolean(
+      String(lane.ed25519WorkerMaterialBindingDigest || '').trim(),
+    ),
+    hasMaterialKeyId: Boolean(String(lane.materialKeyId || '').trim()),
   };
 }
 
@@ -1022,9 +1029,7 @@ function buildNearPasskeyEd25519Reconnect(args: {
         ...(thresholdSessionRecord.runtimePolicyScope
           ? { runtimePolicyScope: thresholdSessionRecord.runtimePolicyScope }
           : {}),
-        ...(thresholdSessionRecord.routerAbNormalSigning
-          ? { routerAbNormalSigning: thresholdSessionRecord.routerAbNormalSigning }
-          : {}),
+        routerAbNormalSigning: thresholdSessionRecord.routerAbNormalSigning,
         participantIds: thresholdSessionRecord.participantIds,
         ...(materialRestoreOnly ? { thresholdSessionId } : {}),
         signingGrantId,
@@ -1126,21 +1131,18 @@ function selectNearEd25519TransactionCandidate(args: {
   availableLanes: AvailableSigningLanes | null;
   authSelectionPolicy: TransactionAuthSelectionPolicy | null;
   walletId: WalletId | string;
-  currentRuntimeLane?: AvailableEd25519SigningLane | null;
 }): NearEd25519SelectedTransactionLane | null {
   const authSelectionPolicy = args.authSelectionPolicy || null;
   if (!authSelectionPolicy) return null;
 
-  const intentState = receiveTransactionIntent({
-    walletId: toWalletId(args.walletId),
-    curve: 'ed25519',
-    chain: 'near',
-    authSelectionPolicy,
-    operationUsesNeeded: 1,
-  });
+  const intentState = receiveTransactionIntent(
+    nearEd25519TransactionSigningIntent({
+      walletId: args.walletId,
+      authSelectionPolicy,
+    }),
+  );
   const availableLanesState = recordAvailableSigningLanesRead(intentState, {
     availableLanes: args.availableLanes,
-    currentRuntimeLane: args.currentRuntimeLane || null,
   });
   const selectionState = selectTransactionLaneFromAvailableLanes(availableLanesState);
   if (selectionState.tag === 'LaneSelected') {
@@ -1158,104 +1160,24 @@ function selectNearEd25519TransactionCandidate(args: {
   );
 }
 
-function exactSignerForRuntimeNearEd25519AvailableLane(
-  availableLane: NearEd25519AvailableLane,
-): SelectedEd25519Lane['identity']['signer'] {
-  const {
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    signerSlot,
-    auth,
-    signingGrantId,
-    thresholdSessionId,
-  } = availableLane;
-  return selectedEd25519Lane({
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    signerSlot,
-    auth,
-    signingGrantId,
-    thresholdSessionId,
-  }).identity.signer;
-}
-
-function nearEd25519AvailableLaneHasWorkerMaterial(lane: NearEd25519AvailableLane): boolean {
-  return (
-    Boolean(String(lane.ed25519WorkerMaterialBindingDigest || '').trim()) &&
-    Boolean(String(lane.materialKeyId || '').trim())
-  );
-}
-
-function verifiedRuntimeNearEd25519AvailableLanes(args: {
-  availableLanes: AvailableSigningLanes | null;
+function nearEd25519TransactionSigningIntent(args: {
   walletId: WalletId | string;
-}): NearEd25519AvailableLane[] {
-  const runtimeLanes: NearEd25519AvailableLane[] = [];
-  for (const lane of args.availableLanes?.candidates.ed25519.near || []) {
-    if (lane.state === 'missing') continue;
-    const laneAuthMethod = signingLaneAuthMethod(lane.auth);
-    if (lane.source !== 'runtime_session_record' && lane.source !== 'runtime_and_durable') continue;
-    if (lane.source === 'runtime_session_record' && lane.state !== 'ready') continue;
-    if (!nearEd25519AvailableLaneHasWorkerMaterial(lane as NearEd25519AvailableLane)) continue;
-    const signingGrantId = String(lane.signingGrantId || '').trim();
-    const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-    if (!signingGrantId || !thresholdSessionId) continue;
-    const runtimeRecord =
-      getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
-    if (!runtimeRecord) continue;
-    const signer = exactSignerForRuntimeNearEd25519AvailableLane(lane);
-    if (signer.kind !== 'near_ed25519_signer') continue;
-    if (
-      authMethodForThresholdEd25519Record(runtimeRecord) !== laneAuthMethod ||
-      String(runtimeRecord.walletId || '').trim() !==
-        String(signer.account.wallet.walletId || '').trim() ||
-      String(signer.account.wallet.walletId || '').trim() !== String(args.walletId || '').trim() ||
-      String(runtimeRecord.nearAccountId || '').trim() !==
-        String(signer.account.nearAccountId || '').trim() ||
-      String(runtimeRecord.nearEd25519SigningKeyId || '').trim() !==
-        String(signer.nearEd25519SigningKeyId || '').trim() ||
-      Number(runtimeRecord.signerSlot) !== Number(signer.signerSlot) ||
-      String(runtimeRecord.signingGrantId || '').trim() !== signingGrantId ||
-      String(runtimeRecord.thresholdSessionId || '').trim() !== thresholdSessionId
-    ) {
-      continue;
-    }
-    runtimeLanes.push(lane as NearEd25519AvailableLane);
-  }
-  return runtimeLanes;
+  authSelectionPolicy: TransactionAuthSelectionPolicy;
+}): NearEd25519TransactionSigningIntent {
+  return {
+    walletId: toWalletId(args.walletId),
+    curve: 'ed25519',
+    chain: 'near',
+    authSelectionPolicy: args.authSelectionPolicy,
+    operationUsesNeeded: 1,
+  };
 }
 
-async function selectSelectedEd25519LaneFromAvailableLanes(args: {
-  deps: NearSigningApiDeps;
+function selectSelectedEd25519LaneFromAvailableLanes(args: {
   commandSubject: NearCommandSubject;
   availableLanes: AvailableSigningLanes | null;
-}): Promise<NearEd25519SelectedTransactionLane | null> {
+}): NearEd25519SelectedTransactionLane | null {
   const walletId = args.commandSubject.walletSession.walletId;
-  const selectByAuthMethod = (
-    authMethod: 'email_otp' | 'passkey',
-    currentRuntimeLane?: NearEd25519AvailableLane | null,
-  ) =>
-    selectNearEd25519TransactionCandidate({
-      availableLanes: args.availableLanes,
-      authSelectionPolicy: { kind: 'account_class', authMethod },
-      walletId,
-      ...(currentRuntimeLane ? { currentRuntimeLane } : {}),
-    });
-
-  const runtimeLanes = verifiedRuntimeNearEd25519AvailableLanes({
-    availableLanes: args.availableLanes,
-    walletId,
-  });
-  if (runtimeLanes.length === 1) {
-    const runtimeLane = runtimeLanes[0]!;
-    return selectByAuthMethod(signingLaneAuthMethod(runtimeLane.auth), runtimeLane);
-  }
-
-  if (runtimeLanes.length > 1) {
-    throw new Error('[SigningEngine][near] Ed25519 transaction has ambiguous runtime lanes');
-  }
   return selectNearEd25519TransactionCandidate({
     availableLanes: args.availableLanes,
     authSelectionPolicy: { kind: 'any' },
@@ -1299,6 +1221,43 @@ function readNearEd25519RuntimeRecordForSelectedLane(args: {
   })
     ? record
     : null;
+}
+
+function ed25519RecordMatchesTransactionMaterial(args: {
+  record: ThresholdEd25519SessionRecord;
+  material: NearEd25519TransactionMaterial;
+}): boolean {
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  const materialIdentity =
+    routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
+  if (!materialIdentity) return false;
+  return (
+    String(materialIdentity.bindingDigest) === String(args.material.identity.bindingDigest) &&
+    String(materialIdentity.materialKeyId) === String(args.material.identity.materialKeyId)
+  );
+}
+
+function assertSelectedEd25519RestoreMaterialMatchesRecord(args: {
+  material: NearEd25519TransactionMaterial;
+  selectedLane: SelectedEd25519Lane;
+  walletId: WalletId | string;
+}): void {
+  const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+    args.selectedLane.thresholdSessionId,
+  );
+  if (!record) return;
+  if (
+    !thresholdEd25519RecordMatchesSelectedLane({
+      record,
+      selectedLane: args.selectedLane,
+      walletId: args.walletId,
+    })
+  ) {
+    throw new Error('[SigningEngine][near] selected Ed25519 restore record identity mismatch');
+  }
+  if (!ed25519RecordMatchesTransactionMaterial({ record, material: args.material })) {
+    throw new Error('[SigningEngine][near] selected Ed25519 restore material identity mismatch');
+  }
 }
 
 function publishNearEd25519RuntimeIdentityForRecord(
@@ -1351,8 +1310,7 @@ async function restoreNearEd25519SelectedSigningSession(args: {
   deps: NearSigningApiDeps;
   commandSubject: NearCommandSubject;
   selectedLane: SelectedEd25519Lane | null;
-  candidate: Ed25519LaneCandidate | null;
-  availableLane: NearEd25519AvailableLane | null;
+  selectedTransactionLane: NearEd25519TransactionReadyLane | null;
 }): Promise<void> {
   const nearAccountId = args.commandSubject.nearAccount.accountId;
   const walletId = args.commandSubject.walletSession.walletId;
@@ -1364,30 +1322,17 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     });
     return;
   }
-  if (args.candidate?.source === 'runtime_session_record' && args.candidate.state === 'ready') {
-    const thresholdSessionId = String(selectedLane.thresholdSessionId || '').trim();
-    const liveStatus =
-      thresholdSessionId &&
-      typeof args.deps.getWarmThresholdEd25519SessionStatusForSession === 'function'
-        ? await args.deps
-            .getWarmThresholdEd25519SessionStatusForSession({
-              nearAccountId,
-              thresholdSessionId,
-            })
-            .catch(() => null)
-        : null;
-    const liveSessionId = String(liveStatus?.sessionId || '')
-      .replace(/^threshold-ed25519:/, '')
-      .trim();
-    const liveRemainingUses = Math.floor(Number(liveStatus?.remainingUses) || 0);
-    if (
-      liveStatus?.status === 'active' &&
-      (!liveSessionId || liveSessionId === thresholdSessionId) &&
-      liveRemainingUses >= 1
-    ) {
-      return;
-    }
+  const material = args.selectedTransactionLane?.material || null;
+  if (!material) {
+    throw new Error('[SigningEngine][near] selected Ed25519 lane is missing material availability');
   }
+  const thresholdSessionId = String(selectedLane.thresholdSessionId || '').trim();
+  if (material.kind === 'loaded_worker_material') return;
+  assertSelectedEd25519RestoreMaterialMatchesRecord({
+    material,
+    selectedLane,
+    walletId,
+  });
   await args.deps.restorePersistedSessionForSigning({
     walletId,
     authMethod: signingLaneAuthMethod(selectedLane.auth),
@@ -1399,10 +1344,8 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     materialRestoreIdentity: {
       kind: 'ed25519_worker_material_restore',
       lane: exactEd25519IdentityFromSelectedLane(selectedLane),
-      materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
-        args.availableLane?.ed25519WorkerMaterialBindingDigest,
-      ),
-      materialKeyId: parseEd25519WorkerMaterialKeyId(args.availableLane?.materialKeyId),
+      materialBindingDigest: material.identity.bindingDigest,
+      materialKeyId: material.identity.materialKeyId,
     },
   });
 }
@@ -1424,8 +1367,7 @@ async function prepareNearEd25519TransactionOperation(args: {
     deps: args.deps,
     commandSubject: args.commandSubject,
     selectedLane: selectedSessionLane,
-    candidate: args.selectedLane.candidate,
-    availableLane: args.selectedLane.availableLane,
+    selectedTransactionLane: args.selectedLane.selectionCandidate,
   });
   const restoreState = recordExactRestoreAttempt(args.selectedLane, {
     restored: Boolean(selectedSessionLane),
@@ -1561,8 +1503,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     commandSubject: args.commandSubject,
     authMethod: null,
   });
-  const selectedLane = await selectSelectedEd25519LaneFromAvailableLanes({
-    deps: args.deps,
+  const selectedLane = selectSelectedEd25519LaneFromAvailableLanes({
     commandSubject: args.commandSubject,
     availableLanes,
   });

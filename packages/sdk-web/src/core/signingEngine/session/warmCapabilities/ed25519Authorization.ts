@@ -93,12 +93,13 @@ function authMethodForEd25519Record(record: ThresholdEd25519SessionRecord): Wall
 function materialStateForEd25519Record(
   record: ThresholdEd25519SessionRecord,
 ): WarmEd25519SigningSessionMaterialState {
-  const hasHandle = Boolean(nonEmptyString(record.ed25519WorkerMaterialHandle));
-  const hasBindingDigest = Boolean(nonEmptyString(record.ed25519WorkerMaterialBindingDigest));
-  const hasClientVerifier = Boolean(nonEmptyString(record.clientVerifyingShareB64u));
-  return hasHandle && hasBindingDigest && hasClientVerifier
-    ? { materialState: 'material_ready' }
-    : { materialState: 'material_pending' };
+  switch (record.materialState) {
+    case 'material_ready':
+      return { materialState: 'material_ready' };
+    case 'restore_available':
+    case 'auth_ready_material_pending':
+      return { materialState: 'material_pending' };
+  }
 }
 
 function warmAuthorizationSigningRootFailureReason(
@@ -221,9 +222,6 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
   }
 
   const routerAbNormalSigning = record.routerAbNormalSigning;
-  if (!routerAbNormalSigning) {
-    return { ok: false, reason: 'missing_router_ab_state', details: { thresholdSessionId } };
-  }
   const signingWorkerId = nonEmptyString(routerAbNormalSigning.signingWorkerId);
   if (!signingWorkerId) {
     return { ok: false, reason: 'missing_signing_worker_id', details: { thresholdSessionId } };

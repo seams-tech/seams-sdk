@@ -336,6 +336,9 @@ function resolveSessionState(input: {
           selectedCandidateId: resolution?.offer?.selectedCandidateId,
         })
       : undefined;
+  const resolvedWalletId = offer
+    ? selectedGoogleEmailOtpRegistrationCandidate(offer).walletId
+    : walletId;
   const loginChallengeRaw = mode === 'login' ? resolution?.loginChallenge : undefined;
   const loginChallenge =
     loginChallengeRaw?.delivery === 'sent' || loginChallengeRaw?.delivery === 'reused'
@@ -357,7 +360,7 @@ function resolveSessionState(input: {
       : undefined;
   return {
     idToken: input.idToken,
-    walletId,
+    walletId: resolvedWalletId,
     ...(offer ? { offer } : {}),
     ...(loginChallenge ? { loginChallenge } : {}),
     ...(loginChallengeRateLimit ? { loginChallengeRateLimit } : {}),
@@ -385,6 +388,18 @@ function rotateOfferCandidate(args: {
   );
   if (currentIndex < 0 || args.offer.candidates.length < 2) return null;
   return args.offer.candidates[(currentIndex + 1) % args.offer.candidates.length] || null;
+}
+
+function selectedGoogleEmailOtpRegistrationCandidate(
+  offer: GoogleEmailOtpRegistrationOffer,
+): GoogleEmailOtpRegistrationCandidate {
+  const candidate = offer.candidates.find(
+    (entry) => entry.candidateId === offer.selectedCandidateId,
+  );
+  if (!candidate) {
+    throw new Error('Google Email OTP registration offer selected candidate is missing');
+  }
+  return candidate;
 }
 
 async function requestLoginChallenge(args: {
@@ -595,12 +610,7 @@ function createRegistrationMaterialPrewarm(args: {
 } {
   let disposed = false;
   let resolved: EmailOtpPrewarmedRegistrationMaterial | null = null;
-  const selectedCandidate = args.offer.candidates.find(
-    (candidate) => candidate.candidateId === args.offer.selectedCandidateId,
-  );
-  if (!selectedCandidate) {
-    throw new Error('Google Email OTP registration offer selected candidate is missing');
-  }
+  const selectedCandidate = selectedGoogleEmailOtpRegistrationCandidate(args.offer);
   const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
   const evmFamilySigningKeySlotId = googleEmailOtpRegistrationWalletKeyId({
     walletId: selectedCandidate.walletId,
@@ -677,11 +687,8 @@ function createGoogleEmailOtpWalletRegistrationFlow(
   const registrationOptions = requiredTargets.length
     ? eventOptions
     : registrationOptionsForNoEcdsa({ options: eventOptions });
-  const appSessionJwt = (() => {
-    const value = String(args.state.appSessionJwt || '').trim();
-    if (!value) throw new Error('Google Email OTP registration requires an app session token');
-    return value;
-  })();
+  const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
+  const selectedWalletId = selectedGoogleEmailOtpRegistrationCandidate(offer).walletId;
   const registrationAuthMethod = {
     kind: 'email_otp',
     proofKind: 'google_sso_registration',
@@ -692,11 +699,11 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     googleEmailOtpRegistrationCandidateId: offer.selectedCandidateId,
   } satisfies GoogleEmailOtpWalletRegistrationArgs['authMethod'];
   const registrationArgs: GoogleEmailOtpWalletRegistrationArgs = {
-    wallet: { kind: 'provided', walletId: args.state.walletId },
+    wallet: { kind: 'provided', walletId: selectedWalletId },
     authMethod: registrationAuthMethod,
     signerSelection: buildNearWalletRegistrationSignerSetSelection({
       configs: deps.configs,
-      accountProvisioning: sponsoredNamedRegistrationProvisioningFromAccountId(args.state.walletId),
+      accountProvisioning: sponsoredNamedRegistrationProvisioningFromAccountId(selectedWalletId),
       options: registrationOptions,
       ecdsaChainTargets: requiredTargets,
     }),
@@ -709,14 +716,14 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     }
   };
   const liveness = createFlowLiveness({ state: args.state });
-  const flowId = `google-email-otp-registration:${args.state.walletId}:${registrationAttemptId}`;
+  const flowId = `google-email-otp-registration:${selectedWalletId}:${registrationAttemptId}`;
   return {
     kind: 'google_email_otp_wallet_auth_flow_v1',
     state: 'registration_ready',
     flowId,
     requestedMode: args.state.requestedMode,
     mode: 'register',
-    walletId: args.state.walletId,
+    walletId: selectedWalletId,
     emailHint: args.state.emailHint,
     prompt: buildPrompt({ mode: 'register', emailHint: args.state.emailHint }),
     expiresAtMs: args.state.expiresAtMs,
@@ -747,8 +754,8 @@ function createGoogleEmailOtpWalletRegistrationFlow(
           return fail(classifyRegistrationError(error), error);
         }
         liveness.burn();
-        const session = await assertLoggedIn(deps, args.state.walletId);
-        return ok({ walletId: args.state.walletId, mode: 'register', session });
+        const session = await assertLoggedIn(deps, selectedWalletId);
+        return ok({ walletId: selectedWalletId, mode: 'register', session });
       } catch (error: unknown) {
         return fail(classifyRegistrationError(error), error);
       } finally {
@@ -769,7 +776,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
         }
         const nextCandidate = rotateOfferCandidate({
           offer: args.state.offer,
-          currentWalletId: args.state.walletId,
+          currentWalletId: selectedWalletId,
         });
         if (!nextCandidate) {
           return fail(

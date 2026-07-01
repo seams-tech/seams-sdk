@@ -592,6 +592,7 @@ export class EmailRecoveryDomain {
       const clientParticipantId = Number(thresholdSection.clientParticipantId);
       const relayerParticipantId = Number(thresholdSection.relayerParticipantId);
       await context.signingEngine.storeUserData({
+        walletId: String(recoveredWalletBinding.walletId),
         nearAccountId: recoveredWalletBinding.nearAccountId,
         signerSlot,
         operationalPublicKey: thresholdPublicKey,
@@ -663,7 +664,6 @@ export class EmailRecoveryDomain {
         relayerUrl,
         relayerKeyId,
         session: thresholdSession,
-        ed25519HssKeyVersion,
         signerSlot,
         materialCreatedAtMs: thresholdKeyMaterialCreatedAtMs,
         participantIdsHint: Array.isArray(thresholdSection.participantIds)

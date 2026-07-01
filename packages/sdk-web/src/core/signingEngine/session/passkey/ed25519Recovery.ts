@@ -53,7 +53,6 @@ type PasskeyEd25519ReconnectWorkerMaterialFacts = PasskeyEd25519ReconnectRuntime
   materialKeyId: Ed25519WorkerMaterialKeyId;
   materialCreatedAtMs: number;
   signerSlot: number;
-  keyVersion: string;
 };
 
 function nonEmptyString(value: unknown): string {
@@ -89,7 +88,6 @@ function readPasskeyEd25519ReconnectWorkerMaterialFacts(
   const materialKeyId = nonEmptyString(record.materialKeyId);
   const materialCreatedAtMs = positiveInteger(record.materialCreatedAtMs);
   const signerSlot = positiveInteger(record.signerSlot);
-  const keyVersion = nonEmptyString(record.keyVersion);
   if (
     !clientVerifyingShareB64u ||
     !ed25519WorkerMaterialBindingDigest ||
@@ -98,8 +96,7 @@ function readPasskeyEd25519ReconnectWorkerMaterialFacts(
     !materialFormatVersion ||
     !materialKeyId ||
     !materialCreatedAtMs ||
-    !signerSlot ||
-    !keyVersion
+    !signerSlot
   ) {
     return null;
   }
@@ -115,7 +112,6 @@ function readPasskeyEd25519ReconnectWorkerMaterialFacts(
     materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
     materialCreatedAtMs,
     signerSlot,
-    keyVersion,
   };
   if (ed25519WorkerMaterialHandle) {
     return {
@@ -210,10 +206,7 @@ function retainPasskeyEd25519ReconnectWorkerMaterialFacts(args: {
     materialKeyId: sourceFacts.materialKeyId,
     materialCreatedAtMs: sourceFacts.materialCreatedAtMs,
     signerSlot: sourceFacts.signerSlot,
-    keyVersion: sourceFacts.keyVersion,
-    ...(targetRecord.routerAbNormalSigning
-      ? { routerAbNormalSigning: targetRecord.routerAbNormalSigning }
-      : {}),
+    routerAbNormalSigning: targetRecord.routerAbNormalSigning,
     thresholdSessionKind: targetRecord.thresholdSessionKind,
     thresholdSessionId: targetRecord.thresholdSessionId,
     signingGrantId: targetRecord.signingGrantId,
@@ -276,9 +269,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     ...(args.record.runtimePolicyScope
       ? { runtimePolicyScope: args.record.runtimePolicyScope }
       : {}),
-    ...(args.record.routerAbNormalSigning
-      ? { routerAbNormalSigning: args.record.routerAbNormalSigning }
-      : {}),
+    routerAbNormalSigning: args.record.routerAbNormalSigning,
     participantIds: args.record.participantIds,
     sessionKind: 'jwt',
     signerSlot,
@@ -354,6 +345,10 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
   ) {
     return null;
   }
+  const sealedSessionKeyVersion = nonEmptyString(args.record.keyVersion);
+  if (!sealedSessionKeyVersion) return null;
+  const routerAbNormalSigning = args.record.routerAbNormalSigning;
+  if (!routerAbNormalSigning) return null;
 
   const publishRecord = (policy: { expiresAtMs: number; remainingUses: number }): void => {
     const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
@@ -370,9 +365,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
       ...(args.record.runtimePolicyScope
         ? { runtimePolicyScope: args.record.runtimePolicyScope }
         : {}),
-      ...(args.record.routerAbNormalSigning
-        ? { routerAbNormalSigning: args.record.routerAbNormalSigning }
-        : {}),
+      routerAbNormalSigning,
       thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
       thresholdSessionId,
       signingGrantId,

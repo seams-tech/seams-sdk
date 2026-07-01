@@ -26,13 +26,11 @@ export type ProvisionThresholdEd25519SessionDeps = {
 };
 
 function sealTransportForProvisionedEd25519Session(args: {
-  source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
   walletId: string;
   relayerUrl: string;
   signingGrantId: string;
   walletSessionJwt: string;
-}): WarmSessionSealTransportInput | undefined {
-  if (args.source === 'login') return undefined;
+}): WarmSessionSealTransportInput {
   return {
     curve: 'ed25519',
     walletId: args.walletId,
@@ -100,7 +98,7 @@ export async function provisionThresholdEd25519Session(
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     ...(args.auth ? { auth: args.auth } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
+    routerAbNormalSigning: args.routerAbNormalSigning,
     ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
     nearAccountId,
     participantIds,
@@ -156,7 +154,7 @@ export async function provisionThresholdEd25519Session(
     ...(connected.runtimePolicyScope || args.runtimePolicyScope
       ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
       : {}),
-    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
+    routerAbNormalSigning: args.routerAbNormalSigning,
     participantIds,
     sessionKind: 'jwt',
     signerSlot: args.signerSlot,
@@ -171,7 +169,6 @@ export async function provisionThresholdEd25519Session(
 
   if (prfFirstB64u) {
     const transport = sealTransportForProvisionedEd25519Session({
-      source,
       walletId: args.walletId,
       relayerUrl,
       signingGrantId,
@@ -183,7 +180,7 @@ export async function provisionThresholdEd25519Session(
         prfFirstB64u,
         expiresAtMs,
         remainingUses,
-        ...(transport ? { transport } : {}),
+        transport,
       });
     } catch (error: unknown) {
       const details = String(

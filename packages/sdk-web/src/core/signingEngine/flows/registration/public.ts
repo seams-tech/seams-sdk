@@ -149,6 +149,7 @@ export function hasPasskeyCredential(
 export function atomicStoreRegistrationData(
   deps: RegistrationPublicDeps,
   args: {
+    walletId: WalletId;
     nearAccountId: AccountId;
     credential: WebAuthnRegistrationCredential;
     credentialPublicKeyB64u: string;

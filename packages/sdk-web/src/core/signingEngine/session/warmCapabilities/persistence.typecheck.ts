@@ -11,6 +11,12 @@ import {
   parseEd25519WorkerMaterialHandle,
   parseEd25519WorkerMaterialKeyId,
 } from '../keyMaterialBrands';
+import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
+
+const routerAbNormalSigning = {
+  kind: 'router_ab_ed25519_normal_signing_v1',
+  signingWorkerId: 'signing-worker-a',
+} satisfies RouterAbEd25519NormalSigningState;
 
 const commonArgs = {
   walletId: 'alice.testnet',
@@ -25,6 +31,7 @@ const commonArgs = {
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 2,
   signerSlot: 1,
+  routerAbNormalSigning,
 } as const;
 
 const emailOtpAuthContext = {
@@ -80,6 +87,7 @@ void persistWarmSessionEd25519Capability({
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 2,
   signerSlot: 1,
+  routerAbNormalSigning,
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
@@ -100,6 +108,7 @@ void persistWarmSessionEd25519Capability({
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 2,
   signerSlot: 1,
+  routerAbNormalSigning,
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
@@ -116,9 +125,11 @@ void persistWarmSessionEd25519Capability({
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
+  sealedWorkerMaterialRef,
+  sealedWorkerMaterialB64u: 'sealed-worker-material',
+  materialFormatVersion: 'ed25519_worker_material_v1',
   materialKeyId,
   materialCreatedAtMs: 1_800_000_000_000,
-  keyVersion: 'threshold-ed25519-hss-v1',
 });
 
 // @ts-expect-error Runtime Ed25519 material persistence requires materialKeyId.
@@ -132,8 +143,10 @@ void persistWarmSessionEd25519Capability({
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
+  sealedWorkerMaterialRef,
+  sealedWorkerMaterialB64u: 'sealed-worker-material',
+  materialFormatVersion: 'ed25519_worker_material_v1',
   materialCreatedAtMs: 1_800_000_000_000,
-  keyVersion: 'threshold-ed25519-hss-v1',
 });
 
 // @ts-expect-error Sealed Ed25519 material persistence requires the material binding digest.
@@ -151,7 +164,6 @@ void persistWarmSessionEd25519Capability({
   materialFormatVersion: 'ed25519_worker_material_v1',
   materialKeyId,
   materialCreatedAtMs: 1_800_000_000_000,
-  keyVersion: 'threshold-ed25519-hss-v1',
 });
 
 // @ts-expect-error Sealed Ed25519 material persistence requires signerSlot.
@@ -166,25 +178,7 @@ void persistWarmSessionEd25519Capability({
   signingGrantId: 'wallet-session-1',
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 2,
-  sessionKind: 'jwt',
-  jwt: 'jwt-token',
-  source: 'login',
-  passkeyCredentialIdB64u: 'credential-id',
-  clientVerifyingShareB64u,
-  ed25519WorkerMaterialHandle,
-  ed25519WorkerMaterialBindingDigest,
-  sealedWorkerMaterialRef,
-  sealedWorkerMaterialB64u: 'sealed-worker-material',
-  materialFormatVersion: 'ed25519_worker_material_v1',
-  materialKeyId,
-  materialCreatedAtMs: 1_800_000_000_000,
-  keyVersion: 'threshold-ed25519-hss-v1',
-});
-
-// @ts-expect-error Sealed Ed25519 material persistence requires keyVersion.
-void persistWarmSessionEd25519Capability({
-  kind: 'jwt_passkey',
-  ...commonArgs,
+  routerAbNormalSigning,
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
@@ -214,7 +208,6 @@ void persistWarmSessionEd25519Capability({
   materialFormatVersion: 'ed25519_worker_material_v1',
   materialKeyId,
   materialCreatedAtMs: 1_800_000_000_000,
-  keyVersion: 'threshold-ed25519-hss-v1',
 });
 
 void persistWarmSessionEd25519Capability({
@@ -243,7 +236,6 @@ void persistWarmSessionEd25519Capability({
   sealedWorkerMaterialB64u: 'sealed-worker-material',
   materialFormatVersion: 'ed25519_worker_material_v1',
   materialCreatedAtMs: 1_800_000_000_000,
-  keyVersion: 'threshold-ed25519-hss-v1',
 });
 
 // @ts-expect-error Email OTP persistence requires Email OTP auth context.

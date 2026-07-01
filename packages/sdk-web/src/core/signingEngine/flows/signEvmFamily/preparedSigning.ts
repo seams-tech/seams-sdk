@@ -130,39 +130,6 @@ export function resolveEvmFamilyTransactionAuthSelectionPolicy(args: {
     : { kind: 'any' };
 }
 
-function isRuntimeBackedEcdsaAvailableLane(
-  lane: AvailableEcdsaSigningLane | null | undefined,
-): lane is EvmFamilyEcdsaAvailableLane {
-  return (
-    Boolean(lane) &&
-    lane!.curve === 'ecdsa' &&
-    Boolean(lane!.chainTarget) &&
-    isConcreteAvailableSigningLane(lane!) &&
-    (lane!.source === 'runtime_session_record' || lane!.source === 'runtime_and_durable') &&
-    (availableEcdsaSigningLaneAuthMethod(lane!) === 'email_otp' ||
-      availableEcdsaSigningLaneAuthMethod(lane!) === 'passkey')
-  );
-}
-
-function getSingleRuntimeBackedEcdsaAvailableLane(args: {
-  availableLanes: AvailableSigningLanes;
-  signingTarget: EvmFamilySigningTarget;
-}): EvmFamilyEcdsaAvailableLane | null {
-  const runtimeCandidates = ecdsaAvailableLaneCandidatesForTarget(
-    args.availableLanes,
-    args.signingTarget,
-  ).filter(
-    (lane): lane is EvmFamilyEcdsaAvailableLane =>
-      isRuntimeBackedEcdsaAvailableLane(lane) &&
-      lane.state === 'ready' &&
-      thresholdEcdsaChainTargetsEqual(lane.chainTarget, args.signingTarget),
-  );
-  if (runtimeCandidates.length === 1) return runtimeCandidates[0];
-  // Multiple runtime lanes are not a single current-lane anchor; let the
-  // account-class policy choose instead of hiding a live lane before selection.
-  return null;
-}
-
 function singleConcreteAuthMethodForEcdsaTarget(args: {
   availableLanes: AvailableSigningLanes;
   signingTarget: EvmFamilySigningTarget;
@@ -539,10 +506,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           curve: 'ecdsa',
           ecdsaChainTargets: [chainTarget],
         });
-        const currentRuntimeLane = getSingleRuntimeBackedEcdsaAvailableLane({
-          availableLanes: candidateAvailableLanes,
-          signingTarget: args.signingTarget,
-        });
         const laneReadDiagnostic = {
           accountId: walletId,
           chain,
@@ -552,7 +515,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             candidateAvailableLanes,
             chainTarget,
           ).length,
-          currentRuntimeLane: summarizeEcdsaAvailableLane(currentRuntimeLane),
           selectedLanesByTarget: summarizeEcdsaSelectedLanesByTarget(candidateAvailableLanes),
           candidatesByTarget: summarizeEcdsaAvailableCandidatesByTarget(candidateAvailableLanes),
         };
@@ -567,7 +529,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           ...laneReadDiagnostic,
         });
         const candidateAuthMethod =
-          (currentRuntimeLane ? availableEcdsaSigningLaneAuthMethod(currentRuntimeLane) : undefined) ||
           singleConcreteAuthMethodForEcdsaTarget({
             availableLanes: candidateAvailableLanes,
             signingTarget: args.signingTarget,
@@ -583,7 +544,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         const selectedLane = selectTransactionLane({
           intent: transactionIntent,
           availableLanes: candidateAvailableLanes,
-          currentRuntimeLane,
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.lane_selected',

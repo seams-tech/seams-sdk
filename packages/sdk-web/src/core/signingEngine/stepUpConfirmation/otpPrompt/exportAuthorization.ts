@@ -33,6 +33,7 @@ export type EmailOtpExportAuthorizationConfirmer = {
 export type EmailOtpExportAuthorizationIdentity =
   | {
       kind: 'near_account';
+      walletId: string;
       nearAccountId: AccountId | string;
     }
   | {
@@ -67,9 +68,12 @@ function signingSubjectForEmailOtpExportUi(
 ): SignIntentDigestSubject {
   switch (identity.kind) {
     case 'near_account':
+      if (!String(identity.walletId || '').trim()) {
+        throw new Error('Email OTP NEAR export requires wallet identity');
+      }
       return {
         kind: 'near_wallet',
-        walletId: String(toAccountId(identity.nearAccountId)),
+        walletId: String(identity.walletId).trim(),
         nearAccountId: String(toAccountId(identity.nearAccountId)),
       };
     case 'wallet_session': {

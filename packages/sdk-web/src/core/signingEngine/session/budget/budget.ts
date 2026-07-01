@@ -281,7 +281,16 @@ export type SigningSessionBudgetReserveInput = {
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 };
 
-export type SigningSessionBudgetReservationRecord = SigningSessionBudgetReserveInput & {
+export type SigningSessionPreparedBudgetReservationInput = {
+  spend: WalletSigningSpendPlan;
+  budgetIdentity: SigningSessionPreparedBudgetIdentity;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+};
+
+export type SigningSessionBudgetReservationRecord = {
+  spend: WalletSigningSpendPlan;
+  expectedBudgetProjectionVersion: string;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   operationFingerprint: string;
   signingGrantId: string;
   reservationIdentity: SigningBudgetReservationIdentity;
@@ -513,6 +522,9 @@ export type SigningSessionPreparedBudgetIdentity = {
 
 export type SigningSessionBudget = {
   reserve(input: SigningSessionBudgetReserveInput): Promise<SigningSessionBudgetReserveResult>;
+  reservePrepared(
+    input: SigningSessionPreparedBudgetReservationInput,
+  ): Promise<SigningSessionBudgetReserveResult>;
   getAvailableStatus(input: SigningSessionBudgetStatusCheck): Promise<SigningSessionStatus | null>;
   recordSuccess(input: SigningSessionBudgetSuccessInput): Promise<SigningBudgetFinalizationResult>;
   recordZeroSpend(input: ZeroWalletBudgetSpend): void;
@@ -552,14 +564,14 @@ export function applySigningSessionBudgetReservationsToStatus(args: {
 }): SigningSessionStatus {
   if (args.status.status !== 'active') return args.status;
   const remainingUses = Math.max(0, Math.floor(Number(args.status.remainingUses) || 0));
-  const serverAvailableUses = availableUsesForBudgetAdmission(args.status);
+  const committedUses = committedUsesForBudgetAdmission(args.status);
   const projectionVersion = String(args.status.projectionVersion || '').trim();
   const inFlightReservedUses = getSameProjectionReservedUses({
     reservationsByOperationId: args.reservationsByOperationId,
     signingGrantId: args.signingGrantId,
     projectionVersion,
   });
-  const availableUses = Math.max(0, serverAvailableUses - inFlightReservedUses);
+  const availableUses = Math.max(0, committedUses - inFlightReservedUses);
   // remainingUses is the server-trusted budget. Local reservations are only
   // in-flight availability hints when they were admitted against the same
   // trusted projection. Opaque projection-version mismatches are non-subtracting
@@ -608,18 +620,14 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
   if (!projectionVersion) {
     throw new Error('[SigningSessionBudget] trusted budget status is missing projection version');
   }
-  const remainingUses = Math.floor(Number(status.remainingUses) || 0);
-  const serverAvailableUses = availableUsesForBudgetAdmission(status);
+  const committedUses = committedUsesForBudgetAdmission(status);
   const reservedUses = getSameProjectionReservedUses({
     reservationsByOperationId: args.reservationsByOperationId,
     signingGrantId: signingGrantIdForSpend(spend),
     projectionVersion,
   });
-  const availableUses = serverAvailableUses - reservedUses;
+  const availableUses = committedUses - reservedUses;
   if (availableUses < spend.uses) {
-    if (remainingUses >= spend.uses || serverAvailableUses >= spend.uses) {
-      throw new Error(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
-    }
     throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
   }
   const expectedProjectionVersion = String(args.input.expectedBudgetProjectionVersion || '').trim();
@@ -627,6 +635,45 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
     throw new Error('[SigningSessionBudget] prepared budget projection version is required');
   }
   return status as SigningSessionStatus & { status: 'active'; projectionVersion: string };
+}
+
+export function assertPreparedSigningSessionBudgetReservationAvailable(args: {
+  input: SigningSessionPreparedBudgetReservationInput;
+  reservationsByOperationId: Map<string, SigningSessionBudgetReservationRecord>;
+}): SigningSessionStatus & { status: 'active'; projectionVersion: string } {
+  const spend = args.input.spend;
+  const budgetIdentity = args.input.budgetIdentity;
+  const signingGrantId = signingGrantIdForSpend(spend);
+  if (String(budgetIdentity.signingGrantId) !== String(signingGrantId)) {
+    throw new Error('[SigningSessionBudget] prepared budget identity does not match spend lane');
+  }
+  const status = budgetIdentity.status;
+  if (status.status !== 'active') {
+    throw new Error(`[SigningSessionBudget] signing grant budget is ${status.status}`);
+  }
+  const projectionVersion = String(status.projectionVersion || '').trim();
+  if (!projectionVersion) {
+    throw new Error('[SigningSessionBudget] trusted budget status is missing projection version');
+  }
+  if (projectionVersion !== String(budgetIdentity.projectionVersion)) {
+    throw new Error('[SigningSessionBudget] prepared budget projection version mismatch');
+  }
+  const committedUses = committedUsesForBudgetAdmission(status);
+  const reservedUses = getSameProjectionReservedUses({
+    reservationsByOperationId: args.reservationsByOperationId,
+    signingGrantId,
+    projectionVersion,
+  });
+  const availableUses = committedUses - reservedUses;
+  if (availableUses < spend.uses) {
+    throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+  }
+  return status;
+}
+
+export function committedUsesForBudgetAdmission(status: SigningSessionStatus): number {
+  if (status.status !== 'active') return 0;
+  return Math.max(0, Math.floor(Number(status.remainingUses) || 0));
 }
 
 export function availableUsesForBudgetAdmission(status: SigningSessionStatus): number {

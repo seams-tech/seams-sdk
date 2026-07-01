@@ -1,6 +1,6 @@
 import type { SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 import { signingAuthPlanFromSigningSessionPlan } from '../../shared/signingConfirmation';
-import { availableUsesForBudgetAdmission } from '@/core/signingEngine/session/budget/budget';
+import { committedUsesForBudgetAdmission } from '@/core/signingEngine/session/budget/budget';
 import {
   formatThresholdSigningSessionAvailabilityError,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
@@ -38,21 +38,22 @@ import {
   SigningSessionPlanKind,
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
-import { thresholdEd25519LaneCandidateFromSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import {
+  thresholdEd25519LaneCandidateFromSessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
 import {
   exactEd25519SigningLaneIdentity,
   nearEd25519SignerBindingFromBoundaryFields,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-} from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
   NearCommandSubject,
   ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  classifyRouterAbEd25519PersistedSigningRecord,
+  routerAbEd25519WorkerMaterialIdentityFromPersistedState,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { SigningSessionStatus } from '@/core/types/seams';
 
 export type NearSigningSessionAuthPlan = {
@@ -198,10 +199,7 @@ type PrePlanningEd25519MaterialRestoreResult =
     }
   | {
       kind: 'missing_sealed_material';
-      code:
-        | 'no_durable_restore_records'
-        | 'durable_restore_missing_worker_material'
-        | 'material_restore_required';
+      code: 'no_durable_restore_records' | 'material_restore_required';
       capability: NearEd25519Capability;
     }
   | {
@@ -765,13 +763,6 @@ function prePlanningRestoreFailureFromError(args: {
       capability: args.capability,
     };
   }
-  if (message.includes('durable_restore_missing_worker_material')) {
-    return {
-      kind: 'missing_sealed_material',
-      code: 'durable_restore_missing_worker_material',
-      capability: args.capability,
-    };
-  }
   if (message.includes('material_restore_required')) {
     return {
       kind: 'missing_sealed_material',
@@ -917,7 +908,7 @@ function admitActiveTrustedEd25519SigningSessionStatus(args: {
   usesNeeded: number;
   thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEd25519Session>;
 }): Ed25519PlannerReadinessResult {
-  const remainingUses = availableUsesForBudgetAdmission(args.trustedStatus);
+  const remainingUses = committedUsesForBudgetAdmission(args.trustedStatus);
   const status = remainingUses < args.usesNeeded ? 'exhausted' : 'ready';
   return buildEd25519PlannerReadiness({
     status,
@@ -1188,7 +1179,14 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
   const signingGrantId = String(record.signingGrantId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || args.sessionId || '').trim();
   const candidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
-  if (!signingGrantId || !thresholdSessionId || !candidate) {
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(record);
+  const materialIdentity = routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
+  if (
+    !signingGrantId ||
+    !thresholdSessionId ||
+    !candidate ||
+    !materialIdentity
+  ) {
     return {
       kind: 'missing_sealed_material',
       code: 'material_restore_required',
@@ -1217,10 +1215,8 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
           signingGrantId,
           thresholdSessionId,
         }),
-        materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
-          record.ed25519WorkerMaterialBindingDigest,
-        ),
-        materialKeyId: parseEd25519WorkerMaterialKeyId(record.materialKeyId),
+        materialBindingDigest: materialIdentity.bindingDigest,
+        materialKeyId: materialIdentity.materialKeyId,
       },
     });
     if (result.deferred > 0) {

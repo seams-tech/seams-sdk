@@ -47,6 +47,10 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   ) {
     return existing;
   }
+  const sealedSessionKeyVersion = String(args.record.keyVersion || '').trim();
+  if (!sealedSessionKeyVersion) return null;
+  const routerAbNormalSigning = args.record.routerAbNormalSigning;
+  if (!routerAbNormalSigning) return null;
   return upsertStoredThresholdEd25519SessionRecord({
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
@@ -55,10 +59,9 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
-    ...(args.record.routerAbNormalSigning
-      ? { routerAbNormalSigning: args.record.routerAbNormalSigning }
-      : {}),
+    routerAbNormalSigning,
     participantIds: [...args.record.participantIds],
+    signerSlot: args.record.signerSlot,
     thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
     thresholdSessionId: args.purpose.thresholdSessionId,
     signingGrantId: args.purpose.signingGrantId,

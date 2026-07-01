@@ -3,6 +3,7 @@ import { normalizeWalletSigningSpendPlan } from '../operationState/types';
 import {
   applySigningSessionBudgetReservationsToStatus,
   assertBudgetStatusCheckHasConcreteLaneIdentity,
+  assertPreparedSigningSessionBudgetReservationAvailable,
   assertSigningSessionBudgetReservationAvailable,
   buildSigningBudgetReservationIdentity,
   buildSigningSessionBudgetStatusCheckForSpend,
@@ -22,6 +23,8 @@ import {
   type SigningSessionBudgetReservation,
   type SigningSessionBudgetReservationConflict,
   type SigningSessionBudgetReservationRecord,
+  type SigningSessionBudgetReserveResult,
+  type SigningSessionPreparedBudgetReservationInput,
   type SigningSessionBudgetReserveInput,
   type SigningSessionBudgetSuccessInput,
   type SigningSessionBudgetStatusSync,
@@ -38,6 +41,11 @@ type SuccessfulSpendRecord = {
   reservationIdentityKey: SigningBudgetReservationKey;
   promise: Promise<SigningBudgetFinalizationResult>;
 };
+
+type ActiveBudgetStatus = SigningSessionStatus & { status: 'active'; projectionVersion: string };
+type BudgetCoordinatorReservationInput =
+  | SigningSessionBudgetReserveInput
+  | SigningSessionPreparedBudgetReservationInput;
 
 export type BudgetCoordinatorDeps = {
   readStatus: (
@@ -62,6 +70,42 @@ export class BudgetCoordinator implements SigningSessionBudget {
     input: Parameters<SigningSessionBudget['reserve']>[0],
   ): ReturnType<SigningSessionBudget['reserve']> {
     const normalizedInput: SigningSessionBudgetReserveInput = {
+      ...input,
+      spend: normalizeWalletSigningSpendPlan(input.spend),
+    };
+    return await this.reserveAdmitted(
+      normalizedInput,
+      async () =>
+        await assertSigningSessionBudgetReservationAvailable({
+          getStatus: (statusArgs) => this.readStatusWithSuccessfulSpendProjection(statusArgs),
+          input: normalizedInput,
+          reservationsByOperationId: this.reservationsByOperationId,
+        }),
+    );
+  }
+
+  async reservePrepared(
+    input: Parameters<SigningSessionBudget['reservePrepared']>[0],
+  ): ReturnType<SigningSessionBudget['reservePrepared']> {
+    const normalizedInput: SigningSessionPreparedBudgetReservationInput = {
+      ...input,
+      spend: normalizeWalletSigningSpendPlan(input.spend),
+    };
+    return await this.reserveAdmitted(
+      normalizedInput,
+      () =>
+        assertPreparedSigningSessionBudgetReservationAvailable({
+          input: normalizedInput,
+          reservationsByOperationId: this.reservationsByOperationId,
+        }),
+    );
+  }
+
+  private async reserveAdmitted(
+    input: BudgetCoordinatorReservationInput,
+    admit: () => Promise<ActiveBudgetStatus> | ActiveBudgetStatus,
+  ): Promise<SigningSessionBudgetReserveResult> {
+    const normalizedInput: BudgetCoordinatorReservationInput = {
       ...input,
       spend: normalizeWalletSigningSpendPlan(input.spend),
     };
@@ -106,15 +150,9 @@ export class BudgetCoordinator implements SigningSessionBudget {
       }
 
       this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_started', {});
-      let admittedStatus: Awaited<
-        ReturnType<typeof assertSigningSessionBudgetReservationAvailable>
-      >;
+      let admittedStatus: ActiveBudgetStatus;
       try {
-        admittedStatus = await assertSigningSessionBudgetReservationAvailable({
-          getStatus: (statusArgs) => this.readStatusWithSuccessfulSpendProjection(statusArgs),
-          input: normalizedInput,
-          reservationsByOperationId: this.reservationsByOperationId,
-        });
+        admittedStatus = await admit();
       } catch (error) {
         this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_failed', {
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
@@ -127,8 +165,11 @@ export class BudgetCoordinator implements SigningSessionBudget {
         projectionVersion: admittedStatus.projectionVersion,
       });
       this.reservationsByOperationId.set(operationId, {
-        ...normalizedInput,
+        spend,
         expectedBudgetProjectionVersion: admittedStatus.projectionVersion,
+        ...(normalizedInput.trustedStatusAuth
+          ? { trustedStatusAuth: normalizedInput.trustedStatusAuth }
+          : {}),
         operationFingerprint: resolveWalletSigningOperationFingerprint(spend),
         signingGrantId,
         reservationIdentity,

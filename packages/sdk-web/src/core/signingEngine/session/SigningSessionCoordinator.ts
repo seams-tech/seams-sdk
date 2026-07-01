@@ -10,7 +10,7 @@ import {
 import {
   buildAuthenticatedEcdsaLaneBudgetStatusCheck,
   buildAuthenticatedThresholdBudgetStatusCheck,
-  availableUsesForBudgetAdmission,
+  committedUsesForBudgetAdmission,
   buildBackingMaterialBudgetStatusCheck,
   buildEcdsaLaneBudgetStatusCheck,
   buildThresholdBudgetStatusCheck,
@@ -26,12 +26,12 @@ import {
   isSigningSessionBudgetUnknownError,
   normalizeRequired,
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
-  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
   SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
   type SigningSessionBudget,
   type SigningSessionBudgetDeps,
   type SigningSessionBudgetReservation,
   type SigningSessionBudgetReserveInput,
+  type SigningSessionPreparedBudgetReservationInput,
   type SigningSessionBudgetStatusCheck,
   type SigningSessionPreparedBudgetIdentity,
   type SigningSessionBudgetStatusReader,
@@ -394,6 +394,15 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     });
   }
 
+  async reservePrepared(
+    input: SigningSessionPreparedBudgetReservationInput,
+  ): ReturnType<SigningSessionBudget['reservePrepared']> {
+    normalizeRequired(input.spend.lane.signingGrantId, 'signingGrantId');
+    return await this.walletBudget.reservePrepared({
+      ...input,
+    });
+  }
+
   async getAvailableStatus(
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
@@ -426,12 +435,8 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       throw new Error(`[SigningSessionBudget] signing grant budget is ${status.status}`);
     }
     const usesNeeded = Math.max(1, Math.floor(Number(input.operationUsesNeeded) || 1));
-    const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
-    const availableUses = availableUsesForBudgetAdmission(status);
-    if (availableUses < usesNeeded) {
-      if (remainingUses >= usesNeeded) {
-        throw new Error(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
-      }
+    const committedUses = committedUsesForBudgetAdmission(status);
+    if (committedUses < usesNeeded) {
       throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
     }
     const projectionVersion = String(status.projectionVersion || '').trim();
@@ -443,8 +448,8 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       projectionVersion,
       status: {
         ...status,
-        remainingUses: availableUses,
-        availableUses,
+        remainingUses: committedUses,
+        availableUses: committedUses,
       } as SigningSessionPreparedBudgetIdentity['status'],
     };
   }

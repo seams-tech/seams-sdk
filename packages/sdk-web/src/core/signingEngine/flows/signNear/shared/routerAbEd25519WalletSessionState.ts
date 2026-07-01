@@ -9,7 +9,10 @@ import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/sig
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import type { UiConfirmSigningSessionPort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
+import type {
+  NearEd25519PersistableSigningMaterial,
+  NearResolvedEd25519SigningSessionState,
+} from '@/core/signingEngine/interfaces/near';
 import {
   toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
@@ -111,39 +114,19 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
     routerAbNormalSigning: args.signingWalletSession.routerAbNormalSigning,
     runtimePolicyScope: args.signingWalletSession.runtimePolicyScope,
     relayerUrl: String(record.relayerUrl || '').trim(),
-    persistSigningMaterial: (material: {
-      materialHandle: string;
-      bindingDigest: string;
-      clientVerifyingShareB64u: string;
-      sealedWorkerMaterialRef?: string;
-      sealedWorkerMaterialB64u?: string;
-      materialFormatVersion?: string;
-      materialKeyId?: string;
-      materialCreatedAtMs?: number;
-      signerSlot?: number;
-      keyVersion?: string;
-    }) => {
+    persistSigningMaterial: (material: NearEd25519PersistableSigningMaterial) => {
       const persisted = Boolean(
         persistStoredThresholdEd25519SessionMaterialHandle({
           thresholdSessionId,
           ed25519WorkerMaterialHandle: material.materialHandle,
           ed25519WorkerMaterialBindingDigest: material.bindingDigest,
           clientVerifyingShareB64u: material.clientVerifyingShareB64u,
-          ...(material.sealedWorkerMaterialRef
-            ? { sealedWorkerMaterialRef: material.sealedWorkerMaterialRef }
-            : {}),
-          ...(material.sealedWorkerMaterialB64u
-            ? { sealedWorkerMaterialB64u: material.sealedWorkerMaterialB64u }
-            : {}),
-          ...(material.materialFormatVersion
-            ? { materialFormatVersion: material.materialFormatVersion }
-            : {}),
-          ...(material.materialKeyId ? { materialKeyId: material.materialKeyId } : {}),
-          ...(material.materialCreatedAtMs
-            ? { materialCreatedAtMs: material.materialCreatedAtMs }
-            : {}),
-          ...(material.signerSlot ? { signerSlot: material.signerSlot } : {}),
-          ...(material.keyVersion ? { keyVersion: material.keyVersion } : {}),
+          sealedWorkerMaterialRef: material.sealedWorkerMaterialRef,
+          sealedWorkerMaterialB64u: material.sealedWorkerMaterialB64u,
+          materialFormatVersion: material.materialFormatVersion,
+          materialKeyId: material.materialKeyId,
+          materialCreatedAtMs: material.materialCreatedAtMs,
+          signerSlot: material.signerSlot,
         }),
       );
       if (persisted) {

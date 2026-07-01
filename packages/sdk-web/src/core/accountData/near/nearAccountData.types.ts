@@ -25,7 +25,7 @@ export type StoreUserDataInput = Omit<
   ClientUserData,
   'walletId' | 'loginDisplayName' | 'signerSlot' | 'lastLogin' | 'registeredAt'
 > & {
-  walletId?: string;
+  walletId: string;
   loginDisplayName?: string;
   signerSlot?: number;
   version?: number;

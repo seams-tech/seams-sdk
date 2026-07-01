@@ -229,10 +229,27 @@ export function updateResolvedEvmFamilyEcdsaSigningLaneIdentity(args: {
       `[SigningEngine][ecdsa] incomplete updated signing lane identity for ${args.context}`,
     );
   }
+  const signer = requireEvmFamilyEcdsaSigner(
+    lane.identity,
+    `${args.context} updated ECDSA lane`,
+  );
+  const updatedSelectedLane = selectedEcdsaLane({
+    key: signer.key,
+    keyHandle: signer.keyHandle,
+    walletId: signer.walletId,
+    auth: lane.auth,
+    chainTarget: signer.chainTarget,
+    signingGrantId: identity.signingGrantId,
+    thresholdSessionId: identity.thresholdSessionId,
+  });
   return {
     ...lane,
-    signingGrantId: SigningSessionIds.signingGrant(identity.signingGrantId),
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(identity.thresholdSessionId),
+    ...updatedSelectedLane,
+    key: signer.key,
+    keyHandle: signer.keyHandle,
+    chainTarget: signer.chainTarget,
+    keyKind: 'threshold_ecdsa_secp256k1',
+    chainFamily: signer.chainTarget.kind,
   };
 }
 

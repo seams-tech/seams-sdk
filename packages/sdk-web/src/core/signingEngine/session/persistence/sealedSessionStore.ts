@@ -23,7 +23,10 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { parseRouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
+import {
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '../../threshold/ed25519/routerAbNormalSigningState';
 import {
   exactSealedSessionFilterForIdentity,
   type DeleteDurableSealedSessionCommand,
@@ -51,21 +54,74 @@ export type SigningSessionSealedStoreRecord = SealedSigningSessionRecord & {
   storeKey: string;
   curve: 'ed25519' | 'ecdsa';
 };
-export type CurrentEd25519SealedSessionRecord = SigningSessionSealedStoreRecord & {
-  curve: 'ed25519';
-  walletId: string;
-  relayerUrl: string;
-  ed25519Restore: SealedSigningSessionEd25519RestoreMetadata;
+
+export type Ed25519SealedRecordThresholdSessionIds = {
+  ed25519: string;
+  ecdsa?: string;
 };
 
-export type CurrentEcdsaSealedSessionRecord = SigningSessionSealedStoreRecord & {
+export type EcdsaSealedRecordThresholdSessionIds = {
+  ed25519?: string;
+  ecdsa: string;
+};
+
+export type CurrentEd25519RestoreMetadata = Omit<
+  SealedSigningSessionEd25519RestoreMetadata,
+  | 'clientVerifyingShareB64u'
+  | 'ed25519WorkerMaterialHandle'
+  | 'ed25519WorkerMaterialBindingDigest'
+  | 'sealedWorkerMaterialRef'
+  | 'sealedWorkerMaterialB64u'
+  | 'materialFormatVersion'
+  | 'materialKeyId'
+  | 'materialCreatedAtMs'
+  | 'keyVersion'
+  | 'routerAbNormalSigning'
+> & {
+  clientVerifyingShareB64u: string;
+  ed25519WorkerMaterialHandle?: string;
+  ed25519WorkerMaterialBindingDigest: string;
+  sealedWorkerMaterialRef: string;
+  sealedWorkerMaterialB64u?: string;
+  materialFormatVersion: string;
+  materialKeyId: string;
+  materialCreatedAtMs: number;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+};
+
+export type CurrentEd25519SealedSessionRecord = Omit<
+  SigningSessionSealedStoreRecord,
+  'curve' | 'thresholdSessionIds' | 'walletId' | 'relayerUrl' | 'ed25519Restore' | 'ecdsaRestore'
+> & {
+  curve: 'ed25519';
+  thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
+  walletId: string;
+  relayerUrl: string;
+  ed25519Restore: CurrentEd25519RestoreMetadata;
+  ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
+};
+
+export type CurrentEcdsaSealedSessionRecord = Omit<
+  SigningSessionSealedStoreRecord,
+  | 'curve'
+  | 'thresholdSessionIds'
+  | 'walletId'
+  | 'relayerUrl'
+  | 'subjectId'
+  | 'signingRootId'
+  | 'signingRootVersion'
+  | 'ecdsaRestore'
+  | 'ed25519Restore'
+> & {
   curve: 'ecdsa';
+  thresholdSessionIds: EcdsaSealedRecordThresholdSessionIds;
   walletId: string;
   subjectId?: never;
   signingRootId?: never;
   signingRootVersion?: never;
   relayerUrl: string;
   ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
+  ed25519Restore?: CurrentEd25519RestoreMetadata;
 };
 
 export type CurrentSealedSessionRecord =
@@ -149,10 +205,6 @@ type BuildCurrentSealedSessionRecordCommonInput = {
   sealedSecretB64u: string;
   authMethod: 'passkey' | 'email_otp';
   signingGrantId: string;
-  thresholdSessionIds?: {
-    ed25519?: string;
-    ecdsa?: string;
-  };
   keyVersion?: string;
   shamirPrimeB64u?: string;
   issuedAtMs?: number;
@@ -164,6 +216,7 @@ type BuildCurrentSealedSessionRecordCommonInput = {
 export type BuildCurrentEd25519SealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ed25519';
+    thresholdSessionIds?: Ed25519SealedRecordThresholdSessionIds;
     walletId: string;
     userId?: string;
     subjectId?: never;
@@ -171,12 +224,13 @@ export type BuildCurrentEd25519SealedSessionRecordInput =
     signingRootVersion?: string;
     relayerUrl: string;
     ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
-    ed25519Restore: SealedSigningSessionEd25519RestoreMetadata;
+    ed25519Restore: CurrentEd25519RestoreMetadata;
   };
 
 export type BuildCurrentEcdsaSealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ecdsa';
+    thresholdSessionIds?: EcdsaSealedRecordThresholdSessionIds;
     subjectId?: never;
     walletId: string;
     userId?: string;
@@ -184,7 +238,7 @@ export type BuildCurrentEcdsaSealedSessionRecordInput =
     signingRootVersion?: never;
     relayerUrl: string;
     ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
-    ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
+    ed25519Restore?: CurrentEd25519RestoreMetadata;
   };
 
 export type BuildCurrentSealedSessionRecordInput =
@@ -279,18 +333,7 @@ function normalizeThresholdSessionIdsFromStoredRecord(value: unknown): {
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
-  const current = normalizeThresholdSessionIds(obj.thresholdSessionIds);
-  if (current.ed25519 || current.ecdsa) return current;
-  const legacyThresholdSessionId = normalizeOptionalNonEmptyString(obj.thresholdSessionId);
-  const curve = normalizeCurve(obj.curve);
-  if (!legacyThresholdSessionId || !curve) return {};
-  return curve === 'ed25519'
-    ? { ed25519: legacyThresholdSessionId }
-    : { ecdsa: legacyThresholdSessionId };
-}
-
-function legacySigningGrantFieldName(): string {
-  return ['wallet', 'SigningSessionId'].join('');
+  return normalizeThresholdSessionIds(obj.thresholdSessionIds);
 }
 
 function normalizeStoredSigningGrantId(value: unknown): string | undefined {
@@ -298,10 +341,7 @@ function normalizeStoredSigningGrantId(value: unknown): string | undefined {
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
-  return (
-    normalizeOptionalNonEmptyString(obj.signingGrantId) ||
-    normalizeOptionalNonEmptyString(obj[legacySigningGrantFieldName()])
-  );
+  return normalizeOptionalNonEmptyString(obj.signingGrantId);
 }
 
 function normalizeCurve(value: unknown): 'ed25519' | 'ecdsa' | undefined {
@@ -453,9 +493,9 @@ function normalizeEcdsaRestoreMetadata(
   };
 }
 
-function normalizeEd25519RestoreMetadata(
+function normalizeCurrentEd25519RestoreMetadata(
   value: unknown,
-): SealedSigningSessionEd25519RestoreMetadata | undefined {
+): CurrentEd25519RestoreMetadata | undefined {
   const obj =
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -487,7 +527,6 @@ function normalizeEd25519RestoreMetadata(
   const materialKeyId = normalizeOptionalNonEmptyString(obj.materialKeyId);
   const materialCreatedAtMs = normalizeInteger(obj.materialCreatedAtMs);
   const signerSlot = normalizeInteger(obj.signerSlot);
-  const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
   if (
     !nearAccountId ||
@@ -496,8 +535,16 @@ function normalizeEd25519RestoreMetadata(
     !relayerKeyId ||
     !sessionKind ||
     !participantIds.length ||
+    !clientVerifyingShareB64u ||
+    !ed25519WorkerMaterialBindingDigest ||
+    !sealedWorkerMaterialRef ||
+    !materialFormatVersion ||
+    !materialKeyId ||
+    materialCreatedAtMs == null ||
+    materialCreatedAtMs <= 0 ||
     signerSlot == null ||
-    signerSlot <= 0
+    signerSlot <= 0 ||
+    !routerAbNormalSigning
   ) {
     return undefined;
   }
@@ -516,18 +563,25 @@ function normalizeEd25519RestoreMetadata(
     ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? { runtimePolicyScope: obj.runtimePolicyScope }
       : {}),
-    ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+    clientVerifyingShareB64u,
     ...(ed25519WorkerMaterialHandle ? { ed25519WorkerMaterialHandle } : {}),
-    ...(ed25519WorkerMaterialBindingDigest ? { ed25519WorkerMaterialBindingDigest } : {}),
-    ...(sealedWorkerMaterialRef ? { sealedWorkerMaterialRef } : {}),
+    ed25519WorkerMaterialBindingDigest,
+    sealedWorkerMaterialRef,
     ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
-    ...(materialFormatVersion ? { materialFormatVersion } : {}),
-    ...(materialKeyId ? { materialKeyId } : {}),
-    ...(materialCreatedAtMs != null && materialCreatedAtMs > 0 ? { materialCreatedAtMs } : {}),
+    materialFormatVersion,
+    materialKeyId,
+    materialCreatedAtMs,
     signerSlot,
-    ...(keyVersion ? { keyVersion } : {}),
-    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
+    routerAbNormalSigning,
   };
+}
+
+function hasRouterAbEd25519NormalSigningState(value: unknown): boolean {
+  try {
+    return Boolean(parseRouterAbEd25519NormalSigningState(value));
+  } catch {
+    return false;
+  }
 }
 
 function ed25519WorkerMaterialMissingFields(value: unknown): string[] {
@@ -565,14 +619,10 @@ function ed25519WorkerMaterialMissingFields(value: unknown): string[] {
   if (signerSlot == null || signerSlot <= 0) {
     missing.push('signerSlot');
   }
-  if (!normalizeOptionalNonEmptyString(obj.keyVersion)) {
-    missing.push('keyVersion');
+  if (!hasRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning)) {
+    missing.push('routerAbNormalSigning');
   }
   return missing;
-}
-
-function ed25519RestoreHasWorkerMaterial(value: unknown): boolean {
-  return ed25519WorkerMaterialMissingFields(value).length === 0;
 }
 
 function ed25519RestoreHasRawMaterial(value: unknown): boolean {
@@ -1104,9 +1154,12 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   const ecdsaRestoreObj = asRawSealedSessionRecord(obj.ecdsaRestore);
   const ed25519RestoreObj = asRawSealedSessionRecord(obj.ed25519Restore);
   const ecdsaRestore = normalizeEcdsaRestoreMetadata(obj.ecdsaRestore);
-  const ed25519Restore = normalizeEd25519RestoreMetadata(obj.ed25519Restore);
+  const ed25519Restore = normalizeCurrentEd25519RestoreMetadata(obj.ed25519Restore);
 
   if (recordCurve === 'ecdsa') {
+    if (!thresholdSessionIds.ecdsa) {
+      return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
+    }
     if (subjectId) return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
     if (!ecdsaRestoreObj || !relayerUrl) {
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
@@ -1152,7 +1205,10 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
         secretKind: SIGNING_SESSION_SECRET_KIND,
         storeKey,
         signingGrantId,
-        thresholdSessionIds,
+        thresholdSessionIds: {
+          ...(thresholdSessionIds.ed25519 ? { ed25519: thresholdSessionIds.ed25519 } : {}),
+          ecdsa: thresholdSessionIds.ecdsa,
+        },
         sealedSecretB64u,
         curve: 'ecdsa',
         walletId,
@@ -1160,9 +1216,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
         ...(keyVersion ? { keyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
         ecdsaRestore,
-        ...(ed25519Restore &&
-        !ed25519RestoreHasRawMaterial(ed25519RestoreObj) &&
-        ed25519RestoreHasWorkerMaterial(ed25519RestoreObj)
+        ...(ed25519Restore && !ed25519RestoreHasRawMaterial(ed25519RestoreObj)
           ? { ed25519Restore }
           : {}),
         issuedAtMs,
@@ -1173,6 +1227,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     };
   }
 
+  if (!thresholdSessionIds.ed25519) {
+    return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
+  }
   if (!ed25519RestoreObj || !relayerUrl) {
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
   }
@@ -1183,9 +1240,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
   }
   if (normalizeOptionalNonEmptyString(ed25519RestoreObj.xClientBaseB64u)) {
-    return classifyNonCurrentRecord('delete_required', obj, 'missing_restore_metadata');
-  }
-  if (!ed25519RestoreHasWorkerMaterial(ed25519RestoreObj)) {
     return classifyNonCurrentRecord('delete_required', obj, 'missing_restore_metadata');
   }
   if (
@@ -1214,7 +1268,10 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
       secretKind: SIGNING_SESSION_SECRET_KIND,
       storeKey,
       signingGrantId,
-      thresholdSessionIds,
+      thresholdSessionIds: {
+        ed25519: thresholdSessionIds.ed25519,
+        ...(thresholdSessionIds.ecdsa ? { ecdsa: thresholdSessionIds.ecdsa } : {}),
+      },
       sealedSecretB64u,
       curve: 'ed25519',
       ...(subjectId ? { subjectId } : {}),
@@ -1339,7 +1396,7 @@ export function buildCurrentSealedSessionRecord(
   if (remainingUses == null || remainingUses < 0) return null;
   if (updatedAtMs == null || updatedAtMs <= 0) return null;
   const ecdsaRestore = normalizeEcdsaRestoreMetadata(args.ecdsaRestore);
-  const ed25519Restore = normalizeEd25519RestoreMetadata(args.ed25519Restore);
+  const ed25519Restore = normalizeCurrentEd25519RestoreMetadata(args.ed25519Restore);
   if (curve === 'ecdsa') {
     if (!ecdsaRestore?.chainTarget || !walletId) return null;
     if (subjectId) return null;

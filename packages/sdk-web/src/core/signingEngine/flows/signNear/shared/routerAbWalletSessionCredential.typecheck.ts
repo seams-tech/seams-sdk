@@ -14,6 +14,7 @@ import { buildRouterAbEd25519SigningMaterialRef } from '../../../threshold/ed255
 
 const validSigningMaterial = buildRouterAbEd25519SigningMaterialRef({
   materialHandle: 'ed25519-worker-material:threshold-session-1:binding',
+  materialKeyId: 'material-key-id',
   bindingDigest: 'binding',
   clientVerifyingShareB64u: 'client-verifying-share',
 });
@@ -89,6 +90,16 @@ const validWalletSessionState = {
   },
 } satisfies ResolvedRouterAbEd25519WalletSessionState;
 void validWalletSessionState;
+
+const strictPersistSigningMaterial: ResolvedRouterAbEd25519WalletSessionState['persistSigningMaterial'] =
+  () => true;
+// @ts-expect-error Ed25519 material persistence requires complete sealed material metadata.
+strictPersistSigningMaterial({
+  materialHandle: validSigningMaterial.materialHandle,
+  bindingDigest: validSigningMaterial.bindingDigest,
+  clientVerifyingShareB64u: validSigningMaterial.clientVerifierB64u,
+  materialKeyId: validSigningMaterial.materialKeyId,
+});
 
 const cookieWalletSessionState: ResolvedRouterAbEd25519WalletSessionState = {
   ...validWalletSessionState,

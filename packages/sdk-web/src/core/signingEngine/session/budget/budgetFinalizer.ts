@@ -82,9 +82,9 @@ export function createSigningSessionBudgetFinalizer(
       const successFinalization = requireSuccessFinalization(args.finalization, 'reserve');
       return await reserveWithLocalContentionRetry(
         async () =>
-          await budget.reserve({
+          await budget.reservePrepared({
             spend,
-            expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
+            budgetIdentity: args.budgetIdentity,
             ...(successFinalization.trustedStatusAuth
               ? { trustedStatusAuth: successFinalization.trustedStatusAuth }
               : {}),

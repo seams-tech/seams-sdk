@@ -12,7 +12,7 @@ import type {
   ConcreteAvailableEd25519SigningLane,
   EcdsaAvailableLaneIdentityInput,
   ReadAvailableSigningLanesInput,
-  AvailableSigningLanesRuntimeClaim,
+  AvailableLaneStateAdvisory,
 } from './availableSigningLanes';
 import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
@@ -247,32 +247,53 @@ const sharedEcdsaLane: ConcreteAvailableEcdsaSigningLane = {
 };
 void sharedEcdsaLane;
 
-const recordPolicyClaim: AvailableSigningLanesRuntimeClaim = {
-  state: 'record_policy',
+const durablePolicyAdvisory: AvailableLaneStateAdvisory = {
+  kind: 'durable_policy',
   thresholdSessionId: 'threshold-session-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
+  state: 'restorable',
+};
+void durablePolicyAdvisory;
+
+const activeAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
+  kind: 'warm_status',
+  status: 'active',
+  thresholdSessionId: 'threshold-session-1',
+  remainingUses: 1,
+  expiresAtMs: 1_900_000_000_000,
+  // @ts-expect-error active advisories are runtime-ready and cannot carry durable-policy lane state.
   laneState: 'restorable',
 };
-void recordPolicyClaim;
+void activeAdvisoryWithLaneState;
 
-const warmClaimWithLaneState: AvailableSigningLanesRuntimeClaim = {
-  state: 'warm',
+const cacheMissAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
+  kind: 'warm_status',
+  status: 'cache_miss',
+  thresholdSessionId: 'threshold-session-1',
+  // @ts-expect-error cache-miss advisories cannot choose a lane state by themselves.
+  laneState: 'deferred',
+};
+void cacheMissAdvisoryWithLaneState;
+
+// @ts-expect-error durable-policy advisories must state the durable lane they represent.
+const durablePolicyAdvisoryMissingState: AvailableLaneStateAdvisory = {
+  kind: 'durable_policy',
   thresholdSessionId: 'threshold-session-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
-  // @ts-expect-error warm claims are already runtime-ready and cannot carry record-policy lane state.
+};
+void durablePolicyAdvisoryMissingState;
+
+const durablePolicyAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
+  kind: 'durable_policy',
+  thresholdSessionId: 'threshold-session-1',
+  remainingUses: 1,
+  expiresAtMs: 1_900_000_000_000,
+  state: 'restorable',
+  // @ts-expect-error durable-policy advisories use state, not the old laneState field.
   laneState: 'restorable',
 };
-void warmClaimWithLaneState;
-
-// @ts-expect-error record-policy claims must state the non-ready lane they represent.
-const recordPolicyClaimMissingLaneState: AvailableSigningLanesRuntimeClaim = {
-  state: 'record_policy',
-  thresholdSessionId: 'threshold-session-1',
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
-};
-void recordPolicyClaimMissingLaneState;
+void durablePolicyAdvisoryWithLaneState;
 
 export {};

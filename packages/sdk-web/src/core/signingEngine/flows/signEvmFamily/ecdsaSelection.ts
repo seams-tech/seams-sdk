@@ -323,7 +323,6 @@ function summarizeLaneCandidate(
       };
     case 'durable_sealed_record':
     case 'runtime_session_record':
-    case 'runtime_and_durable':
     case 'unknown':
       return {
         ...base,

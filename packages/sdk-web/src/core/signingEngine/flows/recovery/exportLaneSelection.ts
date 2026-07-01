@@ -37,10 +37,8 @@ import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
 } from '../../session/sealedRecovery/sealedRecovery.types';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-} from '../../session/keyMaterialBrands';
+import type { Ed25519TransactionMaterialAvailability } from '../../session/identity/selectLane';
+import { ed25519TransactionMaterialAvailabilityFromLane } from '../../session/identity/selectLane';
 import type {
   SigningEngineResolveExactKeyExportLaneInput,
   SigningEngineResolveExactKeyExportLaneResult,
@@ -57,10 +55,7 @@ export type ExactNearEd25519ExportLane = {
   state: AvailableSigningLanes['lanes']['ed25519']['near']['state'];
   source: AvailableSigningLanes['lanes']['ed25519']['near']['source'];
   laneIdentity: ExactEd25519SigningLaneIdentity;
-  material: {
-    ed25519WorkerMaterialBindingDigest: string;
-    materialKeyId: string;
-  };
+  material: Ed25519TransactionMaterialAvailability;
 };
 
 type ConcreteEd25519ExportAvailableLane = AvailableEd25519SigningLane & {
@@ -235,10 +230,8 @@ function ed25519MaterialRestoreIdentityForExportLane(lane: ExactNearEd25519Expor
   return {
     kind: 'ed25519_worker_material_restore' as const,
     lane: lane.laneIdentity,
-    materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
-      lane.material.ed25519WorkerMaterialBindingDigest,
-    ),
-    materialKeyId: parseEd25519WorkerMaterialKeyId(lane.material.materialKeyId),
+    materialBindingDigest: lane.material.identity.bindingDigest,
+    materialKeyId: lane.material.identity.materialKeyId,
   };
 }
 
@@ -259,6 +252,14 @@ function exactEcdsaIdentityForExportLane(args: {
   });
 }
 
+function ecdsaExportMaterialAvailabilityForLane(lane: ConcreteEcdsaExportAvailableLane) {
+  if (lane.state === 'ready') return { kind: 'loaded_worker_material' as const };
+  if (availableEcdsaSigningLaneAuthMethod(lane) === 'email_otp') {
+    return { kind: 'material_pending' as const, reason: 'email_otp_route_auth' as const };
+  }
+  return { kind: 'sealed_worker_material' as const };
+}
+
 function ed25519ExportLaneMatchesIdentity(args: {
   lane: ConcreteEd25519ExportAvailableLane;
   identity: ExactEd25519SigningLaneIdentity;
@@ -277,6 +278,17 @@ function ecdsaExportLaneMatchesIdentity(args: {
     exactSigningLaneIdentityKey(exactEcdsaIdentityForExportLane({ lane: args.lane })) ===
     exactSigningLaneIdentityKey(args.identity)
   );
+}
+
+function canonicalEd25519ExportLaneCandidate(args: {
+  lane: AvailableEd25519SigningLane;
+  walletId: string;
+  nearAccountId: string;
+}): ConcreteEd25519ExportAvailableLane[] {
+  if (!isConcreteEd25519ExportLane(args.lane)) return [];
+  if (String(args.lane.walletId) !== args.walletId) return [];
+  if (String(args.lane.nearAccountId) !== args.nearAccountId) return [];
+  return [args.lane];
 }
 
 function sameEcdsaExportSession(
@@ -381,6 +393,10 @@ async function resolveNearEd25519ExportLane(
     context: 'ed25519-export',
     candidates: exactCandidates,
   });
+  const material = ed25519TransactionMaterialAvailabilityFromLane(selected);
+  if (!material) {
+    throw new Error('[SigningEngine][ed25519-export] exact lane is missing material availability');
+  }
   const laneIdentity = exactEd25519IdentityForExportLane(selected);
   return {
     curve: 'ed25519',
@@ -393,12 +409,7 @@ async function resolveNearEd25519ExportLane(
     state: selected.state,
     source: selected.source,
     laneIdentity,
-    material: {
-      ed25519WorkerMaterialBindingDigest: String(
-        selected.ed25519WorkerMaterialBindingDigest || '',
-      ).trim(),
-      materialKeyId: String(selected.materialKeyId || '').trim(),
-    },
+    material,
   };
 }
 
@@ -457,6 +468,7 @@ async function resolveEcdsaExportLane(
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(selected.thresholdSessionId),
       state: selected.state,
       source: selected.source,
+      material: ecdsaExportMaterialAvailabilityForLane(selected),
     },
   };
 }
@@ -473,13 +485,13 @@ export async function resolveExactKeyExportLane(
       const walletId = String(toWalletId(input.walletSession.walletId));
       const nearAccountId = String(input.nearAccount.accountId).trim();
       const availableLanes = await deps.readPersistedAvailableSigningLanes({ walletId });
-      const concreteCandidates = availableLanes.candidates.ed25519.near
-        .filter(isConcreteEd25519ExportLane)
-        .filter((lane) => String(lane.walletId) === walletId)
-        .filter((lane) => String(lane.nearAccountId) === nearAccountId);
       const selected = selectExactExportAvailableLane({
         context: 'ed25519-export-resolve',
-        candidates: concreteCandidates,
+        candidates: canonicalEd25519ExportLaneCandidate({
+          lane: availableLanes.lanes.ed25519.near,
+          walletId,
+          nearAccountId,
+        }),
       });
       return {
         kind: 'near',
@@ -523,37 +535,37 @@ export async function restoreNearEd25519SessionForExport(
     laneIdentity: args.laneIdentity,
   });
   const walletId = String(args.signer.account.wallet.walletId);
-  if (
-    restoreLane.state === 'ready' ||
-    restoreLane.source === 'runtime_session_record' ||
-    restoreLane.source === 'runtime_and_durable'
-  ) {
-    return restoreLane;
+  switch (restoreLane.material.kind) {
+    case 'loaded_worker_material':
+      return restoreLane;
+    case 'sealed_worker_material':
+      if (restoreLane.authMethod === 'passkey') {
+        await deps.restorePasskeyPersistedSessionForSigning({
+          walletId,
+          authMethod: 'passkey',
+          curve: 'ed25519',
+          chain: 'near',
+          signingGrantId: restoreLane.signingGrantId,
+          thresholdSessionId: restoreLane.thresholdSessionId,
+          reason: 'export',
+          materialRestoreIdentity: ed25519MaterialRestoreIdentityForExportLane(restoreLane),
+        });
+        return restoreLane;
+      }
+      await deps.restoreEmailOtpPersistedSessionForSigning({
+        walletId,
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        signingGrantId: restoreLane.signingGrantId,
+        thresholdSessionId: restoreLane.thresholdSessionId,
+        reason: 'export',
+        materialRestoreIdentity: ed25519MaterialRestoreIdentityForExportLane(restoreLane),
+      });
+      return restoreLane;
   }
-  if (restoreLane.authMethod === 'passkey') {
-    await deps.restorePasskeyPersistedSessionForSigning({
-      walletId,
-      authMethod: 'passkey',
-      curve: 'ed25519',
-      chain: 'near',
-      signingGrantId: restoreLane.signingGrantId,
-      thresholdSessionId: restoreLane.thresholdSessionId,
-      reason: 'export',
-      materialRestoreIdentity: ed25519MaterialRestoreIdentityForExportLane(restoreLane),
-    });
-    return restoreLane;
-  }
-  await deps.restoreEmailOtpPersistedSessionForSigning({
-    walletId,
-    authMethod: 'email_otp',
-    curve: 'ed25519',
-    chain: 'near',
-    signingGrantId: restoreLane.signingGrantId,
-    thresholdSessionId: restoreLane.thresholdSessionId,
-    reason: 'export',
-    materialRestoreIdentity: ed25519MaterialRestoreIdentityForExportLane(restoreLane),
-  });
-  return restoreLane;
+  restoreLane.material satisfies never;
+  throw new Error('[SigningEngine][ed25519-export] unsupported material availability');
 }
 
 export async function restoreEcdsaSessionForExport(
@@ -567,32 +579,30 @@ export async function restoreEcdsaSessionForExport(
   const restoreLane = await resolveEcdsaExportLane(deps, {
     ...args,
   });
-  if (
-    restoreLane.session.state === 'ready' ||
-    restoreLane.session.source === 'runtime_session_record' ||
-    restoreLane.session.source === 'runtime_and_durable'
-  ) {
-    return restoreLane;
+  switch (restoreLane.session.material.kind) {
+    case 'loaded_worker_material':
+    case 'material_pending':
+      return restoreLane;
+    case 'sealed_worker_material':
+      if (restoreLane.session.authMethod === 'passkey') {
+        await deps.restorePasskeyPersistedSessionForSigning({
+          walletId: args.walletId,
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          chainTarget: restoreLane.session.chainTarget,
+          signingGrantId: String(restoreLane.session.signingGrantId),
+          thresholdSessionId: String(restoreLane.session.thresholdSessionId),
+          reason: 'export',
+          materialRestoreIdentity: {
+            kind: 'ecdsa_role_local_restore',
+            lane: restoreLane.laneIdentity,
+            ecdsaThresholdKeyId: restoreLane.key.ecdsaThresholdKeyId,
+          },
+        });
+        return restoreLane;
+      }
+      throw new Error('[SigningEngine][ecdsa-export] sealed material requires passkey restore');
   }
-  if (restoreLane.session.authMethod === 'email_otp') {
-    return restoreLane;
-  }
-  if (restoreLane.session.authMethod === 'passkey') {
-    await deps.restorePasskeyPersistedSessionForSigning({
-      walletId: args.walletId,
-      authMethod: 'passkey',
-      curve: 'ecdsa',
-      chainTarget: restoreLane.session.chainTarget,
-      signingGrantId: String(restoreLane.session.signingGrantId),
-      thresholdSessionId: String(restoreLane.session.thresholdSessionId),
-      reason: 'export',
-      materialRestoreIdentity: {
-        kind: 'ecdsa_role_local_restore',
-        lane: restoreLane.laneIdentity,
-        ecdsaThresholdKeyId: restoreLane.key.ecdsaThresholdKeyId,
-      },
-    });
-    return restoreLane;
-  }
-  throw new Error('[SigningEngine][ecdsa-export] unsupported export auth method');
+  restoreLane.session.material satisfies never;
+  throw new Error('[SigningEngine][ecdsa-export] unsupported material availability');
 }

@@ -508,7 +508,7 @@ type ProvisionWarmEd25519CapabilityCommonArgs = {
   relayerKeyId: string;
   auth?: Ed25519WalletSessionMintAuthorization;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
