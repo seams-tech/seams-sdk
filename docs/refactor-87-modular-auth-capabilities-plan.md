@@ -7,6 +7,11 @@ phases are still planning.
 
 Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-85-modular-auth-capabilities-SPEC.md).
 
+Companion plans:
+
+- [Refactor 85B: IndexedDB Minimization](./refactor-85B-indexedDB.md)
+- [Refactor 85C: Static Wallet Assets And Vite Plugin Reduction](./refactor-85C-static-wallet-assets.md)
+
 This document is the implementation checklist. Requirements, architecture
 decisions, domain sketches, persistence defaults, and security model live in the
 companion SPEC.

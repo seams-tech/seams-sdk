@@ -1047,3 +1047,50 @@ Status: implemented and audited in the Refactor 78/79 sequence.
   patterns in identity-sensitive code.
 - [x] Split implicit fixtures cover `walletId !== nearAccountId` behavior across
   the touched suites.
+
+## Review: Wallet/NEAR Collapse Cleanup, 2026-07-01
+
+Status: implemented for production identity-sensitive paths; fixture and public
+result naming cleanup remains.
+
+This pass closed the recurring pattern where code treated a NEAR account ID as a
+wallet ID after implicit-account registration. The rule is now explicit:
+`walletId` is the wallet subject, `nearAccountId` is only a NEAR account
+capability, and `nearEd25519SigningKeyId` is the NEAR Ed25519 signer key
+identity.
+
+Tasks:
+
+- [x] Make NEAR account projection writes require `walletId`; profile rows now
+      key by wallet ID instead of rebuilding a profile ID from the NEAR account.
+- [x] Make `StoreUserDataInput.walletId` required and update registration,
+      sync, and Email OTP recovery callers to pass the resolved wallet binding.
+- [x] Change passkey unlock challenge requests to use wallet ID as the
+      WebAuthn user ID, while keeping passkey RP ID validation separate.
+- [x] Make Ed25519 session record parsing fail when `walletId`,
+      `nearAccountId`, or `nearEd25519SigningKeyId` is missing, instead of
+      migrating missing wallet/signing-key identity from `nearAccountId`.
+- [x] Update Email OTP NEAR export authorization to carry both `walletId` and
+      `nearAccountId`; ECDSA export telemetry no longer names wallet IDs as
+      `accountId`.
+- [x] Tighten the wallet-capability source guard to reject new fallbacks from
+      NEAR account ID to wallet ID, passkey challenge `userId` from
+      `nearAccountId`, and Ed25519 session identity migration helpers.
+
+Follow-up cleanup:
+
+- [ ] Remove stale unit/e2e fixtures that still set `walletId = nearAccountId`.
+- [ ] Rename public/result `accountId` fields that actually mean wallet subject
+      in ECDSA/export/recovery telemetry surfaces.
+- [ ] Rename wallet-scoped nonce durable fields currently named `accountId`.
+- [ ] After the parallel Ed25519 material-state refactor lands, rerun the full
+      source guard and type-check without the temporary working-tree errors.
+
+Validation notes:
+
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletCapabilityBindings.sourceGuard.unit.test.ts --reporter=line` passed.
+- [x] `git diff --check` passed for the wallet/NEAR identity cleanup files.
+- [ ] `pnpm -C packages/sdk-web -s type-check --pretty false` is blocked by
+      current working-tree errors in the parallel Ed25519 material-state branch
+      plus existing missing `express` declarations from `packages/sdk-server-ts`
+      imports.

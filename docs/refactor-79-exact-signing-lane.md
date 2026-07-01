@@ -2,9 +2,10 @@
 
 Date created: June 22, 2026
 
-Status: implemented and audited through Phase 13. Phase 14 tracks the remaining
-Ed25519 worker-material capability cleanup found during post-unlock manual
-testing.
+Status: implemented and audited through Phase 13. Phases 14-18 track the
+remaining post-unlock cleanup: atomic Ed25519 worker material, transaction-ready
+Ed25519 lanes, duplicate-flow deletion, removal of runtime-source authority
+selectors, and removal of volatile warm-status authority.
 
 Related plans:
 
@@ -1331,7 +1332,9 @@ Rules:
 - record-derived auth is allowed only for unauthenticated status checks;
 - budget status parser remains the only compatibility point for
   `remainingUses` / `availableUses` fallback;
-- admission uses `availableUsesForBudgetAdmission`.
+- admission uses committed `remainingUses`; `availableUses` is server
+  concurrency/readback state and must not block local quick-succession
+  transaction admission while committed uses remain.
 - reservation identity derives `thresholdSessionIds` from
   `ExactSigningLaneIdentity`;
 - `WalletSigningSpendPlan.thresholdSessionIds` is removed from admission input or
@@ -2137,26 +2140,58 @@ Principles:
 - Core signing, export, restore, budget, and unlock code must not independently
   read `record.materialKeyId`, `record.ed25519WorkerMaterialBindingDigest`,
   `record.ed25519WorkerMaterialHandle`, or equivalent lane projections.
+- Ed25519 available-lane keys, selected-lane identity, session-record keys, and
+  material capability must be derived from one canonical Ed25519 lane authority
+  model. Do not maintain parallel key shapes that can drift.
+
+### 14.0 Audit, 2026-07-01
+
+The older unchecked tasks were audited against current source before more code
+work. Several are stale because stricter record-state modeling already landed.
+
+Current inventory:
+
+- [x] `ThresholdEd25519SessionRecord` is already split into
+      `auth_ready_material_pending`, `restore_available`, and `material_ready`
+      branches in `session/persistence/records.ts`.
+- [x] `ThresholdEd25519SessionRecordKey` already exists and exact mutation paths
+      use the full wallet/account/key/auth/grant/session/signer-slot identity.
+- [x] Login sealed-material reuse already has
+      `Ed25519WorkerMaterialIdentity`, `Ed25519ReusableSealedWorkerMaterial`,
+      and `Ed25519ReusableLoginMaterialResolution` in
+      `thresholdWarmSessionBootstrap.ts`.
+- [x] Transaction selection already has `NearEd25519TransactionMaterial`, but
+      it is a second material model and omits `clientVerifyingShareB64u`.
+- [x] `AvailableEd25519SigningLane` still carries flat optional
+      `ed25519WorkerMaterialBindingDigest` and `materialKeyId` fields.
+- [x] `ed25519AvailableLaneMaterialPriority(...)` still ranks partial material
+      hints instead of requiring one parsed material branch.
+- [x] `routerAbSigningWalletSession.ts` still has material-completeness helpers
+      that read flat fields from records.
+
+Design rule for this phase: replace existing material states and projections.
+Do not add a new exported core state unless it deletes or replaces an existing
+one.
 
 ### 14.1 Add Atomic Material Parsers And Builders
 
 Tasks:
 
-- [ ] Add `parseEd25519WorkerMaterialCapabilityFromRecord(...)` at the
-      persistence boundary.
-- [ ] Add `buildLoadedEd25519WorkerMaterialCapability(...)` and
-      `buildSealedEd25519WorkerMaterialCapability(...)` builders that require
-      the narrow branded inputs.
-- [ ] Keep raw flat-column compatibility inside the parser only. Core code must
-      receive `Ed25519WorkerMaterialCapability | null`.
-- [ ] Require runtime material to include `materialKeyId`,
-      `bindingDigest`, `clientVerifyingShareB64u`, and runtime `handle`.
-- [ ] Require sealed material to include the same identity plus `sealedRef`,
-      `sealedBlobB64u`, and `materialFormatVersion`.
-- [ ] Keep `materialCreatedAtMs`, `keyVersion`, and seal/key version fields
-      outside `Ed25519WorkerMaterialIdentity`. They may remain on persistence
-      records only when needed for expiry, display, migration, or storage
-      decoding.
+- [ ] Replace the existing `NearEd25519TransactionMaterial` /
+      `Ed25519TransactionMaterialIdentity` projection with the same material
+      identity used by login sealed-material reuse. The replacement identity
+      must include `materialKeyId`, `bindingDigest`, and
+      `clientVerifyingShareB64u`.
+- [ ] Keep runtime handle and sealed material as branch-specific facts:
+      `loaded_worker_material` has a worker handle, and
+      `sealed_worker_material` has sealed storage facts.
+- [ ] Keep raw flat IndexedDB/request/worker fields at boundaries only. Internal
+      lane, login, export, restore, and signing code should receive a parsed
+      material branch or no material.
+- [ ] Reuse or move the current login material structs rather than introducing a
+      sibling exported model.
+- [ ] Keep `materialCreatedAtMs`, HSS protocol versions, seal-key versions, and
+      storage bookkeeping outside `Ed25519WorkerMaterialIdentity`.
 
 Acceptance:
 
@@ -2171,15 +2206,29 @@ Acceptance:
 Tasks:
 
 - [ ] Change available Ed25519 lane read models to expose
-      `material: Ed25519WorkerMaterialCapability | null`.
-- [ ] Update transaction lane selection to require `lane.material` instead of
-      checking `lane.materialKeyId`, `lane.ed25519WorkerMaterialBindingDigest`,
-      and `lane.ed25519WorkerMaterialHandle` independently.
+      `material: Ed25519WorkerMaterialCapability | null` instead of flat
+      `materialKeyId` / `ed25519WorkerMaterialBindingDigest` fields.
+- [ ] Update `toNearEd25519TransactionReadyLane(...)` so it requires
+      `lane.material` and never reconstructs material identity from flat fields.
+- [ ] Delete `ed25519AvailableLaneMaterialPriority(...)`; partial material hints
+      should not influence authority selection.
+- [ ] Route `ed25519AvailableLaneIdentityKey(...)` through the existing
+      `ThresholdEd25519SessionRecordKey` builder or an equivalent replacement
+      of that existing key type. The key is Ed25519/NEAR-specific by type, so
+      do not add curve/chain constants unless they replace a real ambiguous
+      call site.
+- [ ] Ensure `ThresholdEd25519SessionRecordKey`,
+      `ExactEd25519SigningLaneIdentity`, `SelectedEd25519Lane`, and
+      `AvailableEd25519SigningLane` all project through the same key builder.
 - [ ] Update restore/readiness paths to branch on `material.kind`.
 - [ ] Delete duplicated material-completeness helpers that inspect flat fields.
 
 Acceptance:
 
+- Available-lane duplicate collapse and persistence record mutation use the same
+  Ed25519 authority key.
+- A change to any authority field affects all key projections through one
+  builder.
 - A lane with partial flat material fields is display/repair evidence only and
   cannot become an authority candidate.
 - Duplicate exact lanes with different material capabilities still return
@@ -2189,13 +2238,16 @@ Acceptance:
 
 Tasks:
 
-- [ ] Change Ed25519 warm-session retention to carry
-      `Ed25519WorkerMaterialCapability`.
-- [ ] Ensure login remint preserves the entire material capability or none.
-- [ ] Keep retained material selection exact-lane scoped; no account-only or
-      wallet-only material retention.
-- [ ] Remove runtime/sealed branch structs that duplicate the material identity
-      fields inline.
+- [x] Login remint now returns a discriminated
+      `Ed25519ReusableLoginMaterialResolution` instead of nullable fallback
+      state.
+- [x] Reusable material selection is scoped by signer identity and excludes
+      lifecycle fields such as grant/session IDs.
+- [ ] Replace the login-only reusable material structs with the same material
+      branch used by transaction lane selection, or keep them private if moving
+      the shared branch would create a new exported core state.
+- [ ] Ensure retained material is either the whole parsed branch or absent.
+      Incomplete flat storage data must remain `material_pending`.
 
 Acceptance:
 
@@ -2208,14 +2260,12 @@ Acceptance:
 
 Tasks:
 
-- [ ] Update worker-material validation to return or accept the atomic material
-      capability shape where it crosses into SDK core.
-- [ ] Update sealed restore record parsing to expose the atomic material
-      capability.
+- [ ] Keep signer-worker generated bindings flat unless the Rust/wasm boundary
+      itself changes. Parse worker results once before SDK core uses them.
+- [ ] Update sealed restore record parsing to expose the parsed material branch
+      at the SDK boundary.
 - [ ] Update Ed25519 export and restore flows so exact material identity is read
       from `material.identity`.
-- [ ] Keep signer-worker generated bindings unchanged unless the Rust/wasm
-      boundary itself needs the grouped shape; grouping can stay SDK-side.
 
 Acceptance:
 
@@ -2228,16 +2278,15 @@ Acceptance:
 
 Tasks:
 
-- [ ] Extend `refactor79ExactSigningLane.guard.unit.test.ts` to reject
-      authority-path reads of `.materialKeyId`,
-      `.ed25519WorkerMaterialBindingDigest`, and
-      `.ed25519WorkerMaterialHandle` outside material parser/builder modules.
 - [ ] Add type fixtures proving incomplete runtime material and incomplete
       sealed material are rejected.
-- [ ] Add unit coverage for login remint preserving loaded runtime material.
+- [ ] Add unit coverage for login remint preserving parsed reusable material.
 - [ ] Add unit coverage for login remint with incomplete flat storage data
       producing material-pending, not a selected lane.
 - [ ] Add unit coverage for lane selection using `lane.material.kind`.
+- [ ] Prefer type fixtures and targeted behavior tests over a new broad source
+      guard. Add source-guard coverage only if a repeated regression cannot be
+      represented by types.
 
 Validation:
 
@@ -2250,6 +2299,525 @@ pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line 
   unit/refactor79ExactSigningLane.guard.unit.test.ts
 git diff --check
 ```
+
+## Phase 15: Model Transaction-Ready Ed25519 Lanes
+
+Phase 14 makes Ed25519 worker material atomic. The next cleanup is to make
+"transaction-signable NEAR Ed25519 lane" a type instead of a convention checked
+by duplicated filters.
+
+Current code has two independent predicates for the same authority decision:
+
+```ts
+nearEd25519AvailableLaneHasWorkerMaterial(...)
+hasEd25519TransactionMaterial(...)
+```
+
+Both functions answer whether an available Ed25519 lane can be used for NEAR
+transaction signing. This is brittle because a future change can update one
+predicate and leave the other stale.
+
+Target shape:
+
+```ts
+type NearEd25519TransactionReadyLane = {
+  kind: 'near_ed25519_transaction_ready_lane';
+  identity: ExactEd25519SigningLaneIdentity;
+  authorityKey: Ed25519LaneAuthorityKey;
+  material: Ed25519WorkerMaterialCapability;
+  state: 'ready' | 'restorable';
+  diagnostics?: {
+    recordPresence: readonly ('runtime_record' | 'durable_record')[];
+  };
+  remainingUses?: number;
+  expiresAtMs?: number;
+};
+```
+
+Principles:
+
+- Transaction signing consumes `NearEd25519TransactionReadyLane`, not
+  `AvailableEd25519SigningLane`.
+- Available lanes remain a display/discovery surface. A single boundary parser
+  derives transaction-ready lanes from available lanes.
+- Material presence, exact identity, authority key, and readiness state are
+  validated once in that parser.
+- No authority path may decide signability by manually checking
+  `lane.materialKeyId`, `lane.ed25519WorkerMaterialBindingDigest`,
+  `lane.ed25519WorkerMaterialHandle`, `lane.source`, or raw `lane.state`.
+  Source/provenance is diagnostics only after Phase 17.
+
+### 15.1 Add Transaction-Ready Lane Builder
+
+Tasks:
+
+- [x] Add `toNearEd25519TransactionReadyLane(...)` in the identity/availability
+      boundary. It accepts an `AvailableEd25519SigningLane`, parses exact lane
+      identity, parses `Ed25519WorkerMaterialCapability`, derives
+      `Ed25519LaneAuthorityKey`, and returns
+      `NearEd25519TransactionReadyLane | null`.
+- [x] Add `listNearEd25519TransactionReadyLanes(...)` to map available-lane
+      candidates through the builder and drop display-only/material-pending
+      lanes.
+- [x] Skip rejected-lane debug helper. Current lane summaries are sufficient;
+      signing control flow stays on typed conversion results.
+- [x] Keep the builder as the only place that understands which available-lane
+      states/sources are transaction-signable.
+
+Acceptance:
+
+- A lane cannot reach NEAR transaction selection unless it has exact identity
+  and atomic material.
+- A material-pending lane can be displayed or repaired, but cannot be selected
+  for transaction signing.
+- Runtime and durable lanes use the same builder and authority key.
+
+### 15.2 Replace Duplicated Candidate Filters
+
+Tasks:
+
+- [x] Delete `nearEd25519AvailableLaneHasWorkerMaterial(...)`.
+- [x] Delete `hasEd25519TransactionMaterial(...)`.
+- [x] Change `verifiedRuntimeNearEd25519AvailableLanes(...)` to consume
+      `NearEd25519TransactionReadyLane` values, then perform only runtime-record
+      consistency checks.
+- [x] Change `selectTransactionLane(...)` / NEAR Ed25519 selection to consume
+      transaction-ready lanes rather than filtering raw available lanes.
+- [x] Remove any remaining `Boolean(String(lane.materialKeyId...` or
+      `Boolean(String(lane.ed25519WorkerMaterialBindingDigest...` checks from
+      transaction authority paths.
+
+Acceptance:
+
+- There is exactly one conversion from available Ed25519 lane to
+  transaction-ready Ed25519 lane.
+- Selection cannot forget to check material, because material is required on the
+  transaction-ready type.
+- Runtime-lane verification and transaction selection cannot drift.
+
+### 15.3 Tests And Guards
+
+Tasks:
+
+- [x] Add type fixtures proving `NearEd25519TransactionReadyLane` cannot be
+      built without exact identity, authority key, and material.
+- [x] Add unit coverage showing an available lane missing material is rejected
+      by `toNearEd25519TransactionReadyLane(...)`.
+- [x] Add unit coverage showing runtime and durable material-bearing lanes both
+      produce transaction-ready lanes.
+- [x] Add unit coverage showing NEAR transaction selection uses
+      `NearEd25519TransactionReadyLane` and does not read flat material fields.
+- [x] Skip new source guard for `has*TransactionMaterial` /
+      `*HasWorkerMaterial` predicates by decision. Phase 16 will remove
+      duplicate flows with focused cleanup instead of adding another guard.
+
+Validation:
+
+```bash
+pnpm -C packages/sdk-web -s type-check
+pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line \
+  unit/ed25519TransactionLaneSelection.unit.test.ts \
+  unit/nearSigning.sessionSelection.unit.test.ts \
+  unit/routerAbEd25519.walletSessionState.unit.test.ts \
+  unit/refactor79ExactSigningLane.guard.unit.test.ts
+git diff --check
+```
+
+## Phase 16: Ponytail Cleanup Of Parallel Lane Flows
+
+Phase 15 makes transaction-ready Ed25519 lanes explicit. After that lands, run a
+focused `ponytail` cleanup pass over the Refactor 79 authority surface. The goal
+is deletion: remove parallel functions and compatibility-shaped flow variants
+that were useful during migration but now duplicate the typed lane model.
+
+Scope:
+
+- NEAR Ed25519 transaction lane selection.
+- ECDSA transaction lane selection and role-local material lookup.
+- Export, restore, budget, unlock, and warm-session authority paths that read
+  exact lane identity or worker material.
+- Public/iframe boundary parsers only where they still duplicate core
+  conversion logic.
+
+### 16.1 Inventory Parallel Authority Paths
+
+Tasks:
+
+- [ ] Use `ponytail` review on the Refactor 79 touched files to list duplicate
+      helpers, predicates, and candidate filters.
+- [ ] Inventory every available-lane to selected-lane conversion. Keep one
+      canonical conversion per branch:
+      `toNearEd25519TransactionReadyLane(...)` for NEAR transaction signing and
+      the canonical exact ECDSA lane builder for EVM-family signing.
+- [ ] Inventory every worker-material shape. Keep one atomic material model per
+      curve; delete parallel "handle plus separate digest/key id" helper flows
+      after the atomic model is wired.
+- [ ] Inventory runtime/durable session record lookups. Keep exact-session or
+      exact-lane reads; delete broad wallet/account/signingGrant fallback
+      selectors outside display/discovery code.
+
+### 16.2 Delete Or Route Duplicates
+
+Tasks:
+
+- [ ] Delete duplicate NEAR Ed25519 material predicates and any replacement
+      predicates introduced during Phase 15. Selection should ask for a
+      transaction-ready lane, not re-check flat fields.
+- [ ] Delete duplicate candidate filters that implement the same
+      zero/one/duplicate semantics in more than one file. Route callers through
+      the smallest shared selector that already exists.
+- [ ] Delete duplicate exact-lane reconstruction helpers when a selected lane
+      already carries `identity`.
+- [ ] Delete ECDSA worker-material authority helpers that use material handles
+      as lane selectors. Lane authority comes from exact signer identity.
+- [ ] Delete stale compatibility branches in tests/fixtures that only exist to
+      support pre-Refactor 79 broad lookup behavior.
+
+### 16.3 Guard Cleanup
+
+Tasks:
+
+- [ ] Keep source guards only for patterns that are still likely to regress.
+- [ ] Remove guards that only protect deleted transition code, and add them to
+      `docs/refactor-9x-clean-source-guards.md` if they should be retired after
+      a later stabilization window.
+- [ ] Prefer one targeted unit test over broad source scanning when a typed
+      constructor now makes the invalid state unrepresentable.
+
+Acceptance:
+
+- No authority path has two functions that answer the same signability or
+  selected-lane question.
+- Flat material fields are parsed once into atomic material types before core
+  signing logic.
+- Duplicate candidates fail through one selector per branch; no first-candidate,
+  timestamp, or source-ranking selectors remain.
+- Net code size should decrease. Any net increase needs a concrete reason tied
+  to type-safety, boundary validation, or a missing test.
+
+Validation:
+
+```bash
+pnpm -C packages/sdk-web -s type-check
+pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line \
+  unit/ed25519TransactionLaneSelection.unit.test.ts \
+  unit/nearSigning.sessionSelection.unit.test.ts \
+  unit/evmFamilyEcdsaIdentity.unit.test.ts \
+  unit/refactor79ExactSigningLane.guard.unit.test.ts
+git diff --check
+```
+
+## Phase 17: Remove Runtime-Source Authority From Transaction Lanes
+
+Phase 15 removed duplicated Ed25519 material predicates, but post-unlock manual
+testing exposed a broader smell: flow code still treats availability source
+tags as authority. In particular, `runtime_session_record` and
+`runtime_and_durable` encode how availability assembly found records, not what
+the lane is authorized to sign.
+
+Target principle: transaction authority is exact lane identity plus material
+capability. Runtime/durable provenance is diagnostics and repair guidance only.
+
+Replacement model:
+
+```ts
+type Ed25519MaterialAvailability =
+  | { kind: 'loaded_worker_material'; identity: Ed25519WorkerMaterialIdentity }
+  | { kind: 'sealed_worker_material'; identity: Ed25519WorkerMaterialIdentity };
+
+type TransactionReadyLane = {
+  selectedLane: SelectedLane;
+  material: Ed25519MaterialAvailability | EcdsaMaterialAvailability;
+};
+```
+
+`runtime_and_durable` should disappear. When both records exist, availability
+assembly should produce one raw available-lane candidate. Transaction-ready
+authority projections omit provenance and carry the material branch directly.
+
+### 17.1 Collapse Availability Source Tags
+
+Tasks:
+
+- [x] Remove `runtime_and_durable` from `ConcreteAvailableEd25519SigningLane`,
+      `ConcreteAvailableEcdsaSigningLane`, `LaneCandidateSource`,
+      `ReauthAnchorSourceState`, runtime postconditions, and export restore
+      lane source unions.
+- [x] Keep only real source/material categories in authority-facing models:
+      `durable_sealed_record`, `runtime_session_record`, and
+      `evm_family_shared_key` where ECDSA shared-key recovery still needs that
+      distinct branch.
+- [x] Remove `source` from transaction-ready authority types such as
+      `NearEd25519TransactionReadyAvailableLane`; provenance must not be required
+      to prove a lane can sign.
+- [x] Ensure "both runtime and durable records were found" cannot become a
+      composite authority source. Raw inventory may retain provenance for display
+      and repair, but transaction-ready projections omit it.
+- [x] Update availability assembly so a matching runtime record replaces the
+      durable candidate as a runtime-backed lane while retaining material identity
+      needed by the typed material capability branch.
+- [x] Delete tests and fixtures that assert `runtime_and_durable`; replace them
+      with assertions about material availability and exact lane identity.
+
+Acceptance:
+
+- `rg "runtime_and_durable" packages/sdk-web/src/core/signingEngine` returns no
+  production hits.
+- Selection and restore code cannot branch on "both records exist" as a source
+  kind.
+- Duplicate detection still sees one exact lane when runtime and durable records
+  describe the same authority.
+
+### 17.2 Delete Flow-Local Runtime-Lane Authority Selectors
+
+Tasks:
+
+- [x] Delete `verifiedRuntimeNearEd25519AvailableLanes(...)` from
+      `signNear.ts`; NEAR transaction signing should call the shared
+      transaction selector once and then restore/repair the selected exact lane
+      if needed.
+- [x] Delete `getSingleRuntimeBackedEcdsaAvailableLane(...)` from
+      `signEvmFamily/preparedSigning.ts`; ECDSA signing should call the shared
+      transaction selector with available lanes and branch-specific intent.
+- [x] If a current runtime lane still improves UX, expose it from availability
+      assembly as a preferred candidate hint that the shared selector consumes,
+      rather than filtering it in the flow.
+- [x] Keep zero/one/duplicate candidate semantics in one selector per branch.
+      Flow code must not implement source, timestamp, or readiness ranking.
+- [x] Make `selectTransactionLane(...)` the only authority path that converts
+      available candidates into selected transaction lanes.
+- [x] Remove legacy selector failure branches created for broad runtime-lane
+      bypasses, such as `incomplete_candidate`; malformed candidates should be
+      rejected at conversion time and simply not become transaction-ready lanes.
+
+Acceptance:
+
+- NEAR and ECDSA signing flows do not filter candidates by
+  `runtime_session_record`, `runtime_and_durable`, or equivalent source tags.
+- Runtime lanes can still be selected when they are the only exact
+  transaction-ready lane.
+- Multiple exact runtime-capable candidates fail with duplicate-specific
+  errors.
+
+### 17.3 Make Material Availability Drive Restore Decisions
+
+Tasks:
+
+- [x] Replace restore/no-restore checks like
+      `source === 'runtime_session_record' || source === 'runtime_and_durable'`
+      with `material.kind` checks.
+- [x] Update NEAR transaction restore to use `loaded_worker_material` or
+      `sealed_worker_material` branches from the transaction-ready lane.
+- [x] Update ECDSA transaction restore and export restore to use the same
+      material-availability model instead of source tags.
+- [x] Keep account/wallet broad reads for discovery and display only. They may
+      produce candidate lanes, but they must not choose authority.
+
+Acceptance:
+
+- A loaded worker material branch skips restore because the handle exists.
+- A sealed worker material branch runs restore before signing/export.
+- A material-pending ECDSA export branch returns without restoring; transaction
+  signing keeps pending material out of exact selected signing lanes.
+
+### 17.4 Tests And Validation
+
+Tasks:
+
+- [x] Add unit coverage for availability assembly where runtime and durable
+      records match: it produces one exact candidate with material represented
+      in the material branch rather than the source tag.
+- [x] Add unit coverage for NEAR post-unlock signing selection from a restored
+      material lane without any runtime-source fast path.
+- [x] Add unit coverage for ECDSA signing selection without
+      `getSingleRuntimeBackedEcdsaAvailableLane(...)`.
+- [x] Add export/restore coverage proving restore decisions use
+      `material.kind`, not `source`.
+- [x] Update type fixtures so authority-facing lane types cannot carry
+      `runtime_and_durable`.
+
+Validation:
+
+```bash
+pnpm -C packages/sdk-web -s type-check
+pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line \
+  unit/ed25519TransactionLaneSelection.unit.test.ts \
+  unit/nearSigning.sessionSelection.unit.test.ts \
+  unit/ecdsaSelection.restorable.unit.test.ts \
+  unit/exportLaneSelection.unit.test.ts \
+  unit/runtimePostconditions.unit.test.ts
+git diff --check
+```
+
+Validation result:
+
+- [x] Focused Playwright batch passed: 49 passed.
+- [x] `git diff --check` passed.
+- [ ] `pnpm -C packages/sdk-web -s type-check` is still blocked by the
+      existing missing `@types/express` declarations pulled from
+      `packages/sdk-server-ts/src/router/express/**`; the Phase 17 local
+      `selectLane.ts` type errors found during audit were fixed.
+
+## Phase 18: Make Warm Status Advisory, Not Authority
+
+Post-unlock manual testing exposed a remaining two-sources-of-truth problem.
+The exact persisted lane record can prove a session has signer identity,
+session authority, budget facts, and worker-material identity, while volatile
+warm-status lookups can still return `not_found` because an iframe, worker, or
+cache was restarted.
+
+Target principle: durable exact lane state is the authority for lane selection.
+Volatile warm status is cache health and freshness telemetry. It may tighten
+expiry/use counts or prove a loaded handle exists, but it must not hide a valid
+exact lane by itself.
+
+Replacement model:
+
+```ts
+type AvailableLaneStateAdvisory =
+  | {
+      kind: 'warm_status';
+      status: 'active';
+      thresholdSessionId: string;
+      remainingUses: number;
+      expiresAtMs: number;
+    }
+  | {
+      kind: 'warm_status';
+      status: 'expired' | 'exhausted' | 'cache_miss' | 'unavailable';
+      thresholdSessionId: string;
+      code?: string;
+    }
+  | {
+      kind: 'durable_policy';
+      thresholdSessionId: string;
+      state: AvailableSigningLaneState;
+      remainingUses: number;
+      expiresAtMs: number;
+    };
+```
+
+Warm status should be folded into the lane only at the availability boundary:
+
+- `active` may update `remainingUses` and `expiresAtMs`;
+- `expired` and `exhausted` make the lane unavailable;
+- `cache_miss` and transient `unavailable` do not erase a durable exact lane;
+- wallet-budget `not_found` or transient unavailable status does not erase a
+  local material-derived lane; expired/exhausted budget still blocks use;
+- loaded/sealed/pending material state decides whether the lane is ready,
+  restorable, or deferred.
+- Do not add a parallel exported selection state. The boundary conversion
+  should replace the old advisory shape and continue emitting the existing
+  available-lane and transaction-ready lane types.
+
+### 18.1 Rename And Narrow Warm-Status Types
+
+Tasks:
+
+- [x] Rename runtime-claim helpers that currently imply authority, such as
+      `AvailableSigningLanesRuntimeClaim`, to advisory language:
+      `WarmSessionStatusAdvisory` or equivalent.
+- [x] Make the advisory union explicit. `not_found` must normalize to
+      `cache_miss`; `expired` and `exhausted` remain hard lifecycle states.
+- [x] Keep status-reader raw responses at the boundary. Core availability and
+      transaction selection must never consume raw `WarmSessionStatusResult`.
+- [x] Add type fixtures proving advisory `cache_miss` cannot become
+      `missing`/`deferred` without consulting durable exact lane material state.
+
+Acceptance:
+
+- Names in availability code communicate that warm status is advisory.
+- `rg "warmStatus.*LaneState|runtimeClaimToLaneState" packages/sdk-web/src/core/signingEngine/session`
+  shows one boundary conversion path.
+
+### 18.2 Centralize Lane State Derivation
+
+Tasks:
+
+- [x] Add one boundary builder that accepts:
+      `ThresholdEd25519SessionRecord` classified by material state,
+      exact signer binding, session authority, and warm-status advisory.
+- [x] Delete scattered conversions where warm status directly sets lane state.
+- [x] Make the builder derive:
+      `ready` from material-ready records with loaded worker material,
+      `restorable` from sealed material,
+      `deferred` from material-pending records.
+- [x] Apply advisory overrides only after material state is known:
+      active refreshes uses/expiry, expired/exhausted reject, cache miss keeps
+      the durable material-derived state.
+- [x] Apply the same model to ECDSA if its warm-status path has the same
+      authority/cache split.
+
+Acceptance:
+
+- A `runtime_validated` Ed25519 record with `not_found` warm status remains a
+  transaction-ready candidate when its persisted material is loaded and budget
+  is still valid.
+- A material-pending record with active warm status remains deferred.
+- A sealed material record with cache miss remains restorable.
+- Expired/exhausted status still blocks selection.
+
+### 18.3 Remove Status Reader Authority From Transaction Paths
+
+Tasks:
+
+- [x] Ensure NEAR transaction signing asks only for
+      `NearEd25519TransactionReadyLane`; it must not inspect warm status,
+      source tags, or raw material fields.
+- [x] Ensure key export and restore paths branch on the atomic material state,
+      not warm-status reads.
+- [x] Ensure login/unlock warmup may call warm-status readers for diagnostics,
+      cache refresh, and budget refresh, but cannot fail postconditions solely
+      because a status reader returned `not_found`.
+- [x] Delete or rename tests that assert volatile status is required for
+      signability. Keep tests that assert expired/exhausted status blocks use.
+
+Acceptance:
+
+- Wallet unlock can rebuild/restorable lanes from durable material without a
+  live warm-status cache entry.
+- NEAR signing after unlock does not fail with
+  `Ed25519 transaction signing requires an exact selected lane` when the exact
+  persisted lane has valid material and budget.
+
+### 18.4 Tests And Guards
+
+Tasks:
+
+- [x] Add a persisted availability test for:
+      runtime-validated Ed25519 material + warm `not_found` => ready.
+- [x] Add a persisted availability test for:
+      runtime-validated Ed25519 material + warm reader throws => ready.
+- [x] Add a persisted availability test for:
+      runtime-validated Ed25519 material + wallet budget `not_found` => ready.
+- [x] Add a persisted availability test for:
+      material-pending + warm active => deferred.
+- [x] Add a transaction-selection test for:
+      post-unlock persisted lane with cache miss => `NearEd25519TransactionReadyLane`.
+- [x] Add a guard that rejects authority-path code treating
+      `getWarmSessionStatus`, `WarmSessionStatusResult`, or warm-status
+      `not_found` as lane-selection authority outside the availability boundary.
+
+Validation:
+
+```bash
+pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line \
+  unit/persistedAvailableSigningLanes.emailOtpEd25519.unit.test.ts \
+  unit/availableSigningLanes.ed25519Duplicates.unit.test.ts \
+  unit/ed25519TransactionLaneSelection.unit.test.ts \
+  unit/nearSigning.sessionSelection.unit.test.ts \
+  unit/warmEd25519SigningSessionAuthorization.unit.test.ts
+git diff --check
+```
+
+Validation result:
+
+- [x] Focused Playwright batch passed: 72 passed.
+- [x] `git diff --check` passed.
+- [ ] `pnpm -C packages/sdk-web -s type-check` is still blocked by the
+      existing missing `@types/express` declarations from
+      `packages/sdk-server-ts/src/router/express/**`; the filtered output has no
+      Phase 18 availability/type-fixture errors.
 
 ## Done Criteria
 
@@ -2280,6 +2848,8 @@ git diff --check
 - Ed25519 worker material is exposed to core authority paths only as
   `Ed25519WorkerMaterialCapability | null`, never as scattered optional flat
   fields.
+- NEAR transaction signing consumes `NearEd25519TransactionReadyLane`; duplicated
+  Ed25519 material/signability predicates are absent from authority paths.
 - Selected/planning/spend state cannot carry branch signer facts that duplicate
   `identity.signer`.
 - Normalized ECDSA wallet/session records use `walletId`; `walletSessionUserId`
@@ -2506,3 +3076,55 @@ Validation notes:
 - [ ] Full `packages/sdk-web` type-check is still blocked by unrelated
       existing server/Express declaration errors; rerun after those are cleaned
       up.
+
+## Review: Ed25519 Session Material State, 2026-07-01
+
+Status: complete.
+
+The Ed25519 session store previously exposed one `ThresholdEd25519SessionRecord`
+shape with optional worker-material fields. That let core signing, export, and
+readiness code accidentally treat a raw persisted row as a signable runtime
+record. The exact-lane model needs a stricter boundary:
+
+- raw persisted/request rows may have nullable or missing columns;
+- canonical Ed25519 session records must carry a branch-specific material state;
+- signing paths must accept only the material-ready branch.
+
+Tasks:
+
+- [x] Introduce `ThresholdEd25519SessionRow` for raw persistence/request row
+      shape, keeping nullable worker-material columns at the boundary only.
+- [x] Replace the canonical `ThresholdEd25519SessionRecord` shape with a
+      discriminated union:
+      `auth_ready_material_pending`, `restore_available`, and `material_ready`.
+- [x] Make `signerSlot` required canonical record metadata.
+- [x] Remove generic `keyVersion` from canonical Ed25519 runtime session
+      records and warm-session capability inputs; keep version fields only at
+      their real boundaries, such as durable key metadata, HSS protocol
+      validation, sealed-session transport, and worker material format.
+- [x] Make `material_ready` require the complete worker material identity:
+      worker handle, material key id, binding digest, client verifying share,
+      sealed material ref/blob, material format version, and material creation
+      time.
+- [x] Make `routerAbNormalSigning` required canonical Ed25519 session metadata;
+      raw restore/request rows may omit it only before boundary parsing, where
+      the record becomes material-pending or is rejected.
+- [x] Make material persistence write one complete material object without
+      inheriting missing fields from older records.
+- [x] Add a type fixture rejecting partial Ed25519 material persistence writes.
+- [x] Finish migrating remaining authority/readiness call sites to switch on
+      `record.materialState` instead of probing optional material columns.
+- [x] Add a cleanup pass for stale helper predicates that inspect
+      `record.ed25519WorkerMaterialHandle`, `record.materialKeyId`, or
+      `record.clientVerifyingShareB64u` independently in authority paths.
+- [x] Rerun focused NEAR signing/export/unlock tests after the remaining
+      material-state readers are switched to the discriminated union.
+
+Validation notes:
+
+- [x] `pnpm build:sdk` passed.
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbEd25519.walletSessionState.unit.test.ts ./unit/warmEd25519SigningSessionAuthorization.unit.test.ts ./unit/ed25519TransactionLaneSelection.unit.test.ts ./unit/nearSigning.sessionSelection.unit.test.ts --reporter=line` passed.
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/warmEd25519SigningSessionAuthorization.unit.test.ts ./unit/ed25519TransactionLaneSelection.unit.test.ts ./unit/nearSigning.sessionSelection.unit.test.ts --reporter=line` passed.
+- [x] `git diff --check` passed.
+- [ ] `pnpm -C packages/sdk-web -s type-check` is still blocked by unrelated
+      existing `express` declaration errors in `packages/sdk-server-ts`.
