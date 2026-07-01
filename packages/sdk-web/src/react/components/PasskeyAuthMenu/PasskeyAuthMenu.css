@@ -135,6 +135,11 @@
   margin: 0.5rem 0.75rem;
 }
 
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-header,
+.w3a-signup-menu-root[data-post-recovery-rotation-prompt='true'] .w3a-header {
+  padding-left: 44px;
+}
+
 .w3a-subhead {
   font-size: 1rem;
   font-weight: 500;

@@ -170,6 +170,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     runtime.seamsWeb.configs.wallet.mode === 'iframe' &&
     controller.mode === AuthMenuMode.Register &&
     controller.canSubmit &&
+    controller.waitingReason !== 'social' &&
     !controller.registrationPrompt &&
     !controller.otpPrompt &&
     !controller.postRecoveryRotationPrompt;
