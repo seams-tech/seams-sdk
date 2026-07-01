@@ -15,8 +15,10 @@ import {
   isEvmAddress,
   isUserCancellationError,
   parseInsufficientFundsError,
+  readTempoFaucetHasDripped,
   resolveClickTimeEip1559FeeCaps,
   TEMPO_ALPHA_USD_FEE_TOKEN,
+  TEMPO_GREETING_CONTRACT,
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
@@ -105,6 +107,49 @@ function responseMessage(body: JsonRecord, fallback: string): string {
 function normalizeTxHash(value: unknown): `0x${string}` | null {
   const normalized = String(value || '').trim();
   return /^0x[0-9a-fA-F]{64}$/.test(normalized) ? (normalized as `0x${string}`) : null;
+}
+
+function isSponsoredEvmRevertError(error: unknown): boolean {
+  return String(error instanceof Error ? error.message : error).includes(
+    'Sponsored EVM transaction reverted',
+  );
+}
+
+async function readTempoDripAlreadyCompleted(input: {
+  readonly frontendConfig: TempoSigningFrontendConfig;
+  readonly account: EvmAddress;
+}): Promise<boolean> {
+  try {
+    return await readTempoFaucetHasDripped({
+      rpcUrl: input.frontendConfig.tempoRpcUrl,
+      contract: TEMPO_GREETING_CONTRACT,
+      account: input.account,
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function refreshTempoDripBalance(input: {
+  readonly refreshTempoUserFeeTokenBalance: UseDemoTempoSigningActionsArgs['refreshTempoUserFeeTokenBalance'];
+  readonly thresholdOwnerAddress: EvmAddress;
+  readonly tokenAddress: EvmAddress;
+}): Promise<void> {
+  await input.refreshTempoUserFeeTokenBalance({
+    silent: true,
+    userAddress: input.thresholdOwnerAddress,
+    feeToken: input.tokenAddress,
+  });
+}
+
+async function resolveThresholdOwnerAddressOrNull(
+  resolveThresholdOwnerAddressForEvmFamily: () => Promise<EvmAddress>,
+): Promise<EvmAddress | null> {
+  try {
+    return await resolveThresholdOwnerAddressForEvmFamily();
+  } catch {
+    return null;
+  }
 }
 
 async function requestSponsoredTempoDrip(input: {
@@ -212,6 +257,22 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     try {
       const thresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
       const tokenAddress = resolveTempoDripToken(frontendConfig);
+      const alreadyDripped = await readTempoDripAlreadyCompleted({
+        frontendConfig,
+        account: thresholdOwnerAddress,
+      });
+      if (alreadyDripped) {
+        await refreshTempoDripBalance({
+          refreshTempoUserFeeTokenBalance,
+          thresholdOwnerAddress,
+          tokenAddress,
+        });
+        toast.success('Tempo fee tokens already dripped', {
+          id: toastId,
+          description: <code>{compactHex(thresholdOwnerAddress)}</code>,
+        });
+        return;
+      }
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
         rpcUrl: frontendConfig.tempoRpcUrl,
         fallbackFeeCaps: tempoEip1559FeeCaps,
@@ -223,10 +284,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         tokenAddress,
         feeCaps,
       });
-      await refreshTempoUserFeeTokenBalance({
-        silent: true,
-        userAddress: thresholdOwnerAddress,
-        feeToken: tokenAddress,
+      await refreshTempoDripBalance({
+        refreshTempoUserFeeTokenBalance,
+        thresholdOwnerAddress,
+        tokenAddress,
       });
       const txUrl = buildEvmExplorerTxUrl({
         explorerBaseUrl: frontendConfig.tempoExplorerUrl,
@@ -248,6 +309,29 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         ),
       });
     } catch (error: unknown) {
+      const thresholdOwnerAddress = await resolveThresholdOwnerAddressOrNull(
+        resolveThresholdOwnerAddressForEvmFamily,
+      );
+      const tokenAddress = resolveTempoDripToken(frontendConfig);
+      if (
+        thresholdOwnerAddress &&
+        isSponsoredEvmRevertError(error) &&
+        (await readTempoDripAlreadyCompleted({
+          frontendConfig,
+          account: thresholdOwnerAddress,
+        }))
+      ) {
+        await refreshTempoDripBalance({
+          refreshTempoUserFeeTokenBalance,
+          thresholdOwnerAddress,
+          tokenAddress,
+        });
+        toast.success('Tempo fee tokens already dripped', {
+          id: toastId,
+          description: <code>{compactHex(thresholdOwnerAddress)}</code>,
+        });
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       console.error('[DemoPage][TempoDripError]', {
         atIso: new Date().toISOString(),

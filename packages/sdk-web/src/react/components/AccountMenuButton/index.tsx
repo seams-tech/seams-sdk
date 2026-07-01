@@ -221,6 +221,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
       setExportLoadingChain(chain);
       setExportRestrictionMessage(null);
+      setShowExportKeyTypeModal(false);
       try {
         if (chain === 'near') {
           if (!nearAccountId) {
@@ -267,10 +268,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             },
           });
         }
-        setShowExportKeyTypeModal(false);
       } catch (error: unknown) {
         const message = formatExportKeyErrorMessage(error);
         setExportRestrictionMessage(message);
+        setShowExportKeyTypeModal(true);
         console.error('[AccountMenuButton] Key export failed:', error);
       } finally {
         setExportLoadingChain(null);

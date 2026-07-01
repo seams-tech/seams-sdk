@@ -247,7 +247,7 @@ export function setContentType(res: any, filePath: string) {
 
 // === Shared path helpers across Vite/Next plugins ===
 
-export { toBasePath } from '@shared/utils/validation';
+export { toBasePath } from '../../../shared-ts/src/utils/validation';
 
 const requireCjs = createRequire(import.meta.url);
 

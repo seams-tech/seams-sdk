@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import { seamsWallet } from '@seams/sdk/plugins/vite';
+import { seamsWallet } from '../../packages/sdk-web/src/plugins/vite';
 
 /**
  * Do NOT use optional chaining or dynamic access such as `import.meta?.env`

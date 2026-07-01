@@ -1,11 +1,3 @@
-// Minimal Vite dev plugin(s) to support SeamsWeb wallet-service modes.
-//
-// What these plugins do:
-// - Serve SDK assets under a base path, expose a wallet service route,
-// - Add dev headers (COOP + Permissions-Policy, optional COEP/CORP), and enforce WASM MIME.
-// - IMPORTANT: Strict CSP is scoped only to wallet HTML routes (/wallet-service, /export-viewer),
-//   not to the host app pages. App routes remain free to use inline styles/scripts.
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { buildPermissionsPolicy, buildWalletCsp } from './headers';
@@ -33,10 +25,8 @@ export type VitePlugin = {
   enforce?: 'pre' | 'post';
   configureServer?: (server: any) => void | Promise<void>;
 };
-export type ViteLikePlugin = VitePlugin;
 
 export type Web3AuthnDevOptions = {
-  mode?: 'self-contained' | 'front-only' | 'wallet-only';
   sdkDistRoot?: string;
   sdkBasePath?: string;
   walletServicePath?: string;
@@ -44,14 +34,6 @@ export type Web3AuthnDevOptions = {
   walletHostVariant?: WalletHostVariant;
   setDevHeaders?: boolean;
   enableDebugRoutes?: boolean;
-  /**
-   * Controls Cross-Origin-Embedder-Policy (COEP) behavior in dev.
-   * - 'off' (default): do not emit COEP/CORP on app pages.
-   * - 'strict': emit `Cross-Origin-Embedder-Policy: require-corp`
-   *   and `Cross-Origin-Resource-Policy: cross-origin` on app pages.
-   *
-   * Tip: set `VITE_COEP_MODE=strict` in tests/CI to enable isolation automatically.
-   */
   coepMode?: 'strict' | 'off';
 };
 
@@ -73,24 +55,10 @@ export type DevHeadersOptions = {
   walletOrigin?: string;
   walletServicePath?: string;
   sdkBasePath?: string;
-  /**
-   * Optional dev-time CSP for the wallet service route.
-   *  - 'strict': no inline scripts/styles (mirrors production defaults)
-   *  - 'compatible': allows inline scripts/styles (useful for debugging)
-   */
   devCSP?: 'strict' | 'compatible';
-  /**
-   * Controls Cross-Origin-Embedder-Policy (COEP) behavior in dev.
-   * - 'off' (default): do not emit COEP/CORP headers on app pages.
-   * - 'strict': emit COEP/CORP headers on app pages.
-   */
   coepMode?: 'strict' | 'off';
 };
 
-/**
- * Return the first candidate path that exists and is a file.
- * Helper for robust /sdk/* asset resolution on dev servers (app and wallet).
- */
 function tryFile(...candidates: string[]): string | undefined {
   for (const file of candidates) {
     try {
@@ -101,9 +69,6 @@ function tryFile(...candidates: string[]): string | undefined {
   return undefined;
 }
 
-// RPC helpers are provided by plugin-utils to share logic across frameworks.
-
-// Shared assets emitted/served for the wallet service bootstrap.
 const WALLET_SHIM_SOURCE = 'window.global ||= window; window.process ||= { env: {} };\n';
 const WALLET_SURFACE_CSS = [
   'html, body { background: transparent !important; margin:0; padding:0; }',
@@ -390,19 +355,10 @@ export function seamsHeaders(opts: DevHeadersOptions = {}): VitePlugin {
   };
 }
 
-/**
- * Dev plugin (composed): convenience entry that wires SDK server, WASM MIME, optional headers,
- * and (in wallet modes) the wallet service route.
- * Where it runs:
- * - App server: mode 'front-only' (or 'self-contained' when serving wallet pages on the same origin).
- * - Wallet-iframe server: modes 'wallet-only' or 'self-contained'.
- */
-/**
- * Compose dev plugins for serving SDK assets, wallet service HTML and dev headers.
- * External-facing entry for configuring either the app or wallet-iframe dev server.
- */
-function seamsDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
-  const mode: Required<Web3AuthnDevOptions>['mode'] = options.mode || 'self-contained';
+function createDevServerPlugin(
+  options: Web3AuthnDevOptions,
+  includeWalletService: boolean,
+): VitePlugin {
   const sdkBasePath = toBasePath(options.sdkBasePath || process.env.VITE_SDK_BASE_PATH, '/sdk');
   const walletServicePath = toBasePath(
     options.walletServicePath || process.env.VITE_WALLET_SERVICE_PATH,
@@ -417,7 +373,6 @@ function seamsDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
   const sdkDistRoot = resolveSdkDistRoot(options.sdkDistRoot);
   const coepMode = resolveCoepMode(options.coepMode);
 
-  // Build the sub-plugins to keep logic small and testable
   const sdkPlugin = seamsServeSdk({ sdkBasePath, sdkDistRoot, enableDebugRoutes, coepMode });
   const walletPlugin = seamsWalletService({
     walletServicePath,
@@ -426,8 +381,6 @@ function seamsDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
     coepMode,
   });
   const wasmMimePlugin = seamsWasmMime();
-  // Flip wallet CSP to strict by default in dev. Consumers can override via
-  // VITE_WALLET_DEV_CSP or by composing seamsHeaders directly.
   const headersPlugin = setDevHeaders
     ? seamsHeaders({ walletOrigin, walletServicePath, sdkBasePath, devCSP: 'strict', coepMode })
     : undefined;
@@ -437,15 +390,10 @@ function seamsDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
     apply: 'serve',
     enforce: 'pre',
     configureServer(server) {
-      // Always add WASM MIME + SDK server
       sdkPlugin.configureServer?.(server);
       wasmMimePlugin.configureServer?.(server);
       if (headersPlugin) headersPlugin.configureServer?.(server);
-
-      // Mode-specific wallet service route
-      if (mode === 'self-contained' || mode === 'wallet-only') {
-        walletPlugin.configureServer?.(server);
-      }
+      if (includeWalletService) walletPlugin.configureServer?.(server);
     },
   };
 }
@@ -602,7 +550,6 @@ export function seamsBuildHeaders(
   return plugin as unknown as VitePlugin;
 }
 
-// Small test helpers to keep unit tests decoupled from Vite server implementation
 export function computeDevPermissionsPolicy(walletOrigin?: string): string {
   return buildPermissionsPolicy(walletOrigin);
 }
@@ -611,37 +558,20 @@ export function computeDevWalletCsp(mode: 'strict' | 'compatible' = 'strict'): s
   return buildWalletCsp({ mode });
 }
 
-export function seamsWalletServer(options: Omit<Web3AuthnDevOptions, 'mode'> = {}): VitePlugin {
-  return seamsDevServer({ ...options, mode: 'wallet-only' });
+export function seamsWalletServer(options: Web3AuthnDevOptions = {}): VitePlugin {
+  return createDevServerPlugin(options, true);
 }
 
-export function seamsAppServer(options: Omit<Web3AuthnDevOptions, 'mode'> = {}): VitePlugin {
-  return seamsDevServer({ ...options, mode: 'front-only' });
+export function seamsAppServer(options: Web3AuthnDevOptions = {}): VitePlugin {
+  return createDevServerPlugin(options, false);
 }
 
-/**
- * Convenience wrapper: app origin helper that combines dev-time headers with optional
- * build-time headers emission for static hosts.
- *
- * Dev-time (serve): applies COOP + Permissions-Policy, plus optional COEP/CORP, via seamsAppServer.
- * Build-time (build): when `emitHeaders` is true, writes a Cloudflare Pages/Netlify
- * `_headers` file into Vite's `outDir` via seamsBuildHeaders, scoping strict CSP to
- * wallet HTML routes only.
- *   - Emits: `COOP: same-origin`, `Permissions-Policy: …`, and (when `coepMode === 'strict'`) `COEP: require-corp` + `CORP: cross-origin`.
- *   - No-op if a `_headers` file already exists in `outDir` (avoids clobbering CI/platform rules).
- *
- * Notes
- * - Keeps production header emission opt-in to avoid surprising overrides when apps
- *   already manage headers via custom servers or platform rules.
- * - Returns a plugin array for ergonomics; Vite accepts arrays in the `plugins` list.
- */
 export function seamsApp(
-  options: Omit<Web3AuthnDevOptions, 'mode'> & { emitHeaders?: boolean } = {},
+  options: Web3AuthnDevOptions & { emitHeaders?: boolean } = {},
 ): any[] /* Vite Plugin[] */ {
   const { emitHeaders, ...devOpts } = options;
   const walletOrigin = (devOpts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN)?.trim();
   const app = seamsAppServer(devOpts);
-  // Build-time emission is opt-in and will no-op if `_headers` already exists.
   const hdr = emitHeaders
     ? seamsBuildHeaders({
         walletOrigin,
@@ -652,28 +582,12 @@ export function seamsApp(
   return [app, hdr].filter(Boolean) as any[];
 }
 
-/**
- * Convenience wrapper: wallet origin helper that combines dev-time wallet server
- * with optional build-time headers emission for static hosts.
- *
- * Dev-time (serve): serves `/wallet-service` and `/sdk/*` plus headers via seamsWalletServer.
- * Build-time (build): when `emitHeaders` is true, writes a Cloudflare Pages/Netlify
- * `_headers` file into Vite's `outDir` via seamsBuildHeaders, scoping strict CSP to
- * wallet HTML routes only.
- *   - Emits: `COOP: same-origin` (wallet HTML routes use `unsafe-none`), `Permissions-Policy: …`, and (when `coepMode === 'strict'`) `COEP: require-corp` + `CORP: cross-origin`.
- *   - No-op if a `_headers` file already exists in `outDir` (avoids clobbering CI/platform rules).
- *
- * Notes
- * - Keeps production header emission opt-in to avoid overriding platform/server configs.
- * - Returns a plugin array for ergonomics; Vite accepts arrays in the `plugins` list.
- */
 export function seamsWallet(
-  options: Omit<Web3AuthnDevOptions, 'mode'> & { emitHeaders?: boolean } = {},
+  options: Web3AuthnDevOptions & { emitHeaders?: boolean } = {},
 ): any[] /* Vite Plugin[] */ {
   const { emitHeaders, ...devOpts } = options;
   const walletOrigin = (devOpts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN)?.trim();
   const wallet = seamsWalletServer(devOpts);
-  // Build-time emission is opt-in and will no-op if `_headers` already exists.
   const hdr = emitHeaders
     ? seamsBuildHeaders({
         walletOrigin,

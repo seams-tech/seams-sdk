@@ -1,7 +1,7 @@
 // Framework-agnostic header helpers to minimize configuration surface.
 // Keep types local to avoid coupling to framework packages.
 
-import { toOriginOrUndefined } from '@shared/utils/validation';
+import { toOriginOrUndefined } from '../../../shared-ts/src/utils/validation';
 
 export type CspMode = 'strict' | 'compatible';
 
