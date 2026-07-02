@@ -1,5 +1,4 @@
-import type { CloudflareRouterApiAuthService } from './authServicePort';
-import type { AuthService } from '../core/AuthService';
+import type { RouterApiAuthService } from './authServicePort';
 import type {
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
@@ -25,6 +24,7 @@ import type {
   EcdsaHssServerBootstrapResponse,
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
+  ThresholdEd25519AuthorityScope,
   ThresholdEd25519BootstrapSession,
   WalletKeyFactsInventoryAuth,
   WalletRegistrationFinalizeRequest,
@@ -104,19 +104,13 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 
-type WalletRegistrationPrepareAuthService = Pick<AuthService, 'prepareWalletRegistration'>;
-
 type RouterApiWalletRegistrationServices = {
-  authService: CloudflareRouterApiAuthService;
+  authService: RouterApiAuthService;
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
-};
-
-type RouterApiWalletRegistrationPrepareServices = RouterApiWalletRegistrationServices & {
-  registrationPrepareAuthService: WalletRegistrationPrepareAuthService;
 };
 
 type ParsedRegistrationSignerSet = {
@@ -139,7 +133,7 @@ type RouterApiWalletRegistrationPrepareInput = Omit<
   RouterApiWalletRegistrationInput,
   'services'
 > & {
-  services: RouterApiWalletRegistrationPrepareServices;
+  services: RouterApiWalletRegistrationServices;
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
@@ -421,13 +415,10 @@ async function attachEd25519WalletSessionJwt(
   if (session.sessionKind !== 'jwt') {
     return routeError(400, 'invalid_body', 'Ed25519 Wallet Session must use jwt sessionKind');
   }
-  if (!result.rpId) {
-    return routeError(400, 'invalid_body', 'Ed25519 Wallet Session requires a passkey rpId');
-  }
   const signed = await signRouterAbEd25519WalletSessionJwt({
     session: input.services.session,
     userId: String(result.walletId),
-    rpId: result.rpId,
+    authorityScope: session.authorityScope,
     relayerKeyId: ed25519.relayerKeyId,
     sessionInfo: {
       ...session,
@@ -2209,8 +2200,7 @@ export async function handleRouterApiWalletRegistrationPrepare(
   }
   const request = await parseWalletRegistrationPrepareBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const prepareAuthService = input.services.registrationPrepareAuthService;
-  const result = await prepareAuthService.prepareWalletRegistration({
+  const result = await input.services.authService.prepareWalletRegistration({
     ...request.value,
     prepareGate: registrationPrepareGateContextFromRoute(input),
   });

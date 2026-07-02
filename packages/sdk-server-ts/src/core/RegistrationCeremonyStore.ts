@@ -45,6 +45,7 @@ import {
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
 import { base64UrlDecode } from '@shared/utils/encoders';
+import { parseThresholdEd25519AuthorityScope } from './ThresholdService/validation';
 
 export type StoredRegistrationIntent = {
   kind: 'intent_allocated';
@@ -1139,6 +1140,7 @@ function parseFinalizeReplayResponse(
   }
   const authMethod = parseWalletRegistrationFinalizeAuthMethod(value.authMethod);
   if (!authMethod) return null;
+  const authorityScope = parseThresholdEd25519AuthorityScope(value.authorityScope);
   let ed25519: Extract<WalletRegistrationFinalizeResponse, { ok: true }>['ed25519'];
   const accountProvisioning = isRecord(value.accountProvisioning)
     ? (value.accountProvisioning as Extract<
@@ -1196,10 +1198,12 @@ function parseFinalizeReplayResponse(
   }
   if (ed25519 && (!accountProvisioning || !resolvedAccount)) return null;
   if (ed25519) {
+    if (!authorityScope) return null;
     return {
       ok: true,
       walletId,
       ...(rpId ? { rpId } : {}),
+      authorityScope,
       authMethod,
       accountProvisioning: accountProvisioning!,
       resolvedAccount: resolvedAccount!,

@@ -24,7 +24,7 @@ import type {
   CreateRegistrationIntentResponse,
 } from '../../core/types';
 import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
@@ -40,13 +40,13 @@ import {
 } from './d1RegistrationCeremonyRecords';
 
 type CreateRegistrationIntentInput = Parameters<
-  CloudflareRouterApiAuthService['createRegistrationIntent']
+  RouterApiAuthService['createRegistrationIntent']
 >[0];
 type CreateAddSignerIntentInput = Parameters<
-  CloudflareRouterApiAuthService['createAddSignerIntent']
+  RouterApiAuthService['createAddSignerIntent']
 >[0];
 type CreateAddAuthMethodIntentInput = Parameters<
-  CloudflareRouterApiAuthService['createAddAuthMethodIntent']
+  RouterApiAuthService['createAddAuthMethodIntent']
 >[0];
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;

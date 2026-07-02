@@ -5,6 +5,7 @@ import {
   parseOrgId,
   parseProviderSubject,
 } from '@shared/utils/domainIds';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   addAuthMethodIntentGrantFromString,
@@ -19,13 +20,19 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { WalletAuthMethodStore } from '../../core/d1WalletAuthMethodStore';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
 } from './d1RegistrationCeremonyStore';
 import { parseWalletIdForIntent } from './d1RegistrationCeremonyRecords';
+import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
+import {
+  expiredGoogleEmailOtpRegistrationAttemptRecord,
+  pendingGoogleEmailOtpRegistrationAttemptWithSelectedCandidate,
+  runtimePolicyScopeKey,
+} from './d1GoogleEmailOtpRegistrationRecords';
 import { toRecordValue } from './d1RouterApiAuthBoundary';
 import {
   activeWalletAuthMethodRecord,
@@ -46,25 +53,25 @@ import {
 import type { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 
 type StartWalletRegistrationInput = Parameters<
-  CloudflareRouterApiAuthService['startWalletRegistration']
+  RouterApiAuthService['startWalletRegistration']
 >[0];
 type StartWalletAddAuthMethodInput = Parameters<
-  CloudflareRouterApiAuthService['startWalletAddAuthMethod']
+  RouterApiAuthService['startWalletAddAuthMethod']
 >[0];
 type StartWalletAddAuthMethodResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['startWalletAddAuthMethod']>
+  ReturnType<RouterApiAuthService['startWalletAddAuthMethod']>
 >;
 type FinalizeWalletAddAuthMethodInput = Parameters<
-  CloudflareRouterApiAuthService['finalizeWalletAddAuthMethod']
+  RouterApiAuthService['finalizeWalletAddAuthMethod']
 >[0];
 type FinalizeWalletAddAuthMethodResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['finalizeWalletAddAuthMethod']>
+  ReturnType<RouterApiAuthService['finalizeWalletAddAuthMethod']>
 >;
 type RevokeWalletAuthMethodInput = Parameters<
-  CloudflareRouterApiAuthService['revokeWalletAuthMethod']
+  RouterApiAuthService['revokeWalletAuthMethod']
 >[0];
 type RevokeWalletAuthMethodResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['revokeWalletAuthMethod']>
+  ReturnType<RouterApiAuthService['revokeWalletAuthMethod']>
 >;
 type WalletAuthMethodError = {
   readonly ok: false;
@@ -97,6 +104,14 @@ function bytesToHex(bytes: Uint8Array): string {
   return hex;
 }
 
+function runtimePolicyScopeKeyForRegistrationIntent(input: unknown): string {
+  try {
+    return runtimePolicyScopeKey(normalizeRuntimePolicyScope(input));
+  } catch {
+    return '';
+  }
+}
+
 function unreachableRegistrationStartAuthority(value: never): never {
   throw new Error(`Unhandled registration start authority kind: ${String(value)}`);
 }
@@ -121,6 +136,7 @@ export class CloudflareD1WalletAuthMethodService {
   private readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
+  private readonly googleEmailOtpRegistrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
   private readonly sha256Bytes: Sha256Bytes;
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
 
@@ -128,12 +144,14 @@ export class CloudflareD1WalletAuthMethodService {
     readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
+    readonly googleEmailOtpRegistrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
     readonly sha256Bytes: Sha256Bytes;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
   }) {
     this.emailOtpChallengeVerifier = input.emailOtpChallengeVerifier;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getWalletAuthMethodStore = input.getWalletAuthMethodStore;
+    this.googleEmailOtpRegistrationAttempts = input.googleEmailOtpRegistrationAttempts;
     this.sha256Bytes = input.sha256Bytes;
     this.webAuthnStore = input.webAuthnStore;
   }
@@ -276,7 +294,7 @@ export class CloudflareD1WalletAuthMethodService {
   }
 
   async resolveAddSignerExistingAuth(input: {
-    readonly auth: Parameters<CloudflareRouterApiAuthService['startWalletAddSigner']>[0]['auth'];
+    readonly auth: Parameters<RouterApiAuthService['startWalletAddSigner']>[0]['auth'];
     readonly walletId: WalletId;
     readonly intent: AddSignerIntentV1;
     readonly nowMs: number;
@@ -291,7 +309,9 @@ export class CloudflareD1WalletAuthMethodService {
   }
 
   async resolveAddAuthMethodExistingAuth(input: {
-    readonly auth: Parameters<CloudflareRouterApiAuthService['startWalletAddAuthMethod']>[0]['auth'];
+    readonly auth: Parameters<
+      RouterApiAuthService['startWalletAddAuthMethod']
+    >[0]['auth'];
     readonly walletId: WalletId;
     readonly intent: AddAuthMethodIntentV1;
     readonly nowMs: number;
@@ -654,14 +674,6 @@ export class CloudflareD1WalletAuthMethodService {
         message: 'emailOtpRegistrationProof is required for Email OTP registration',
       };
     }
-    if (proof.proofKind !== 'otp_challenge') {
-      return {
-        ok: false,
-        code: 'unsupported',
-        message:
-          'Cloudflare D1 registration start currently supports direct Email OTP challenge proof',
-      };
-    }
     if (proof.registrationIntentDigestB64u !== input.expectedDigestB64u) {
       return {
         ok: false,
@@ -674,6 +686,178 @@ export class CloudflareD1WalletAuthMethodService {
         ok: false,
         code: 'invalid_body',
         message: 'Email OTP registration authority requires an Email OTP intent',
+      };
+    }
+    if (proof.proofKind === 'google_sso_registration') {
+      if (input.intent.authMethod.proofKind !== 'google_sso_registration') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Google SSO registration proof requires a Google SSO registration intent',
+        };
+      }
+      if (proof.email !== input.intent.authMethod.email.toLowerCase()) {
+        return {
+          ok: false,
+          code: 'email_mismatch',
+          message: 'Email OTP registration proof email does not match the intent',
+        };
+      }
+      if (
+        proof.googleEmailOtpRegistrationAttemptId !==
+        input.intent.authMethod.googleEmailOtpRegistrationAttemptId
+      ) {
+        return {
+          ok: false,
+          code: 'registration_attempt_mismatch',
+          message: 'Google SSO registration proof does not match the registration attempt',
+        };
+      }
+      if (
+        proof.googleEmailOtpRegistrationOfferId !==
+          input.intent.authMethod.googleEmailOtpRegistrationOfferId ||
+        proof.googleEmailOtpRegistrationCandidateId !==
+          input.intent.authMethod.googleEmailOtpRegistrationCandidateId
+      ) {
+        return {
+          ok: false,
+          code: 'registration_offer_mismatch',
+          message: 'Google SSO registration proof does not match the selected offer candidate',
+        };
+      }
+      const attempt = await this.googleEmailOtpRegistrationAttempts.read(
+        proof.googleEmailOtpRegistrationAttemptId,
+      );
+      if (!attempt) {
+        return {
+          ok: false,
+          code: 'registration_attempt_missing',
+          message: 'Google Email OTP registration attempt expired or was not found',
+        };
+      }
+      if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
+        return {
+          ok: false,
+          code: 'registration_attempt_not_started',
+          message: 'Google Email OTP registration attempt is not active',
+        };
+      }
+      if (attempt.expiresAtMs <= Date.now()) {
+        await this.googleEmailOtpRegistrationAttempts.put(
+          expiredGoogleEmailOtpRegistrationAttemptRecord({
+            record: attempt,
+            updatedAtMs: Date.now(),
+          }),
+        );
+        return {
+          ok: false,
+          code: 'registration_attempt_expired',
+          message: 'Google Email OTP registration attempt expired',
+        };
+      }
+      if (attempt.providerSubject !== proof.providerSubject) {
+        return {
+          ok: false,
+          code: 'challenge_subject_mismatch',
+          message: 'Email OTP registration attempt does not match the provider subject',
+        };
+      }
+      if (attempt.email.toLowerCase() !== proof.email) {
+        return {
+          ok: false,
+          code: 'email_mismatch',
+          message: 'Google Email OTP registration attempt email does not match the proof',
+        };
+      }
+      if (attempt.appSessionVersion !== proof.appSessionVersion) {
+        return {
+          ok: false,
+          code: 'app_session_version_mismatch',
+          message: 'Google Email OTP registration attempt does not match the app session',
+        };
+      }
+      if (attempt.offerId !== proof.googleEmailOtpRegistrationOfferId) {
+        return {
+          ok: false,
+          code: 'registration_offer_mismatch',
+          message: 'Google Email OTP registration attempt does not match the selected offer',
+        };
+      }
+      const selectedOfferCandidate = attempt.offerCandidates.find(
+        (candidate) => candidate.candidateId === proof.googleEmailOtpRegistrationCandidateId,
+      );
+      if (!selectedOfferCandidate || selectedOfferCandidate.walletId !== input.intent.walletId) {
+        return {
+          ok: false,
+          code: 'registration_candidate_mismatch',
+          message: 'Google Email OTP registration candidate does not match walletId',
+        };
+      }
+      if (
+        attempt.walletId !== selectedOfferCandidate.walletId ||
+        attempt.selectedCandidateId !== selectedOfferCandidate.candidateId ||
+        attempt.collisionCounter !== selectedOfferCandidate.collisionCounter
+      ) {
+        await this.googleEmailOtpRegistrationAttempts.put(
+          pendingGoogleEmailOtpRegistrationAttemptWithSelectedCandidate({
+            record: attempt,
+            candidate: selectedOfferCandidate,
+            updatedAtMs: Date.now(),
+          }),
+        );
+      }
+      if (
+        runtimePolicyScopeKey(attempt.runtimePolicyScope) !==
+        runtimePolicyScopeKeyForRegistrationIntent(input.intent.runtimePolicyScope)
+      ) {
+        return {
+          ok: false,
+          code: 'runtime_policy_scope_mismatch',
+          message: 'Google Email OTP registration attempt does not match runtime policy scope',
+        };
+      }
+      const providerSubject = parseProviderSubject(proof.providerSubject);
+      const finalWalletId = parseWalletIdForIntent(input.intent.walletId);
+      const orgId = parseOrgId(input.orgId);
+      const appSessionVersion = parseAppSessionVersion(proof.appSessionVersion);
+      if (!providerSubject.ok || !finalWalletId || !orgId.ok || !appSessionVersion.ok) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Google SSO registration proof contains invalid domain fields',
+        };
+      }
+      const email = attempt.email.toLowerCase();
+      const emailHashHex = await this.emailHashHex(email);
+      const duplicateEmailOtp = await this.getWalletAuthMethodStore().getEmailOtp({
+        walletId: finalWalletId,
+        emailHashHex,
+      });
+      if (duplicateEmailOtp && duplicateEmailOtp.status === 'active') {
+        return {
+          ok: false,
+          code: 'duplicate_auth_method',
+          message: 'Email OTP auth method is already registered',
+        };
+      }
+      return {
+        ok: true,
+        authority: {
+          kind: 'email_otp',
+          proofKind: 'google_sso_registration',
+          walletId: finalWalletId,
+          providerSubject: providerSubject.value,
+          email,
+          emailHashHex,
+          googleEmailOtpRegistrationAttemptId: attempt.attemptId,
+          googleEmailOtpRegistrationOfferId: attempt.offerId,
+          googleEmailOtpRegistrationCandidateId: selectedOfferCandidate.candidateId,
+          registrationAuthorityId: attempt.attemptId,
+          finalWalletId,
+          orgId: orgId.value,
+          appSessionVersion: appSessionVersion.value,
+          registrationIntentDigestB64u: input.expectedDigestB64u,
+        },
       };
     }
     if (input.intent.authMethod.proofKind !== 'otp_challenge') {

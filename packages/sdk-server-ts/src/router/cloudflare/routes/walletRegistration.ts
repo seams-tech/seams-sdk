@@ -45,13 +45,6 @@ const ROUTE_IDS = [
 ] as const;
 
 type WalletRegistrationRouteId = (typeof ROUTE_IDS)[number];
-type RegistrationPrepareAuthService = NonNullable<
-  CloudflareRouterApiContext['opts']['ed25519RegistrationPrepare']
->['authService'];
-
-function isOptionalWalletRegistrationRouteId(routeId: WalletRegistrationRouteId): boolean {
-  return routeId === 'wallet_registration_prepare';
-}
 
 function readWalletIdFromPath(route: RouteDefinition, pathname: string): string | undefined {
   const routeSegments = route.path.split('/').filter(Boolean);
@@ -66,22 +59,11 @@ function resolveWalletRegistrationRoute(ctx: CloudflareRouterApiContext): RouteD
   for (const routeId of ROUTE_IDS) {
     const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
     if (!route) {
-      if (isOptionalWalletRegistrationRouteId(routeId)) continue;
       throw new Error(`Missing route definition for ${routeId}`);
     }
     if (matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return route;
   }
   return null;
-}
-
-function requireRegistrationPrepareAuthService(
-  ctx: CloudflareRouterApiContext,
-): RegistrationPrepareAuthService {
-  const prepare = ctx.opts.ed25519RegistrationPrepare;
-  if (!prepare) {
-    throw new Error('wallet_registration_prepare route registered without prepare auth service');
-  }
-  return prepare.authService;
 }
 
 export async function handleWalletRegistration(
@@ -116,13 +98,7 @@ export async function handleWalletRegistration(
     route.id === 'wallet_registration_intent'
       ? await handleRouterApiWalletRegistrationIntent(common)
       : route.id === 'wallet_registration_prepare'
-        ? await handleRouterApiWalletRegistrationPrepare({
-            ...common,
-            services: {
-              ...common.services,
-              registrationPrepareAuthService: requireRegistrationPrepareAuthService(ctx),
-            },
-          })
+        ? await handleRouterApiWalletRegistrationPrepare(common)
         : route.id === 'wallet_registration_start'
           ? await handleRouterApiWalletRegistrationStart(common)
           : route.id === 'wallet_registration_hss_respond'

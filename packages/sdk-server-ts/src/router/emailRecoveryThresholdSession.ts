@@ -29,7 +29,6 @@ export type EmailRecoveryThresholdSessionSignResult =
 
 export async function signEmailRecoveryThresholdSessionJwt(input: {
   result: EmailRecoverySuccessResult;
-  rpId: string;
   session: RouterApiOptions['session'];
 }): Promise<EmailRecoveryThresholdSessionSignResult> {
   const thresholdSession = input.result.thresholdEd25519.session;
@@ -62,7 +61,7 @@ export async function signEmailRecoveryThresholdSessionJwt(input: {
   const signed = await signRouterAbEd25519WalletSessionJwt({
     session: input.session,
     userId: sessionInfo.walletId,
-    rpId: input.rpId,
+    authorityScope: input.result.thresholdEd25519.authorityScope,
     relayerKeyId: input.result.thresholdEd25519.relayerKeyId,
     sessionInfo,
     fallbackParticipantIds: input.result.thresholdEd25519.participantIds,

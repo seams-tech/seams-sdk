@@ -27,5 +27,10 @@ export async function resolveThresholdEd25519RelayerKeyMaterial(input: {
     };
   }
 
-  return { ok: true, ...existing };
+  return {
+    ok: true,
+    publicKey: existing.publicKey,
+    relayerSigningShareB64u: existing.routerMaterial.signingShareB64u,
+    relayerVerifyingShareB64u: existing.routerMaterial.verifyingShareB64u,
+  };
 }

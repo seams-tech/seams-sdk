@@ -4,6 +4,7 @@ import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '
 import { buildEd25519SessionPolicy } from '../sessionPolicy';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
+  type Ed25519SessionPolicyAuthority,
   type ThresholdRuntimePolicyScope,
 } from '../sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from './routerAbNormalSigningState';
@@ -60,6 +61,7 @@ export async function connectEd25519Session(args: {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  authority: Ed25519SessionPolicyAuthority;
   participantIds?: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
@@ -76,8 +78,9 @@ export async function connectEd25519Session(args: {
   workerCtx?: WorkerOperationContext;
 }): Promise<ConnectEd25519SessionResult> {
   const sessionKind = 'jwt';
-  const rpId = args.touchIdPrompt.getRpId();
-  if (!rpId) {
+  const passkeyRpId =
+    args.authority.kind === 'passkey_rp' ? String(args.authority.rpId || '').trim() : '';
+  if (args.authority.kind === 'passkey_rp' && !passkeyRpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
   const appSessionJwt =
@@ -89,7 +92,7 @@ export async function connectEd25519Session(args: {
     walletId: args.walletId,
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-    rpId,
+    authority: args.authority,
     relayerKeyId: args.relayerKeyId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     routerAbNormalSigning: args.routerAbNormalSigning,
@@ -102,6 +105,13 @@ export async function connectEd25519Session(args: {
 
   let auth: Ed25519WalletSessionMintAuthorization | undefined = args.auth;
   if (!auth) {
+    if (args.authority.kind !== 'passkey_rp') {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Email OTP Ed25519 session mint requires explicit route authorization',
+      };
+    }
     // Collect WebAuthn only when the caller did not already confirm the same session policy.
     // A regression here ignored the provided PRF source, so post-exhaustion transaction signing
     // showed one tx confirmation and then a second TouchID prompt for the session mint.
@@ -115,7 +125,7 @@ export async function connectEd25519Session(args: {
       kind: 'threshold_session_policy_webauthn',
       policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
         credential,
-        rpId,
+        rpId: passkeyRpId,
       }),
     };
   }

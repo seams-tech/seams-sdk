@@ -14,7 +14,7 @@ export const AUTH_SERVICE_CONFIG_DEFAULTS = {
   nearRpcUrlTestnet: 'https://test.rpc.fastnear.com',
   nearRpcUrlMainnet: 'https://rpc.mainnet.near.org',
   networkId: 'testnet',
-  // 0.03 NEAR (typical for examples; adjust based on your app/storage needs).
+  // 0.03 NEAR for local/demo implicit-account funding.
   accountInitialBalance: '30000000000000000000000',
   // 85 TGas (tested)
   createAccountAndRegisterGas: '85000000000000',

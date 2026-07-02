@@ -65,14 +65,21 @@ export type EmailOtpEcdsaSigningBootstrapResult = {
   warmCapability: WarmSessionEcdsaCapabilityState;
 };
 
+export type EmailOtpEcdsaSigningSessionAuthLaneResolver = {
+  resolveEmailOtpSigningSessionAuthLane: (args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+    chain: EvmFamilyChain;
+  }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
+};
+
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
   resolveThresholdEd25519SessionId?: (walletId: WalletId | string) => string | null;
-	  requestEmailOtpTransactionSigningChallenge?: (args: {
-	    walletSession: WalletSessionRef;
-	    nearAccountId: AccountId;
-	    chain: 'near';
-	    authLane?: EmailOtpAuthLane;
+  requestEmailOtpTransactionSigningChallenge?: (args: {
+    walletSession: WalletSessionRef;
+    nearAccountId: AccountId;
+    chain: 'near';
+    authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
     lane: ExactEd25519SigningLaneIdentity;
@@ -161,61 +168,58 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
   ) => ThresholdEcdsaSessionRecord | null;
 };
 
-export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
-  walletSignerStore: EvmFamilyWalletSignerStorePort;
-  passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
-  seamsWebConfigs: SeamsConfigsReadonly;
-  nonceCoordinator: NonceCoordinator;
-  ensureSealedRefreshStartupParity: () => Promise<void>;
-  getSignerWorkerContext: () => SignerWorkerManagerContext;
-  withThresholdEcdsaCommitQueue: <T>(args: {
-    queueKey: string;
-    walletId: WalletId;
-    enabled: boolean;
-    shouldAbort?: () => boolean;
-    maxQueueLength?: number;
-    queueTimeoutMs?: number;
-    task: () => Promise<T>;
-  }) => Promise<T>;
-  requestEmailOtpTransactionSigningChallenge?: (args: {
-    walletSession: WalletSessionRef;
-    chain: EvmFamilyChain;
-    authLane?: EmailOtpAuthLane;
-  }) => Promise<{ challengeId: string; emailHint?: string }>;
-  resolveEmailOtpSigningSessionAuthLane?: (args: {
-    lane: ExactEcdsaSigningLaneIdentity;
-    chain: EvmFamilyChain;
-  }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
-  loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-    walletSession: WalletSessionRef;
-    subjectId?: never;
-    chainTarget: ThresholdEcdsaChainTarget;
-    challengeId: string;
-    otpCode: string;
-    record?: ThresholdEcdsaSessionRecord;
-    authLane?: EmailOtpAuthLane;
-    remainingUses?: number;
-  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
-  restorePersistedSessionForSigning: (
-    args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
-  ) => Promise<unknown>;
-  readAvailableSigningLanesForSigning: (
-    args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
-  ) => Promise<AvailableSigningLanes>;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  consumeSingleUseEmailOtpEcdsaLane?: (
-    command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
-  ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
-  signingSessionCoordinator: SigningSessionCoordinator;
-  provisionThresholdEcdsaSession: (
-    args: import('../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
-  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-  touchConfirm: UiConfirmContextPort &
-    UiConfirmSigningPort &
-    UiConfirmSecureConfirmationPort &
-    Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus'> &
-    Partial<Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'>>;
-};
+export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
+  EmailOtpEcdsaSigningSessionAuthLaneResolver & {
+    walletSignerStore: EvmFamilyWalletSignerStorePort;
+    passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
+    seamsWebConfigs: SeamsConfigsReadonly;
+    nonceCoordinator: NonceCoordinator;
+    ensureSealedRefreshStartupParity: () => Promise<void>;
+    getSignerWorkerContext: () => SignerWorkerManagerContext;
+    withThresholdEcdsaCommitQueue: <T>(args: {
+      queueKey: string;
+      walletId: WalletId;
+      enabled: boolean;
+      shouldAbort?: () => boolean;
+      maxQueueLength?: number;
+      queueTimeoutMs?: number;
+      task: () => Promise<T>;
+    }) => Promise<T>;
+    requestEmailOtpTransactionSigningChallenge?: (args: {
+      walletSession: WalletSessionRef;
+      chain: EvmFamilyChain;
+      authLane?: EmailOtpAuthLane;
+    }) => Promise<{ challengeId: string; emailHint?: string }>;
+    loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
+      walletSession: WalletSessionRef;
+      subjectId?: never;
+      chainTarget: ThresholdEcdsaChainTarget;
+      challengeId: string;
+      otpCode: string;
+      record?: ThresholdEcdsaSessionRecord;
+      authLane?: EmailOtpAuthLane;
+      remainingUses?: number;
+    }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
+    restorePersistedSessionForSigning: (
+      args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
+    ) => Promise<unknown>;
+    readAvailableSigningLanesForSigning: (
+      args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
+    ) => Promise<AvailableSigningLanes>;
+    getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+    consumeSingleUseEmailOtpEcdsaLane?: (
+      command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
+    ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
+    signingSessionCoordinator: SigningSessionCoordinator;
+    provisionThresholdEcdsaSession: (
+      args: import('../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
+    ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+    touchConfirm: UiConfirmContextPort &
+      UiConfirmSigningPort &
+      UiConfirmSecureConfirmationPort &
+      Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus'> &
+      Partial<Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'>>;
+  };
 
 export type PrivateKeyExportRecoveryDeps = {
   keyMaterialStore: RecoveryNearKeyMaterialStorePort;

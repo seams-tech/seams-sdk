@@ -982,6 +982,7 @@ export type WalletRegistrationFinalizeResponse =
       ok: true;
       walletId: WalletId;
       rpId?: string;
+      authorityScope: ThresholdEd25519AuthorityScope;
       authMethod: WalletRegistrationFinalizeAuthMethod;
       accountProvisioning: RegistrationNearAccountProvisioning;
       resolvedAccount: ResolvedRegistrationNearAccount;
@@ -1037,6 +1038,7 @@ export type ThresholdEd25519BootstrapSession = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   thresholdSessionId: string;
   signingGrantId: string;
   expiresAtMs: number;

@@ -26,7 +26,7 @@ import type {
   WalletAuthMethodRecord,
   WalletAuthMethodStore,
 } from '../../core/d1WalletAuthMethodStore';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import {
   addAuthMethodInputMatches,
   addSignerSelectionMatches,
@@ -38,16 +38,16 @@ import {
 } from './d1RouterApiAuthBoundary';
 
 type StartWalletAddSignerInput = Parameters<
-  CloudflareRouterApiAuthService['startWalletAddSigner']
+  RouterApiAuthService['startWalletAddSigner']
 >[0];
 type StartWalletAddAuthMethodInput = Parameters<
-  CloudflareRouterApiAuthService['startWalletAddAuthMethod']
+  RouterApiAuthService['startWalletAddAuthMethod']
 >[0];
 type RevokeWalletAuthMethodInput = Parameters<
-  CloudflareRouterApiAuthService['revokeWalletAuthMethod']
+  RouterApiAuthService['revokeWalletAuthMethod']
 >[0];
 type RevokeWalletAuthMethodResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['revokeWalletAuthMethod']>
+  ReturnType<RouterApiAuthService['revokeWalletAuthMethod']>
 >;
 
 export type D1RevokeWalletAuthMethodTarget =

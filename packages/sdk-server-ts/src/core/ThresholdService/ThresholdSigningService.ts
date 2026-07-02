@@ -44,7 +44,6 @@ import {
 import type { SessionClaims } from '../../router/routerApi';
 import type {
   ThresholdEcdsaIntegratedKeyStore,
-  ThresholdEd25519KeyRecord,
   ThresholdEd25519KeyStore,
 } from './stores/KeyStore';
 import type {
@@ -2460,21 +2459,11 @@ export class ThresholdSigningService {
         message: 'Router A/B Ed25519 SigningWorker material is not available',
       };
     }
-    const claimsRpId = parseWebAuthnRpId(claims.rpId);
-    if (!claimsRpId.ok) {
-      return {
-        ok: false,
-        status: 403,
-        code: 'forbidden',
-        message: 'Router A/B Ed25519 Wallet Session authority scope is invalid',
-      };
-    }
-    const claimsAuthorityScope = passkeyRpAuthorityScope(claimsRpId.value);
     if (
       stored.walletId !== claims.walletId ||
       stored.nearAccountId !== claims.nearAccountId ||
       stored.nearEd25519SigningKeyId !== claims.nearEd25519SigningKeyId ||
-      !thresholdEd25519AuthorityScopesMatch(stored.authorityScope, claimsAuthorityScope) ||
+      !thresholdEd25519AuthorityScopesMatch(stored.authorityScope, claims.authorityScope) ||
       stored.publicKey !== claims.relayerKeyId
     ) {
       return {
@@ -2484,7 +2473,7 @@ export class ThresholdSigningService {
         message: 'Router A/B Ed25519 SigningWorker material does not match Wallet Session claims',
       };
     }
-    const xServerBaseB64u = toOptionalTrimmedString(stored.relayerSigningShareB64u);
+    const xServerBaseB64u = toOptionalTrimmedString(stored.routerMaterial.signingShareB64u);
     if (!xServerBaseB64u) {
       return {
         ok: false,
@@ -2494,7 +2483,7 @@ export class ThresholdSigningService {
       };
     }
     const storedRelayerVerifyingShareB64u = toOptionalTrimmedString(
-      stored.relayerVerifyingShareB64u,
+      stored.routerMaterial.verifyingShareB64u,
     );
     if (!storedRelayerVerifyingShareB64u) {
       return {
@@ -2761,129 +2750,6 @@ export class ThresholdSigningService {
     return resolved;
   }
 
-  private async maybeRepairRelayerKeyMaterialFromSessionHssFinalize(input: {
-    claims: ThresholdEd25519SessionClaims;
-    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-    serverOutput: { contextBindingB64u: string; xRelayerBaseB64u: string };
-  }): Promise<{ repaired: boolean }> {
-    const relayerKeyId = toOptionalTrimmedString(input.claims.relayerKeyId);
-    const walletId = toOptionalTrimmedString(input.claims.walletId);
-    const nearAccountId = toOptionalTrimmedString(input.claims.nearAccountId);
-    const nearEd25519SigningKeyId = toOptionalTrimmedString(input.claims.nearEd25519SigningKeyId);
-    const rpId = toOptionalTrimmedString(input.claims.rpId);
-    const relayerSigningShareB64u = toOptionalTrimmedString(input.serverOutput.xRelayerBaseB64u);
-    if (
-      !relayerKeyId ||
-      !walletId ||
-      !nearAccountId ||
-      !nearEd25519SigningKeyId ||
-      !rpId ||
-      !relayerSigningShareB64u
-    ) {
-      throw new Error('[threshold-ed25519] missing scope while attempting relayer share self-heal');
-    }
-    const parsedRpId = parseWebAuthnRpId(rpId);
-    if (!parsedRpId.ok) {
-      throw new Error(
-        '[threshold-ed25519] invalid authority scope while attempting relayer share self-heal',
-      );
-    }
-    const authorityScope = passkeyRpAuthorityScope(parsedRpId.value);
-
-    const startedAt = Date.now();
-    let repairKeyVersion = '';
-    try {
-      const relayerVerifyingShare = await deriveThresholdEd25519VerifyingShareFromSigningShare({
-        signingShareB64u: relayerSigningShareB64u,
-      });
-      const relayerVerifyingShareB64u = toOptionalTrimmedString(
-        relayerVerifyingShare.verifyingShareB64u,
-      );
-      if (!relayerVerifyingShareB64u) {
-        throw new Error('[threshold-ed25519] relayer share self-heal produced no verifying share');
-      }
-
-      const existing = await this.keyStore.get(relayerKeyId);
-      if (!existing) {
-        throw new Error(
-          '[threshold-ed25519] relayer share self-heal requires an existing key record',
-        );
-      }
-      if (
-        existing.nearAccountId !== nearAccountId ||
-        existing.walletId !== walletId ||
-        existing.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
-        !thresholdEd25519AuthorityScopesMatch(existing.authorityScope, authorityScope) ||
-        existing.publicKey !== relayerKeyId
-      ) {
-        throw new Error(
-          '[threshold-ed25519] relayer share self-heal refused conflicting key identity',
-        );
-      }
-      const keyVersion = toOptionalTrimmedString(existing.keyVersion);
-      if (!keyVersion) {
-        throw new Error('[threshold-ed25519] relayer share self-heal found no keyVersion');
-      }
-      repairKeyVersion = keyVersion;
-      const existingSigningShareB64u = toOptionalTrimmedString(existing.relayerSigningShareB64u);
-      const existingVerifyingShareB64u = toOptionalTrimmedString(
-        existing.relayerVerifyingShareB64u,
-      );
-      if (existingSigningShareB64u && existingVerifyingShareB64u) {
-        const derivedExistingVerifyingShare =
-          await deriveThresholdEd25519VerifyingShareFromSigningShare({
-            signingShareB64u: existingSigningShareB64u,
-          });
-        if (
-          toOptionalTrimmedString(derivedExistingVerifyingShare.verifyingShareB64u) !==
-          existingVerifyingShareB64u
-        ) {
-          throw new Error(
-            '[threshold-ed25519] relayer share self-heal refused corrupted existing key material',
-          );
-        }
-        if (
-          existing.relayerSigningShareB64u === relayerSigningShareB64u &&
-          existing.relayerVerifyingShareB64u === relayerVerifyingShareB64u &&
-          existing.recoveryExportCapable === true
-        ) {
-          return { repaired: false };
-        }
-        throw new Error(
-          '[threshold-ed25519] relayer share self-heal refused conflicting existing key material',
-        );
-      }
-
-      const repairedRecord: ThresholdEd25519KeyRecord = {
-        ...existing,
-        relayerSigningShareB64u,
-        relayerVerifyingShareB64u,
-        recoveryExportCapable: true,
-      };
-      await this.keyStore.put(relayerKeyId, repairedRecord);
-      this.logger?.warn?.('[threshold-ed25519] relayer share self-heal', {
-        relayerKeyId,
-        nearAccountId,
-        rpId,
-        keyVersion: repairKeyVersion,
-        durationMs: Date.now() - startedAt,
-        outcome: 'repaired_existing',
-      });
-      return { repaired: true };
-    } catch (error: unknown) {
-      this.logger?.error?.('[threshold-ed25519] relayer share self-heal failed', {
-        relayerKeyId,
-        nearAccountId,
-        rpId,
-        keyVersion: repairKeyVersion,
-        durationMs: Date.now() - startedAt,
-        outcome: 'failure',
-        message: errorMessage(error),
-      });
-      throw error;
-    }
-  }
-
   private clampSessionPolicy(input: { ttlMs: number; remainingUses: number }): {
     ttlMs: number;
     remainingUses: number;
@@ -2983,6 +2849,7 @@ export class ThresholdSigningService {
   private async ensureSigningGrantBudget(
     input: {
       signingGrantId: string;
+      thresholdSessionId: string;
       userId: string;
       participantIds: number[];
       ttlMs: number;
@@ -2990,20 +2857,14 @@ export class ThresholdSigningService {
       refreshExisting: boolean;
     } & (
       | {
-          binding: {
-            curve: 'ed25519';
-            thresholdSessionId: string;
-          };
-          rpId: string;
+          curve: 'ed25519';
+          authorityScope: ThresholdEd25519AuthorityScope;
           evmFamilySigningKeySlotId?: never;
         }
       | {
-          binding: {
-            curve: 'ecdsa';
-            thresholdSessionId: string;
-          };
+          curve: 'ecdsa';
           evmFamilySigningKeySlotId: string;
-          rpId?: never;
+          authorityScope?: never;
         }
     ),
   ): Promise<
@@ -3011,15 +2872,18 @@ export class ThresholdSigningService {
     | { ok: false; code: string; message: string }
   > {
     const binding = {
-      curve: input.binding.curve,
-      thresholdSessionId: toOptionalTrimmedString(input.binding.thresholdSessionId) || '',
+      curve: input.curve,
+      thresholdSessionId: toOptionalTrimmedString(input.thresholdSessionId) || '',
     };
-    const branchScopeId =
-      input.binding.curve === 'ecdsa'
-        ? toOptionalTrimmedString(input.evmFamilySigningKeySlotId)
-        : toOptionalTrimmedString(input.rpId);
-    const branchScopeLabel =
-      input.binding.curve === 'ecdsa' ? 'evmFamilySigningKeySlotId' : 'rpId';
+    let branchScopeId = '';
+    let branchScopeLabel = '';
+    if (input.curve === 'ecdsa') {
+      branchScopeId = toOptionalTrimmedString(input.evmFamilySigningKeySlotId) || '';
+      branchScopeLabel = 'evmFamilySigningKeySlotId';
+    } else {
+      branchScopeId = input.authorityScope.kind;
+      branchScopeLabel = 'authorityScope';
+    }
     const sessionId = this.walletSigningBudgetSessionId({
       signingGrantId: input.signingGrantId,
     });
@@ -3169,13 +3033,16 @@ export class ThresholdSigningService {
       const ttlMs = Math.max(1, Math.floor(thresholdExpiresAtMs - Date.now()));
       const authorityScope = passkeyRpAuthorityScope(rpId.value);
       await this.keyStore.put(relayerKeyId, {
+        kind: 'ready',
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
         authorityScope,
         publicKey,
-        relayerSigningShareB64u,
-        relayerVerifyingShareB64u,
+        routerMaterial: {
+          signingShareB64u: relayerSigningShareB64u,
+          verifyingShareB64u: relayerVerifyingShareB64u,
+        },
         keyVersion,
         recoveryExportCapable: true,
       });
@@ -3197,9 +3064,10 @@ export class ThresholdSigningService {
       });
       const walletBudget = await this.ensureSigningGrantBudget({
         signingGrantId,
-        binding: { curve: 'ed25519', thresholdSessionId },
+        curve: 'ed25519',
+        thresholdSessionId,
         userId: walletId,
-        rpId: rpId.value,
+        authorityScope,
         participantIds,
         ttlMs,
         remainingUses,
@@ -3294,7 +3162,8 @@ export class ThresholdSigningService {
       });
       const walletBudget = await this.ensureSigningGrantBudget({
         signingGrantId,
-        binding: { curve: 'ecdsa', thresholdSessionId },
+        curve: 'ecdsa',
+        thresholdSessionId,
         userId: walletId.value,
         evmFamilySigningKeySlotId: evmFamilySigningKeySlotId.value,
         participantIds,
@@ -3350,7 +3219,6 @@ export class ThresholdSigningService {
         if (
           !curveSession ||
           walletBudgetSession.walletId !== curveSession.userId ||
-          !thresholdEd25519PasskeyAuthorityRpId(curveSession.authorityScope) ||
           !participantIdsEqual(walletBudgetSession.participantIds, curveSession.participantIds)
         ) {
           return {
@@ -3491,8 +3359,8 @@ export class ThresholdSigningService {
       keyVersion,
       recoveryExportCapable: true,
       publicKey,
-      relayerSigningShareB64u: stored.relayerSigningShareB64u,
-      relayerVerifyingShareB64u: stored.relayerVerifyingShareB64u,
+      relayerSigningShareB64u: stored.routerMaterial.signingShareB64u,
+      relayerVerifyingShareB64u: stored.routerMaterial.verifyingShareB64u,
     });
   }
 
@@ -3552,13 +3420,16 @@ export class ThresholdSigningService {
       const { keyMaterial } = keygen;
 
       await this.keyStore.put(keyMaterial.relayerKeyId, {
+        kind: 'ready',
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
         authorityScope,
         publicKey: keyMaterial.publicKey,
-        relayerSigningShareB64u: keyMaterial.relayerSigningShareB64u,
-        relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
+        routerMaterial: {
+          signingShareB64u: keyMaterial.relayerSigningShareB64u,
+          verifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
+        },
         keyVersion: keyMaterial.keyVersion,
         recoveryExportCapable: keyMaterial.recoveryExportCapable,
       });
@@ -3607,14 +3478,6 @@ export class ThresholdSigningService {
         };
       }
       const authorityScope = input.authorityScope;
-      const rpId = thresholdEd25519PasskeyAuthorityRpId(authorityScope);
-      if (!rpId) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration session mint requires passkey authority',
-        };
-      }
 
       const policy = (input.sessionPolicy || {}) as Ed25519SessionPolicy;
       if (Object.prototype.hasOwnProperty.call(policy, 'rpId')) {
@@ -3813,9 +3676,10 @@ export class ThresholdSigningService {
         }
         const walletBudget = await this.ensureSigningGrantBudget({
           signingGrantId,
-          binding: { curve: 'ed25519', thresholdSessionId },
+          curve: 'ed25519',
+          thresholdSessionId,
           userId: walletId,
-          rpId,
+          authorityScope,
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
@@ -3856,9 +3720,10 @@ export class ThresholdSigningService {
       });
       const walletBudget = await this.ensureSigningGrantBudget({
         signingGrantId,
-        binding: { curve: 'ed25519', thresholdSessionId },
+        curve: 'ed25519',
+        thresholdSessionId,
         userId: walletId,
-        rpId,
+        authorityScope,
         participantIds,
         ttlMs,
         remainingUses,
@@ -4157,7 +4022,8 @@ export class ThresholdSigningService {
       }
       const walletBudget = await this.ensureSigningGrantBudget({
         signingGrantId,
-        binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
+        curve: 'ecdsa',
+        thresholdSessionId: sessionId,
         userId: walletId,
         evmFamilySigningKeySlotId,
         participantIds: existingSession.participantIds,
@@ -4193,7 +4059,8 @@ export class ThresholdSigningService {
     });
     const walletBudget = await this.ensureSigningGrantBudget({
       signingGrantId,
-      binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
+      curve: 'ecdsa',
+      thresholdSessionId: sessionId,
       userId: walletId,
       evmFamilySigningKeySlotId,
       participantIds,
@@ -4760,14 +4627,6 @@ export class ThresholdSigningService {
       const sessionId = thresholdSessionId;
       const routerAbPolicy = this.validateRouterAbNormalSigningSessionPolicy(routerAbNormalSigning);
       if (!routerAbPolicy.ok) return routerAbPolicy;
-      const rpId = thresholdEd25519PasskeyAuthorityRpId(authorityScope);
-      if (!rpId) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy.authorityScope must be passkey_rp',
-        };
-      }
       context = {
         walletId,
         nearAccountId,
@@ -4916,6 +4775,14 @@ export class ThresholdSigningService {
             message: 'expected_origin is required for threshold-ed25519 passkey session mint',
           };
         }
+        const rpId = thresholdEd25519PasskeyAuthorityRpId(authorityScope);
+        if (!rpId) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold-ed25519 passkey session mint requires passkey_rp authority',
+          };
+        }
         const webAuthnRpId = parseWebAuthnRpIdField(rpId, 'sessionPolicy.authorityScope.rpId');
         if (!webAuthnRpId.ok) return webAuthnRpId;
         const verification = await this.verifyWebAuthnAuthenticationLite!({
@@ -4948,9 +4815,10 @@ export class ThresholdSigningService {
       if (existingSession) {
         const walletBudget = await this.ensureSigningGrantBudget({
           signingGrantId,
-          binding: { curve: 'ed25519', thresholdSessionId: sessionId },
+          curve: 'ed25519',
+          thresholdSessionId: sessionId,
           userId: walletId,
-          rpId,
+          authorityScope,
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
@@ -4990,9 +4858,10 @@ export class ThresholdSigningService {
       });
       const walletBudget = await this.ensureSigningGrantBudget({
         signingGrantId,
-        binding: { curve: 'ed25519', thresholdSessionId: sessionId },
+        curve: 'ed25519',
+        thresholdSessionId: sessionId,
         userId: walletId,
-        rpId,
+        authorityScope,
         participantIds,
         ttlMs,
         remainingUses,
@@ -5819,15 +5688,10 @@ export class ThresholdSigningService {
           evaluationResult: storedEvaluationResult,
           expectedContextBindingB64u: takenCeremony.value.preparedSession.contextBindingB64u,
         });
-        const relayerShareRepairStartedAt = Date.now();
-        const repair = await this.maybeRepairRelayerKeyMaterialFromSessionHssFinalize({
-          claims: input.claims,
-          preparedSession: takenCeremony.value.preparedSession,
-          serverOutput: result.serverOutput,
-        });
         const responsePayload = {
           finalizedReport: result.finalizedReport,
         };
+        const wasmFinalizeMs = Date.now() - wasmStartedAt;
 
         this.logger?.info?.('[threshold-ed25519] hss finalize timings', {
           relayerKeyId: ceremony.value.relayerKeyId,
@@ -5841,11 +5705,9 @@ export class ThresholdSigningService {
           ),
           parseMs,
           ensureReadyMs: wasmStartedAt - ensureReadyStartedAt,
-          wasmFinalizeMs: relayerShareRepairStartedAt - wasmStartedAt,
-          relayerShareRepairMs: Date.now() - relayerShareRepairStartedAt,
+          wasmFinalizeMs,
           responseBytes: jsonBytes(responsePayload),
           finalizedReportBytes: jsonBytes(result.finalizedReport),
-          relayerShareRepaired: repair.repaired,
           totalMs: Date.now() - finalizeStartedAt,
         });
 
@@ -5952,13 +5814,16 @@ export class ThresholdSigningService {
       if (!resolvedNearAccountId.ok) return resolvedNearAccountId;
       const keyStorePutStartedAt = Date.now();
       await this.keyStore.put(registrationMaterial.relayerKeyId, {
+        kind: 'ready',
         walletId: registrationAccountScope.value.walletId,
         nearAccountId: resolvedNearAccountId.value,
         nearEd25519SigningKeyId,
         authorityScope,
         publicKey: registrationMaterial.publicKey,
-        relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
-        relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
+        routerMaterial: {
+          signingShareB64u: registrationMaterial.relayerSigningShareB64u,
+          verifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
+        },
         keyVersion: registrationAccountScope.value.keyVersion,
         recoveryExportCapable: true,
       });

@@ -50,6 +50,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '@shared/utils/routerAbPublicKeyset';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 
 export { ThresholdStoreDurableObject };
 
@@ -799,8 +800,8 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
       }
     : undefined;
   const sessionCookieName = localRouterApiSessionCookieName(env);
-  const authService = createLocalD1RouterApiAuthService(env);
-  return createCloudflareRouter(authService, {
+  const routerApiService = createLocalD1RouterApiAuthService(env);
+  return createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
     healthz: true,
     readyz: true,
@@ -813,7 +814,6 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
       audience: localRouterApiSessionAudience(env),
     }),
     ...(sessionCookieName ? { sessionCookieName } : {}),
-    ed25519RegistrationPrepare: { authService },
     ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
     signingSessionSeal: localSigningSessionSealOptions(env),
   });
@@ -907,11 +907,13 @@ function routerApiRequest(request: Request, pathname: string): Request {
 }
 
 function localAdmissionInput(nowMs: number): RouterAbNormalSigningAdmissionInput {
+  const rpId = parseWebAuthnRpId('localhost');
+  if (!rpId.ok) throw new Error('local D1/DO admission smoke rpId is invalid');
   return {
     curve: 'ed25519',
     phase: 'prepare',
     walletId: 'local-smoke-wallet',
-    rpId: 'localhost',
+    authorityScope: { kind: 'passkey_rp', rpId: rpId.value },
     thresholdSessionId: 'local-smoke-threshold-session',
     signingGrantId: 'local-smoke-signing-grant',
     requestId: `local-smoke-request-${nowMs}`,
@@ -1189,7 +1191,9 @@ function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): s
 function normalSigningAuthority(input: RouterAbNormalSigningAdmissionInput): string {
   switch (input.curve) {
     case 'ed25519':
-      return input.rpId;
+      return input.authorityScope.kind === 'passkey_rp'
+        ? `passkey_rp:${input.authorityScope.rpId}`
+        : `${input.authorityScope.kind}:${input.authorityScope.proofKind}:${input.authorityScope.email}`;
     case 'ecdsa-hss':
       return input.evmFamilySigningKeySlotId;
   }

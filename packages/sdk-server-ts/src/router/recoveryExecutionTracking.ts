@@ -1,4 +1,4 @@
-import type { CloudflareRouterApiAuthService } from './authServicePort';
+import type { RouterApiAuthService } from './authServicePort';
 import { inferNearRecoveryChainIdKey } from '../core/recoveryExecutionRecords';
 import type { NormalizedLogger } from '../core/logger';
 import type { EmailRecoveryRequest, EmailRecoveryResult } from '../email-recovery/types';
@@ -28,9 +28,9 @@ export type TrackedRecoverEmailExecution = {
   trackedRecovery: TrackedNearRecoveryExecution;
 };
 
-type RecoverySessionReadService = Pick<CloudflareRouterApiAuthService, 'getRecoverySession'>;
-type RecoverySessionStatusService = Pick<CloudflareRouterApiAuthService, 'updateRecoverySessionStatus'>;
-type RecoveryExecutionRecordService = Pick<CloudflareRouterApiAuthService, 'recordRecoveryExecution'>;
+type RecoverySessionReadService = Pick<RouterApiAuthService, 'getRecoverySession'>;
+type RecoverySessionStatusService = Pick<RouterApiAuthService, 'updateRecoverySessionStatus'>;
+type RecoveryExecutionRecordService = Pick<RouterApiAuthService, 'recordRecoveryExecution'>;
 type RecoverEmailTrackingService = RecoverySessionReadService &
   RecoverySessionStatusService &
   RecoveryExecutionRecordService;
@@ -60,7 +60,7 @@ function recoverEmailFailureRecord(result: EmailRecoveryResult): {
 }
 
 export async function resolveTrackedNearRecoveryExecution(
-  service: Pick<CloudflareRouterApiAuthService, 'getRecoverySession'>,
+  service: Pick<RouterApiAuthService, 'getRecoverySession'>,
   input: { accountId: string; recoveryPayload: RecoveryEmailPayload },
 ): Promise<TrackedNearRecoveryExecution | null> {
   if (input.recoveryPayload.nearAccountId !== input.accountId) return null;
@@ -132,7 +132,7 @@ export async function prepareTrackedRecoverEmailExecution(input: {
 }
 
 async function markTrackedRecoverySessionVerified(
-  service: Pick<CloudflareRouterApiAuthService, 'updateRecoverySessionStatus'>,
+  service: Pick<RouterApiAuthService, 'updateRecoverySessionStatus'>,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     emailBlob: string;
@@ -169,7 +169,7 @@ export async function recordTrackedRecoverEmailPending(input: {
 }
 
 async function recordTrackedNearRecoveryExecution(
-  service: Pick<CloudflareRouterApiAuthService, 'recordRecoveryExecution'>,
+  service: Pick<RouterApiAuthService, 'recordRecoveryExecution'>,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     status: 'pending' | 'submitted' | 'failed';
@@ -224,7 +224,7 @@ async function recordTrackedRecoveryExecutionSafely(input: {
 }
 
 async function transitionTrackedRecoverySession(
-  service: Pick<CloudflareRouterApiAuthService, 'updateRecoverySessionStatus'>,
+  service: Pick<RouterApiAuthService, 'updateRecoverySessionStatus'>,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     status: 'near_recovered' | 'failed';

@@ -1,7 +1,12 @@
-import type { EcdsaHssServerBootstrapResponse, ThresholdRuntimePolicyScope } from '../core/types';
+import type {
+  EcdsaHssServerBootstrapResponse,
+  ThresholdEd25519AuthorityScope,
+  ThresholdRuntimePolicyScope,
+} from '../core/types';
 import {
   parseRouterAbEd25519WalletSessionClaims,
   parseRouterAbEcdsaHssWalletSessionClaims,
+  parseThresholdEd25519AuthorityScope,
   type RouterAbEd25519WalletSessionClaims,
   type RouterAbEcdsaHssWalletSessionClaims,
 } from '../core/ThresholdService/validation';
@@ -172,7 +177,7 @@ type RouterAbWalletSessionJwtSigningInput = {
 };
 
 export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
-  rpId: unknown;
+  authorityScope: unknown;
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
     walletId: unknown;
@@ -550,7 +555,7 @@ type RouterAbWalletSessionClaimsToSign =
 
 type RouterAbEd25519WalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   binding: {
     nearAccountId: string;
     nearEd25519SigningKeyId: string;
@@ -581,7 +586,7 @@ function buildRouterAbEd25519WalletSessionClaims(
     thresholdSessionId: input.base.thresholdSessionId,
     signingGrantId: input.base.signingGrantId,
     relayerKeyId: input.base.relayerKeyId,
-    rpId: input.rpId,
+    authorityScope: input.authorityScope,
     runtimePolicyScope: input.binding.runtimePolicyScope,
     routerAbNormalSigning: input.binding.routerAbNormalSigning,
     participantIds: input.base.participantIds,
@@ -659,8 +664,8 @@ export async function signRouterAbEd25519WalletSessionJwt(
 ): Promise<WalletSessionJwtSigningResult> {
   const base = normalizeRouterAbWalletSessionSigningBase(args);
   if (!base.ok) return base;
-  const rpId = String(args.rpId || '').trim();
-  if (!rpId) {
+  const authorityScope = parseThresholdEd25519AuthorityScope(args.authorityScope);
+  if (!authorityScope) {
     return {
       ok: false,
       status: 500,
@@ -672,7 +677,7 @@ export async function signRouterAbEd25519WalletSessionJwt(
   if (!binding.ok) return binding;
   const claims = buildRouterAbEd25519WalletSessionClaims({
     base: base.value,
-    rpId,
+    authorityScope,
     binding,
   });
   return await signRouterAbWalletSessionClaims({

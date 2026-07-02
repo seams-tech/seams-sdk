@@ -9,6 +9,7 @@ import type {
   RouterAbEd25519SigningWorkerPrivateMaterial,
   RouterAbSigningWorkerPrivateHttpConfig,
 } from '../core/ThresholdService/ThresholdSigningService';
+import type { ThresholdEd25519AuthorityScope } from '../core/types';
 import { postRouterAbInternalServiceJson } from '../core/ThresholdService/routerAb/internalServiceHttp';
 import { thresholdEcdsaStatusCode } from '../threshold/statusCodes';
 import type {
@@ -186,7 +187,7 @@ export type RouterAbNormalSigningAdmissionInput =
       curve: 'ed25519';
       phase: 'prepare' | 'presign-pool-prepare' | 'finalize';
       walletId: string;
-      rpId: string;
+      authorityScope: ThresholdEd25519AuthorityScope;
       thresholdSessionId: string;
       signingGrantId: string;
       requestId: string;
@@ -251,7 +252,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
       curve: 'ed25519',
       phase: input.phase,
       walletId: input.walletSessionAuth.userId,
-      rpId: input.walletSessionAuth.rpId,
+      authorityScope: input.walletSessionAuth.authorityScope,
       thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
       signingGrantId: input.walletSessionAuth.signingGrantId,
       requestId: input.admission.requestId,

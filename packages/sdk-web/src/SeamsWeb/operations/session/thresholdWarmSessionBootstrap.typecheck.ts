@@ -33,7 +33,7 @@ createThresholdWarmSessionPolicyDraft(context, {
 });
 
 buildThresholdWarmSessionRequestEnvelope({
-  rpId: 'example.localhost',
+  authority: { kind: 'passkey_rp', rpId: 'example.localhost' },
   // @ts-expect-error warm-session request drafts must always carry a signing grant.
   requestedPolicy: {
     sessionId: 'threshold-session-1',
@@ -47,7 +47,7 @@ buildThresholdWarmSessionRequestEnvelope({
 });
 
 const warmSessionEnvelope = buildThresholdWarmSessionRequestEnvelope({
-  rpId: 'example.localhost',
+  authority: { kind: 'passkey_rp', rpId: 'example.localhost' },
   requestedPolicy: {
     sessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
@@ -64,3 +64,27 @@ warmSessionEnvelope.session_policy.authorityScope.rpId;
 
 // @ts-expect-error Ed25519 warm-session route policies carry authorityScope, never root rpId.
 warmSessionEnvelope.session_policy.rpId;
+
+buildThresholdWarmSessionRequestEnvelope({
+  authority: {
+    kind: 'exact_authority_scope',
+    authorityScope: {
+      kind: 'email_otp',
+      proofKind: 'google_sso_registration',
+      email: 'alice@example.test',
+      googleEmailOtpRegistrationAttemptId: 'attempt-1',
+      googleEmailOtpRegistrationOfferId: 'offer-1',
+      googleEmailOtpRegistrationCandidateId: 'candidate-1',
+    },
+  },
+  requestedPolicy: {
+    sessionId: 'threshold-session-2',
+    signingGrantId: 'signing-grant-2',
+    ttlMs: 600_000,
+    remainingUses: 3,
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'signing-worker-1',
+    },
+  },
+});

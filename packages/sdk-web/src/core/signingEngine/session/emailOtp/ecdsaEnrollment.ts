@@ -182,12 +182,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
-  const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
-    policy: emailOtpAuthPolicy,
-    retention: 'session',
-    reason: 'login',
-    authMethod: SIGNER_AUTH_METHODS.emailOtp,
-  };
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || ports.requireShamirPrimeB64u()).trim();
   const sessionKind = args.sessionKind || 'jwt';
@@ -230,6 +224,15 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const emailOtpContextAuthSubjectId = authSubjectId
     ? toEmailOtpAuthSubjectId(authSubjectId)
     : undefined;
+  const emailOtpAuthSubjectId =
+    emailOtpContextAuthSubjectId || toEmailOtpAuthSubjectId(args.walletSession.walletSessionUserId);
+  const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
+    policy: emailOtpAuthPolicy,
+    retention: 'session',
+    reason: 'login',
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    authSubjectId: emailOtpAuthSubjectId,
+  };
   const configuredRemainingUses = args.remainingUses;
   const defaultRemainingUses = ports.configs.signing.sessionDefaults?.remainingUses;
   const requestedRemainingUses = Math.min(
@@ -254,7 +257,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       throw new Error('[SigningEngine][email-otp] registration budget policy is required');
     })();
   const remainingUses = resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
-  const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(args.walletSession.walletSessionUserId);
   const walletSessionUserId = toWalletSessionUserId(args.walletSession.walletId);
   const registrationInput = await resolveEmailOtpEcdsaRegistrationBootstrapInput({
     request: args,
@@ -269,7 +271,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   });
   const publicationChainTargets = emailOtpEcdsaPublicationChainTargets({
     configs: ports.configs,
-    primaryChain: chainTarget,
+    chainTarget,
     emailOtpAuthContext,
   });
   const enrollment = await enrollEmailOtpWalletWithRoutePlan({
@@ -334,17 +336,13 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       onEvent: args.onProgress,
     },
   });
-  const resolvedEmailOtpAuthContext = {
-    ...emailOtpAuthContext,
-    ...(emailOtpContextAuthSubjectId ? { authSubjectId: emailOtpContextAuthSubjectId } : {}),
-  };
   const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
       walletId: args.walletSession.walletId,
       publicationChainTargets,
       bootstraps: bootstrapResult.bootstraps,
       signingGrantId,
-      emailOtpAuthContext: resolvedEmailOtpAuthContext,
+      emailOtpAuthContext,
       relayerUrl: relayUrl,
       shamirPrimeB64u,
     },

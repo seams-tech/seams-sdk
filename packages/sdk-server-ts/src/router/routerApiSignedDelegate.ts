@@ -1,4 +1,3 @@
-import type { AuthService } from '../core/AuthService';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../console/observability';
@@ -75,7 +74,9 @@ interface SignedDelegateExecutionAssessment extends SponsorshipExecutionAssessme
 }
 
 export type SignedDelegateRouterApiAuthService = SponsoredNearDelegateAuthService &
-  Pick<AuthService, 'getRelayerAccount'>;
+  {
+    getRelayerAccount(): Promise<{ accountId: string; publicKey: string }>;
+  };
 
 type MatchedSponsoredNearDelegate =
   NonNullable<ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>>;

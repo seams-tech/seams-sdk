@@ -45,7 +45,7 @@ export type EmailOtpEcdsaSealedRecoveryPorts = {
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   commitEvmFamilyThresholdEcdsaSessions: (args: {
     walletId: WalletId;
-    primaryChain: ThresholdEcdsaChainTarget;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -513,7 +513,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   });
   const { bootstrap, warmCapability } = await args.commitEvmFamilyThresholdEcdsaSessions({
     walletId: toWalletId(sealedRecord.walletId),
-    primaryChain: restoreSource.chainTarget,
+    chainTarget: restoreSource.chainTarget,
     bootstrap: restoredBootstrap,
     source: 'email_otp',
     emailOtpAuthContext: restoreSource.emailOtpAuthContext,

@@ -60,6 +60,7 @@ import type {
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
 } from '../../core/types';
+import { parseThresholdEd25519AuthorityScope } from '../../core/ThresholdService/validation';
 import {
   parseStoredWalletRegistrationHssPreparation,
   type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
@@ -385,35 +386,40 @@ function parseD1WalletRegistrationFinalizeReplayResponse(
   if (!record || record.ok !== true || record.kind !== undefined) return null;
   const walletId = parseWalletIdForIntent(record.walletId);
   const authMethod = parseD1WalletRegistrationFinalizeAuthMethod(record.authMethod);
+  const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
   if (!walletId || !authMethod) return null;
   const rpId = toOptionalTrimmedString(record.rpId);
-  const base = {
-    ok: true,
-    walletId,
-    ...(rpId ? { rpId } : {}),
-    authMethod,
-  } as const;
   const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
   const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
   if (ed25519) {
+    if (!authorityScope) return null;
     const accountProvisioning = parseD1RegistrationNearAccountProvisioning(
       record.accountProvisioning,
     );
     const resolvedAccount = parseD1ResolvedRegistrationNearAccount(record.resolvedAccount);
     if (!accountProvisioning || !resolvedAccount) return null;
-    return {
-      ...base,
+    const response: D1WalletRegistrationEd25519FinalizeSuccess = {
+      ok: true,
+      walletId,
+      authMethod,
+      authorityScope,
       accountProvisioning,
       resolvedAccount,
       ed25519,
-      ...(ecdsa ? { ecdsa } : {}),
     };
+    if (rpId) response.rpId = rpId;
+    if (ecdsa) response.ecdsa = ecdsa;
+    return response;
   }
   if (!ecdsa) return null;
-  return {
-    ...base,
+  const response: Extract<D1WalletRegistrationFinalizeSuccess, { ecdsa: object }> = {
+    ok: true,
+    walletId,
+    authMethod,
     ecdsa,
   };
+  if (rpId) response.rpId = rpId;
+  return response;
 }
 
 function parseD1RegistrationNearAccountProvisioning(
@@ -1527,7 +1533,8 @@ function requireD1EcdsaWalletKeyBootstrapFields(
   fields: RequiredD1EcdsaWalletKeyBootstrapFields,
 ): D1EcdsaWalletKeyBootstrapFieldCheck {
   if (!fields.walletId) return { ok: false, missingField: 'walletId' };
-  if (!fields.evmFamilySigningKeySlotId) return { ok: false, missingField: 'evmFamilySigningKeySlotId' };
+  if (!fields.evmFamilySigningKeySlotId)
+    return { ok: false, missingField: 'evmFamilySigningKeySlotId' };
   if (!fields.keyHandle) return { ok: false, missingField: 'keyHandle' };
   if (!fields.ecdsaThresholdKeyId) {
     return { ok: false, missingField: 'ecdsaThresholdKeyId' };
@@ -1786,7 +1793,10 @@ function parseD1PasskeyRegistrationAuthority(
 
 function parseD1EmailOtpRegistrationAuthority(
   record: Record<string, unknown>,
-): Extract<RegistrationAuthority, { kind: 'email_otp'; proofKind: 'otp_challenge' }> | null {
+): Extract<RegistrationAuthority, { kind: 'email_otp' }> | null {
+  if (record.proofKind === 'google_sso_registration') {
+    return parseD1GoogleSsoEmailOtpRegistrationAuthority(record);
+  }
   if (record.proofKind !== 'otp_challenge') return null;
   const walletId = parseWalletIdForIntent(record.walletId);
   const providerSubject = parseProviderSubject(record.providerSubject);
@@ -1833,6 +1843,64 @@ function parseD1EmailOtpRegistrationAuthority(
     orgId: orgId.value,
     appSessionVersion: appSessionVersion.value,
     challengePurpose,
+    registrationIntentDigestB64u,
+  };
+}
+
+function parseD1GoogleSsoEmailOtpRegistrationAuthority(
+  record: Record<string, unknown>,
+): Extract<
+  RegistrationAuthority,
+  { kind: 'email_otp'; proofKind: 'google_sso_registration' }
+> | null {
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const providerSubject = parseProviderSubject(record.providerSubject);
+  const email = toOptionalTrimmedString(record.email);
+  const emailHashHex = toOptionalTrimmedString(record.emailHashHex);
+  const googleEmailOtpRegistrationAttemptId = toOptionalTrimmedString(
+    record.googleEmailOtpRegistrationAttemptId,
+  );
+  const googleEmailOtpRegistrationOfferId = toOptionalTrimmedString(
+    record.googleEmailOtpRegistrationOfferId,
+  );
+  const googleEmailOtpRegistrationCandidateId = toOptionalTrimmedString(
+    record.googleEmailOtpRegistrationCandidateId,
+  );
+  const registrationAuthorityId = toOptionalTrimmedString(record.registrationAuthorityId);
+  const finalWalletId = parseWalletIdForIntent(record.finalWalletId);
+  const orgId = parseOrgId(record.orgId);
+  const appSessionVersion = parseAppSessionVersion(record.appSessionVersion);
+  const registrationIntentDigestB64u = toOptionalTrimmedString(record.registrationIntentDigestB64u);
+  if (
+    !walletId ||
+    !providerSubject.ok ||
+    !email ||
+    !emailHashHex ||
+    !googleEmailOtpRegistrationAttemptId ||
+    !googleEmailOtpRegistrationOfferId ||
+    !googleEmailOtpRegistrationCandidateId ||
+    !registrationAuthorityId ||
+    !finalWalletId ||
+    !orgId.ok ||
+    !appSessionVersion.ok ||
+    !registrationIntentDigestB64u
+  ) {
+    return null;
+  }
+  return {
+    kind: 'email_otp',
+    proofKind: 'google_sso_registration',
+    walletId,
+    providerSubject: providerSubject.value,
+    email,
+    emailHashHex,
+    googleEmailOtpRegistrationAttemptId,
+    googleEmailOtpRegistrationOfferId,
+    googleEmailOtpRegistrationCandidateId,
+    registrationAuthorityId,
+    finalWalletId,
+    orgId: orgId.value,
+    appSessionVersion: appSessionVersion.value,
     registrationIntentDigestB64u,
   };
 }

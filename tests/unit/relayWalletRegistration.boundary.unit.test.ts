@@ -43,9 +43,9 @@ import {
 } from '../../packages/shared-ts/src/utils/near';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/encoders';
+import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
-  enableEd25519RegistrationPrepare: true,
   enableHealthz: true,
   enableSigningSessionSeal: true,
   enableReadyz: true,
@@ -159,8 +159,6 @@ function inputFor(
     route: route(routeId),
     services: {
       authService,
-      registrationPrepareAuthService:
-        routeId === 'wallet_registration_prepare' ? authService : null,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
       ...(session ? { session } : {}),
     },
@@ -297,12 +295,17 @@ function b64u(bytes: number[]): string {
   return Buffer.from(bytes).toString('base64url');
 }
 
+const ECDSA_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: 'wallet_alice',
+  signingRootId: 'project:dev',
+  signingRootVersion: 'default',
+});
+
 function validEcdsaClientBootstrap() {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: 'wallet_alice',
-    walletKeyId: 'wallet.example.test',
-    rpId: 'wallet.example.test',
+    evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: 'ehss-alice',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
@@ -328,18 +331,14 @@ function validEcdsaClientBootstrap() {
 }
 
 function validNormalizedEcdsaClientBootstrap() {
-  const bootstrap = validEcdsaClientBootstrap();
-  const { rpId, ...normalized } = bootstrap;
-  void rpId;
-  return normalized;
+  return validEcdsaClientBootstrap();
 }
 
 function validEcdsaServerBootstrap() {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: 'wallet_alice',
-    walletKeyId: 'wallet.example.test',
-    rpId: 'wallet.example.test',
+    evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: 'ehss-alice',
     relayerKeyId: 'ehss-relayer-alice',
     applicationBindingDigestB64u: b64u(Array(32).fill(9)),
@@ -1058,7 +1057,7 @@ test.describe('wallet registration route boundaries', () => {
       routerAbEcdsaHssNormalSigning: {
         kind: 'router_ab_ecdsa_hss_normal_signing_v1',
         scope: {
-          wallet_key_id: 'wallet.example.test',
+          wallet_key_id: ECDSA_SIGNING_KEY_SLOT_ID,
           wallet_id: 'wallet_alice',
           ecdsa_threshold_key_id: 'ehss-alice',
           signing_root_id: 'project:dev',

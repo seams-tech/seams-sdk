@@ -262,6 +262,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     source: 'login',
+    authority: { kind: 'passkey_rp', rpId: args.record.rpId },
     auth: {
       kind: 'threshold_session_policy_webauthn',
       policySecretSource: args.policySecretSource,

@@ -36,7 +36,7 @@ export type EmailOtpEcdsaPublicationPorts = {
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   commitEvmFamilyThresholdEcdsaSessions: (args: {
     walletId: WalletId;
-    primaryChain: ThresholdEcdsaChainTarget;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -52,7 +52,7 @@ export type EmailOtpEcdsaPublicationPorts = {
 
 export function emailOtpEcdsaPublicationChainTargets(args: {
   configs: SeamsConfigsReadonly;
-  primaryChain: ThresholdEcdsaChainTarget;
+  chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   additionalChainTargets?: readonly ThresholdEcdsaChainTarget[];
 }): ThresholdEcdsaChainTarget[] {
@@ -64,7 +64,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
     seen.add(key);
     targets.push(target);
   };
-  pushTarget(args.primaryChain);
+  pushTarget(args.chainTarget);
   for (const target of args.additionalChainTargets || []) {
     pushTarget(target);
   }
@@ -78,7 +78,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
 
 export function buildEmailOtpEcdsaReadyPersistInput(args: {
   walletId: WalletId;
-  primaryChain: ThresholdEcdsaChainTarget;
+  chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: string;
   thresholdSessionId: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -87,7 +87,7 @@ export function buildEmailOtpEcdsaReadyPersistInput(args: {
     authMethod: 'email_otp',
     curve: 'ecdsa',
     walletId: args.walletId,
-    chainTarget: args.primaryChain,
+    chainTarget: args.chainTarget,
     signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     emailOtpAuthContext: args.emailOtpAuthContext,
@@ -134,7 +134,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     });
     const result = await ports.commitEvmFamilyThresholdEcdsaSessions({
       walletId: args.walletId,
-      primaryChain: expectedTarget,
+      chainTarget: expectedTarget,
       bootstrap: workerBootstrap,
       source: 'email_otp',
       emailOtpAuthContext: args.emailOtpAuthContext,
@@ -142,7 +142,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     await persistEmailOtpEcdsaSigningSessionSealForUnlock(
       {
         walletId: args.walletId,
-        primaryChain: expectedTarget,
+        chainTarget: expectedTarget,
         bootstrap: result.bootstrap,
         runtimePolicyScope: result.warmCapability.record?.runtimePolicyScope,
         emailOtpAuthContext: args.emailOtpAuthContext,
@@ -162,7 +162,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
 async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   args: {
     walletId: WalletId;
-    primaryChain: ThresholdEcdsaChainTarget;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -196,7 +196,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   }
   const readyPersistenceInput = buildEmailOtpEcdsaReadyPersistInput({
     walletId: args.walletId,
-    primaryChain: args.primaryChain,
+    chainTarget: args.chainTarget,
     signingGrantId,
     thresholdSessionId,
     emailOtpAuthContext: args.emailOtpAuthContext,

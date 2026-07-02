@@ -4,24 +4,18 @@ import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinat
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
-  EmailOtpAuthPolicy,
   SigningSessionStatus,
   SeamsConfigsReadonly,
   ThemeName,
 } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import {
-  type WalletEmailOtpChannel,
-  type WalletEmailOtpLoginOperation,
-} from '@shared/utils/emailOtpDomain';
-import { type AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { SigningRuntime } from '@/core/runtime/runtime.types';
 import type {
-  EmailOtpWorkerProgressEvent,
   SignerWorkerKind,
   SignerWorkerOperationRequest,
   SignerWorkerOperationResult,
@@ -97,7 +91,11 @@ import {
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '@/core/rpcClients/relayer/sealedRefreshCapabilities';
-import { isRetryableSealedRefreshCapabilityFetchError } from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
+import {
+  ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap,
+  isRetryableSealedRefreshCapabilityFetchError,
+  type ThresholdEcdsaBootstrapParityArgs,
+} from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type {
@@ -141,7 +139,11 @@ import {
   preparePasskeyWalletRegistrationEcdsaClientBootstrap,
   storeWalletRegistrationEcdsaClientSigningMaterial,
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
-import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
+import {
+  finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation,
+  type FinalizeWalletRegistrationEcdsaSessionsDeps,
+} from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
+import { commitEvmFamilyThresholdEcdsaSessions } from '@/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit';
 import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
@@ -577,9 +579,37 @@ export class BrowserSigningSurface {
               hydrateInput,
             ),
         },
+        commitEmailOtpEcdsaSession: this.commitEmailOtpRegistrationEcdsaSession.bind(this),
         signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
       },
       input,
+    );
+  }
+
+  private commitEmailOtpRegistrationEcdsaSession(
+    input: Parameters<
+      FinalizeWalletRegistrationEcdsaSessionsDeps['commitEmailOtpEcdsaSession']
+    >[0],
+  ): ReturnType<typeof commitEvmFamilyThresholdEcdsaSessions> {
+    return commitEvmFamilyThresholdEcdsaSessions(
+      {
+        queueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
+        bootstrapStore: this.ecdsaBootstrapStore,
+        ecdsaSessions: this.warmSigning.ecdsaSessions,
+        warmCapabilityReader: this.warmSigning.capabilityReader,
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap:
+          this.ensureEmailOtpRegistrationEcdsaSealedRefreshParity.bind(this),
+      },
+      input,
+    );
+  }
+
+  private ensureEmailOtpRegistrationEcdsaSealedRefreshParity(
+    parityArgs: ThresholdEcdsaBootstrapParityArgs,
+  ): Promise<void> {
+    return ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(
+      () => this.ensureSealedRefreshStartupParity(),
+      parityArgs,
     );
   }
 

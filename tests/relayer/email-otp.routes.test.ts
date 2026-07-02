@@ -1271,7 +1271,10 @@ test.describe('Email OTP routes', () => {
     });
     expect(appVersion.ok).toBe(true);
     const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
-    const thresholdClaims = makeThresholdSessionClaims();
+    const thresholdClaims = makeThresholdSessionClaims({
+      projectId: 'proj_local',
+      environmentId: 'dev',
+    });
     const router = createRouterApiRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'google-app-session': {
@@ -1318,17 +1321,40 @@ test.describe('Email OTP routes', () => {
           }),
         },
       );
-      expect(challenge.status).toBe(200);
+      expect(challenge.status, JSON.stringify(challenge.json)).toBe(200);
       const challengeId = String(challenge.json?.challenge?.challengeId || '');
-      const outbox = await service.readEmailOtpOutboxEntry({
+      const staleWalletSubjectOutbox = await service.readEmailOtpOutboxEntry({
         challengeId,
         userId: 'alice.testnet',
+        walletId: 'alice.testnet',
+      });
+      expect(staleWalletSubjectOutbox.ok).toBe(false);
+      const outbox = await service.readEmailOtpOutboxEntry({
+        challengeId,
+        userId: GOOGLE_EMAIL_OTP_USER_ID,
         walletId: 'alice.testnet',
       });
       expect(outbox.ok).toBe(true);
       expect((service as any).emailOtpMemoryOutbox.get(challengeId)?.email).toBe(
         'alice@example.com',
       );
+      const otpCode = outbox.ok ? outbox.otpCode : '';
+      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/signing-session/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer threshold-session',
+        },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          challengeId,
+          otpChannel: 'email_otp',
+          otpCode,
+          operation: 'export_key',
+        }),
+      });
+      expect(verified.status).toBe(200);
+      expect(verified.json?.ok).toBe(true);
     } finally {
       await srv.close();
     }

@@ -4,7 +4,7 @@ Date created: July 1, 2026
 
 Status: planning.
 
-Parent plan: [Refactor 87 Modular Auth And Capability](./refactor-85-modular-auth-capabilities-plan.md)
+Parent plan: [Refactor 87 Modular Auth And Capability](./refactor-87-modular-auth-capabilities-plan.md)
 
 ## Goal
 

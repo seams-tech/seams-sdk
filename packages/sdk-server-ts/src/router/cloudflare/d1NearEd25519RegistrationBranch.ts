@@ -556,6 +556,7 @@ export function toD1ThresholdEd25519BootstrapSession(session: {
   readonly walletId?: unknown;
   readonly nearAccountId?: unknown;
   readonly nearEd25519SigningKeyId?: unknown;
+  readonly authorityScope?: unknown;
   readonly thresholdSessionId?: unknown;
   readonly signingGrantId?: unknown;
   readonly expiresAtMs?: unknown;
@@ -569,6 +570,7 @@ export function toD1ThresholdEd25519BootstrapSession(session: {
   const walletId = toOptionalTrimmedString(session.walletId);
   const nearAccountId = toOptionalTrimmedString(session.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalTrimmedString(session.nearEd25519SigningKeyId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(session.authorityScope);
   const thresholdSessionId = toOptionalTrimmedString(session.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(session.signingGrantId);
   const expiresAtMs = Number(session.expiresAtMs);
@@ -582,6 +584,7 @@ export function toD1ThresholdEd25519BootstrapSession(session: {
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
+    !authorityScope ||
     !thresholdSessionId ||
     !signingGrantId ||
     !Number.isFinite(expiresAtMs) ||
@@ -594,6 +597,7 @@ export function toD1ThresholdEd25519BootstrapSession(session: {
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
+    authorityScope,
     thresholdSessionId,
     signingGrantId,
     expiresAtMs,

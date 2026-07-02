@@ -1,23 +1,11 @@
 import express, { Express, type RequestHandler } from 'express';
 import {
   AuthService,
-  createEd25519WalletSessionStore,
-  createWalletSigningBudgetSessionStore,
   createInMemoryConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
-  createEcdsaWalletSessionStore,
   createHostedSigningRootShareResolver,
-  createSigningSessionSealPolicyFromWalletSessionStores,
-  createSigningSessionSealRoutesOptions,
-  createSigningSessionSealShamir3PassCipherAdapter,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   ensureTempoOnboardingSponsorshipForAllOrganizations,
-  formatSigningSessionSealKeyVersionForWire,
-  formatSigningSessionSealShamirPrimeB64uForWire,
-  parseSigningSessionSealKeyVersion,
-  parseSigningSessionSealShamirPrimeB64u,
-  resolveSigningSessionSealIdempotencyFromEnv,
-  resolveSigningSessionSealRateLimitFromEnv,
   resolveCoinGeckoSponsoredExecutionPricingFromEnv,
   resolveSponsoredEvmCallConfigFromEnv,
   resolveStaticSponsoredExecutionPricingFromEnv,
@@ -30,7 +18,6 @@ import {
   type SigningRootSecretShareId,
   type SigningRootShareSource,
   type SigningRootShareResolver,
-  type SigningSessionSealRoutesOptions,
   type ThresholdStoreConfigInput,
 } from '@seams/sdk-server';
 import {
@@ -41,7 +28,6 @@ import {
   createInMemoryConsoleSponsoredCallService,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
-  createInMemoryConsoleBootstrapTokenService,
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleObservabilityService,
   createInMemoryConsoleOrgProjectEnvService,
@@ -51,24 +37,13 @@ import {
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
-  createRouterApiKeyAuthAdapter,
-  createRouterApiBillingUsageMeterAdapter,
-  createRouterApiBootstrapGrantBroker,
-  createRouterApiPublishableKeyAuthAdapter,
   createAppSessionConsoleAuthAdapter,
-  createInMemoryRouterAbNormalSigningAdmissionStore,
-  createRouterAbNormalSigningAdmissionAdapter,
-  parseRouterAbPublicKeysetV2,
-  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   normalizeConsoleOrgScopedRoleList,
   mergeConsoleOrgScopedRoleLists,
-  createRouterApiRouter,
-  type RouterAbPublicKeysetV2,
   type ConsoleAccountService,
   type ConsoleApiKeyService,
   type ConsoleBillingService,
   type ConsoleAuditService,
-  type ConsoleBootstrapTokenService,
   type ConsoleApprovalService,
   type ConsoleObservabilityIngestionService,
   type ConsoleObservabilityService,
@@ -82,7 +57,6 @@ import {
   type ConsoleWebhookService,
   type BillingProviderAdapters,
   type InviteConsoleTeamMemberRequest,
-  type RouterAbNormalSigningAdmissionAdapter,
 } from '@seams/sdk-server/router/express';
 
 import dotenv from 'dotenv';
@@ -128,23 +102,6 @@ function hostnameFromOrigin(origin: string): string {
   }
 }
 
-function sanitizeOrigins(values: string[]): string[] {
-  const out = new Set<string>();
-  for (const raw of values) {
-    try {
-      const u = new URL(String(raw || '').trim());
-      const scheme = u.protocol;
-      const host = u.hostname.toLowerCase();
-      if (!host) continue;
-      if (scheme !== 'https:' && !(scheme === 'http:' && host === 'localhost')) continue;
-      if ((u.pathname && u.pathname !== '/') || u.search || u.hash) continue;
-      const port = u.port ? `:${u.port}` : '';
-      out.add(`${scheme}//${host}${port}`);
-    } catch {}
-  }
-  return Array.from(out);
-}
-
 function parseOptionalPositiveInteger(value: unknown): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return undefined;
@@ -181,309 +138,10 @@ function isLocalDevelopmentOrigin(origin: string): boolean {
   return isLocalDevelopmentHost(hostnameFromOrigin(origin));
 }
 
-const LOCAL_DEV_ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY =
-  'x25519:1111111111111111111111111111111111111111111111111111111111111111';
-const LOCAL_DEV_ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY =
-  'x25519:2222222222222222222222222222222222222222222222222222222222222222';
-const LOCAL_DEV_ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY =
-  'x25519:3333333333333333333333333333333333333333333333333333333333333333';
-const LOCAL_DEV_ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX =
-  '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015';
-const LOCAL_DEV_ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX =
-  '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3';
-
-function optionalEnv(env: NodeJS.ProcessEnv, ...keys: string[]): string {
-  for (const key of keys) {
-    const value = String(env[key] || '').trim();
-    if (value) return value;
-  }
-  return '';
-}
-
-function hasCanonicalRouterAbPublicKeysetEnv(env: NodeJS.ProcessEnv): boolean {
-  return [
-    'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY',
-    'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY',
-    'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
-    'ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX',
-    'ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX',
-  ].some((key) => String(env[key] || '').trim());
-}
-
-function requireEnv(env: NodeJS.ProcessEnv, key: string): string {
-  const value = String(env[key] || '').trim();
-  if (!value) throw new Error(`[router-ab] ${key} is required`);
-  return value;
-}
-
-function resolveCanonicalRouterAbPublicKeysetFromEnv(
-  env: NodeJS.ProcessEnv,
-): RouterAbPublicKeysetV2 | null {
-  if (!hasCanonicalRouterAbPublicKeysetEnv(env)) return null;
-  return parseRouterAbPublicKeysetV2({
-    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
-    signer_envelope_hpke: {
-      current: {
-        deriver_a: {
-          role: 'signer_a',
-          key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH'),
-          public_key: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY'),
-        },
-        deriver_b: {
-          role: 'signer_b',
-          key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH'),
-          public_key: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY'),
-        },
-      },
-    },
-    signer_peer_verifying_keys: {
-      deriver_a: {
-        role: 'signer_a',
-        verifying_key_hex: requireEnv(env, 'ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX'),
-      },
-      deriver_b: {
-        role: 'signer_b',
-        verifying_key_hex: requireEnv(env, 'ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX'),
-      },
-    },
-    signing_worker_server_output_hpke: {
-      key_epoch: requireEnv(env, 'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH'),
-      public_key: requireEnv(env, 'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'),
-    },
-  });
-}
-
-function shouldUseLocalDevRouterAbPublicKeyset(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly expectedOrigin: string;
-  readonly expectedWalletOrigin: string;
-}): boolean {
-  if (
-    String(input.env.NODE_ENV || '')
-      .trim()
-      .toLowerCase() === 'production'
-  )
-    return false;
-  if (!optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID')) return false;
-  return (
-    isLocalDevelopmentOrigin(input.expectedOrigin) ||
-    isLocalDevelopmentOrigin(input.expectedWalletOrigin)
-  );
-}
-
-function buildLocalDevRouterAbPublicKeyset(): RouterAbPublicKeysetV2 {
-  return parseRouterAbPublicKeysetV2({
-    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
-    signer_envelope_hpke: {
-      current: {
-        deriver_a: {
-          role: 'signer_a',
-          key_epoch: 'epoch-1',
-          public_key: LOCAL_DEV_ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
-        },
-        deriver_b: {
-          role: 'signer_b',
-          key_epoch: 'epoch-1',
-          public_key: LOCAL_DEV_ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
-        },
-      },
-    },
-    signer_peer_verifying_keys: {
-      deriver_a: {
-        role: 'signer_a',
-        verifying_key_hex: LOCAL_DEV_ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX,
-      },
-      deriver_b: {
-        role: 'signer_b',
-        verifying_key_hex: LOCAL_DEV_ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX,
-      },
-    },
-    signing_worker_server_output_hpke: {
-      key_epoch: 'epoch-1',
-      public_key: LOCAL_DEV_ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
-    },
-  });
-}
-
-function resolveRouterAbPublicKeysetFromEnv(input: {
-  env: NodeJS.ProcessEnv;
-  expectedOrigin: string;
-  expectedWalletOrigin: string;
-}): RouterAbPublicKeysetV2 | null {
-  const canonical = resolveCanonicalRouterAbPublicKeysetFromEnv(input.env);
-  if (canonical) return canonical;
-  if (shouldUseLocalDevRouterAbPublicKeyset(input)) return buildLocalDevRouterAbPublicKeyset();
-  if (
-    optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID') &&
-    String(input.env.NODE_ENV || '')
-      .trim()
-      .toLowerCase() === 'production'
-  ) {
-    throw new Error(
-      '[router-ab] canonical ROUTER_AB_* public keyset env is required when normal signing is enabled in production',
-    );
-  }
-  return null;
-}
-
-function resolveRouterAbNormalSigningAdmissionFromEnv(input: {
-  env: NodeJS.ProcessEnv;
-  expectedOrigin: string;
-  expectedWalletOrigin: string;
-}): RouterAbNormalSigningAdmissionAdapter | null {
-  if (!optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID')) return null;
-
-  if (
-    isLocalDevelopmentOrigin(input.expectedOrigin) ||
-    isLocalDevelopmentOrigin(input.expectedWalletOrigin)
-  ) {
-    console.warn(
-      '[router-ab] using in-memory normal-signing admission state for local development.',
-    );
-    return createRouterAbNormalSigningAdmissionAdapter(
-      createInMemoryRouterAbNormalSigningAdmissionStore(),
-    );
-  }
-
-  throw new Error(
-    '[router-ab] Node normal-signing admission is local-only. Use the Cloudflare D1/DO router for durable normal-signing admission.',
-  );
-}
-
 function parseBooleanFlagWithDefault(value: unknown, fallback: boolean): boolean {
   const normalized = String(value || '').trim();
   if (!normalized) return fallback;
   return parseBooleanFlag(normalized);
-}
-
-function parseSigningSessionSealLimiterKind(
-  value: unknown,
-): 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (normalized === 'upstash-redis-rest') return 'upstash-redis-rest';
-  if (normalized === 'redis-tcp') return 'redis-tcp';
-  return 'in-memory';
-}
-
-function hasSigningSessionSealRouteConfig(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(
-    optionalEnv(
-      env,
-      'SIGNING_SESSION_SEAL_KEY_VERSION',
-      'SIGNING_SESSION_SHAMIR_P_B64U',
-      'SIGNING_SESSION_SEAL_E_S_B64U',
-      'SIGNING_SESSION_SEAL_D_S_B64U',
-    ),
-  );
-}
-
-function createNodeSigningSessionSealRoutesOptions(input: {
-  env: NodeJS.ProcessEnv;
-  thresholdStore: ThresholdStoreConfigInput;
-  redisUrl: string;
-}): SigningSessionSealRoutesOptions | null {
-  if (!hasSigningSessionSealRouteConfig(input.env)) return null;
-
-  const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
-    requireEnvVar(input.env, 'SIGNING_SESSION_SHAMIR_P_B64U'),
-  );
-  const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
-    signingSessionSealShamirPrimeB64u,
-  );
-  const serverEncryptExponentB64u = requireEnvVar(input.env, 'SIGNING_SESSION_SEAL_E_S_B64U');
-  const serverDecryptExponentB64u = requireEnvVar(input.env, 'SIGNING_SESSION_SEAL_D_S_B64U');
-  const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
-    input.env.SIGNING_SESSION_SEAL_KEY_VERSION || 'signing-session-seal-kek-2026-02-28-r1',
-  );
-  const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
-
-  const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
-    config: input.thresholdStore,
-    logger: console,
-    isNode: true,
-  });
-  const walletSessionStore = createEd25519WalletSessionStore({
-    config: input.thresholdStore,
-    logger: console,
-    isNode: true,
-  });
-  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
-    config: input.thresholdStore,
-    logger: console,
-    isNode: true,
-  });
-
-  const limiterKind = parseSigningSessionSealLimiterKind(
-    input.env.SIGNING_SESSION_SEAL_RATE_LIMIT_KIND,
-  );
-  const rateLimit = resolveSigningSessionSealRateLimitFromEnv({
-    limiterKind,
-    upstashUrl: input.env.UPSTASH_REDIS_REST_URL,
-    upstashToken: input.env.UPSTASH_REDIS_REST_TOKEN,
-    redisUrl: input.redisUrl,
-    keyPrefix: String(
-      input.env.SIGNING_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX ||
-        'threshold:signing-session-seal:rate:',
-    ).trim(),
-    limit: parseOptionalPositiveInteger(input.env.SIGNING_SESSION_SEAL_RATE_LIMIT) || 30,
-    windowMs:
-      parseOptionalPositiveInteger(input.env.SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
-  });
-  const idempotencyKind = String(input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND || '')
-    .trim()
-    .toLowerCase();
-  const idempotency = idempotencyKind
-    ? resolveSigningSessionSealIdempotencyFromEnv({
-        idempotencyKind,
-        upstashUrl:
-          input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL ||
-          input.env.UPSTASH_REDIS_REST_URL ||
-          undefined,
-        upstashToken:
-          input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN ||
-          input.env.UPSTASH_REDIS_REST_TOKEN ||
-          undefined,
-        redisUrl:
-          input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL ||
-          input.redisUrl ||
-          undefined,
-        keyPrefix:
-          String(
-            input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX ||
-              'threshold:signing-session-seal:idempotency:',
-          ).trim() || undefined,
-        ttlMs: parseOptionalPositiveInteger(input.env.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
-      })
-    : undefined;
-
-  return createSigningSessionSealRoutesOptions({
-    sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
-      ed25519Stores: [walletSessionStore],
-      ecdsaStores: [ecdsaWalletSessionStore],
-      walletBudgetStores: [walletBudgetSessionStore],
-    }),
-    cipher: createSigningSessionSealShamir3PassCipherAdapter({
-      currentKeyVersion: keyVersion,
-      keys: [
-        {
-          keyVersion,
-          shamirPrimeB64u,
-          serverEncryptExponentB64u,
-          serverDecryptExponentB64u,
-        },
-      ],
-    }),
-    capabilities: {
-      mode: 'sealed_refresh_v1',
-      keyVersion,
-      shamirPrimeB64u,
-    },
-    rateLimit,
-    ...(idempotency ? { idempotency } : {}),
-    logger: console,
-  });
 }
 
 function hasConsoleErrorCode(error: unknown, code: string): boolean {
@@ -1143,17 +801,6 @@ async function main() {
       '[sponsorship-pricing] SPONSORED_EXECUTION_STATIC_PRICING_JSON is invalid; static spend pricing is disabled',
     );
   }
-  const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin))
-    .trim()
-    .toLowerCase();
-  const rorOrigins = sanitizeOrigins([
-    config.expectedOrigin,
-    config.expectedWalletOrigin,
-    ...String(env.ROR_ALLOWED_ORIGINS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  ]);
   const localDevSigningRootResolver = shouldEnableLocalDevSigningRootResolver({
     env,
     expectedOrigin: config.expectedOrigin,
@@ -1161,28 +808,10 @@ async function main() {
   })
     ? createLocalDevSigningRootShareResolver()
     : undefined;
-  const routerAbPublicKeyset = resolveRouterAbPublicKeysetFromEnv({
-    env,
-    expectedOrigin: config.expectedOrigin,
-    expectedWalletOrigin: config.expectedWalletOrigin,
-  });
-  const routerAbNormalSigningAdmission = resolveRouterAbNormalSigningAdmissionFromEnv({
-    env,
-    expectedOrigin: config.expectedOrigin,
-    expectedWalletOrigin: config.expectedWalletOrigin,
-  });
-  if (routerAbNormalSigningAdmission) {
-    console.log('[router-ab] normal-signing admission: enabled');
-  }
   if (localDevSigningRootResolver) {
     console.warn(
       '[threshold] using dynamic local-dev fixture signing-root shares; do not use this signer for real funds.',
     );
-  }
-  if (routerAbPublicKeyset) {
-    console.log(`[router-ab] public keyset route: enabled (${routerAbPublicKeyset.keyset_version})`);
-  } else if (String(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID || '').trim()) {
-    console.warn('[router-ab] public keyset route is not configured');
   }
 
   const thresholdStore = {
@@ -1258,14 +887,6 @@ async function main() {
   console.log('[web-server] warming registration runtime');
   await authService.warmRegistrationRuntime();
 
-  console.log('[web-server] initializing threshold services');
-  const threshold = authService.getThresholdSigningService();
-  const signingSessionSeal = createNodeSigningSessionSealRoutesOptions({
-    env,
-    thresholdStore,
-    redisUrl,
-  });
-
   const app: Express = express();
   const consoleDemoSeedEnabled = parseBooleanFlagWithDefault(env.CONSOLE_DEMO_SEED_ENABLED, true);
   const configuredConsoleDemoOrgId = String(env.CONSOLE_DEMO_ORG_ID || '').trim();
@@ -1286,10 +907,6 @@ async function main() {
   const stripeCheckoutPriceId = String(env.STRIPE_CHECKOUT_PRICE_ID || '').trim() || '';
   const stripeApiBaseUrl = String(env.STRIPE_API_BASE_URL || '').trim() || '';
   const stripeApiTimeoutMs = parseOptionalPositiveInteger(env.STRIPE_API_TIMEOUT_MS);
-  const routerApiKeyAuthEnabled = parseBooleanFlagWithDefault(
-    env.ROUTER_API_KEY_AUTH_ENABLED,
-    true,
-  );
   const stripeProviderOverrides: Partial<BillingProviderAdapters> | undefined = stripeApiSecretKey
     ? {
         stripe: createStripeBillingProviderAdapter({
@@ -1309,8 +926,6 @@ async function main() {
   const consoleOrgProjectEnvBase: ConsoleOrgProjectEnvService =
     createInMemoryConsoleOrgProjectEnvService();
   const consoleApiKeys: ConsoleApiKeyService = createInMemoryConsoleApiKeyService();
-  const consoleBootstrapTokens: ConsoleBootstrapTokenService =
-    createInMemoryConsoleBootstrapTokenService();
   const consolePolicies: ConsolePolicyService = createInMemoryConsolePolicyService();
   const consoleApprovals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
   const consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService =
@@ -1356,32 +971,6 @@ async function main() {
     observabilityIngestion: consoleObservabilityIngestion,
     observabilityLogger: console as any,
   } as any);
-  const routerApiKeyAuth = routerApiKeyAuthEnabled
-    ? createRouterApiKeyAuthAdapter(consoleApiKeys)
-    : null;
-  const routerApiPublishableKeyAuth = routerApiKeyAuthEnabled
-    ? createRouterApiPublishableKeyAuthAdapter(consoleApiKeys)
-    : null;
-  const routerApiKeyUsageMeter = routerApiKeyAuthEnabled
-    ? createRouterApiBillingUsageMeterAdapter(consoleBilling, {
-        orgProjectEnv: consoleOrgProjectEnv,
-        wallets: consoleWallets,
-      })
-    : null;
-  const routerApiBootstrapGrantBroker = createRouterApiBootstrapGrantBroker({
-    apiKeys: consoleApiKeys,
-    tokenStore: consoleBootstrapTokens,
-    orgProjectEnv: consoleOrgProjectEnv,
-    tokenTtlMs: 60_000,
-    rateLimitsByBucket: {
-      default: { windowMs: 60_000, maxIssued: 60 },
-      default_web_v1: { windowMs: 60_000, maxIssued: 60 },
-    },
-    quotasByBucket: {
-      default: { maxIssued: 1_000 },
-      free_registrations_v1: { maxIssued: 100_000 },
-    },
-  });
   const consoleOnboarding = createInMemoryConsoleOnboardingService({
     orgProjectEnv: consoleOrgProjectEnv,
     apiKeys: consoleApiKeys,
@@ -1452,51 +1041,6 @@ async function main() {
 
   app.use(express.json({ limit: '1mb' }));
 
-  // Mount router built from AuthService
-  const routerApiRouter = createRouterApiRouter(authService, {
-    healthz: true,
-    readyz: true,
-    corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
-    ...(rorRpId
-      ? {
-          ror: {
-            rpId: rorRpId,
-            provider: {
-              getAllowedOrigins: async (input: { rpId: string; host?: string }) =>
-                input.rpId === rorRpId ? rorOrigins : [],
-            },
-          },
-        }
-      : {}),
-    signedDelegate: {
-      route: '/signed-delegate',
-      authService,
-      billing: consoleBilling,
-      ledger: consoleSponsoredCalls,
-      runtimeSnapshots: consoleRuntimeSnapshots,
-    },
-    sponsorship: {
-      prepaidReservations: consoleBillingPrepaidReservations,
-      spendCaps: consoleSponsorshipSpendCaps,
-      pricing: sponsorshipPricing,
-    },
-    session: jwtSession,
-    sessionCookieName,
-    threshold,
-    ...(routerApiKeyAuth ? { apiKeyAuth: routerApiKeyAuth } : {}),
-    ...(routerApiPublishableKeyAuth ? { publishableKeyAuth: routerApiPublishableKeyAuth } : {}),
-    ...(routerApiKeyUsageMeter ? { apiKeyUsageMeter: routerApiKeyUsageMeter } : {}),
-    bootstrapGrantBroker: routerApiBootstrapGrantBroker,
-    bootstrapTokenStore: consoleBootstrapTokens,
-    orgProjectEnv: consoleOrgProjectEnv,
-    routerAbPublicKeyset,
-    routerAbNormalSigningAdmission,
-    signingSessionSeal,
-    logger: console,
-  }) as unknown as RequestHandler;
-  // The SDK export and app compile against distinct Express type roots after the package split.
-  app.use('/', routerApiRouter);
-
   // Mount console/admin router on /console/*
   const consoleRouter = createConsoleRouter({
     healthz: true,
@@ -1544,19 +1088,6 @@ async function main() {
               ? 'invalid'
               : 'disabled'
       }`,
-    );
-    if (rorRpId) {
-      console.log(`ROR RP ID: ${rorRpId}`);
-      console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);
-    }
-    console.log(
-      `Signing-session seal routes: ${signingSessionSeal ? 'configured' : 'not configured'}`,
-    );
-    console.log(
-      `Router API key auth (/registration/bootstrap): ${routerApiKeyAuth ? 'enabled' : 'disabled'}`,
-    );
-    console.log(
-      `Router API usage meter (billing linkage): ${routerApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
     );
     console.log('Console backend: memory');
     console.log('Console routes mounted at /console/*');

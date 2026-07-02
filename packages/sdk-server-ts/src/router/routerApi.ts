@@ -1,8 +1,8 @@
 import type { RouterLogger } from './logger';
-import type { AuthService } from '../core/AuthService';
 import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/thresholdServiceSchemes.types';
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type {
+  ThresholdEd25519BootstrapSession,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssFinalizeWithSessionResponse,
   ThresholdEd25519HssPrepareWithSessionRequest,
@@ -37,6 +37,15 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
 import type { EmailRecoveryService } from '../email-recovery';
+import type { ThresholdEd25519AuthorityScope } from '../core/ThresholdService/validation';
+import type {
+  ExecuteSignedDelegateRequest,
+  ExecuteSignedDelegateResult,
+} from '../delegateAction';
+import type {
+  PrepareEmailRecoveryRequest,
+  RespondEmailRecoveryEcdsaRequest,
+} from './emailRecoveryRequestValidation';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -161,15 +170,32 @@ export interface RouterApiWebhookOptions {
   orgIdClaimKeys?: string[];
 }
 
-export type RouterApiSignedDelegateAuthService = Pick<
-  AuthService,
-  'executeSignedDelegate' | 'getRelayerAccount'
->;
+export interface RouterApiSignedDelegateAuthService {
+  executeSignedDelegate(input: ExecuteSignedDelegateRequest): Promise<ExecuteSignedDelegateResult>;
+  getRelayerAccount(): Promise<{ accountId: string; publicKey: string }>;
+}
 
-export type RouterApiEmailRecoveryAuthService = Pick<
-  AuthService,
-  'prepareEmailRecovery' | 'respondEmailRecoveryEcdsa'
->;
+export type RouterApiEmailRecoveryResult =
+  | {
+      ok: true;
+      walletBinding: { rpId: string };
+      thresholdEd25519: {
+        relayerKeyId: string;
+        authorityScope: ThresholdEd25519AuthorityScope;
+        participantIds?: number[];
+        session?: ThresholdEd25519BootstrapSession;
+      };
+    }
+  | { ok: false; code: string; message: string };
+
+export interface RouterApiEmailRecoveryAuthService {
+  prepareEmailRecovery(
+    request: PrepareEmailRecoveryRequest,
+  ): Promise<RouterApiEmailRecoveryResult>;
+  respondEmailRecoveryEcdsa(
+    request: RespondEmailRecoveryEcdsaRequest,
+  ): Promise<RouterApiEmailRecoveryResult>;
+}
 
 export type RouterApiEmailRecoveryExecutionService = Pick<
   EmailRecoveryService,
@@ -187,10 +213,6 @@ export type RouterApiEmailRecoveryOptions =
       authService: RouterApiEmailRecoveryAuthService;
       executionService?: never;
     };
-
-export interface RouterApiEd25519RegistrationPrepareOptions {
-  authService: Pick<AuthService, 'prepareWalletRegistration'>;
-}
 
 export type RouterApiEmailOtpExportPolicyPhase = 'challenge' | 'verify';
 
@@ -333,12 +355,22 @@ export interface RouterApiBootstrapGrantClientContext {
   userAgentHint?: string;
 }
 
+export type RouterApiBootstrapGrantIssueAuthority =
+  | {
+      kind: 'passkey_rp';
+      rpId: string;
+    }
+  | {
+      kind: 'wallet_auth';
+      rpId?: never;
+    };
+
 export interface RouterApiBootstrapGrantIssueRequest {
   publishableKey: string;
   origin: string;
   environmentId: string;
   newAccountId?: string;
-  rpId: string;
+  authority: RouterApiBootstrapGrantIssueAuthority;
   flow: 'registration_v1';
   clientContext?: RouterApiBootstrapGrantClientContext;
 }
@@ -490,8 +522,6 @@ export interface RouterApiOptions {
   routerApiWebhooks?: RouterApiWebhookOptions | null;
   // Optional: enable DKIM/TEE email recovery prepare, respond, and ingress routes.
   emailRecovery?: RouterApiEmailRecoveryOptions | null;
-  // Optional: enable Ed25519 wallet-registration HSS prepare.
-  ed25519RegistrationPrepare?: RouterApiEd25519RegistrationPrepareOptions | null;
   /**
    * Optional policy adapter for Email OTP key-export authorization.
    *

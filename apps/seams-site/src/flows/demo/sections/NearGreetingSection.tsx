@@ -14,15 +14,11 @@ type NearGreetingSectionProps = {
   txLoading: boolean;
   onSignDelegate: () => void | Promise<void>;
   delegateLoading: boolean;
-  canSubmit: boolean;
+  canSetGreeting: boolean;
+  canSignDelegate: boolean;
   nearAccountFundingStatus: DemoNearAccountFundingStatus;
-  onFundAccount: () => void | Promise<void>;
   error: unknown;
 };
-
-function nearAccountNeedsFunding(status: DemoNearAccountFundingStatus): boolean {
-  return status.kind === 'needs_funding';
-}
 
 function nearFundingStatusText(status: DemoNearAccountFundingStatus): string {
   switch (status.kind) {
@@ -43,7 +39,6 @@ function nearFundingStatusText(status: DemoNearAccountFundingStatus): string {
 }
 
 export function NearGreetingSection(props: NearGreetingSectionProps) {
-  const showFundAccount = nearAccountNeedsFunding(props.nearAccountFundingStatus);
   const fundingStatusText = nearFundingStatusText(props.nearAccountFundingStatus);
 
   return (
@@ -84,22 +79,11 @@ export function NearGreetingSection(props: NearGreetingSectionProps) {
             variant="primary"
             size="medium"
             className="greeting-btn"
-            disabled={!props.canSubmit || props.txLoading}
+            disabled={!props.canSetGreeting || props.txLoading}
             style={{ width: 200 }}
           >
             Set Greeting
           </LoadingButton>
-          {showFundAccount ? (
-            <LoadingButton
-              onClick={props.onFundAccount}
-              variant="secondary"
-              size="medium"
-              className="greeting-btn"
-              style={{ width: 200 }}
-            >
-              Fund account
-            </LoadingButton>
-          ) : null}
         </div>
         {fundingStatusText ? <div className="near-funding-status">{fundingStatusText}</div> : null}
         <LoadingButton
@@ -109,7 +93,7 @@ export function NearGreetingSection(props: NearGreetingSectionProps) {
           variant="secondary"
           size="medium"
           className="greeting-btn"
-          disabled={!props.canSubmit || props.delegateLoading}
+          disabled={!props.canSignDelegate || props.delegateLoading}
           style={{ width: 200, marginTop: '0.5rem' }}
         >
           Send Delegate Action

@@ -4,7 +4,7 @@ Date created: June 28, 2026
 
 Status: planning.
 
-Companion doc: [Implementation plan](./refactor-85-modular-auth-capabilities-plan.md).
+Companion doc: [Implementation plan](./refactor-87-modular-auth-capabilities-plan.md).
 
 ## Goal
 
@@ -133,9 +133,9 @@ Ownership split:
 
 | Current concern | Target owner |
 | --- | --- |
-| Auth account and sessions | `packages/seams-auth/` and `packages/seams-authorization/` |
-| WebAuthn, Email OTP, Slack OTP, wallet login factors | `packages/seams-auth/` plugins |
-| Identity links, SSO claims, IdP relying parties | `packages/seams-auth/` and `packages/seams-auth-idp/` |
+| Auth account and sessions | session and authorization modules |
+| WebAuthn, Email OTP, Slack OTP, wallet login factors | auth method modules |
+| Identity links, SSO claims, IdP relying parties | session, authorization, and IdP modules |
 | Wallet registration and signer provisioning | capability provisioning modules |
 | Threshold signing, HSS, signer WASM | MPC capability modules |
 | Vault grants and proxy use | `packages/capability-vault/` |
@@ -301,17 +301,45 @@ request services outside `requiredServices`.
 Target assembly shape:
 
 ```ts
+const modules = buildCloudflareRouteModules({
+  idpEnabled,
+  vaultEnabled,
+  nearMpcEnabled,
+  evmMpcEnabled,
+});
+
 const router = createCloudflareRouter({
   services,
-  modules: [
+  modules,
+});
+```
+
+Builder implementation target:
+
+```ts
+type CloudflareRouteModuleFlags = {
+  idpEnabled: boolean;
+  vaultEnabled: boolean;
+  nearMpcEnabled: boolean;
+  evmMpcEnabled: boolean;
+};
+
+function buildCloudflareRouteModules(
+  input: CloudflareRouteModuleFlags,
+): RuntimeRouterApiModule<'cloudflare'>[] {
+  const optionalModules: RuntimeRouterApiModule<'cloudflare'>[] = [];
+
+  if (input.idpEnabled) optionalModules.push(seamsIdpCloudflareRoutes());
+  if (input.vaultEnabled) optionalModules.push(vaultCapabilityCloudflareRoutes());
+  if (input.nearMpcEnabled) optionalModules.push(nearEd25519MpcCloudflareRoutes());
+  if (input.evmMpcEnabled) optionalModules.push(evmEcdsaMpcCloudflareRoutes());
+
+  return [
     seamsAuthCloudflareRoutes(),
     seamsSessionCloudflareRoutes(),
-    ...(idpEnabled ? [seamsIdpCloudflareRoutes()] : []),
-    ...(vaultEnabled ? [vaultCapabilityCloudflareRoutes()] : []),
-    ...(nearMpcEnabled ? [nearEd25519MpcCloudflareRoutes()] : []),
-    ...(evmMpcEnabled ? [evmEcdsaMpcCloudflareRoutes()] : []),
-  ],
-});
+    ...optionalModules,
+  ];
+}
 ```
 
 ### Runtime Adapter Decision
@@ -959,10 +987,10 @@ parsed intent. It is bound as `displayDigest`.
 5. Route handlers fail closed when a required capability is missing.
 6. Compatibility code belongs only at request and persistence boundaries, with a
    named deletion condition.
-7. Build a constrained first-party auth plugin surface for `seams-auth`. Support
+7. Build a constrained first-party auth method module surface. Support
    Better Auth through a session-provider adapter.
 8. Capabilities reference registered grant evidence kinds through operation-level
-   policies. They do not instantiate auth plugins directly.
+   policies. They do not instantiate auth method modules directly.
 9. Auth providers can create sessions and verify factors. Only Seams
    authorization can mint `CapabilityGrant` records.
 10. `seams-auth` persistence goes through an explicit database adapter. Raw
@@ -972,11 +1000,11 @@ parsed intent. It is bound as `displayDigest`.
 
 Use an auth provider plus capability-specific grant policies.
 
-First-party `seams-auth` should expose a Better Auth-style setup API. The
+First-party auth/session code should expose a Better Auth-style setup API. The
 top-level API should feel like application auth configuration, while internally
-normalizing every enabled mechanism into an `AuthPlugin`, `AuthFactorKind`, and
-`SessionEvidenceKind`, and `GrantEvidenceKind`. The `database` option is required
-for production deployments.
+normalizing every enabled mechanism into an `AuthMethodModule`,
+`AuthFactorKind`, `SessionEvidenceKind`, and `GrantEvidenceKind`. The `database`
+option is required for production deployments.
 
 ```ts
 import { seamsAuth } from "@seams/auth";
@@ -1120,12 +1148,108 @@ export const seams = createSeamsAuthorization({
 });
 ```
 
-Low-level auth plugins remain available for internal package assembly and tests:
+Browser SDK runtime selection:
+
+```ts
+import {
+  createSeamsConfig,
+  hostedWalletIframe,
+  passkeyAuth,
+  nearEd25519MpcSigning,
+  evmFamilyEcdsaMpcSigning,
+} from "@seams/sdk";
+
+const config = createSeamsConfig({
+  environmentId: "proj_...",
+  publishableKey: "pk_...",
+  walletRuntime: hostedWalletIframe({
+    origin: "https://wallet.seams.sh",
+    rpId: "example.com",
+  }),
+  authMethods: [
+    passkeyAuth(),
+  ],
+  capabilities: [
+    nearEd25519MpcSigning(),
+    evmFamilyEcdsaMpcSigning(),
+  ],
+});
+```
+
+The browser runtime surface is SDK configuration, independent of Vite, Next, and
+framework build hooks. `hostedWalletIframe(...)` selects the runtime that owns
+wallet UI, workers, and WASM. Browser capability builders such as
+`nearEd25519MpcSigning()` and `evmFamilyEcdsaMpcSigning()` declare that they need
+that runtime in browser builds. Passkeys and Email OTP are auth methods; they do
+not belong in wallet runtime config.
+
+Browser config only selects SDK modules and UI/runtime loading. Server tenant
+runtime config is authoritative for enabled auth methods, capabilities, and
+policies:
+
+```ts
+type TenantRuntimeConfig = {
+  tenantId: TenantId;
+  authMethods: readonly AuthMethodKind[];
+  capabilities: readonly CapabilityKind[];
+  policies: readonly CapabilityPolicyRef[];
+};
+```
+
+Auth-only applications can omit the wallet runtime:
+
+```ts
+const config = createSeamsConfig({
+  environmentId: "proj_...",
+  publishableKey: "pk_...",
+  authMethods: [passkeyAuth()],
+});
+```
+
+Target normalized browser shape:
+
+```ts
+type BrowserWalletRuntimeSelection =
+  | { kind: "none" }
+  | {
+      kind: "hosted_wallet_iframe";
+      origin: WalletOrigin;
+      servicePath: WalletServicePath;
+      sdkBasePath: WalletSdkBasePath;
+      rpId?: WebAuthnRpId;
+      walletHostVariant: WalletHostVariant;
+    };
+
+type BrowserCapabilitySelection =
+  | { kind: "near_ed25519_mpc_signing"; walletRuntime: "hosted_wallet_iframe" }
+  | { kind: "evm_family_ecdsa_mpc_signing"; walletRuntime: "hosted_wallet_iframe" };
+
+type BrowserAuthMethodSelection =
+  | { kind: "passkey_auth" }
+  | { kind: "email_otp_auth" };
+```
+
+Rules:
+
+- Parse raw config inputs once in `createSeamsConfig(...)`.
+- Allow at most one wallet runtime selection.
+- Reject duplicate auth method kinds and duplicate capability kinds.
+- Reject browser MPC signing capabilities unless `hostedWalletIframe(...)` is
+  present.
+- Keep passkey auth independent from wallet iframe when the application only
+  needs auth.
+- Keep passkey and OTP in `authMethods`, not wallet runtime config.
+- Keep wallet static asset delivery in
+  [Refactor 86](./refactor-86-static-wallet-assets.md). This spec owns the SDK
+  runtime selection shape.
+
+Low-level auth method modules remain available for internal package assembly and
+tests:
 
 ```ts
 const auth = seamsAuth({
   database: d1Adapter(env.SIGNER_DB),
-  plugins: [
+  authMethods: [
     passkeyFactor(),
     emailOtpFactor(),
     slackOtpFactor(),
@@ -1296,44 +1420,44 @@ type AuthPrincipal =
 
 type PrincipalKind = AuthPrincipal["kind"];
 
-type AuthPlugin =
+type AuthMethodModule =
   | {
-      kind: "passkey_plugin";
+      kind: "passkey_auth_method_module";
       tenantId: TenantId;
       factorKind: "passkey";
-      schema: PluginSchema;
+      schema: AuthMethodSchema;
       routes: AuthRoute[];
       clientModule: LazyClientModule;
     }
   | {
-      kind: "email_otp_plugin";
+      kind: "email_otp_auth_method_module";
       tenantId: TenantId;
       factorKind: "email_otp";
-      schema: PluginSchema;
+      schema: AuthMethodSchema;
       routes: AuthRoute[];
       clientModule: LazyClientModule;
     }
   | {
-      kind: "slack_otp_plugin";
+      kind: "slack_otp_auth_method_module";
       tenantId: TenantId;
       factorKind: "slack_otp";
-      schema: PluginSchema;
+      schema: AuthMethodSchema;
       routes: AuthRoute[];
       clientModule: LazyClientModule;
     }
   | {
-      kind: "wallet_login_plugin";
+      kind: "wallet_login_auth_method_module";
       tenantId: TenantId;
       factorKind: "wallet_login";
-      schema: PluginSchema;
+      schema: AuthMethodSchema;
       routes: AuthRoute[];
       clientModule: LazyClientModule;
     }
   | {
-      kind: "recovery_code_plugin";
+      kind: "recovery_code_auth_method_module";
       tenantId: TenantId;
       factorKind: "recovery_code";
-      schema: PluginSchema;
+      schema: AuthMethodSchema;
       routes: AuthRoute[];
       clientModule: LazyClientModule;
     };
@@ -1802,7 +1926,7 @@ Owns:
 
 - principals and auth accounts;
 - auth factors;
-- auth plugin registration;
+- auth method module registration;
 - `SeamsSession`;
 - grant evidence challenge selection;
 - capability grant policies;
@@ -1888,7 +2012,7 @@ audit.
 Registration:
 
 - Always create `AuthAccount`.
-- Register auth providers and auth plugins per tenant.
+- Register auth providers and auth method modules per tenant.
 - Register IdP relying-party applications only for tenants with IdP mode
   enabled.
 - Create only requested `CapabilityInstance` records.
@@ -1922,35 +2046,51 @@ Worker/runtime:
 - MPC Worker paths can import chain and threshold modules.
 - Capability absence returns a typed authorization denial.
 
-Packages:
+Source boundaries:
 
 ```text
-packages/seams-authorization/
-packages/seams-auth/
-packages/seams-auth-better-auth/
-packages/seams-auth-idp/
-packages/capability-vault/
-packages/capability-near-ed25519-mpc/
-packages/capability-evm-ecdsa-mpc/
-packages/capability-assembly/
+session/
+  seamsSession
+  providerAdapters/betterAuth
+  idp
+authMethod/
+  passkey
+  emailOtp
+  slackOtp
+  walletLogin
+  recoveryCode
+authorization/
+  grantEvidence
+  capabilityGrants
+  policies
+  audit
+capability/
+  vault
+  nearEd25519Mpc
+  evmEcdsaMpc
+router/
+  routeModules
+  cloudflareAdapter
+  expressAdapter
 ```
 
-`capability-assembly` is the only package that wires multiple capabilities into
-one app/runtime. Keep shared utilities out of assembly.
+Package extraction is optional later. The first implementation should create
+internal folders/modules with these ownership boundaries.
 
-`packages/seams-authorization/` owns `SeamsSession`, grant evidence, grant
-domain, policy evaluators, and audit envelope builders.
+`session/` owns `SeamsSession` and provider session normalization.
 
-`packages/seams-auth/` owns the first-party auth plugin registry and session
-provider implementation.
+`authMethod/` owns first-party auth method modules such as passkey, Email OTP,
+Slack OTP, wallet login, and recovery codes.
 
-`packages/seams-auth-better-auth/` owns Better Auth adapters that convert Better
-Auth sessions and operation-bound assertions into Seams grant evidence.
+`authorization/` owns grant evidence, grant domain, policy evaluators, and audit
+envelope builders.
 
-`packages/seams-auth-idp/` owns optional IdP endpoints, relying-party
-registration, OIDC Provider metadata, authorization-code issuance, token
-issuance, refresh-token rotation, JWKS publication, and SAML IdP support if it
-is added.
+`session/providerAdapters/betterAuth` owns Better Auth adapters that convert
+Better Auth sessions and operation-bound assertions into Seams grant evidence.
+
+`session/idp` owns optional IdP endpoints, relying-party registration, OIDC
+Provider metadata, authorization-code issuance, token issuance, refresh-token
+rotation, JWKS publication, and SAML IdP support if it is added.
 
 ## Persistence Schema Defaults
 

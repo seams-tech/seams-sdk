@@ -879,9 +879,24 @@
 }
 
 .w3a-account-menu-account {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.w3a-account-menu-account-primary,
+.w3a-account-menu-account-secondary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.w3a-account-menu-account-secondary {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 12%);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 /* Segmented control */

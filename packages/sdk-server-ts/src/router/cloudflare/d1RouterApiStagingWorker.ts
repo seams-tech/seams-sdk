@@ -172,7 +172,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     readyCheck: createRouterApiReadyCheck(env),
-    ed25519RegistrationPrepare: { authService: service },
     signingSessionSeal: stagingSigningSessionSealOptions(env, thresholdStoreConfig),
     ...(sponsoredEvmCall ? { sponsoredEvmCall } : {}),
   });

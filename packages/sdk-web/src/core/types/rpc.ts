@@ -61,7 +61,7 @@ export interface RpcErrorData {
 export interface RpcError {
   code?: number;
   name?: string;
-  data?: RpcErrorData;
+  data?: RpcErrorData | string;
   message?: string;
 }
 

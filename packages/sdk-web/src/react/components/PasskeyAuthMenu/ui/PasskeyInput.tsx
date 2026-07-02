@@ -92,25 +92,52 @@ function findSelectedAccountOption(input: {
   value: string;
   accountOptions?: StoredAccountOption[];
 }): StoredAccountOption | null {
-  const value = String(input.value || '').trim().toLowerCase();
+  const value = String(input.value || '')
+    .trim()
+    .toLowerCase();
   if (!value) return null;
   for (const option of input.accountOptions ?? []) {
     const candidates = [option.walletId, option.displayName];
     for (const candidate of candidates) {
-      if (String(candidate || '').trim().toLowerCase() === value) return option;
+      if (
+        String(candidate || '')
+          .trim()
+          .toLowerCase() === value
+      )
+        return option;
     }
   }
   return null;
 }
 
 function accountOptionSelected(account: StoredAccountOption, value: string): boolean {
-  const normalizedValue = String(value || '').trim().toLowerCase();
+  const normalizedValue = String(value || '')
+    .trim()
+    .toLowerCase();
   if (!normalizedValue) return false;
   const candidates = [account.walletId, account.displayName];
   for (const candidate of candidates) {
-    if (String(candidate || '').trim().toLowerCase() === normalizedValue) return true;
+    if (
+      String(candidate || '')
+        .trim()
+        .toLowerCase() === normalizedValue
+    )
+      return true;
   }
   return false;
+}
+
+function accountOptionTitle(account: StoredAccountOption): string {
+  if (!shouldShowAccountWalletId(account)) return account.displayName;
+  return `${account.displayName} ${account.walletId}`;
+}
+
+function shouldShowAccountWalletId(account: StoredAccountOption): boolean {
+  return account.authMethod === 'email_otp' && account.walletId !== account.displayName;
+}
+
+function isEmailAddressLike(value: string): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(value || '').trim());
 }
 
 export const PasskeyInput: React.FC<PasskeyInputProps> = ({
@@ -141,6 +168,8 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
   );
   const renderedValue =
     mode === AuthMenuMode.Login && selectedAccount ? selectedAccount.displayName : value;
+  const suppressMissingLoginBadge =
+    mode === AuthMenuMode.Login && isEmailAddressLike(renderedValue);
   const { bindInput, bindPostfix } = usePostfixPosition({ inputValue: renderedValue, gap: 1 });
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
 
@@ -255,6 +284,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
             targetExists={targetExists}
             mode={mode}
             secure={secure}
+            suppressMissingLoginBadge={suppressMissingLoginBadge}
           />
         </div>
         {onRerollValue ? (
@@ -299,14 +329,23 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
                           role="option"
                           aria-selected={selected}
                           className={`w3a-account-menu-option${selected ? ' is-selected' : ''}`}
-                          title={account.displayName}
+                          title={accountOptionTitle(account)}
                           onClick={() => {
                             onChange(account.walletId);
                             setAccountMenuOpen(false);
                           }}
                         >
                           <span className="w3a-account-menu-check" aria-hidden="true" />
-                          <span className="w3a-account-menu-account">{account.displayName}</span>
+                          <span className="w3a-account-menu-account">
+                            <span className="w3a-account-menu-account-primary">
+                              {account.displayName}
+                            </span>
+                            {shouldShowAccountWalletId(account) ? (
+                              <span className="w3a-account-menu-account-secondary">
+                                {account.walletId}
+                              </span>
+                            ) : null}
+                          </span>
                         </button>
                       );
                     })}

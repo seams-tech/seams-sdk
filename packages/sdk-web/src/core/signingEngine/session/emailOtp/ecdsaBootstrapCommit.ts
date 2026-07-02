@@ -10,6 +10,7 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
+  thresholdEcdsaChainTargetKey,
   ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -27,6 +28,7 @@ import {
 import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/sealedRefreshParity';
 import type { WarmSessionEcdsaCapabilityState } from '../warmCapabilities/types';
 import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
 
 export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
@@ -64,7 +66,7 @@ type CommitWorkerProvisionedThresholdEcdsaSessionArgs =
 
 type CommitEvmFamilyThresholdEcdsaSessionsBaseArgs = {
   walletId: WalletId;
-  primaryChain: ThresholdEcdsaChainTarget;
+  chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 };
 
@@ -158,6 +160,51 @@ function markWorkerProvisionedEcdsaSessionRuntimeValidated(args: {
   );
 }
 
+function summarizeThresholdEcdsaCommitBootstrap(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+): Record<string, unknown> {
+  const backendBinding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  return {
+    thresholdSessionId: bootstrap.session.thresholdSessionId,
+    signingGrantId:
+      bootstrap.session.signingGrantId || bootstrap.thresholdEcdsaKeyRef.signingGrantId,
+    ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
+    keyHandle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
+    chainTarget: thresholdEcdsaChainTargetKey(bootstrap.thresholdEcdsaKeyRef.chainTarget),
+    backendBindingKind: backendBinding?.materialKind || null,
+  };
+}
+
+function summarizeThresholdEcdsaCommitRecord(
+  record: ThresholdEcdsaSessionRecord,
+): Record<string, unknown> {
+  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
+  return {
+    source: record.source,
+    thresholdSessionId: record.thresholdSessionId,
+    signingGrantId: record.signingGrantId,
+    keyHandle: record.keyHandle,
+    relayerKeyId: record.relayerKeyId,
+    chainTarget: thresholdEcdsaChainTargetKey(record.chainTarget),
+    walletSessionAuthKind: walletSessionAuth.kind,
+    walletSessionAuthSource:
+      walletSessionAuth.kind === 'ready' ? walletSessionAuth.source : walletSessionAuth.reason,
+    hasWalletSessionJwt: Boolean(record.walletSessionJwt),
+    emailOtpReason: record.source === 'email_otp' ? record.emailOtpAuthContext.reason : null,
+    emailOtpRetention:
+      record.source === 'email_otp' ? record.emailOtpAuthContext.retention : null,
+  };
+}
+
+function logThresholdEcdsaCommitDiagnostic(
+  message: string,
+  details: Record<string, unknown>,
+): void {
+  try {
+    console.info(`[SigningEngine][ecdsa][commit] ${message}`, details);
+  } catch {}
+}
+
 export async function commitWorkerProvisionedThresholdEcdsaSession(
   deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps,
   args: CommitWorkerProvisionedThresholdEcdsaSessionArgs,
@@ -219,6 +266,14 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       bootstrap: canonicalBootstrap,
       record,
     });
+    if (args.source === 'email_otp') {
+      logThresholdEcdsaCommitDiagnostic('Email OTP ECDSA session record committed', {
+        walletId: args.walletId,
+        requestedChainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
+        bootstrap: summarizeThresholdEcdsaCommitBootstrap(canonicalBootstrap),
+        record: summarizeThresholdEcdsaCommitRecord(record),
+      });
+    }
     return { bootstrap: canonicalBootstrap, record };
   });
 }
@@ -234,26 +289,50 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
     args.source === 'email_otp'
       ? await commitWorkerProvisionedThresholdEcdsaSession(deps, {
           walletId: args.walletId,
-          chainTarget: args.primaryChain,
+          chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
           source: 'email_otp',
           emailOtpAuthContext: args.emailOtpAuthContext,
         })
       : await commitWorkerProvisionedThresholdEcdsaSession(deps, {
           walletId: args.walletId,
-          chainTarget: args.primaryChain,
+          chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
           source: args.source,
         });
   const bootstrap = committed.bootstrap;
   // Prove the exact thresholdSessionId from this bootstrap is ready. Wallet-level
   // lane reads can select older records for the same chain.
-  const warmCapability = await assertWarmThresholdEcdsaCapabilityReady(deps.warmCapabilityReader, {
-    walletId: args.walletId,
-    chainTarget: args.primaryChain,
-    bootstrap,
-    lane: toExactEcdsaSigningLaneIdentity(committed.record),
-  });
+  let warmCapability: WarmSessionEcdsaCapabilityState;
+  try {
+    warmCapability = await assertWarmThresholdEcdsaCapabilityReady(deps.warmCapabilityReader, {
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+      bootstrap,
+      lane: toExactEcdsaSigningLaneIdentity(committed.record),
+    });
+  } catch (error) {
+    logThresholdEcdsaCommitDiagnostic('ECDSA warm capability assertion failed after commit', {
+      walletId: args.walletId,
+      source: args.source,
+      chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
+      bootstrap: summarizeThresholdEcdsaCommitBootstrap(bootstrap),
+      record: summarizeThresholdEcdsaCommitRecord(committed.record),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  if (args.source === 'email_otp') {
+    logThresholdEcdsaCommitDiagnostic('Email OTP ECDSA warm capability ready', {
+      walletId: args.walletId,
+      chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
+      bootstrap: summarizeThresholdEcdsaCommitBootstrap(bootstrap),
+      warmCapabilityState: warmCapability.state,
+      record: warmCapability.record
+        ? summarizeThresholdEcdsaCommitRecord(warmCapability.record)
+        : { present: false },
+    });
+  }
   return {
     bootstrap,
     warmCapability,

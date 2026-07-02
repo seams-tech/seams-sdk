@@ -624,9 +624,16 @@ export function registerThresholdEcdsaRoutes(
           message: 'Threshold Ed25519 session is expired',
         };
       }
+      if (validated.walletSessionAuth.authorityScope.kind !== 'passkey_rp') {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'ECDSA key identity inventory requires passkey wallet-session authority',
+        };
+      }
       const keyInventory = await ctx.service.listThresholdEcdsaKeyIdentityTargetsForUser({
         userId: validated.walletSessionAuth.userId,
-        rpId: validated.walletSessionAuth.rpId,
+        rpId: validated.walletSessionAuth.authorityScope.rpId,
         keyTargets: parsed.request.keyTargets,
       });
       ctx.logger.info('[threshold-ecdsa][key-identities][diagnostic]', {

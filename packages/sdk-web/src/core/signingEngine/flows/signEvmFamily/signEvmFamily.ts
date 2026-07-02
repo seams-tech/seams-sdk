@@ -796,10 +796,7 @@ async function signEvmFamilyAttempt(
               authMethod: SIGNER_AUTH_METHODS.emailOtp,
               lane: signingLane,
               material: refreshedMaterial,
-              reauthAuthority: {
-                ...prepared.selection.reauthAuthority,
-                thresholdSessionId: String(signingLane.thresholdSessionId),
-              },
+              reauthAuthority: prepared.selection.reauthAuthority,
             }
           : {
               ...prepared.selection,

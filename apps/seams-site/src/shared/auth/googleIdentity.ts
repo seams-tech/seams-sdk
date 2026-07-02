@@ -8,31 +8,30 @@ export interface GoogleAuthOptions {
   message?: string;
 }
 
+export interface GoogleIdentityInitializeConfiguration {
+  readonly client_id: string;
+  readonly callback: (response: GoogleIdCredentialResponse) => void;
+  readonly auto_select: boolean;
+  readonly cancel_on_tap_outside: boolean;
+  readonly ux_mode: 'popup' | 'redirect';
+  readonly use_fedcm_for_prompt: boolean;
+}
+
 export interface GoogleIdentityApi {
-  initialize(config: {
-    client_id: string;
-    callback: (response: GoogleIdCredentialResponse) => void;
-    auto_select?: boolean;
-    cancel_on_tap_outside?: boolean;
-    ux_mode?: 'popup' | 'redirect';
-    use_fedcm_for_button?: boolean;
-    button_auto_select?: boolean;
-  }): void;
-  renderButton(parent: HTMLElement, options: GoogleSignInButtonConfiguration): void;
+  initialize(config: GoogleIdentityInitializeConfiguration): void;
+  prompt(momentListener?: (notification: GooglePromptMomentNotification) => void): void;
   cancel?: () => void;
   disableAutoSelect?: () => void;
 }
 
-export interface GoogleSignInButtonConfiguration {
-  type?: 'standard' | 'icon';
-  theme?: 'outline' | 'filled_blue' | 'filled_black';
-  size?: 'large' | 'medium' | 'small';
-  text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
-  shape?: 'rectangular' | 'pill' | 'circle' | 'square';
-  logo_alignment?: 'left' | 'center';
-  width?: string | number;
-  state?: string;
-  click_listener?: () => void;
+// Raw GIS prompt notifications vary by browser/FedCM mode; guard method reads at this boundary.
+export interface GooglePromptMomentNotification {
+  isNotDisplayed?: () => boolean;
+  isSkippedMoment?: () => boolean;
+  isDismissedMoment?: () => boolean;
+  getNotDisplayedReason?: () => string;
+  getSkippedReason?: () => string;
+  getDismissedReason?: () => string;
 }
 
 declare global {
@@ -98,20 +97,15 @@ export async function fetchGoogleAuthOptions(relayerBaseUrl: string): Promise<Go
   };
 }
 
-type GoogleSignInButtonPrompt = {
-  buttonContainer: HTMLDivElement;
-  dispose: () => void;
-};
-
 function makeGooglePromptTimeoutError(): Error {
   return new Error(
     'Google sign-in timed out. Select a Google account in the sign-in prompt or retry from a fresh Google session.',
   );
 }
 
-function readGoogleButtonDiagnostics(clientId: string): Record<string, unknown> {
+function readGooglePromptDiagnostics(clientId: string): Record<string, unknown> {
   return {
-    mode: 'button',
+    mode: 'prompt',
     origin: typeof window !== 'undefined' ? window.location.origin : '',
     protocol: typeof window !== 'undefined' ? window.location.protocol : '',
     inIframe: typeof window !== 'undefined' ? window.self !== window.top : false,
@@ -199,119 +193,41 @@ function initializeGoogleIdentityForClientId(input: {
   input.googleIdApi.initialize({
     client_id: input.clientId,
     callback: handleGoogleCredentialResponse,
-    auto_select: false,
+    auto_select: true,
     cancel_on_tap_outside: false,
     ux_mode: 'popup',
-    use_fedcm_for_button: true,
-    button_auto_select: false,
+    use_fedcm_for_prompt: true,
   });
   initializedGoogleClientId = input.clientId;
 }
 
-function googleSignInButtonOptions(): GoogleSignInButtonConfiguration {
-  return {
-    type: 'standard',
-    theme: 'outline',
-    size: 'large',
-    text: 'continue_with',
-    shape: 'pill',
-    logo_alignment: 'left',
-    width: 320,
-  };
-}
-
-function styleGoogleButtonOverlay(root: HTMLDivElement): void {
-  Object.assign(root.style, {
-    position: 'fixed',
-    inset: '0',
-    zIndex: '2147483647',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'rgba(32, 28, 38, 0.28)',
-  });
-}
-
-function styleGoogleButtonPanel(panel: HTMLDivElement): void {
-  Object.assign(panel.style, {
-    width: 'min(360px, calc(100vw - 32px))',
-    padding: '20px',
-    borderRadius: '18px',
-    border: '1px solid rgba(93, 86, 128, 0.22)',
-    background: '#fffaf3',
-    boxShadow: '0 18px 50px rgba(32, 28, 38, 0.18)',
-    color: '#5d5680',
-    fontFamily: 'inherit',
-    textAlign: 'center',
-  });
-}
-
-function styleGoogleButtonTitle(title: HTMLDivElement): void {
-  Object.assign(title.style, {
-    fontWeight: '700',
-    fontSize: '18px',
-    marginBottom: '12px',
-  });
-}
-
-function styleGoogleButtonContainer(container: HTMLDivElement): void {
-  Object.assign(container.style, {
-    display: 'flex',
-    justifyContent: 'center',
-    minHeight: '44px',
-  });
-}
-
-function styleGoogleCancelButton(button: HTMLButtonElement): void {
-  Object.assign(button.style, {
-    marginTop: '14px',
-    border: '0',
-    background: 'transparent',
-    color: '#7b739e',
-    font: 'inherit',
-    fontWeight: '600',
-    cursor: 'pointer',
-  });
-}
-
-function createGoogleSignInButtonPrompt(input: { onCancel: () => void }): GoogleSignInButtonPrompt {
-  if (!document.body) {
-    throw new Error('Google sign-in requires a document body');
+function googlePromptMomentFailure(
+  notification: GooglePromptMomentNotification,
+): Error | null {
+  if (notification.isNotDisplayed?.()) {
+    const reason = notification.getNotDisplayedReason?.() || 'not_displayed';
+    return new Error(`Google sign-in prompt was not displayed (${reason})`);
   }
-  const root = document.createElement('div');
-  root.dataset.googleSignInButtonPrompt = 'true';
-  styleGoogleButtonOverlay(root);
-
-  const panel = document.createElement('div');
-  styleGoogleButtonPanel(panel);
-
-  const title = document.createElement('div');
-  title.textContent = 'Continue with Google';
-  styleGoogleButtonTitle(title);
-
-  const buttonContainer = document.createElement('div');
-  styleGoogleButtonContainer(buttonContainer);
-
-  const cancelButton = document.createElement('button');
-  cancelButton.type = 'button';
-  cancelButton.textContent = 'Cancel';
-  styleGoogleCancelButton(cancelButton);
-  cancelButton.addEventListener('click', input.onCancel);
-
-  panel.append(title, buttonContainer, cancelButton);
-  root.append(panel);
-  document.body.appendChild(root);
-
-  return {
-    buttonContainer,
-    dispose: () => {
-      cancelButton.removeEventListener('click', input.onCancel);
-      root.remove();
-    },
-  };
+  if (notification.isSkippedMoment?.()) {
+    const reason = notification.getSkippedReason?.() || 'skipped';
+    return new Error(`Google sign-in prompt was skipped (${reason})`);
+  }
+  if (notification.isDismissedMoment?.()) {
+    const reason = notification.getDismissedReason?.() || 'dismissed';
+    return new Error(`Google sign-in prompt was dismissed (${reason})`);
+  }
+  return null;
 }
 
-function requestGoogleIdTokenWithButton(clientId: string): Promise<string> {
+function handleGooglePromptMoment(
+  finishReject: (input: string | Error) => void,
+  notification: GooglePromptMomentNotification,
+): void {
+  const failure = googlePromptMomentFailure(notification);
+  if (failure) finishReject(failure);
+}
+
+function requestGoogleIdTokenWithPrompt(clientId: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const googleIdApi = window.google?.accounts?.id;
     if (!googleIdApi) {
@@ -325,14 +241,9 @@ function requestGoogleIdTokenWithButton(clientId: string): Promise<string> {
 
     let settled = false;
     let requestTimeout: number | undefined;
-    let prompt: GoogleSignInButtonPrompt | null = null;
     const clearTimers = () => {
       if (requestTimeout !== undefined) window.clearTimeout(requestTimeout);
       requestTimeout = undefined;
-    };
-    const disposePrompt = () => {
-      prompt?.dispose();
-      prompt = null;
     };
     const cancelGooglePrompt = () => {
       try {
@@ -348,7 +259,6 @@ function requestGoogleIdTokenWithButton(clientId: string): Promise<string> {
         activeGoogleIdTokenRequest = null;
       }
       clearTimers();
-      disposePrompt();
       resolve(token);
     };
     const finishReject = (input: string | Error) => {
@@ -358,7 +268,6 @@ function requestGoogleIdTokenWithButton(clientId: string): Promise<string> {
         activeGoogleIdTokenRequest = null;
       }
       clearTimers();
-      disposePrompt();
       cancelGooglePrompt();
       if (input instanceof Error) {
         reject(input);
@@ -367,9 +276,6 @@ function requestGoogleIdTokenWithButton(clientId: string): Promise<string> {
       reject(new Error(input));
     };
 
-    prompt = createGoogleSignInButtonPrompt({
-      onCancel: () => finishReject(new Error('Google sign-in was cancelled.')),
-    });
     requestTimeout = window.setTimeout(() => {
       finishReject(makeGooglePromptTimeoutError());
     }, GOOGLE_ID_TOKEN_TIMEOUT_MS);
@@ -379,14 +285,14 @@ function requestGoogleIdTokenWithButton(clientId: string): Promise<string> {
       clientId,
       resolve: finishResolve,
       reject: finishReject,
-      dispose: disposePrompt,
+      dispose: clearTimers,
     };
     logGooglePromptDiagnostics(
-      'Sign in with Google button rendered',
-      readGoogleButtonDiagnostics(clientId),
+      'Google sign-in prompt requested',
+      readGooglePromptDiagnostics(clientId),
     );
     try {
-      googleIdApi.renderButton(prompt.buttonContainer, googleSignInButtonOptions());
+      googleIdApi.prompt(handleGooglePromptMoment.bind(null, finishReject));
     } catch (error: unknown) {
       finishReject(error instanceof Error ? error : new Error(String(error)));
     }
@@ -394,5 +300,5 @@ function requestGoogleIdTokenWithButton(clientId: string): Promise<string> {
 }
 
 export async function requestGoogleIdToken(clientId: string): Promise<string> {
-  return await requestGoogleIdTokenWithButton(clientId);
+  return await requestGoogleIdTokenWithPrompt(clientId);
 }

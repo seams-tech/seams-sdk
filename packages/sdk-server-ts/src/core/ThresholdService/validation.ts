@@ -255,6 +255,10 @@ export function toThresholdEd25519PrefixFromBase(
   return `${prefix}${kind}:`;
 }
 
+export function canonicalThresholdEd25519RelayerKeyId(relayerKeyId: unknown): string {
+  return ensureEd25519Prefix(toOptionalString(relayerKeyId));
+}
+
 export function toThresholdEcdsaKeyPrefix(prefix: unknown): string {
   return toPrefixWithColon(prefix, 'w3a:threshold-ecdsa:key:');
 }
@@ -283,55 +287,92 @@ export function toThresholdEcdsaPrefixFromBase(
   return `${prefix}threshold-ecdsa:${kind}:`;
 }
 
-export type ParsedThresholdEd25519KeyRecord = {
+export type ParsedThresholdEd25519RouterMaterial = {
+  signingShareB64u: string;
+  verifyingShareB64u: string;
+};
+
+export type ParsedThresholdEd25519ProvisioningKeyRecord = {
+  kind: 'provisioning';
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   publicKey: string;
-  relayerSigningShareB64u: string;
-  relayerVerifyingShareB64u: string;
+  keyVersion: string;
+  routerMaterial?: never;
+  recoveryExportCapable?: never;
+};
+
+export type ParsedThresholdEd25519ReadyKeyRecord = {
+  kind: 'ready';
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
+  publicKey: string;
+  routerMaterial: ParsedThresholdEd25519RouterMaterial;
   keyVersion: string;
   recoveryExportCapable: true;
 };
 
-export function parseThresholdEd25519KeyRecord(
+export type ParsedThresholdEd25519KeyRecord =
+  | ParsedThresholdEd25519ProvisioningKeyRecord
+  | ParsedThresholdEd25519ReadyKeyRecord;
+
+function parseThresholdEd25519RouterMaterial(
+  raw: Record<string, unknown>,
+): ParsedThresholdEd25519RouterMaterial | null {
+  if (!isObject(raw.routerMaterial)) return null;
+  const signingShareB64u = toOptionalString(raw.routerMaterial.signingShareB64u);
+  const verifyingShareB64u = toOptionalString(raw.routerMaterial.verifyingShareB64u);
+  if (!signingShareB64u || !verifyingShareB64u) return null;
+  return { signingShareB64u, verifyingShareB64u };
+}
+
+export function parseThresholdEd25519ReadyKeyRecord(
   raw: unknown,
-): ParsedThresholdEd25519KeyRecord | null {
+): ParsedThresholdEd25519ReadyKeyRecord | null {
   if (!isObject(raw)) return null;
+  const kind = toOptionalString(raw.kind);
   const walletId = toOptionalString(raw.walletId);
   const nearAccountId = toOptionalString(raw.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalString(raw.nearEd25519SigningKeyId);
   const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const publicKey = toOptionalString(raw.publicKey);
-  const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
-  const relayerVerifyingShareB64u = toOptionalString(raw.relayerVerifyingShareB64u);
+  const routerMaterial = parseThresholdEd25519RouterMaterial(raw);
   const keyVersion = toOptionalString(raw.keyVersion);
   const recoveryExportCapable = raw.recoveryExportCapable === true ? (true as const) : false;
   if (
     Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
+    kind !== 'ready' ||
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !authorityScope ||
     !publicKey ||
-    !relayerSigningShareB64u ||
-    !relayerVerifyingShareB64u ||
+    !routerMaterial ||
     !keyVersion ||
     recoveryExportCapable !== true
   )
     return null;
   return {
+    kind: 'ready',
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
     authorityScope,
     publicKey,
-    relayerSigningShareB64u,
-    relayerVerifyingShareB64u,
+    routerMaterial,
     keyVersion,
     recoveryExportCapable: true,
   };
+}
+
+export function parseThresholdEd25519KeyRecord(
+  raw: unknown,
+): ParsedThresholdEd25519ReadyKeyRecord | null {
+  return parseThresholdEd25519ReadyKeyRecord(raw);
 }
 
 const ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS = [
@@ -828,27 +869,19 @@ export function thresholdEd25519AuthorityScopesMatch(
     case 'passkey_rp':
       return right.kind === 'passkey_rp' && left.rpId === right.rpId;
     case 'email_otp':
-      if (right.kind !== 'email_otp' || left.proofKind !== right.proofKind) return false;
-      switch (left.proofKind) {
-        case 'otp_challenge':
-          return (
-            right.proofKind === 'otp_challenge' &&
-            left.email === right.email &&
-            (left.challengeId || '') === (right.challengeId || '')
-          );
-        case 'google_sso_registration':
-          return (
-            right.proofKind === 'google_sso_registration' &&
-            left.email === right.email &&
-            left.googleEmailOtpRegistrationAttemptId ===
-              right.googleEmailOtpRegistrationAttemptId &&
-            left.googleEmailOtpRegistrationOfferId === right.googleEmailOtpRegistrationOfferId &&
-            left.googleEmailOtpRegistrationCandidateId ===
-              right.googleEmailOtpRegistrationCandidateId
-          );
-      }
+      return (
+        right.kind === 'email_otp' &&
+        normalizedEmailOtpAuthorityEmail(left.email) ===
+          normalizedEmailOtpAuthorityEmail(right.email)
+      );
   }
   return false;
+}
+
+function normalizedEmailOtpAuthorityEmail(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 export type ParsedThresholdEd25519MpcSessionRecord = {
@@ -1415,7 +1448,7 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   thresholdSessionId: string;
   signingGrantId: string;
   relayerKeyId: string;
-  rpId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   runtimePolicyScope?: RuntimePolicyScope;
   thresholdExpiresAtMs: number;
   participantIds: number[];
@@ -1459,7 +1492,9 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   );
   const signingGrantId = toOptionalString((raw as { signingGrantId?: unknown }).signingGrantId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const rpId = toOptionalString(raw.rpId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(
+    (raw as { authorityScope?: unknown }).authorityScope,
+  );
   if (
     !sub ||
     !walletId ||
@@ -1469,7 +1504,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !thresholdSessionId ||
     !signingGrantId ||
     !relayerKeyId ||
-    !rpId
+    !authorityScope
   )
     return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
@@ -1487,7 +1522,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     thresholdSessionId,
     signingGrantId,
     relayerKeyId,
-    rpId,
+    authorityScope,
     thresholdExpiresAtMs,
     participantIds,
   };

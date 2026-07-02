@@ -1024,7 +1024,7 @@ function buildNearPasskeyEd25519Reconnect(args: {
         walletId: String(thresholdSessionRecord.walletId),
         nearAccountId: args.commandSubject.nearAccount.accountId,
         nearEd25519SigningKeyId: String(thresholdSessionRecord.nearEd25519SigningKeyId),
-        rpId,
+        authority: { kind: 'passkey_rp', rpId },
         relayerKeyId: thresholdSessionRecord.relayerKeyId,
         ...(thresholdSessionRecord.runtimePolicyScope
           ? { runtimePolicyScope: thresholdSessionRecord.runtimePolicyScope }

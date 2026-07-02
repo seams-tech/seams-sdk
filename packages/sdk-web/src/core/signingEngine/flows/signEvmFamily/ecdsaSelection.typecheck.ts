@@ -7,10 +7,12 @@ import type {
 import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
+import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 
 declare const readyMaterial: ReadyEcdsaMaterial;
 declare const reauthAnchor: ReauthAnchorIdentity;
 declare const diagnostics: EcdsaSelectionDiagnostics;
+declare const emailOtpAuthLane: EmailOtpAuthLane;
 
 const readySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   kind: 'ready',
@@ -42,12 +44,27 @@ const missingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection 
   reason: 'missing_hot_material',
   reauthAuthority: {
     kind: 'email_otp_signing_session',
-    thresholdSessionId: 'threshold-session-1',
-    chainTarget: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['lane']['chainTarget'],
+    authLane: emailOtpAuthLane,
   },
   diagnostics: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['diagnostics'],
 };
 void missingHotMaterialSelection;
+
+const invalidMissingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'reauth_required',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'email_otp',
+  lane: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['lane'],
+  material: missingHotMaterialSelection.material,
+  reason: 'missing_hot_material',
+  reauthAuthority: {
+    kind: 'email_otp_signing_session',
+    // @ts-expect-error Email OTP reauth authority must carry route auth.
+    thresholdSessionId: 'threshold-session-1',
+  },
+  diagnostics: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['diagnostics'],
+};
+void invalidMissingHotMaterialSelection;
 
 const expiredSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
   kind: 'reauth_required',

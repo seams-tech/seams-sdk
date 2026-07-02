@@ -1,12 +1,12 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import {
   positiveInteger,
 } from './d1RouterApiAuthBoundary';
 
-type LinkIdentityResult = Awaited<ReturnType<CloudflareRouterApiAuthService['linkIdentity']>>;
+type LinkIdentityResult = Awaited<ReturnType<RouterApiAuthService['linkIdentity']>>;
 type ResolveGoogleEmailOtpSessionResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['resolveGoogleEmailOtpSession']>
+  ReturnType<RouterApiAuthService['resolveGoogleEmailOtpSession']>
 >;
 
 export type D1IdentityRow = {

@@ -1,25 +1,25 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import type { IdentityStore } from '../../core/IdentityStore';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import { parseD1BoundaryWalletId } from './d1RouterApiAuthBoundary';
 import { requireD1RouterApiAuthScopeString } from './d1RouterApiAuthConfig';
 
-type ListIdentitiesInput = Parameters<CloudflareRouterApiAuthService['listIdentities']>[0];
-type ListIdentitiesResult = Awaited<ReturnType<CloudflareRouterApiAuthService['listIdentities']>>;
-type LinkIdentityInput = Parameters<CloudflareRouterApiAuthService['linkIdentity']>[0];
-type LinkIdentityResult = Awaited<ReturnType<CloudflareRouterApiAuthService['linkIdentity']>>;
-type UnlinkIdentityInput = Parameters<CloudflareRouterApiAuthService['unlinkIdentity']>[0];
-type UnlinkIdentityResult = Awaited<ReturnType<CloudflareRouterApiAuthService['unlinkIdentity']>>;
-type ResolveOidcWalletIdInput = Parameters<CloudflareRouterApiAuthService['resolveOidcWalletId']>[0];
+type ListIdentitiesInput = Parameters<RouterApiAuthService['listIdentities']>[0];
+type ListIdentitiesResult = Awaited<ReturnType<RouterApiAuthService['listIdentities']>>;
+type LinkIdentityInput = Parameters<RouterApiAuthService['linkIdentity']>[0];
+type LinkIdentityResult = Awaited<ReturnType<RouterApiAuthService['linkIdentity']>>;
+type UnlinkIdentityInput = Parameters<RouterApiAuthService['unlinkIdentity']>[0];
+type UnlinkIdentityResult = Awaited<ReturnType<RouterApiAuthService['unlinkIdentity']>>;
+type ResolveOidcWalletIdInput = Parameters<RouterApiAuthService['resolveOidcWalletId']>[0];
 type ResolveOidcWalletIdResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['resolveOidcWalletId']>
+  ReturnType<RouterApiAuthService['resolveOidcWalletId']>
 >;
 type ResolveGoogleEmailOtpSessionInput = Parameters<
-  CloudflareRouterApiAuthService['resolveGoogleEmailOtpSession']
+  RouterApiAuthService['resolveGoogleEmailOtpSession']
 >[0];
 type ResolveGoogleEmailOtpSessionResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['resolveGoogleEmailOtpSession']>
+  ReturnType<RouterApiAuthService['resolveGoogleEmailOtpSession']>
 >;
 type ResolveGoogleEmailOtpSession = (
   input: ResolveGoogleEmailOtpSessionInput,

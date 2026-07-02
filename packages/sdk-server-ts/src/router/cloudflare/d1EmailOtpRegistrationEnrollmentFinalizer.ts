@@ -8,7 +8,7 @@ import type {
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
 import { validateSecp256k1PublicKey33 } from '../../core/ThresholdService/ethSignerWasm';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRecoveryEscrowStore } from './d1EmailOtpRecoveryEscrowStore';
 import type { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';
@@ -20,7 +20,7 @@ import {
 } from './d1EmailOtpRecords';
 
 type FinalizeWalletRegistrationInput = Parameters<
-  CloudflareRouterApiAuthService['finalizeWalletRegistration']
+  RouterApiAuthService['finalizeWalletRegistration']
 >[0];
 
 type D1EmailOtpRegistrationEnrollmentPersistence =

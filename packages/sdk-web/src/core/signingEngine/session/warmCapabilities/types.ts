@@ -18,6 +18,7 @@ import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
+  Ed25519SessionPolicyAuthority,
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
@@ -501,7 +502,7 @@ export function assertWarmSessionEnvelopeInvariant(
   });
   return envelope;
 }
-type ProvisionWarmEd25519CapabilityCommonArgs = {
+type ProvisionWarmEd25519CapabilityBaseArgs = {
   walletId: string;
   nearAccountId: AccountId | string;
   nearEd25519SigningKeyId: string;
@@ -519,10 +520,25 @@ type ProvisionWarmEd25519CapabilityCommonArgs = {
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
-  source: ThresholdEd25519SessionStoreSource;
   beforeProvision?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
 };
+
+type ProvisionWarmEd25519PasskeyCapabilityArgs = ProvisionWarmEd25519CapabilityBaseArgs & {
+  source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
+  authority: Ed25519SessionPolicyAuthority;
+  emailOtpAuthContext?: never;
+};
+
+type ProvisionWarmEd25519EmailOtpCapabilityArgs = ProvisionWarmEd25519CapabilityBaseArgs & {
+  source: 'email_otp';
+  authority: Extract<Ed25519SessionPolicyAuthority, { kind: 'exact_authority_scope' }>;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+};
+
+type ProvisionWarmEd25519CapabilityCommonArgs =
+  | ProvisionWarmEd25519PasskeyCapabilityArgs
+  | ProvisionWarmEd25519EmailOtpCapabilityArgs;
 
 export type FreshWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
   kind: 'fresh_ed25519_provisioning';

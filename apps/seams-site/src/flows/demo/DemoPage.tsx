@@ -62,10 +62,13 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     nearAccountId,
     nearPublicKey,
   });
+  const canStartNearTransaction =
+    nearAccountFunding.status.kind === 'ready' || nearAccountFunding.status.kind === 'needs_funding';
 
   const nearActions = useDemoNearActions({
     isLoggedIn,
-    canSignNear: nearAccountFunding.canSignNear,
+    canStartNearTransaction,
+    canSignDelegate: nearAccountFunding.canSignNear,
     walletId,
     nearAccountId,
     nearPublicKey,
@@ -113,9 +116,9 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         txLoading={nearActions.txLoading}
         onSignDelegate={nearActions.handleSignDelegateGreeting}
         delegateLoading={nearActions.delegateLoading}
-        canSubmit={nearActions.canSubmit}
+        canSetGreeting={nearActions.canSetGreeting}
+        canSignDelegate={nearActions.canSignDelegate}
         nearAccountFundingStatus={nearAccountFunding.status}
-        onFundAccount={nearAccountFunding.openFunding}
         error={error}
       />
 

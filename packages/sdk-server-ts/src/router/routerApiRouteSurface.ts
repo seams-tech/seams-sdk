@@ -28,10 +28,6 @@ export function isRecoverEmailRouteEnabled(opts: RouterApiOptions): boolean {
   return opts.emailRecovery?.kind === 'prepare_and_execute';
 }
 
-export function isEd25519RegistrationPrepareEnabled(opts: RouterApiOptions): boolean {
-  return Boolean(opts.ed25519RegistrationPrepare);
-}
-
 export function resolveRouterApiRouteDefinitionOptions(
   opts: RouterApiOptions,
 ): RouterApiRouteDefinitionOptions {
@@ -42,7 +38,6 @@ export function resolveRouterApiRouteDefinitionOptions(
   }
   return {
     enableHealthz: Boolean(opts.healthz),
-    enableEd25519RegistrationPrepare: isEd25519RegistrationPrepareEnabled(opts),
     enableEmailRecoveryPrepare: isEmailRecoveryPrepareRoutesEnabled(opts),
     enableRecoverEmail: isRecoverEmailRouteEnabled(opts),
     enableSigningSessionSeal: Boolean(opts.signingSessionSeal),

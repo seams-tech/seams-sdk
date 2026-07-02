@@ -2847,6 +2847,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
 } & (
   | (EmailOtpRegistrationBootstrap & {
       walletSessionUserId: WalletSessionUserId;
+      authSubjectId: string;
       evmFamilySigningKeySlotId: string;
       participantIds?: number[];
       sessionKind?: 'jwt';
@@ -2859,6 +2860,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
     })
   | (EmailOtpExistingKeyBootstrap & {
       walletSessionUserId: WalletSessionUserId;
+      authSubjectId: string;
       evmFamilySigningKeySlotId: string;
       participantIds?: number[];
       sessionKind?: 'jwt';
@@ -3290,7 +3292,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       stateBlob: readyStateBlob,
       publicFacts,
       authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
-        authSubjectId: exactSessionBootstrap ? walletId : args.walletSessionUserId,
+        authSubjectId: exactSessionBootstrap ? walletId : args.authSubjectId,
       }),
     });
     const clientAdditiveShareHandle = {
@@ -3424,6 +3426,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
 async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   relayUrl: string;
   walletSessionUserId: string;
+  authSubjectId: string;
   evmFamilySigningKeySlotId: string;
   clientRootShare32: Uint8Array;
   publicationChainTargets: ThresholdEcdsaChainTarget[];
@@ -3451,10 +3454,12 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
 
   for (const chainTarget of publicationChainTargets) {
     const walletSessionUserId = toWalletSessionUserId(args.walletSessionUserId);
+    const authSubjectId = toEmailOtpAuthSubjectId(args.authSubjectId);
     const workerBootstrap: EmailOtpThresholdEcdsaBootstrapResult = canonicalKeyHandle
       ? await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
           relayUrl: args.relayUrl,
           walletSessionUserId,
+          authSubjectId,
           evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
           clientRootShare32: args.clientRootShare32,
           operation: 'email_otp_bootstrap',
@@ -3475,6 +3480,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
       : await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
           relayUrl: args.relayUrl,
           walletSessionUserId,
+          authSubjectId,
           evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
           clientRootShare32: args.clientRootShare32,
           operation: 'email_otp_bootstrap',
@@ -5056,6 +5062,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const bootstraps = await runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare({
             relayUrl: relayerUrl,
             walletSessionUserId,
+            authSubjectId: userId,
             evmFamilySigningKeySlotId,
             clientRootShare32,
             publicationChainTargets,

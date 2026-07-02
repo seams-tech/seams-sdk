@@ -4,40 +4,40 @@ import {
 } from '../../core/ThresholdService/createCloudflareDurableObjectThresholdSigningService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
 import type { ThresholdStoreConfigInput } from '../../core/types';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 
 const DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT = 'cloudflare-d1-relayer.local';
 const DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY = 'd1-relayer-public-key';
 
 type ListThresholdEcdsaKeyIdentityTargetsForUserInput = Parameters<
-  CloudflareRouterApiAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']
+  RouterApiAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']
 >[0];
 type ListThresholdEcdsaKeyIdentityTargetsForUserResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']>
+  ReturnType<RouterApiAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']>
 >;
 type ListWalletEcdsaKeyFactsInventoryInput = Parameters<
-  CloudflareRouterApiAuthService['listWalletEcdsaKeyFactsInventory']
+  RouterApiAuthService['listWalletEcdsaKeyFactsInventory']
 >[0];
 type ListWalletEcdsaKeyFactsInventoryResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['listWalletEcdsaKeyFactsInventory']>
+  ReturnType<RouterApiAuthService['listWalletEcdsaKeyFactsInventory']>
 >;
 type EcdsaHssRoleLocalBootstrapInput = Parameters<
-  CloudflareRouterApiAuthService['ecdsaHssRoleLocalBootstrap']
+  RouterApiAuthService['ecdsaHssRoleLocalBootstrap']
 >[0];
 type EcdsaHssRoleLocalBootstrapResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['ecdsaHssRoleLocalBootstrap']>
+  ReturnType<RouterApiAuthService['ecdsaHssRoleLocalBootstrap']>
 >;
 type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyInput = Parameters<
-  CloudflareRouterApiAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
+  RouterApiAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
 >[0];
 type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']>
+  ReturnType<RouterApiAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']>
 >;
 type EcdsaHssRoleLocalExportShareInput = Parameters<
-  CloudflareRouterApiAuthService['ecdsaHssRoleLocalExportShare']
+  RouterApiAuthService['ecdsaHssRoleLocalExportShare']
 >[0];
 type EcdsaHssRoleLocalExportShareResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['ecdsaHssRoleLocalExportShare']>
+  ReturnType<RouterApiAuthService['ecdsaHssRoleLocalExportShare']>
 >;
 
 type CloudflareD1ThresholdSigningRuntimeOptions = {

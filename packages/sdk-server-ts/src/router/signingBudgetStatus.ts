@@ -1,6 +1,7 @@
 import {
   parseRouterAbEcdsaHssWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
+  thresholdEd25519AuthorityScopesMatch,
   type RouterAbEcdsaHssWalletSessionClaims,
   type RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
@@ -110,7 +111,10 @@ function statusMatchesAuthScope(
     case 'ecdsa':
       return status.curve === 'ecdsa' && status.evmFamilySigningKeySlotId === auth.evmFamilySigningKeySlotId;
     case 'ed25519':
-      return status.curve === 'ed25519' && status.rpId === auth.rpId;
+      return (
+        status.curve === 'ed25519' &&
+        thresholdEd25519AuthorityScopesMatch(status.authorityScope, auth.authorityScope)
+      );
   }
 }
 

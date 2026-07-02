@@ -62,17 +62,45 @@ async function createPublishableKey(input: {
 async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
   const relayBody = makeWalletRegistrationIntentBody(overrides);
   const signerSelection = relayBody.signerSelection as { signers?: Array<Record<string, unknown>> };
-  const nearSigner = signerSelection.signers?.find((signer) => signer.kind === 'near_ed25519');
+  const nearSigner = signerSelection.signers?.find(isNearEd25519Signer);
   const accountProvisioning = nearSigner?.accountProvisioning as Record<string, unknown> | undefined;
+  const rpId =
+    typeof relayBody.authMethod.rpId === 'string' ? relayBody.authMethod.rpId.trim() : '';
+  const clientContext = {
+    sdk: 'web',
+    sdkVersion: '0.0.0-test',
+  };
+  const newAccountId = String(accountProvisioning?.requestedAccountId || '');
+  if (rpId) {
+    return {
+      environmentId,
+      flow: 'registration_v1',
+      newAccountId,
+      rpId,
+      clientContext,
+    };
+  }
   return {
     environmentId,
     flow: 'registration_v1',
-    newAccountId: String(accountProvisioning?.requestedAccountId || ''),
-    rpId: String(relayBody.authMethod.rpId),
-    clientContext: {
-      sdk: 'web',
-      sdkVersion: '0.0.0-test',
-    },
+    newAccountId,
+    clientContext,
+  };
+}
+
+function isNearEd25519Signer(signer: Record<string, unknown>): boolean {
+  return signer.kind === 'near_ed25519';
+}
+
+function makeGoogleEmailOtpRegistrationAuthMethod() {
+  return {
+    kind: 'email_otp',
+    proofKind: 'google_sso_registration',
+    email: 'alice@example.com',
+    appSessionJwt: 'app-session-jwt',
+    googleEmailOtpRegistrationAttemptId: 'attempt-1',
+    googleEmailOtpRegistrationOfferId: 'offer-1',
+    googleEmailOtpRegistrationCandidateId: 'candidate-1',
   };
 }
 
@@ -362,6 +390,102 @@ test.describe('managed bootstrap grants', () => {
       });
       expect(exhausted.status, exhausted.text).toBe(409);
       expect(exhausted.json?.message).toContain('bootstrap_token_already_used');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('express redeems Email OTP bootstrap token without RP ID binding', async () => {
+    const orgProjectEnv = await seedEnvironment();
+    const { apiKeys, secret } = await createPublishableKey({});
+    const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
+        apiKeys,
+        tokenStore: bootstrapTokens,
+        orgProjectEnv,
+      }),
+      bootstrapTokenStore: bootstrapTokens,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const relayBody = makeWalletRegistrationIntentBody({
+        authMethod: makeGoogleEmailOtpRegistrationAuthMethod(),
+      });
+      const grantBody = await makeGrantBody({
+        authMethod: relayBody.authMethod,
+      });
+      expect(grantBody).not.toHaveProperty('rpId');
+
+      const issued = await fetchJson(`${srv.baseUrl}/v1/registration/bootstrap-grants`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          Origin: allowedOrigin,
+        },
+        body: JSON.stringify(grantBody),
+      });
+      expect(issued.status, issued.text).toBe(200);
+      const token = String((issued.json?.grant as Record<string, unknown>)?.token || '');
+      expect(token).toContain('tbt_v1_');
+
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Origin: allowedOrigin,
+        },
+        body: JSON.stringify(relayBody),
+      });
+      expect(res.status, res.text).toBe(200);
+      expect(res.json?.ok).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('express binds bootstrap token to current signer-set NEAR account identity', async () => {
+    const orgProjectEnv = await seedEnvironment();
+    const { apiKeys, secret } = await createPublishableKey({});
+    const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
+        apiKeys,
+        tokenStore: bootstrapTokens,
+        orgProjectEnv,
+      }),
+      bootstrapTokenStore: bootstrapTokens,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const relayBody = makeWalletRegistrationIntentBody({
+        wallet: { kind: 'provided', walletId: 'alice-wallet' },
+      });
+      const issued = await fetchJson(`${srv.baseUrl}/v1/registration/bootstrap-grants`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          Origin: allowedOrigin,
+        },
+        body: JSON.stringify(await makeGrantBody({ wallet: relayBody.wallet })),
+      });
+      expect(issued.status, issued.text).toBe(200);
+      const token = String((issued.json?.grant as Record<string, unknown>)?.token || '');
+
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Origin: allowedOrigin,
+        },
+        body: JSON.stringify(relayBody),
+      });
+      expect(res.status, res.text).toBe(200);
+      expect(res.json?.ok).toBe(true);
     } finally {
       await srv.close();
     }

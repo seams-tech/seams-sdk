@@ -12,7 +12,7 @@ import type {
 } from '../../core/types';
 import type { WalletStore } from '../../core/d1WalletStore';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
@@ -32,13 +32,13 @@ import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegi
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 
 type StartWalletAddSignerInput = Parameters<
-  CloudflareRouterApiAuthService['startWalletAddSigner']
+  RouterApiAuthService['startWalletAddSigner']
 >[0];
 type RespondWalletAddSignerHssInput = Parameters<
-  CloudflareRouterApiAuthService['respondWalletAddSignerHss']
+  RouterApiAuthService['respondWalletAddSignerHss']
 >[0];
 type FinalizeWalletAddSignerInput = Parameters<
-  CloudflareRouterApiAuthService['finalizeWalletAddSigner']
+  RouterApiAuthService['finalizeWalletAddSigner']
 >[0];
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;

@@ -415,10 +415,11 @@ test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
     const registrationVerificationHelper = sourceBetween(
       serverAuthService,
       'private async verifyRegistrationCredentialForIntent(input:',
-      'private async verifyRegistrationAuthorityForIntent',
+      'private async rejectAuthServiceRegistrationAuthorityForIntent',
     );
     expect(registrationVerificationHelper).toContain('rpId: WebAuthnRpId;');
     expect(registrationVerificationHelper).not.toContain('rpId: string;');
+    expect(serverAuthService).not.toContain('private async verifyRegistrationAuthorityForIntent');
     const liteVerificationHelper = sourceBetween(
       serverAuthService,
       'async verifyWebAuthnAuthenticationLite(input:',

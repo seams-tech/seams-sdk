@@ -51,10 +51,16 @@ function readTrimmedString(record: Record<string, unknown>, field: string): stri
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function isNearEd25519SignerValue(value: unknown): boolean {
+  return asRecord(value)?.kind === 'near_ed25519';
+}
+
 function extractSponsoredRequestedAccountId(
   signerSelection: Record<string, unknown>,
 ): string {
-  const ed25519 = asRecord(signerSelection.ed25519);
+  const signers = Array.isArray(signerSelection.signers) ? signerSelection.signers : [];
+  const currentEd25519 = signers.find(isNearEd25519SignerValue);
+  const ed25519 = asRecord(currentEd25519);
   if (!ed25519) return '';
   const accountProvisioning = asRecord(ed25519.accountProvisioning);
   if (!accountProvisioning) return '';

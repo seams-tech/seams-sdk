@@ -84,6 +84,7 @@ export type ParentToChildType =
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TX_WITH_ACTIONS'
   | 'PM_SIGN_AND_SEND_TX'
+  | 'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING'
   | 'PM_SEND_TRANSACTION'
   | 'PM_EXECUTE_ACTION'
   | 'PM_SIGN_DELEGATE_ACTION'
@@ -379,6 +380,12 @@ export interface PMSignAndSendTxPayload {
   };
 }
 
+export interface PMFundImplicitNearAccountForTestingPayload {
+  walletId: string;
+  nearAccountId: string;
+  nearPublicKey: string;
+}
+
 export interface PMSendTxPayload {
   walletId: string;
   nearAccountId: string;
@@ -568,6 +575,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
   registrationAttemptId?: string;
+  emailOtpAuthorityEmail?: string;
 }
 
 export interface PMRefreshEmailOtpSigningSessionPayload {
@@ -706,6 +714,10 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TX_WITH_ACTIONS', PMSignTxPayload>
   | RpcEnvelope<'PM_SIGN_AND_SEND_TX', PMSignAndSendTxPayload>
+  | RpcEnvelope<
+      'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING',
+      PMFundImplicitNearAccountForTestingPayload
+    >
   | RpcEnvelope<'PM_SEND_TRANSACTION', PMSendTxPayload>
   | RpcEnvelope<'PM_EXECUTE_ACTION', PMExecuteActionPayload>
   | RpcEnvelope<'PM_SIGN_DELEGATE_ACTION', PMSignDelegateActionPayload>

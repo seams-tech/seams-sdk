@@ -28,7 +28,7 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
     walletId: nearAccountId,
     nearAccountId,
     nearEd25519SigningKeyId: nearAccountId,
-    rpId,
+    authority: { kind: 'passkey_rp', rpId },
     relayerKeyId,
     thresholdSessionId: 'tsess-runtime-scope-ed25519',
     signingGrantId: 'wsess-runtime-scope',
@@ -109,7 +109,7 @@ test('threshold-ed25519 passkey session mint does not require access-key reads f
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
-    rpId,
+    authority: { kind: 'passkey_rp', rpId },
     relayerKeyId,
     thresholdSessionId: 'tsess-implicit-session-ed25519',
     signingGrantId: 'wsess-implicit-session',
@@ -163,6 +163,68 @@ test('threshold-ed25519 passkey session mint does not require access-key reads f
   expect(result.ok).toBe(true);
 });
 
+test('threshold-ed25519 registration session mint accepts Email OTP authority', async () => {
+  const walletId = 'violet-raven-c2bgmv';
+  const nearAccountId = 'email-otp-registration.testnet';
+  const nearEd25519SigningKeyId = 'ed25519ks_email_otp_registration';
+  const relayerKeyId = 'ed25519:email-otp-registration-relayer';
+  const publicKey = 'ed25519:email-otp-registration-public-key';
+  const relayerSigningShareB64u = Buffer.alloc(32, 14).toString('base64url');
+  const relayerVerifyingShareB64u = deriveThresholdEd25519VerifyingShareForUnitTests({
+    signingShareB64u: relayerSigningShareB64u,
+  });
+  const authorityScope = {
+    kind: 'email_otp',
+    proofKind: 'google_sso_registration',
+    email: 'alice@example.test',
+    googleEmailOtpRegistrationAttemptId: 'attempt-email-otp-registration',
+    googleEmailOtpRegistrationOfferId: 'offer-email-otp-registration',
+    googleEmailOtpRegistrationCandidateId: 'candidate-email-otp-registration',
+  } as const;
+  const { policy } = await buildEd25519SessionPolicy({
+    walletId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    authority: { kind: 'exact_authority_scope', authorityScope },
+    relayerKeyId,
+    thresholdSessionId: 'tsess-email-otp-registration',
+    signingGrantId: 'wsess-email-otp-registration',
+    participantIds: [1, 2],
+    ttlMs: 300_000,
+    remainingUses: 3,
+    routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
+  });
+  const { svc, walletBudgetSessionStore } = createThresholdSigningServiceForUnitTests({
+    keyRecord: {
+      walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      authorityScope,
+      publicKey,
+      relayerSigningShareB64u,
+      relayerVerifyingShareB64u,
+      keyVersion: 'threshold-ed25519-hss-v1',
+      recoveryExportCapable: true,
+    },
+  });
+
+  const result = await svc.mintEd25519SessionFromRegistration({
+    walletId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    authorityScope,
+    relayerKeyId,
+    sessionPolicy: policy,
+  });
+
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error(result.message);
+  const budgetSession = await walletBudgetSessionStore.getSession(
+    walletSigningBudgetSessionId({ signingGrantId: 'wsess-email-otp-registration' }),
+  );
+  expect(budgetSession?.walletId).toBe(walletId);
+});
+
 test('threshold-ed25519 passkey session mint creates wallet budgets per signing grant', async () => {
   const nearAccountId = 'alice.testnet';
   const rpId = 'localhost';
@@ -194,7 +256,7 @@ test('threshold-ed25519 passkey session mint creates wallet budgets per signing 
       walletId: nearAccountId,
       nearAccountId,
       nearEd25519SigningKeyId: nearAccountId,
-      rpId,
+      authority: { kind: 'passkey_rp', rpId },
       relayerKeyId,
       thresholdSessionId: sessionId,
       signingGrantId,

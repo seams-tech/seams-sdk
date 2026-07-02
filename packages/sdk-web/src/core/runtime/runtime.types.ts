@@ -15,7 +15,6 @@ import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/inte
 import type { EcdsaWalletRecordsService } from '@/core/signingEngine/flows/registration/services/ecdsaWalletRecords';
 import type { ThresholdEcdsaBootstrapStorePort } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { WarmSessionMaterialWriter } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
-import type { EcdsaRegistrationSessionsService } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type { WarmSessionHydrationService } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import type { RegistrationAccountsService } from '@/core/signingEngine/flows/registration/services/registrationAccounts';
 import type { NearSigningApiDeps } from '@/core/signingEngine/interfaces/operationDeps';
@@ -113,7 +112,6 @@ export type SigningRuntimeServices = {
   nearSigning: SigningRuntimeNearSigningService;
   evmFamilySigning: SigningRuntimeEvmFamilySigningService;
   ecdsaRegistrationBootstrap: EcdsaRegistrationBootstrapService;
-  ecdsaRegistrationSessions: EcdsaRegistrationSessionsService;
   ecdsaWalletRecords: EcdsaWalletRecordsService;
   ecdsaProvisioning: ProvisionEcdsaUseCase;
 };

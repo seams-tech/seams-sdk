@@ -28,6 +28,7 @@ import type {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/threshold/crypto/webauthn';
 import {
+  parseWebAuthnRpId,
   type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
@@ -55,6 +56,8 @@ import {
   generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
   parseThresholdRuntimePolicyScopeFromJwt,
+  type Ed25519AuthorityScope,
+  type Ed25519SessionPolicyAuthority,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -198,10 +201,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     walletId?: string;
     nearAccountId?: string;
     nearEd25519SigningKeyId?: string;
-    authorityScope: {
-      kind: 'passkey_rp';
-      rpId: string;
-    };
+    authorityScope: Ed25519AuthorityScope;
     relayerKeyId?: string;
     thresholdSessionId: string;
     signingGrantId: string;
@@ -1686,19 +1686,18 @@ export function createThresholdWarmSessionPolicyDraft(
 }
 
 export function buildThresholdWarmSessionRequestEnvelope(args: {
-  rpId: string;
+  authority: Ed25519SessionPolicyAuthority;
   requestedPolicy: ThresholdWarmSessionPolicyDraft;
   walletId?: string;
   nearAccountId?: string;
   nearEd25519SigningKeyId?: string;
   relayerKeyId?: string;
 }): ThresholdWarmSessionRequestEnvelope {
-  const rpId = String(args.rpId || '').trim();
   const thresholdSessionId = String(args.requestedPolicy.sessionId || '').trim();
   const signingGrantId = String(args.requestedPolicy.signingGrantId || '').trim();
-  if (!rpId || !thresholdSessionId || !signingGrantId) {
+  if (!thresholdSessionId || !signingGrantId) {
     throw new Error(
-      'Threshold warm-session request is missing rpId, thresholdSessionId, or signingGrantId',
+      'Threshold warm-session request is missing thresholdSessionId or signingGrantId',
     );
   }
   return {
@@ -1709,10 +1708,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       ...(args.nearEd25519SigningKeyId
         ? { nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId || '').trim() }
         : {}),
-      authorityScope: {
-        kind: 'passkey_rp',
-        rpId,
-      },
+      authorityScope: thresholdWarmSessionAuthorityScope(args.authority),
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
       thresholdSessionId,
       signingGrantId,
@@ -1725,6 +1721,26 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
     },
     session_kind: 'jwt',
   };
+}
+
+function thresholdWarmSessionAuthorityScope(
+  authority: Ed25519SessionPolicyAuthority,
+): Ed25519AuthorityScope {
+  switch (authority.kind) {
+    case 'passkey_rp': {
+      const parsed = parseWebAuthnRpId(authority.rpId);
+      if (!parsed.ok) throw new Error(parsed.error.message);
+      return { kind: 'passkey_rp', rpId: parsed.value };
+    }
+    case 'exact_authority_scope':
+      return authority.authorityScope;
+    default:
+      return assertNeverThresholdWarmSessionPolicyAuthority(authority);
+  }
+}
+
+function assertNeverThresholdWarmSessionPolicyAuthority(value: never): never {
+  throw new Error(`Unsupported threshold warm-session authority: ${String(value)}`);
 }
 
 export async function prepareThresholdEd25519RegistrationHssClientMaterial(args: {

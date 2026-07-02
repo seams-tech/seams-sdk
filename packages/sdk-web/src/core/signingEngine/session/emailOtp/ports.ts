@@ -37,7 +37,7 @@ export type EmailOtpCoordinatorRuntimePorts = {
 export type EmailOtpEcdsaSessionPorts = {
   commitEvmFamilyThresholdEcdsaSessions: (args: {
     walletId: WalletId;
-    primaryChain: ThresholdEcdsaChainTarget;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;

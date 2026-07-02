@@ -46,6 +46,18 @@ export type EmailOtpEcdsaRecordForEd25519SigningSelectionResult =
       record: ThresholdEcdsaSessionRecord;
     };
 
+function hasDuplicateChainTarget(
+  records: readonly ThresholdEcdsaSessionRecord[],
+): boolean {
+  const seen = new Set<string>();
+  for (const record of records) {
+    const targetKey = thresholdEcdsaChainTargetKey(record.chainTarget);
+    if (seen.has(targetKey)) return true;
+    seen.add(targetKey);
+  }
+  return false;
+}
+
 function sortedEmailOtpEcdsaRecordsForWallet(args: {
   walletId: WalletId;
   listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
@@ -88,6 +100,9 @@ export function selectEmailOtpEcdsaRecordForEd25519Signing(
         return { kind: 'exact_match', record: exactRecord };
       }
       if (matches.length > 1) {
+        if (exactRecord && !hasDuplicateChainTarget(matches)) {
+          return { kind: 'exact_match', record: exactRecord };
+        }
         return { kind: 'duplicate_records', exactMatchCount: matches.length };
       }
       return { kind: 'not_found' };

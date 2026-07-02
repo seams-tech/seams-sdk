@@ -6,7 +6,8 @@ import { D1WalletStore, type WalletStore } from '../../core/d1WalletStore';
 import { D1IdentityStore } from '../../core/d1IdentityStore';
 import type { IdentityStore } from '../../core/IdentityStore';
 import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { AccountCreationResult } from '../../core/types';
+import type { RouterApiAuthService } from '../authServicePort';
 import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
@@ -36,7 +37,10 @@ import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService
 import { CloudflareD1WalletRegistrationService } from './d1WalletRegistrationService';
 import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
-import { fundImplicitNearAccountWithRelayer } from '../../core/nearImplicitAccountFunding';
+import {
+  createNamedNearAccountWithRelayer,
+  fundImplicitNearAccountWithRelayer,
+} from '../../core/nearRelayerAccountProvisioning';
 import {
   normalizeD1RouterApiAuthOptions,
   type CloudflareD1RouterApiAuthServiceOptions,
@@ -51,25 +55,23 @@ export type {
   CloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
 
-type CloudflareRouterApiAuthServiceCallableKey = {
-  [K in keyof CloudflareRouterApiAuthService]: CloudflareRouterApiAuthService[K] extends (
-    ...args: any[]
-  ) => unknown
+type RouterApiAuthServiceCallableKey = {
+  [K in keyof RouterApiAuthService]: RouterApiAuthService[K] extends (...args: never[]) => unknown
     ? K
     : never;
-}[keyof CloudflareRouterApiAuthService];
+}[keyof RouterApiAuthService];
 
-type CloudflareRouterApiAuthServiceMethodAt<M extends CloudflareRouterApiAuthServiceCallableKey> = Extract<
-  CloudflareRouterApiAuthService[M],
-  (...args: any[]) => unknown
+type RouterApiAuthServiceMethodAt<M extends RouterApiAuthServiceCallableKey> = Extract<
+  RouterApiAuthService[M],
+  (...args: never[]) => unknown
 >;
 
-type RouterApiInput<M extends CloudflareRouterApiAuthServiceCallableKey> = Parameters<
-  CloudflareRouterApiAuthServiceMethodAt<M>
+type RouterApiInput<M extends RouterApiAuthServiceCallableKey> = Parameters<
+  RouterApiAuthServiceMethodAt<M>
 >[0];
 
-type RouterApiResult<M extends CloudflareRouterApiAuthServiceCallableKey> = Awaited<
-  ReturnType<CloudflareRouterApiAuthServiceMethodAt<M>>
+type RouterApiResult<M extends RouterApiAuthServiceCallableKey> = Awaited<
+  ReturnType<RouterApiAuthServiceMethodAt<M>>
 >;
 
 class CloudflareD1RouterApiAuthMetadataService {
@@ -175,14 +177,12 @@ class CloudflareD1RouterApiAuthMetadataService {
       this.options.emailOtpServerSeal,
     );
     this.googleEmailOtpSessions = new CloudflareD1GoogleEmailOtpSessionResolver({
-      accountIdDerivationSecret: this.options.accountIdDerivationSecret,
       emailOtpEnrollments: this.emailOtpEnrollments,
       emailOtpRateLimits: this.emailOtpRateLimits,
       identityStore: this.identityStore,
       linkIdentity: this.identityService.linkIdentity.bind(this.identityService),
       production: this.options.emailOtp.production,
       registrationAttempts: this.googleEmailOtpRegistrationAttempts,
-      relayerAccount: this.options.relayerAccount,
     });
     this.oidcVerification = new CloudflareD1OidcVerificationService({
       googleOidcClientId: this.options.googleOidcClientId,
@@ -206,10 +206,12 @@ class CloudflareD1RouterApiAuthMetadataService {
       emailOtpChallengeVerifier: this.emailOtpChallengeVerifier,
       getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
       getWalletAuthMethodStore: this.getWalletAuthMethodStore.bind(this),
+      googleEmailOtpRegistrationAttempts: this.googleEmailOtpRegistrationAttempts,
       sha256Bytes: sha256BytesPortable,
       webAuthnStore: this.webAuthnStore,
     });
     this.walletRegistrations = new CloudflareD1WalletRegistrationService({
+      createSponsoredNamedNearAccount: this.createSponsoredNamedNearAccount.bind(this),
       emailOtpRegistrationEnrollmentFinalizer: this.emailOtpRegistrationEnrollmentFinalizer,
       getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
       getThresholdSigningService: this.getThresholdSigningService.bind(this),
@@ -348,7 +350,9 @@ class CloudflareD1RouterApiAuthMetadataService {
     return await this.identityService.listIdentities(input);
   }
 
-  async linkIdentity(input: RouterApiInput<'linkIdentity'>): Promise<RouterApiResult<'linkIdentity'>> {
+  async linkIdentity(
+    input: RouterApiInput<'linkIdentity'>,
+  ): Promise<RouterApiResult<'linkIdentity'>> {
     return await this.identityService.linkIdentity(input);
   }
 
@@ -380,6 +384,12 @@ class CloudflareD1RouterApiAuthMetadataService {
     input: RouterApiInput<'cleanupGoogleEmailOtpDevRegistrationState'>,
   ): Promise<RouterApiResult<'cleanupGoogleEmailOtpDevRegistrationState'>> {
     return await this.googleEmailOtpSessions.cleanupDevRegistrationState(input);
+  }
+
+  async validateGoogleEmailOtpRegistrationCandidateWallet(
+    input: RouterApiInput<'validateGoogleEmailOtpRegistrationCandidateWallet'>,
+  ): Promise<RouterApiResult<'validateGoogleEmailOtpRegistrationCandidateWallet'>> {
+    return await this.googleEmailOtpSessions.validateRegistrationCandidateWallet(input);
   }
 
   async readEmailOtpEnrollment(
@@ -629,6 +639,31 @@ class CloudflareD1RouterApiAuthMetadataService {
     });
   }
 
+  private async createSponsoredNamedNearAccount(input: {
+    readonly accountId: string;
+    readonly publicKey: string;
+  }): Promise<AccountCreationResult> {
+    const relayerAccount = this.options.relayerAccount;
+    const relayerPrivateKey = this.options.relayerPrivateKey;
+    const nearRpcUrl = this.options.nearRpcUrl;
+    const initialBalanceYocto = this.options.accountInitialBalance;
+    if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !initialBalanceYocto) {
+      return {
+        success: false,
+        error: 'Sponsored NEAR account creation is not configured on this server',
+        message: 'Sponsored NEAR account creation is not configured on this server',
+      };
+    }
+    return await createNamedNearAccountWithRelayer({
+      ...input,
+      relayerAccount,
+      relayerPrivateKey,
+      relayerPublicKey: this.options.relayerPublicKey,
+      nearRpcUrl,
+      initialBalanceYocto,
+    });
+  }
+
   getConfiguredRelayerAccount(): RouterApiResult<'getConfiguredRelayerAccount'> {
     return this.thresholdSigning.getConfiguredRelayerAccount();
   }
@@ -728,6 +763,6 @@ class CloudflareD1RouterApiAuthMetadataService {
 
 export function createCloudflareD1RouterApiAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
-): CloudflareRouterApiAuthService {
+): RouterApiAuthService {
   return new CloudflareD1RouterApiAuthMetadataService(input);
 }

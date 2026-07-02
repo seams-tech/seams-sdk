@@ -18,7 +18,6 @@ import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/th
 import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
-import { sponsoredNamedRegistrationProvisioningFromAccountId } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import {
   disposeWalletRegistrationPrecompute,
   type WalletRegistrationPrecomputeHandle,
@@ -83,6 +82,7 @@ type GoogleLoginEmailOtpEd25519CapabilityArgs = {
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;
+  emailOtpAuthorityEmail?: string;
   otpCode: string;
   appSessionJwt?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
@@ -456,6 +456,7 @@ async function loginWithConfiguredTargets(args: {
   const common = {
     walletSession,
     challengeId: args.challenge.challengeId,
+    emailOtpAuthorityEmail: args.challenge.emailHint,
     otpCode: args.otpCode,
     ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
     ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
@@ -703,7 +704,6 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     authMethod: registrationAuthMethod,
     signerSelection: buildNearWalletRegistrationSignerSetSelection({
       configs: deps.configs,
-      accountProvisioning: sponsoredNamedRegistrationProvisioningFromAccountId(selectedWalletId),
       options: registrationOptions,
       ecdsaChainTargets: requiredTargets,
     }),

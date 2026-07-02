@@ -295,7 +295,7 @@ export async function handleThresholdEd25519(
       const walletId = String(result.walletId || '').trim();
       const nearAccountId = String(result.nearAccountId || '').trim();
       const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId || '').trim();
-      const rpId = String(b.sessionPolicy?.authorityScope.rpId || '').trim();
+      const authorityScope = b.sessionPolicy.authorityScope;
       const relayerKeyId = String(b.relayerKeyId || '').trim();
       const thresholdExpiresAtMs = (() => {
         const ms =
@@ -312,16 +312,6 @@ export async function handleThresholdEd25519(
             ok: false,
             code: 'internal',
             message: 'threshold session missing walletId/nearAccountId/nearEd25519SigningKeyId',
-          },
-          { status: 500 },
-        );
-      }
-      if (!rpId) {
-        return json(
-          {
-            ok: false,
-            code: 'internal',
-            message: 'threshold session missing sessionPolicy.authorityScope.rpId',
           },
           { status: 500 },
         );
@@ -344,7 +334,7 @@ export async function handleThresholdEd25519(
       const signed = await signRouterAbEd25519WalletSessionJwt({
         session,
         userId: walletId,
-        rpId,
+        authorityScope,
         relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',

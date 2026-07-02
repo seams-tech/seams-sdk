@@ -69,7 +69,7 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRou
         const signed = await signRouterAbEd25519WalletSessionJwt({
           session: ctx.opts.session,
           userId: sessionInfo.walletId,
-          rpId: result.rpId,
+          authorityScope: { kind: 'passkey_rp', rpId: result.rpId },
           relayerKeyId: result.thresholdEd25519?.relayerKeyId,
           sessionInfo,
           fallbackParticipantIds: result.thresholdEd25519?.participantIds,

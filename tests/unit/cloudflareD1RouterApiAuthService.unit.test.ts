@@ -144,7 +144,7 @@ test('D1 Ed25519 registration session policy keeps passkey RP ID in authority sc
     nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: 'near-ed25519-signing-key-id',
     relayerKeyId: 'ed25519:relayer',
-    expectedRpId: rpId,
+    expectedAuthorityScope: { kind: 'passkey_rp', rpId },
   });
   expect(built.ok).toBe(true);
   if (!built.ok) throw new Error(built.message);
@@ -168,7 +168,7 @@ test('D1 Ed25519 registration session policy rejects root passkey RP ID', () => 
     nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: 'near-ed25519-signing-key-id',
     relayerKeyId: 'ed25519:relayer',
-    expectedRpId: rpId,
+    expectedAuthorityScope: { kind: 'passkey_rp', rpId },
   });
   expect(built).toMatchObject({
     ok: false,
@@ -324,7 +324,7 @@ function testEcdsaClientBootstrap(
   return {
     formatVersion: prepare.formatVersion,
     walletId: prepare.walletId,
-    walletKeyId: prepare.walletKeyId,
+    evmFamilySigningKeySlotId: prepare.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: prepare.ecdsaThresholdKeyId,
     signingRootId: prepare.signingRootId,
     signingRootVersion: prepare.signingRootVersion,
@@ -353,7 +353,7 @@ function testEcdsaServerBootstrapResponse(
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: request.walletId,
-    walletKeyId: request.walletKeyId,
+    evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
     relayerKeyId: request.relayerKeyId,
     applicationBindingDigestB64u: 'test-application-binding-digest',
@@ -2742,7 +2742,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
         },
       },
     });
-    expect(started.ecdsa?.prepare.walletKeyId).toContain(
+    expect(started.ecdsa?.prepare.evmFamilySigningKeySlotId).toContain(
       encodeURIComponent(`${scope.projectId}:${scope.envId}`),
     );
     expect(started.ecdsa?.prepare.ecdsaThresholdKeyId).toMatch(/^ehss-/);
@@ -2979,7 +2979,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
     });
     expect(responded.ecdsa?.bootstrap).toMatchObject({
       walletId: registration.intent.walletId,
-      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
       thresholdSessionId: clientBootstrap.thresholdSessionId,
       signingGrantId: clientBootstrap.signingGrantId,
     });
@@ -3078,7 +3078,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
             keyScope: 'evm-family',
             chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
             walletId: registration.intent.walletId,
-            walletKeyId: started.ecdsa.prepare.walletKeyId,
+            evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
             keyHandle: 'test-add-signer-ecdsa-key-handle',
           },
         ],
@@ -3113,7 +3113,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
     ).resolves.toMatchObject({
       version: 'wallet_signer_ecdsa_v1',
       walletId: registration.intent.walletId,
-      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
       signerId: 'ecdsa:evm:eip155:8453',
       chainTargetKey: 'evm:eip155:8453',
       walletKey: {
@@ -3443,7 +3443,7 @@ test('Cloudflare D1 Router API auth service responds to ECDSA wallet registratio
     expect(responded.ecdsa?.bootstrap).toMatchObject({
       keyHandle: 'test-add-signer-ecdsa-key-handle',
       walletId: registration.intent.walletId,
-      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
       thresholdSessionId: clientBootstrap.thresholdSessionId,
       signingGrantId: clientBootstrap.signingGrantId,
     });
@@ -3676,7 +3676,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
             keyScope: 'evm-family',
             chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
             walletId: registration.intent.walletId,
-            walletKeyId: started.ecdsa.prepare.walletKeyId,
+            evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
             keyHandle: 'test-add-signer-ecdsa-key-handle',
             ecdsaThresholdKeyId: started.ecdsa.prepare.ecdsaThresholdKeyId,
             signingRootId: `${scope.projectId}:${scope.envId}`,
@@ -3756,7 +3756,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
     expect(signerRecord).toMatchObject({
       version: 'wallet_signer_ecdsa_v1',
       walletId: registration.intent.walletId,
-      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
       signerId: 'ecdsa:evm:eip155:8453',
       chainTargetKey: 'evm:eip155:8453',
       walletKey: {
@@ -4071,7 +4071,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
         },
       },
     });
-    expect(started.ecdsa?.prepare.walletKeyId).toContain(
+    expect(started.ecdsa?.prepare.evmFamilySigningKeySlotId).toContain(
       encodeURIComponent(`${scope.projectId}:${scope.envId}`),
     );
     expect(started.ecdsa?.prepare.ecdsaThresholdKeyId).toMatch(/^ehss-/);
@@ -4212,7 +4212,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     expect(responded.ecdsa?.bootstrap).toMatchObject({
       keyHandle: 'test-add-signer-ecdsa-key-handle',
       walletId,
-      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
       thresholdSessionId: clientBootstrap.thresholdSessionId,
       signingGrantId: clientBootstrap.signingGrantId,
     });
@@ -4279,7 +4279,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
             keyScope: 'evm-family',
             chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
             walletId,
-            walletKeyId: started.ecdsa.prepare.walletKeyId,
+            evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
             keyHandle: 'test-add-signer-ecdsa-key-handle',
             ecdsaThresholdKeyId: started.ecdsa.prepare.ecdsaThresholdKeyId,
             signingRootId: `${scope.projectId}:${scope.envId}`,
@@ -4302,7 +4302,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     expect(signerRecord).toMatchObject({
       version: 'wallet_signer_ecdsa_v1',
       walletId,
-      walletKeyId: started.ecdsa.prepare.walletKeyId,
+      evmFamilySigningKeySlotId: started.ecdsa.prepare.evmFamilySigningKeySlotId,
       signerId: 'ecdsa:evm:eip155:8453',
       chainTargetKey: 'evm:eip155:8453',
       walletKey: {
@@ -4629,7 +4629,7 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
     expect(first.ok).toBe(true);
     expect(first.mode).toBe('register_started');
     if (!first.ok || first.mode !== 'register_started') return;
-    expect(first.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relay\.local$/);
+    expect(parseServerAllocatedWalletId(first.walletId).ok).toBe(true);
     expect(first.email).toBe('alice@example.test');
     expect(first.offer.candidates).toHaveLength(5);
     expect(first.offer.selectedCandidateId).toBe(first.offer.candidates[0].candidateId);
@@ -4715,6 +4715,149 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
         ...scope,
       }),
     ).resolves.toEqual([]);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service starts Google Email OTP wallet registration', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const runtimePolicyScope = {
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      signingRootVersion: 'root-v1',
+    };
+    const email = 'sso-registration@example.test';
+    const providerSubject = 'google:sso-registration-user';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const thresholdSigningService = {
+      ed25519Hss: {
+        async prepareForRegistration() {
+          return {
+            ok: true as const,
+            ceremonyHandle: 'google-sso-ed25519-ceremony-handle',
+            preparedSession: {
+              contextBindingB64u: 'google-sso-ed25519-context-binding',
+              evaluatorDriverStateB64u: 'google-sso-ed25519-evaluator-driver-state',
+            },
+            clientOtOfferMessageB64u: 'google-sso-ed25519-client-ot-offer',
+            serverState: testEd25519PreparedServerState(),
+          };
+        },
+      },
+    } as unknown as ThresholdSigningService;
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+      relayerAccount: 'relay.local',
+      thresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const appSession = await service.getOrCreateAppSessionVersion({ userId: providerSubject });
+    expect(appSession.ok).toBe(true);
+    if (!appSession.ok) throw new Error(appSession.message);
+
+    const resolved = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      appSessionVersion: appSession.appSessionVersion,
+      runtimePolicyScope,
+    });
+    expect(resolved.ok).toBe(true);
+    expect(resolved.mode).toBe('register_started');
+    if (!resolved.ok || resolved.mode !== 'register_started') return;
+    const selected = resolved.offer.candidates[0];
+    expect(selected).toBeTruthy();
+    if (!selected) return;
+
+    const registration = await service.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'provided', walletId: walletIdFromString(selected.walletId) },
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'google_sso_registration',
+          email,
+          appSessionJwt: 'google-sso-app-session-jwt',
+          googleEmailOtpRegistrationAttemptId: resolved.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: resolved.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: selected.candidateId,
+        },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+    });
+    if (!registration.ok) throw new Error(registration.message);
+    expect(registration.ok).toBe(true);
+
+    const prepared = await service.prepareWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+      work: { kind: 'ed25519_hss' },
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      registrationPreparationId: prepared.registrationPreparationId,
+      intent: registration.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'google_sso_registration',
+          providerSubject,
+          email,
+          googleEmailOtpRegistrationAttemptId: resolved.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: resolved.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: selected.candidateId,
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+          appSessionVersion: appSession.appSessionVersion,
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.message);
+    expect(started.ed25519).toMatchObject({
+      ceremonyHandle: 'google-sso-ed25519-ceremony-handle',
+      clientOtOfferMessageB64u: 'google-sso-ed25519-client-ot-offer',
+    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

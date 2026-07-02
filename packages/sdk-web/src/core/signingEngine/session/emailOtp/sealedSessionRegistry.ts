@@ -30,7 +30,7 @@ export class EmailOtpSealedSessionRegistry {
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       commitEvmFamilyThresholdEcdsaSessions: (args: {
         walletId: WalletId;
-        primaryChain: ThresholdEcdsaChainTarget;
+        chainTarget: ThresholdEcdsaChainTarget;
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
         source: 'email_otp';
         emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;

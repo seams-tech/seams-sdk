@@ -74,7 +74,6 @@ const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
 test.describe('route definition scaffolding', () => {
   test('Router API route ids are unique and core policies are encoded', async () => {
     const routes = createRouterApiRouteDefinitions({
-      enableEd25519RegistrationPrepare: true,
       enableEmailRecoveryPrepare: true,
       enableRecoverEmail: true,
       enableHealthz: true,

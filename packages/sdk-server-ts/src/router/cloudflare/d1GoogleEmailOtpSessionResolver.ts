@@ -5,11 +5,8 @@ import {
   parseOrgId,
   parseVerifiedGoogleEmail,
 } from '@shared/utils/domainIds';
+import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import {
-  deriveHostedNearAccountId,
-  isHostedHmacReadableRelayerWalletId,
-} from '../../core/hostedAccountIds';
 import type {
   EmailOtpWalletEnrollmentRecord,
   GoogleEmailOtpRegistrationOfferCandidateRecord,
@@ -20,7 +17,7 @@ import type {
   LinkIdentityResult,
   UnlinkIdentityResult,
 } from '../../core/IdentityStore';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
@@ -40,25 +37,30 @@ import {
   parseD1BoundaryWalletId,
   parseD1BoundaryWalletIdResult,
 } from './d1RouterApiAuthBoundary';
-import { requireD1RouterApiAuthScopeString } from './d1RouterApiAuthConfig';
 
 type ResolveGoogleEmailOtpSessionInput = Parameters<
-  CloudflareRouterApiAuthService['resolveGoogleEmailOtpSession']
+  RouterApiAuthService['resolveGoogleEmailOtpSession']
 >[0];
 type ResolveGoogleEmailOtpSessionResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['resolveGoogleEmailOtpSession']>
+  ReturnType<RouterApiAuthService['resolveGoogleEmailOtpSession']>
 >;
 type CleanupGoogleEmailOtpDevRegistrationStateInput = Parameters<
-  CloudflareRouterApiAuthService['cleanupGoogleEmailOtpDevRegistrationState']
+  RouterApiAuthService['cleanupGoogleEmailOtpDevRegistrationState']
 >[0];
 type CleanupGoogleEmailOtpDevRegistrationStateResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['cleanupGoogleEmailOtpDevRegistrationState']>
+  ReturnType<RouterApiAuthService['cleanupGoogleEmailOtpDevRegistrationState']>
+>;
+type ValidateGoogleEmailOtpRegistrationCandidateWalletInput = Parameters<
+  RouterApiAuthService['validateGoogleEmailOtpRegistrationCandidateWallet']
+>[0];
+type ValidateGoogleEmailOtpRegistrationCandidateWalletResult = Awaited<
+  ReturnType<RouterApiAuthService['validateGoogleEmailOtpRegistrationCandidateWallet']>
 >;
 type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitInput = Parameters<
-  CloudflareRouterApiAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']
+  RouterApiAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']
 >[0];
 type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']>
+  ReturnType<RouterApiAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']>
 >;
 
 type GoogleEmailOtpIdentityLinker = (input: {
@@ -72,33 +74,27 @@ type CompleteGoogleEmailOtpRegistrationAttemptResult =
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 export class CloudflareD1GoogleEmailOtpSessionResolver {
-  private readonly accountIdDerivationSecret: unknown;
   private readonly emailOtpEnrollments: CloudflareD1EmailOtpEnrollmentStore;
   private readonly emailOtpRateLimits: CloudflareD1EmailOtpRateLimitStore;
   private readonly identityStore: IdentityStore;
   private readonly linkIdentity: GoogleEmailOtpIdentityLinker;
   private readonly production: boolean;
   private readonly registrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
-  private readonly relayerAccount: unknown;
 
   constructor(input: {
-    readonly accountIdDerivationSecret: unknown;
     readonly emailOtpEnrollments: CloudflareD1EmailOtpEnrollmentStore;
     readonly emailOtpRateLimits: CloudflareD1EmailOtpRateLimitStore;
     readonly identityStore: IdentityStore;
     readonly linkIdentity: GoogleEmailOtpIdentityLinker;
     readonly production: boolean;
     readonly registrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
-    readonly relayerAccount: unknown;
   }) {
-    this.accountIdDerivationSecret = input.accountIdDerivationSecret;
     this.emailOtpEnrollments = input.emailOtpEnrollments;
     this.emailOtpRateLimits = input.emailOtpRateLimits;
     this.identityStore = input.identityStore;
     this.linkIdentity = input.linkIdentity;
     this.production = input.production;
     this.registrationAttempts = input.registrationAttempts;
-    this.relayerAccount = input.relayerAccount;
   }
 
   async resolve(
@@ -123,9 +119,6 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     const linkedWalletId = parseD1BoundaryWalletId(
       await this.identityStore.getUserIdBySubject(identitySubject),
     );
-    const linkedIsHostedHmacReadableWallet = Boolean(
-      linkedWalletId && this.isHostedHmacReadableRelayerWallet(linkedWalletId),
-    );
 
     if (accountMode === 'login') {
       return await this.resolveLoginSession({
@@ -133,7 +126,6 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
         email,
         orgId: runtimePolicyScope.orgId,
         linkedWalletId,
-        linkedIsHostedHmacReadableWallet,
       });
     }
 
@@ -197,17 +189,6 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
         orphanedWalletMappingSkippedReason: 'wallet_id_mismatch',
       };
     }
-    if (!this.isHostedHmacReadableRelayerWallet(linkedWalletId)) {
-      return {
-        ok: true,
-        providerSubject,
-        expiredRegistrationAttemptsDeleted,
-        linkedWalletId,
-        orphanedWalletMappingRemoved: false,
-        orphanedWalletMappingSkippedReason: 'not_relayer_subaccount',
-      };
-    }
-
     const activeEnrollment = await this.emailOtpEnrollments.readEnrollment(linkedWalletId);
     if (activeEnrollment) {
       const enrollmentMatchesProvider = activeEnrollment.providerUserId === providerSubject;
@@ -355,14 +336,82 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     return { ok: true };
   }
 
+  async validateRegistrationCandidateWallet(
+    input: ValidateGoogleEmailOtpRegistrationCandidateWalletInput,
+  ): Promise<ValidateGoogleEmailOtpRegistrationCandidateWalletResult> {
+    const registrationAttemptId = toOptionalTrimmedString(input.registrationAttemptId);
+    const walletId = parseD1BoundaryWalletIdResult(input.walletId);
+    const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+    const providerSubject = parseGoogleProviderSubject(input.providerSubject);
+    if (!registrationAttemptId || !walletId.ok || !appSessionVersion || !providerSubject.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Google Email OTP registration candidate validation requires signed session scope',
+      };
+    }
+    const attempt = await this.registrationAttempts.read(registrationAttemptId);
+    if (!attempt) {
+      return {
+        ok: false,
+        code: 'registration_attempt_missing',
+        message: 'Google Email OTP registration attempt expired or was not found',
+      };
+    }
+    if (attempt.expiresAtMs <= Date.now()) {
+      await this.registrationAttempts.put(
+        expiredGoogleEmailOtpRegistrationAttemptRecord({
+          record: attempt,
+          updatedAtMs: Date.now(),
+        }),
+      );
+      return {
+        ok: false,
+        code: 'registration_attempt_expired',
+        message: 'Google Email OTP registration attempt expired',
+      };
+    }
+    if (attempt.providerSubject !== providerSubject.value) {
+      return {
+        ok: false,
+        code: 'challenge_subject_mismatch',
+        message: 'Email OTP registration attempt does not match the provider subject',
+      };
+    }
+    if (attempt.appSessionVersion !== appSessionVersion) {
+      return {
+        ok: false,
+        code: 'app_session_version_mismatch',
+        message: 'Google Email OTP registration attempt does not match the app session',
+      };
+    }
+    if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt is no longer active',
+      };
+    }
+    const candidate = attempt.offerCandidates.find(
+      (offerCandidate) => offerCandidate.walletId === walletId.value,
+    );
+    if (!candidate) {
+      return {
+        ok: false,
+        code: 'wallet_identity_mismatch',
+        message: 'walletId is not an active Google Email OTP registration candidate',
+      };
+    }
+    return { ok: true };
+  }
+
   private async resolveLoginSession(input: {
     readonly providerSubject: string;
     readonly email: string;
     readonly orgId: string;
     readonly linkedWalletId: string | null;
-    readonly linkedIsHostedHmacReadableWallet: boolean;
   }): Promise<ResolveGoogleEmailOtpSessionResult> {
-    if (input.linkedWalletId && input.linkedIsHostedHmacReadableWallet) {
+    if (input.linkedWalletId) {
       const enrollment = await this.readActiveEnrollment({
         walletId: input.linkedWalletId,
         orgId: input.orgId,
@@ -472,20 +521,13 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
       failureCode: 'app_session_version_replaced',
     });
 
-    let startedAttempt = await this.registrationAttempts.findStarted({
+    const startedAttempt = await this.registrationAttempts.findStarted({
       providerSubject: input.providerSubject,
       email: input.email,
       orgId: input.orgId,
       appSessionVersion: input.appSessionVersion,
       runtimePolicyScope: input.runtimePolicyScope,
     });
-    if (startedAttempt && !this.isHostedHmacReadableRelayerWallet(startedAttempt.walletId)) {
-      await this.registrationAttempts.failNonHmacReadableWallet({
-        record: startedAttempt,
-        updatedAtMs: Date.now(),
-      });
-      startedAttempt = null;
-    }
     if (startedAttempt) {
       if (input.restartRegistrationOffer) {
         await this.registrationAttempts.put(
@@ -528,14 +570,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     );
     const offerCandidates: GoogleEmailOtpRegistrationOfferCandidateRecord[] = [];
     for (let attempt = 0; attempt < 30 && offerCandidates.length < 5; attempt += 1) {
-      const walletId = await this.deriveHostedWalletId({
-        providerSubject: input.providerSubject,
-        email: input.email,
-        authProvider,
-        runtimePolicyScope: input.runtimePolicyScope,
-        walletIdDerivationNonce,
-        collisionCounter: attempt,
-      });
+      const walletId = createServerAllocatedWalletId();
       const inUseByLiveAttempt = await this.registrationAttempts.hasLiveStartedWalletAttempt({
         walletId,
         nowMs,
@@ -599,37 +634,6 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     };
   }
 
-  private isHostedHmacReadableRelayerWallet(walletId: string): boolean {
-    return isHostedHmacReadableRelayerWalletId({
-      walletId,
-      relayerAccount: this.relayerAccount,
-    });
-  }
-
-  private async deriveHostedWalletId(input: {
-    readonly providerSubject: string;
-    readonly email: string;
-    readonly authProvider: string;
-    readonly runtimePolicyScope: RuntimePolicyScope;
-    readonly walletIdDerivationNonce: string;
-    readonly collisionCounter: number;
-  }): Promise<string> {
-    return await deriveHostedNearAccountId({
-      accountIdDerivationSecret: requireD1RouterApiAuthScopeString(
-        this.accountIdDerivationSecret,
-        'ACCOUNT_ID_DERIVATION_SECRET',
-      ),
-      relayerAccount: requireD1RouterApiAuthScopeString(this.relayerAccount, 'relayerAccount'),
-      projectId: input.runtimePolicyScope.projectId,
-      envId: input.runtimePolicyScope.envId,
-      authProvider: input.authProvider,
-      providerSubject: input.providerSubject,
-      verifiedEmail: input.email,
-      walletIdDerivationNonce: input.walletIdDerivationNonce,
-      ...(input.collisionCounter > 0 ? { collisionCounter: input.collisionCounter } : {}),
-    });
-  }
-
   private async getEnrollmentBySubject(input: {
     readonly providerSubject: string;
     readonly orgId: string;
@@ -642,7 +646,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
       !enrollment ||
       enrollment.providerUserId !== input.providerSubject ||
       enrollment.orgId !== input.orgId ||
-      !this.isHostedHmacReadableRelayerWallet(enrollment.walletId)
+      !parseD1BoundaryWalletId(enrollment.walletId)
     ) {
       return null;
     }

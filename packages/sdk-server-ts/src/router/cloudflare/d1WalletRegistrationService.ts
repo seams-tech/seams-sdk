@@ -19,6 +19,7 @@ import {
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
+  AccountCreationResult,
   registrationPreparationIdFromString,
   ThresholdEd25519BootstrapSession,
   WalletRegistrationPrepareResponse,
@@ -29,7 +30,7 @@ import {
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../core/ThresholdService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
 import type { WalletStore } from '../../core/d1WalletStore';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
@@ -74,20 +75,24 @@ import {
 } from './d1NearEd25519RegistrationBranch';
 
 type StartWalletRegistrationInput = Parameters<
-  CloudflareRouterApiAuthService['startWalletRegistration']
+  RouterApiAuthService['startWalletRegistration']
 >[0];
 type PrepareWalletRegistrationInput = Parameters<
-  CloudflareRouterApiAuthService['prepareWalletRegistration']
+  RouterApiAuthService['prepareWalletRegistration']
 >[0];
 type RespondWalletRegistrationHssInput = Parameters<
-  CloudflareRouterApiAuthService['respondWalletRegistrationHss']
+  RouterApiAuthService['respondWalletRegistrationHss']
 >[0];
 type FinalizeWalletRegistrationInput = Parameters<
-  CloudflareRouterApiAuthService['finalizeWalletRegistration']
+  RouterApiAuthService['finalizeWalletRegistration']
 >[0];
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
 type ThresholdSigningServiceProvider = () => ThresholdSigningService | null;
 type WalletStoreProvider = () => WalletStore;
+type SponsoredNamedNearAccountCreator = (input: {
+  readonly accountId: string;
+  readonly publicKey: string;
+}) => Promise<AccountCreationResult>;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
@@ -178,7 +183,19 @@ function resolvedRegistrationNearAccount(input: {
   }
 }
 
+function sponsoredNamedRegistrationAccountId(
+  provisioning: RegistrationNearAccountProvisioning,
+): string | null {
+  switch (provisioning.kind) {
+    case 'implicit_account':
+      return null;
+    case 'sponsored_named_account':
+      return String(provisioning.requestedAccountId);
+  }
+}
+
 export class CloudflareD1WalletRegistrationService {
+  private readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
   private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getThresholdSigningService: ThresholdSigningServiceProvider;
@@ -186,12 +203,14 @@ export class CloudflareD1WalletRegistrationService {
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
   constructor(input: {
+    readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
     readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getThresholdSigningService: ThresholdSigningServiceProvider;
     readonly getWalletStore: WalletStoreProvider;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
+    this.createSponsoredNamedNearAccount = input.createSponsoredNamedNearAccount;
     this.emailOtpRegistrationEnrollmentFinalizer = input.emailOtpRegistrationEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getThresholdSigningService = input.getThresholdSigningService;
@@ -858,14 +877,6 @@ export class CloudflareD1WalletRegistrationService {
         if (!request.ed25519) {
           return { ok: false, code: 'invalid_body', message: 'missing Ed25519 finalize input' };
         }
-        if (requestedNearEd25519.accountProvisioning.kind === 'sponsored_named_account') {
-          return {
-            ok: false,
-            code: 'unsupported',
-            message:
-              'Cloudflare D1 registration finalize currently supports implicit NEAR accounts',
-          };
-        }
         if (request.ecdsa && !requestedEvmFamilyEcdsa) {
           return {
             ok: false,
@@ -974,10 +985,29 @@ export class CloudflareD1WalletRegistrationService {
             message: finalized.message || 'Ed25519 HSS finalize failed',
           };
         }
+        const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
+          ed25519.accountProvisioning,
+        );
+        let sponsoredTransactionHash: string | undefined;
+        if (sponsoredNamedAccountId) {
+          const created = await this.createSponsoredNamedNearAccount({
+            accountId: sponsoredNamedAccountId,
+            publicKey: finalized.publicKey,
+          });
+          if (!created.success) {
+            return {
+              ok: false,
+              code: 'account_creation_failed',
+              message: created.error || created.message || 'Failed to create NEAR account',
+            };
+          }
+          sponsoredTransactionHash = created.transactionHash;
+        }
         const resolvedAccount = resolvedRegistrationNearAccount({
           accountProvisioning: ed25519.accountProvisioning,
           nearAccountId: finalized.nearAccountId,
           nearEd25519SigningKeyId,
+          sponsoredTransactionHash,
         });
         if (!resolvedAccount.ok) return resolvedAccount;
         const scheme = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
@@ -1056,7 +1086,21 @@ export class CloudflareD1WalletRegistrationService {
               message: session.message || 'threshold-ed25519 session bootstrap failed',
             };
           }
-          const normalizedSession = toD1ThresholdEd25519BootstrapSession(session);
+          const normalizedSession = toD1ThresholdEd25519BootstrapSession({
+            walletId: session.walletId,
+            nearAccountId: session.nearAccountId,
+            nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
+            authorityScope: sessionPolicy.value.authorityScope,
+            thresholdSessionId: session.thresholdSessionId,
+            signingGrantId: session.signingGrantId,
+            expiresAtMs: session.expiresAtMs,
+            expiresAt: session.expiresAt,
+            participantIds: session.participantIds,
+            remainingUses: session.remainingUses,
+            runtimePolicyScope: session.runtimePolicyScope,
+            routerAbNormalSigning: session.routerAbNormalSigning,
+            jwt: session.jwt,
+          });
           if (!normalizedSession) {
             return {
               ok: false,
@@ -1113,35 +1157,32 @@ export class CloudflareD1WalletRegistrationService {
         if (!consumed) {
           return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
         }
-        const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {
+        const rpId = registrationIntentResponseRpId(ceremony.intent);
+        const ed25519Response: NonNullable<
+          Extract<WalletRegistrationFinalizeResponse, { ed25519: object }>['ed25519']
+        > = {
+          nearAccountId: finalized.nearAccountId,
+          nearEd25519SigningKeyId,
+          publicKey: keygen.publicKey,
+          relayerKeyId: keygen.relayerKeyId,
+          keyVersion: keygen.keyVersion,
+          recoveryExportCapable: keygen.recoveryExportCapable,
+          clientParticipantId: keygen.clientParticipantId,
+          relayerParticipantId: keygen.relayerParticipantId,
+          participantIds: keygen.participantIds,
+        };
+        if (thresholdEd25519Session) ed25519Response.session = thresholdEd25519Session;
+        const response: Extract<WalletRegistrationFinalizeResponse, { ed25519: object }> = {
           ok: true,
           walletId: ceremony.intent.walletId,
-          ...(registrationIntentResponseRpId(ceremony.intent)
-            ? { rpId: registrationIntentResponseRpId(ceremony.intent) }
-            : {}),
+          authorityScope: ed25519AuthorityScope,
           authMethod: walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority),
           accountProvisioning: ed25519.accountProvisioning,
           resolvedAccount: resolvedAccount.value,
-          ed25519: {
-            nearAccountId: finalized.nearAccountId,
-            nearEd25519SigningKeyId,
-            publicKey: keygen.publicKey,
-            relayerKeyId: keygen.relayerKeyId,
-            keyVersion: keygen.keyVersion,
-            recoveryExportCapable: keygen.recoveryExportCapable,
-            clientParticipantId: keygen.clientParticipantId,
-            relayerParticipantId: keygen.relayerParticipantId,
-            participantIds: keygen.participantIds,
-            ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
-          },
-          ...(walletKeyResult?.ok
-            ? {
-                ecdsa: {
-                  walletKeys: walletKeyResult.walletKeys,
-                },
-              }
-            : {}),
+          ed25519: ed25519Response,
         };
+        if (rpId) response.rpId = rpId;
+        if (walletKeyResult?.ok) response.ecdsa = { walletKeys: walletKeyResult.walletKeys };
         if (idempotencyKey) {
           await store.putFinalizeReplay({
             kind: 'wallet_registration_finalize_replay_v1',
@@ -1257,15 +1298,15 @@ export class CloudflareD1WalletRegistrationService {
           message: 'ECDSA HSS response is required before finalize',
         };
       }
-      const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {
+      const response: Extract<WalletRegistrationFinalizeResponse, { ecdsa: object }> = {
         ok: true,
         walletId: ceremony.intent.walletId,
-        ...(ceremony.authority.kind === 'passkey' ? { rpId: ceremony.authority.rpId } : {}),
         authMethod: walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority),
         ecdsa: {
           walletKeys: walletKeyResult.walletKeys,
         },
       };
+      if (ceremony.authority.kind === 'passkey') response.rpId = ceremony.authority.rpId;
       if (idempotencyKey) {
         await store.putFinalizeReplay({
           kind: 'wallet_registration_finalize_replay_v1',

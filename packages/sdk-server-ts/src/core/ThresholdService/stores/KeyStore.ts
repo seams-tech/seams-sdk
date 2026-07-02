@@ -15,6 +15,7 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   isObject,
+  canonicalThresholdEd25519RelayerKeyId,
   toThresholdEcdsaKeyPrefix,
   toThresholdEcdsaPrefixFromBase,
   toThresholdEd25519KeyPrefix,
@@ -256,21 +257,40 @@ async function redisGetString(client: RedisTcpClient, key: string): Promise<stri
   return null;
 }
 
-export type ThresholdEd25519KeyRecord = {
+export type ThresholdEd25519ProvisioningKeyRecord = {
+  kind: 'provisioning';
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   publicKey: string;
-  relayerSigningShareB64u: string;
-  relayerVerifyingShareB64u: string;
+  keyVersion: string;
+  routerMaterial?: never;
+  recoveryExportCapable?: never;
+};
+
+export type ThresholdEd25519ReadyKeyRecord = {
+  kind: 'ready';
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
+  publicKey: string;
+  routerMaterial: {
+    signingShareB64u: string;
+    verifyingShareB64u: string;
+  };
   keyVersion: string;
   recoveryExportCapable: true;
 };
 
+export type ThresholdEd25519KeyRecord =
+  | ThresholdEd25519ProvisioningKeyRecord
+  | ThresholdEd25519ReadyKeyRecord;
+
 export interface ThresholdEd25519KeyStore {
-  get(relayerKeyId: string): Promise<ThresholdEd25519KeyRecord | null>;
-  put(relayerKeyId: string, record: ThresholdEd25519KeyRecord): Promise<void>;
+  get(relayerKeyId: string): Promise<ThresholdEd25519ReadyKeyRecord | null>;
+  put(relayerKeyId: string, record: ThresholdEd25519ReadyKeyRecord): Promise<void>;
   del(relayerKeyId: string): Promise<void>;
 }
 
@@ -281,22 +301,22 @@ export interface ThresholdEcdsaIntegratedKeyStore {
 }
 
 class InMemoryThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
-  private readonly map = new Map<string, ThresholdEd25519KeyRecord>();
+  private readonly map = new Map<string, ThresholdEd25519ReadyKeyRecord>();
 
-  async get(relayerKeyId: string): Promise<ThresholdEd25519KeyRecord | null> {
-    const id = relayerKeyId;
+  async get(relayerKeyId: string): Promise<ThresholdEd25519ReadyKeyRecord | null> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return null;
     return this.map.get(id) || null;
   }
 
-  async put(relayerKeyId: string, record: ThresholdEd25519KeyRecord): Promise<void> {
-    const id = relayerKeyId;
+  async put(relayerKeyId: string, record: ThresholdEd25519ReadyKeyRecord): Promise<void> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) throw new Error('Missing relayerKeyId');
     this.map.set(id, record);
   }
 
   async del(relayerKeyId: string): Promise<void> {
-    const id = relayerKeyId;
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return;
     this.map.delete(id);
   }
@@ -319,21 +339,21 @@ class UpstashRedisRestThresholdEd25519KeyStore implements ThresholdEd25519KeySto
     return `${this.keyPrefix}${relayerKeyId}`;
   }
 
-  async get(relayerKeyId: string): Promise<ThresholdEd25519KeyRecord | null> {
-    const id = relayerKeyId;
+  async get(relayerKeyId: string): Promise<ThresholdEd25519ReadyKeyRecord | null> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return null;
     const raw = await this.client.getJson(this.key(id));
     return parseThresholdEd25519KeyRecord(raw);
   }
 
-  async put(relayerKeyId: string, record: ThresholdEd25519KeyRecord): Promise<void> {
-    const id = relayerKeyId;
+  async put(relayerKeyId: string, record: ThresholdEd25519ReadyKeyRecord): Promise<void> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) throw new Error('Missing relayerKeyId');
     await this.client.setJson(this.key(id), record);
   }
 
   async del(relayerKeyId: string): Promise<void> {
-    const id = relayerKeyId;
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return;
     await this.client.del(this.key(id));
   }
@@ -354,21 +374,21 @@ class RedisTcpThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
     return `${this.keyPrefix}${relayerKeyId}`;
   }
 
-  async get(relayerKeyId: string): Promise<ThresholdEd25519KeyRecord | null> {
-    const id = relayerKeyId;
+  async get(relayerKeyId: string): Promise<ThresholdEd25519ReadyKeyRecord | null> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return null;
     const raw = await redisGetJson(this.client, this.key(id));
     return parseThresholdEd25519KeyRecord(raw);
   }
 
-  async put(relayerKeyId: string, record: ThresholdEd25519KeyRecord): Promise<void> {
-    const id = relayerKeyId;
+  async put(relayerKeyId: string, record: ThresholdEd25519ReadyKeyRecord): Promise<void> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) throw new Error('Missing relayerKeyId');
     await redisSetJson(this.client, this.key(id), record);
   }
 
   async del(relayerKeyId: string): Promise<void> {
-    const id = relayerKeyId;
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return;
     await redisDel(this.client, this.key(id));
   }

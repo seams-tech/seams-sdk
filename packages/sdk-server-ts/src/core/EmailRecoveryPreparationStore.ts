@@ -9,6 +9,10 @@ import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
+  parseThresholdEd25519AuthorityScope,
+  type ThresholdEd25519AuthorityScope,
+} from './ThresholdService/validation';
+import {
   RedisTcpClient,
   UpstashRedisRestClient,
   redisDel,
@@ -24,6 +28,7 @@ import type { D1DatabaseLike } from '../storage/tenantRoute';
 
 export type EmailRecoveryPreparedThresholdEd25519Record = {
   relayerKeyId: string;
+  authorityScope: ThresholdEd25519AuthorityScope;
   publicKey: string;
   keyVersion: string;
   recoveryExportCapable: true;
@@ -217,6 +222,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
   const walletId = toOptionalTrimmedString(raw.walletId);
   const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalTrimmedString(raw.nearEd25519SigningKeyId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const thresholdSessionId = toOptionalTrimmedString(raw.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(raw.signingGrantId);
   const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
@@ -225,6 +231,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
+    !authorityScope ||
     !thresholdSessionId ||
     !signingGrantId ||
     !expiresAtMs
@@ -241,6 +248,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
+    authorityScope,
     thresholdSessionId,
     signingGrantId,
     expiresAtMs,
@@ -279,16 +287,19 @@ function parsePreparedThresholdEd25519(
 ): EmailRecoveryPreparedThresholdEd25519Record | null {
   if (!isObject(raw)) return null;
   const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const publicKey = toOptionalTrimmedString(raw.publicKey);
   const keyVersion = toOptionalTrimmedString(raw.keyVersion);
   const recoveryExportCapable = raw.recoveryExportCapable === true;
-  if (!relayerKeyId || !publicKey || !keyVersion || !recoveryExportCapable) return null;
+  if (!relayerKeyId || !authorityScope || !publicKey || !keyVersion || !recoveryExportCapable)
+    return null;
   const clientParticipantId = parsePositiveInteger(raw.clientParticipantId);
   const relayerParticipantId = parsePositiveInteger(raw.relayerParticipantId);
   const participantIds = parseParticipantIds(raw.participantIds);
   const session = parseThresholdEd25519Session(raw.session);
   return {
     relayerKeyId,
+    authorityScope,
     publicKey,
     keyVersion,
     recoveryExportCapable: true,

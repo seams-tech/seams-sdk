@@ -26,6 +26,46 @@ import { signNEP413Message as signNEP413MessageCore } from '@/SeamsWeb/operation
 import { buildNearWalletRegistrationArgs } from '@/SeamsWeb/operations/near';
 import { registerWallet as registerWalletWithUnifiedCeremony } from '@/SeamsWeb/operations/registration/registration';
 import { resolveNearCommandSubject } from '@/SeamsWeb/operations/near/commandSubject';
+import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
+import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
+import { walletSessionJwtFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
+import type { NearAccountRef, WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+
+function relayerUrlFromConfigs(configs: SeamsConfigsReadonly): string {
+  const relayerUrl = String(configs.network.relayer?.url || '').trim();
+  if (!relayerUrl) throw new Error('Relayer URL is not configured');
+  return relayerUrl;
+}
+
+function requireNearPublicKey(value: unknown): string {
+  const nearPublicKey = String(value || '').trim();
+  if (!nearPublicKey) throw new Error('NEAR public key is required');
+  return nearPublicKey;
+}
+
+function requireCurrentEd25519WalletSessionJwt(walletSession: WalletSessionRef): string {
+  const record = getStoredThresholdEd25519SessionRecordForWallet(walletSession.walletId);
+  const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(record);
+  if (!walletSessionJwt) {
+    throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
+  }
+  return walletSessionJwt;
+}
+
+async function fundImplicitNearAccountFromCurrentSession(args: {
+  configs: SeamsConfigsReadonly;
+  walletSession: WalletSessionRef;
+  nearAccount: NearAccountRef;
+  nearPublicKey: string;
+}): ReturnType<typeof fundImplicitNearAccountForTesting> {
+  return await fundImplicitNearAccountForTesting({
+    relayerUrl: relayerUrlFromConfigs(args.configs),
+    walletId: args.walletSession.walletId,
+    nearAccountId: args.nearAccount.accountId,
+    nearPublicKeyStr: requireNearPublicKey(args.nearPublicKey),
+    walletSessionJwt: requireCurrentEd25519WalletSessionJwt(args.walletSession),
+  });
+}
 
 export function createNearSignerCapability(deps: {
   signingEngine: RegistrationSigningSurface & NearSigningSurface & UserAccountLookupSurface;
@@ -75,6 +115,27 @@ export function createNearSignerCapability(deps: {
         await args.options?.afterCall?.(false, undefined, e);
         throw e;
       }
+    },
+    fundImplicitNearAccountForTesting: async (args) => {
+      const walletIframe = deps.getWalletIframe();
+      const commandSubject = resolveNearCommandSubject({
+        nearAccountId: args.nearAccount.accountId,
+        walletSession: args.walletSession,
+      });
+      if (!walletIframe.shouldUseWalletIframe()) {
+        return await fundImplicitNearAccountFromCurrentSession({
+          configs: deps.configs,
+          walletSession: commandSubject.walletSession,
+          nearAccount: args.nearAccount,
+          nearPublicKey: args.nearPublicKey,
+        });
+      }
+      const router = await walletIframe.requireRouter(commandSubject.walletSession.walletId);
+      return await router.fundImplicitNearAccountForTesting({
+        walletId: commandSubject.walletSession.walletId,
+        nearAccountId: args.nearAccount.accountId,
+        nearPublicKey: args.nearPublicKey,
+      });
     },
     executeAction: async (args) => {
       const walletIframe = deps.getWalletIframe();

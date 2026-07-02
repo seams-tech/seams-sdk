@@ -41,11 +41,16 @@ import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnA
 import { normalizeRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type {
+  Ed25519AuthorityScope,
+  Ed25519SessionPolicyAuthority,
+  ThresholdRuntimePolicyScope,
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   AddSignerSelection,
   NearEd25519SigningKeyId,
   RegistrationAuthMethodInput,
+  RegistrationEd25519AuthorityScope,
   RegistrationEvmFamilyEcdsaSignerPlan,
   RegistrationNearAccountProvisioning,
   RegistrationNearEd25519SignerPlan,
@@ -138,6 +143,55 @@ function requireWebAuthnRpId(value: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+function thresholdEd25519AuthorityScopeFromRegistrationScope(
+  authorityScope: RegistrationEd25519AuthorityScope,
+): Ed25519AuthorityScope {
+  switch (authorityScope.kind) {
+    case 'passkey':
+      return { kind: 'passkey_rp', rpId: authorityScope.rpId };
+    case 'email_otp':
+      switch (authorityScope.proofKind) {
+        case 'otp_challenge':
+          return {
+            kind: 'email_otp',
+            proofKind: 'otp_challenge',
+            email: authorityScope.email,
+            ...(authorityScope.challengeId ? { challengeId: authorityScope.challengeId } : {}),
+          };
+        case 'google_sso_registration':
+          return {
+            kind: 'email_otp',
+            proofKind: 'google_sso_registration',
+            email: authorityScope.email,
+            googleEmailOtpRegistrationAttemptId:
+              authorityScope.googleEmailOtpRegistrationAttemptId,
+            googleEmailOtpRegistrationOfferId: authorityScope.googleEmailOtpRegistrationOfferId,
+            googleEmailOtpRegistrationCandidateId:
+              authorityScope.googleEmailOtpRegistrationCandidateId,
+          };
+        default: {
+          const exhaustive: never = authorityScope;
+          return exhaustive;
+        }
+      }
+    default: {
+      const exhaustive: never = authorityScope;
+      return exhaustive;
+    }
+  }
+}
+
+function registrationEd25519SessionPolicyAuthority(
+  authMethod: RegistrationAuthMethodInput,
+): Ed25519SessionPolicyAuthority {
+  return {
+    kind: 'exact_authority_scope',
+    authorityScope: thresholdEd25519AuthorityScopeFromRegistrationScope(
+      registrationEd25519AuthorityScope(authMethod),
+    ),
+  };
 }
 
 export function isRegistrationBenchmarkDiagnosticsEnabled(): boolean {
@@ -485,7 +539,23 @@ function registrationAuthorityScopeKey(authMethod: RegistrationAuthMethodInput):
   return JSON.stringify(registrationEd25519AuthorityScope(authMethod));
 }
 
-function registrationBootstrapGrantRpId(input: {
+type ManagedRegistrationFlowGrantAuthority = Parameters<
+  typeof createManagedRegistrationFlowGrant
+>[0]['authority'];
+
+function registrationBootstrapGrantAuthority(input: {
+  authMethod: RegistrationAuthMethodInput;
+  operation: string;
+}): ManagedRegistrationFlowGrantAuthority {
+  if (input.authMethod.kind !== 'passkey') return { kind: 'wallet_auth' };
+  const rpId = String(input.authMethod.rpId || '').trim();
+  if (!rpId) {
+    throw new Error(`${input.operation} requires configured rpId for managed registration grant`);
+  }
+  return { kind: 'passkey_rp', rpId };
+}
+
+function requiredRegistrationRpId(input: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
   operation: string;
@@ -495,7 +565,7 @@ function registrationBootstrapGrantRpId(input: {
       ? String(input.authMethod.rpId || '').trim()
       : String(input.context.signingEngine.getRpId() || '').trim();
   if (!rpId) {
-    throw new Error(`${input.operation} requires configured rpId for managed registration grant`);
+    throw new Error(`${input.operation} requires configured rpId`);
   }
   return rpId;
 }
@@ -1330,8 +1400,7 @@ async function startWalletRegistrationPrecomputeReady(input: {
     createManagedRegistrationFlowGrant({
       context: input.context,
       identity: grantIdentity,
-      rpId: registrationBootstrapGrantRpId({
-        context: input.context,
+      authority: registrationBootstrapGrantAuthority({
         authMethod: input.authMethod,
         operation: 'registerWallet',
       }),
@@ -2074,8 +2143,7 @@ async function registerEcdsaWalletOnly(args: {
           wallet.kind === 'provided'
             ? { kind: 'wallet', walletId: String(wallet.walletId || '').trim() }
             : { kind: 'none' },
-        rpId: registrationBootstrapGrantRpId({
-          context,
+        authority: registrationBootstrapGrantAuthority({
           authMethod: args.authMethod,
           operation: 'registerWallet',
         }),
@@ -2560,7 +2628,7 @@ async function registerWalletInternal(
       thresholdRuntimePolicyScope,
     } = precomputeReady;
     eventAccountId = registrationEventAccountId(String(intentResponse.intent.walletId));
-    const registrationSessionRpId = registrationBootstrapGrantRpId({
+    const registrationSessionRpId = requiredRegistrationRpId({
       context,
       authMethod: args.authMethod,
       operation: 'registerWallet',
@@ -2850,7 +2918,7 @@ async function registerWalletInternal(
         ed25519: {
           evaluationResult,
           sessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            rpId: registrationSessionRpId,
+            authority: registrationEd25519SessionPolicyAuthority(args.authMethod),
             requestedPolicy,
             ...(sponsoredNamedAccountId ? { nearAccountId: sponsoredNamedAccountId } : {}),
           }).session_policy,
@@ -2915,7 +2983,7 @@ async function registerWalletInternal(
         completeRegisteredThresholdEd25519Registration({
           thresholdEd25519: finalizedEd25519,
           expectedSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            rpId: registrationSessionRpId,
+            authority: registrationEd25519SessionPolicyAuthority(args.authMethod),
             requestedPolicy,
             walletId: finalized.walletId,
             nearAccountId: String(nearAccountId),
@@ -3010,7 +3078,7 @@ async function registerWalletInternal(
     );
     const signerSlot = storedRegistration.signerSlot;
     const thresholdEd25519RegistrationSessionPolicy = buildThresholdWarmSessionRequestEnvelope({
-      rpId: registrationSessionRpId,
+      authority: registrationEd25519SessionPolicyAuthority(args.authMethod),
       requestedPolicy,
       walletId: finalized.walletId,
       nearAccountId: String(nearAccountId),
@@ -3342,7 +3410,7 @@ export async function addWalletSigner(args: {
     const managedGrant = await createManagedRegistrationFlowGrant({
       context,
       identity: { kind: 'wallet', walletId: String(walletId) },
-      rpId,
+      authority: { kind: 'passkey_rp', rpId },
     });
     const intentResponse = await createWalletAddSignerIntent({
       relayerUrl,
@@ -3469,7 +3537,7 @@ export async function addWalletSigner(args: {
         ed25519: {
           evaluationResult,
           sessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            rpId,
+            authority: { kind: 'passkey_rp', rpId },
             requestedPolicy,
             walletId: String(walletId),
             nearAccountId: String(nearAccountId),
@@ -3484,7 +3552,7 @@ export async function addWalletSigner(args: {
       const completedThresholdEd25519Registration = completeRegisteredThresholdEd25519Registration({
         thresholdEd25519: finalized.ed25519,
         expectedSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-          rpId,
+          authority: { kind: 'passkey_rp', rpId },
           requestedPolicy,
           walletId: String(walletId),
           nearAccountId: String(nearAccountId),
@@ -3532,7 +3600,7 @@ export async function addWalletSigner(args: {
         relayerUrl,
         prfFirstB64u: hssClientMaterial.prfFirstB64u,
         registrationSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-          rpId,
+          authority: { kind: 'passkey_rp', rpId },
           requestedPolicy,
           walletId: String(walletId),
           nearAccountId: String(nearAccountId),

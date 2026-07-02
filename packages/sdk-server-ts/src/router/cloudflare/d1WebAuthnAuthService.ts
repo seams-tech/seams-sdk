@@ -1,7 +1,7 @@
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import {
   d1HostIsWithinWebAuthnRpId,
   d1WebAuthnCredentialIdB64uFromCredential,
@@ -28,38 +28,38 @@ import {
 } from './d1WebAuthnRecords';
 
 type ListWebAuthnAuthenticatorsInput = Parameters<
-  CloudflareRouterApiAuthService['listWebAuthnAuthenticatorsForUser']
+  RouterApiAuthService['listWebAuthnAuthenticatorsForUser']
 >[0];
 type ListWebAuthnAuthenticatorsResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['listWebAuthnAuthenticatorsForUser']>
+  ReturnType<RouterApiAuthService['listWebAuthnAuthenticatorsForUser']>
 >;
 type CreateWebAuthnLoginOptionsInput = Parameters<
-  CloudflareRouterApiAuthService['createWebAuthnLoginOptions']
+  RouterApiAuthService['createWebAuthnLoginOptions']
 >[0];
 type CreateWebAuthnLoginOptionsResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['createWebAuthnLoginOptions']>
+  ReturnType<RouterApiAuthService['createWebAuthnLoginOptions']>
 >;
 type CreateWebAuthnSyncAccountOptionsInput = Parameters<
-  CloudflareRouterApiAuthService['createWebAuthnSyncAccountOptions']
+  RouterApiAuthService['createWebAuthnSyncAccountOptions']
 >[0];
 type CreateWebAuthnSyncAccountOptionsResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['createWebAuthnSyncAccountOptions']>
+  ReturnType<RouterApiAuthService['createWebAuthnSyncAccountOptions']>
 >;
 type VerifyWebAuthnAuthenticationLiteInput = Parameters<
-  CloudflareRouterApiAuthService['verifyWebAuthnAuthenticationLite']
+  RouterApiAuthService['verifyWebAuthnAuthenticationLite']
 >[0];
 type VerifyWebAuthnAuthenticationLiteResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyWebAuthnAuthenticationLite']>
+  ReturnType<RouterApiAuthService['verifyWebAuthnAuthenticationLite']>
 >;
-type VerifyWebAuthnLoginInput = Parameters<CloudflareRouterApiAuthService['verifyWebAuthnLogin']>[0];
+type VerifyWebAuthnLoginInput = Parameters<RouterApiAuthService['verifyWebAuthnLogin']>[0];
 type VerifyWebAuthnLoginResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyWebAuthnLogin']>
+  ReturnType<RouterApiAuthService['verifyWebAuthnLogin']>
 >;
 type VerifyWebAuthnSyncAccountInput = Parameters<
-  CloudflareRouterApiAuthService['verifyWebAuthnSyncAccount']
+  RouterApiAuthService['verifyWebAuthnSyncAccount']
 >[0];
 type VerifyWebAuthnSyncAccountResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyWebAuthnSyncAccount']>
+  ReturnType<RouterApiAuthService['verifyWebAuthnSyncAccount']>
 >;
 
 type SimpleWebAuthnVerifier = (args: unknown) => Promise<unknown>;

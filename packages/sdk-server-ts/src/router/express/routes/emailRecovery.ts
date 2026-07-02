@@ -30,7 +30,6 @@ async function handleExpressEmailRecoveryPrepare(input: {
 
     const signed = await signEmailRecoveryThresholdSessionJwt({
       result,
-      rpId: parsed.request.rp_id,
       session: input.ctx.opts.session,
     });
     if (!signed.ok) {
@@ -70,7 +69,6 @@ async function handleExpressEmailRecoveryEcdsaRespond(input: {
 
     const signed = await signEmailRecoveryThresholdSessionJwt({
       result,
-      rpId: result.walletBinding.rpId,
       session: input.ctx.opts.session,
     });
     if (!signed.ok) {

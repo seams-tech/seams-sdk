@@ -54,7 +54,6 @@ export interface RouteDefinition {
 }
 
 export interface RouterApiRouteDefinitionOptions {
-  enableEd25519RegistrationPrepare?: boolean;
   enableEmailRecoveryPrepare?: boolean;
   enableRecoverEmail?: boolean;
   enableHealthz?: boolean;
@@ -2021,23 +2020,21 @@ export function createRouterApiRouteDefinitions(
     ]),
   );
 
-  if (options.enableEd25519RegistrationPrepare) {
-    definitions.push(
-      publicRoute(
-        'wallet_registration_prepare',
-        'POST',
-        '/wallets/register/prepare',
-        'Prepare inert wallet registration HSS material',
-        {
-          plane: 'public',
-          proof: 'intent_grant',
-          rationale:
-            'Registration prepare is bound to an unconsumed registration intent grant and creates only inert HSS material.',
-        },
-        ['authService'],
-      ),
-    );
-  }
+  definitions.push(
+    publicRoute(
+      'wallet_registration_prepare',
+      'POST',
+      '/wallets/register/prepare',
+      'Prepare inert wallet registration HSS material',
+      {
+        plane: 'public',
+        proof: 'intent_grant',
+        rationale:
+          'Registration prepare is bound to an unconsumed registration intent grant and creates only inert HSS material.',
+      },
+      ['authService'],
+    ),
+  );
 
   if (options.enableEmailRecoveryPrepare) {
     definitions.push(

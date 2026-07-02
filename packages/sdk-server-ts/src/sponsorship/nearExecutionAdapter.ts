@@ -1,11 +1,13 @@
-import type { AuthService } from '../core/AuthService';
 import {
   buildDelegateActionPolicyFromResolvedRule,
   type ResolvedSponsoredNearDelegatePolicy,
 } from './near';
+import type { ExecuteSignedDelegateRequest, ExecuteSignedDelegateResult } from '../delegateAction';
 import type { SponsorshipExecutionAdapter } from './executionAdapter';
 
-export type SponsoredNearDelegateAuthService = Pick<AuthService, 'executeSignedDelegate'>;
+export interface SponsoredNearDelegateAuthService {
+  executeSignedDelegate(input: ExecuteSignedDelegateRequest): Promise<ExecuteSignedDelegateResult>;
+}
 
 export type SponsoredNearDelegateExecutionResult = Awaited<
   ReturnType<SponsoredNearDelegateAuthService['executeSignedDelegate']>

@@ -178,7 +178,7 @@ export async function syncAccount(
         walletId: String(optionsWalletBinding.walletId),
         nearAccountId: String(optionsWalletBinding.nearAccountId),
         nearEd25519SigningKeyId: String(optionsWalletBinding.nearEd25519SigningKeyId),
-        rpId,
+        authority: { kind: 'passkey_rp', rpId },
         requestedPolicy: thresholdWarmPolicyDraft,
       });
     }

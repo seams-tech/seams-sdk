@@ -71,10 +71,11 @@ import {
   type EmailOtpEcdsaBootstrapAuthorization,
   signingGrantIdFromEcdsaBootstrap,
 } from './routePlan';
-import type {
-  EmailOtpEd25519SessionReconstructionPlan,
-  EmailOtpThresholdEd25519ProvisioningResult,
-  ReconstructEmailOtpEd25519SessionArgs,
+import {
+  emailOtpAuthorityScopeFromEmail,
+  type EmailOtpEd25519SessionReconstructionPlan,
+  type EmailOtpThresholdEd25519ProvisioningResult,
+  type ReconstructEmailOtpEd25519SessionArgs,
 } from './provisioning';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
@@ -155,6 +156,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
+  emailOtpAuthorityEmail?: string;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
   ed25519ReconstructionMode: 'await' | 'skip';
   ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
@@ -164,27 +166,28 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
 
 function buildEd25519ReconstructionAuthContext(args: {
   ecdsaAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  authSubjectId?: string;
+  authSubjectId: string;
 }): ThresholdEcdsaEmailOtpAuthContext {
   const authSubjectId = String(args.authSubjectId || '').trim();
+  if (!authSubjectId) {
+    throw new Error('Email OTP Ed25519 reconstruction requires authSubjectId');
+  }
   if (args.ecdsaAuthContext.reason === 'sign') {
-    const context: ThresholdEcdsaEmailOtpAuthContext = {
+    return {
       policy: args.ecdsaAuthContext.policy,
       retention: args.ecdsaAuthContext.retention,
       reason: 'sign',
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      authSubjectId,
     };
-    if (authSubjectId) context.authSubjectId = authSubjectId;
-    return context;
   }
-  const context: ThresholdEcdsaEmailOtpAuthContext = {
+  return {
     policy: 'session',
     retention: 'session',
     reason: 'login',
     authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    authSubjectId,
   };
-  if (authSubjectId) context.authSubjectId = authSubjectId;
-  return context;
 }
 
 function emailOtpWorkerHandleOperationFromLoginOperation(
@@ -436,12 +439,6 @@ export async function loginWithEmailOtpEcdsaCapability(
     emailOtpAuthReason === 'sign' && emailOtpAuthPolicy === 'per_operation'
       ? 'single_use'
       : 'session';
-  const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
-    policy: emailOtpAuthPolicy,
-    retention: emailOtpAuthRetention,
-    reason: emailOtpAuthReason,
-    authMethod: SIGNER_AUTH_METHODS.emailOtp,
-  };
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || ports.requireShamirPrimeB64u()).trim();
   const configuredRemainingUses = args.remainingUses;
@@ -539,15 +536,23 @@ export async function loginWithEmailOtpEcdsaCapability(
   const emailOtpContextAuthSubjectId = authSubjectId
     ? toEmailOtpAuthSubjectId(authSubjectId)
     : undefined;
+  const emailOtpAuthSubjectId =
+    emailOtpContextAuthSubjectId || toEmailOtpAuthSubjectId(args.walletSession.walletSessionUserId);
+  const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
+    policy: emailOtpAuthPolicy,
+    retention: emailOtpAuthRetention,
+    reason: emailOtpAuthReason,
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    authSubjectId: emailOtpAuthSubjectId,
+  };
   const publicationChainTargets = emailOtpEcdsaPublicationChainTargets({
     configs: ports.configs,
-    primaryChain: chainTarget,
+    chainTarget,
     emailOtpAuthContext,
     ...(args.publicationChainTargets
       ? { additionalChainTargets: args.publicationChainTargets }
       : {}),
   });
-  const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(args.walletSession.walletSessionUserId);
   const walletSessionUserId = toWalletSessionUserId(args.walletSession.walletId);
   const workerResult = await unlockEmailOtpWallet({
     walletSession: args.walletSession,
@@ -604,21 +609,20 @@ export async function loginWithEmailOtpEcdsaCapability(
       onEvent: args.onProgress,
     },
   });
-  const resolvedEmailOtpAuthContext = {
-    ...emailOtpAuthContext,
-    ...(emailOtpContextAuthSubjectId ? { authSubjectId: emailOtpContextAuthSubjectId } : {}),
-  };
   const ed25519ReconstructionAuthContext = buildEd25519ReconstructionAuthContext({
     ecdsaAuthContext: emailOtpAuthContext,
-    authSubjectId: emailOtpContextAuthSubjectId,
+    authSubjectId: emailOtpAuthSubjectId,
   });
+  const ed25519AuthorityScope = emailOtpAuthorityScopeFromEmail(
+    args.emailOtpAuthorityEmail || emailOtpAuthSubjectId,
+  );
   const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
       walletId: toWalletId(args.walletSession.walletId),
       publicationChainTargets,
       bootstraps: bootstrapResult.bootstraps,
       signingGrantId,
-      emailOtpAuthContext: resolvedEmailOtpAuthContext,
+      emailOtpAuthContext,
       relayerUrl: relayUrl,
       shamirPrimeB64u,
     },
@@ -659,6 +663,7 @@ export async function loginWithEmailOtpEcdsaCapability(
         routeAuth: reconstructionAuth,
         runtimePolicyScope: resolvedEd25519Reconstruction.runtimePolicyScope,
         routerAbNormalSigning: routerAbNormalSigningStateFromConfigs(ports.configs),
+        authorityScope: ed25519AuthorityScope,
         ed25519Key: resolvedEd25519Reconstruction.ed25519Key,
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),

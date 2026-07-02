@@ -12,6 +12,7 @@ export type NearWalletRequestType =
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_SIGN_TX_WITH_ACTIONS'
   | 'PM_SIGN_AND_SEND_TX'
+  | 'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING'
   | 'PM_SEND_TRANSACTION'
   | 'PM_EXECUTE_ACTION'
   | 'PM_SIGN_DELEGATE_ACTION'
@@ -141,6 +142,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_PREFETCH_BLOCKHEIGHT':
     case 'PM_SIGN_TX_WITH_ACTIONS':
     case 'PM_SIGN_AND_SEND_TX':
+    case 'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING':
     case 'PM_SEND_TRANSACTION':
     case 'PM_EXECUTE_ACTION':
     case 'PM_SIGN_DELEGATE_ACTION':

@@ -348,6 +348,60 @@ export function pendingGoogleEmailOtpRegistrationAttemptWithUpdatedAt(
   };
 }
 
+export function pendingGoogleEmailOtpRegistrationAttemptWithSelectedCandidate(input: {
+  readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
+  readonly candidate: GoogleEmailOtpRegistrationOfferCandidateRecord;
+  readonly updatedAtMs: number;
+}): PendingGoogleEmailOtpRegistrationAttemptRecord {
+  if (input.record.state === 'started') {
+    return {
+      version: 'google_email_otp_registration_attempt_v1',
+      attemptId: input.record.attemptId,
+      providerSubject: input.record.providerSubject,
+      email: input.record.email,
+      walletId: input.candidate.walletId,
+      offerId: input.record.offerId,
+      offerCandidates: input.record.offerCandidates,
+      selectedCandidateId: input.candidate.candidateId,
+      appSessionVersion: input.record.appSessionVersion,
+      authProvider: input.record.authProvider,
+      accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: input.record.walletIdDerivationNonce,
+      collisionCounter: input.candidate.collisionCounter,
+      state: 'started',
+      createdAtMs: input.record.createdAtMs,
+      updatedAtMs: input.updatedAtMs,
+      expiresAtMs: input.record.expiresAtMs,
+      ...(input.record.runtimePolicyScope
+        ? { runtimePolicyScope: input.record.runtimePolicyScope }
+        : {}),
+    };
+  }
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: input.record.attemptId,
+    providerSubject: input.record.providerSubject,
+    email: input.record.email,
+    walletId: input.candidate.walletId,
+    offerId: input.record.offerId,
+    offerCandidates: input.record.offerCandidates,
+    selectedCandidateId: input.candidate.candidateId,
+    appSessionVersion: input.record.appSessionVersion,
+    authProvider: input.record.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: input.record.walletIdDerivationNonce,
+    collisionCounter: input.candidate.collisionCounter,
+    state: 'key_finalized',
+    finalizedPublicKey: input.record.finalizedPublicKey,
+    createdAtMs: input.record.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+    expiresAtMs: input.record.expiresAtMs,
+    ...(input.record.runtimePolicyScope
+      ? { runtimePolicyScope: input.record.runtimePolicyScope }
+      : {}),
+  };
+}
+
 export function abandonedGoogleEmailOtpRegistrationAttemptRecord(input: {
   readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
   readonly failureCode: 'app_session_version_replaced' | 'offer_restarted_by_user';
@@ -368,39 +422,6 @@ export function abandonedGoogleEmailOtpRegistrationAttemptRecord(input: {
     walletIdDerivationNonce: input.record.walletIdDerivationNonce,
     collisionCounter: input.record.collisionCounter,
     state: 'abandoned',
-    ...(input.record.state === 'key_finalized'
-      ? { finalizedPublicKey: input.record.finalizedPublicKey }
-      : {}),
-    failureCode: input.failureCode,
-    createdAtMs: input.record.createdAtMs,
-    updatedAtMs: input.updatedAtMs,
-    expiresAtMs: input.record.expiresAtMs,
-    ...(input.record.runtimePolicyScope
-      ? { runtimePolicyScope: input.record.runtimePolicyScope }
-      : {}),
-  };
-}
-
-export function failedGoogleEmailOtpRegistrationAttemptRecord(input: {
-  readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
-  readonly failureCode: 'non_hmac_readable_wallet_id';
-  readonly updatedAtMs: number;
-}): GoogleEmailOtpRegistrationAttemptRecord {
-  return {
-    version: 'google_email_otp_registration_attempt_v1',
-    attemptId: input.record.attemptId,
-    providerSubject: input.record.providerSubject,
-    email: input.record.email,
-    walletId: input.record.walletId,
-    offerId: input.record.offerId,
-    offerCandidates: input.record.offerCandidates,
-    selectedCandidateId: input.record.selectedCandidateId,
-    appSessionVersion: input.record.appSessionVersion,
-    authProvider: input.record.authProvider,
-    accountIdSlugVersion: 'hmac_readable_v1',
-    walletIdDerivationNonce: input.record.walletIdDerivationNonce,
-    collisionCounter: input.record.collisionCounter,
-    state: 'failed',
     ...(input.record.state === 'key_finalized'
       ? { finalizedPublicKey: input.record.finalizedPublicKey }
       : {}),

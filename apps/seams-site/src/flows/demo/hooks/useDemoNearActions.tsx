@@ -14,19 +14,30 @@ import type { ActionArgs, FunctionCallAction } from '@seams/sdk/react';
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
 import { handleSigningToastEvent } from './signingToast';
 
+const SET_GREETING_GAS = '10000000000000';
+
 type UseDemoNearActionsArgs = {
   isLoggedIn: boolean;
-  canSignNear: boolean;
-  walletId?: string | null;
-  nearAccountId?: string | null;
-  nearPublicKey?: string | null;
+  canStartNearTransaction: boolean;
+  canSignDelegate: boolean;
+  walletId: string | null;
+  nearAccountId: string | null;
+  nearPublicKey: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   fetchGreeting: () => unknown | Promise<unknown>;
 };
 
 export function useDemoNearActions(args: UseDemoNearActionsArgs) {
-  const { isLoggedIn, canSignNear, walletId, nearAccountId, nearPublicKey, seams, fetchGreeting } =
-    args;
+  const {
+    isLoggedIn,
+    canStartNearTransaction,
+    canSignDelegate,
+    walletId,
+    nearAccountId,
+    nearPublicKey,
+    seams,
+    fetchGreeting,
+  } = args;
 
   const [greetingInput, setGreetingInput] = useState('Hello from Seams!');
   const [txLoading, setTxLoading] = useState(false);
@@ -37,8 +48,8 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
       val: string,
       loggedIn: boolean,
       funded: boolean,
-      wallet?: string | null,
-      accountId?: string | null,
+      wallet: string | null,
+      accountId: string | null,
     ) => Boolean(val?.trim()) && loggedIn && funded && Boolean(wallet) && Boolean(accountId),
     [],
   );
@@ -54,7 +65,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
         type: ActionType.FunctionCall,
         methodName: 'set_greeting',
         args: { greeting: message },
-        gas: '30000000000000',
+        gas: SET_GREETING_GAS,
         deposit: '0',
       };
     },
@@ -62,7 +73,15 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
   );
 
   const handleSetGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, canSignNear, walletId, nearAccountId)) {
+    if (
+      !canExecuteGreeting(
+        greetingInput,
+        isLoggedIn,
+        canStartNearTransaction,
+        walletId,
+        nearAccountId,
+      )
+    ) {
       return;
     }
     const actionToExecute: FunctionCallAction = createGreetingAction(
@@ -143,7 +162,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     }
   }, [
     canExecuteGreeting,
-    canSignNear,
+    canStartNearTransaction,
     createGreetingAction,
     fetchGreeting,
     greetingInput,
@@ -154,7 +173,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
   ]);
 
   const handleSignDelegateGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, canSignNear, walletId, nearAccountId)) {
+    if (!canExecuteGreeting(greetingInput, isLoggedIn, canSignDelegate, walletId, nearAccountId)) {
       return;
     }
 
@@ -252,7 +271,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     }
   }, [
     canExecuteGreeting,
-    canSignNear,
+    canSignDelegate,
     createGreetingAction,
     fetchGreeting,
     greetingInput,
@@ -270,6 +289,19 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     delegateLoading,
     handleSetGreeting,
     handleSignDelegateGreeting,
-    canSubmit: canExecuteGreeting(greetingInput, isLoggedIn, canSignNear, walletId, nearAccountId),
+    canSetGreeting: canExecuteGreeting(
+      greetingInput,
+      isLoggedIn,
+      canStartNearTransaction,
+      walletId,
+      nearAccountId,
+    ),
+    canSignDelegate: canExecuteGreeting(
+      greetingInput,
+      isLoggedIn,
+      canSignDelegate,
+      walletId,
+      nearAccountId,
+    ),
   };
 }

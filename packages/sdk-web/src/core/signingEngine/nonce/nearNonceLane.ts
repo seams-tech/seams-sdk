@@ -420,7 +420,10 @@ export async function reserveNearNoncesFromState(input: {
   state: NearNonceLaneState;
   lane: NearNonceLane;
   countInput: number;
-  readActiveLeaseNonces: (laneKey: string, input?: { lane?: NearNonceLane }) => Promise<Set<string>>;
+  readActiveLeaseNonces: (
+    laneKey: string,
+    input?: { lane?: NearNonceLane },
+  ) => Promise<Set<string>>;
 }): Promise<string[]> {
   const transactionContext = readNearTransactionContext(input.state);
   if (!transactionContext) {
@@ -591,10 +594,10 @@ export async function reconcileNearLaneState(input: {
     },
     transactionContext: {
       ...(previousContext || {
-      nearPublicKeyStr: input.lane.publicKey,
-      txBlockHeight: '0',
-      txBlockHash: '',
-    }),
+        nearPublicKeyStr: input.lane.publicKey,
+        txBlockHeight: '0',
+        txBlockHash: '',
+      }),
       accessKeyInfo,
       nextNonce: candidateNext.toString(),
     },
@@ -610,9 +613,7 @@ export async function reconcileNearLaneState(input: {
 
   return {
     chainNextNonce,
-    unresolvedInFlightNonces: unresolvedInFlightNonces.sort((a, b) =>
-      a < b ? -1 : a > b ? 1 : 0,
-    ),
+    unresolvedInFlightNonces: unresolvedInFlightNonces.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     blocked: false,
   };
 }
@@ -653,11 +654,16 @@ export function pruneReservedNearNonces(
 }
 
 export function isMissingNearAccessKeyError(message: string): boolean {
+  const normalized = String(message || '').toLowerCase();
   return (
-    message.includes('does not exist while viewing') ||
-    message.includes('Access key not found') ||
-    message.includes('unknown public key') ||
-    message.includes('does not exist')
+    normalized.includes('does not exist while viewing') ||
+    normalized.includes('access key not found') ||
+    normalized.includes('unknown public key') ||
+    normalized.includes('unknown_account') ||
+    normalized.includes('unknown account') ||
+    normalized.includes('unknown_access_key') ||
+    normalized.includes('does not exist') ||
+    normalized.includes("doesn't exist")
   );
 }
 
@@ -667,9 +673,7 @@ export class NearImplicitAccountFundingRequiredError extends Error {
   readonly readiness: NearExecutionReadiness;
 
   constructor(args: { walletId: string; nearAccountId: string; nearPublicKeyStr: string }) {
-    super(
-      `NEAR implicit account ${args.nearAccountId} has no access key on-chain. Fund the account before direct NEAR signing.`,
-    );
+    super(`NEAR account ${args.nearAccountId} needs funding before direct NEAR signing.`);
     this.name = 'NearImplicitAccountFundingRequiredError';
     this.nearAccountId = args.nearAccountId;
     this.readiness = classifyNearExecutionReadiness({
@@ -679,6 +683,29 @@ export class NearImplicitAccountFundingRequiredError extends Error {
       accessKeyAvailable: false,
     });
   }
+}
+
+async function readImplicitNearAccountFundingState(input: {
+  nearClient: NearClient;
+  subject: NearAccessKeySubject;
+}): Promise<
+  { kind: 'funded' } | { kind: 'needs_funding'; error: NearImplicitAccountFundingRequiredError }
+> {
+  try {
+    await input.nearClient.viewAccount(input.subject.nearAccountId);
+    return { kind: 'funded' };
+  } catch (error: unknown) {
+    const message = errorMessage(error);
+    if (!isMissingNearAccessKeyError(message)) throw error;
+  }
+  return {
+    kind: 'needs_funding',
+    error: new NearImplicitAccountFundingRequiredError({
+      walletId: input.subject.walletId,
+      nearAccountId: input.subject.nearAccountId,
+      nearPublicKeyStr: input.subject.publicKey,
+    }),
+  };
 }
 
 export class NearAccountLookupFailedError extends Error {
@@ -740,12 +767,21 @@ export async function fetchNearFreshDataForState(input: {
       let txBlockHash = previousTransactionContext?.txBlockHash;
       const fetchAccessKey = isNonceStale || !accessKeyInfo;
       const fetchBlock = isBlockStale || !txBlockHeight || !txBlockHash;
+      const fetchImplicitAccountFunding =
+        isImplicitNearAccountId(capturedSubject.nearAccountId) &&
+        (input.force || fetchAccessKey || !readyContext);
 
       let maybeAccessKey: unknown = accessKeyInfo ?? null;
       let maybeBlock: unknown = null;
       let accessKeyError: unknown = null;
       let blockError: unknown = null;
       const tasks: Promise<void>[] = [];
+      const implicitFundingPromise = fetchImplicitAccountFunding
+        ? readImplicitNearAccountFundingState({
+            nearClient: input.nearClient,
+            subject: capturedSubject,
+          })
+        : null;
 
       if (fetchAccessKey) {
         tasks.push(
@@ -794,6 +830,11 @@ export async function fetchNearFreshDataForState(input: {
 
       if (tasks.length > 0) {
         await Promise.all(tasks);
+      }
+      const implicitFunding = implicitFundingPromise ? await implicitFundingPromise : null;
+      if (implicitFunding?.kind === 'needs_funding') {
+        setNearImplicitUnfunded({ state, subject: capturedSubject });
+        throw implicitFunding.error;
       }
       if (accessKeyError) {
         if (accessKeyError instanceof NearImplicitAccountFundingRequiredError) {
@@ -884,7 +925,10 @@ export async function updateNearNonceFromBlockchainState(input: {
   const { state } = input;
   const subject = requireNearAccessKeySubject(state);
   try {
-    const accessKeyInfoRaw = await input.nearClient.viewAccessKey(subject.nearAccountId, subject.publicKey);
+    const accessKeyInfoRaw = await input.nearClient.viewAccessKey(
+      subject.nearAccountId,
+      subject.publicKey,
+    );
     if (!isAccessKeyViewLike(accessKeyInfoRaw)) {
       throw new Error(`Access key not found or invalid for account ${subject.nearAccountId}`);
     }
@@ -966,7 +1010,10 @@ export async function refreshNearNonceAfterBroadcastRejectedState(input: {
 }): Promise<void> {
   const { state } = input;
   const subject = requireNearAccessKeySubject(state);
-  const accessKeyInfoRaw = await input.nearClient.viewAccessKey(subject.nearAccountId, subject.publicKey);
+  const accessKeyInfoRaw = await input.nearClient.viewAccessKey(
+    subject.nearAccountId,
+    subject.publicKey,
+  );
   if (!isAccessKeyViewLike(accessKeyInfoRaw)) {
     throw new Error(`Access key not found or invalid for account ${subject.nearAccountId}`);
   }

@@ -4,6 +4,7 @@ import {
   buildThresholdEd25519SessionRecordKey,
   clearStoredThresholdEd25519SessionRecordForLaneKey,
   serializeThresholdEd25519SessionLaneKey,
+  type ReadyEmailOtpEcdsaSessionRecord,
   type ThresholdEd25519SessionRecordKey,
 } from './records';
 import { SigningSessionIds } from '../operationState/types';
@@ -100,5 +101,22 @@ serializeThresholdEd25519SessionLaneKey({
   // @ts-expect-error lane-key serialization requires the strict account id brand.
   nearAccountId: weakAccountId,
 });
+
+declare const emailOtpEcdsaSessionRecord: ReadyEmailOtpEcdsaSessionRecord;
+emailOtpEcdsaSessionRecord.walletSessionJwt.toUpperCase();
+
+const emailOtpEcdsaSessionRecordWithoutJwt: ReadyEmailOtpEcdsaSessionRecord = {
+  ...emailOtpEcdsaSessionRecord,
+  // @ts-expect-error Email OTP ECDSA session records require walletSessionJwt.
+  walletSessionJwt: undefined,
+};
+void emailOtpEcdsaSessionRecordWithoutJwt;
+
+const emailOtpEcdsaCookieSessionRecord: ReadyEmailOtpEcdsaSessionRecord = {
+  ...emailOtpEcdsaSessionRecord,
+  // @ts-expect-error Email OTP ECDSA session records are JWT-backed.
+  thresholdSessionKind: 'cookie',
+};
+void emailOtpEcdsaCookieSessionRecord;
 
 export {};

@@ -117,7 +117,7 @@ Authoritative Cloudflare references:
 
 ## Phased First-Cut Plan
 
-This ten-phase sequence is the authoritative execution path for refactor 82. The
+This twelve-phase sequence is the authoritative execution path for refactor 82. The
 remaining sections define the invariants and detailed ownership model for those
 phases.
 
@@ -154,8 +154,15 @@ phases.
       static-pricing adapter, D1 Router API pricing wiring, explicit setup seed,
       and Cloudflare D1 env-pricing guard are implemented; the full
       platform-admin pricing UI/API remains deferred.
+- [x] Phase 11: Make the Router API service port backend-neutral. D1 remains the
+      only active implementation; future Postgres support must enter as a
+      separate full-family adapter behind the same port.
+- [ ] Phase 12: Collapse the remaining AuthService-shaped Router API surface
+      into narrow route-family services, remove stale AuthService lifecycle
+      contracts, and delete Threshold Ed25519 relayer-share self-heal logic by
+      making complete key material a strict lifecycle invariant.
 
-Operating rule for Phases 3-10:
+Operating rule for Phases 3-12:
 
 - [x] Each implementation phase includes a deletion pass before the phase is
       marked complete.
@@ -4692,7 +4699,7 @@ Exit criteria:
       `packages/sdk-web/src`, `tests`, `packages/sdk-server-ts/src/README.md`,
       `packages/sdk-server-ts/README.md`, `apps/web-server/README.md`,
       `docs/registrations-top-up.md`,
-      `docs/refactor-85-modular-auth-capabilities-SPEC.md`,
+      `docs/refactor-87-modular-auth-capabilities-SPEC.md`,
       `docs/saas/bring-you-own-auth.md`,
       `packages/sdk-server-ts/scripts`, `apps/web-server/src`, and the Wrangler
       staging templates for
@@ -5795,6 +5802,261 @@ Exit criteria:
 - [x] `pnpm --dir packages/sdk-server-ts type-check` passes.
 - [x] `git diff --check` passes.
 
+### Phase 11: Router API Service Port Cleanup
+
+Status: implemented.
+
+Trigger:
+
+- Router API source still derives its service port from `AuthService`, which
+  keeps the old concrete service as the type authority for D1-owned route
+  behavior.
+- The Node web server still mounts Router API routes with a concrete
+  `AuthService`, leaving a parallel registration/auth lifecycle beside the D1
+  Router API service.
+
+Goal:
+
+- [x] Rename the public port to backend-neutral `RouterApiAuthService`.
+- [x] Define `RouterApiAuthService` as an explicit interface. Do not derive it
+      from `AuthService`.
+- [x] Keep `createCloudflareD1RouterApiAuthService(...)` as the only active
+      current implementation.
+- [x] Remove `AuthService` from Router API route mounting and new wallet/auth
+      lifecycle ownership.
+- [x] Delete or rewrite tests that exercise legacy `AuthService` Router API
+      registration, add-signer, and add-auth-method behavior.
+- [x] Document future Postgres support as `PostgresRouterApiAuthService`
+      implementing the same port. Do not implement that adapter in this phase.
+
+Acceptance scans:
+
+- [x] `rg "Pick<AuthService" packages/sdk-server-ts/src/router` returns no
+      runtime hits.
+- [x] `rg "createRouterApiRouter\\(authService|createCloudflareRouter\\(authService" apps packages tests`
+      returns no active Router API service mounting hits.
+- [x] `rg "new AuthService\\(" packages/sdk-server-ts/src/router` returns no
+      Router API service construction. The web-server console may still use
+      `AuthService` for console sign-in, but Router API routes must not mount it.
+- [x] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|createAddAuthMethodIntent|startWalletAddSigner|finalizeWalletAddSigner|startWalletAddAuthMethod|finalizeWalletAddAuthMethod" packages/sdk-server-ts/src/core/AuthService.ts`
+      has no Router API lifecycle implementation hits.
+- [x] `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` rejects the
+      old port derivation, old route mounting, and duplicate non-D1 lifecycle
+      implementations.
+
+Boundary rule:
+
+- D1 is canonical for current Router API runtime. A future Postgres backend must
+  be a full-family adapter implementing `RouterApiAuthService`; it must not reuse
+  `AuthService` or reintroduce partial Postgres paths.
+
+### Phase 12: Collapse Legacy AuthService Router API Surface
+
+Status: in progress.
+
+Trigger:
+
+- The Phase 11 cleanup removed direct Router API mounting through concrete
+  `AuthService`, but the replacement `RouterApiAuthService` is still a broad
+  AuthService-shaped god port.
+- `RouterApiAuthService` still mixes registration, wallet auth methods, wallet
+  unlock, Email OTP, WebAuthn, identity links, app-session versions, recovery,
+  ECDSA inventory, NEAR funding, router account reads, and threshold runtime
+  access behind one object.
+- Many methods in `authServicePort.ts` are still typed as `RouterApiAsyncMethod`
+  with `any` input/output. That lets stale AuthService-era request shapes cross
+  Router API boundaries.
+- D1 currently implements this broad port through
+  `createCloudflareD1RouterApiAuthService(...)`, so D1 behavior is canonical at
+  storage/runtime while old method names remain canonical at the route boundary.
+- `ThresholdSigningService` still contains Ed25519 router-share "self-heal"
+  behavior. That repair path exists because the lifecycle model permits
+  persisted key records and session HSS finalize records to disagree about
+  whether router material is complete. Phase 12 must remove that state gap
+  instead of keeping runtime repair logic.
+- `ThresholdEd25519KeyRecord` must model provisioning explicitly. A usable key
+  record must be a different lifecycle branch from an in-progress HSS ceremony,
+  so session minting, signing, export, and recovery cannot observe missing router
+  material.
+
+Goal:
+
+- [ ] Replace the broad `RouterApiAuthService` port with a narrow Router API
+      service bag whose properties match route families:
+      `walletRegistration`, `walletAuthMethods`, `walletUnlock`, `emailOtp`,
+      `webAuthn`, `identity`, `sessionVersions`, `thresholdRuntime`,
+      `nearFunding`, and `router`.
+- [ ] Make every route handler accept the narrowest service capability it uses.
+      For example, wallet-registration handlers receive only
+      `RouterApiWalletRegistrationService`, Email OTP handlers receive only
+      `RouterApiEmailOtpService`, and ECDSA routes receive only threshold/ECDSA
+      inventory capabilities.
+- [ ] Delete `RouterApiAsyncMethod<Input = any, Result = any>` and
+      `RouterApiEmailOtpAsyncMethod<Input = any, Result = any>`. Every Router API
+      method must have explicit request and response types.
+- [ ] Delete `RouterApiInput<'method'>` and `RouterApiResult<'method'>`
+      reflection typing from the D1 facade. D1 service methods should import the
+      explicit route/domain request and response types they implement.
+- [ ] Replace `createCloudflareD1RouterApiAuthService(...)` with a D1 service-bag
+      factory, or make the existing factory return the new service bag. Do not
+      keep a monolithic auth-service-shaped D1 facade.
+- [ ] Remove Router API lifecycle methods from `AuthService`:
+      `createRegistrationIntent`, `prepareWalletRegistration`,
+      `startWalletRegistration`, `respondWalletRegistrationHss`,
+      `finalizeWalletRegistration`, `createAddSignerIntent`,
+      `startWalletAddSigner`, `respondWalletAddSignerHss`,
+      `finalizeWalletAddSigner`, `createAddAuthMethodIntent`,
+      `startWalletAddAuthMethod`, `finalizeWalletAddAuthMethod`, and
+      `revokeWalletAuthMethod`.
+- [ ] Delete or rewrite tests that still construct `new AuthService(...)` for
+      current Router API registration, wallet auth-method, wallet unlock, Email
+      OTP, ECDSA inventory, or threshold-session route behavior. Keep
+      `AuthService` tests only for explicitly non-Router legacy/public API
+      behavior that still exists.
+- [ ] Move Router API request/response types that are only route contracts out of
+      `core/types.ts` into route or domain-specific modules. Core threshold types
+      may remain in `core`.
+- [ ] Keep future Postgres support as a service-bag implementation plan. Do not
+      route future Postgres through `AuthService`, and do not add a partial
+      Postgres adapter during this phase.
+- [x] Delete Threshold Ed25519 router-share self-heal logic. Registration HSS
+      finalize and session HSS finalize must both produce or reference a strict
+      `ThresholdEd25519KeyRecord` state where required router material is
+      present before the record is usable. Missing router material should be a
+      boundary parse/state error, not a later repair branch.
+- [x] Replace the current broad `ThresholdEd25519KeyRecord` shape with a
+      discriminated lifecycle union:
+      `kind: 'provisioning'` for in-progress registration/session HSS state and
+      `kind: 'ready'` for usable key material.
+- [x] Put router material only on the ready branch. The ready branch must require
+      `routerMaterial.signingShareB64u`, `routerMaterial.verifyingShareB64u`,
+      and the stable key fingerprint or equivalent integrity binding. The
+      provisioning branch must reject router material fields with `never`.
+- [x] Make registration HSS finalize and session HSS finalize return either a
+      complete ready key record or a typed invalid-state failure. They must not
+      persist a usable record with nullable router material.
+- [x] Make session mint, signing, export, and recovery accept only
+      `ThresholdEd25519ReadyKeyRecord`. Any lookup that can return provisioning
+      state must resolve to a `Result`-style union before core signing/session
+      logic receives it.
+- [ ] Keep transient Email OTP proof data, challenge IDs, registration attempt
+      IDs, ceremony IDs, and session IDs out of permanent key identity. Email OTP
+      key authority must use stable Email OTP subject identity only.
+- [x] Keep persistence/request compatibility parsing at the D1/DO boundary only.
+      Boundary parsers may reject old incomplete records or map them to
+      `kind: 'provisioning'`, but core ThresholdSigningService code must never
+      accept partial raw records.
+
+Known old-shape inventory to remove or narrow:
+
+- [ ] `packages/sdk-server-ts/src/router/authServicePort.ts`: split the god port
+      into narrow route-family interfaces and remove `any` method aliases.
+- [ ] `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`: replace
+      `input.services.authService.*` with wallet registration/auth-method service
+      properties.
+- [ ] `packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts`: replace
+      `RouterApiAuthService` with an Email OTP service interface containing only
+      the methods used by each handler group.
+- [ ] `packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts`: replace
+      `RouterApiAuthService` with a wallet-unlock service interface.
+- [ ] `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts`:
+      delete the AuthService-shaped facade and expose composed D1 service
+      modules through the new service bag.
+- [ ] `packages/sdk-server-ts/src/core/AuthService.ts`: delete current Router API
+      lifecycle implementations and their AuthService-only helpers.
+- [ ] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
+      audit passkey-specific helpers. Keep passkey verification in passkey-only
+      branches, and require stable `ThresholdEd25519AuthorityScope` for shared
+      session/key authority.
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
+      remove `maybeRepairRelayerKeyMaterialFromSessionHssFinalize(...)` and any
+      "self-heal" call sites. Model the HSS finalize result as either a complete
+      registration/session material write or a hard invalid-state failure.
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts` and
+      `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`: keep
+      `ThresholdEd25519KeyRecord` strict. Do not introduce nullable router-share
+      fields to support self-heal.
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts` and
+      `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`: add
+      branch-specific builders/parsers for `ThresholdEd25519ProvisioningKeyRecord`
+      and `ThresholdEd25519ReadyKeyRecord`. Raw database rows are normalized once
+      into one branch.
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
+      change all Ed25519 session mint/sign/export/recovery paths to require
+      `ThresholdEd25519ReadyKeyRecord`, never the broad union.
+- [x] `tests/types` or the existing ThresholdService typecheck fixture: add
+      `@ts-expect-error` cases rejecting ready records without router material,
+      provisioning records with router material, and core signing/session calls
+      that pass a broad `ThresholdEd25519KeyRecord`.
+- [ ] `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts` and
+      `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`: audit
+      passkey-only wallet-session checks. Move passkey-only behavior into the
+      WebAuthn branch and keep Email OTP ECDSA paths on stable wallet authority.
+- [ ] `packages/sdk-server-ts/src/router/bootstrapGrantBroker.ts`: ensure
+      bootstrap grants bind to the current registration intent authority instead
+      of preserving an rpId-first passkey-era shape.
+- [x] `packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts` and
+      `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`:
+      allow Google Email OTP registration rerolls by validating the submitted
+      wallet ID against the signed registration attempt's active offer candidates.
+      The app-session wallet remains the initially issued wallet, while rerolled
+      candidate names are authorized only through the registration-attempt scope.
+      The public service contract now uses an explicit
+      `GoogleEmailOtpRegistrationCandidateWalletValidationRequest` instead of an
+      `any` method shape. Validation passed:
+      `pnpm -C tests test:unit -- emailOtpRegistrationRoute.unit.test.ts` and
+      `git diff --check` for the touched files.
+
+Acceptance scans:
+
+- [ ] `rg "interface RouterApiAuthService|type RouterApiAsyncMethod|type RouterApiEmailOtpAsyncMethod" packages/sdk-server-ts/src/router`
+      returns no runtime hits.
+- [ ] `rg "RouterApiInput<|RouterApiResult<" packages/sdk-server-ts/src/router/cloudflare packages/sdk-server-ts/src/router`
+      returns no runtime hits.
+- [ ] `rg "services\\.authService|ctx\\.service\\." packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts`
+      returns no broad service-object route calls. Narrow service variables are
+      allowed.
+- [ ] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|startWalletAddSigner|respondWalletAddSignerHss|finalizeWalletAddSigner|createAddAuthMethodIntent|startWalletAddAuthMethod|finalizeWalletAddAuthMethod|revokeWalletAuthMethod" packages/sdk-server-ts/src/core/AuthService.ts`
+      returns no current Router API lifecycle implementation hits.
+- [ ] `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/sdk-server-ts/src packages/sdk-web/src`
+      returns only passkey/WebAuthn-specific modules or typecheck fixtures.
+- [ ] `rg "self-heal|self heal|maybeRepairRelayerKeyMaterialFromSessionHssFinalize" packages/sdk-server-ts/src`
+      returns no runtime hits.
+- [ ] `rg "relayerSigningShareB64u\\?:|relayerVerifyingShareB64u\\?:" packages/sdk-server-ts/src/core/ThresholdService`
+      returns no key-record or session-material lifecycle hits.
+- [ ] `rg "ThresholdEd25519KeyRecord" packages/sdk-server-ts/src/core/ThresholdService`
+      shows ready-only inputs in session mint, signing, export, and recovery
+      code. Broad union usage is allowed only at persistence/request boundaries
+      and branch-normalization helpers.
+- [ ] `rg "kind: 'ready'|kind: 'provisioning'" packages/sdk-server-ts/src/core/ThresholdService`
+      shows the Ed25519 key lifecycle is modeled as a discriminated union rather
+      than nullable router-material fields.
+- [ ] `rg "new AuthService\\(" tests packages/sdk-server-ts/src apps -g '*.ts'`
+      returns no tests for current Router API D1 flows. Any remaining hits must
+      name the non-Router behavior they cover.
+
+Validation:
+
+- [ ] `pnpm --dir packages/sdk-server-ts type-check`
+- [ ] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+- [ ] Focused route tests for wallet registration, Email OTP registration/unlock,
+      passkey registration/unlock, Ed25519 session mint, ECDSA inventory, and key
+      export pass with the D1 service bag.
+- [ ] `git diff --check`
+
+Exit criteria:
+
+- [ ] Router API route code can no longer call a broad `authService`.
+- [ ] D1 service construction no longer returns an AuthService-shaped object.
+- [ ] Old AuthService method shapes cannot be imported as Router API contracts.
+- [ ] Stable wallet/auth authority, not transient proof data or passkey-only
+      rpId fields, selects Ed25519 and ECDSA sessions.
+- [ ] Threshold Ed25519 HSS finalize has no runtime repair path. Complete
+      material is written atomically at the boundary that creates it, and
+      incomplete durable state fails during boundary parsing.
+- [ ] Future Postgres support remains a documented full-family service-bag
+      implementation point.
+
 ## Validation
 
 Minimum checks before first D1 staging deploy:
@@ -5891,6 +6153,12 @@ Proceed in this order:
       static-pricing adapter, D1 Router API pricing wiring, explicit setup seed,
       and Cloudflare D1 env-pricing guard are implemented; the full
       platform-admin pricing UI/API remains deferred.
+- [ ] Phase 11: Make the Router API service port backend-neutral. D1 remains the
+      only active implementation; future Postgres support must enter as a separate
+      full-family adapter behind the same port.
+- [ ] Phase 12: Collapse the remaining AuthService-shaped Router API surface into
+      narrow route-family service ports, delete broad `any` service methods, and
+      remove current Router API lifecycle methods from `AuthService`.
 
 ## Audit Findings
 

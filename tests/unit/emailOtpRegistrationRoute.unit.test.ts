@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { handleEmailOtpRegistrationChallengeRoute, handleEmailOtpRegistrationFinalizeRoute } from '@server/router/emailOtpRouteHandlers';
+import {
+  handleEmailOtpRegistrationChallengeRoute,
+  handleEmailOtpRegistrationFinalizeRoute,
+  handleEmailOtpRegistrationSealRoute,
+} from '@server/router/emailOtpRouteHandlers';
 
 test.describe('Email OTP registration routes', () => {
   test('registration challenge binds Google sessions to provider subject', async () => {
@@ -52,6 +56,61 @@ test.describe('Email OTP registration routes', () => {
       email: 'name6@gmail.com',
       otpChannel: 'email_otp',
       appSessionVersion: 'google-app-session-v1',
+    });
+  });
+
+  test('registration seal accepts rerolled Google registration offer candidates', async () => {
+    let candidateValidation: Record<string, unknown> | null = null;
+    let sealRequest: Record<string, unknown> | null = null;
+    const response = await handleEmailOtpRegistrationSealRoute({
+      body: {
+        walletId: 'silver-solstice-q4s2yq',
+        wrappedCiphertext: 'wrapped-client-secret',
+      },
+      claims: {
+        kind: 'app_session_v1',
+        sub: 'amber-bloom-initial',
+        walletId: 'amber-bloom-initial',
+        provider: 'oidc',
+        oidcProvider: 'google',
+        providerSubject: 'google:117142622123955425762',
+        email: 'Name6@Gmail.com',
+        appSessionVersion: 'google-app-session-v1',
+        googleEmailOtpResolutionMode: 'register_started',
+        googleEmailOtpRegistrationAttemptId: 'attempt-reroll-1',
+      },
+      userId: 'amber-bloom-initial',
+      service: {
+        validateGoogleEmailOtpRegistrationCandidateWallet: async (
+          value: Record<string, unknown>,
+        ) => {
+          candidateValidation = value;
+          return { ok: true };
+        },
+        applyEmailOtpServerSeal: async (value: Record<string, unknown>) => {
+          sealRequest = value;
+          return {
+            ok: true,
+            ciphertext: 'server-sealed-client-secret',
+            enrollmentSealKeyVersion: 'seal-v1',
+          };
+        },
+      } as any,
+    });
+
+    expect(response.status).toBe(200);
+    expect(candidateValidation).toEqual({
+      registrationAttemptId: 'attempt-reroll-1',
+      walletId: 'silver-solstice-q4s2yq',
+      appSessionVersion: 'google-app-session-v1',
+      providerSubject: 'google:117142622123955425762',
+    });
+    expect(sealRequest).toEqual({ wrappedCiphertext: 'wrapped-client-secret' });
+    expect(response.body).toMatchObject({
+      ok: true,
+      walletId: 'silver-solstice-q4s2yq',
+      ciphertext: 'server-sealed-client-secret',
+      enrollmentSealKeyVersion: 'seal-v1',
     });
   });
 

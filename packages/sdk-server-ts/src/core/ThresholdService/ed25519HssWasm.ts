@@ -30,6 +30,7 @@ import type {
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
 } from '../types';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { ensureEd25519Prefix } from '@shared/utils/validation';
 
 const SIGNER_WASM_PATH_CANDIDATES = [
   '../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm',
@@ -1108,7 +1109,7 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
     })(),
   ]);
 
-  const publicKey = String(keypair.publicKey || '').trim();
+  const publicKey = ensureEd25519Prefix(String(keypair.publicKey || '').trim());
   const relayerSigningShareB64u = String(serverOutput.xRelayerBaseB64u || '').trim();
   const relayerVerifyingShareB64u = String(relayerVerifyingShare.verifyingShareB64u || '').trim();
   if (!publicKey || !relayerSigningShareB64u || !relayerVerifyingShareB64u) {

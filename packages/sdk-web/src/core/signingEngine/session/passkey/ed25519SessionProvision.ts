@@ -11,7 +11,6 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
-import type { ThresholdEd25519SessionStoreSource } from '../identity/laneIdentity';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 type Ed25519MintAuthorization = NonNullable<ConnectEd25519SessionInput['auth']>;
@@ -76,8 +75,6 @@ export async function provisionThresholdEd25519Session(
   const relayerUrl = String(args.relayerUrl || deps.defaultRelayerUrl || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   const sessionKind = 'jwt';
-  const source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'> =
-    args.source === 'email_otp' ? 'manual-connect' : args.source || 'manual-connect';
   if (!relayerUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
@@ -96,6 +93,7 @@ export async function provisionThresholdEd25519Session(
     relayerKeyId: args.relayerKeyId,
     walletId: args.walletId,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    authority: args.authority,
     ...(args.auth ? { auth: args.auth } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     routerAbNormalSigning: args.routerAbNormalSigning,
@@ -140,32 +138,59 @@ export async function provisionThresholdEd25519Session(
   }
 
   const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
-  if (!args.auth) {
-    throw new Error('[threshold-ed25519] passkey mint authorization is required');
+  if (args.source === 'email_otp') {
+    persist({
+      kind: 'jwt_email_otp',
+      walletId: args.walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      rpId: deps.touchIdPrompt.getRpId(),
+      relayerUrl,
+      relayerKeyId: args.relayerKeyId,
+      ...(connected.runtimePolicyScope || args.runtimePolicyScope
+        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
+        : {}),
+      routerAbNormalSigning: args.routerAbNormalSigning,
+      participantIds,
+      sessionKind: 'jwt',
+      signerSlot: args.signerSlot,
+      sessionId: resolvedSessionId,
+      signingGrantId,
+      expiresAtMs,
+      remainingUses,
+      jwt,
+      emailOtpAuthContext: args.emailOtpAuthContext,
+      source: 'email_otp',
+    });
+  } else {
+    const passkeyAuth = args.auth;
+    if (!passkeyAuth) {
+      throw new Error('[threshold-ed25519] passkey mint authorization is required');
+    }
+    persist({
+      kind: 'jwt_passkey',
+      walletId: args.walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      rpId: deps.touchIdPrompt.getRpId(),
+      relayerUrl,
+      relayerKeyId: args.relayerKeyId,
+      ...(connected.runtimePolicyScope || args.runtimePolicyScope
+        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
+        : {}),
+      routerAbNormalSigning: args.routerAbNormalSigning,
+      participantIds,
+      sessionKind: 'jwt',
+      signerSlot: args.signerSlot,
+      sessionId: resolvedSessionId,
+      signingGrantId,
+      expiresAtMs,
+      remainingUses,
+      jwt,
+      passkeyCredentialIdB64u: passkeyCredentialIdB64uFromMintAuthorization(passkeyAuth),
+      source: args.source,
+    });
   }
-  persist({
-    kind: 'jwt_passkey',
-    walletId: args.walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-    rpId: deps.touchIdPrompt.getRpId(),
-    relayerUrl,
-    relayerKeyId: args.relayerKeyId,
-    ...(connected.runtimePolicyScope || args.runtimePolicyScope
-      ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
-      : {}),
-    routerAbNormalSigning: args.routerAbNormalSigning,
-    participantIds,
-    sessionKind: 'jwt',
-    signerSlot: args.signerSlot,
-    sessionId: resolvedSessionId,
-    signingGrantId,
-    expiresAtMs,
-    remainingUses,
-    jwt,
-    passkeyCredentialIdB64u: passkeyCredentialIdB64uFromMintAuthorization(args.auth),
-    source,
-  });
 
   if (prfFirstB64u) {
     const transport = sealTransportForProvisionedEd25519Session({

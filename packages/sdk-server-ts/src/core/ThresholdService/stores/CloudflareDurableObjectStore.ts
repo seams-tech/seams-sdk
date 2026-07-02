@@ -18,6 +18,7 @@ import {
   parseThresholdEd25519MpcSessionRecord,
   parseRouterAbEd25519PresignRecord,
   parseThresholdEd25519SigningSessionRecord,
+  canonicalThresholdEd25519RelayerKeyId,
   toThresholdEcdsaWalletSessionPrefix,
   toThresholdEcdsaKeyPrefix,
   toThresholdEcdsaPresignPrefix,
@@ -51,7 +52,7 @@ import type {
 } from './WalletSessionStore';
 import type {
   ThresholdEcdsaIntegratedKeyStore,
-  ThresholdEd25519KeyRecord,
+  ThresholdEd25519ReadyKeyRecord,
   ThresholdEd25519KeyStore,
 } from './KeyStore';
 import type {
@@ -985,23 +986,23 @@ export class CloudflareDurableObjectThresholdEd25519KeyStore implements Threshol
     return `${this.keyPrefix}${relayerKeyId}`;
   }
 
-  async get(relayerKeyId: string): Promise<ThresholdEd25519KeyRecord | null> {
-    const id = toOptionalTrimmedString(relayerKeyId);
+  async get(relayerKeyId: string): Promise<ThresholdEd25519ReadyKeyRecord | null> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return null;
     const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
     if (!resp.ok) return null;
     return parseThresholdEd25519KeyRecord(resp.value);
   }
 
-  async put(relayerKeyId: string, record: ThresholdEd25519KeyRecord): Promise<void> {
-    const id = toOptionalTrimmedString(relayerKeyId);
+  async put(relayerKeyId: string, record: ThresholdEd25519ReadyKeyRecord): Promise<void> {
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) throw new Error('Missing relayerKeyId');
     const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: record });
     if (!resp.ok) throw new Error(resp.message);
   }
 
   async del(relayerKeyId: string): Promise<void> {
-    const id = toOptionalTrimmedString(relayerKeyId);
+    const id = canonicalThresholdEd25519RelayerKeyId(relayerKeyId);
     if (!id) return;
     const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
     if (!resp.ok) throw new Error(resp.message);

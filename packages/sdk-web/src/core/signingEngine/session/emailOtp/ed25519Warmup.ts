@@ -12,6 +12,7 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toEmailOtpAuthSubjectId } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   generateSigningGrantId,
@@ -40,6 +41,7 @@ import {
   resolveEmailOtpAuthLane,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
+import { appSessionSubjectFromEmailOtpAuthLane } from './appSessionJwtCache';
 import {
   assertEmailOtpSigningSessionAuthLane,
   buildEmailOtpSigningSessionRoutePlan,
@@ -53,6 +55,7 @@ import {
 } from './companionSessions';
 import {
   EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+  emailOtpAuthorityScopeFromEmail,
   reconstructEmailOtpEd25519Session,
   type EmailOtpEd25519SessionReconstructionKey,
   type EmailOtpEd25519SessionReconstructionPlan,
@@ -86,6 +89,7 @@ export type LoginEmailOtpEd25519CapabilityArgs = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
   remainingUses?: number;
+  emailOtpAuthorityEmail?: string;
   ed25519SessionReconstruction: Extract<
     EmailOtpEd25519SessionReconstructionPlan,
     { kind: 'reconstruct' }
@@ -336,7 +340,14 @@ export class EmailOtpEd25519Warmup {
       retention: 'session' as const,
       reason: 'login' as const,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      authSubjectId: toEmailOtpAuthSubjectId(
+        appSessionSubjectFromEmailOtpAuthLane(routePlan.authLane) ||
+          args.walletSession.walletSessionUserId,
+      ),
     };
+    const authorityScope = emailOtpAuthorityScopeFromEmail(
+      args.emailOtpAuthorityEmail || emailOtpAuthContext.authSubjectId,
+    );
     return await this.reconstructSession({
       kind: 'session_ed25519_reconstruction',
       relayUrl,
@@ -346,6 +357,7 @@ export class EmailOtpEd25519Warmup {
       routeAuth,
       runtimePolicyScope,
       routerAbNormalSigning: routerAbNormalSigningStateFromConfigs(this.ports.configs),
+      authorityScope,
       ed25519Key: args.ed25519SessionReconstruction.ed25519Key,
       signingGrantId: generateSigningGrantId(),
       ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),

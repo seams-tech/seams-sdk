@@ -3,7 +3,6 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   Ed25519SessionPolicy,
   ThresholdEd25519AuthorityScope,
@@ -21,6 +20,7 @@ import {
   optionalRouteTrimmedString,
   parseWebAuthnAuthenticationCredential,
 } from './routeRequestValidation';
+import { parseThresholdEd25519AuthorityScope } from '../core/ThresholdService/validation';
 
 export type ThresholdEd25519RouteErrorBody = {
   ok: false;
@@ -104,23 +104,11 @@ function optionalStringField(record: Record<string, unknown>, field: string): st
 function parseEd25519AuthorityScope(
   raw: unknown,
 ): ThresholdEd25519RouteParseResult<ThresholdEd25519AuthorityScope> {
-  if (!isPlainObject(raw)) {
-    return invalidThresholdEd25519Body('sessionPolicy.authorityScope is required');
+  const authorityScope = parseThresholdEd25519AuthorityScope(raw);
+  if (!authorityScope) {
+    return invalidThresholdEd25519Body('sessionPolicy.authorityScope is invalid');
   }
-  const unsupported = findUnexpectedRouteKey(raw, ['kind', 'rpId'] as const);
-  if (unsupported) {
-    return invalidThresholdEd25519Body(
-      `Unsupported threshold-ed25519 authorityScope field: ${unsupported}`,
-    );
-  }
-  if (raw.kind !== 'passkey_rp') {
-    return invalidThresholdEd25519Body('sessionPolicy.authorityScope.kind must be passkey_rp');
-  }
-  const rpId = parseWebAuthnRpId(raw.rpId);
-  if (!rpId.ok) {
-    return invalidThresholdEd25519Body('sessionPolicy.authorityScope.rpId is required');
-  }
-  return { ok: true, request: { kind: 'passkey_rp', rpId: rpId.value } };
+  return { ok: true, request: authorityScope };
 }
 
 function optionalWebAuthnAuthentication(

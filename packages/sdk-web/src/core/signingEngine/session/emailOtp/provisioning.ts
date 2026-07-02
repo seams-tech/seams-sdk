@@ -1,6 +1,9 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type {
+  Ed25519AuthorityScope,
+  ThresholdRuntimePolicyScope,
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   buildEd25519SessionPolicy,
   normalizeThresholdRuntimePolicyScope,
@@ -111,12 +114,23 @@ export type ReconstructEmailOtpEd25519SessionArgs = Omit<
   routeAuth: AppOrWalletSessionAuth;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  authorityScope: Ed25519AuthorityScope;
   signingGrantId: string;
   ecdsaThresholdSessionId?: string;
   ed25519Key: EmailOtpEd25519SessionReconstructionKey;
   registrationAttemptId?: never;
   appSessionJwt?: never;
 };
+
+export function emailOtpAuthorityScopeFromEmail(value: unknown): Ed25519AuthorityScope {
+  const email = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!email) {
+    throw new Error('Email OTP Ed25519 reconstruction requires authority email');
+  }
+  return { kind: 'email_otp', proofKind: 'otp_challenge', email };
+}
 
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = String(value ?? '').trim();
@@ -252,7 +266,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     walletId: String(walletId),
     nearAccountId,
     nearEd25519SigningKeyId,
-    rpId,
+    authority: { kind: 'exact_authority_scope', authorityScope: input.authorityScope },
     relayerKeyId,
     runtimePolicyScope,
     routerAbNormalSigning: input.routerAbNormalSigning,
@@ -305,8 +319,10 @@ export async function reconstructEmailOtpEd25519Session(args: {
     throw new Error('Email OTP threshold-ed25519 session mint missing SigningWorker id');
   }
   const materialCreatedAtMs = Date.now();
-  const authSubjectId =
-    normalizeOptionalString(input.emailOtpAuthContext.authSubjectId) || String(nearAccountId);
+  const authSubjectId = normalizeOptionalString(input.emailOtpAuthContext.authSubjectId);
+  if (!authSubjectId) {
+    throw new Error('Email OTP threshold-ed25519 session reconstruction requires authSubjectId');
+  }
   const materialBinding = {
     thresholdSessionId: sessionId,
     signingGrantId,

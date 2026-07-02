@@ -11,6 +11,7 @@ import type { RegistrationResult } from '@/core/types/seams';
 import {
   isRegistrationActivationButtonInteractionState,
   type PMExecuteActionPayload,
+  type PMFundImplicitNearAccountForTestingPayload,
   type PMSendTxPayload,
   type RegistrationActivationButtonInteractionState,
   type PMRegistrationActivationPreparePayload,
@@ -667,6 +668,22 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         options: {
           ...withProgress(deps, req.requestId, options || {}),
         } as SignAndSendTransactionHooksOptions,
+      });
+
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING: async (
+      req: Req<'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      const { walletId, nearAccountId, nearPublicKey } =
+        req.payload || ({} as Partial<PMFundImplicitNearAccountForTestingPayload>);
+      const result = await pm.near.fundImplicitNearAccountForTesting({
+        walletSession: walletSessionFromWalletId(walletId),
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
+        nearPublicKey: String(nearPublicKey || ''),
       });
 
       if (deps.respondIfCancelled(req.requestId)) return;

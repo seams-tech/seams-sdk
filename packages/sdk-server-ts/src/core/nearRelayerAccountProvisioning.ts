@@ -4,6 +4,7 @@ import { errorMessage } from '@shared/utils/errors';
 import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
   parseImplicitNearAccountId,
+  parseNamedNearAccountId,
 } from '@shared/utils/near';
 import type { FinalExecutionOutcome, TxExecutionStatus } from '@near-js/types';
 import {
@@ -18,24 +19,44 @@ import {
   type NearClient,
 } from './rpcClients/near/NearClient';
 import type {
+  AccountCreationRequest,
+  AccountCreationResult,
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
 } from './types';
 
-const NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL: TxExecutionStatus = 'EXECUTED_OPTIMISTIC';
+const NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL: TxExecutionStatus = 'FINAL';
 const ED25519_PKCS8_SEED_PREFIX = Uint8Array.from([
   0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
 ]);
 
-type NearImplicitFundingInput = FundImplicitNearAccountRequest & {
+type NearRelayerRuntimeInput = {
   readonly relayerAccount: string;
   readonly relayerPrivateKey: string;
   readonly relayerPublicKey?: string;
   readonly nearRpcUrl: string;
-  readonly fundedAmountYocto: string;
   readonly nearClient?: NearClient;
   readonly ensureSignerWasm?: () => Promise<void>;
 };
+
+type ValidatedNearRelayerRuntimeInput = {
+  readonly relayerAccount: string;
+  readonly relayerPrivateKey: string;
+  readonly relayerPublicKey: string;
+  readonly nearRpcUrl: string;
+  readonly nearClient?: NearClient;
+  readonly ensureSignerWasm?: () => Promise<void>;
+};
+
+type NearImplicitFundingInput = FundImplicitNearAccountRequest &
+  NearRelayerRuntimeInput & {
+    readonly fundedAmountYocto: string;
+  };
+
+type NearNamedAccountCreationInput = AccountCreationRequest &
+  NearRelayerRuntimeInput & {
+    readonly initialBalanceYocto: string;
+  };
 
 type NearTxUnsignedBorshOutput = {
   readonly unsignedTransactionBorshB64u: string;
@@ -47,9 +68,17 @@ type FinalizeNearTxFromSignatureOutput = {
   readonly transactionHash: string;
 };
 
-type ValidatedFundingInput = NearImplicitFundingInput & {
-  readonly relayerPublicKey: string;
-};
+type ValidatedFundingInput = FundImplicitNearAccountRequest &
+  ValidatedNearRelayerRuntimeInput & {
+    readonly fundedAmountYocto: string;
+  };
+
+type ValidatedNamedAccountCreationInput = AccountCreationRequest &
+  ValidatedNearRelayerRuntimeInput & {
+    readonly accountId: string;
+    readonly publicKey: string;
+    readonly initialBalanceYocto: string;
+  };
 
 function requireNonEmptyString(value: unknown, label: string): string {
   const text = String(value || '').trim();
@@ -182,11 +211,37 @@ async function signNearDigestWithSecretKey(args: {
   }
 }
 
-function parsePositiveYocto(value: unknown): string {
-  const text = requireNonEmptyString(value, 'fundedAmountYocto');
+function parsePositiveYocto(value: unknown, label: string): string {
+  const text = requireNonEmptyString(value, label);
   const amount = BigInt(text);
-  if (amount <= 0n) throw new Error('fundedAmountYocto must be positive');
+  if (amount <= 0n) throw new Error(`${label} must be positive`);
   return amount.toString();
+}
+
+function requireEd25519PublicKey(value: unknown, label: string): string {
+  const text = requireNonEmptyString(value, label);
+  if (!text.startsWith('ed25519:')) throw new Error(`${label} must be an ed25519 public key`);
+  return text;
+}
+
+function validateNearRelayerRuntimeInput(
+  input: NearRelayerRuntimeInput,
+): ValidatedNearRelayerRuntimeInput {
+  const relayerAccount = requireNonEmptyString(input.relayerAccount, 'relayerAccount');
+  const relayerPrivateKey = requireNonEmptyString(input.relayerPrivateKey, 'relayerPrivateKey');
+  const derivedRelayerPublicKey = toPublicKeyStringFromSecretKey(relayerPrivateKey);
+  const configuredRelayerPublicKey = String(input.relayerPublicKey || '').trim();
+  if (configuredRelayerPublicKey && configuredRelayerPublicKey !== derivedRelayerPublicKey) {
+    throw new Error('relayerPublicKey does not match relayerPrivateKey');
+  }
+  return {
+    relayerAccount,
+    relayerPrivateKey,
+    relayerPublicKey: derivedRelayerPublicKey,
+    nearRpcUrl: requireNonEmptyString(input.nearRpcUrl, 'nearRpcUrl'),
+    nearClient: input.nearClient,
+    ensureSignerWasm: input.ensureSignerWasm,
+  };
 }
 
 function validateFundingInput(input: NearImplicitFundingInput): ValidatedFundingInput {
@@ -198,23 +253,39 @@ function validateFundingInput(input: NearImplicitFundingInput): ValidatedFunding
   if (derivedNearAccountId !== parsedNearAccountId.value) {
     throw new Error('nearAccountId does not match nearPublicKeyStr implicit account ID');
   }
-  const relayerAccount = requireNonEmptyString(input.relayerAccount, 'relayerAccount');
-  const relayerPrivateKey = requireNonEmptyString(input.relayerPrivateKey, 'relayerPrivateKey');
-  const derivedRelayerPublicKey = toPublicKeyStringFromSecretKey(relayerPrivateKey);
-  const configuredRelayerPublicKey = String(input.relayerPublicKey || '').trim();
-  if (configuredRelayerPublicKey && configuredRelayerPublicKey !== derivedRelayerPublicKey) {
-    throw new Error('relayerPublicKey does not match relayerPrivateKey');
-  }
+  const runtime = validateNearRelayerRuntimeInput(input);
   return {
-    ...input,
     walletId,
     nearAccountId: parsedNearAccountId.value,
     nearPublicKeyStr,
-    relayerAccount,
-    relayerPrivateKey,
-    relayerPublicKey: derivedRelayerPublicKey,
-    nearRpcUrl: requireNonEmptyString(input.nearRpcUrl, 'nearRpcUrl'),
-    fundedAmountYocto: parsePositiveYocto(input.fundedAmountYocto),
+    relayerAccount: runtime.relayerAccount,
+    relayerPrivateKey: runtime.relayerPrivateKey,
+    relayerPublicKey: runtime.relayerPublicKey,
+    nearRpcUrl: runtime.nearRpcUrl,
+    nearClient: runtime.nearClient,
+    ensureSignerWasm: runtime.ensureSignerWasm,
+    fundedAmountYocto: parsePositiveYocto(input.fundedAmountYocto, 'fundedAmountYocto'),
+  };
+}
+
+function validateNamedAccountCreationInput(
+  input: NearNamedAccountCreationInput,
+): ValidatedNamedAccountCreationInput {
+  const accountId = requireNonEmptyString(input.accountId, 'accountId');
+  const parsedAccountId = parseNamedNearAccountId(accountId);
+  if (!parsedAccountId.ok) throw new Error(parsedAccountId.message);
+  const runtime = validateNearRelayerRuntimeInput(input);
+  return {
+    accountId: parsedAccountId.value,
+    publicKey: requireEd25519PublicKey(input.publicKey, 'publicKey'),
+    recoveryPublicKey: input.recoveryPublicKey,
+    relayerAccount: runtime.relayerAccount,
+    relayerPrivateKey: runtime.relayerPrivateKey,
+    relayerPublicKey: runtime.relayerPublicKey,
+    nearRpcUrl: runtime.nearRpcUrl,
+    nearClient: runtime.nearClient,
+    ensureSignerWasm: runtime.ensureSignerWasm,
+    initialBalanceYocto: parsePositiveYocto(input.initialBalanceYocto, 'initialBalanceYocto'),
   };
 }
 
@@ -240,26 +311,34 @@ async function fetchRelayerTxContext(input: {
   };
 }
 
-async function buildSignedRelayerTransfer(input: {
+function buildFullAccessAddKeyAction(publicKey: string): ActionArgsWasm {
+  return {
+    action_type: ActionType.AddKey,
+    public_key: publicKey,
+    access_key: JSON.stringify({
+      nonce: 0,
+      permission: { FullAccess: {} },
+    }),
+  };
+}
+
+async function buildSignedRelayerActionTransaction(input: {
   readonly relayerAccount: string;
   readonly relayerPrivateKey: string;
   readonly relayerPublicKey: string;
   readonly receiverId: string;
   readonly nextNonce: string;
   readonly blockHash: string;
-  readonly fundedAmountYocto: string;
+  readonly actions: readonly ActionArgsWasm[];
 }): Promise<{ readonly signedTransaction: SignedTransaction; readonly transactionHash: string }> {
-  const actions: ActionArgsWasm[] = [
-    { action_type: ActionType.Transfer, deposit: input.fundedAmountYocto },
-  ];
-  for (const action of actions) validateActionArgsWasm(action);
+  for (const action of input.actions) validateActionArgsWasm(action);
   const unsignedTx = requireSingleUnsignedNearTxBorshOutput(
     threshold_ed25519_build_near_tx_unsigned_borsh({
       txSigningRequests: [
         {
           nearAccountId: input.relayerAccount,
           receiverId: input.receiverId,
-          actions,
+          actions: [...input.actions],
         },
       ],
       transactionContext: {
@@ -293,6 +372,46 @@ async function buildSignedRelayerTransfer(input: {
   };
 }
 
+async function buildSignedRelayerTransfer(input: {
+  readonly relayerAccount: string;
+  readonly relayerPrivateKey: string;
+  readonly relayerPublicKey: string;
+  readonly receiverId: string;
+  readonly nextNonce: string;
+  readonly blockHash: string;
+  readonly fundedAmountYocto: string;
+}): Promise<{ readonly signedTransaction: SignedTransaction; readonly transactionHash: string }> {
+  return await buildSignedRelayerActionTransaction({
+    ...input,
+    actions: [{ action_type: ActionType.Transfer, deposit: input.fundedAmountYocto }],
+  });
+}
+
+async function buildSignedRelayerCreateAccount(input: {
+  readonly relayerAccount: string;
+  readonly relayerPrivateKey: string;
+  readonly relayerPublicKey: string;
+  readonly accountId: string;
+  readonly nextNonce: string;
+  readonly blockHash: string;
+  readonly initialBalanceYocto: string;
+  readonly publicKey: string;
+}): Promise<{ readonly signedTransaction: SignedTransaction; readonly transactionHash: string }> {
+  return await buildSignedRelayerActionTransaction({
+    relayerAccount: input.relayerAccount,
+    relayerPrivateKey: input.relayerPrivateKey,
+    relayerPublicKey: input.relayerPublicKey,
+    receiverId: input.accountId,
+    nextNonce: input.nextNonce,
+    blockHash: input.blockHash,
+    actions: [
+      { action_type: ActionType.CreateAccount },
+      { action_type: ActionType.Transfer, deposit: input.initialBalanceYocto },
+      buildFullAccessAddKeyAction(input.publicKey),
+    ],
+  });
+}
+
 function transactionHashFromOutcome(
   outcome: FinalExecutionOutcome,
   fallback: string,
@@ -307,7 +426,9 @@ function transactionHashFromOutcome(
   );
 }
 
-async function ensureSignerWasm(input: NearImplicitFundingInput): Promise<void> {
+async function ensureSignerWasm(input: {
+  readonly ensureSignerWasm?: () => Promise<void>;
+}): Promise<void> {
   if (input.ensureSignerWasm) {
     await input.ensureSignerWasm();
     return;
@@ -353,6 +474,48 @@ export async function fundImplicitNearAccountWithRelayer(
       ok: false,
       code: 'funding_failed',
       message: errorMessage(error) || 'Failed to fund implicit NEAR account',
+    };
+  }
+}
+
+export async function createNamedNearAccountWithRelayer(
+  input: NearNamedAccountCreationInput,
+): Promise<AccountCreationResult> {
+  try {
+    const validated = validateNamedAccountCreationInput(input);
+    const nearClient = validated.nearClient || new MinimalNearClient(validated.nearRpcUrl);
+    await ensureSignerWasm(validated);
+    const txContext = await fetchRelayerTxContext({
+      nearClient,
+      relayerAccount: validated.relayerAccount,
+      relayerPublicKey: validated.relayerPublicKey,
+    });
+    const created = await buildSignedRelayerCreateAccount({
+      relayerAccount: validated.relayerAccount,
+      relayerPrivateKey: validated.relayerPrivateKey,
+      relayerPublicKey: validated.relayerPublicKey,
+      accountId: validated.accountId,
+      nextNonce: txContext.nextNonce,
+      blockHash: txContext.blockHash,
+      initialBalanceYocto: validated.initialBalanceYocto,
+      publicKey: validated.publicKey,
+    });
+    const outcome = await nearClient.sendTransaction(
+      created.signedTransaction,
+      NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL,
+    );
+    return {
+      success: true,
+      accountId: validated.accountId,
+      transactionHash: transactionHashFromOutcome(outcome, created.transactionHash),
+      message: `Account ${validated.accountId} created`,
+    };
+  } catch (error: unknown) {
+    const message = errorMessage(error) || 'Failed to create NEAR account';
+    return {
+      success: false,
+      error: message,
+      message,
     };
   }
 }

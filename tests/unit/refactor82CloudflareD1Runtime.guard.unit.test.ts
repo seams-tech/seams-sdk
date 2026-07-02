@@ -72,9 +72,8 @@ const legacyRouteCapabilityFlagPatterns = [
     message: 'uses the old emailRecovery enabled flag instead of structural route services',
   },
   {
-    pattern: /\bed25519RegistrationPrepare\s*:\s*\{\s*enabled\b/,
-    message:
-      'uses the old ed25519RegistrationPrepare enabled flag instead of structural route services',
+    pattern: /\bed25519RegistrationPrepare\b/,
+    message: 'uses the old separate Ed25519 registration prepare route capability',
   },
   {
     pattern: /\bsigningSessionSeal\s*:\s*\{[^}]*\benabled\b/s,
@@ -620,7 +619,7 @@ const activeRouterApiTextPaths = [
   'docs/chats/chat-6-voiceId.md',
   'docs/deployment/infra.md',
   'docs/registrations-top-up.md',
-  'docs/refactor-85-modular-auth-capabilities-SPEC.md',
+  'docs/refactor-87-modular-auth-capabilities-SPEC.md',
   'docs/auth-provider-integrations/auth0.md',
   'docs/auth-provider-integrations/better-auth.md',
   'docs/auth-provider-integrations/google-oidc.md',
@@ -913,6 +912,10 @@ const forbiddenCloudflareRuntimeLegacyRegistrationTokens = [
     token: 'expectedKeyHandles.some((keyHandle) => keyHandle !==',
     message: 'revives all-equal ECDSA key-handle checking instead of allowlist matching',
   },
+  {
+    token: 'currently supports implicit NEAR accounts',
+    message: 'revives the D1 finalize block against sponsored named NEAR accounts',
+  },
 ] as const;
 
 const forbiddenAuthServiceLegacyRegistrationModeTokens = [
@@ -940,6 +943,50 @@ const forbiddenAuthServiceLegacyRegistrationModeTokens = [
     token: 'expectedKeyHandles.some((keyHandle) => keyHandle !==',
     message: 'revives all-equal ECDSA key-handle checking instead of allowlist matching',
   },
+] as const;
+
+const forbiddenRouterApiAuthServiceCouplingPatterns = [
+  {
+    pattern: /\bPick<AuthService\b/,
+    message: 'derives Router API service ports from AuthService',
+  },
+  {
+    pattern: /\bimport\s+type\s+\{\s*AuthService\s*\}\s+from\b/,
+    message: 'imports AuthService into Router API source',
+  },
+  {
+    pattern: /\bfrom ['"][^'"]*core\/AuthService['"]/,
+    message: 'imports AuthService into Router API source',
+  },
+  {
+    pattern: /\bCloudflareRouterApiAuthService\b/,
+    message: 'uses the old Cloudflare-specific Router API port name',
+  },
+] as const;
+
+const forbiddenRouterApiAuthServiceMountPatterns = [
+  {
+    pattern: /\bcreateRouterApiRouter\s*\(\s*authService\b/,
+    message: 'mounts Router API routes with AuthService',
+  },
+  {
+    pattern: /\bcreateCloudflareRouter\s*\(\s*authService\b/,
+    message: 'mounts Cloudflare Router API routes with an AuthService variable',
+  },
+] as const;
+
+const forbiddenAuthServiceRouterApiLifecycleMethodPatterns = [
+  /\basync\s+createRegistrationIntent\s*\(/,
+  /\basync\s+createAddSignerIntent\s*\(/,
+  /\basync\s+createAddAuthMethodIntent\s*\(/,
+  /\basync\s+prepareWalletRegistration\s*\(/,
+  /\basync\s+startWalletRegistration\s*\(/,
+  /\basync\s+respondWalletRegistrationHss\s*\(/,
+  /\basync\s+finalizeWalletRegistration\s*\(/,
+  /\basync\s+startWalletAddSigner\s*\(/,
+  /\basync\s+startWalletAddAuthMethod\s*\(/,
+  /\basync\s+finalizeWalletAddAuthMethod\s*\(/,
+  /\basync\s+finalizeWalletAddSigner\s*\(/,
 ] as const;
 
 const forbiddenProductionCombinedRegistrationTokens = [
@@ -1466,24 +1513,6 @@ function legacyRouteCapabilityFlagViolations(): string[] {
   return violations.sort();
 }
 
-function d1WorkerEd25519PrepareMountViolations(): string[] {
-  const violations: string[] = [];
-  const d1WorkerPaths = [
-    cloudflareD1LocalDevWorkerPath,
-    cloudflareD1RouterApiStagingWorkerPath,
-  ] as const;
-  for (const relativePath of d1WorkerPaths) {
-    const source = readSource(relativePath);
-    if (!source.includes('ed25519RegistrationPrepare:')) {
-      violations.push(`${relativePath}: does not mount Ed25519 registration prepare`);
-    }
-    if (/ed25519RegistrationPrepare\s*:\s*\{\s*enabled\b/.test(source)) {
-      violations.push(`${relativePath}: mounts Ed25519 registration prepare with an enabled flag`);
-    }
-  }
-  return violations.sort();
-}
-
 function routerAbLocalPostgresToolingViolations(): string[] {
   const violations: string[] = [];
   for (const relativePath of listJavaScriptFiles(routerAbLocalDevScriptRoot)) {
@@ -1916,6 +1945,42 @@ function authServiceLegacyRegistrationModeViolations(): string[] {
   return violations.sort();
 }
 
+function routerApiAuthServiceCouplingViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src/router')) {
+    const source = readSource(relativePath);
+    for (const { pattern, message } of forbiddenRouterApiAuthServiceCouplingPatterns) {
+      if (pattern.test(source)) violations.push(`${relativePath}: ${message}`);
+    }
+  }
+  return violations.sort();
+}
+
+function routerApiAuthServiceMountViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of [
+    ...listTypeScriptFiles('apps/web-server/src'),
+    ...listTypeScriptFiles('packages/sdk-server-ts/src/router'),
+  ]) {
+    const source = readSource(relativePath);
+    for (const { pattern, message } of forbiddenRouterApiAuthServiceMountPatterns) {
+      if (pattern.test(source)) violations.push(`${relativePath}: ${message}`);
+    }
+  }
+  return violations.sort();
+}
+
+function authServiceRouterApiLifecycleMethodViolations(): string[] {
+  const source = readSource(authServicePath);
+  const violations: string[] = [];
+  for (const pattern of forbiddenAuthServiceRouterApiLifecycleMethodPatterns) {
+    if (pattern.test(source)) {
+      violations.push(`${authServicePath}: contains removed Router API lifecycle method ${pattern}`);
+    }
+  }
+  return violations.sort();
+}
+
 function durableRegistrationIntentLegacySelectionConversionViolations(): string[] {
   const violations: string[] = [];
   for (const relativePath of [
@@ -2157,11 +2222,6 @@ test('Cloudflare D1 runtime reads sponsored pricing from Console D1, not Worker 
 
 test('Router API route capabilities are selected by structural services, not enabled flags', () => {
   const violations = legacyRouteCapabilityFlagViolations();
-  expect(violations, violations.join('\n')).toEqual([]);
-});
-
-test('D1 local and staging Workers mount Ed25519 registration prepare structurally', () => {
-  const violations = d1WorkerEd25519PrepareMountViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
@@ -2411,6 +2471,21 @@ test('Cloudflare D1 runtime does not revive legacy registration modes', () => {
 
 test('AuthService wallet registration does not revive legacy registration modes', () => {
   const violations = authServiceLegacyRegistrationModeViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Router API service ports stay backend-neutral and explicit', () => {
+  const violations = routerApiAuthServiceCouplingViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Router API routes are not mounted with AuthService', () => {
+  const violations = routerApiAuthServiceMountViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('AuthService does not own Router API wallet lifecycle methods', () => {
+  const violations = authServiceRouterApiLifecycleMethodViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });
 

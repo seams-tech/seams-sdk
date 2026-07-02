@@ -3,7 +3,6 @@ import type {
   EvmFamilyChain,
   EvmFamilyEcdsaSessionReaderDeps,
   PasskeyEcdsaSessionStoreSource,
-  PasskeyEcdsaSigningLookupArgs,
 } from '../../interfaces/operationDeps';
 import {
   selectedEcdsaLane,
@@ -27,18 +26,15 @@ import {
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
-  SigningSessionIds,
   type ResolvedEcdsaSigningSessionIdentity,
   type ThresholdEcdsaSessionId,
   type SigningGrantId,
 } from '../../session/operationState/types';
-import { toAccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   toWalletId,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
-  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaSessionIdentity,
@@ -494,26 +490,66 @@ export function isEmailOtpThresholdEcdsaSigningContext(args: {
   );
 }
 
+export type EmailOtpEcdsaAuthLaneResolution =
+  | {
+      kind: 'ready';
+      authLane: EmailOtpAuthLane;
+    }
+  | {
+      kind: 'record_missing';
+      authLane?: never;
+    }
+  | {
+      kind: 'not_email_otp_record';
+      source: ThresholdEcdsaSessionStoreSource;
+      authLane?: never;
+    }
+  | {
+      kind: 'wallet_session_auth_unavailable';
+      reason: 'cookie_session' | 'missing_wallet_session_jwt';
+      authLane?: never;
+    }
+  | {
+      kind: 'missing_session_identity';
+      authLane?: never;
+    };
+
+export function resolveEmailOtpEcdsaAuthLaneFromRecord(
+  record: ThresholdEcdsaSessionRecord | null | undefined,
+): EmailOtpEcdsaAuthLaneResolution {
+  if (!record) return { kind: 'record_missing' };
+  if (record.source !== SIGNER_AUTH_METHODS.emailOtp) {
+    return { kind: 'not_email_otp_record', source: record.source };
+  }
+  const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
+  const walletSessionAuth = record ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(record) : null;
+  if (walletSessionAuth?.kind !== 'ready') {
+    return {
+      kind: 'wallet_session_auth_unavailable',
+      reason: walletSessionAuth?.reason || 'missing_wallet_session_jwt',
+    };
+  }
+  if (!identity) {
+    return { kind: 'missing_session_identity' };
+  }
+  return {
+    kind: 'ready',
+    authLane: {
+      kind: 'signing_session',
+      jwt: walletSessionAuth.walletSessionJwt,
+      thresholdSessionId: identity.thresholdSessionId,
+      authorizingSigningGrantId: toAuthorizingSigningGrantId(identity.signingGrantId),
+      curve: 'ecdsa',
+      chainTarget: record.chainTarget,
+    },
+  };
+}
+
 export function emailOtpEcdsaAuthLaneFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
 ): EmailOtpAuthLane | undefined {
-  const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
-  const walletSessionAuth = record ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(record) : null;
-  if (
-    record?.source !== SIGNER_AUTH_METHODS.emailOtp ||
-    walletSessionAuth?.kind !== 'ready' ||
-    !identity
-  ) {
-    return undefined;
-  }
-  return {
-    kind: 'signing_session',
-    jwt: walletSessionAuth.walletSessionJwt,
-    thresholdSessionId: identity.thresholdSessionId,
-    authorizingSigningGrantId: toAuthorizingSigningGrantId(identity.signingGrantId),
-    curve: 'ecdsa',
-    chainTarget: record.chainTarget,
-  };
+  const resolution = resolveEmailOtpEcdsaAuthLaneFromRecord(record);
+  return resolution.kind === 'ready' ? resolution.authLane : undefined;
 }
 
 function ecdsaMaterialSourceMatchesAuth(args: {
@@ -618,7 +654,8 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
     return 'chain mismatch';
   }
   try {
-    thresholdEcdsaSessionRecordReadModel(record).key;
+    const readModel = thresholdEcdsaSessionRecordReadModel(record);
+    if (!readModel.key) return 'record key identity mismatch';
   } catch {
     return 'record key identity mismatch';
   }

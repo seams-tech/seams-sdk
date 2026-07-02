@@ -305,6 +305,12 @@ export class SeamsWebIframe {
           options: args.options,
         });
       },
+      fundImplicitNearAccountForTesting: async (args) =>
+        await this.router.fundImplicitNearAccountForTesting({
+          walletId: args.walletSession.walletId,
+          nearAccountId: args.nearAccount.accountId,
+          nearPublicKey: args.nearPublicKey,
+        }),
       executeAction: async (args) => await this.executeActionDomain(args),
       signAndSendTransaction: async (args) => {
         return await this.signAndSendTransactionDomain({

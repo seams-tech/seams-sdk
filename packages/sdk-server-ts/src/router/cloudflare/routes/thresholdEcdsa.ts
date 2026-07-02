@@ -542,9 +542,17 @@ export async function handleThresholdEcdsa(ctx: CloudflareRouterApiContext): Pro
       };
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     }
+    if (validated.walletSessionAuth.authorityScope.kind !== 'passkey_rp') {
+      const result = {
+        ok: false,
+        code: 'unauthorized' as const,
+        message: 'ECDSA key identity inventory requires passkey wallet-session authority',
+      };
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    }
     const keyInventory = await ctx.service.listThresholdEcdsaKeyIdentityTargetsForUser({
       userId: validated.walletSessionAuth.userId,
-      rpId: validated.walletSessionAuth.rpId,
+      rpId: validated.walletSessionAuth.authorityScope.rpId,
       keyTargets: parsed.request.keyTargets,
     });
     ctx.logger.info('[threshold-ecdsa][key-identities][diagnostic]', {

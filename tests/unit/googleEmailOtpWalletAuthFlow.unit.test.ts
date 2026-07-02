@@ -353,6 +353,19 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
         googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
       },
     });
+    expect(registerCall?.args).toMatchObject({
+      signerSelection: {
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'near_ed25519',
+            accountProvisioning: {
+              kind: 'implicit_account',
+            },
+          },
+        ],
+      },
+    });
     expect(JSON.stringify(registerCall?.args)).not.toContain('code-1');
     expect(JSON.stringify(registerCall?.args)).not.toContain('recoveryKeys');
     expect(calls.map((call) => call.type)).toEqual([

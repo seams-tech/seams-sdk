@@ -437,7 +437,7 @@ export class EmailRecoveryDomain {
       }
       const thresholdWarmSessionRequest = buildThresholdWarmSessionRequestEnvelope({
         walletId: String(walletId),
-        rpId,
+        authority: { kind: 'passkey_rp', rpId },
         requestedPolicy: thresholdWarmPolicy,
       });
       const ecdsaProvisionTargets = listThresholdEcdsaProvisionTargets({

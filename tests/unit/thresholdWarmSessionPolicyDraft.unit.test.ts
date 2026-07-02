@@ -63,17 +63,41 @@ test.describe('threshold warm-session policy draft', () => {
     if (!policy) throw new Error('expected warm-session policy');
 
     const envelope = buildThresholdWarmSessionRequestEnvelope({
-      rpId: 'wallet.example.test',
+      authority: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
       nearAccountId: 'alice.testnet',
       requestedPolicy: policy,
     });
 
     expect(envelope.session_policy).toMatchObject({
-      rpId: 'wallet.example.test',
+      authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
       nearAccountId: 'alice.testnet',
       signingGrantId: 'wss_shared_registration_budget',
       remainingUses: 3,
     });
+  });
+
+  test('can carry exact Email OTP registration authority scope', () => {
+    const policy = createThresholdWarmSessionPolicyDraft(warmSessionContext(), {
+      kind: 'generated_signing_grant',
+      participantIds: [1, 2],
+    });
+    if (!policy) throw new Error('expected warm-session policy');
+
+    const authorityScope = {
+      kind: 'email_otp',
+      proofKind: 'google_sso_registration',
+      email: 'alice@example.test',
+      googleEmailOtpRegistrationAttemptId: 'attempt-1',
+      googleEmailOtpRegistrationOfferId: 'offer-1',
+      googleEmailOtpRegistrationCandidateId: 'candidate-1',
+    } as const;
+    const envelope = buildThresholdWarmSessionRequestEnvelope({
+      authority: { kind: 'exact_authority_scope', authorityScope },
+      requestedPolicy: policy,
+    });
+
+    expect(envelope.session_policy.authorityScope).toEqual(authorityScope);
+    expect(envelope.session_policy).not.toHaveProperty('rpId');
   });
 
   test('rejects invalid shared signing-grant budget facts', () => {

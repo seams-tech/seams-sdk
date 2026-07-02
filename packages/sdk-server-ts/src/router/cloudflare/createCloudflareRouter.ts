@@ -1,4 +1,4 @@
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import type { RouterApiOptions } from '../routerApi';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -76,7 +76,7 @@ export interface CloudflareRouterApiContext {
   env?: CfEnv;
   cfCtx?: CfExecutionContext;
 
-  service: CloudflareRouterApiAuthService;
+  service: RouterApiAuthService;
   opts: RouterApiOptions;
   logger: NormalizedRouterLogger;
 
@@ -86,7 +86,7 @@ export interface CloudflareRouterApiContext {
 }
 
 export function createCloudflareRouter(
-  service: CloudflareRouterApiAuthService,
+  service: RouterApiAuthService,
   opts: RouterApiOptions = {},
 ): FetchHandler {
   const notFound = () => new Response('Not Found', { status: 404 });

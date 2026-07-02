@@ -10,6 +10,7 @@ import type {
   RouterApiBootstrapGrantBroker,
   RouterApiBootstrapGrantClientContext,
   RouterApiBootstrapGrantFailureCode,
+  RouterApiBootstrapGrantIssueAuthority,
   RouterApiBootstrapGrantIssueRequest,
   RouterApiBootstrapGrantIssueResult,
 } from './routerApi';
@@ -106,6 +107,30 @@ function normalizeRegistrationBootstrapGrantFlow(raw: unknown): 'registration_v1
   return 'registration_v1';
 }
 
+function bootstrapGrantIssueAuthority(
+  rpId: string | undefined,
+): RouterApiBootstrapGrantIssueAuthority {
+  if (rpId) {
+    return { kind: 'passkey_rp', rpId };
+  }
+  return { kind: 'wallet_auth' };
+}
+
+function routerApiBootstrapGrantRecordRpId(
+  authority: RouterApiBootstrapGrantIssueAuthority,
+): string {
+  switch (authority.kind) {
+    case 'passkey_rp':
+      return authority.rpId;
+    case 'wallet_auth':
+      return '';
+    default: {
+      const exhaustive: never = authority;
+      return exhaustive;
+    }
+  }
+}
+
 function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolean {
   const origin = normalizeOrigin(input.origin);
   const rpId = String(input.rpId || '')
@@ -135,15 +160,39 @@ export function parseRouterApiBootstrapGrantIssueBody(
   }
   const environmentId = readRequiredString(body, 'environmentId');
   const newAccountId = readOptionalString(body, 'newAccountId');
-  const rpId = readRequiredString(body, 'rpId');
+  const rpId = readOptionalString(body, 'rpId');
   const flow = normalizeRegistrationBootstrapGrantFlow(body.flow);
   const clientContext = normalizeClientContext(body.clientContext);
+  const authority = bootstrapGrantIssueAuthority(rpId);
+  if (newAccountId && clientContext) {
+    return {
+      environmentId,
+      newAccountId,
+      authority,
+      flow,
+      clientContext,
+    };
+  }
+  if (newAccountId) {
+    return {
+      environmentId,
+      newAccountId,
+      authority,
+      flow,
+    };
+  }
+  if (clientContext) {
+    return {
+      environmentId,
+      authority,
+      flow,
+      clientContext,
+    };
+  }
   return {
     environmentId,
-    ...(newAccountId ? { newAccountId } : {}),
-    rpId,
+    authority,
     flow,
-    ...(clientContext ? { clientContext } : {}),
   };
 }
 
@@ -192,7 +241,7 @@ export function createRouterApiBootstrapGrantBroker(
     origin: string;
     environmentId: string;
     newAccountId?: string;
-    rpId: string;
+    authority: RouterApiBootstrapGrantIssueAuthority;
     flow: 'registration_v1';
     clientContext?: RouterApiBootstrapGrantClientContext;
   }): Promise<RouterApiBootstrapGrantIssueResult> {
@@ -225,7 +274,8 @@ export function createRouterApiBootstrapGrantBroker(
         message: 'Publishable key is not valid for this environment',
       };
     }
-    if (!isRpIdAllowedForOrigin({ origin, rpId: input.rpId })) {
+    const rpId = routerApiBootstrapGrantRecordRpId(input.authority);
+    if (rpId && !isRpIdAllowedForOrigin({ origin, rpId })) {
       return {
         ok: false,
         status: 400,
@@ -310,7 +360,7 @@ export function createRouterApiBootstrapGrantBroker(
       projectId: environment.projectId,
       environmentId: environment.id,
       newAccountId: String(input.newAccountId || '').trim(),
-      rpId: input.rpId,
+      rpId,
       origin,
       method: 'POST',
       path: '/wallets/register/intent',

@@ -20,9 +20,17 @@ export type PasskeyPublicDeps = {
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
 };
 
+type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
+
 export type ConnectEd25519SessionArgs =
-  | Omit<FreshWarmEd25519CapabilityProvisionArgs, 'beforeProvision' | 'assertNotCancelled'>
-  | Omit<ExactWarmEd25519CapabilityProvisionArgs, 'beforeProvision' | 'assertNotCancelled'>;
+  | DistributiveOmit<
+      FreshWarmEd25519CapabilityProvisionArgs,
+      'beforeProvision' | 'assertNotCancelled'
+    >
+  | DistributiveOmit<
+      ExactWarmEd25519CapabilityProvisionArgs,
+      'beforeProvision' | 'assertNotCancelled'
+    >;
 
 export async function connectEd25519Session(
   deps: PasskeyPublicDeps,

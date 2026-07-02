@@ -113,36 +113,45 @@ test.describe('threshold ecdsa persisted records', () => {
   test('parses current Ed25519 records and role-local ECDSA HSS records', async () => {
     expect(
       parseCurrentThresholdEd25519KeyRecord({
+        kind: 'ready',
         walletId: 'frost-vermillion-k7p9m2',
         nearAccountId: 'alice.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
         authorityScope: ed25519AuthorityScope,
         publicKey: 'ed25519:public',
-        relayerSigningShareB64u: 'signing-share',
-        relayerVerifyingShareB64u: 'verifying-share',
+        routerMaterial: {
+          signingShareB64u: 'signing-share',
+          verifyingShareB64u: 'verifying-share',
+        },
         keyVersion: 'key-v1',
         recoveryExportCapable: true,
       }),
     ).toEqual({
+      kind: 'ready',
       walletId: 'frost-vermillion-k7p9m2',
       nearAccountId: 'alice.testnet',
       nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
       authorityScope: ed25519AuthorityScope,
       publicKey: 'ed25519:public',
-      relayerSigningShareB64u: 'signing-share',
-      relayerVerifyingShareB64u: 'verifying-share',
+      routerMaterial: {
+        signingShareB64u: 'signing-share',
+        verifyingShareB64u: 'verifying-share',
+      },
       keyVersion: 'key-v1',
       recoveryExportCapable: true,
     });
     expect(
       parseCurrentThresholdEd25519KeyRecord({
+        kind: 'ready',
         walletId: 'frost-vermillion-k7p9m2',
         nearAccountId: 'alice.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
         rpId: 'example.localhost',
         publicKey: 'ed25519:public',
-        relayerSigningShareB64u: 'signing-share',
-        relayerVerifyingShareB64u: 'verifying-share',
+        routerMaterial: {
+          signingShareB64u: 'signing-share',
+          verifyingShareB64u: 'verifying-share',
+        },
         keyVersion: 'key-v1',
         recoveryExportCapable: true,
       }),

@@ -24,26 +24,37 @@ import {
 } from './ecdsaMaterialState';
 import {
   findExactEcdsaSessionRecordForSelectedLane,
+  resolveEmailOtpEcdsaAuthLaneFromRecord,
+  summarizeEvmFamilyEcdsaSessionRecord,
   logEvmFamilyEcdsaLaneDiagnostic,
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
-  tryGetEmailOtpThresholdEcdsaSessionRecordForSigning,
   tryGetPasskeyThresholdEcdsaSessionRecordForSigning,
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type {
+  EmailOtpEcdsaSigningSessionAuthLaneResolver,
   EvmFamilyEcdsaSessionReaderDeps,
   PasskeyEcdsaSessionStoreSource,
 } from '../../interfaces/operationDeps';
+import {
+  exactEcdsaSigningLaneIdentityFromSelectedLane,
+  exactSigningLaneIdentityKey,
+} from '../../session/identity/exactSigningLaneIdentity';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletId,
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import {
+  toExactEcdsaSigningLaneIdentity,
+  type ThresholdEcdsaSessionRecord,
+} from '../../session/persistence/records';
 import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
+import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 
 const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
   'login',
@@ -52,7 +63,8 @@ const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
 ] as const satisfies readonly PasskeyEcdsaSessionStoreSource[];
 
 export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
-  EvmFamilyEcdsaSessionReaderDeps;
+  EvmFamilyEcdsaSessionReaderDeps &
+  EmailOtpEcdsaSigningSessionAuthLaneResolver;
 
 type EcdsaSelectionLaneCandidateDiagnosticsBase = {
   authMethod: EvmFamilyEcdsaAuthMethod;
@@ -108,8 +120,7 @@ export type ReadyEvmFamilyEcdsaSigningSelection = {
 
 export type EmailOtpEcdsaReauthAuthority = {
   kind: 'email_otp_signing_session';
-  thresholdSessionId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
+  authLane: EmailOtpAuthLane;
 };
 
 type ReauthRequiredEvmFamilyEcdsaSigningSelectionBase = {
@@ -144,14 +155,14 @@ export type ReauthRequiredEvmFamilyEcdsaSigningSelection =
       })
   | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
       MaterialBackedEvmFamilyEcdsaSigningSelection & {
-      authMethod: 'email_otp';
-      reauthAuthority: EmailOtpEcdsaReauthAuthority;
-    })
+        authMethod: 'email_otp';
+        reauthAuthority: EmailOtpEcdsaReauthAuthority;
+      })
   | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
       MaterialBackedEvmFamilyEcdsaSigningSelection & {
-      authMethod: 'passkey';
-      reauthAuthority?: never;
-    });
+        authMethod: 'passkey';
+        reauthAuthority?: never;
+      });
 
 export type BudgetBlockedEvmFamilyEcdsaSigningSelection = {
   kind: 'budget_blocked';
@@ -193,16 +204,14 @@ function exactEcdsaCandidateRequiresHotMaterial(candidate: EcdsaLaneCandidate): 
   return candidate.state === 'ready';
 }
 
-function reauthRequiredSelection(args: {
+function passkeyReauthRequiredSelection(args: {
   accountAuth: AccountAuthMetadata;
-  candidate: EcdsaLaneCandidate;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: EcdsaMaterialState;
-  materialChainTarget: ThresholdEcdsaChainTarget;
   reason: ReauthRequiredEvmFamilyEcdsaSigningSelection['reason'];
   reauthAnchor?: ReauthAnchorIdentity;
   diagnostics: EcdsaSelectionDiagnostics;
-}): ReauthRequiredEvmFamilyEcdsaSigningSelection {
+}): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'passkey' }> {
   const common = {
     kind: 'reauth_required' as const,
     accountAuth: args.accountAuth,
@@ -219,17 +228,6 @@ function reauthRequiredSelection(args: {
       reason: args.reason,
       reauthAnchor: args.reauthAnchor,
     };
-    if (ecdsaLaneCandidateAuthMethod(args.candidate) === SIGNER_AUTH_METHODS.emailOtp) {
-      return {
-        ...base,
-        authMethod: SIGNER_AUTH_METHODS.emailOtp,
-        reauthAuthority: {
-          kind: 'email_otp_signing_session',
-          thresholdSessionId: args.candidate.thresholdSessionId,
-          chainTarget: args.materialChainTarget,
-        },
-      };
-    }
     return {
       ...base,
       authMethod: SIGNER_AUTH_METHODS.passkey,
@@ -239,20 +237,46 @@ function reauthRequiredSelection(args: {
     ...common,
     reason: args.reason,
   };
-  if (ecdsaLaneCandidateAuthMethod(args.candidate) === SIGNER_AUTH_METHODS.emailOtp) {
-    return {
-      ...base,
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      reauthAuthority: {
-        kind: 'email_otp_signing_session',
-        thresholdSessionId: args.candidate.thresholdSessionId,
-        chainTarget: args.materialChainTarget,
-      },
-    };
-  }
   return {
     ...base,
     authMethod: SIGNER_AUTH_METHODS.passkey,
+  };
+}
+
+function emailOtpReauthRequiredSelection(args: {
+  accountAuth: AccountAuthMetadata;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  material: EcdsaMaterialState;
+  reason: ReauthRequiredEvmFamilyEcdsaSigningSelection['reason'];
+  emailOtpAuthLane: EmailOtpAuthLane;
+  reauthAnchor?: ReauthAnchorIdentity;
+  diagnostics: EcdsaSelectionDiagnostics;
+}): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'email_otp' }> {
+  const common = {
+    kind: 'reauth_required' as const,
+    accountAuth: args.accountAuth,
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    lane: args.lane,
+    material: args.material,
+    diagnostics: args.diagnostics,
+    reauthAuthority: {
+      kind: 'email_otp_signing_session' as const,
+      authLane: args.emailOtpAuthLane,
+    },
+  };
+  if (args.reason === 'expired' || args.reason === 'exhausted') {
+    if (!args.reauthAnchor) {
+      throw new Error('[SigningEngine][ecdsa] exhausted/expired reauth requires a reauth anchor');
+    }
+    return {
+      ...common,
+      reason: args.reason,
+      reauthAnchor: args.reauthAnchor,
+    };
+  }
+  return {
+    ...common,
+    reason: args.reason,
   };
 }
 
@@ -268,9 +292,7 @@ function signingLaneFromExactLaneCandidate(
     keyHandle: candidate.keyHandle,
     walletId: candidate.walletId,
     chainTarget: candidate.chainTarget,
-    signingGrantId: SigningSessionIds.signingGrant(
-      candidate.signingGrantId,
-    ),
+    signingGrantId: SigningSessionIds.signingGrant(candidate.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(candidate.thresholdSessionId),
   };
   const lane = buildLane(
@@ -291,6 +313,18 @@ function signingLaneFromExactLaneCandidate(
     lane,
     chain: candidate.chain,
     context: 'build exact ECDSA candidate signing lane',
+  });
+}
+
+function emailOtpAuthorityLaneFromCandidate(args: {
+  candidate: EcdsaLaneCandidate;
+  selectedLane: ResolvedEvmFamilyEcdsaSigningLane;
+}): ResolvedEvmFamilyEcdsaSigningLane {
+  if (args.candidate.source !== 'evm_family_shared_key') return args.selectedLane;
+  return signingLaneFromExactLaneCandidate({
+    ...args.candidate,
+    chain: args.candidate.sourceChainTarget.kind,
+    chainTarget: args.candidate.sourceChainTarget,
   });
 }
 
@@ -354,6 +388,18 @@ type PasskeyMaterialDiagnosticsSelection =
       reason: 'email_otp_candidate';
       material?: never;
       selected?: never;
+    };
+
+type EmailOtpSelectionAuthority =
+  | {
+      kind: 'record_backed';
+      record: ThresholdEcdsaSessionRecord;
+      authLane: EmailOtpAuthLane;
+    }
+  | {
+      kind: 'durable_exact_lane';
+      record?: never;
+      authLane: EmailOtpAuthLane;
     };
 
 function passkeySessionStoreSourceFromExactSource(
@@ -523,6 +569,106 @@ function selectSessionSourceForWalletAuth(args: {
   };
 }
 
+async function resolveEmailOtpAuthorityForSelection(args: {
+  deps: EvmFamilyEcdsaSigningSelectionDeps;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  chain: EvmFamilyChain;
+  record: ThresholdEcdsaSessionRecord | null;
+}): Promise<EmailOtpSelectionAuthority | null> {
+  if (args.record) {
+    const recordAuthLane = resolveEmailOtpEcdsaAuthLaneFromRecord(args.record);
+    if (recordAuthLane.kind !== 'ready') {
+      logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for authority', {
+        rejection: recordAuthLane,
+        lane: summarizeEvmFamilyEcdsaLane(args.lane),
+        record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      });
+      return null;
+    }
+    return {
+      kind: 'record_backed',
+      record: args.record,
+      authLane: recordAuthLane.authLane,
+    };
+  }
+  const exactLane = exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane);
+  const resolved = await args.deps.resolveEmailOtpSigningSessionAuthLane({
+    lane: exactLane,
+    chain: args.chain,
+  });
+  if (!resolved) {
+    logEvmFamilyEcdsaLaneDiagnostic('Email OTP durable exact ECDSA authority not found', {
+      lane: summarizeEvmFamilyEcdsaLane(args.lane),
+      exactLane,
+      chain: args.chain,
+    });
+  }
+  return resolved ? { kind: 'durable_exact_lane', authLane: resolved } : null;
+}
+
+function exactEmailOtpEcdsaRecordForLane(args: {
+  deps: EvmFamilyEcdsaSigningSelectionDeps;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+}): ThresholdEcdsaSessionRecord | null {
+  const record = findExactEcdsaSessionRecordForSelectedLane(args);
+  const exactRecord = matchingEmailOtpRecordForLane({ record, lane: args.lane });
+  if (exactRecord) return exactRecord;
+  const exactLane = exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane);
+  const sourceRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForAuthority({
+    deps: args.deps,
+    walletId: exactLane.signer.walletId,
+    chainTarget: exactLane.signer.chainTarget,
+  });
+  return matchingEmailOtpRecordForLane({ record: sourceRecord, lane: args.lane });
+}
+
+function tryGetEmailOtpThresholdEcdsaSessionRecordForAuthority(args: {
+  deps: EvmFamilyEcdsaSigningSelectionDeps;
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): ThresholdEcdsaSessionRecord | null {
+  try {
+    return args.deps.getEmailOtpThresholdEcdsaSessionRecordForSigning({
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function matchingEmailOtpRecordForLane(args: {
+  record: ThresholdEcdsaSessionRecord | null | undefined;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+}): ThresholdEcdsaSessionRecord | null {
+  const record = args.record || null;
+  if (!record || record.source !== SIGNER_AUTH_METHODS.emailOtp) return null;
+  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, args.lane.chainTarget)) {
+    return null;
+  }
+  try {
+    const matches =
+      exactSigningLaneIdentityKey(toExactEcdsaSigningLaneIdentity(record)) ===
+      exactSigningLaneIdentityKey(exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane));
+    return matches ? record : null;
+  } catch {
+    return null;
+  }
+}
+
+function requireEmailOtpSelectionAuthority(args: {
+  authority: EmailOtpSelectionAuthority | null;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  candidate: EcdsaLaneCandidate;
+}): EmailOtpSelectionAuthority {
+  if (args.authority) return args.authority;
+  logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA signing-session authority missing', {
+    lane: summarizeEvmFamilyEcdsaLane(args.lane),
+    candidate: summarizeLaneCandidate(args.candidate),
+  });
+  throw new Error('Email OTP signing-session authority is unavailable; unlock wallet again');
+}
+
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
   walletId: WalletId;
@@ -535,6 +681,10 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   allowMissingHotMaterial?: boolean;
 }): Promise<EvmFamilyEcdsaSigningSelectionResult> {
   const lane = signingLaneFromExactLaneCandidate(args.laneCandidate);
+  const emailOtpAuthorityLane = emailOtpAuthorityLaneFromCandidate({
+    candidate: args.laneCandidate,
+    selectedLane: lane,
+  });
   const materialChainTarget =
     args.laneCandidate.source === 'evm_family_shared_key'
       ? args.laneCandidate.sourceChainTarget
@@ -546,19 +696,35 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           deps: args.deps,
           lane,
         });
-
-  const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
-    deps: args.deps,
-    walletId: args.walletId,
-    chainTarget: materialChainTarget,
-  });
   const candidateAuthMethod = ecdsaLaneCandidateAuthMethod(args.laneCandidate);
   const visibleEmailOtpRecord =
-    emailOtpRecord ||
-    (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp &&
-    exactRecordForCandidate?.source === SIGNER_AUTH_METHODS.emailOtp
-      ? exactRecordForCandidate
-      : undefined);
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? exactEmailOtpEcdsaRecordForLane({
+          deps: args.deps,
+          lane: emailOtpAuthorityLane,
+        })
+      : null;
+  const emailOtpAuthority =
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? await resolveEmailOtpAuthorityForSelection({
+          deps: args.deps,
+          lane: emailOtpAuthorityLane,
+          chain: emailOtpAuthorityLane.chain,
+          record: visibleEmailOtpRecord,
+        })
+      : null;
+  const requiredEmailOtpAuthority =
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? requireEmailOtpSelectionAuthority({
+          authority: emailOtpAuthority,
+          lane: emailOtpAuthorityLane,
+          candidate: args.laneCandidate,
+        })
+      : null;
+  const emailOtpMaterialRecord =
+    requiredEmailOtpAuthority?.kind === 'record_backed'
+      ? requiredEmailOtpAuthority.record
+      : null;
   const passkeyVisibleMaterials = listPasskeyVisibleMaterials({
     deps: args.deps,
     walletId: args.walletId,
@@ -568,10 +734,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
       ? buildEcdsaMaterialStateForCandidate({
           candidate: args.laneCandidate,
-          record:
-            args.laneCandidate.source === 'evm_family_shared_key'
-              ? emailOtpRecord
-              : exactRecordForCandidate,
+          record: emailOtpMaterialRecord || undefined,
           authMethod: SIGNER_AUTH_METHODS.emailOtp,
           source: SIGNER_AUTH_METHODS.emailOtp,
           chainTarget: args.chainTarget,
@@ -599,7 +762,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
         });
 
   const walletAuthInputs = selectSessionSourceForWalletAuth({
-    ...(visibleEmailOtpRecord ? { emailOtpRecord: visibleEmailOtpRecord } : {}),
+    ...(emailOtpMaterialRecord ? { emailOtpRecord: emailOtpMaterialRecord } : {}),
     passkeySelection: selectedPasskeyMaterial,
   });
   const walletAuth = await resolveEvmFamilyTransactionWalletAuth({
@@ -612,15 +775,12 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       ? { isEmailOtpThresholdContext: walletAuthInputs.isEmailOtpThresholdContext }
       : {}),
   });
-  const selectedAccountAuth = walletAuthWithSelectedPrimary(
-    walletAuth,
-    candidateAuthMethod,
-  );
+  const selectedAccountAuth = walletAuthWithSelectedPrimary(walletAuth, candidateAuthMethod);
 
   const diagnostics = buildEcdsaSelectionDiagnostics({
     candidate: args.laneCandidate,
     exactCandidateMaterial,
-    ...(visibleEmailOtpRecord ? { emailOtpRecord: visibleEmailOtpRecord } : {}),
+    ...(emailOtpMaterialRecord ? { emailOtpRecord: emailOtpMaterialRecord } : {}),
     passkeyVisibleMaterials,
     materialChainTarget,
     passkeySelection: selectedPasskeyMaterial,
@@ -642,12 +802,25 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   }
 
   if (args.laneCandidate.state === 'expired') {
-    return reauthRequiredSelection({
+    if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
+      const emailOtpAuthority = requiredEmailOtpAuthority;
+      if (!emailOtpAuthority) {
+        throw new Error('Email OTP signing-session authority is unavailable; unlock wallet again');
+      }
+      return emailOtpReauthRequiredSelection({
+        accountAuth: selectedAccountAuth,
+        lane,
+        material: exactCandidateMaterial,
+        reason: 'expired',
+        emailOtpAuthLane: emailOtpAuthority.authLane,
+        ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
+        diagnostics,
+      });
+    }
+    return passkeyReauthRequiredSelection({
       accountAuth: selectedAccountAuth,
-      candidate: args.laneCandidate,
       lane,
       material: exactCandidateMaterial,
-      materialChainTarget,
       reason: 'expired',
       ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
       diagnostics,
@@ -655,12 +828,25 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   }
 
   if (args.laneCandidate.state === 'exhausted') {
-    return reauthRequiredSelection({
+    if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
+      const emailOtpAuthority = requiredEmailOtpAuthority;
+      if (!emailOtpAuthority) {
+        throw new Error('Email OTP signing-session authority is unavailable; unlock wallet again');
+      }
+      return emailOtpReauthRequiredSelection({
+        accountAuth: selectedAccountAuth,
+        lane,
+        material: exactCandidateMaterial,
+        reason: 'exhausted',
+        emailOtpAuthLane: emailOtpAuthority.authLane,
+        ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
+        diagnostics,
+      });
+    }
+    return passkeyReauthRequiredSelection({
       accountAuth: selectedAccountAuth,
-      candidate: args.laneCandidate,
       lane,
       material: exactCandidateMaterial,
-      materialChainTarget,
       reason: 'exhausted',
       ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
       diagnostics,
@@ -668,12 +854,24 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   }
 
   if (exactCandidateMaterial.kind !== 'ready_to_sign') {
-    return reauthRequiredSelection({
+    if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
+      const emailOtpAuthority = requiredEmailOtpAuthority;
+      if (!emailOtpAuthority) {
+        throw new Error('Email OTP signing-session authority is unavailable; unlock wallet again');
+      }
+      return emailOtpReauthRequiredSelection({
+        accountAuth: selectedAccountAuth,
+        lane,
+        material: exactCandidateMaterial,
+        reason: 'missing_hot_material',
+        emailOtpAuthLane: emailOtpAuthority.authLane,
+        diagnostics,
+      });
+    }
+    return passkeyReauthRequiredSelection({
       accountAuth: selectedAccountAuth,
-      candidate: args.laneCandidate,
       lane,
       material: exactCandidateMaterial,
-      materialChainTarget,
       reason: 'missing_hot_material',
       diagnostics,
     });

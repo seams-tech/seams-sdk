@@ -7,6 +7,7 @@ export interface AccountExistsBadgeProps {
   mode?: AuthMenuMode;
   /** Whether the current context is secure (HTTPS) */
   secure?: boolean;
+  suppressMissingLoginBadge?: boolean;
   /** Optional extra class name for message styling/location */
   className?: string;
   /** Optional id for aria-describedby */
@@ -20,6 +21,7 @@ export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
   targetExists = false,
   mode = AuthMenuMode.Register,
   secure = true,
+  suppressMissingLoginBadge = false,
   className,
   id,
 }) => {
@@ -32,6 +34,7 @@ export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
     }
     if (mode === AuthMenuMode.Login) {
       if (targetExists) return { message: '', tone: 'success' };
+      if (suppressMissingLoginBadge) return { message: '', tone: 'neutral' };
       return { message: 'Wallet not found', tone: 'error' };
     }
     return { message: '', tone: 'neutral' };

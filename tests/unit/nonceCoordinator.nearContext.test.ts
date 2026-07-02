@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { EvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
+import { NearRpcError } from '@/core/rpcClients/near/NearRpcError';
+import type { RpcResponse } from '@/core/types/rpc';
 import {
   createNonceCoordinator,
   NearNonceReconcileReason,
@@ -13,6 +15,7 @@ import {
 } from '@/core/signingEngine/session/operationState/types';
 import {
   classifyNearExecutionReadiness,
+  isMissingNearAccessKeyError,
   NearAccountLookupFailedError,
   NearImplicitAccountFundingRequiredError,
 } from '@/core/signingEngine/nonce/nearNonceLane';
@@ -182,6 +185,9 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
       evmNonceBackend: createFakeEvmNonceBackend(),
     });
     const nearClient = {
+      viewAccount: async () => {
+        throw new Error('Account does not exist while viewing');
+      },
       viewAccessKey: async () => {
         throw new Error('Access key not found');
       },
@@ -206,6 +212,19 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
       nearAccountId,
       nearPublicKeyStr: publicKey,
     });
+  });
+
+  test('preserves NEAR RPC string details for missing account classification', () => {
+    const rpc = {
+      error: {
+        message: 'Server error',
+        data: 'Account cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc does not exist while viewing',
+      },
+    } satisfies RpcResponse;
+    const error = NearRpcError.fromRpcResponse('View Account', rpc);
+
+    expect(error.message).toContain('does not exist while viewing');
+    expect(isMissingNearAccessKeyError(error.message)).toBe(true);
   });
 
   test('reserves NEAR batches and reuses a released highest nonce', async () => {

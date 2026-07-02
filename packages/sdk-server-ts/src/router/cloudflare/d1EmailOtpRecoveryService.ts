@@ -14,7 +14,7 @@ import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
 } from '../../core/ThresholdService/ethSignerWasm';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
 import { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
@@ -40,74 +40,74 @@ import {
 } from './d1EmailOtpRecords';
 
 type ReadActiveEmailOtpEnrollmentInput = Parameters<
-  CloudflareRouterApiAuthService['readActiveEmailOtpEnrollment']
+  RouterApiAuthService['readActiveEmailOtpEnrollment']
 >[0];
 type ReadActiveEmailOtpEnrollmentResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['readActiveEmailOtpEnrollment']>
+  ReturnType<RouterApiAuthService['readActiveEmailOtpEnrollment']>
 >;
 type ReadEmailOtpEnrollmentInput = Parameters<
-  CloudflareRouterApiAuthService['readEmailOtpEnrollment']
+  RouterApiAuthService['readEmailOtpEnrollment']
 >[0];
 type ReadEmailOtpEnrollmentResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['readEmailOtpEnrollment']>
+  ReturnType<RouterApiAuthService['readEmailOtpEnrollment']>
 >;
 type IsEmailOtpStrongAuthRequiredInput = Parameters<
-  CloudflareRouterApiAuthService['isEmailOtpStrongAuthRequired']
+  RouterApiAuthService['isEmailOtpStrongAuthRequired']
 >[0];
 type IsEmailOtpStrongAuthRequiredResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['isEmailOtpStrongAuthRequired']>
+  ReturnType<RouterApiAuthService['isEmailOtpStrongAuthRequired']>
 >;
 type MarkEmailOtpStrongAuthSatisfiedInput = Parameters<
-  CloudflareRouterApiAuthService['markEmailOtpStrongAuthSatisfied']
+  RouterApiAuthService['markEmailOtpStrongAuthSatisfied']
 >[0];
 type MarkEmailOtpStrongAuthSatisfiedResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['markEmailOtpStrongAuthSatisfied']>
+  ReturnType<RouterApiAuthService['markEmailOtpStrongAuthSatisfied']>
 >;
 type GetEmailOtpRecoveryCodeStatusInput = Parameters<
-  CloudflareRouterApiAuthService['getEmailOtpRecoveryCodeStatus']
+  RouterApiAuthService['getEmailOtpRecoveryCodeStatus']
 >[0];
 type GetEmailOtpRecoveryCodeStatusResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['getEmailOtpRecoveryCodeStatus']>
+  ReturnType<RouterApiAuthService['getEmailOtpRecoveryCodeStatus']>
 >;
 type VerifyEmailOtpDeviceRecoveryChallengeInput = Parameters<
-  CloudflareRouterApiAuthService['verifyEmailOtpDeviceRecoveryChallenge']
+  RouterApiAuthService['verifyEmailOtpDeviceRecoveryChallenge']
 >[0];
 type VerifyEmailOtpDeviceRecoveryChallengeResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyEmailOtpDeviceRecoveryChallenge']>
+  ReturnType<RouterApiAuthService['verifyEmailOtpDeviceRecoveryChallenge']>
 >;
 type CreateEmailOtpUnlockChallengeInput = Parameters<
-  CloudflareRouterApiAuthService['createEmailOtpUnlockChallenge']
+  RouterApiAuthService['createEmailOtpUnlockChallenge']
 >[0];
 type CreateEmailOtpUnlockChallengeResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['createEmailOtpUnlockChallenge']>
+  ReturnType<RouterApiAuthService['createEmailOtpUnlockChallenge']>
 >;
 type VerifyEmailOtpUnlockProofInput = Parameters<
-  CloudflareRouterApiAuthService['verifyEmailOtpUnlockProof']
+  RouterApiAuthService['verifyEmailOtpUnlockProof']
 >[0];
 type VerifyEmailOtpUnlockProofResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyEmailOtpUnlockProof']>
+  ReturnType<RouterApiAuthService['verifyEmailOtpUnlockProof']>
 >;
-type ConsumeEmailOtpGrantInput = Parameters<CloudflareRouterApiAuthService['consumeEmailOtpGrant']>[0];
+type ConsumeEmailOtpGrantInput = Parameters<RouterApiAuthService['consumeEmailOtpGrant']>[0];
 type ConsumeEmailOtpGrantResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['consumeEmailOtpGrant']>
+  ReturnType<RouterApiAuthService['consumeEmailOtpGrant']>
 >;
 type ConsumeEmailOtpRecoveryKeyInput = Parameters<
-  CloudflareRouterApiAuthService['consumeEmailOtpRecoveryKey']
+  RouterApiAuthService['consumeEmailOtpRecoveryKey']
 >[0];
 type ConsumeEmailOtpRecoveryKeyResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['consumeEmailOtpRecoveryKey']>
+  ReturnType<RouterApiAuthService['consumeEmailOtpRecoveryKey']>
 >;
 type RotateEmailOtpRecoveryKeysInput = Parameters<
-  CloudflareRouterApiAuthService['rotateEmailOtpRecoveryKeys']
+  RouterApiAuthService['rotateEmailOtpRecoveryKeys']
 >[0];
 type RotateEmailOtpRecoveryKeysResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['rotateEmailOtpRecoveryKeys']>
+  ReturnType<RouterApiAuthService['rotateEmailOtpRecoveryKeys']>
 >;
 type RecordEmailOtpRecoveryKeyAttemptFailureInput = Parameters<
-  CloudflareRouterApiAuthService['recordEmailOtpRecoveryKeyAttemptFailure']
+  RouterApiAuthService['recordEmailOtpRecoveryKeyAttemptFailure']
 >[0];
 type RecordEmailOtpRecoveryKeyAttemptFailureResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['recordEmailOtpRecoveryKeyAttemptFailure']>
+  ReturnType<RouterApiAuthService['recordEmailOtpRecoveryKeyAttemptFailure']>
 >;
 
 type NormalizedRecoveryCodeStatusInput = {

@@ -5,16 +5,22 @@ Date created: June 28, 2026
 Status: planning. Phase 0A is complete through Refactor 82 Phase 8; the remaining
 phases are still planning.
 
-Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-85-modular-auth-capabilities-SPEC.md).
+Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-87-modular-auth-capabilities-SPEC.md).
 
 Companion plans:
 
-- [Refactor 85B: IndexedDB Minimization](./refactor-85B-indexedDB.md)
-- [Refactor 85C: Static Wallet Assets And Vite Plugin Reduction](./refactor-85C-static-wallet-assets.md)
+- [Refactor 82B: Auth Authority Typing Cleanup](./refactor-82B.md)
+- [Refactor 85: IndexedDB Minimization](./refactor-85-indexedDB.md)
+- [Refactor 86: Static Wallet Assets And Vite Plugin Removal](./refactor-86-static-wallet-assets.md)
 
 This document is the implementation checklist. Requirements, architecture
 decisions, domain sketches, persistence defaults, and security model live in the
 companion SPEC.
+
+Refactor 82B is a prerequisite typing cleanup for this plan. It separates stable
+auth authority from one-time registration proof data so the modular auth-method
+and capability surfaces here can be implemented without carrying Passkey-specific
+session assumptions into Email OTP and future auth methods.
 
 ## Implementation Rules
 
@@ -24,8 +30,9 @@ companion SPEC.
   vault proxy use -> passkey grant evidence -> vault reveal -> audit.
 - Keep Better Auth as the development auth provider until Seams authorization is
   stable.
-- Keep capability modules as typed route/service modules. Runtime plugin
-  infrastructure can wait.
+- Keep capability modules as typed route/service modules. Add only the small SDK
+  runtime config surface needed to select hosted wallet iframe mode and requested
+  browser capabilities; avoid a framework or bundler plugin registry.
 - Keep `mpc_signer_proof` optional. Baseline vault access must work without MPC.
 - Phase-one automation uses service-account API keys that can request narrow
   capability grants. Defer OIDC workload federation, mTLS, KMS-bound proof, and
@@ -36,6 +43,51 @@ companion SPEC.
 - Use static route assembly plus import guards for Cloudflare Workers.
 - Keep compatibility logic at request and persistence boundaries, then delete it.
 - Delete wallet-first fixtures when they only protect obsolete behavior.
+- Treat browser `walletRuntime`, `authMethods`, and `capabilities` as SDK module
+  selection only. Server tenant runtime config is authoritative for enabled auth
+  methods, capabilities, and policies.
+
+## Simplified End State
+
+Target source ownership:
+
+```text
+authMethod/
+  passkey
+  emailOtp
+  slackOtp
+  walletLogin
+  recoveryCode
+
+session/
+  seamsSession
+  providerSessionAdapters
+
+authorization/
+  grantEvidence
+  capabilityGrants
+  policies
+  audit
+
+capability/
+  vault
+  nearEd25519Mpc
+  evmEcdsaMpc
+
+router/
+  routeModules
+  cloudflareAdapter
+  expressAdapter
+
+sdkWeb/
+  config
+  walletRuntime/hostedIframe
+  authMethodUi
+  capabilityUi
+```
+
+Use this as the implementation compass. Package extraction is deferred until
+these internal module boundaries are stable.
 
 ## Phase 0A: Signer-Set Registration Cut
 
@@ -298,15 +350,158 @@ Cross-plan notes:
 - Refactor 79 remains the owner for `ExactSigningLaneIdentity` and exact signing
   lane mutation rules. This phase uses the same authority model for worker
   material handles.
-- Refactor 85 owns `WalletUnlockSubject` because unlock is an auth/capability
+- Refactor 87 owns `WalletUnlockSubject` because unlock is an auth/capability
   entrypoint, not a NEAR account API.
-- Refactor 84 HSS slimming must keep HSS crate contexts digest-only; SDK
+- Refactor 84b HSS slimming must keep HSS crate contexts digest-only; SDK
   capability subjects may include app-specific identity before digesting.
 
-## Phase 0E: ECDSA Role-Local Material Cache Slimming
+## Phase 0E: SDK Runtime Surface For Hosted Wallet Capabilities
+
+Status: planning.
+
+Goal: make the wallet iframe an SDK-level runtime selection instead of an app
+Vite/Next/build plugin. Application code should import the SDK, provide its
+environment and publishable key, and opt into wallet capabilities with typed
+runtime, auth-method, and capability config.
+
+Client config selects SDK modules and UI/runtime loading only. Server tenant
+runtime config owns the enabled auth methods, enabled capabilities, and
+capability policies:
+
+```ts
+type TenantRuntimeConfig = {
+  tenantId: TenantId;
+  authMethods: readonly AuthMethodKind[];
+  capabilities: readonly CapabilityKind[];
+  policies: readonly CapabilityPolicyRef[];
+};
+```
+
+Validated against current code:
+
+- `SeamsWebProvider` already accepts one `config` object.
+- `SeamsConfigsInput.iframeWallet` already carries the required runtime fields:
+  wallet origin, service path, SDK base path, wallet host variant, and RP ID
+  override.
+- `SeamsWalletConfig` already resolves into a discriminated runtime shape:
+  `direct` or `iframe`.
+- `WalletIframeRouter` already requires `walletOrigin` when iframe mode is used.
+
+Target public API:
+
+```ts
+import {
+  createSeamsConfig,
+  hostedWalletIframe,
+  passkeyAuth,
+  nearEd25519MpcSigning,
+  evmFamilyEcdsaMpcSigning,
+} from '@seams/sdk';
+
+const config = createSeamsConfig({
+  environmentId: 'proj_...',
+  publishableKey: 'pk_...',
+  walletRuntime: hostedWalletIframe({
+    origin: 'https://wallet.seams.sh',
+    rpId: 'example.com',
+  }),
+  authMethods: [
+    passkeyAuth(),
+  ],
+  capabilities: [
+    nearEd25519MpcSigning(),
+    evmFamilyEcdsaMpcSigning(),
+  ],
+});
+```
+
+React usage:
+
+```tsx
+<SeamsWebProvider config={config}>{children}</SeamsWebProvider>
+```
+
+Auth-only usage:
+
+```ts
+const config = createSeamsConfig({
+  environmentId: 'proj_...',
+  publishableKey: 'pk_...',
+  authMethods: [passkeyAuth()],
+});
+```
+
+Internal normalized shape:
+
+```ts
+type BrowserWalletRuntimeSelection =
+  | { kind: 'none' }
+  | {
+      kind: 'hosted_wallet_iframe';
+      origin: WalletOrigin;
+      servicePath: WalletServicePath;
+      sdkBasePath: WalletSdkBasePath;
+      rpId?: WebAuthnRpId;
+      walletHostVariant: WalletHostVariant;
+    };
+
+type BrowserCapabilitySelection =
+  | { kind: 'near_ed25519_mpc_signing'; walletRuntime: 'hosted_wallet_iframe' }
+  | { kind: 'evm_family_ecdsa_mpc_signing'; walletRuntime: 'hosted_wallet_iframe' };
+
+type BrowserAuthMethodSelection =
+  | { kind: 'passkey_auth' }
+  | { kind: 'email_otp_auth' };
+```
+
+Do:
+
+- Add builder functions for the three distinct config axes:
+  - wallet runtime: `hostedWalletIframe`;
+  - auth methods: `passkeyAuth` and later `emailOtpAuth`;
+  - capabilities: `nearEd25519MpcSigning` and `evmFamilyEcdsaMpcSigning`.
+- Add `createSeamsConfig(...)` as the single public browser config constructor.
+  It should parse raw config input once and return the existing
+  `SeamsConfigsInput`/resolved config bridge only as an internal adapter while
+  the old config shape is being removed.
+- Parse `origin`, `servicePath`, `sdkBasePath`, and `rpId` at the config
+  boundary into branded runtime types.
+- Allow at most one wallet runtime selection at the config boundary.
+- Reject duplicate auth method kinds and duplicate capability kinds at the
+  config boundary.
+- Reject `nearEd25519MpcSigning()` or `evmFamilyEcdsaMpcSigning()` without
+  `hostedWalletIframe(...)` for browser builds.
+- Keep `passkeyAuth()` usable without a wallet iframe for auth-only customers.
+- Keep passkey and OTP out of wallet runtime config; they are auth methods.
+- Replace app examples that set `iframeWallet.walletOrigin` with the
+  `walletRuntime` API.
+- Keep any temporary `iframeWallet` acceptance at the public config boundary
+  only, then delete it before this phase is complete.
+- Keep Vite/Next plugins out of the runtime API. Wallet runtime selection is a
+  plain typed SDK config value.
+- Update `SeamsWebProvider` examples to use `config={...}`.
+- Add type fixtures for:
+  - duplicate auth method and capability rejection;
+  - signer capability without hosted wallet runtime rejection;
+  - auth-only config without hosted wallet runtime;
+  - old `iframeWallet` public examples absent from docs and app examples.
+
+Check:
+
+- A minimal Vite React app can import `@seams/sdk/react` and use
+  `SeamsWebProvider config={createSeamsConfig(...)}` with no SDK Vite plugin.
+- Auth-only passkey login can initialize without wallet iframe code.
+- Browser NEAR/EVM MPC signing refuses to initialize without
+  `hostedWalletIframe(...)`.
+- Browser NEAR/EVM MPC signing initializes the hosted wallet iframe and never
+  requests app-origin `/sdk/*`.
+- `packages/sdk-web/src/plugins/vite.ts` is no longer part of any public
+  browser wallet setup path.
+
+## Phase 0F: ECDSA Role-Local Material Cache Slimming
 
 Status: in progress. The `evmFamilySigningKeySlotId` role-local material-handle
-slice is complete; broader Phase 0E slimming remains pending.
+slice is complete; broader Phase 0F slimming remains pending.
 
 Goal: replace the Phase 0D tactical chain-specific worker-material handle with a
 smaller material-cache identity. Exact signing lanes and signed Router A/B
@@ -692,13 +887,137 @@ Check:
   vault-only and auth-only tenants without wallet-operation roles.
 - Raw provider rows and old wallet-session rows cannot enter core logic.
 
-## Phase 3: Route And D1 Ports
+## Phase 2A: AuthService Mechanical Module Split
 
-Goal: stop exposing monolithic service surfaces to routes.
+Goal: split `packages/sdk-server-ts/src/core/AuthService.ts` into smaller source
+modules without changing behavior, route contracts, storage semantics, public
+exports, or runtime wiring. This is a mechanical bug-fixing and cleanup
+preparation pass: smaller modules should make current bugs easier to localize
+and make obsolete AuthService-era paths obvious before the D1/capability-port
+cleanup deletes them.
+
+Rules:
+
+- Move code mechanically. Do not rename domain concepts, change request/response
+  shapes, introduce new service ports, or add compatibility paths.
+- Keep `AuthService` as the temporary assembler class and public facade.
+- Extract pure helpers first. Move stateful public methods only when their
+  dependencies are explicit and small.
+- Leave a method in `AuthService` when moving it would require a broad
+  `AuthServiceContext`, callback bag, or object full of class internals.
+- Do not create one-method wrapper classes. Use plain functions and narrow
+  module-local helper types.
+- Keep trust-boundary parsing and validation behavior externally equivalent.
+- Keep tests focused on compile/type-check and a small smoke path. This phase is
+  limited to a mechanical split; auth authority, D1 ports, and capability
+  modules stay in later phases.
+- Do not create a `legacy/`, `compat/`, `postgres/`, or generic fallback module.
+  If a path looks obsolete after the D1 migration, record it as a delete
+  candidate instead of giving it a new home.
+
+Target first-pass module shape:
+
+```text
+packages/sdk-server-ts/src/core/authService/
+  index.ts
+  AuthService.ts
+  ids.ts
+  timing.ts
+  wasm.ts
+  webauthn.ts
+  emailOtp/
+    challenge.ts
+    config.ts
+    delivery.ts
+    enrollment.ts
+    grant.ts
+    outbox.ts
+    rateLimit.ts
+    recovery.ts
+    registrationAttempt.ts
+    seal.ts
+    unlock.ts
+    index.ts
+  googleOidc.ts
+  oidcExchange.ts
+  walletRegistration.ts
+  walletStores.ts
+  recovery.ts
+  nearAccounts.ts
+  thresholdEd25519.ts
+  thresholdEcdsa.ts
+  transactions.ts
+```
 
 Do:
 
-- Replace router-facing `Pick<AuthService, ...>` with narrow route ports.
+- Add an AuthService split inventory before moving code. For each method/helper
+  cluster, record current callers, current D1-backed owner if one exists,
+  whether the path is still active, and the replacement path when it appears
+  duplicated.
+- Move top-level timing, diagnostics, random-id, byte, JWT, and WASM-location
+  helpers into focused files under `authService/`.
+- Move WebAuthn login/sync/credential-binding helpers and methods into
+  `authService/webauthn.ts`.
+- Move Email OTP challenge, enrollment, unlock, registration-attempt, recovery,
+  outbox, seal, delivery, config, grant, and rate-limit helpers into
+  `authService/emailOtp/*` files by lifecycle owner.
+- Move Google login and generic OIDC JWKS/exchange helpers into
+  `authService/googleOidc.ts` and `authService/oidcExchange.ts`.
+- Move registration intent, wallet allocation, registration ceremony, and
+  registration-finalize helpers into `authService/walletRegistration.ts`.
+- Move store getters with their owning domain. WebAuthn stores live with
+  WebAuthn, Email OTP stores live under `authService/emailOtp/`, wallet
+  metadata/auth-method store helpers live in `authService/walletStores.ts`, and
+  recovery stores live with recovery. Do not add a catch-all `stores.ts`.
+- Move recovery session/execution helpers into `authService/recovery.ts`.
+- Move NEAR account creation, funding, access-key checks, transaction dispatch,
+  and gas-router signing helpers into `authService/nearAccounts.ts` and
+  `authService/transactions.ts`.
+- Move threshold Ed25519/ECDSA bootstrap, inventory, export, and signer WASM
+  helpers into `authService/thresholdEd25519.ts` and
+  `authService/thresholdEcdsa.ts`.
+- Leave the constructor, config normalization handoff, public facade method
+  exports, and assembly fields in `authService/AuthService.ts`.
+- Re-export `AuthService` from the existing
+  `packages/sdk-server-ts/src/core/AuthService.ts` path so package consumers do
+  not change during this mechanical split. Treat that path as the canonical
+  public barrel while `AuthService` exists.
+- Add a source guard that rejects route imports of `core/authService/**`
+  internals. Routes should import the public `AuthService` facade during this
+  phase and route ports after Phase 3.
+- Add a delete-candidate ledger for stale or duplicated AuthService-era paths.
+  Each entry should name the symbol/path, why it appears obsolete, the current
+  D1/capability path that replaces it, and the phase that will delete it.
+
+Check:
+
+- `packages/sdk-server-ts/src/core/AuthService.ts` becomes a small public barrel
+  or thin re-export.
+- `authService/AuthService.ts` contains assembly and delegation only; it should
+  shrink below 2,000 lines before Phase 3 begins.
+- Every moved module has a single stated owner and a current runtime purpose:
+  active facade, active D1-backed path, active provider helper, or
+  delete-candidate.
+- No route file gains a new direct dependency on moved helper modules.
+- No moved module imports Cloudflare D1 route adapters, Express handlers, React,
+  browser SDK code, or tests.
+- Public package exports and existing route wiring typecheck unchanged.
+- No `AuthServiceContext`, `AuthServiceDeps`, or similar broad dependency bag is
+  introduced.
+- Duplicated legacy candidates are listed with replacements before Phase 3 route
+  port work starts.
+- Line count for the old monolith is recorded before and after the split.
+
+## Phase 3: Route And D1 Ports
+
+Goal: stop exposing monolithic service surfaces to routes, and avoid creating a
+second route-port registry beside route modules.
+
+Do:
+
+- Replace router-facing `Pick<AuthService, ...>` with a service map keyed by the
+  same `RouteServiceKey` values declared by route modules.
 - Split `CloudflareD1RouterApiAuthMetadataService` into D1-backed adapters for
   session, auth provider, auth factors, authorization, wallet, recovery,
   Ed25519 MPC, and ECDSA MPC.
@@ -721,12 +1040,14 @@ Check:
 
 ## Phase 4: Seams Authorization Core
 
-Goal: build the package that owns sessions, grant evidence, grants, policy,
-digests, budgets, and audit envelopes.
+Goal: build the authorization module that owns grant evidence, grants, policy,
+digests, budgets, and audit envelopes. Session lifecycle belongs in the
+`session/` module and feeds authorization as evidence.
 
 Do:
 
-- Create `packages/seams-authorization/`.
+- Create internal `authorization/` and `session/` source modules first. Defer
+  package extraction until the module boundary is stable.
 - Implement session exchange domain types, session lifecycle parsing, operation
   digest envelopes, policy evaluation, grant lifecycle, replay checks, and audit
   envelopes.
@@ -953,6 +1274,10 @@ Do:
   metadata, import guards, and runtime-specific handler factories.
 - Replace the static Cloudflare handler list with registered modules.
 - Add modules for auth, session, IdP, vault, Ed25519 MPC, and ECDSA MPC.
+- Assemble modules through named builders such as
+  `buildCloudflareRouteModules(...)`. The builder may use normal `if` blocks
+  and a final spread to combine base and optional module lists; do not use
+  spread-plus-ternary arrays for optional modules.
 - Keep Express only as a thin adapter over the same modules, or remove it.
 - Delete duplicated Express route implementations when they cannot consume the
   shared module contract.
@@ -1117,7 +1442,7 @@ Security tests:
 
 ## Related Docs
 
-- [Modular Auth And Capability Refactor SPEC](./refactor-85-modular-auth-capabilities-SPEC.md)
+- [Modular Auth And Capability Refactor SPEC](./refactor-87-modular-auth-capabilities-SPEC.md)
 - [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
 - [Slack OTP Step-Up Spec](./otp-slack.md)
 - [Optional HSS Bootstrap Profiles](./refactor-8X-hss-optional.md)

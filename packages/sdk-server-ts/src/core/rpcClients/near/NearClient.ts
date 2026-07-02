@@ -81,9 +81,14 @@ class NearRpcError extends Error {
   static fromRpcResponse(operationName: string, rpc: RpcResponse): NearRpcError {
     const err = rpc.error || {};
     const details = err.data as unknown;
-    const { message, type, kind, index, short } = describeDetails(operationName, details);
+    const rpcMessage = typeof err.message === 'string' ? err.message : '';
+    const { message, type, kind, index, short } = describeDetails(
+      operationName,
+      details,
+      rpcMessage,
+    );
     return new NearRpcError({
-      message: message || err.message || `${operationName} RPC error`,
+      message: message || rpcMessage || `${operationName} RPC error`,
       short: short || kind || 'RPC error',
       type: type || 'RpcError',
       kind,
@@ -113,6 +118,7 @@ class NearRpcError extends Error {
 function describeDetails(
   operationName: string,
   details: unknown,
+  rpcMessage = '',
 ): {
   message: string;
   type?: NearRpcErrorType;
@@ -125,8 +131,14 @@ function describeDetails(
     ? (d!.TxExecutionError as Record<string, unknown>)
     : undefined;
   if (!txExec) {
-    const dataStr = d ? ` Details: ${JSON.stringify(d)}` : '';
-    return { message: `${operationName} RPC error.${dataStr}` };
+    const detail =
+      typeof details === 'string' && details.trim()
+        ? details.trim()
+        : d
+          ? JSON.stringify(d)
+          : rpcMessage.trim();
+    const suffix = detail ? `: ${detail}` : '';
+    return { message: `${operationName} RPC error${suffix}` };
   }
   return describeTxExecution(operationName, txExec);
 }

@@ -227,6 +227,21 @@ export type RegisterNearWalletArgs =
   | RegisterNearImplicitWalletArgs
   | RegisterNearSponsoredWalletArgs;
 
+export type FundImplicitNearAccountForTestingResult =
+  | {
+      ok: true;
+      walletId: string;
+      nearAccountId: string;
+      fundedAmountYocto: string;
+      transactionHash?: string;
+      message?: string;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
 export type PasskeyRegistrationOptions = RegistrationHooksOptions & {
   wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>;
   nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
@@ -379,6 +394,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
   registrationAttemptId?: string;
+  emailOtpAuthorityEmail?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
 };
 
@@ -756,6 +772,12 @@ export type RegistrationActivationButtonPresentation =
 
 export interface NearSignerCapability {
   registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;
+
+  fundImplicitNearAccountForTesting(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    nearPublicKey: string;
+  }): Promise<FundImplicitNearAccountForTestingResult>;
 
   executeAction(args: {
     walletSession: WalletSessionRef;

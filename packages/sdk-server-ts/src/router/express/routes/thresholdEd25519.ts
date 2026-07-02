@@ -311,14 +311,7 @@ export function registerThresholdEd25519Routes(
             message: 'threshold session missing walletId/nearAccountId/nearEd25519SigningKeyId',
           };
         }
-        const rpId = String(request.sessionPolicy.authorityScope.rpId || '').trim();
-        if (!rpId) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold session missing sessionPolicy.authorityScope.rpId',
-          };
-        }
+        const authorityScope = request.sessionPolicy.authorityScope;
         const relayerKeyId = String((body as any).relayerKeyId || '').trim();
         if (!relayerKeyId) {
           return { ok: false, code: 'internal', message: 'threshold session missing relayerKeyId' };
@@ -338,7 +331,7 @@ export function registerThresholdEd25519Routes(
         const signed = await signRouterAbEd25519WalletSessionJwt({
           session,
           userId: walletId,
-          rpId,
+          authorityScope,
           relayerKeyId,
           sessionInfo: {
             sessionKind: 'jwt',

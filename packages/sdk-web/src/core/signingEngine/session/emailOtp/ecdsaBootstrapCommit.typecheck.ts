@@ -12,7 +12,7 @@ declare const ports: EmailOtpEcdsaSessionPorts;
 
 void ports.commitEvmFamilyThresholdEcdsaSessions({
   walletId,
-  primaryChain: chainTarget,
+  chainTarget,
   bootstrap,
   source: 'email_otp',
   emailOtpAuthContext: {
@@ -26,7 +26,7 @@ void ports.commitEvmFamilyThresholdEcdsaSessions({
 void ports.commitEvmFamilyThresholdEcdsaSessions({
   // @ts-expect-error Email OTP ECDSA bootstrap commit requires WalletId.
   walletId: 'alice.testnet',
-  primaryChain: chainTarget,
+  chainTarget,
   bootstrap,
   source: 'email_otp',
   emailOtpAuthContext: {

@@ -23,6 +23,10 @@ import type { WalletRegistrationEcdsaPreparedClientBootstrap } from './ecdsaRegi
 import type { WarmSessionHydrationService } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 
+type WalletRegistrationEcdsaSessionBootstrap = Awaited<
+  ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>
+>;
+
 export type FinalizeWalletRegistrationEcdsaSessionsInput = {
   walletId: string;
   relayerUrl: string;
@@ -34,13 +38,7 @@ export type FinalizeWalletRegistrationEcdsaSessionsInput = {
     | { kind: 'email_otp'; emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext };
 };
 
-export type EcdsaRegistrationSessionsService = {
-  finalizeWalletRegistrationEcdsaSessions(
-    input: FinalizeWalletRegistrationEcdsaSessionsInput,
-  ): Promise<void>;
-};
-
-export function createEcdsaRegistrationSessionsService(deps: {
+export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
   registrationBootstrap: Pick<
     EcdsaRegistrationBootstrapService,
     'finalizeClientBootstrap' | 'storeClientSigningMaterial'
@@ -48,31 +46,21 @@ export function createEcdsaRegistrationSessionsService(deps: {
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   sessionStore: ThresholdEcdsaSessionStoreDeps;
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
+  commitEmailOtpEcdsaSession: (args: {
+    walletId: WalletId;
+    chainTarget: WalletRegistrationEcdsaWalletKey['chainTarget'];
+    bootstrap: WalletRegistrationEcdsaSessionBootstrap;
+    source: 'email_otp';
+    emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  }) => Promise<unknown>;
   signingSessionSeal: {
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     shamirPrimeB64u?: string;
   };
-}): EcdsaRegistrationSessionsService {
-  return {
-    finalizeWalletRegistrationEcdsaSessions: (input) =>
-      finalizeWalletRegistrationEcdsaSessions(deps, input),
-  };
-}
+};
 
 export async function finalizeWalletRegistrationEcdsaSessions(
-  deps: {
-    registrationBootstrap: Pick<
-      EcdsaRegistrationBootstrapService,
-      'finalizeClientBootstrap' | 'storeClientSigningMaterial'
-    >;
-    bootstrapStore: ThresholdEcdsaBootstrapStorePort;
-    sessionStore: ThresholdEcdsaSessionStoreDeps;
-    warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
-    signingSessionSeal: {
-      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      shamirPrimeB64u?: string;
-    };
-  },
+  deps: FinalizeWalletRegistrationEcdsaSessionsDeps,
   args: FinalizeWalletRegistrationEcdsaSessionsInput,
 ): Promise<void> {
   const walletId = toWalletId(args.walletId);
@@ -116,49 +104,43 @@ export async function finalizeWalletRegistrationEcdsaSessions(
   );
 
   for (const { walletKey, bootstrap } of sessionBootstraps) {
-    await persistThresholdEcdsaBootstrapForWalletTarget({
-      bootstrapStore: deps.bootstrapStore,
-      walletId,
-      chainTarget: walletKey.chainTarget,
-      bootstrap,
-      signerAuth:
-        args.auth.kind === 'email_otp'
-          ? {
-              authMethod: SIGNER_AUTH_METHODS.emailOtp,
-              signerSource: SIGNER_SOURCES.emailOtpRegistration,
-            }
-          : {
-              authMethod: SIGNER_AUTH_METHODS.passkey,
-              signerSource: SIGNER_SOURCES.passkeyRegistration,
-            },
-    });
     if (args.auth.kind === 'email_otp') {
-      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
+      await deps.commitEmailOtpEcdsaSession({
         walletId,
         chainTarget: walletKey.chainTarget,
         bootstrap,
         source: 'email_otp',
         emailOtpAuthContext: args.auth.emailOtpAuthContext,
       });
-      markRegistrationEcdsaBootstrapRuntimeValidated({ bootstrap, record });
-    } else {
-      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
-        walletId,
-        chainTarget: walletKey.chainTarget,
-        bootstrap,
-        source: 'registration',
-      });
-      markRegistrationEcdsaBootstrapRuntimeValidated({ bootstrap, record });
-      await hydratePasskeyRegistrationSession({
-        walletId,
-        relayerUrl: args.relayerUrl,
-        walletKey,
-        bootstrap,
-        preparedClientBootstrap: args.preparedClientBootstrap,
-        signingSessionSeal: deps.signingSessionSeal,
-        warmSessions: deps.warmSessions,
-      });
+      continue;
     }
+
+    await persistThresholdEcdsaBootstrapForWalletTarget({
+      bootstrapStore: deps.bootstrapStore,
+      walletId,
+      chainTarget: walletKey.chainTarget,
+      bootstrap,
+      signerAuth: {
+        authMethod: SIGNER_AUTH_METHODS.passkey,
+        signerSource: SIGNER_SOURCES.passkeyRegistration,
+      },
+    });
+    const record = upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
+      walletId,
+      chainTarget: walletKey.chainTarget,
+      bootstrap,
+      source: 'registration',
+    });
+    markRegistrationEcdsaBootstrapRuntimeValidated({ bootstrap, record });
+    await hydratePasskeyRegistrationSession({
+      walletId,
+      relayerUrl: args.relayerUrl,
+      walletKey,
+      bootstrap,
+      preparedClientBootstrap: args.preparedClientBootstrap,
+      signingSessionSeal: deps.signingSessionSeal,
+      warmSessions: deps.warmSessions,
+    });
   }
 }
 

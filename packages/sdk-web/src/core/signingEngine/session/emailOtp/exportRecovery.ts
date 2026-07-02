@@ -201,9 +201,7 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
     authLane?: EmailOtpAuthLane;
   },
 ): EmailOtpEcdsaAuthorizedExportStepUpInput {
-  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-    args.record,
-  );
+  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(args.record);
   const providedAuthLane = args.authLane;
   const providedRouteAuth = providedAuthLane
     ? authLaneToRouteAuth(providedAuthLane)
@@ -305,12 +303,12 @@ async function requestEmailOtpChallengeWithRoutePlan(
         walletId: WalletId;
         routePlan: EmailOtpRoutePlan;
       }
-	    | {
-	        kind: 'near_account';
-	        walletSession: WalletSessionRef;
-	        nearAccountId: AccountId;
-	        routePlan: EmailOtpRoutePlan;
-	      },
+    | {
+        kind: 'near_account';
+        walletSession: WalletSessionRef;
+        nearAccountId: AccountId;
+        routePlan: EmailOtpRoutePlan;
+      },
 ): Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }> {
   const walletId = args.kind === 'wallet_session' ? args.walletId : args.walletSession.walletId;
   const relayUrl = ports.requireRelayUrl();
@@ -362,31 +360,14 @@ export async function requestTransactionSigningChallenge(
   const providedRouteAuth = providedAuthLane
     ? authLaneToRouteAuth(providedAuthLane)
     : args.routeAuth;
-  const routePlan =
-    !providedAuthLane && !providedRouteAuth
-      ? ports.buildRoutePlan({
-          freshRouteFamily: 'login',
-          authLane:
-            resolveEmailOtpAuthLane({
-              appSessionJwt: await ports.resolveAppSessionJwt({
-                walletSession: resolveChallengeWalletSession(args),
-                relayUrl: ports.requireRelayUrl(),
-              }),
-              sessionKind: 'jwt',
-            }) ||
-            (() => {
-              throw new Error('Email OTP login requires route auth');
-            })(),
-          operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-        })
-      : ports.buildSigningSessionRoutePlan({
-          authLane: requireProvidedEmailOtpSigningSessionAuthLane({
-            authLane: providedAuthLane,
-            routeAuth: providedRouteAuth,
-            chain: args.chain,
-          }),
-          operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-        });
+  const routePlan = ports.buildSigningSessionRoutePlan({
+    authLane: requireProvidedEmailOtpSigningSessionAuthLane({
+      authLane: providedAuthLane,
+      routeAuth: providedRouteAuth,
+      chain: args.chain,
+    }),
+    operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+  });
   const challenge =
     args.kind === 'wallet_session_challenge'
       ? await requestEmailOtpChallengeWithRoutePlan(ports, {
@@ -484,7 +465,7 @@ export async function exportEd25519SeedWithAuthorization(
     | 'requireShamirPrimeB64u'
     | 'buildSigningSessionRoutePlan'
   >,
-	  args: ExportEd25519SeedWithAuthorizationArgs,
+  args: ExportEd25519SeedWithAuthorizationArgs,
 ): Promise<EmailOtpEd25519ExportArtifact> {
   const nearAccountId = args.nearAccountId;
   const walletId = args.record.walletId;
@@ -515,9 +496,7 @@ export async function exportEd25519SeedWithAuthorization(
       routeAuth: providedRouteAuth,
       recordIdentity: {
         thresholdSessionId: args.record.thresholdSessionId,
-        signingGrantId: requireSigningGrantIdForEmailOtpSigningSession(
-          args.record.signingGrantId,
-        ),
+        signingGrantId: requireSigningGrantIdForEmailOtpSigningSession(args.record.signingGrantId),
         chain: 'near',
       },
     }),
@@ -528,7 +507,7 @@ export async function exportEd25519SeedWithAuthorization(
     request: {
       type: 'exportEmailOtpEd25519SeedWithAuthorization',
       timeoutMs: 60_000,
-		      payload: {
+      payload: {
         relayUrl,
         walletId: String(walletId),
         nearAccountId: String(nearAccountId),

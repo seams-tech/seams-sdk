@@ -10,7 +10,6 @@ import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
 import { d1MutationChanges } from './d1RouterApiAuthBoundary';
 import {
   abandonedGoogleEmailOtpRegistrationAttemptRecord,
-  failedGoogleEmailOtpRegistrationAttemptRecord,
   googleEmailOtpRegistrationOfferWalletIdsJson,
   parseGoogleEmailOtpRegistrationAttemptRow,
   pendingGoogleEmailOtpRegistrationAttemptWithUpdatedAt,
@@ -290,18 +289,5 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
           AND attempt_id = ?`,
       [attemptId],
     ).run();
-  }
-
-  async failNonHmacReadableWallet(input: {
-    readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
-    readonly updatedAtMs: number;
-  }): Promise<void> {
-    await this.put(
-      failedGoogleEmailOtpRegistrationAttemptRecord({
-        record: input.record,
-        failureCode: 'non_hmac_readable_wallet_id',
-        updatedAtMs: input.updatedAtMs,
-      }),
-    );
   }
 }

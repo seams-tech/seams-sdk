@@ -1,5 +1,4 @@
 import type {
-  RouterApiEd25519RegistrationPrepareOptions,
   RouterApiEmailRecoveryAuthService,
   RouterApiEmailRecoveryExecutionService,
   RouterApiOptions,
@@ -12,7 +11,6 @@ import type {
 
 declare const emailRecoveryAuthService: RouterApiEmailRecoveryAuthService;
 declare const emailRecoveryExecutionService: RouterApiEmailRecoveryExecutionService;
-declare const registrationPrepareAuthService: RouterApiEd25519RegistrationPrepareOptions['authService'];
 declare const signedDelegateAuthService: RouterApiSignedDelegateAuthService;
 declare const signingSessionSealService: SigningSessionSealService;
 
@@ -28,12 +26,6 @@ const emailRecoveryPrepareOnly: RouterApiOptions = {
   emailRecovery: {
     kind: 'prepare_only',
     authService: emailRecoveryAuthService,
-  },
-};
-
-const ed25519RegistrationPrepare: RouterApiOptions = {
-  ed25519RegistrationPrepare: {
-    authService: registrationPrepareAuthService,
   },
 };
 
@@ -53,11 +45,6 @@ const signingSessionSeal: RouterApiOptions = {
 const oldEmailRecoveryFlag: RouterApiOptions = {
   // @ts-expect-error Email recovery route capability requires structural services.
   emailRecovery: { enabled: true },
-};
-
-const oldEd25519RegistrationPrepareFlag: RouterApiOptions = {
-  // @ts-expect-error Ed25519 registration prepare requires its auth service.
-  ed25519RegistrationPrepare: { enabled: true },
 };
 
 const configuredEmailRecoveryWithoutExecution: RouterApiOptions = {
@@ -101,11 +88,9 @@ const oldSigningSessionSealOptionsFlag: CreateSigningSessionSealOptionsInput = {
 
 void configuredEmailRecovery;
 void emailRecoveryPrepareOnly;
-void ed25519RegistrationPrepare;
 void signedDelegate;
 void signingSessionSeal;
 void oldEmailRecoveryFlag;
-void oldEd25519RegistrationPrepareFlag;
 void configuredEmailRecoveryWithoutExecution;
 void prepareOnlyEmailRecoveryWithExecution;
 void signedDelegateWithoutAuthService;

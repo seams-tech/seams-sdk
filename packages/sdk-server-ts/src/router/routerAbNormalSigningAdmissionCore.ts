@@ -1,6 +1,7 @@
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../core/defaultConfigsServer';
+import type { ThresholdEd25519AuthorityScope } from '../core/types';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -682,10 +683,31 @@ export function runtimePolicyScopeKey(scope: RuntimePolicyScope): string {
   return [scope.orgId, scope.projectId, scope.envId, scope.signingRootVersion].join('\x1f');
 }
 
+function ed25519AdmissionAuthorityScopeKey(scope: ThresholdEd25519AuthorityScope): string {
+  switch (scope.kind) {
+    case 'passkey_rp':
+      return `passkey_rp:${scope.rpId}`;
+    case 'email_otp':
+      switch (scope.proofKind) {
+        case 'otp_challenge':
+          return `email_otp:otp_challenge:${scope.email}:${scope.challengeId || ''}`;
+        case 'google_sso_registration':
+          return [
+            'email_otp',
+            'google_sso_registration',
+            scope.email,
+            scope.googleEmailOtpRegistrationAttemptId,
+            scope.googleEmailOtpRegistrationOfferId,
+            scope.googleEmailOtpRegistrationCandidateId,
+          ].join(':');
+      }
+  }
+}
+
 function admissionAuthorityScope(input: RouterAbNormalSigningAdmissionInput): string {
   switch (input.curve) {
     case 'ed25519':
-      return input.rpId;
+      return ed25519AdmissionAuthorityScopeKey(input.authorityScope);
     case 'ecdsa-hss':
       return input.evmFamilySigningKeySlotId;
   }

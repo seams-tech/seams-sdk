@@ -133,6 +133,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   material?: EcdsaMaterialState;
   signingSessionRecord: ThresholdEcdsaSessionRecord | null;
   reauthSource: { kind: 'material' } | { kind: 'reauth_anchor'; anchor: ReauthAnchorIdentity };
+  reauthAuthLane?: EmailOtpAuthLane;
   onEvent?: EvmFamilyLifecycleEventCallback;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
@@ -165,6 +166,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
       ? emailOtpReauthAuthorityFromAnchor(args.reauthSource.anchor)
       : null;
   const resolveAuthLane = async () => {
+    if (args.reauthAuthLane) return args.reauthAuthLane;
     const emailOtpRecord = resolveEmailOtpRecord();
     const exactAuthLane =
       anchorAuthority ||

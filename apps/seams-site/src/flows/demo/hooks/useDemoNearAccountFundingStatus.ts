@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
-import { NEAR_EXPLORER_BASE_URL } from '@/shared/types';
 
 export type DemoNearAccountFundingStatus =
   | {
@@ -49,8 +47,8 @@ type CheckNearAccessKeyArgs = {
 
 type UseDemoNearAccountFundingStatusArgs = {
   isLoggedIn: boolean;
-  nearAccountId?: string | null;
-  nearPublicKey?: string | null;
+  nearAccountId: string | null;
+  nearPublicKey: string | null;
 };
 
 function normalizeDemoString(value: unknown): string {
@@ -92,7 +90,62 @@ async function readNearRpcJson(response: Response): Promise<NearRpcResponse> {
     : {};
 }
 
-async function checkNearAccessKey(args: CheckNearAccessKeyArgs): Promise<DemoNearAccountFundingStatus> {
+function isZeroNearAccountBalance(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const amount = normalizeDemoString((value as { amount?: unknown }).amount);
+  if (!amount) return false;
+  try {
+    return BigInt(amount) === 0n;
+  } catch {
+    return false;
+  }
+}
+
+async function checkNearAccountBalance(args: {
+  nearRpcUrl: string;
+  nearAccountId: string;
+}): Promise<DemoNearAccountFundingStatus> {
+  const nearAccountId = normalizeDemoString(args.nearAccountId);
+  const response = await fetch(args.nearRpcUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'seams-demo-near-account',
+      method: 'query',
+      params: {
+        request_type: 'view_account',
+        finality: 'final',
+        account_id: nearAccountId,
+      },
+    }),
+  });
+  const json = await readNearRpcJson(response);
+  if (json.error) {
+    if (isMissingNearAccessKey(json.error)) {
+      return { kind: 'needs_funding', nearAccountId };
+    }
+    return {
+      kind: 'unknown',
+      nearAccountId,
+      message: nearRpcErrorMessage(json.error) || `NEAR RPC returned HTTP ${response.status}`,
+    };
+  }
+  if (!response.ok) {
+    return {
+      kind: 'unknown',
+      nearAccountId,
+      message: `NEAR RPC returned HTTP ${response.status}`,
+    };
+  }
+  return isZeroNearAccountBalance(json.result)
+    ? { kind: 'needs_funding', nearAccountId }
+    : { kind: 'ready', nearAccountId };
+}
+
+async function checkNearAccessKey(
+  args: CheckNearAccessKeyArgs,
+): Promise<DemoNearAccountFundingStatus> {
   const nearAccountId = normalizeDemoString(args.nearAccountId);
   const nearPublicKey = normalizeDemoString(args.nearPublicKey);
   const nearRpcUrl = normalizeDemoString(args.nearRpcUrl);
@@ -131,32 +184,10 @@ async function checkNearAccessKey(args: CheckNearAccessKeyArgs): Promise<DemoNea
       message: `NEAR RPC returned HTTP ${response.status}`,
     };
   }
-  return { kind: 'ready', nearAccountId };
-}
-
-async function copyTextToClipboard(text: string): Promise<void> {
-  const value = normalizeDemoString(text);
-  if (!value) return;
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-  const textarea = document.createElement('textarea');
-  textarea.value = value;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand('copy');
-  document.body.removeChild(textarea);
-}
-
-function openNearAccountFundingPage(nearAccountId: string): void {
-  const accountUrl = `${NEAR_EXPLORER_BASE_URL.replace(/\/$/, '')}/address/${encodeURIComponent(
+  return await checkNearAccountBalance({
+    nearRpcUrl,
     nearAccountId,
-  )}`;
-  window.open(accountUrl, '_blank', 'noopener,noreferrer');
+  });
 }
 
 export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingStatusArgs) {
@@ -187,15 +218,6 @@ export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingS
     }
   }, [isLoggedIn, nearAccountId, nearPublicKey]);
 
-  const openFunding = useCallback(async () => {
-    const accountId = normalizeDemoString(nearAccountId);
-    if (!accountId) return;
-    await copyTextToClipboard(accountId)
-      .then(() => toast.success('NEAR account copied'))
-      .catch(() => toast.info('Open the account page to fund this NEAR account'));
-    openNearAccountFundingPage(accountId);
-  }, [nearAccountId]);
-
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -212,7 +234,6 @@ export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingS
   return {
     status,
     refresh,
-    openFunding,
     canSignNear: status.kind === 'ready',
   };
 }

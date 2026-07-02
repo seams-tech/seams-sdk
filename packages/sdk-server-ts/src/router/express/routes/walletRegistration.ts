@@ -41,23 +41,6 @@ const ROUTE_IDS = [
 ] as const;
 
 type WalletRegistrationRouteId = (typeof ROUTE_IDS)[number];
-type RegistrationPrepareAuthService = NonNullable<
-  ExpressRouterApiContext['opts']['ed25519RegistrationPrepare']
->['authService'];
-
-function isOptionalWalletRegistrationRouteId(routeId: WalletRegistrationRouteId): boolean {
-  return routeId === 'wallet_registration_prepare';
-}
-
-function requireRegistrationPrepareAuthService(
-  ctx: ExpressRouterApiContext,
-): RegistrationPrepareAuthService {
-  const prepare = ctx.opts.ed25519RegistrationPrepare;
-  if (!prepare) {
-    throw new Error('wallet_registration_prepare route registered without prepare auth service');
-  }
-  return prepare.authService;
-}
 
 export function registerWalletRegistrationRoutes(
   router: ExpressRouter,
@@ -66,7 +49,6 @@ export function registerWalletRegistrationRoutes(
   for (const routeId of ROUTE_IDS) {
     const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
     if (!route) {
-      if (isOptionalWalletRegistrationRouteId(routeId)) continue;
       throw new Error(`Missing route definition for ${routeId}`);
     }
     router.post(route.path, async (req: Request, res: Response) => {
@@ -100,13 +82,7 @@ export function registerWalletRegistrationRoutes(
           routeId === 'wallet_registration_intent'
             ? await handleRouterApiWalletRegistrationIntent(common)
             : routeId === 'wallet_registration_prepare'
-              ? await handleRouterApiWalletRegistrationPrepare({
-                  ...common,
-                  services: {
-                    ...common.services,
-                    registrationPrepareAuthService: requireRegistrationPrepareAuthService(ctx),
-                  },
-                })
+              ? await handleRouterApiWalletRegistrationPrepare(common)
               : routeId === 'wallet_registration_start'
                 ? await handleRouterApiWalletRegistrationStart(common)
                 : routeId === 'wallet_registration_hss_respond'

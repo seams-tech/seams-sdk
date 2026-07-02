@@ -225,15 +225,95 @@ function managedRegistrationGrantSubjectPayload(
   }
 }
 
+type ManagedRegistrationFlowGrantAuthority =
+  | {
+      kind: 'passkey_rp';
+      rpId: string;
+    }
+  | {
+      kind: 'wallet_auth';
+      rpId?: never;
+    };
+
+type ManagedRegistrationGrantRequestBody =
+  | {
+      environmentId: string;
+      flow: 'registration_v1';
+      clientContext: ReturnType<typeof buildManagedClientContext>;
+      newAccountId?: string;
+      rpId: string;
+    }
+  | {
+      environmentId: string;
+      flow: 'registration_v1';
+      clientContext: ReturnType<typeof buildManagedClientContext>;
+      newAccountId?: string;
+      rpId?: never;
+    };
+
+function buildManagedRegistrationGrantRequestBody(args: {
+  environmentId: string;
+  identity: ManagedRegistrationFlowGrantIdentity;
+  authority: ManagedRegistrationFlowGrantAuthority;
+}): ManagedRegistrationGrantRequestBody {
+  const subjectPayload = managedRegistrationGrantSubjectPayload(args.identity);
+  const newAccountId =
+    'newAccountId' in subjectPayload ? String(subjectPayload.newAccountId || '').trim() : '';
+  const clientContext = buildManagedClientContext();
+  switch (args.authority.kind) {
+    case 'passkey_rp': {
+      if (newAccountId) {
+        return {
+          environmentId: args.environmentId,
+          newAccountId,
+          rpId: args.authority.rpId,
+          flow: 'registration_v1',
+          clientContext,
+        };
+      }
+      return {
+        environmentId: args.environmentId,
+        rpId: args.authority.rpId,
+        flow: 'registration_v1',
+        clientContext,
+      };
+    }
+    case 'wallet_auth': {
+      if (newAccountId) {
+        return {
+          environmentId: args.environmentId,
+          newAccountId,
+          flow: 'registration_v1',
+          clientContext,
+        };
+      }
+      return {
+        environmentId: args.environmentId,
+        flow: 'registration_v1',
+        clientContext,
+      };
+    }
+    default: {
+      const exhaustive: never = args.authority;
+      return exhaustive;
+    }
+  }
+}
+
 async function requestManagedRegistrationFlowGrant(args: {
   relayerUrl: string;
   publishableKey: string;
   environmentId: string;
   identity: ManagedRegistrationFlowGrantIdentity;
-  rpId: string;
+  authority: ManagedRegistrationFlowGrantAuthority;
 }): Promise<ManagedRegistrationFlowGrant> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const bootstrapGrantUrl = joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants');
+  const body = buildManagedRegistrationGrantRequestBody({
+    environmentId: args.environmentId,
+    identity: args.identity,
+    authority: args.authority,
+  });
   const brokerResponse = await fetchWithRegistrationTimeout({
     url: bootstrapGrantUrl,
     operation: 'Managed registration flow grant',
@@ -243,13 +323,7 @@ async function requestManagedRegistrationFlowGrant(args: {
         ...headers,
         Authorization: `Bearer ${args.publishableKey}`,
       },
-      body: JSON.stringify({
-        environmentId: args.environmentId,
-        ...managedRegistrationGrantSubjectPayload(args.identity),
-        rpId: args.rpId,
-        flow: 'registration_v1',
-        clientContext: buildManagedClientContext(),
-      }),
+      body: JSON.stringify(body),
     },
   });
   const brokerResult = await readJsonObject(brokerResponse);
@@ -304,7 +378,7 @@ async function requestManagedRegistrationFlowGrant(args: {
 export async function createManagedRegistrationFlowGrant(args: {
   context: RegistrationTransportConfigContext;
   identity: ManagedRegistrationFlowGrantIdentity;
-  rpId: string;
+  authority: ManagedRegistrationFlowGrantAuthority;
 }): Promise<ManagedRegistrationFlowGrant> {
   const registrationTransport = resolveRegistrationTransport(args.context);
   if (registrationTransport.mode !== 'managed') {
@@ -316,11 +390,12 @@ export async function createManagedRegistrationFlowGrant(args: {
     publishableKey: registrationTransport.publishableKey,
     environmentId: registrationTransport.environmentId,
     identity: args.identity,
-    rpId: String(args.rpId || '').trim(),
+    authority: args.authority,
   });
   console.debug('[Registration] managed registration flow grant issued', {
     durationMs: Math.round(performance.now() - grantStartedAt),
-    requestBytes: utf8Bytes(args.rpId),
+    requestBytes:
+      args.authority.kind === 'passkey_rp' ? utf8Bytes(args.authority.rpId) : 0,
   });
   return grant;
 }

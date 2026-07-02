@@ -97,23 +97,6 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       (await getEcdsaRegistrationBootstrap()).storeClientSigningMaterial(input),
   };
 
-  const getEcdsaRegistrationSessions = memoizeService(async () => {
-    const { createEcdsaRegistrationSessionsService } = await import(
-      '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions'
-    );
-    return createEcdsaRegistrationSessionsService({
-      registrationBootstrap: ecdsaRegistrationBootstrap,
-      bootstrapStore: deps.registration.ecdsaBootstrapStore,
-      sessionStore: deps.state.ecdsaSessions,
-      warmSessions,
-      signingSessionSeal: deps.config.signing.sessionSeal,
-    });
-  });
-  const ecdsaRegistrationSessions: SigningRuntimeServices['ecdsaRegistrationSessions'] = {
-    finalizeWalletRegistrationEcdsaSessions: async (input) =>
-      (await getEcdsaRegistrationSessions()).finalizeWalletRegistrationEcdsaSessions(input),
-  };
-
   const getEcdsaWalletRecords = memoizeService(async () => {
     const { createEcdsaWalletRecordsService } = await import(
       '@/core/signingEngine/flows/registration/services/ecdsaWalletRecords'
@@ -203,7 +186,6 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       nearSigning,
       evmFamilySigning,
       ecdsaRegistrationBootstrap,
-      ecdsaRegistrationSessions,
       ecdsaWalletRecords,
       ecdsaProvisioning,
     },

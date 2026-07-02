@@ -1,4 +1,5 @@
 import type { NormalizedLogger } from '../../../core/logger';
+import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
 
 export type SigningSessionSealRouteHeaders = Record<string, string | string[] | undefined>;
 
@@ -122,13 +123,13 @@ export type SigningSessionSealEcdsaThresholdSessionRecord =
   SigningSessionSealThresholdSessionRecordBase & {
     curve: 'ecdsa';
     evmFamilySigningKeySlotId: string;
-    rpId?: never;
+    authorityScope?: never;
   };
 
 export type SigningSessionSealEd25519ThresholdSessionRecord =
   SigningSessionSealThresholdSessionRecordBase & {
     curve: 'ed25519';
-    rpId: string;
+    authorityScope: ThresholdEd25519AuthorityScope;
     evmFamilySigningKeySlotId?: never;
   };
 

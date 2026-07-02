@@ -208,6 +208,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
   const parsedKeyRecord = parseThresholdEd25519KeyRecord(
     keyRecord
       ? {
+          kind: 'ready',
           walletId: keyRecord.walletId || keyRecord.nearAccountId || 'alice.testnet',
           nearAccountId: keyRecord.nearAccountId || 'alice.testnet',
           nearEd25519SigningKeyId:
@@ -217,12 +218,14 @@ export function createThresholdSigningServiceForUnitTests(input: {
             rpId: keyRecord.rpId || 'wallet.example.test',
           },
           publicKey: keyRecord.publicKey,
-          relayerSigningShareB64u: keyRecord.relayerSigningShareB64u,
-          relayerVerifyingShareB64u:
-            keyRecord.relayerVerifyingShareB64u ||
-            deriveThresholdEd25519VerifyingShareForUnitTests({
-              signingShareB64u: keyRecord.relayerSigningShareB64u,
-            }),
+          routerMaterial: {
+            signingShareB64u: keyRecord.relayerSigningShareB64u,
+            verifyingShareB64u:
+              keyRecord.relayerVerifyingShareB64u ||
+              deriveThresholdEd25519VerifyingShareForUnitTests({
+                signingShareB64u: keyRecord.relayerSigningShareB64u,
+              }),
+          },
           ...(keyRecord.keyVersion ? { keyVersion: keyRecord.keyVersion } : {}),
           ...(typeof keyRecord.recoveryExportCapable === 'boolean'
             ? { recoveryExportCapable: keyRecord.recoveryExportCapable }

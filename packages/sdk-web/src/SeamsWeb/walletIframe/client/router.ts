@@ -147,6 +147,7 @@ import type {
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
 import type { ExportKeypairWithUIInput } from '@/SeamsWeb/signingSurface/types';
 import type {
+  FundImplicitNearAccountForTestingResult,
   ResolveExactKeyExportLaneInput,
   ResolveExactKeyExportLaneResult,
 } from '@/SeamsWeb/publicApi/types';
@@ -2408,6 +2409,18 @@ export class WalletIframeRouter {
         options: safeOptions,
       },
       options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
+    });
+    return res.result;
+  }
+
+  async fundImplicitNearAccountForTesting(payload: {
+    walletId: string;
+    nearAccountId: string;
+    nearPublicKey: string;
+  }): Promise<FundImplicitNearAccountForTestingResult> {
+    const res = await this.post<FundImplicitNearAccountForTestingResult>({
+      type: 'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING',
+      payload,
     });
     return res.result;
   }

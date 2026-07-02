@@ -6,7 +6,7 @@ import {
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
-import type { CloudflareRouterApiAuthService } from '../authServicePort';
+import type { RouterApiAuthService } from '../authServicePort';
 import { emailOtpGrantRecord, maskEmail, parseEmailOtpLoginOperation } from './d1EmailOtpRecords';
 import type { CloudflareD1EmailOtpChallengeIssuer } from './d1EmailOtpChallengeIssuer';
 import type { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
@@ -16,40 +16,40 @@ import type { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from './d1Em
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 
 type CreateEmailOtpChallengeInput = Parameters<
-  CloudflareRouterApiAuthService['createEmailOtpChallenge']
+  RouterApiAuthService['createEmailOtpChallenge']
 >[0];
 type CreateEmailOtpChallengeResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['createEmailOtpChallenge']>
+  ReturnType<RouterApiAuthService['createEmailOtpChallenge']>
 >;
 type CreateEmailOtpEnrollmentChallengeInput = Parameters<
-  CloudflareRouterApiAuthService['createEmailOtpEnrollmentChallenge']
+  RouterApiAuthService['createEmailOtpEnrollmentChallenge']
 >[0];
 type CreateEmailOtpEnrollmentChallengeResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['createEmailOtpEnrollmentChallenge']>
+  ReturnType<RouterApiAuthService['createEmailOtpEnrollmentChallenge']>
 >;
 type CreateEmailOtpDeviceRecoveryChallengeInput = Parameters<
-  CloudflareRouterApiAuthService['createEmailOtpDeviceRecoveryChallenge']
+  RouterApiAuthService['createEmailOtpDeviceRecoveryChallenge']
 >[0];
 type CreateEmailOtpDeviceRecoveryChallengeResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['createEmailOtpDeviceRecoveryChallenge']>
+  ReturnType<RouterApiAuthService['createEmailOtpDeviceRecoveryChallenge']>
 >;
 type VerifyEmailOtpChallengeInput = Parameters<
-  CloudflareRouterApiAuthService['verifyEmailOtpChallenge']
+  RouterApiAuthService['verifyEmailOtpChallenge']
 >[0];
 type VerifyEmailOtpChallengeResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyEmailOtpChallenge']>
+  ReturnType<RouterApiAuthService['verifyEmailOtpChallenge']>
 >;
 type VerifyEmailOtpEnrollmentInput = Parameters<
-  CloudflareRouterApiAuthService['verifyEmailOtpEnrollment']
+  RouterApiAuthService['verifyEmailOtpEnrollment']
 >[0];
 type VerifyEmailOtpEnrollmentResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['verifyEmailOtpEnrollment']>
+  ReturnType<RouterApiAuthService['verifyEmailOtpEnrollment']>
 >;
 type ReadEmailOtpOutboxEntryInput = Parameters<
-  CloudflareRouterApiAuthService['readEmailOtpOutboxEntry']
+  RouterApiAuthService['readEmailOtpOutboxEntry']
 >[0];
 type ReadEmailOtpOutboxEntryResult = Awaited<
-  ReturnType<CloudflareRouterApiAuthService['readEmailOtpOutboxEntry']>
+  ReturnType<RouterApiAuthService['readEmailOtpOutboxEntry']>
 >;
 
 function errorMessage(error: unknown): string {

@@ -1,10 +1,10 @@
-# Refactor 85C: Hosted Wallet Origin And Vite Plugin Removal
+# Refactor 86: Static Wallet Assets And Vite Plugin Removal
 
 Date created: July 1, 2026
 
 Status: planning.
 
-Parent plan: [Refactor 85 Modular Auth And Capability](./refactor-85-modular-auth-capabilities-plan.md)
+Parent plan: [Refactor 87 Modular Auth And Capability](./refactor-87-modular-auth-capabilities-plan.md)
 
 ## Goal
 
@@ -14,13 +14,15 @@ SDK asset routing in their app `vite.config.ts`.
 
 The SDK should publish a self-contained wallet asset tree for Seams-operated
 wallet hosts such as `https://wallet.seams.sh`. App developers should configure
-`walletOrigin` and never mount `/sdk/*`, `/wallet-service`, or wallet workers
-inside their own app.
+the hosted wallet iframe through the SDK runtime config from
+[Refactor 87](./refactor-87-modular-auth-capabilities-plan.md), and never mount
+`/sdk/*`, `/wallet-service`, or wallet workers inside their own app.
 
 Developer contract:
 
 - import the SDK from normal React/application code;
-- configure environment ID, publishable key, and wallet origin;
+- configure environment ID, publishable key, and `walletRuntime:
+  hostedWalletIframe(...)`;
 - do not edit Vite config for Seams;
 - do not run an extra wallet/static server;
 - do not route or expose SDK wallet assets from the app.
@@ -233,16 +235,30 @@ GET https://wallet.seams.sh/export-viewer  -> dist/public/export-viewer/index.ht
 App developer responsibility:
 
 ```ts
-createSeamsWeb({
+createSeamsConfig({
   environmentId: 'proj_...',
   publishableKey: 'pk_...',
-  walletOrigin: 'https://wallet.seams.sh',
+  walletRuntime: hostedWalletIframe({
+    origin: 'https://wallet.seams.sh',
+  }),
+  authMethods: [
+    passkeyAuth(),
+  ],
+  capabilities: [
+    nearEd25519MpcSigning(),
+    evmFamilyEcdsaMpcSigning(),
+  ],
 });
 ```
 
 App developers do not serve `/sdk/*`, `/wallet-service`, `/export-viewer`, or
 wallet worker/WASM files. Local app development uses the same hosted wallet
 origin.
+
+`hostedWalletIframe(...)` is SDK runtime configuration, independent of Vite,
+Next, and framework build hooks. Refactor 86 owns the hosted asset contract;
+Refactor 87 owns the typed SDK runtime surface and capability dependency
+validation.
 
 Minimal app `vite.config.ts`:
 
@@ -457,6 +473,10 @@ Tasks:
 - [ ] Make browser wallet capability setup require hosted iframe mode. Missing
       `walletOrigin` should fail at config/use boundary with a clear error
       instead of selecting direct app-origin workers.
+- [ ] Route browser wallet capability setup through the Refactor 87
+      `walletRuntime: hostedWalletIframe(...)` SDK runtime config. Keep any legacy
+      `iframeWallet` config normalization at the public config boundary only,
+      then delete it when the runtime config replaces examples and tests.
 - [ ] If any helpers remain, keep them as examples or optional dev utilities
       for Seams-owned wallet-origin development only.
 - [ ] Remove build-time `_headers` emission from app Vite plugin usage.
@@ -495,7 +515,8 @@ Tasks:
       the hosted wallet origin and do not configure SDK Vite plugins.
 - [ ] Update React/getting-started docs so the normal setup is only:
       install package, import SDK/components, configure environment ID,
-      publishable key, and hosted `walletOrigin`.
+      publishable key, `walletRuntime: hostedWalletIframe(...)`, auth methods,
+      and requested capabilities.
 - [ ] Update `docs/saas/self-hosted-migration.md` to remove app-owned wallet
       asset hosting from the normal integration path.
 - [ ] Document the Seams wallet-origin deployment contract for

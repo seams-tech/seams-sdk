@@ -30,7 +30,6 @@ export async function handleEmailRecoveryPrepare(
     if (result.ok) {
       const signed = await signEmailRecoveryThresholdSessionJwt({
         result,
-        rpId: parsed.request.rp_id,
         session: ctx.opts.session,
       });
       if (!signed.ok) return json(signed.body, { status: signed.status });
@@ -44,7 +43,6 @@ export async function handleEmailRecoveryPrepare(
   if (result.ok) {
     const signed = await signEmailRecoveryThresholdSessionJwt({
       result,
-      rpId: result.walletBinding.rpId,
       session: ctx.opts.session,
     });
     if (!signed.ok) return json(signed.body, { status: signed.status });

@@ -1,5 +1,5 @@
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import type { CloudflareRouterApiAuthService } from './authServicePort';
+import type { RouterApiAuthService } from './authServicePort';
 import { parseWalletUnlockBackend } from './emailOtpRequestValidation';
 import {
   emailOtpFailureWebhookEventDescriptors,
@@ -27,7 +27,7 @@ export type EmitWalletUnlockEmailOtpWebhook = (input: {
 
 export async function handleWalletUnlockChallengeRoute(input: {
   body: unknown;
-  service: CloudflareRouterApiAuthService;
+  service: RouterApiAuthService;
 }): Promise<WalletUnlockRouteResponse> {
   if (!input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {
     return {
@@ -69,7 +69,7 @@ export async function handleWalletUnlockChallengeRoute(input: {
 export async function handleWalletUnlockVerifyRoute(input: {
   body: unknown;
   origin?: string;
-  service: CloudflareRouterApiAuthService;
+  service: RouterApiAuthService;
   emitRouterApiWebhook: EmitWalletUnlockRouterApiWebhook;
   emitEmailOtpWebhook: EmitWalletUnlockEmailOtpWebhook;
 }): Promise<WalletUnlockRouteResponse> {
