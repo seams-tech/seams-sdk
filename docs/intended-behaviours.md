@@ -8,7 +8,7 @@ This document defines expected wallet behaviour across passkey and Email OTP
 accounts. Refactor plans and tests should point back here when deciding whether
 new code is correct.
 
-E2E enforcement plan: [Refactor 93: Intended Behaviour E2E Contract](./refactor-93-intended-behaviour-e2e.md).
+E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-88-intended-behaviour-e2e.md).
 
 ## Terms
 

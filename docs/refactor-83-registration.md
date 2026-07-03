@@ -1,8 +1,24 @@
 # Refactor 83: Registration Critical Path Cleanup
 
 Date created: July 2, 2026
+Updated: July 3, 2026 — aligned with the Refactor 82B authority/material type
+decisions and the Refactor 87 reorganization; sequencing gates recorded below.
 
-Status: planned.
+Status: planned, partially gated.
+
+Sequencing gates:
+
+- Phases 1 and 6 can start now.
+- Phases 2-5 and 7 are gated on Refactor 82B Phases 6-7 exiting (Ed25519
+  material-state unions and committed-lane loose-shape deletion complete),
+  because Phases 3-5 edit `records.ts`, `sealedSessionStore.ts`, and
+  `thresholdWarmSessionBootstrap.ts`, which 82B owns until that exit.
+- Phase 1 baselines are captured after Refactor 84b's finalize payload trim
+  lands, so measurements are not dominated by a payload that is about to
+  shrink.
+
+Dated progress entries and validation evidence go to a companion journal file
+(`refactor-83-journal.md`, created on first entry), not this plan.
 
 ## Goal
 
@@ -42,6 +58,23 @@ new HSS protocol optimization plan and it is not a compatibility plan.
   parallel registration-only lane model.
 - `docs/refactor-82-cloudflare-D1-migration.md`: D1/DO registration ceremony and
   signer-set backend ownership.
+- `docs/refactor-82B.md`: authority typing cleanup. This plan consumes 82B's
+  types — verified registration authority / `AuthFactorIdentity` at prepare,
+  `WalletAuthMethodId` bindings, `ActiveWalletSession`, and the
+  `Ed25519WorkerMaterialState` union. Phases 2-5 and 7 are gated on 82B
+  Phases 6-7 exiting.
+- `docs/refactor-84a-iframe-walletId.md`: visible registration is wallet-bound
+  before WebAuthn. Phase 6 treats the registration draft wallet ID as part of
+  precompute scope, with reroll as a named scope-invalidation case.
+- `docs/refactor-84b-trim-hss.md`: finalize payload trim on the same route
+  Phase 3 may touch. 84b lands before Phase 1 baselines; finalize contract
+  changes are coordinated, not landed independently by both plans.
+- `docs/refactor-85-indexedDB.md`: IndexedDB minimization. Phase 4's single
+  persistence commit feeds 85's Phase 7 schema shrink.
+- `docs/refactor-87-modular-auth-capabilities-plan.md`: Phase B6 promotes the
+  signer-set request into capability provisioning. Prepared-branch identities
+  in this plan must stay stable so B6 can map them to capability provisioning
+  identities.
 
 ## Current Suspected Redundant Work
 
@@ -77,45 +110,63 @@ These are hypotheses to measure and either remove or explicitly keep.
 ## Target Shape
 
 Registration should become a small state machine with one produced artifact per
-stage:
+stage. These sketches reuse the Refactor 82B and Refactor 79 types by name;
+this plan must not mint parallel registration-only authority, lane, or
+material types.
+
+One prepared package shape, not a per-mode union. Ed25519-only registration is
+a one-branch signer set on the same machinery (Phase 0A); a
+`near_ed25519_prepared` vs `signer_set_prepared` split would re-introduce the
+deleted mode-enum thinking. Branch identities stay stable so Refactor 87 B6
+can map them to capability provisioning identities.
 
 ```ts
-type RegistrationPreparedPackage =
+type PreparedRegistrationBranch =
   | {
-      kind: 'near_ed25519_prepared';
-      intent: NormalizedRegistrationIntent;
-      ed25519: PreparedNearEd25519Registration;
+      kind: 'near_ed25519';
+      branchId: RegistrationSignerBranchId;
+      prepared: PreparedNearEd25519Registration;
     }
   | {
-      kind: 'signer_set_prepared';
-      intent: NormalizedRegistrationIntent;
-      ed25519: PreparedNearEd25519Registration;
-      ecdsa: PreparedEvmFamilyEcdsaRegistration;
+      kind: 'evm_family_ecdsa';
+      branchId: RegistrationSignerBranchId;
+      prepared: PreparedEvmFamilyEcdsaRegistration;
     };
 
-type FinalizedRegistrationRuntimeMaterial =
-  | {
-      kind: 'passkey_runtime_material';
-      ed25519: LoadedEd25519WorkerMaterial;
-      ecdsa: readonly LoadedEcdsaWorkerMaterial[];
-    }
-  | {
-      kind: 'email_otp_runtime_material';
-      ed25519: SealedEd25519WorkerMaterial;
-      ecdsa: readonly SealedEcdsaWorkerMaterial[];
-    };
-
-type RegistrationPersistencePlan = {
-  wallet: RegisteredWalletBinding;
-  authMethod: RegisteredWalletAuthMethod;
-  signers: RegisteredSignerSet;
-  runtimeMaterial: FinalizedRegistrationRuntimeMaterial;
-  activeSession: SharedSigningSessionAuthority;
+type RegistrationPreparedPackage = {
+  intent: NormalizedRegistrationIntent;
+  // Verified once at prepare and stored with the preparation (82B Phase 3);
+  // never re-derived by later routes.
+  authority: VerifiedRegistrationAuthority;
+  branches: readonly PreparedRegistrationBranch[];
 };
 ```
 
-Names above are illustrative. The implementation should reuse existing exact
-lane and worker-material types wherever they already exist.
+Runtime material reuses the 82B material-state unions. Do not mint a
+method-kinded material type (`passkey_runtime_material` /
+`email_otp_runtime_material`) — the branches would be structurally parallel,
+which the 82B typing constraints forbid. The real discriminant is material
+state; the authority's factor branch implies which state is expected (passkey
+registration produces `loaded_material`, Email OTP produces
+`sealed_material`), and that rule is enforced in the single commit builder.
+
+```ts
+type FinalizedRegistrationRuntimeMaterial = {
+  ed25519: Extract<
+    Ed25519WorkerMaterialState,
+    { kind: 'loaded_material' | 'sealed_material' }
+  >;
+  ecdsa: readonly EcdsaRegistrationMaterialState[]; // same rule via the ECDSA material-state union
+};
+
+type RegistrationPersistencePlan = {
+  wallet: RegisteredWalletBinding;
+  authMethodBinding: WalletAuthMethodId; // 82B stable binding id
+  signers: RegisteredSignerSet;
+  runtimeMaterial: FinalizedRegistrationRuntimeMaterial;
+  activeSession: ActiveWalletSession; // 82B type; minted at finalize
+};
+```
 
 ## Phase 1: Measurement And Trace Cleanup
 
@@ -131,6 +182,9 @@ lane and worker-material types wherever they already exist.
       from background work. Diagnostics must stay observational.
 - [ ] Record baseline p50 and one cold-run worst case in this document before
       removing code.
+- [ ] Capture baselines after the Refactor 84b finalize payload trim lands, and
+      note the 84b state next to the recorded numbers so the two changes are
+      not conflated.
 
 Exit criteria:
 
@@ -139,9 +193,16 @@ Exit criteria:
 
 ## Phase 2: Single Prepared Registration Package
 
-- [ ] Introduce a normalized prepared registration package at the D1/DO boundary.
-      It should contain already-parsed intent, signer branches, runtime policy
-      scope, signing-root scope, and normalized ECDSA chain targets.
+Refactor 82B already landed the seed of this package: registration prepare
+verifies authority, stores it with the preparation, and prepared start
+consumes only `registrationPreparationId`. This phase extends that stored
+preparation rather than building a parallel one.
+
+- [ ] Extend the stored preparation into the normalized prepared registration
+      package at the D1/DO boundary: already-parsed intent, the verified
+      registration authority (never re-derived by later routes), prepared
+      signer branches with stable branch identities, runtime policy scope,
+      signing-root scope, and normalized ECDSA chain targets.
 - [ ] Update `/wallets/register/prepare`, `/start`, `/hss/respond`, and
       `/finalize` to consume the prepared package instead of reparsing the same
       raw shapes in each route.
@@ -172,6 +233,10 @@ Exit criteria:
 - [ ] If the registration ceremony lacks one required field, change the finalize
       response or local completion type so the missing field is produced once at
       finalize time. Do not add a second ceremony.
+- [ ] Coordinate any finalize request/response shape change with Refactor 84b,
+      which owns the staged-artifact transport trim on the same route. One
+      finalize contract change per landing — two plans must not edit the
+      payload independently.
 - [ ] Delete the immediate passkey registration call to
       `reconstructThresholdEd25519SigningMaterialFromWarmSession()`.
 - [ ] Keep warm-session reconstruction for login, recovery, and sync flows only
@@ -232,6 +297,10 @@ Exit criteria:
       an explicit `start_inside_register_wallet` branch for non-prewarmed callers.
 - [ ] Add exact scope mismatch diagnostics, then fail closed instead of silently
       starting another expensive precompute for the same click path.
+- [ ] Treat the Refactor 84a registration draft as the precompute scope owner
+      for visible flows: precompute scope includes the draft wallet ID, and a
+      wallet reroll replaces the draft and invalidates the precompute handle as
+      a named scope change — never a silent re-precompute.
 - [ ] Branch-gate Router A/B keyset prefetch and ECDSA bootstrap preparation.
 - [ ] Delete duplicate precompute lifecycle helpers that exist only to support
       stale UI flows.
@@ -258,7 +327,7 @@ Exit criteria:
 
 ## Phase 8: Cleanup And Line Count Closure
 
-- [ ] Use `rg` and a targeted ponytail review to find duplicate registration
+- [ ] Use `rg` and a targeted manual review to find duplicate registration
       helpers after Phases 2-7 land.
 - [ ] Delete old precompute, reconstruction, parser, and lane assertion helpers
       that no longer have callers.
@@ -271,7 +340,7 @@ Exit criteria:
 - [ ] Net non-doc line growth is zero or explicitly justified by stricter domain
       types replacing ad hoc runtime checks.
 - [ ] All temporary guards added for this refactor are listed in
-      `docs/refactor-9x-clean-source-guards.md`.
+      `docs/refactor-89-clean-source-guards.md`.
 
 ## Initial File Inventory
 
@@ -321,12 +390,15 @@ Primary test inventory:
 ## Open Questions
 
 - [ ] Can the Ed25519 registration finalize output directly produce the same
-      worker material identity currently produced by warm-session reconstruction?
-- [ ] Does ECDSA registration need per-chain local session material at
-      registration time, or can one chain-agnostic wallet-key material record
-      hydrate all requested EVM-family targets?
+      worker material identity currently produced by warm-session
+      reconstruction? Resolve during the Phase 3 inventory.
+- [x] Does ECDSA registration need per-chain local session material at
+      registration time? Resolved by Refactor 87 Phase 0F: role-local material
+      handles are chain-agnostic, so one wallet-key material record hydrates
+      all requested EVM-family targets. Chain enforcement lives in exact lanes
+      and session records and is checked before worker material opens.
 - [ ] Which registration UI surfaces still call `registerWallet()` without a
-      started precompute handle?
+      started precompute handle? Resolve before Phase 6 lands.
 - [ ] Which post-registration checks verify external state and must stay in the
-      user-visible path?
+      user-visible path? Resolve during Phase 4.
 

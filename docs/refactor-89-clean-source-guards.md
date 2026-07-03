@@ -1,8 +1,23 @@
-# Refactor 9X: Clean Source Guards
+# Refactor 89: Clean Source Guards
 
 Date created: June 26, 2026
+Renamed: July 3, 2026 — from `refactor-9x-clean-source-guards.md`; all
+referencing plans were updated.
 
-Status: planned.
+Status: planned. This file is both a standing ledger (new temporary guards are
+recorded here as they are added) and a cleanup plan.
+
+Sequencing:
+
+- Cleanup executes after [Refactor 88](./refactor-88-intended-behaviour-e2e.md)
+  lands: the e2e contract suite is the replacement coverage that justifies
+  deleting transitional guards. Do not delete lifecycle-seam guards before
+  `test:intended` covers those seams.
+- Guard retirement runs incrementally at Refactor 87 slice exits (87 plan
+  Decided Point 14): a guard retires in the slice that makes its invariant
+  structural (closed unions, branded IDs, generic lanes, boundary parsers).
+- The final sweep is Refactor 87 Phase P3, which requires that no guard
+  remains whose invariant is structurally enforced.
 
 Related plans:
 

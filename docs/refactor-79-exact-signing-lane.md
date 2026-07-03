@@ -2479,7 +2479,7 @@ Tasks:
 
 - [ ] Keep source guards only for patterns that are still likely to regress.
 - [ ] Remove guards that only protect deleted transition code, and add them to
-      `docs/refactor-9x-clean-source-guards.md` if they should be retired after
+      `docs/refactor-89-clean-source-guards.md` if they should be retired after
       a later stabilization window.
 - [ ] Prefer one targeted unit test over broad source scanning when a typed
       constructor now makes the invalid state unrepresentable.

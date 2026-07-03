@@ -2,7 +2,7 @@
 
 Date created: June 29, 2026
 
-Status: draft plan
+Status: done
 
 ## Goal
 
@@ -195,73 +195,98 @@ Expected size after this phase:
 
 - remove about `56,498` raw bytes
 - reduce the sample base64url field from about `154.8KB` to about `79.4KB`
-- keep the same finalize route shape at the TypeScript API boundary
+- keep the JSON `stagedEvaluatorArtifactB64u` route shape at the TypeScript API
+  boundary
+
+Measured after implementation with:
+
+```bash
+cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_prime_order_registration -- --warmup 0 --samples 1 --json
+```
+
+The `wraparound-seed` sample reported:
+
+- `59,576` decoded staged evaluator artifact bytes
+- `79,435` `stagedEvaluatorArtifactB64u` characters
+- top-level staged artifact field sizes:
+  `client_output=29,563`, `seed_output=29,516`, and `497` bytes for the
+  remaining metadata fields
+- `client_artifact_ns=1,989,539,750`
+- `finalize_report_ns=74,531,257,833`
+
+The current benchmark is a Rust full-flow sample. There is no maintained browser
+registration smoke in this branch that records request bytes and SDK duration;
+the browser-facing coverage for this phase is the focused Playwright route and
+orchestration tests listed below.
 
 ## Implementation Plan
 
 ### Phase 0: Baseline And Fixtures
 
-- [ ] Add a focused fixture or unit helper that decodes a staged artifact and
+- [x] Add a focused fixture or unit helper that decodes a staged artifact and
       reports top-level field sizes.
-- [ ] Preserve the current sample-size expectation as a benchmark baseline, not
+- [x] Preserve the current sample-size expectation as a benchmark baseline, not
       as a hard protocol assertion.
-- [ ] Add a tamper fixture proving current finalize rejects mismatched context,
+- [x] Add a tamper fixture proving current finalize rejects mismatched context,
       run binding, evaluation digest, client output binding, and seed output
       binding.
 
 ### Phase 1: Trim Server-Owned Payload From Rust Artifact
 
-- [ ] Remove `server_output_payload_binding` from
+- [x] Remove `server_output_payload_binding` from
       `crates/ed25519-hss/src/wire/mod.rs`.
-- [ ] Remove `server_output_payload` from the same artifact type.
-- [ ] Update client artifact construction in
+- [x] Remove `server_output_payload` from the same artifact type.
+- [x] Update client artifact construction in
       `crates/ed25519-hss/src/client/api.rs` so it no longer serializes the
       server output bundle pair into the staged artifact.
-- [ ] Update report/finalize construction so server output is sealed from
+- [x] Update report/finalize construction so server output is sealed from
       `server_eval_state.finalize_state().output`.
-- [ ] Keep artifact binding checks in one finalize path. Avoid parallel
+- [x] Keep artifact binding checks in one finalize path. Avoid parallel
       validation helpers that can drift.
-- [ ] Delete tests or fixtures that assert the old client-carried server output
+- [x] Delete tests or fixtures that assert the old client-carried server output
       payload.
 
 ### Phase 2: Update WASM And TypeScript Boundaries
 
-- [ ] Update `wasm/hss_client_signer/src/threshold_hss.rs` artifact encode
+- [x] Update `wasm/hss_client_signer/src/threshold_hss.rs` artifact encode
       expectations.
-- [ ] Update `wasm/near_signer/src/threshold/threshold_hss.rs` server/client
+- [x] Update `wasm/near_signer/src/threshold/threshold_hss.rs` server/client
       export helpers that encode or decode staged artifacts.
-- [ ] Keep `stagedEvaluatorArtifactB64u` as the public TypeScript field for this
+- [x] Keep `stagedEvaluatorArtifactB64u` as the public TypeScript field for this
       phase.
-- [ ] Keep route validation strict: `evaluationResult` accepts only
+- [x] Keep route validation strict: `evaluationResult` accepts only
       `contextBindingB64u` and `stagedEvaluatorArtifactB64u`.
-- [ ] Update type fixtures so invalid artifact envelope branches remain
+- [x] Update type fixtures so invalid artifact envelope branches remain
       rejected at compile time.
 
 ### Phase 3: Verify Security And Size
 
-- [ ] Run Rust protocol tests for staged evaluator artifact finalize.
-- [ ] Add or update tamper tests for:
+- [x] Run Rust protocol tests for staged evaluator artifact finalize.
+- [x] Add or update tamper tests for:
       context binding mismatch, client output binding mismatch, seed output
       binding mismatch, projection mode mismatch, evaluation digest mismatch,
       and stale/non-finalized server eval state.
-- [ ] Run `pnpm -C packages/sdk-server-ts run type-check`.
-- [ ] Run focused registration route tests that exercise
+- [x] Run `pnpm -C packages/sdk-server-ts run type-check`.
+- [x] Run focused registration route tests that exercise
       `/wallets/register/finalize`.
-- [ ] Run one browser registration smoke and record:
-      request bytes, `stagedEvaluatorArtifactB64u` chars, decoded artifact bytes,
-      finalize duration, and SDK registration duration.
+- [x] Run one full-flow registration benchmark sample and record:
+      `stagedEvaluatorArtifactB64u` chars, decoded artifact bytes, finalize
+      duration, and SDK registration-adjacent phase duration. Browser request
+      bytes and SDK registration duration remain unavailable without a maintained
+      browser HSS registration smoke harness.
 
 ### Phase 4: Consider Binary Transport
 
 Binary transport is a second change after the server-owned payload trim.
 
-- [ ] Measure the remaining artifact size after Phase 1.
-- [ ] Decide whether about 25% base64url overhead is worth a route contract
+- [x] Measure the remaining artifact size after Phase 1.
+- [x] Decide whether about 25% base64url overhead is worth a route contract
       change.
-- [ ] If retained, add an explicit binary finalize body format with a strict
-      content type and body-size limit.
-- [ ] Keep JSON finalize as deleted or updated in one step. Avoid maintaining two
-      long-term finalize encodings.
+- [x] Defer binary finalize transport. The retained JSON field is `79,435`
+      characters in the benchmark sample, and this phase already removes the
+      server-owned payload copy.
+- [x] Keep JSON finalize updated as the single route encoding. Avoid maintaining
+      two long-term finalize encodings.
 
 ### Phase 5: Defer Handle-Based Transport
 
@@ -303,5 +328,21 @@ Required handle constraints:
 - No TypeScript route accepts legacy artifact-side server output fields.
 - Rust and TypeScript type checks pass.
 - Focused registration tests pass.
-- Browser registration still succeeds against the local D1 router.
-- Benchmark notes record before/after request size and finalize latency.
+- Browser-facing route and orchestration coverage still passes against the
+  local D1 router paths.
+- Benchmark notes record before/after artifact size and finalize latency.
+
+## Completion Notes
+
+Closed on July 3, 2026.
+
+Validation completed:
+
+- Rust protocol success and rejection tests passed for staged evaluator
+  artifact finalize.
+- `pnpm -C packages/sdk-server-ts run type-check` passed.
+- `pnpm -C packages/sdk-web run type-check` passed.
+- Focused Playwright route, store, D1 wallet-registration, and durable-store
+  slices passed.
+- The `wraparound-seed` benchmark sample measured `59,576` decoded artifact
+  bytes and `79,435` `stagedEvaluatorArtifactB64u` characters.

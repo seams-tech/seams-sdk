@@ -146,9 +146,10 @@ phases.
       registration model. This removes the `ed25519_and_ecdsa` cross-product
       shape, makes D1 registration branch orchestration generic over requested
       signer capabilities, and splits the current D1 ceremony service by domain.
-- [ ] Phase 9: Move `ThresholdEcdsaPresignSession` live ownership from the Router
-      API Worker into a Durable Object. The Worker routes parse and authorize
-      requests, while the DO owns the live WASM session across
+- [x] Phase 9: Complete the remaining local Tempo/ARC Wrangler/Miniflare route
+      smoke for Durable Object-owned ECDSA-HSS pool-fill sessions. Live
+      `ThresholdEcdsaPresignSession` ownership has moved out of the Router API
+      Worker; route-level smoke evidence now covers
       `/router-ab/ecdsa-hss/presignature-pool/fill/init` and `/fill/step`.
 - [x] Phase 10: Move sponsored EVM spend pricing into Console D1. The schema,
       static-pricing adapter, D1 Router API pricing wiring, explicit setup seed,
@@ -631,26 +632,26 @@ Current and former Postgres coupling is concentrated in:
 
 ### Console Table Ownership
 
-| Area                           | Former Postgres tables / current D1 tables                                                                                                                                                                                                                                                                                                                                                        | Target owner                                                                       | Notes                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Org/project/env                | Former `console_organizations`, `console_projects`, `console_environments`; current D1 `organizations`, `projects`, `environments`                                                                                                                                                                                                                                                                | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, and tenant-scoping contract test are in place.                                                                                                                                                                                                                                            |
-| Account/profile                | Former `console_user_profiles`, `console_user_backup_emails`; current D1 `user_profiles`, `user_backup_emails`                                                                                                                                                                                                                                                                                    | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, and profile/organization contract test are in place.                                                                                                                                                                                                                                      |
-| Team RBAC                      | Former `console_team_members`; current D1 `team_members`                                                                                                                                                                                                                                                                                                                                          | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, and owner/member lifecycle contract test are in place. Add a `team_member_roles` side table only if indexed role lookup becomes necessary.                                                                                                                      |
-| Approvals                      | Former `console_approvals`; current D1 `approvals`                                                                                                                                                                                                                                                                                                                                                | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoping checks, MFA enforcement, duplicate-decision checks, and state-specific conditional transition tests are in place. Approval JSON is stored as `TEXT` and parsed at the adapter boundary.                                                          |
-| Audit                          | Former `console_audit_events`, `console_audit_evidence`; current D1 `audit_events`, `audit_evidence`                                                                                                                                                                                                                                                                                              | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, event/evidence filters, search, duplicate-id handling, and tenant-scoping contract test are in place. JSON is stored as `TEXT` and parsed at the adapter boundary.                                                                                              |
-| Bootstrap tokens               | Former Postgres `console_bootstrap_tokens`; current D1 `bootstrap_tokens`                                                                                                                                                                                                                                                                                                                         | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped count/peek, and atomic conditional redemption contract test are in place.                                                                                                                                                                         |
-| Policies                       | Former `console_policies`, `console_policy_versions`, `console_policy_assignments`; current D1 `policies`, `policy_versions`, `policy_assignments`                                                                                                                                                                                                                                                | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, system-default uniqueness, publish-version history, and assignment-resolution contract test are in place. Policy JSON is stored as `TEXT`.                                                                                                                      |
-| API keys                       | Former Postgres `console_api_keys`; current D1 `api_keys`                                                                                                                                                                                                                                                                                                                                         | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, hashed lookup, secret-key auth, publishable-key auth, revoke/rotate/delete, anomaly flag, usage count, and tenant-scoping contract test are in place.                                                                                                           |
-| Wallet index                   | Former `console_wallet_index`; current D1 `wallet_index`                                                                                                                                                                                                                                                                                                                                          | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped upsert/get/list/search, filter indexes, cursor pagination, and contract tests are in place. This is a queryable dashboard index only; signer ownership stays in `SIGNER_DB`/DO.                                                                   |
-| Billing                        | Former `console_billing_*` and `console_invoice*` tables; current D1 `billing_accounts`, `billing_ledger_entries`, `billing_ledger_postings`, `billing_monthly_active_wallets`, `billing_credit_purchases`, `invoices`, `invoice_line_items`, `stripe_webhook_events`; later `usage_meter_events`, `usage_rollups_monthly` if per-event usage audit or rollup replay becomes necessary                 | `CONSOLE_DB` D1                                                                    | D1 billing account/ledger tables, Stripe credit purchases, receipt invoices, monthly usage statements, receipt/statement line items, webhook idempotency, monthly finalization runner, append-only migrations, local smoke coverage, Cloudflare bundle wiring, manual credit/debit support, and sponsored execution debit statements are in place. |
-| Prepaid reservations           | Former `console_billing_prepaid_reservation_summaries`, `console_billing_prepaid_reservations`; current D1 `billing_prepaid_reservation_summaries`, `billing_prepaid_reservations`                                                                                                                                                                                                                 | `CONSOLE_DB` D1                                                                    | Trigger-backed D1 adapter, append-only migration, local smoke coverage, and contract tests are in place. Summary mutation and reservation lifecycle transitions remain SQLite-atomic.                                                                                                                                                              |
-| Sponsored calls                | Former `console_sponsored_call_records`; current D1 `sponsored_call_records`                                                                                                                                                                                                                                                                                                                       | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, idempotency test, and atomic sponsored gas settlement contract test are in place.                                                                                                                                                                               |
-| Sponsorship spend caps         | Former `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations`; current D1 `sponsorship_spend_cap_windows`, `sponsorship_spend_cap_reservations`                                                                                                                                                                                                                    | `CONSOLE_DB` D1                                                                    | Trigger-backed D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, source-event idempotency, tenant-scoped usage lookup, and reservation/settlement/release contract tests are in place. Window usage mutation stays SQLite-atomic inside reservation insert and lifecycle transition triggers.                     |
-| Key exports                    | Former `console_key_exports`; current D1 `key_exports`                                                                                                                                                                                                                                                                                                                                            | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped list/create/approve, MFA enforcement, duplicate-approver checks, approval threshold transitions, and conditional approval update tests are in place. Approval and constraint JSON is stored as `TEXT` and parsed at the adapter boundary.         |
-| Runtime snapshots              | Former `console_runtime_snapshots`, `console_runtime_snapshot_outbox`; current D1 `runtime_snapshots`, `runtime_snapshot_outbox`                                                                                                                                                                                                                                                                   | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, snapshot upsert/get/list, claim-lease outbox dispatch, and lease-race contract test are in place.                                                                                                                                                               |
-| Webhooks                       | Former `console_webhook_*` tables; current D1 `webhook_endpoints`, `webhook_endpoint_categories`, `webhook_deliveries`, `webhook_attempts`, `webhook_dead_letters`                                                                                                                                                                                                                               | `CONSOLE_DB` D1 plus webhook secret cipher                                         | D1 route-service adapter, retry-dispatch runner, append-only migrations, local smoke coverage, optional Cloudflare bundle wiring, endpoint CRUD, category side-table lookup, event dispatch, delivery/attempt/dead-letter pages, replay resolution, retry claim leases, and sealed signing-secret tests are in place.                              |
-| Key export and webhook secrets | Former `console_key_exports` and `console_webhook_endpoints.signing_secret`; current D1 `key_exports` and `webhook_endpoints.signing_secret_ciphertext_b64u`                                                                                                                                                                                                                                      | `CONSOLE_DB` D1 plus secrets adapter                                               | Key exports store approval/constraint JSON only. Webhook D1 rows store sealed signing-secret ciphertext, KEK ID, and envelope version. Plaintext webhook signing secrets stay in process memory only during endpoint creation and request signing.                                                                                                 |
-| Observability                  | Former `console_observability_*` tables; current D1 `observability_events`, `observability_event_dedup`, `observability_ingest_windows`, `observability_request_rollups_minute`                                                                                                                                                                                                                   | `CONSOLE_DB` D1 for compact dashboard state; R2/Analytics Engine for raw telemetry | D1 compact adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, incident-event dedupe/redaction, request-rollup ingestion, summary/event/timeseries/service reads, and tenant-scoping tests are in place. High-volume raw telemetry stays outside D1.                                                                   |
+| Area                           | Former Postgres tables / current D1 tables                                                                                                                                                                                                                                                                                                                                             | Target owner                                                                       | Notes                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Org/project/env                | Former `console_organizations`, `console_projects`, `console_environments`; current D1 `organizations`, `projects`, `environments`                                                                                                                                                                                                                                                     | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, and tenant-scoping contract test are in place.                                                                                                                                                                                                                                            |
+| Account/profile                | Former `console_user_profiles`, `console_user_backup_emails`; current D1 `user_profiles`, `user_backup_emails`                                                                                                                                                                                                                                                                         | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, and profile/organization contract test are in place.                                                                                                                                                                                                                                      |
+| Team RBAC                      | Former `console_team_members`; current D1 `team_members`                                                                                                                                                                                                                                                                                                                               | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, and owner/member lifecycle contract test are in place. Add a `team_member_roles` side table only if indexed role lookup becomes necessary.                                                                                                                      |
+| Approvals                      | Former `console_approvals`; current D1 `approvals`                                                                                                                                                                                                                                                                                                                                     | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoping checks, MFA enforcement, duplicate-decision checks, and state-specific conditional transition tests are in place. Approval JSON is stored as `TEXT` and parsed at the adapter boundary.                                                          |
+| Audit                          | Former `console_audit_events`, `console_audit_evidence`; current D1 `audit_events`, `audit_evidence`                                                                                                                                                                                                                                                                                   | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, event/evidence filters, search, duplicate-id handling, and tenant-scoping contract test are in place. JSON is stored as `TEXT` and parsed at the adapter boundary.                                                                                              |
+| Bootstrap tokens               | Former Postgres `console_bootstrap_tokens`; current D1 `bootstrap_tokens`                                                                                                                                                                                                                                                                                                              | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped count/peek, and atomic conditional redemption contract test are in place.                                                                                                                                                                         |
+| Policies                       | Former `console_policies`, `console_policy_versions`, `console_policy_assignments`; current D1 `policies`, `policy_versions`, `policy_assignments`                                                                                                                                                                                                                                     | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, system-default uniqueness, publish-version history, and assignment-resolution contract test are in place. Policy JSON is stored as `TEXT`.                                                                                                                      |
+| API keys                       | Former Postgres `console_api_keys`; current D1 `api_keys`                                                                                                                                                                                                                                                                                                                              | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, hashed lookup, secret-key auth, publishable-key auth, revoke/rotate/delete, anomaly flag, usage count, and tenant-scoping contract test are in place.                                                                                                           |
+| Wallet index                   | Former `console_wallet_index`; current D1 `wallet_index`                                                                                                                                                                                                                                                                                                                               | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped upsert/get/list/search, filter indexes, cursor pagination, and contract tests are in place. This is a queryable dashboard index only; signer ownership stays in `SIGNER_DB`/DO.                                                                   |
+| Billing                        | Former `console_billing_*` and `console_invoice*` tables; current D1 `billing_accounts`, `billing_ledger_entries`, `billing_ledger_postings`, `billing_monthly_active_wallets`, `billing_credit_purchases`, `invoices`, `invoice_line_items`, `stripe_webhook_events`; later `usage_meter_events`, `usage_rollups_monthly` if per-event usage audit or rollup replay becomes necessary | `CONSOLE_DB` D1                                                                    | D1 billing account/ledger tables, Stripe credit purchases, receipt invoices, monthly usage statements, receipt/statement line items, webhook idempotency, monthly finalization runner, append-only migrations, local smoke coverage, Cloudflare bundle wiring, manual credit/debit support, and sponsored execution debit statements are in place. |
+| Prepaid reservations           | Former `console_billing_prepaid_reservation_summaries`, `console_billing_prepaid_reservations`; current D1 `billing_prepaid_reservation_summaries`, `billing_prepaid_reservations`                                                                                                                                                                                                     | `CONSOLE_DB` D1                                                                    | Trigger-backed D1 adapter, append-only migration, local smoke coverage, and contract tests are in place. Summary mutation and reservation lifecycle transitions remain SQLite-atomic.                                                                                                                                                              |
+| Sponsored calls                | Former `console_sponsored_call_records`; current D1 `sponsored_call_records`                                                                                                                                                                                                                                                                                                           | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, idempotency test, and atomic sponsored gas settlement contract test are in place.                                                                                                                                                                               |
+| Sponsorship spend caps         | Former `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations`; current D1 `sponsorship_spend_cap_windows`, `sponsorship_spend_cap_reservations`                                                                                                                                                                                                         | `CONSOLE_DB` D1                                                                    | Trigger-backed D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, source-event idempotency, tenant-scoped usage lookup, and reservation/settlement/release contract tests are in place. Window usage mutation stays SQLite-atomic inside reservation insert and lifecycle transition triggers.                     |
+| Key exports                    | Former `console_key_exports`; current D1 `key_exports`                                                                                                                                                                                                                                                                                                                                 | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped list/create/approve, MFA enforcement, duplicate-approver checks, approval threshold transitions, and conditional approval update tests are in place. Approval and constraint JSON is stored as `TEXT` and parsed at the adapter boundary.         |
+| Runtime snapshots              | Former `console_runtime_snapshots`, `console_runtime_snapshot_outbox`; current D1 `runtime_snapshots`, `runtime_snapshot_outbox`                                                                                                                                                                                                                                                       | `CONSOLE_DB` D1                                                                    | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, snapshot upsert/get/list, claim-lease outbox dispatch, and lease-race contract test are in place.                                                                                                                                                               |
+| Webhooks                       | Former `console_webhook_*` tables; current D1 `webhook_endpoints`, `webhook_endpoint_categories`, `webhook_deliveries`, `webhook_attempts`, `webhook_dead_letters`                                                                                                                                                                                                                     | `CONSOLE_DB` D1 plus webhook secret cipher                                         | D1 route-service adapter, retry-dispatch runner, append-only migrations, local smoke coverage, optional Cloudflare bundle wiring, endpoint CRUD, category side-table lookup, event dispatch, delivery/attempt/dead-letter pages, replay resolution, retry claim leases, and sealed signing-secret tests are in place.                              |
+| Key export and webhook secrets | Former `console_key_exports` and `console_webhook_endpoints.signing_secret`; current D1 `key_exports` and `webhook_endpoints.signing_secret_ciphertext_b64u`                                                                                                                                                                                                                           | `CONSOLE_DB` D1 plus secrets adapter                                               | Key exports store approval/constraint JSON only. Webhook D1 rows store sealed signing-secret ciphertext, KEK ID, and envelope version. Plaintext webhook signing secrets stay in process memory only during endpoint creation and request signing.                                                                                                 |
+| Observability                  | Former `console_observability_*` tables; current D1 `observability_events`, `observability_event_dedup`, `observability_ingest_windows`, `observability_request_rollups_minute`                                                                                                                                                                                                        | `CONSOLE_DB` D1 for compact dashboard state; R2/Analytics Engine for raw telemetry | D1 compact adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, incident-event dedupe/redaction, request-rollup ingestion, summary/event/timeseries/service reads, and tenant-scoping tests are in place. High-volume raw telemetry stays outside D1.                                                                   |
 
 ### Signer Table Ownership
 
@@ -664,7 +665,7 @@ Current and former Postgres coupling is concentrated in:
 | Legacy threshold key-store records | Former Postgres tables `threshold_ed25519_keys`, `threshold_ecdsa_keys`                                                                                                                                                                                | Durable Object or retired behind sealed signing-root shares | These records are secret-bearing under the current TypeScript interfaces. The partial Postgres key-store backend has been deleted; production D1/DO staging must use sealed signing-root share storage or the existing Durable Object path until raw-share records are retired. Do not add raw-share D1 tables.                                                                                                                                                                                                                                                                                                                         |
 | Sealed signing-root shares         | Former Postgres table `signing_root_secret_shares`; current D1 table `signer_signing_root_secret_shares`                                                                                                                                               | `SIGNER_DB` D1                                              | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. The partial Postgres signing-root secret store has been deleted; a future Postgres escape hatch must implement the full signer-family contract before selection.                                                                                                                                                                                                                                                                                                                                                                       |
 | Recovery/identity                  | `email_recovery_preparations`, `signer_near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions`                                                                                                         | `SIGNER_DB` D1                                              | D1 identity-link, app-session-version, recovery-session, recovery-execution, NEAR public key, and email recovery preparation adapters, append-only migrations, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, sole-identity move/unlink tests, app-session rotation tests, recovery-session expiry reads, recovery-execution status query tests, NEAR public key list/upsert tests, and email recovery preparation expiry/delete tests are in place.                                                                                                                                              |
-| Device linking                     | `device_linking_sessions`                                                                                                                                                                                                                              | Future complete route slice                                 | Current route handlers return 410 and `AuthService` returns the unsupported result. Keep device linking out of refactor 82 staging scope until a future device-linking route slice re-enables the feature and defines its persistence contract. Refactor 84 is reserved for Ed25519 HSS payload trimming.                                                                                                                                                                                                                                                                                                                                 |
+| Device linking                     | `device_linking_sessions`                                                                                                                                                                                                                              | Future complete route slice                                 | Current route handlers return 410 and `AuthService` returns the unsupported result. Keep device linking out of refactor 82 staging scope until a future device-linking route slice re-enables the feature and defines its persistence contract. Refactor 84 is reserved for Ed25519 HSS payload trimming.                                                                                                                                                                                                                                                                                                                               |
 | Signing sessions                   | Former partial Postgres threshold session backends in `SessionStore.ts` and `WalletSessionStore.ts`; former table `threshold_ed25519_sessions`                                                                                                         | Durable Object                                              | Threshold session and wallet-session config types no longer expose `kind: "postgres"` or env-shaped `POSTGRES_URL`; raw explicit unknown store kinds fail at the store boundary. Session use counts and replay-sensitive mutation belong in DO methods. The old shared table bootstrap/reset references have been deleted.                                                                                                                                                                                                                                                                                                              |
 | Budget and replay guards           | Former Postgres tables `threshold_wallet_session_consumptions`, `threshold_wallet_session_budget_reservations`, and `threshold_signing_session_seal_idempotency`                                                                                       | Durable Object                                              | The partial Postgres session-seal idempotency backend and wallet-session budget/replay backend have been deleted. Replace row locks and unique idempotency rows with DO methods that return the same result unions.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ECDSA presign                      | Former Postgres tables `threshold_ecdsa_presign_sessions`, `threshold_ecdsa_presignatures`                                                                                                                                                             | Durable Object                                              | The partial Postgres ECDSA presign backend has been deleted; threshold store config types no longer expose `kind: "postgres"` or env-shaped `POSTGRES_URL`. Active presign reservation and pool-fill coordination stays in Durable Objects, Redis, or in-memory test stores.                                                                                                                                                                                                                                                                                                                                                            |
@@ -1392,7 +1393,7 @@ Durable Object staging-behavior audit:
 | Behavior                                                                                               | First-staging proof                                                                                                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Registration ceremonies, intent consumption, finalize replay, and server-allocated wallet reservations | `tests/unit/registrationCeremonyStore.unit.test.ts` covers server-allocated-wallet reservation scope, Cloudflare Durable Object grant and ceremony single-use consumption, preparation scope matching, lifecycle branch parsing, and corrupt raw ceremony/replay rejection.                                   |
-| Router A/B normal-signing admission                                                                    | `tests/unit/routerAbNormalSigningAdmissionStore.unit.test.ts` covers the Cloudflare Durable Object admission store and quota semantics; `tests/unit/cloudflareD1ConsoleServices.unit.test.ts` proves the D1 service bundle wires that DO-backed admission into router-api options and local `/readyz`.             |
+| Router A/B normal-signing admission                                                                    | `tests/unit/routerAbNormalSigningAdmissionStore.unit.test.ts` covers the Cloudflare Durable Object admission store and quota semantics; `tests/unit/cloudflareD1ConsoleServices.unit.test.ts` proves the D1 service bundle wires that DO-backed admission into router-api options and local `/readyz`.        |
 | Wallet-session budget reservation and session consumption                                              | `tests/unit/walletSessionBudgetReservation.store.unit.test.ts` covers Cloudflare Durable Object reservation lifecycle semantics and `consumeUseCountOnce` duplicate idempotency under concurrent calls.                                                                                                       |
 | Replay guards                                                                                          | `tests/relayer/threshold-ecdsa.durable-stores.test.ts` covers Cloudflare Durable Object export nonce reservation once under concurrency.                                                                                                                                                                      |
 | ECDSA presignature pools                                                                               | `tests/relayer/threshold-ecdsa.durable-stores.test.ts` covers Cloudflare Durable Object presignature `reserve`, `reserveById`, and `consume` as single-use operations under concurrent calls.                                                                                                                 |
@@ -1762,8 +1763,8 @@ Work:
 - [x] Re-run the current Refactor 82 runtime guard and staging-script static
       checks after the Router API rename and current worktree drift. Validation
       passed on June 29, 2026: `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  playwright.unit.config.ts
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       with 43 tests, and `node --check` for
       `packages/sdk-server-ts/scripts/d1-staging-*.mjs` plus
       `packages/sdk-server-ts/scripts/d1-local-backup-restore-drill.mjs`. This is
@@ -1886,8 +1887,8 @@ dry-run` first to record config-derived resource IDs and exact remote metadata
 - Staging readiness smoke uses
   `pnpm --dir packages/sdk-server-ts run d1:staging:smoke`. Run `--mode dry-run`
   first, then `--mode remote`, with `--console-origin
-  <https-console-staging-origin>` and `--router-api-origin
-  <https-router-api-staging-origin>`. The console Worker does not expose a root `/readyz`;
+<https-console-staging-origin>` and `--router-api-origin
+<https-router-api-staging-origin>`. The console Worker does not expose a root `/readyz`;
   the canonical console readiness route is `/console/readyz`. The router-api Worker
   owns root `/readyz` and `/healthz`. The same smoke manifest also checks
   `/router-ab/ed25519/healthz` and `/router-ab/ecdsa-hss/healthz` and requires
@@ -1974,12 +1975,12 @@ Validation evidence:
       metadata without recording secret values. Remote inventory now rejects
       failed Wrangler metadata commands and empty Wrangler JSON output before
       writing a passing manifest. Validation passed: `pnpm --dir tests exec
-      playwright test -c playwright.unit.config.ts
-      unit/d1StagingResourceInventory.script.unit.test.ts --reporter=line` with
+  playwright test -c playwright.unit.config.ts
+  unit/d1StagingResourceInventory.script.unit.test.ts --reporter=line` with
       6 tests, `node --check
-      packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs`, `pnpm
-      --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff
-      --check`.
+  packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs`, `pnpm
+  --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff
+  --check`.
 - [x] Added `packages/sdk-server-ts/scripts/d1-staging-fixture-import.mjs` and
       `pnpm --dir packages/sdk-server-ts run d1:staging:import-fixtures` so Phase
       6 fixture import has a dry-run manifest, remote import mode, readiness
@@ -2004,13 +2005,13 @@ playwright.unit.config.ts unit/d1StagingSmoke.script.unit.test.ts
       non-placeholder bookmark value. Deletion pass: the bookmark JSON collector
       now lives in the shared staging config helper and the duplicate
       final-verifier collector was removed. Validation passed: `pnpm --dir tests
-      exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingTimeTravelBookmark.script.unit.test.ts
-      unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 61
+  exec playwright test -c playwright.unit.config.ts
+  unit/d1StagingTimeTravelBookmark.script.unit.test.ts
+  unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 61
       tests, `node --check packages/sdk-server-ts/scripts/d1-staging-config.mjs`,
       `node --check
-      packages/sdk-server-ts/scripts/d1-staging-time-travel-bookmark.mjs`, `node
-      --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+  packages/sdk-server-ts/scripts/d1-staging-time-travel-bookmark.mjs`, `node
+  --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `git diff --check`.
 - [x] Added `packages/sdk-server-ts/scripts/d1-staging-kek-check.mjs` and
@@ -2034,12 +2035,12 @@ playwright.unit.config.ts unit/d1StagingSmoke.script.unit.test.ts
       failed remote-command rejection before writing clean command manifests.
       Remote reconciliation now also rejects empty Wrangler JSON output instead
       of treating it as zero mismatch rows. Validation passed: `pnpm --dir tests
-      exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingResourceInventory.script.unit.test.ts
-      unit/d1StagingReconciliation.script.unit.test.ts --reporter=line` with 13
+  exec playwright test -c playwright.unit.config.ts
+  unit/d1StagingResourceInventory.script.unit.test.ts
+  unit/d1StagingReconciliation.script.unit.test.ts --reporter=line` with 13
       tests, `node --check
-      packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs`, `node
-      --check packages/sdk-server-ts/scripts/d1-staging-reconciliation.mjs`,
+  packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs`, `node
+  --check packages/sdk-server-ts/scripts/d1-staging-reconciliation.mjs`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `git diff --check`.
 - [x] Added `packages/sdk-server-ts/scripts/d1-staging-signer-custody.mjs` and
@@ -2065,9 +2066,9 @@ playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
       runbook. The Refactor 82 guard now checks that this README cannot drift
       back to default-JWT or success-only custody evidence. Validation passed:
       `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
-      --reporter=line` with 46 tests passing, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, and `git diff --check`.
+  playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+  --reporter=line` with 46 tests passing, `pnpm --dir tests exec tsc -p
+  tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Tightened final-evidence runbook coverage. The runbook test now asserts
       every required final evidence manifest flag: resource inventory, KEK check,
       migrations, both Time Travel bookmarks, fixture import, staging smoke,
@@ -2078,20 +2079,20 @@ playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
       sequence runs the readiness preflight before resource inventory capture,
       and that resource inventory still runs before remote migrations. Validation
       passed: `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/d1StagingRunbook.script.unit.test.ts
-      --reporter=line` with 6 tests passing, `node --check
-      packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
-      exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check`.
+  playwright.unit.config.ts unit/d1StagingRunbook.script.unit.test.ts
+  --reporter=line` with 6 tests passing, `node --check
+  packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
+  exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Reconciled the Phase 6 fixture-import decision text with the implemented
       importer. The plan now describes migration-derived table allowlists from
       `migrations/d1-console` and `migrations/d1-signer`, matching
       `d1-staging-fixture-import.mjs`; it no longer describes obsolete
       `console_`/`signer_` prefix-only fixture scopes. The Refactor 82 guard now
       blocks that stale wording from returning. Validation passed: `pnpm --dir
-      tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with
+  tests exec playwright test -c playwright.unit.config.ts
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with
       47 tests passing, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, and `git diff --check`.
+  tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Aligned the SDK server staging README and Phase 6 decision text with the
       generated runbook's dry-run discipline for Phase 6 commands. Time Travel
       bookmarks, fixture import, KEK metadata checks, and staging smoke now show
@@ -2099,9 +2100,9 @@ playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
       the exact command shape before mutating staging or trusting endpoint
       evidence. The Refactor 82 guard now checks these README snippets.
       Validation passed: `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
-      --reporter=line` with 48 tests passing, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, and `git diff --check`.
+  playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+  --reporter=line` with 48 tests passing, `pnpm --dir tests exec tsc -p
+  tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Hardened signer-custody evidence redaction before live staging. Response
       body field names are normalized before redaction, so camelCase and
       snake_case spellings of server export shares, private keys, signing shares,
@@ -2143,7 +2144,7 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 20
       single deployed Worker. Validation passed:
       `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 54
+  unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 54
       tests, and `git diff --check`.
 - [x] Hardened the final Phase 6 evidence verifier against evidence IDs pointed
       at the wrong endpoint paths. Smoke evidence must now use the exact
@@ -2175,11 +2176,11 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 24
       migrations, so final staging evidence cannot pass if the supposedly
       pre-change resource/secret metadata was captured after mutations started.
       Validation passed: `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
-      --reporter=line` with 55 tests, `node --check
-      packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`, `pnpm
-      --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff
-      --check`.
+  playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
+  --reporter=line` with 55 tests, `node --check
+  packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`, `pnpm
+  --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff
+  --check`.
 - [x] Made the missing-KEK signer-custody drill mandatory final evidence. The
       verifier now requires `ecdsa_export_share_missing_kek_fail_closed`, checks
       that it uses the production export-share route, requires a 4xx/5xx
@@ -2479,12 +2480,12 @@ unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 42
       integrity-check JSON collector now lives in the shared staging config helper
       and the duplicate final-verifier collector was removed. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingR2RestoreDrill.script.unit.test.ts
-      unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 61
+  unit/d1StagingR2RestoreDrill.script.unit.test.ts
+  unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 61
       tests, `node --check packages/sdk-server-ts/scripts/d1-staging-config.mjs`,
       `node --check
-      packages/sdk-server-ts/scripts/d1-staging-r2-restore-drill.mjs`, `node
-      --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+  packages/sdk-server-ts/scripts/d1-staging-r2-restore-drill.mjs`, `node
+  --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `git diff --check`.
 - [x] Added `packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs` and
@@ -2677,23 +2678,23 @@ tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check` passed.
       `node --check` for every `packages/sdk-server-ts/scripts/d1-staging-*.mjs`
       script and `packages/sdk-server-ts/scripts/d1-local-backup-restore-drill.mjs`,
       plus `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingEvidenceVerify.script.unit.test.ts
-      unit/d1StagingFixtureImport.script.unit.test.ts
-      unit/d1StagingKekCheck.script.unit.test.ts
-      unit/d1StagingMigrate.script.unit.test.ts
-      unit/d1StagingR2RestoreDrill.script.unit.test.ts
-      unit/d1StagingReadiness.script.unit.test.ts
-      unit/d1StagingReconciliation.script.unit.test.ts
-      unit/d1StagingResourceInventory.script.unit.test.ts
-      unit/d1StagingRunbook.script.unit.test.ts
-      unit/d1StagingSession.unit.test.ts
-      unit/d1StagingSignerCustody.script.unit.test.ts
-      unit/d1StagingSmoke.script.unit.test.ts
-      unit/d1StagingTimeTravelBookmark.script.unit.test.ts --reporter=line`, which
+  unit/d1StagingEvidenceVerify.script.unit.test.ts
+  unit/d1StagingFixtureImport.script.unit.test.ts
+  unit/d1StagingKekCheck.script.unit.test.ts
+  unit/d1StagingMigrate.script.unit.test.ts
+  unit/d1StagingR2RestoreDrill.script.unit.test.ts
+  unit/d1StagingReadiness.script.unit.test.ts
+  unit/d1StagingReconciliation.script.unit.test.ts
+  unit/d1StagingResourceInventory.script.unit.test.ts
+  unit/d1StagingRunbook.script.unit.test.ts
+  unit/d1StagingSession.unit.test.ts
+  unit/d1StagingSignerCustody.script.unit.test.ts
+  unit/d1StagingSmoke.script.unit.test.ts
+  unit/d1StagingTimeTravelBookmark.script.unit.test.ts --reporter=line`, which
       passed with 126 staging script/session tests. The latest focused runbook
       validation passed with 6 tests, `node --check
-      packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
-      exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check`.
+  packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
+  exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Hardened hosted signer missing-KEK behavior end to end. The signer KEK
       provider now raises a typed `missing_signing_root_kek` error for missing
       Cloudflare Secrets Store bindings, empty Cloudflare Secrets Store values,
@@ -2702,11 +2703,11 @@ tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check` passed.
       mapping returns 503, and the Phase 6 runbook plus final evidence fixtures
       now require `--missing-kek-expected-status 503`. Validation passed:
       `pnpm --dir tests exec playwright test
-      tests/unit/signingRootKekProvider.script.unit.test.ts
-      tests/unit/signingRootShareResolver.script.unit.test.ts
-      tests/unit/thresholdStatusCodes.unit.test.ts
-      tests/unit/d1StagingRunbook.script.unit.test.ts
-      tests/unit/d1StagingEvidenceVerify.script.unit.test.ts` with 66 tests;
+  tests/unit/signingRootKekProvider.script.unit.test.ts
+  tests/unit/signingRootShareResolver.script.unit.test.ts
+  tests/unit/thresholdStatusCodes.unit.test.ts
+  tests/unit/d1StagingRunbook.script.unit.test.ts
+  tests/unit/d1StagingEvidenceVerify.script.unit.test.ts` with 66 tests;
       `pnpm --dir packages/sdk-server-ts type-check`;
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`;
       `node --check packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`;
@@ -2795,71 +2796,58 @@ Work:
       deletions, and `24,719` net new runtime-source lines under
       `packages/sdk-server-ts/src` excluding `*.typecheck.ts`. Treat this as the
       active Phase 7 slimming baseline until the next cleanup slice records a newer
-      count.
-      - [x] Refresh the runtime-source count before each cleanup slice:
-            `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --
-            'packages/sdk-server-ts/src/**' ':!**/*.typecheck.ts'`.
-      - [x] Classify the top 20 runtime-growth files into four buckets:
-            required product logic, duplicated adapter plumbing, test/local/staging
-            support that can move out of runtime source, and obsolete migration
-            scaffolding that should be deleted.
-      - [x] Classify the June 30 post-82 integration files separately from
-            migration scaffolding. Local D1 startup, D1 registration, signing
-            readiness, unlock behavior, Router A/B validation, and explicit WASM
-            loading fixes are retained unless a replacement path is already present.
-      - [x] Classify Worker-level ECDSA-HSS pool-fill live-session cache code as a
-            Phase 9 staging blocker, not generic Phase 7 bloat. Delete it only in
-            the same slice that installs the Durable Object owner and proves fresh
-            Worker handlers can advance the same pool-fill ceremony through DO
-            routing.
-      - [x] Classify the largest console D1 adapters first:
-            `console/billing/d1.ts`, `console/webhooks/d1.ts`,
-            `console/observability/d1.ts`, `console/orgProjectEnv/d1.ts`,
-            `console/runtimeSnapshots/d1.ts`, `console/apiKeys/d1.ts`,
-            `console/policies/d1.ts`, `console/teamRbac/d1.ts`, and
-            `console/sponsorshipSpendCaps/d1.ts`. They are product-owned D1
-            replacements for deleted Postgres adapters. Further tenant-scope,
-            pagination, JSON-column, mutation-count, and lifecycle helper cleanup
-            is post-MVP adapter slimming and should happen only when a helper
-            removes more code in the same slice.
-      - [x] Classify the D1 signer/auth record-service split:
-            `d1RegistrationCeremonyRecords.ts`, `d1EmailOtpRecords.ts`,
-            `d1EmailOtpRecoveryService.ts`, `d1WalletAuthMethodService.ts`,
-            `d1GoogleEmailOtpSessionResolver.ts`, `d1OidcBoundary.ts`,
-            `d1WebAuthnAuthService.ts`, and related `d1*Records.ts` files.
-            They are product-owned D1/DO signer runtime boundaries. Merge
-            record-only modules later only when the split adds indirection while
-            still preserving the raw-D1-row parser boundary.
-      - [x] Classify `d1LocalDevWorker.ts`, `d1ConsoleStagingWorker.ts`, and
-            `d1RouterApiStagingWorker.ts`. They should assemble the production
-            route factories with local/staging bindings and avoid carrying duplicate
-            route tables, duplicate env parsing, or local-only service graphs in
-            runtime source. Current Phase 7 closure finds no Worker-level
-            ECDSA-HSS live-session cache in those runtime files.
-      - [x] Classify the explicit local WASM/runtime support files for Refactor 82
-            duplication. Module-local filesystem candidates and explicit D1-local
-            WASM setup remain because local source execution and built package
-            execution resolve from different places.
-      - [x] Classify D1 schema source-of-truth work by environment. Migrations are
-            the setup source for local, test, and staging. Any remaining runtime
-            schema helpers are product-owned until the migration runner fully covers
-            that request path; deletion moves to Phase 6 staging hardening or a
-            focused post-MVP schema cleanup.
-      - [x] Count every untracked runtime-source file before final Phase 7 counts
-            and assign a current owner. Stage files that are real, fold small
-            one-caller helpers into their owner, and delete obsolete prototypes in
-            the normal commit flow; the count closure includes untracked text so it
-            cannot hide production growth.
-      - [x] Resolve untracked follow-up plan docs separately from implementation
-            files. `docs/refactor-83-iframe-walletId.md`,
-            `docs/refactor-84-trim-hss.md`, and Refactor 85 plan/spec docs are
-            follow-up planning artifacts, not Phase 7 runtime bloat.
-      - [x] Every runtime-slimming slice records before/after counts for
-            `packages/sdk-server-ts/src` and must be net-negative unless it fixes a
-            concrete Phase 6 staging blocker.
-      - [x] Phase 7 exit target: reduce the tracked runtime-source delta from the
-            June 30 `+24,719` net lines to below `+10,000`, or record a named
-            product reason and owner for each remaining positive runtime block.
+      count. - [x] Refresh the runtime-source count before each cleanup slice:
+      `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --
+          'packages/sdk-server-ts/src/**' ':!**/*.typecheck.ts'`. - [x] Classify the top 20 runtime-growth files into four buckets:
+      required product logic, duplicated adapter plumbing, test/local/staging
+      support that can move out of runtime source, and obsolete migration
+      scaffolding that should be deleted. - [x] Classify the June 30 post-82 integration files separately from
+      migration scaffolding. Local D1 startup, D1 registration, signing
+      readiness, unlock behavior, Router A/B validation, and explicit WASM
+      loading fixes are retained unless a replacement path is already present. - [x] Classify Worker-level ECDSA-HSS pool-fill live-session cache code as a
+      Phase 9 staging blocker, not generic Phase 7 bloat. Delete it only in
+      the same slice that installs the Durable Object owner and proves fresh
+      Worker handlers can advance the same pool-fill ceremony through DO
+      routing. - [x] Classify the largest console D1 adapters first:
+      `console/billing/d1.ts`, `console/webhooks/d1.ts`,
+      `console/observability/d1.ts`, `console/orgProjectEnv/d1.ts`,
+      `console/runtimeSnapshots/d1.ts`, `console/apiKeys/d1.ts`,
+      `console/policies/d1.ts`, `console/teamRbac/d1.ts`, and
+      `console/sponsorshipSpendCaps/d1.ts`. They are product-owned D1
+      replacements for deleted Postgres adapters. Further tenant-scope,
+      pagination, JSON-column, mutation-count, and lifecycle helper cleanup
+      is post-MVP adapter slimming and should happen only when a helper
+      removes more code in the same slice. - [x] Classify the D1 signer/auth record-service split:
+      `d1RegistrationCeremonyRecords.ts`, `d1EmailOtpRecords.ts`,
+      `d1EmailOtpRecoveryService.ts`, `d1WalletAuthMethodService.ts`,
+      `d1GoogleEmailOtpSessionResolver.ts`, `d1OidcBoundary.ts`,
+      `d1WebAuthnAuthService.ts`, and related `d1*Records.ts` files.
+      They are product-owned D1/DO signer runtime boundaries. Merge
+      record-only modules later only when the split adds indirection while
+      still preserving the raw-D1-row parser boundary. - [x] Classify `d1LocalDevWorker.ts`, `d1ConsoleStagingWorker.ts`, and
+      `d1RouterApiStagingWorker.ts`. They should assemble the production
+      route factories with local/staging bindings and avoid carrying duplicate
+      route tables, duplicate env parsing, or local-only service graphs in
+      runtime source. Current Phase 7 closure finds no Worker-level
+      ECDSA-HSS live-session cache in those runtime files. - [x] Classify the explicit local WASM/runtime support files for Refactor 82
+      duplication. Module-local filesystem candidates and explicit D1-local
+      WASM setup remain because local source execution and built package
+      execution resolve from different places. - [x] Classify D1 schema source-of-truth work by environment. Migrations are
+      the setup source for local, test, and staging. Any remaining runtime
+      schema helpers are product-owned until the migration runner fully covers
+      that request path; deletion moves to Phase 6 staging hardening or a
+      focused post-MVP schema cleanup. - [x] Count every untracked runtime-source file before final Phase 7 counts
+      and assign a current owner. Stage files that are real, fold small
+      one-caller helpers into their owner, and delete obsolete prototypes in
+      the normal commit flow; the count closure includes untracked text so it
+      cannot hide production growth. - [x] Resolve untracked follow-up plan docs separately from implementation
+      files. `docs/refactor-83-iframe-walletId.md`,
+      `docs/refactor-84-trim-hss.md`, and Refactor 85 plan/spec docs are
+      follow-up planning artifacts, not Phase 7 runtime bloat. - [x] Every runtime-slimming slice records before/after counts for
+      `packages/sdk-server-ts/src` and must be net-negative unless it fixes a
+      concrete Phase 6 staging blocker. - [x] Phase 7 exit target: reduce the tracked runtime-source delta from the
+      June 30 `+24,719` net lines to below `+10,000`, or record a named
+      product reason and owner for each remaining positive runtime block.
 - [x] For every D1 adapter added in this refactor, name the exact old runtime path
       it replaces. Delete the old path in the same slice or add a dated blocker in
       this document.
@@ -2944,23 +2932,17 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       Scope: database object names only. Do not rename route IDs such as
       `console_projects_list`, source folders such as `console/`, public API names,
       or domain concepts such as signer/signing.
-      Implementation checklist:
-      - [x] Rename D1 migration SQL table, index, and trigger identifiers:
-            `console_organizations` -> `organizations`,
-            `console_projects` -> `projects`,
-            `console_runtime_snapshots` -> `runtime_snapshots`,
-            `signer_wallets` -> `wallets`,
-            `signer_wallet_signers` -> `wallet_signers`,
-            `signer_webauthn_challenges` -> `webauthn_challenges`, and the rest of
-            the exact D1 object-name set.
-      - [x] Update all D1 query strings and marker-table checks that reference the
-            renamed objects.
-      - [x] Update D1 smoke, backup/restore, staging, and fixture scripts.
-      - [x] Update tests, fixtures, and source guards that assert D1 object names.
-      - [x] Delete local D1 state and recreate it from migrations during manual
-            testing.
-      - [x] Avoid compatibility views, dual-name query paths, and legacy migration
-            aliases.
+      Implementation checklist: - [x] Rename D1 migration SQL table, index, and trigger identifiers:
+      `console_organizations` -> `organizations`,
+      `console_projects` -> `projects`,
+      `console_runtime_snapshots` -> `runtime_snapshots`,
+      `signer_wallets` -> `wallets`,
+      `signer_wallet_signers` -> `wallet_signers`,
+      `signer_webauthn_challenges` -> `webauthn_challenges`, and the rest of
+      the exact D1 object-name set. - [x] Update all D1 query strings and marker-table checks that reference the
+      renamed objects. - [x] Update D1 smoke, backup/restore, staging, and fixture scripts. - [x] Update tests, fixtures, and source guards that assert D1 object names. - [x] Delete local D1 state and recreate it from migrations during manual
+      testing. - [x] Avoid compatibility views, dual-name query paths, and legacy migration
+      aliases.
       Evidence: an exact-token rewrite over the D1 object-name set updated
       migrations, D1 query strings, local/staging scripts, package smoke checks, and
       fixtures while excluding docs and route IDs. A strict scan for the original
@@ -2971,9 +2953,9 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       `pnpm --dir packages/sdk-server-ts run d1:local:restore:drill -- --skip-prepare`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
-      relayer/console-d1-adapters.test.ts --reporter=line`,
+  relayer/console-d1-adapters.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`, and
       `git diff --check` for the touched files.
 - [x] Push invariants into D1 schema where practical: `NOT NULL`, `UNIQUE`,
       deterministic primary keys, lifecycle-state checks, and foreign-key-like
@@ -3213,36 +3195,36 @@ packages/sdk-server-ts/src/core packages/sdk-server-ts/src/router/cloudflare`.
 
 Adapter replacement ledger:
 
-| D1/DO adapter family                                                                                                                                                                                                                                                               | Replaced or deleted runtime path                                                                                                                                                                                                             | Status   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| Console account D1 adapter: `packages/sdk-server-ts/src/console/account/d1.ts`                                                                                                                                                                                                     | Deleted `packages/sdk-server-ts/src/console/account/postgres.ts`                                                                                                                                                                             | Complete |
-| Console API-key D1 adapter: `packages/sdk-server-ts/src/console/apiKeys/d1.ts`                                                                                                                                                                                                     | Deleted `packages/sdk-server-ts/src/console/apiKeys/postgres.ts`                                                                                                                                                                             | Complete |
-| Console approvals D1 adapter: `packages/sdk-server-ts/src/console/approvals/d1.ts`                                                                                                                                                                                                 | Deleted `packages/sdk-server-ts/src/console/approvals/postgres.ts`                                                                                                                                                                           | Complete |
-| Console audit D1 adapter: `packages/sdk-server-ts/src/console/audit/d1.ts`                                                                                                                                                                                                         | Deleted `packages/sdk-server-ts/src/console/audit/postgres.ts`                                                                                                                                                                               | Complete |
-| Console billing D1 adapter: `packages/sdk-server-ts/src/console/billing/d1.ts`                                                                                                                                                                                                     | Deleted `packages/sdk-server-ts/src/console/billing/postgres.ts`                                                                                                                                                                             | Complete |
-| Console prepaid-reservation D1 adapter: `packages/sdk-server-ts/src/console/billingPrepaidReservations/d1.ts`                                                                                                                                                                      | Deleted `packages/sdk-server-ts/src/console/billingPrepaidReservations/postgres.ts`                                                                                                                                                          | Complete |
-| Console bootstrap-token D1 adapter: `packages/sdk-server-ts/src/console/bootstrapTokens/d1.ts`                                                                                                                                                                                     | Deleted `packages/sdk-server-ts/src/console/bootstrapTokens/postgres.ts`                                                                                                                                                                     | Complete |
-| Console key-export D1 adapter: `packages/sdk-server-ts/src/console/keyExports/d1.ts`                                                                                                                                                                                               | Deleted `packages/sdk-server-ts/src/console/keyExports/postgres.ts`                                                                                                                                                                          | Complete |
-| Console observability D1 adapter: `packages/sdk-server-ts/src/console/observability/d1.ts`                                                                                                                                                                                         | Deleted `packages/sdk-server-ts/src/console/observability/postgres.ts`, `incidentIngest.ts`, `queries.ts`, `retention.ts`, and `schema.ts`                                                                                                   | Complete |
-| Console org/project/env D1 adapter: `packages/sdk-server-ts/src/console/orgProjectEnv/d1.ts`                                                                                                                                                                                       | Deleted `packages/sdk-server-ts/src/console/orgProjectEnv/postgres.ts`                                                                                                                                                                       | Complete |
-| Console policy D1 adapter: `packages/sdk-server-ts/src/console/policies/d1.ts`                                                                                                                                                                                                     | Deleted `packages/sdk-server-ts/src/console/policies/postgres.ts`                                                                                                                                                                            | Complete |
-| Console runtime-snapshot D1 adapter: `packages/sdk-server-ts/src/console/runtimeSnapshots/d1.ts`                                                                                                                                                                                   | Deleted `packages/sdk-server-ts/src/console/runtimeSnapshots/postgres.ts` and `runtimeSnapshots/retention.ts`                                                                                                                                | Complete |
-| Console sponsored-call D1 adapter: `packages/sdk-server-ts/src/console/sponsoredCalls/d1.ts`                                                                                                                                                                                       | Deleted `packages/sdk-server-ts/src/console/sponsoredCalls/postgres.ts`                                                                                                                                                                      | Complete |
-| Console sponsorship spend-cap D1 adapter: `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/d1.ts`                                                                                                                                                                          | Deleted `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/postgres.ts`                                                                                                                                                                | Complete |
-| Console team-RBAC D1 adapter: `packages/sdk-server-ts/src/console/teamRbac/d1.ts`                                                                                                                                                                                                  | Deleted `packages/sdk-server-ts/src/console/teamRbac/postgres.ts`                                                                                                                                                                            | Complete |
-| Console wallet-index D1 adapter: `packages/sdk-server-ts/src/console/wallets/d1.ts`                                                                                                                                                                                                | Deleted `packages/sdk-server-ts/src/console/wallets/postgres.ts`                                                                                                                                                                             | Complete |
-| Console webhook D1 adapter: `packages/sdk-server-ts/src/console/webhooks/d1.ts`                                                                                                                                                                                                    | Deleted `packages/sdk-server-ts/src/console/webhooks/postgres.ts`                                                                                                                                                                            | Complete |
-| Shared D1 SQL helpers: `packages/sdk-server-ts/src/storage/d1Sql.ts`                                                                                                                                                                                                               | Replaces the deleted generic Postgres helper `packages/sdk-server-ts/src/storage/postgres.ts` on the Cloudflare path                                                                                                                         | Complete |
-| D1 wallet, wallet auth-method, and identity stores: `d1WalletStore.ts`, `d1WalletAuthMethodStore.ts`, and `d1IdentityStore.ts`                                                                                                                                                     | Replaces the deleted wallet/auth-method/identity blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                | Complete |
-| D1 WebAuthn stores and auth service: `d1WebAuthnStore.ts`, `d1WebAuthnRecords.ts`, and `d1WebAuthnAuthService.ts`                                                                                                                                                                  | Replaces the deleted WebAuthn storage blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                           | Complete |
-| D1 registration ceremony store and Durable Object owner: `d1RegistrationCeremonyStore.ts`, `d1RegistrationCeremonyRecords.ts`, and `d1RegistrationCeremonyDo.ts`                                                                                                                   | Replaces the deleted registration ceremony blocks from `packages/sdk-server-ts/src/storage/postgres.ts` and the deleted disabled D1 auth scaffold                                                                                            | Complete |
-| D1 Email OTP record/store/service family: `d1EmailOtp*.ts` and `d1GoogleEmailOtp*.ts`                                                                                                                                                                                              | Replaces deleted `packages/sdk-server-ts/src/core/EmailOtpPostgresRecords.ts` and the deleted Email OTP blocks from `packages/sdk-server-ts/src/storage/postgres.ts`; provider/OIDC service leaves are first D1-only staging implementations | Complete |
-| D1 session/recovery service family: `d1SessionStore.ts`, `d1SessionRecords.ts`, `d1SessionService.ts`, and `d1EmailOtpRecoveryService.ts`                                                                                                                                          | Replaces deleted recovery/session blocks from `packages/sdk-server-ts/src/storage/postgres.ts`; `/recover-email` execution remains outside first D1 staging scope                                                                            | Complete |
-| D1 NEAR public-key and signing-root secret stores: `d1NearPublicKeyStore.ts` and `SigningRootSecretStore.d1.ts`                                                                                                                                                                    | Replaces deleted `ThresholdService/postgresRecords.ts` metadata helpers and deleted signing-root secret blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                         | Complete |
-| D1 signing-session seal idempotency records: `signingSessionSeal/idempotencyRecords.ts`                                                                                                                                                                                            | Replaces deleted `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/postgresRecords.ts`                                                                                                                                        | Complete |
+| D1/DO adapter family                                                                                                                                                                                                                                                                                                        | Replaced or deleted runtime path                                                                                                                                                                                                             | Status   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Console account D1 adapter: `packages/sdk-server-ts/src/console/account/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/account/postgres.ts`                                                                                                                                                                             | Complete |
+| Console API-key D1 adapter: `packages/sdk-server-ts/src/console/apiKeys/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/apiKeys/postgres.ts`                                                                                                                                                                             | Complete |
+| Console approvals D1 adapter: `packages/sdk-server-ts/src/console/approvals/d1.ts`                                                                                                                                                                                                                                          | Deleted `packages/sdk-server-ts/src/console/approvals/postgres.ts`                                                                                                                                                                           | Complete |
+| Console audit D1 adapter: `packages/sdk-server-ts/src/console/audit/d1.ts`                                                                                                                                                                                                                                                  | Deleted `packages/sdk-server-ts/src/console/audit/postgres.ts`                                                                                                                                                                               | Complete |
+| Console billing D1 adapter: `packages/sdk-server-ts/src/console/billing/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/billing/postgres.ts`                                                                                                                                                                             | Complete |
+| Console prepaid-reservation D1 adapter: `packages/sdk-server-ts/src/console/billingPrepaidReservations/d1.ts`                                                                                                                                                                                                               | Deleted `packages/sdk-server-ts/src/console/billingPrepaidReservations/postgres.ts`                                                                                                                                                          | Complete |
+| Console bootstrap-token D1 adapter: `packages/sdk-server-ts/src/console/bootstrapTokens/d1.ts`                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/bootstrapTokens/postgres.ts`                                                                                                                                                                     | Complete |
+| Console key-export D1 adapter: `packages/sdk-server-ts/src/console/keyExports/d1.ts`                                                                                                                                                                                                                                        | Deleted `packages/sdk-server-ts/src/console/keyExports/postgres.ts`                                                                                                                                                                          | Complete |
+| Console observability D1 adapter: `packages/sdk-server-ts/src/console/observability/d1.ts`                                                                                                                                                                                                                                  | Deleted `packages/sdk-server-ts/src/console/observability/postgres.ts`, `incidentIngest.ts`, `queries.ts`, `retention.ts`, and `schema.ts`                                                                                                   | Complete |
+| Console org/project/env D1 adapter: `packages/sdk-server-ts/src/console/orgProjectEnv/d1.ts`                                                                                                                                                                                                                                | Deleted `packages/sdk-server-ts/src/console/orgProjectEnv/postgres.ts`                                                                                                                                                                       | Complete |
+| Console policy D1 adapter: `packages/sdk-server-ts/src/console/policies/d1.ts`                                                                                                                                                                                                                                              | Deleted `packages/sdk-server-ts/src/console/policies/postgres.ts`                                                                                                                                                                            | Complete |
+| Console runtime-snapshot D1 adapter: `packages/sdk-server-ts/src/console/runtimeSnapshots/d1.ts`                                                                                                                                                                                                                            | Deleted `packages/sdk-server-ts/src/console/runtimeSnapshots/postgres.ts` and `runtimeSnapshots/retention.ts`                                                                                                                                | Complete |
+| Console sponsored-call D1 adapter: `packages/sdk-server-ts/src/console/sponsoredCalls/d1.ts`                                                                                                                                                                                                                                | Deleted `packages/sdk-server-ts/src/console/sponsoredCalls/postgres.ts`                                                                                                                                                                      | Complete |
+| Console sponsorship spend-cap D1 adapter: `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/d1.ts`                                                                                                                                                                                                                   | Deleted `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/postgres.ts`                                                                                                                                                                | Complete |
+| Console team-RBAC D1 adapter: `packages/sdk-server-ts/src/console/teamRbac/d1.ts`                                                                                                                                                                                                                                           | Deleted `packages/sdk-server-ts/src/console/teamRbac/postgres.ts`                                                                                                                                                                            | Complete |
+| Console wallet-index D1 adapter: `packages/sdk-server-ts/src/console/wallets/d1.ts`                                                                                                                                                                                                                                         | Deleted `packages/sdk-server-ts/src/console/wallets/postgres.ts`                                                                                                                                                                             | Complete |
+| Console webhook D1 adapter: `packages/sdk-server-ts/src/console/webhooks/d1.ts`                                                                                                                                                                                                                                             | Deleted `packages/sdk-server-ts/src/console/webhooks/postgres.ts`                                                                                                                                                                            | Complete |
+| Shared D1 SQL helpers: `packages/sdk-server-ts/src/storage/d1Sql.ts`                                                                                                                                                                                                                                                        | Replaces the deleted generic Postgres helper `packages/sdk-server-ts/src/storage/postgres.ts` on the Cloudflare path                                                                                                                         | Complete |
+| D1 wallet, wallet auth-method, and identity stores: `d1WalletStore.ts`, `d1WalletAuthMethodStore.ts`, and `d1IdentityStore.ts`                                                                                                                                                                                              | Replaces the deleted wallet/auth-method/identity blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                | Complete |
+| D1 WebAuthn stores and auth service: `d1WebAuthnStore.ts`, `d1WebAuthnRecords.ts`, and `d1WebAuthnAuthService.ts`                                                                                                                                                                                                           | Replaces the deleted WebAuthn storage blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                           | Complete |
+| D1 registration ceremony store and Durable Object owner: `d1RegistrationCeremonyStore.ts`, `d1RegistrationCeremonyRecords.ts`, and `d1RegistrationCeremonyDo.ts`                                                                                                                                                            | Replaces the deleted registration ceremony blocks from `packages/sdk-server-ts/src/storage/postgres.ts` and the deleted disabled D1 auth scaffold                                                                                            | Complete |
+| D1 Email OTP record/store/service family: `d1EmailOtp*.ts` and `d1GoogleEmailOtp*.ts`                                                                                                                                                                                                                                       | Replaces deleted `packages/sdk-server-ts/src/core/EmailOtpPostgresRecords.ts` and the deleted Email OTP blocks from `packages/sdk-server-ts/src/storage/postgres.ts`; provider/OIDC service leaves are first D1-only staging implementations | Complete |
+| D1 session/recovery service family: `d1SessionStore.ts`, `d1SessionRecords.ts`, `d1SessionService.ts`, and `d1EmailOtpRecoveryService.ts`                                                                                                                                                                                   | Replaces deleted recovery/session blocks from `packages/sdk-server-ts/src/storage/postgres.ts`; `/recover-email` execution remains outside first D1 staging scope                                                                            | Complete |
+| D1 NEAR public-key and signing-root secret stores: `d1NearPublicKeyStore.ts` and `SigningRootSecretStore.d1.ts`                                                                                                                                                                                                             | Replaces deleted `ThresholdService/postgresRecords.ts` metadata helpers and deleted signing-root secret blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                         | Complete |
+| D1 signing-session seal idempotency records: `signingSessionSeal/idempotencyRecords.ts`                                                                                                                                                                                                                                     | Replaces deleted `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/postgresRecords.ts`                                                                                                                                        | Complete |
 | D1 Router API auth service leaves and boundary/config modules: `d1RouterApiAuthService.ts`, `d1RouterApiAuthBoundary.ts`, `d1RouterApiAuthConfig.ts`, `d1WalletAuthMethodService.ts`, `d1RegistrationIntentService.ts`, `d1WalletRegistrationService.ts`, `d1WalletAddSignerService.ts`, and `d1ThresholdSigningRuntime.ts` | Replace deleted `packages/sdk-server-ts/src/router/cloudflare/disabledRelayAuthService.ts`; unsupported route branches are absent or opt-in structural route dependencies                                                                    | Complete |
-| Local D1 Worker: `packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts`                                                                                                                                                                                                | Replaces deleted local Docker Postgres scripts under `apps/web-server/scripts/postgres-*.mjs`, the deleted Docker compose file, and deleted live Postgres relayer runners                                                                    | Complete |
-| Durable Object threshold and ceremony coordination: `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts` plus D1 ceremony DO records                                                                                                                    | Replaces partial Postgres threshold session, wallet-session, presign, admission, budget, replay, and registration-finalization paths; future Postgres support must re-enter as the full-family adapter contract                              | Complete |
+| Local D1 Worker: `packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts`                                                                                                                                                                                                                                         | Replaces deleted local Docker Postgres scripts under `apps/web-server/scripts/postgres-*.mjs`, the deleted Docker compose file, and deleted live Postgres relayer runners                                                                    | Complete |
+| Durable Object threshold and ceremony coordination: `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts` plus D1 ceremony DO records                                                                                                                                                             | Replaces partial Postgres threshold session, wallet-session, presign, admission, budget, replay, and registration-finalization paths; future Postgres support must re-enter as the full-family adapter contract                              | Complete |
 
 Phase 7 cleanup evidence:
 
@@ -3281,7 +3263,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       rejects reintroduced local manifest write blocks in those scripts.
       Validation passed: `node --check` on the shared helper plus all touched
       staging scripts, `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts` over the 12 Phase 6 staging script test files
+  playwright.unit.config.ts` over the 12 Phase 6 staging script test files
       with 93 tests passing, the focused manifest-writer guard test, the evidence
       verifier test file with 26 tests passing, direct duplicate manifest-write
       scan, and `git diff --check`.
@@ -3316,7 +3298,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       the 12 Phase 6 staging script test files with 93 tests passing, the focused
       ISO/stamp helper staging script subset with 59 tests passing, the focused
       `D1 staging scripts share` guard tests with 2 tests passing, and `pnpm --dir
-      tests exec tsc -p tsconfig.playwright.json --noEmit`. A direct scan for
+  tests exec tsc -p tsconfig.playwright.json --noEmit`. A direct scan for
       local `print*Result` functions and staging JSON endpoint helper bodies
       outside `d1-staging-config.mjs`, plus local origin and timeout validators,
       plus local `args.length` parser loops, command runners, and runbook path
@@ -3352,9 +3334,9 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       passing,
       the full Refactor 82 runtime guard with 28 tests passing,
       `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`,
+  tsconfig.playwright.json --noEmit`,
       `pnpm --dir packages/sdk-server-ts run d1:local:restore:drill --
-      --skip-prepare`, and `git diff --check`.
+  --skip-prepare`, and `git diff --check`.
       A later follow-up deleted the redundant `parseStringFlagArgs()` wrapper
       from `d1-staging-config.mjs`; staging scripts now import and call the single
       `parseFlagArgs()` helper directly. Current line count for
@@ -3384,9 +3366,9 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       Coverage stayed intact while the untracked test file dropped from 1,930 to
       1,081 lines, an 849-line deletion. Validation passed:
       `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
-      --reporter=line` with 54 tests, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, and `git diff --check`.
+  playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
+  --reporter=line` with 54 tests, `pnpm --dir tests exec tsc -p
+  tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Deleted repeated Phase 6 staging-script command-runner result scaffolding
       across the migration, fixture-import, KEK-check, resource-inventory,
       Time Travel bookmark, reconciliation, and R2 restore-drill unit tests. The
@@ -3396,18 +3378,18 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       helper dropped from 1,621 to 1,487 lines, a net 134-line deletion after
       the helper grew by 25 lines. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingResourceInventory.script.unit.test.ts
-      unit/d1StagingFixtureImport.script.unit.test.ts
-      unit/d1StagingReconciliation.script.unit.test.ts
-      unit/d1StagingR2RestoreDrill.script.unit.test.ts
-      unit/d1StagingMigrate.script.unit.test.ts
-      unit/d1StagingSignerCustody.script.unit.test.ts
-      unit/d1StagingKekCheck.script.unit.test.ts
-      unit/d1StagingReadiness.script.unit.test.ts
-      unit/d1StagingSmoke.script.unit.test.ts
-      unit/d1StagingEvidenceVerify.script.unit.test.ts
-      unit/d1StagingTimeTravelBookmark.script.unit.test.ts
-      unit/d1StagingRunbook.script.unit.test.ts --reporter=line` with 121
+  unit/d1StagingResourceInventory.script.unit.test.ts
+  unit/d1StagingFixtureImport.script.unit.test.ts
+  unit/d1StagingReconciliation.script.unit.test.ts
+  unit/d1StagingR2RestoreDrill.script.unit.test.ts
+  unit/d1StagingMigrate.script.unit.test.ts
+  unit/d1StagingSignerCustody.script.unit.test.ts
+  unit/d1StagingKekCheck.script.unit.test.ts
+  unit/d1StagingReadiness.script.unit.test.ts
+  unit/d1StagingSmoke.script.unit.test.ts
+  unit/d1StagingEvidenceVerify.script.unit.test.ts
+  unit/d1StagingTimeTravelBookmark.script.unit.test.ts
+  unit/d1StagingRunbook.script.unit.test.ts --reporter=line` with 121
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       and `git diff --check`.
 - [x] Deleted repeated Phase 6 staging-script module-loading boilerplate from all
@@ -3538,18 +3520,18 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       The signer-custody fixture helper stayed local because it creates
       per-scenario export-share files. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingResourceInventory.script.unit.test.ts
-      unit/d1StagingFixtureImport.script.unit.test.ts
-      unit/d1StagingReconciliation.script.unit.test.ts
-      unit/d1StagingR2RestoreDrill.script.unit.test.ts
-      unit/d1StagingMigrate.script.unit.test.ts
-      unit/d1StagingSignerCustody.script.unit.test.ts
-      unit/d1StagingKekCheck.script.unit.test.ts
-      unit/d1StagingReadiness.script.unit.test.ts
-      unit/d1StagingSmoke.script.unit.test.ts
-      unit/d1StagingEvidenceVerify.script.unit.test.ts
-      unit/d1StagingTimeTravelBookmark.script.unit.test.ts
-      unit/d1StagingRunbook.script.unit.test.ts --reporter=line` with 121
+  unit/d1StagingResourceInventory.script.unit.test.ts
+  unit/d1StagingFixtureImport.script.unit.test.ts
+  unit/d1StagingReconciliation.script.unit.test.ts
+  unit/d1StagingR2RestoreDrill.script.unit.test.ts
+  unit/d1StagingMigrate.script.unit.test.ts
+  unit/d1StagingSignerCustody.script.unit.test.ts
+  unit/d1StagingKekCheck.script.unit.test.ts
+  unit/d1StagingReadiness.script.unit.test.ts
+  unit/d1StagingSmoke.script.unit.test.ts
+  unit/d1StagingEvidenceVerify.script.unit.test.ts
+  unit/d1StagingTimeTravelBookmark.script.unit.test.ts
+  unit/d1StagingRunbook.script.unit.test.ts --reporter=line` with 121
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       a direct loader-boilerplate scan showing the URL/path loader only in
       `tests/unit/helpers/d1StagingScriptFixtures.ts`, a direct scan showing no
@@ -3636,10 +3618,10 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       active registration code.
       Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/cloudflareD1RouterApiAuthService.unit.test.ts
-      unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
+  unit/cloudflareD1RouterApiAuthService.unit.test.ts
+  unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
       with 37 tests, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, and `git diff --check`.
+  tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Fixed ECDSA finalize key-handle allowlist semantics across the D1
       wallet-registration service, the D1 add-signer service, and the older
       `AuthService` path. A non-empty `expectedKeyHandles` list now accepts any
@@ -3648,19 +3630,19 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       combined D1 registration, ECDSA-only D1 registration, D1 ECDSA add-signer,
       generic combined registration, generic ECDSA-only registration, and generic
       ECDSA add-signer. Validation passed: `pnpm --dir packages/sdk-server-ts
-      type-check`, `pnpm --dir tests exec playwright test -c
-      playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
-      --grep "combined Ed25519 and ECDSA registration|ECDSA add-signer"
-      --reporter=line` with 3 tests, `pnpm --dir tests exec playwright test
-      -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
-      --grep "ECDSA wallet registration" --reporter=line` with 3 tests,
+  type-check`, `pnpm --dir tests exec playwright test -c
+  playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
+  --grep "combined Ed25519 and ECDSA registration|ECDSA add-signer"
+  --reporter=line` with 3 tests, `pnpm --dir tests exec playwright test
+  -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
+  --grep "ECDSA wallet registration" --reporter=line` with 3 tests,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/registrationIntentAllocation.unit.test.ts --grep
-      "combined|ECDSA-only|add-signer" --reporter=line` with 8 tests,
+  unit/registrationIntentAllocation.unit.test.ts --grep
+  "combined|ECDSA-only|add-signer" --reporter=line` with 8 tests,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       with 43 tests, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, an `rg` scan for the stale all-equal
+  tsconfig.playwright.json --noEmit`, an `rg` scan for the stale all-equal
       key-handle predicate, and `git diff --check`.
 - [x] Replaced the stale staging fixture-import prefix rule with a D1
       migration-derived table allowlist. Console fixtures now validate against
@@ -3669,7 +3651,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       fixture writes still fail before any remote command runs. Validation passed:
       `node --check packages/sdk-server-ts/scripts/d1-staging-fixture-import.mjs`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/d1StagingFixtureImport.script.unit.test.ts --reporter=line` with 6
+  unit/d1StagingFixtureImport.script.unit.test.ts --reporter=line` with 6
       tests passing, and the full 12-file Phase 6 staging script cluster with 93
       tests passing.
 - [x] Removed stale router API rename references from VoiceID integration docs.
@@ -4677,11 +4659,11 @@ playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
       now rejects `scaffolding` wording in `packages/sdk-server-ts/src`
       production source so current runtime code is not described as temporary
       migration scaffolding. Validation passed: `pnpm --dir tests exec playwright
-      test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  test -c playwright.unit.config.ts
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       with 45 tests passing, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, a direct `rg "scaffolding"
-      packages/sdk-server-ts/src` scan, and `git diff --check`.
+  tsconfig.playwright.json --noEmit`, a direct `rg "scaffolding"
+  packages/sdk-server-ts/src` scan, and `git diff --check`.
 
 Exit criteria:
 
@@ -5167,8 +5149,8 @@ unit/registrationSignerSetNormalization.unit.test.ts
 - [x] `pnpm --dir packages/sdk-web run build:rolldown` passed; the previous
       Rolldown CSS bundling blocker is no longer present in the current workspace.
 - [x] `W3A_TEST_FRONTEND_URL=http://127.0.0.1:3799 pnpm --dir tests exec
-      playwright test -c playwright.unit.config.ts
-      unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts --reporter=line`
+  playwright test -c playwright.unit.config.ts
+  unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts --reporter=line`
       passed with 1 browser iframe flow-event test.
 
 Phase 8 public/demo request-construction cleanup validation evidence:
@@ -5222,13 +5204,13 @@ construction|public registration type surfaces" --reporter=line` passed with 3
 unit/registrationSignerSetNormalization.unit.test.ts --reporter=line` passed
       with 9 signer-set normalization tests under the renamed test filename.
 - [x] `pnpm --dir packages/sdk-web run type-check` and `pnpm --dir tests exec
-      tsc -p tsconfig.playwright.json --noEmit` passed after the helper/test
+  tsc -p tsconfig.playwright.json --noEmit` passed after the helper/test
       rename.
 - [x] `pnpm --dir packages/sdk-web run build:sdk` passed after the source
       filename changed and emitted the new `registrationSignerSet` SDK output.
 - [x] `git diff --check` passed for the touched signer-set cleanup slice, and
       `find packages/sdk-web/src tests -name '*SignerSelection*' -o -name
-      '*signerSelection*'` returned no stale helper/test filenames.
+  '*signerSelection*'` returned no stale helper/test filenames.
 
 Phase 8 signer-set type-fixture validation evidence:
 
@@ -5284,54 +5266,54 @@ Phase 8 durable registration-intent state validation evidence:
       `legacyRegistrationSignerSelectionFromPlan()` to
       `registrationSignerSetSelectionFromPlan()`.
 - [x] `pnpm --dir packages/sdk-web type-check` and `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit` passed after SDK-web normalized durable
+  tsconfig.playwright.json --noEmit` passed after SDK-web normalized durable
       signer-set intents once at its internal registration boundary.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/registrationSignerSetNormalization.unit.test.ts --reporter=line`
+  unit/registrationSignerSetNormalization.unit.test.ts --reporter=line`
       passed with 9 tests and now asserts service-created registration intents use
       `kind: 'signer_set'`.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/registrationIntentAllocation.unit.test.ts --reporter=line` passed with
+  unit/registrationIntentAllocation.unit.test.ts --reporter=line` passed with
       29 generic registration-intent and add-signer tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line` passed
+  unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line` passed
       with 30 D1 Router API auth service tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       passed with 24 source-guard tests, including the new durable intent writer
       guard.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/relayWalletRegistration.boundary.unit.test.ts --reporter=line` passed
+  unit/relayWalletRegistration.boundary.unit.test.ts --reporter=line` passed
       with 64 route-boundary tests after fixture digests moved to signer-set
       intent state.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
+  unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
       passed with 7 route intent-mode tests after legacy request bodies started
       returning signer-set intents.
 - [x] `pnpm --dir packages/sdk-web type-check` and `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit` passed after public SDK registration
+  tsconfig.playwright.json --noEmit` passed after public SDK registration
       surfaces narrowed to signer-set only.
 - [x] `pnpm --dir packages/sdk-web type-check` and `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit` passed after SDK registration
+  tsconfig.playwright.json --noEmit` passed after SDK registration
       orchestration and RPC request helpers stopped accepting
       `RegistrationSignerSelection`.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/registrationSignerSetNormalization.unit.test.ts --reporter=line`
+  unit/registrationSignerSetNormalization.unit.test.ts --reporter=line`
       passed with 9 signer-selection parser/RPC-boundary tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/googleEmailOtpWalletAuthFlow.unit.test.ts --reporter=line` passed
+  unit/googleEmailOtpWalletAuthFlow.unit.test.ts --reporter=line` passed
       with 23 Google Email OTP registration/login flow tests after the precompute
       fixture and explicit-target assertions moved to signer-set scope.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       passed with 25 source-guard tests after SDK RPC legacy conversion was
       deleted.
 
 Phase 8 D1 runtime legacy-registration source-guard evidence:
 
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-    unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "legacy registration modes"
-    --reporter=line` passed after expanding the D1 runtime guard from
+unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "legacy registration modes"
+--reporter=line` passed after expanding the D1 runtime guard from
       `combined_registration` to all legacy wallet-registration mode literals.
 
 Phase 8 generic AuthService branch-plan validation evidence:
@@ -5361,18 +5343,18 @@ packages/sdk-server-ts/src/core/AuthService.ts` returned no matches.
 Phase 8 legacy registration-mode API deletion evidence:
 
 - [x] `rg -n
-      "RegistrationSignerSelection|legacyRegistrationSignerSelectionFromPlan|normalizeRegistrationSignerSelection|mode:
-      'ed25519_only'|mode: 'ecdsa_only'|mode: 'ed25519_and_ecdsa'|
-      ed25519_and_ecdsa|ecdsa_only|ed25519_only"
-      packages/shared-ts/src packages/sdk-server-ts/src tests/relayer
-      tests/e2e/cancel_overlay_specs.test.ts
-      tests/wallet-iframe/router.cancellationProgress.test.ts
-      tests/unit/addWalletSigner.orchestration.unit.test.ts
-      tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts
-      tests/unit/registrationIntentDigest.unit.test.ts
-      tests/unit/registrationCeremonyStore.unit.test.ts
-      tests/unit/relayWalletRegistration.boundary.unit.test.ts
-      tests/unit/relayWalletRegistration.intentModes.unit.test.ts`
+  "RegistrationSignerSelection|legacyRegistrationSignerSelectionFromPlan|normalizeRegistrationSignerSelection|mode:
+  'ed25519_only'|mode: 'ecdsa_only'|mode: 'ed25519_and_ecdsa'|
+  ed25519_and_ecdsa|ecdsa_only|ed25519_only"
+  packages/shared-ts/src packages/sdk-server-ts/src tests/relayer
+  tests/e2e/cancel_overlay_specs.test.ts
+  tests/wallet-iframe/router.cancellationProgress.test.ts
+  tests/unit/addWalletSigner.orchestration.unit.test.ts
+  tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts
+  tests/unit/registrationIntentDigest.unit.test.ts
+  tests/unit/registrationCeremonyStore.unit.test.ts
+  tests/unit/relayWalletRegistration.boundary.unit.test.ts
+  tests/unit/relayWalletRegistration.intentModes.unit.test.ts`
       returned no matches after deleting the shared legacy registration-mode API
       and moving active registration fixtures to signer-set requests.
       This scan is intentionally scoped to registration request construction,
@@ -5381,25 +5363,25 @@ Phase 8 legacy registration-mode API deletion evidence:
       in SDK login/unlock-selection code are the current threshold warm-session
       unlock vocabulary, not the deleted registration signer-mode API.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/registrationIntentDigest.unit.test.ts
-      unit/registrationCeremonyStore.unit.test.ts
-      unit/relayWalletRegistration.boundary.unit.test.ts
-      unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
+  unit/registrationIntentDigest.unit.test.ts
+  unit/registrationCeremonyStore.unit.test.ts
+  unit/relayWalletRegistration.boundary.unit.test.ts
+  unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
       passed with 87 focused shared/server registration tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/addWalletSigner.orchestration.unit.test.ts --reporter=line` passed
+  unit/addWalletSigner.orchestration.unit.test.ts --reporter=line` passed
       with 11 SDK registration orchestration tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line`
+  unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line`
       passed with 30 D1 auth service tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
       passed with 25 source-guard tests, including the legacy registration-mode
       guards.
 - [x] `USE_RELAY_SERVER=0 pnpm --dir tests exec playwright test
-      wallet-iframe/router.cancellationProgress.test.ts --reporter=line` passed.
+  wallet-iframe/router.cancellationProgress.test.ts --reporter=line` passed.
 - [x] `pnpm --dir tests exec playwright test
-      e2e/cancel_overlay_specs.test.ts --reporter=line` passed.
+  e2e/cancel_overlay_specs.test.ts --reporter=line` passed.
 - [x] `pnpm --dir packages/shared-ts type-check`,
       `pnpm --dir packages/sdk-server-ts type-check`,
       `pnpm --dir packages/sdk-web type-check`,
@@ -5407,12 +5389,12 @@ Phase 8 legacy registration-mode API deletion evidence:
       `git diff --check` passed after the deletion pass.
 - [x] Added explicit `express` and `@types/express` dev dependencies to the test
       package, refreshed the lockfile with `pnpm install --lockfile-only
-      --ignore-scripts`, and updated stale OIDC dev-cleanup wallet fixtures to the
+  --ignore-scripts`, and updated stale OIDC dev-cleanup wallet fixtures to the
       hosted relayer account shape enforced by `hostedAccountIds.ts`.
 - [x] `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
-      relayer/bootstrap-grants.test.ts relayer/oidc-exchange.authservice.test.ts
-      relayer/router-api-keys.test.ts relayer/console-api-key-kinds.test.ts
-      --reporter=line` passed with 66 relayer tests.
+  relayer/bootstrap-grants.test.ts relayer/oidc-exchange.authservice.test.ts
+  relayer/router-api-keys.test.ts relayer/console-api-key-kinds.test.ts
+  --reporter=line` passed with 66 relayer tests.
 
 Phase 8 signer-set ceremony-state deletion evidence:
 
@@ -5502,28 +5484,28 @@ registration" --reporter=line` with 6 guard tests; `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts ECDSA
 add-signer|responds to and finalizes ECDSA add-signer" --reporter=line` with 2
-focused add-signer lifecycle tests; `pnpm --dir tests exec tsc -p
+      focused add-signer lifecycle tests; `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`; and `git diff --check`.
 - [x] Current focused signer-set registration validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts and
-      responds to combined Ed25519 and ECDSA registration ceremonies|finalizes
-      ECDSA wallet registration ceremonies|starts and responds to Ed25519-only
-      signer-set registration|starts ECDSA wallet registration ceremonies"
-      --reporter=line` passed with 4 D1 registration tests, and
+  unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts and
+  responds to combined Ed25519 and ECDSA registration ceremonies|finalizes
+  ECDSA wallet registration ceremonies|starts and responds to Ed25519-only
+  signer-set registration|starts ECDSA wallet registration ceremonies"
+  --reporter=line` passed with 4 D1 registration tests, and
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
-      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "NEAR
-      Ed25519|EVM-family ECDSA registration branch prepare|combined registration
-      state|legacy registration modes|AuthService wallet registration|D1 wallet
-      add-signer" --reporter=line` passed with 6 guard tests. The first attempt
+  unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "NEAR
+  Ed25519|EVM-family ECDSA registration branch prepare|combined registration
+  state|legacy registration modes|AuthService wallet registration|D1 wallet
+  add-signer" --reporter=line` passed with 6 guard tests. The first attempt
       ran both Playwright commands in parallel and failed to start one web server
       because port 5180 was already in use; the command passed when rerun alone.
 - [x] Current SDK iframe/build validation passed:
       `pnpm --dir packages/sdk-web run build:sdk`,
       `pnpm --dir packages/sdk-web run build:rolldown`, and
       `W3A_TEST_FRONTEND_URL=http://127.0.0.1:3799 pnpm --dir tests exec
-      playwright test -c playwright.unit.config.ts
-      unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts --reporter=line`.
+  playwright test -c playwright.unit.config.ts
+  unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts --reporter=line`.
       The browser iframe test passed with 1 flow-event test and proves the built
       `PM_REGISTER_WALLET` path carries signer-set branches.
 - [x] Service-split line-count checkpoint recorded, with final count cleanup owned
@@ -5538,9 +5520,9 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
 
 ### Phase 9: Durable Object-Owned ECDSA-HSS Pool-Fill Sessions
 
-Status: implemented for the current D1/DO staging path, pending local Tempo/ARC
-smoke confirmation. TTL alarm polish remains tracked below; the live WASM state
-no longer belongs to the Router API Worker.
+Status: implemented for the current D1/DO staging path. The live WASM state no
+longer belongs to the Router API Worker, and local Tempo/ARC pool-fill route
+smoke is covered through D1 plus Durable Objects.
 
 Trigger:
 
@@ -5586,9 +5568,14 @@ Target ownership:
 - ECDSA pool-fill Durable Object:
   - [x] Owns the live `ThresholdEcdsaPresignSession` instances in memory for the
         lifetime of each pool-fill ceremony.
-  - [ ] Stores durable metadata in DO storage: tenant/runtime scope, ECDSA signer
-        identity, threshold session id, pool-fill session id, stage, expiry,
-        replay/idempotency keys, and audit markers.
+  - [x] Stores durable metadata in DO storage. The
+        `RouterAbEcdsaHssPoolFillSessionRecord` persisted by
+        `routerAbEcdsaHssPoolFillSessionCreate` and
+        `routerAbEcdsaHssPoolFillSessionAdvanceCas` carries wallet/runtime
+        scope, ECDSA signer identity, threshold root metadata, pool-fill
+        destination, participant IDs, owner instance, stage, version, creation
+        and update timestamps, and expiry. The DO key is the pool-fill session
+        id.
   - [x] Advances init/step with serialized live-session mutation inside the DO.
   - [x] Writes completed presignatures into the existing presignature pool owner
         or the existing pool persistence interface.
@@ -5605,10 +5592,11 @@ State and failure semantics:
       a user-auth failure.
 - [x] Completed presignature writes remain idempotent. Duplicate step retries must
       return the same committed result or a typed replay result.
-- [ ] Pool-fill live sessions have short TTLs and DO alarms/cleanup for expired
-      metadata. Current staging behavior uses short session TTLs, explicit
-      completion/failure cleanup, and stale-session retry; add alarms when we need
-      proactive cleanup beyond DO storage expiration.
+- [x] Pool-fill live sessions have short TTLs and cleanup for expired metadata.
+      Current staging behavior uses DO storage `expirationTtl`, explicit
+      completion/failure/expiry cleanup, and stale-session retry. Proactive DO
+      alarms are deleted as redundant for this staging path until a concrete
+      observability or retention requirement appears.
 
 Implementation inventory:
 
@@ -5637,9 +5625,12 @@ Implementation inventory:
 
 Guards and tests:
 
-- [ ] Add a focused unit/integration test where `/fill/init` and `/fill/step` run
-      through fresh Router API Worker handler instances and still share live state
-      through the DO.
+- [x] Add focused owner-level integration coverage proving fresh DO-backed
+      ECDSA-HSS pool-fill live-session owner instances share live WASM state
+      through the same Durable Object routing key.
+- [x] Add local D1/DO route-smoke coverage proving fresh Worker handlers can
+      initialize and advance the ECDSA-HSS pool-fill route for the shared
+      EVM-family pool used by Tempo and ARC signing.
 - [x] Add a stale-session test proving a missing live DO session returns the typed
       stale result and the SDK retries by starting a new init.
 - [x] Add an idempotency test proving duplicate step/final writes do not create
@@ -5656,7 +5647,7 @@ Guards and tests:
 
 Exit criteria:
 
-- [ ] ECDSA-HSS Tempo and ARC signing can fill a presignature pool locally through
+- [x] ECDSA-HSS Tempo and ARC signing can fill a presignature pool locally through
       Wrangler/Miniflare D1 plus Durable Objects with fresh Worker handlers per
       request.
 - [x] Router API Worker code has no live ECDSA-HSS pool-fill session cache.
@@ -5666,6 +5657,32 @@ Exit criteria:
 - [x] `pnpm --dir packages/sdk-server-ts type-check` passes.
 - [x] Focused Refactor 82 runtime guard passes.
 - [x] `git diff --check` passes.
+
+Validation evidence: July 3, 2026 focused local D1/DO route smoke passed:
+`pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA-HSS pool-fill routes" --reporter=line`.
+
+July 3, 2026 validation evidence:
+
+- [x] `pnpm --dir packages/sdk-server-ts type-check`.
+- [x] Focused local D1/DO route smoke:
+      `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA-HSS pool-fill routes" --reporter=line`.
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
+    unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+    unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line`
+      passed with 64 tests.
+- [x] `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
+    relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line` passed
+      with 7 tests and 6 skipped provider-backed tests.
+- [x] `git diff --check`.
+
+Validation evidence: July 3, 2026 non-smoke checks passed:
+`pnpm --dir tests exec playwright test -c playwright.unit.config.ts
+unit/refactor82CloudflareD1Runtime.guard.unit.test.ts
+unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line` with 64
+tests, `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
+relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line` with 7 passed
+and 6 skipped external Redis/Upstash cases, `pnpm --dir packages/sdk-server-ts
+type-check`, and `git diff --check`.
 
 ### Phase 10: Console-Owned Sponsored Spend Pricing
 
@@ -5677,7 +5694,7 @@ env-pricing hacks. Runtime EVM signing does not depend on sponsorship pricing.
 Trigger:
 
 - Local D1 testing exposed `Sponsored spend pricing is not configured on this
-  server` from `/sponsorships/evm/call`, but that route is outside the current
+server` from `/sponsorships/evm/call`, but that route is outside the current
   frontend EVM signing requirement.
 - Sponsored spend pricing is business policy. It belongs in the Console D1
   policy database with platform-admin write access, while executor private keys
@@ -5826,8 +5843,9 @@ Goal:
       lifecycle ownership.
 - [x] Delete or rewrite tests that exercise legacy `AuthService` Router API
       registration, add-signer, and add-auth-method behavior.
-- [x] Document future Postgres support as `PostgresRouterApiAuthService`
-      implementing the same port. Do not implement that adapter in this phase.
+- [x] Document future Postgres support as a full-family Postgres
+      `RouterApiServiceBag` implementation. Do not implement that adapter in this
+      phase.
 
 Acceptance scans:
 
@@ -5850,22 +5868,45 @@ Boundary rule:
   be a full-family adapter implementing `RouterApiAuthService`; it must not reuse
   `AuthService` or reintroduce partial Postgres paths.
 
+Validation evidence: July 3, 2026 `packages/sdk-server-ts/src/router/authServicePort.ts`
+now defines explicit Router API method request/response contracts without
+importing or deriving from `AuthService`. Validation passed:
+`pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+playwright test -c playwright.unit.config.ts
+unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line` with 52
+tests, and `git diff --check`.
+
 ### Phase 12: Collapse Legacy AuthService Router API Surface
 
-Status: in progress.
+Status: in progress. The broad Router API service-bag/AuthService split is owned
+by the AuthService refactor; this phase also records completed 82B authority
+cleanup that lands before that split deletes old route ports. July 3 progress:
+the old `RouterApiAuthService` name and D1 facade `RouterApiInput`/
+`RouterApiResult` reflection were deleted; the current composite is the
+explicit-contract `RouterApiServiceBag`. The Router API service bag now exposes
+route-family properties and route registration code calls those families instead
+of a flat auth-service-shaped object. The D1 factory now assembles route-family
+service objects directly and no longer has a monolithic D1 implementation class.
+July 3 follow-up: the mechanical `AuthService` split is complete, and the
+current route-source scan for `core/authService/*` imports under
+`packages/sdk-server-ts/src/router` returns no hits. Remaining split
+`authService/*` helpers are delete candidates for D1/AuthService cleanup rather
+than route dependencies.
 
 Trigger:
 
 - The Phase 11 cleanup removed direct Router API mounting through concrete
-  `AuthService`, but the replacement `RouterApiAuthService` is still a broad
-  AuthService-shaped god port.
-- `RouterApiAuthService` still mixes registration, wallet auth methods, wallet
+  `AuthService`, but the replacement `RouterApiServiceBag` is still a broad
+  Router API composite.
+- `RouterApiServiceBag` still collects registration, wallet auth methods, wallet
   unlock, Email OTP, WebAuthn, identity links, app-session versions, recovery,
   ECDSA inventory, NEAR funding, router account reads, and threshold runtime
-  access behind one object.
-- Many methods in `authServicePort.ts` are still typed as `RouterApiAsyncMethod`
-  with `any` input/output. That lets stale AuthService-era request shapes cross
-  Router API boundaries.
+  access behind one top-level object, but those capabilities are now grouped by
+  route family rather than exposed as a flat method bag.
+- `authServicePort.ts` still exposes one broad `RouterApiServiceBag` interface,
+  even though its methods now point at explicit request/response contracts
+  rather than `AuthService` method types. The remaining issue is the composite
+  shape, not `any` input/output derivation.
 - D1 currently implements this broad port through
   `createCloudflareD1RouterApiAuthService(...)`, so D1 behavior is canonical at
   storage/runtime while old method names remain canonical at the route boundary.
@@ -5881,26 +5922,46 @@ Trigger:
 
 Goal:
 
-- [ ] Replace the broad `RouterApiAuthService` port with a narrow Router API
+- [x] Replace the broad `RouterApiAuthService` port with a narrow Router API
       service bag whose properties match route families:
       `walletRegistration`, `walletAuthMethods`, `walletUnlock`, `emailOtp`,
       `webAuthn`, `identity`, `sessionVersions`, `thresholdRuntime`,
-      `nearFunding`, and `router`.
-- [ ] Make every route handler accept the narrowest service capability it uses.
-      For example, wallet-registration handlers receive only
-      `RouterApiWalletRegistrationService`, Email OTP handlers receive only
-      `RouterApiEmailOtpService`, and ECDSA routes receive only threshold/ECDSA
-      inventory capabilities.
-- [ ] Delete `RouterApiAsyncMethod<Input = any, Result = any>` and
+      `nearFunding`, `recovery`, and `router`.
+      July 3 progress: `authServicePort.ts` defines route-family interfaces and
+      `RouterApiServiceBag` is now a nested family object.
+- [x] Make Router-owned route handlers accept the narrowest service capability
+      for their route family. Wallet-registration handlers receive the
+      registration route-family composite they actually use, Email OTP handlers
+      receive `RouterApiEmailOtpRouteService`, wallet unlock handlers receive
+      `RouterApiWalletUnlockService`, and ECDSA/Ed25519 route code calls only
+      threshold, session-version, WebAuthn, Email OTP, and router-account
+      families as needed.
+- [x] Delete `RouterApiAsyncMethod<Input = any, Result = any>` and
       `RouterApiEmailOtpAsyncMethod<Input = any, Result = any>`. Every Router API
-      method must have explicit request and response types.
-- [ ] Delete `RouterApiInput<'method'>` and `RouterApiResult<'method'>`
+      method must have explicit request and response types. July 3 follow-up:
+      `RouterApiMethodInput`, `RouterApiMethodResult`, and
+      `RouterApiMethodHandler` are deleted, and route-family ports now expose
+      direct method signatures.
+- [x] Delete `RouterApiInput<'method'>` and `RouterApiResult<'method'>`
       reflection typing from the D1 facade. D1 service methods should import the
-      explicit route/domain request and response types they implement.
-- [ ] Replace `createCloudflareD1RouterApiAuthService(...)` with a D1 service-bag
-      factory, or make the existing factory return the new service bag. Do not
-      keep a monolithic auth-service-shaped D1 facade.
-- [ ] Remove Router API lifecycle methods from `AuthService`:
+      explicit route/domain request and response types they implement. July 3
+      progress: D1 service modules import explicit route/domain request and
+      response types. July 3 follow-up: D1 service modules and recovery
+      tracking no longer import `RouterApiMethodInput`, `RouterApiMethodResult`,
+      or `RouterApiMethodHandler`; the source guard rejects restoring those
+      helpers in router source.
+- [x] Make `createCloudflareD1RouterApiAuthService(...)` return the new D1
+      service bag.
+- [x] Delete the remaining monolithic D1 implementation class behind
+      `createCloudflareD1RouterApiAuthService(...)` during the AuthService/D1
+      module split. Do not keep an auth-service-shaped D1 facade after that
+      split lands. July 3 progress: `d1RouterApiAuthService.ts` now builds a
+      `CloudflareD1RouterApiAuthAssembly` and returns route-family service
+      composition objects directly. The old
+      `CloudflareD1RouterApiAuthMetadataService` class and flat delegating
+      methods were deleted; line count is 761 after adding narrow route-family
+      assembly slice types.
+- [x] Remove Router API lifecycle methods from `AuthService`:
       `createRegistrationIntent`, `prepareWalletRegistration`,
       `startWalletRegistration`, `respondWalletRegistrationHss`,
       `finalizeWalletRegistration`, `createAddSignerIntent`,
@@ -5908,17 +5969,48 @@ Goal:
       `finalizeWalletAddSigner`, `createAddAuthMethodIntent`,
       `startWalletAddAuthMethod`, `finalizeWalletAddAuthMethod`, and
       `revokeWalletAuthMethod`.
-- [ ] Delete or rewrite tests that still construct `new AuthService(...)` for
+- [x] Delete or rewrite tests that still construct `new AuthService(...)` for
       current Router API registration, wallet auth-method, wallet unlock, Email
       OTP, ECDSA inventory, or threshold-session route behavior. Keep
       `AuthService` tests only for explicitly non-Router legacy/public API
-      behavior that still exists.
-- [ ] Move Router API request/response types that are only route contracts out of
+      behavior that still exists. July 3 service-bag split progress:
+      `relayer/login.challengeReplay.test.ts` now uses a route-service fake
+      instead of concrete `AuthService`. July 3 82B progress:
+      `unit/relayWalletRegistration.intentModes.unit.test.ts` now uses a typed
+      wallet-registration route-family fake instead of `new AuthService(...)`,
+      the obsolete `unit/authService.ecdsaKeyIdentityInventory.unit.test.ts`
+      was deleted, and
+      `unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts` now carries
+      the required `evmFamilySigningKeySlotId` identity fixture for current
+      inventory parsing. July 3 follow-up:
+      `unit/rawThresholdEcdsaBootstrapRemoval.unit.test.ts` now exercises the
+      email-recovery route parser directly and asserts boundary rejection of the
+      obsolete `threshold_ecdsa` field without constructing `AuthService`.
+      July 3 follow-up: the obsolete Router API relayer harnesses
+      `tests/relayer/email-otp.routes.test.ts`,
+      `tests/relayer/email-otp.bootstrap-integration.test.ts`, and
+      `tests/relayer/threshold-ecdsa.signature-harness.test.ts` were deleted.
+      The `new AuthService(` scan now returns only web-server construction and
+      explicitly AuthService-owned tests:
+      `tests/relayer/email-otp.authservice.test.ts`,
+      `tests/relayer/email-otp.shamir3pass.test.ts`,
+      `tests/relayer/oidc-exchange.authservice.test.ts`, and
+      `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`.
+- [x] Move Router API request/response types that are only route contracts out of
       `core/types.ts` into route or domain-specific modules. Core threshold types
-      may remain in `core`.
-- [ ] Keep future Postgres support as a service-bag implementation plan. Do not
+      may remain in `core`. July 3 82B status review: wallet-registration,
+      add-signer, add-auth-method, and registration-intent route request/response
+      contracts now live in `packages/sdk-server-ts/src/core/registrationContracts.ts`.
+      `core/types.ts` keeps shared threshold/domain types such as
+      `RegistrationPreparationId`. Validation passed:
+      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
+      source scans for the moved route contracts in `core/types.ts`.
+- [x] Keep future Postgres support as a service-bag implementation plan. Do not
       route future Postgres through `AuthService`, and do not add a partial
-      Postgres adapter during this phase.
+      Postgres adapter during this phase. July 3 review: the D1 plan documents
+      future Postgres support as a full-family contract/adapter boundary and the
+      current router type is `RouterApiServiceBag`.
 - [x] Delete Threshold Ed25519 router-share self-heal logic. Registration HSS
       finalize and session HSS finalize must both produce or reference a strict
       `ThresholdEd25519KeyRecord` state where required router material is
@@ -5942,32 +6034,67 @@ Goal:
 - [ ] Keep transient Email OTP proof data, challenge IDs, registration attempt
       IDs, ceremony IDs, and session IDs out of permanent key identity. Email OTP
       key authority must use stable Email OTP subject identity only.
+      July 3, 2026 progress: shared `WalletAuthAuthority` and Email OTP ECDSA
+      session context now carry stable provider subject identity, and D1 Email
+      OTP recovery grants bind to stable Email OTP authority instead of
+      app-session hash/version. The broader server key/session identity audit
+      remains open.
 - [x] Keep persistence/request compatibility parsing at the D1/DO boundary only.
       Boundary parsers may reject old incomplete records or map them to
       `kind: 'provisioning'`, but core ThresholdSigningService code must never
-      accept partial raw records.
+      accept partial raw records. July 3 progress: Ed25519 signing-session
+      share material now normalizes into the `signingShare` discriminated union
+      at the persisted-row parser boundary. Legacy top-level
+      `relayerSigningShareB64u` is accepted only there and becomes the
+      `embedded_cosigner_share` branch before core handlers receive it.
 
 Known old-shape inventory to remove or narrow:
 
-- [ ] `packages/sdk-server-ts/src/router/authServicePort.ts`: split the god port
-      into narrow route-family interfaces and remove `any` method aliases.
-- [ ] `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`: replace
+- [x] `packages/sdk-server-ts/src/router/authServicePort.ts`: split the god port
+      into narrow route-family interfaces. July 3 progress: the port no longer
+      imports or derives from `AuthService`, the old `RouterApiAuthService` name
+      is deleted, the old `any` method aliases are replaced by explicit method
+      contracts, and route registration code now uses nested route-family
+      service properties.
+- [x] `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`: replace
       `input.services.authService.*` with wallet registration/auth-method service
       properties.
-- [ ] `packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts`: replace
+- [x] `packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts`: replace
       `RouterApiAuthService` with an Email OTP service interface containing only
       the methods used by each handler group.
-- [ ] `packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts`: replace
+- [x] `packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts`: replace
       `RouterApiAuthService` with a wallet-unlock service interface.
-- [ ] `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts`:
+- [x] `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts`:
       delete the AuthService-shaped facade and expose composed D1 service
-      modules through the new service bag.
-- [ ] `packages/sdk-server-ts/src/core/AuthService.ts`: delete current Router API
+      modules through the new service bag. July 3 progress: the factory returns
+      `RouterApiServiceBag`, no longer imports old `RouterApiInput`/
+      `RouterApiResult` facade reflection, and no longer has a flat
+      AuthService-shaped D1 implementation class. Route-family builders bind
+      directly to the D1 leaf services and shared threshold runtime.
+- [x] `packages/sdk-server-ts/src/core/AuthService.ts`: delete current Router API
       lifecycle implementations and their AuthService-only helpers.
-- [ ] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
+- [x] `packages/sdk-server-ts/src/core/AuthService.ts`: delete the obsolete
+      Email OTP recovery-grant binding checks in `consumeEmailOtpGrant`,
+      `consumeEmailOtpRecoveryKey`, and `recordEmailOtpRecoveryKeyAttemptFailure`
+      that still require matching `sessionHash` and `appSessionVersion`. The
+      D1 recovery service path now binds grants to stable Email OTP authority
+      and no longer requires those volatile session fields for recovery
+      consume/failure normalization. July 3 progress: the D1
+      `consumeEmailOtpGrant` path also stopped requiring/matching
+      `sessionHash` and `appSessionVersion`; the D1 recovery-grant binding is
+      now guarded by `unit/refactor82CloudflareD1Runtime.guard.unit.test.ts`
+      with the focused grep `D1 Email OTP recovery grants`. The split
+      AuthService `emailOtpGrant` and `emailOtpRecoveryKeys` modules are now
+      guarded by `AuthService Email OTP grants bind to stable authority fields`,
+      which scans the relevant helper functions for `sessionHash`,
+      `appSessionVersion`, and the obsolete current-app-session error.
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
       audit passkey-specific helpers. Keep passkey verification in passkey-only
       branches, and require stable `ThresholdEd25519AuthorityScope` for shared
-      session/key authority.
+      session/key authority. July 3 audit: passkey verification is isolated to
+      the `passkey_challenge_response` branch, `sessionPolicy.rpId` is rejected
+      at the request/session boundary, and shared Ed25519 session reuse compares
+      `authorityScope` rather than a root passkey RP ID.
 - [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
       remove `maybeRepairRelayerKeyMaterialFromSessionHssFinalize(...)` and any
       "self-heal" call sites. Model the HSS finalize result as either a complete
@@ -5988,13 +6115,33 @@ Known old-shape inventory to remove or narrow:
       `@ts-expect-error` cases rejecting ready records without router material,
       provisioning records with router material, and core signing/session calls
       that pass a broad `ThresholdEd25519KeyRecord`.
-- [ ] `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts` and
+- [x] `packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts`
+      and `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`:
+      replace optional Ed25519 signing-session share fields with branch-specific
+      `signingShare` material. The embedded cosigner branch requires
+      `relayerSigningShareB64u`; the key-store branch carries no embedded share.
+- [x] `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts` and
       `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`: audit
       passkey-only wallet-session checks. Move passkey-only behavior into the
       WebAuthn branch and keep Email OTP ECDSA paths on stable wallet authority.
-- [ ] `packages/sdk-server-ts/src/router/bootstrapGrantBroker.ts`: ensure
+      July 3 progress: deleted the obsolete generic Router A/B ECDSA
+      key-identities route from Cloudflare, Express, shared constants, route
+      definitions, route parser fixtures, and relayer cookie-mode tests. The
+      current ECDSA key-facts inventory boundary is the wallet-scoped
+      `wallet_ecdsa_key_facts_inventory` route. The acceptance scan
+      `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/sdk-server-ts/src packages/sdk-web/src`
+      now returns only the passkey-specific SDK login assertion.
+- [x] `packages/sdk-server-ts/src/router/bootstrapGrantBroker.ts`: ensure
       bootstrap grants bind to the current registration intent authority instead
       of preserving an rpId-first passkey-era shape.
+      July 3 progress: bootstrap grant issue bodies now require an explicit
+      `authority` branch. Passkey grants carry `rpId` only inside
+      `authority: { kind: 'passkey_rp', rpId }`; wallet-auth grants use
+      `authority: { kind: 'wallet_auth' }`. The request parser rejects stale
+      root `rpId`, and managed SDK registration grant requests now emit the
+      branch-specific authority object. Validation passed:
+      `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
+    relayer/bootstrap-grants.test.ts --reporter=line` and `git diff --check`.
 - [x] `packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts` and
       `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`:
       allow Google Email OTP registration rerolls by validating the submitted
@@ -6009,52 +6156,132 @@ Known old-shape inventory to remove or narrow:
 
 Acceptance scans:
 
-- [ ] `rg "interface RouterApiAuthService|type RouterApiAsyncMethod|type RouterApiEmailOtpAsyncMethod" packages/sdk-server-ts/src/router`
-      returns no runtime hits.
-- [ ] `rg "RouterApiInput<|RouterApiResult<" packages/sdk-server-ts/src/router/cloudflare packages/sdk-server-ts/src/router`
-      returns no runtime hits.
-- [ ] `rg "services\\.authService|ctx\\.service\\." packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts`
-      returns no broad service-object route calls. Narrow service variables are
-      allowed.
-- [ ] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|startWalletAddSigner|respondWalletAddSignerHss|finalizeWalletAddSigner|createAddAuthMethodIntent|startWalletAddAuthMethod|finalizeWalletAddAuthMethod|revokeWalletAuthMethod" packages/sdk-server-ts/src/core/AuthService.ts`
-      returns no current Router API lifecycle implementation hits.
-- [ ] `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/sdk-server-ts/src packages/sdk-web/src`
+- [x] `rg "interface RouterApiAuthService|type RouterApiAsyncMethod|type RouterApiEmailOtpAsyncMethod" packages/sdk-server-ts/src/router`
+      returns no runtime hits. July 3 review: scan returned no matches after the
+      route composite was renamed to `RouterApiServiceBag` and method helpers
+      were renamed over the explicit method-contract map.
+- [x] `rg "RouterApiInput<|RouterApiResult<" packages/sdk-server-ts/src/router/cloudflare packages/sdk-server-ts/src/router`
+      returns no runtime hits. July 3 review: scan returned no matches after the
+      D1 facade switched to exported method-contract aliases.
+- [x] `rg "RouterApiMethod(Input|Result|Handler)" packages/sdk-server-ts/src/router packages/sdk-server-ts/src/core tests apps -g '*.ts'`
+      returns no hits. July 3 follow-up: route-family ports use direct method
+      signatures, D1 service modules consume concrete route/domain contracts or
+      capability-specific service interfaces, and the Refactor 82 runtime guard
+      rejects restoring the generic helpers under router source.
+- [x] `rg --pcre2 "ctx\\.service\\.(?!walletRegistration|walletAuthMethods|walletUnlock|emailOtp|webAuthn|identity|sessionVersions|thresholdRuntime|nearFunding|recovery|router)|input\\.ctx\\.service\\.(?!walletRegistration|walletAuthMethods|walletUnlock|emailOtp|webAuthn|identity|sessionVersions|thresholdRuntime|nearFunding|recovery|router)|service\\.getThresholdSigningService\\(|service\\.getRelayerAccount\\(|service\\.createRegistrationIntent\\(|service\\.verifyGoogleLogin\\(" packages/sdk-server-ts/src/router -g '*.ts'`
+      returns no broad service-object route calls. July 3 review: the only hit
+      is `emailOtpRouteHandlers.ts`, where `input.service` is the narrow
+      `RouterApiEmailOtpRouteService`.
+- [x] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|startWalletAddSigner|respondWalletAddSignerHss|finalizeWalletAddSigner|createAddAuthMethodIntent|startWalletAddAuthMethod|finalizeWalletAddAuthMethod|revokeWalletAuthMethod" packages/sdk-server-ts/src/core/AuthService.ts`
+      returns no current Router API lifecycle implementation hits. July 3
+      review: scan returned no matches.
+- [x] `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/sdk-server-ts/src packages/sdk-web/src`
       returns only passkey/WebAuthn-specific modules or typecheck fixtures.
-- [ ] `rg "self-heal|self heal|maybeRepairRelayerKeyMaterialFromSessionHssFinalize" packages/sdk-server-ts/src`
-      returns no runtime hits.
-- [ ] `rg "relayerSigningShareB64u\\?:|relayerVerifyingShareB64u\\?:" packages/sdk-server-ts/src/core/ThresholdService`
-      returns no key-record or session-material lifecycle hits.
-- [ ] `rg "ThresholdEd25519KeyRecord" packages/sdk-server-ts/src/core/ThresholdService`
+      July 3 review: scan returned only
+      `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`, where passkey
+      session-policy assertion intentionally requires passkey authority.
+- [x] `rg "self-heal|self heal|maybeRepairRelayerKeyMaterialFromSessionHssFinalize" packages/sdk-server-ts/src`
+      returns no runtime hits. July 3 review: scan returned no matches.
+- [x] `rg "relayerSigningShareB64u\\?:|relayerVerifyingShareB64u\\?:" packages/sdk-server-ts/src/core/ThresholdService`
+      returns no key-record or session-material lifecycle hits. July 3 review:
+      scan returned no matches after Ed25519 signing-session share material moved
+      to the `signingShare` discriminated union.
+- [x] `rg "ThresholdEd25519KeyRecord" packages/sdk-server-ts/src/core/ThresholdService`
       shows ready-only inputs in session mint, signing, export, and recovery
       code. Broad union usage is allowed only at persistence/request boundaries
-      and branch-normalization helpers.
-- [ ] `rg "kind: 'ready'|kind: 'provisioning'" packages/sdk-server-ts/src/core/ThresholdService`
+      and branch-normalization helpers. July 3 review: scan returned only the
+      typecheck fixture, public exports, persistence-store parsers, and current
+      record parser/branch-normalization files.
+- [x] `rg "kind: 'ready'|kind: 'provisioning'" packages/sdk-server-ts/src/core/ThresholdService`
       shows the Ed25519 key lifecycle is modeled as a discriminated union rather
-      than nullable router-material fields.
-- [ ] `rg "new AuthService\\(" tests packages/sdk-server-ts/src apps -g '*.ts'`
+      than nullable router-material fields. July 3 review: scan shows
+      `ThresholdEd25519ProvisioningKeyRecord`, `ThresholdEd25519ReadyKeyRecord`,
+      parser branches, and ready-record builders.
+- [x] `rg "new AuthService\\(" tests packages/sdk-server-ts/src apps -g '*.ts'`
       returns no tests for current Router API D1 flows. Any remaining hits must
-      name the non-Router behavior they cover.
+      name the non-Router behavior they cover. July 3 review: the scan still
+      finds AuthService-specific tests plus larger Email OTP and threshold route
+      suites pending the AuthService/D1 test migration. July 3 82B progress:
+      the scan no longer finds
+      `unit/relayWalletRegistration.intentModes.unit.test.ts` or
+      `unit/authService.ecdsaKeyIdentityInventory.unit.test.ts`; July 3
+      follow-up removed the remaining obsolete Router API harnesses. Remaining
+      hits are the web-server console construction and explicitly
+      AuthService-owned relayer/unit tests allowlisted by the Refactor 82
+      runtime guard.
 
 Validation:
 
-- [ ] `pnpm --dir packages/sdk-server-ts type-check`
-- [ ] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+- [x] `pnpm --dir packages/sdk-server-ts type-check`
+- [x] `pnpm build:sdk`
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --reporter=line`
+      July 3 follow-up: the full guard passes 56 tests after deleting the
+      generic Router API method helpers and obsolete AuthService route harnesses.
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "D1 Email OTP recovery grants" --reporter=line`
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata" --reporter=line`
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.persistedRecords.unit.test.ts --reporter=line`
+- [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.presignStore.unit.test.ts --reporter=line`
+- [x] `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`
+      July 3 follow-up: Playwright TypeScript compilation passes after deleting
+      the obsolete AuthService route harnesses.
 - [ ] Focused route tests for wallet registration, Email OTP registration/unlock,
       passkey registration/unlock, Ed25519 session mint, ECDSA inventory, and key
-      export pass with the D1 service bag.
-- [ ] `git diff --check`
+      export pass with the D1 service bag. July 3 service-bag split progress:
+      `relayer/bootstrap-grants.test.ts`, `relayer/router-api-keys.test.ts`, and
+      `relayer/login.challengeReplay.test.ts`, plus
+      `unit/router.routerApiRouteSurface.unit.test.ts`, pass against the nested
+      service bag. July 3 D1 unit progress:
+      `unit/cloudflareD1RouterApiAuthService.unit.test.ts` no longer calls the
+      flat D1 facade and passes all 34 tests through route-family service
+      properties. `unit/cloudflareD1ConsoleServices.unit.test.ts` now reads the
+      threshold runtime through `thresholdRuntime` and its Router A/B admission
+      fixture uses `authorityScope` instead of a deleted root `rpId`; all 15
+      tests pass. July 3 D1 factory cleanup validation: the same 34-test D1
+      Router API file and 15-test console file pass after deleting the
+      monolithic D1 implementation class, and
+      `unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` guards against
+      restoring the class or flat async facade methods. July 3 82B progress:
+      `unit/relayWalletRegistration.intentModes.unit.test.ts` and
+      `unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts` pass after
+      removing the stale registration `AuthService` test path and tightening the
+      inventory identity fixture.
+- [x] `git diff --check`
 
 Exit criteria:
 
-- [ ] Router API route code can no longer call a broad `authService`.
-- [ ] D1 service construction no longer returns an AuthService-shaped object.
-- [ ] Old AuthService method shapes cannot be imported as Router API contracts.
+- [x] Router API route code can no longer call a broad `authService`.
+- [x] D1 service construction no longer returns an AuthService-shaped object.
+- [x] Old AuthService method shapes cannot be imported as Router API contracts.
 - [ ] Stable wallet/auth authority, not transient proof data or passkey-only
       rpId fields, selects Ed25519 and ECDSA sessions.
-- [ ] Threshold Ed25519 HSS finalize has no runtime repair path. Complete
+      July 3 progress: Email OTP grant consumption no longer binds recovery or
+      export/unseal grants to transient app-session hash/version. D1 and
+      store-backed helpers now use stable Email OTP authority fields, with
+      `unit/emailOtpGrantAuthorityBinding.unit.test.ts` covering app-session
+      rotation and the Refactor 82 guard scanning both implementations. July 3
+      82B progress: SDK passkey Ed25519 policy/mint/reauth inputs now carry
+      `PasskeyWalletAuthAuthority` instead of an RP-only selector, and ECDSA
+      ready/reauth/export selections require committed lanes for both Email OTP
+      and Passkey. July 3 follow-up: Email OTP Ed25519 export now commits the
+      record, wallet-session authority, signing-session auth lane, participant
+      set, relayer key, and expected public key into
+      `RecordBackedEmailOtpEd25519ExportCommittedLane`; worker export args
+      reject the old loose record/JWT/auth-lane bag. July 3 follow-up: NEAR
+      Email OTP Ed25519 step-up signing now commits the selected lane, session
+      record, wallet-session authority, threshold session id, and signing grant
+      into `RecordBackedEmailOtpEd25519SigningCommittedLane` before challenge
+      issuance; the worker-facing signing refresh path rejects loose
+      record/route-auth/auth-lane inputs. July 3 follow-up: D1/router Email OTP
+      Ed25519 registration prepare/start/finalize now derives reusable
+      authority from verified registration authority and stores stable
+      `{ provider, providerUserId }`, while prepared start consumes only
+      `registrationPreparationId`. The item remains open for the broader
+      server-side `authorityScope` compatibility replacement with stable
+      `WalletAuthAuthority`.
+- [x] Threshold Ed25519 HSS finalize has no runtime repair path. Complete
       material is written atomically at the boundary that creates it, and
       incomplete durable state fails during boundary parsing.
-- [ ] Future Postgres support remains a documented full-family service-bag
+- [x] Future Postgres support remains a documented full-family service-bag
       implementation point.
 
 ## Validation
@@ -6071,12 +6298,27 @@ Minimum checks before first D1 staging deploy:
 - [x] Durable Object coordination tests for normal-signing admission, budgets,
       replay guards, presignature pools, signing-root coordination, and session
       consumption.
-- [ ] Durable Object-owned ECDSA-HSS pool-fill tests proving fresh Router API
-      Worker handlers can run init/step through the DO owner without Worker-local
-      live session caches.
-- [ ] Console-owned sponsored spend pricing tests proving D1-backed pricing
+- [x] Durable Object-owned ECDSA-HSS pool-fill tests proving fresh DO-backed
+      live-session owner instances share live state without Worker-local live
+      session caches.
+- [x] Local D1/DO ECDSA-HSS pool-fill route smoke proving fresh Worker handlers
+      can advance Tempo-tagged and Arc-tagged pool-fill ceremonies through the
+      shared Durable Object namespace.
+- [x] Console-owned sponsored spend pricing tests proving D1-backed pricing
       selection, version-locked settlement, platform-admin mutation control, and
-      fail-closed missing-rule behavior.
+      fail-closed missing-rule behavior. July 3 follow-up: this validation item
+      is redundant with the completed Phase 10 MVP and is now marked from current
+      evidence. `tests/unit/sponsorshipPricing.d1.unit.test.ts` proves D1-backed
+      static pricing selection and exact-version finalize. The Cloudflare
+      sponsored-route test proves missing pricing fails closed. Platform-admin
+      mutation control is intentionally seed-only in this MVP: no HTTP pricing
+      write path exists, and any future write path is deferred as
+      platform-admin-only work. Validation passed:
+      `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
+      unit/sponsorshipPricing.d1.unit.test.ts
+      unit/router.sponsoredEvmCallCloudflare.unit.test.ts --reporter=line` and
+      `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
+      unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep "sponsored pricing" --reporter=line`.
 - [x] Local D1 backup/restore drill:
 
 ```bash
@@ -6145,15 +6387,15 @@ Proceed in this order:
 - [x] Phase 8: Functional signer-set and D1 branch-set ceremony closure is
       validated. The service-split count checkpoint is recorded, and the remaining
       positive count cleanup is rolled into the final Phase 7 deletion/count pass.
-- [ ] Phase 9: Move ECDSA-HSS pool-fill live `ThresholdEcdsaPresignSession`
-      ownership into a Durable Object, delete the interim Worker-level live
-      session cache, and prove fresh Worker handlers can advance the same pool-fill
-      ceremony through DO routing.
+- [x] Phase 9: Complete the remaining local Tempo/ARC Wrangler/Miniflare route
+      smoke for Durable Object-owned ECDSA-HSS pool-fill sessions. The interim
+      Worker-level live-session cache is deleted; focused route smoke proves
+      fresh Worker handlers advance pool-fill ceremonies through DO routing.
 - [x] Phase 10: Move sponsored EVM spend pricing into Console D1. The schema,
       static-pricing adapter, D1 Router API pricing wiring, explicit setup seed,
       and Cloudflare D1 env-pricing guard are implemented; the full
       platform-admin pricing UI/API remains deferred.
-- [ ] Phase 11: Make the Router API service port backend-neutral. D1 remains the
+- [x] Phase 11: Make the Router API service port backend-neutral. D1 remains the
       only active implementation; future Postgres support must enter as a separate
       full-family adapter behind the same port.
 - [ ] Phase 12: Collapse the remaining AuthService-shaped Router API surface into
@@ -7961,41 +8203,41 @@ tsconfig.playwright.json --noEmit`, the focused D1 wallet/ownership guard
       typecheck fixtures, it reports 296 files changed, 56,428 insertions, and
       31,527 deletions, net `+24,901`.
 
-      Current untracked text adds 6,516 lines across 18 files, including 2,324
-      non-doc lines and 1,497 lines under `packages/sdk-server-ts/src`. The
-      production-only untracked `packages/sdk-server-ts/src` slice, excluding
-      typecheck fixtures, is also 1,497 lines. The final tracked-plus-untracked
-      working-tree count is therefore 124,991 additions and 72,918 deletions
-      across all text files, net `+52,073`; 108,303 additions and 67,038
-      deletions for non-doc text, net `+41,265`; 59,467 additions and 31,568
-      deletions for all `packages/sdk-server-ts/src` text, net `+27,899`; and
-      57,925 additions and 31,527 deletions for production-only
-      `packages/sdk-server-ts/src`, net `+26,398`.
+          Current untracked text adds 6,516 lines across 18 files, including 2,324
+          non-doc lines and 1,497 lines under `packages/sdk-server-ts/src`. The
+          production-only untracked `packages/sdk-server-ts/src` slice, excluding
+          typecheck fixtures, is also 1,497 lines. The final tracked-plus-untracked
+          working-tree count is therefore 124,991 additions and 72,918 deletions
+          across all text files, net `+52,073`; 108,303 additions and 67,038
+          deletions for non-doc text, net `+41,265`; 59,467 additions and 31,568
+          deletions for all `packages/sdk-server-ts/src` text, net `+27,899`; and
+          57,925 additions and 31,527 deletions for production-only
+          `packages/sdk-server-ts/src`, net `+26,398`.
 
-      The remaining positive production blocks have explicit owners:
-      D1 console adapters (`console/**/d1.ts`) are required product runtime
-      replacements for the deleted Postgres adapters; D1 Router API auth,
-      registration, Email OTP, WebAuthn, recovery, wallet, threshold, and
-      ceremony modules are the D1/DO signer runtime and replace deleted partial
-      Postgres or disabled-service branches; staging scripts and migrations are
-      Phase 6 deployment evidence; `sponsorshipPricing/d1.ts` is Phase 10 static
-      pricing MVP work; `ecdsaHssPoolFillLiveSession.ts` is Phase 9 Durable
-      Object-owned live HSS state; `nearImplicitAccountFunding.ts` and
-      `nearSignerWasmRuntime.ts` are post-82 local runtime/signing support; Refactor
-      83/84/85 plan/spec docs and Seams v9 image assets are outside Refactor 82
-      runtime growth.
+          The remaining positive production blocks have explicit owners:
+          D1 console adapters (`console/**/d1.ts`) are required product runtime
+          replacements for the deleted Postgres adapters; D1 Router API auth,
+          registration, Email OTP, WebAuthn, recovery, wallet, threshold, and
+          ceremony modules are the D1/DO signer runtime and replace deleted partial
+          Postgres or disabled-service branches; staging scripts and migrations are
+          Phase 6 deployment evidence; `sponsorshipPricing/d1.ts` is Phase 10 static
+          pricing MVP work; `ecdsaHssPoolFillLiveSession.ts` is Phase 9 Durable
+          Object-owned live HSS state; `nearImplicitAccountFunding.ts` and
+          `nearSignerWasmRuntime.ts` are post-82 local runtime/signing support; Refactor
+          83/84/85 plan/spec docs and Seams v9 image assets are outside Refactor 82
+          runtime growth.
 
-      Remaining intentional non-D1 code is restricted to named boundaries:
-      `storage/tenantRoute.ts` keeps the future full-family Postgres route
-      contract while Cloudflare runtimes reject it, Redis/in-memory threshold
-      stores remain for non-Cloudflare and test runtimes, and the
-      `InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner` is now used as
-      Durable Object actor memory rather than Router API Worker module state.
-      The Cloudflare runtime inventory finds no active Postgres env/runtime
-      references except the focused type fixture proving D1 adapters reject
-      Postgres routes, and `localRouterApiEcdsaPoolFillLiveSessionsCache`,
-      `routerApiStagingEcdsaPoolFillLiveSessionsCache`, and Worker
-      `ecdsaPoolFillLiveSessions` factory plumbing are absent from runtime source.
+          Remaining intentional non-D1 code is restricted to named boundaries:
+          `storage/tenantRoute.ts` keeps the future full-family Postgres route
+          contract while Cloudflare runtimes reject it, Redis/in-memory threshold
+          stores remain for non-Cloudflare and test runtimes, and the
+          `InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner` is now used as
+          Durable Object actor memory rather than Router API Worker module state.
+          The Cloudflare runtime inventory finds no active Postgres env/runtime
+          references except the focused type fixture proving D1 adapters reject
+          Postgres routes, and `localRouterApiEcdsaPoolFillLiveSessionsCache`,
+          `routerApiStagingEcdsaPoolFillLiveSessionsCache`, and Worker
+          `ecdsaPoolFillLiveSessions` factory plumbing are absent from runtime source.
 
 - [x] P3: Tenant storage route resolver semantics need one final consistency
       check against the plan.

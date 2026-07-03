@@ -134,7 +134,7 @@ Ownership split:
 | Current concern | Target owner |
 | --- | --- |
 | Auth account and sessions | session and authorization modules |
-| WebAuthn, Email OTP, Slack OTP, wallet login factors | auth method modules |
+| WebAuthn, Email OTP, Slack OTP, wallet login factors | auth factor modules |
 | Identity links, SSO claims, IdP relying parties | session, authorization, and IdP modules |
 | Wallet registration and signer provisioning | capability provisioning modules |
 | Threshold signing, HSS, signer WASM | MPC capability modules |
@@ -170,22 +170,35 @@ type AuthFactorKind =
   | "wallet_login"
   | "recovery_code";
 
-type SessionEvidenceKind =
-  | AuthFactorKind
-  | "oidc_session"
+type ProviderSessionEvidenceKind = "oidc_session";
+
+type ProviderAssuranceEvidenceKind =
   | "provider_mfa"
   | "provider_phishing_resistant"
   | "provider_device_trust";
 
-type GrantEvidenceKind =
-  | "seams_session"
+type ProviderEvidenceKind =
+  | ProviderSessionEvidenceKind
+  | ProviderAssuranceEvidenceKind;
+
+type SessionEvidenceKind =
+  | AuthFactorKind
+  | ProviderEvidenceKind;
+
+type InteractiveGrantEvidenceKind =
   | "passkey_assertion"
   | "email_otp"
   | "slack_otp"
   | "wallet_login"
-  | "mpc_signer_proof"
+  | "recovery_code";
+
+type GrantEvidenceKind =
+  | "seams_session"
+  | InteractiveGrantEvidenceKind
+  | ProviderEvidenceKind
   | "service_account_api_key"
-  | "approval_decision";
+  | "approval_decision"
+  | "mpc_signer_proof";
 
 type MpcCapabilityAuthFactorKind = Extract<
   AuthFactorKind,
@@ -459,9 +472,9 @@ Keep runtime-use operations out of API credential scopes:
 ```text
 vault.reveal
 vault.export
-vault.proxy.use
-mpc.sign
-mpc.key_export
+vault.proxy_use
+near.sign_transaction
+evm.sign_transaction
 idp.high_risk_scope.issue
 ```
 
@@ -563,7 +576,7 @@ type RoutePrincipal =
     }
   | {
       plane: "seams_session";
-      session: Extract<SeamsSession, { kind: "active" }>;
+      session: ActiveSeamsSessionRecord;
     }
   | {
       plane: "capability_grant";
@@ -583,12 +596,55 @@ Better Auth is useful for:
 
 - plugin ergonomics;
 - server and client plugin pairs;
-- auth method modularity;
+- auth factor modularity;
 - schema-per-plugin design;
 - organization, session, API-key, and admin product patterns.
 
-Use Better Auth where customers want standard app auth and organization
-management. Use `seams-auth` where customers want a first-party Seams auth stack.
+The split is by evidence grade, permanently (plan Decided Point 12):
+
+- **Better Auth is the permanent, optional commodity-auth provider:**
+  email+password, social login, organizations, enterprise SSO, admin/API-key
+  product patterns. Seams never rebuilds these natively.
+- **Seams-native factor modules are exactly those that produce MPC-grade,
+  operation-digest-bound evidence or drive the Seams confirmation UI** —
+  passkey and Email OTP today. They bind registration to MPC ceremonies and
+  are never ported into Better Auth plugins.
+- Both normalize into `SeamsSession` through the same exchange boundary.
+  Better Auth is optional at assembly: a signing-only tenant runs native
+  factors alone.
+- **Providers are interchangeable behind one session-provider port.** Better
+  Auth and the Seams-native session provider are two implementations of the
+  same contract: swapping is a config/assembly change only, no code outside
+  the provider adapter depends on provider specifics, grant-evidence
+  endpoints are provider-neutral Seams routes with Better Auth mounting as a
+  thin bridge, and one provider conformance suite runs against both. Feature
+  sets may differ (commodity breadth is Better Auth's); the exchange
+  boundary, authorization, capabilities, and UI behave identically over
+  either.
+- **MPC signing works over either provider, but provider evidence is never
+  the MPC factor.** Capability grant policies for MPC signing lanes accept
+  only digest-bound native grant evidence (`passkey_assertion`, `email_otp`)
+  or `mpc_signer_proof`; provider session/assurance evidence — including a
+  Better Auth passkey login — can never satisfy them. Three structural
+  reasons: the wallet authority is the credential enrolled through the Seams
+  registration ceremony (a provider-registered passkey is a different,
+  unbound credential); signing assertions must bind lane/intent/display
+  digests, which login-shaped provider challenges do not; and the native
+  factors gate key material cryptographically (worker-material restore
+  authorization, Email OTP unlock proof and seal), which a session-minting
+  provider cannot substitute.
+- **Credential adoption (one passkey, two verifiers):** an existing
+  provider-registered passkey may be adopted into wallet authority through
+  the Seams add-auth-method enrollment ceremony — Seams verifies an assertion
+  against its own challenge and binds the credential ID to the wallet. After
+  adoption, Better Auth verifies the credential for login and Seams verifies
+  it for signing; provider verification code is never in the signing path.
+  The native Email OTP factor may likewise share the provider-verified email
+  identity (`provider` + `providerUserId`) while the signing-grade OTP
+  challenge stays Seams-run.
+- Litmus test for any future factor: digest-bound/MPC-grade evidence or Seams
+  confirm UI required → native module; otherwise → Better Auth.
+
 Use Seams authorization for high-assurance cryptographic session evidence that
 Better Auth does not provide, such as MPC signer proofs derived from wallet or
 signer capabilities.
@@ -613,17 +669,27 @@ whether to issue a `CapabilityGrant`.
 
 ## Development Auth Provider Decision
 
-Use Better Auth first during development to avoid blocking the modular
-authorization refactor on a full `seams-auth` implementation.
+Amended July 3, 2026: v1 ships on the Seams-native session provider — the
+existing passkey and Email OTP stack — behind the session-provider port. The
+Better Auth adapter is a later compatibility milestone (plan Phase P1B),
+gated on the same provider conformance suite the native provider passes.
+The description below records what the Better Auth adapter provides when it
+lands; it is not the v1 development path.
 
 Better Auth should provide:
 
 - user account and session plumbing;
 - cookie/session lifecycle;
-- passkey registration and login;
-- Email OTP and 2FA delivery mechanics;
+- commodity factors where a tenant wants them (email+password, social login);
 - organization and API-key scaffolding where useful;
 - development ergonomics for client and server auth flows.
+
+Better Auth does not provide the wallet-grade factors. The existing
+Seams-native passkey and Email OTP factor modules stay first-party even during
+development: their registration flows mint MPC signer material, their
+assertions bind to operation digests, and the Seams UI components are built
+against them. They plug into the same session exchange as peer evidence
+sources beside the Better Auth provider.
 
 Seams should own from the start:
 
@@ -655,10 +721,14 @@ Better Auth session
 Standard passkey login proves account control. Seams passkey grant evidence must
 prove presence for one exact capability operation.
 
-Implement a custom Better Auth plugin endpoint for Seams-specific passkey
-challenges. This plugin should reuse Better Auth's session context and route
-mounting, while delegating challenge construction, digest binding, verification,
-and capability grant to Seams authorization.
+The challenge/verify endpoints are provider-neutral Seams manifest routes
+owned by Seams authorization (interchangeability clause: they must work
+unchanged over either session provider). The Better Auth plugin is a thin
+mounting bridge over those routes — it reuses Better Auth's session context
+and route mounting while delegating challenge construction, digest binding,
+verification, and capability grant to Seams authorization. When the
+Seams-native provider is configured instead, the same routes mount directly
+from the manifest with the native session context.
 
 Required endpoints:
 
@@ -825,14 +895,14 @@ type SessionExchangeCommand =
 type SessionExchangeResult =
   | {
       kind: "created";
-      session: Extract<SeamsSession, { kind: "active" }>;
+      session: ActiveSeamsSessionRecord;
       delivery: SessionDelivery;
       providerIdentityId: ProviderIdentityId;
     }
   | {
       kind: "refreshed";
       previousSessionId: SeamsSessionId;
-      session: Extract<SeamsSession, { kind: "active" }>;
+      session: ActiveSeamsSessionRecord;
       delivery: SessionDelivery;
     }
   | {
@@ -952,6 +1022,21 @@ relying-party applications receive identity tokens or assertions. Seams
 
 ## Vocabulary
 
+Type-sketch amendments applied July 3, 2026:
+
+- Internal modules use `AuthFactorModule`; the public browser config keeps the
+  customer-facing `authMethods` key.
+- Evidence kinds are composed from family unions (`AuthFactorKind`, provider
+  evidence, interactive grant evidence, and derived grant evidence).
+- `SeamsSession` is exposed publicly as an opaque branded handle. Internal code
+  uses `SeamsSessionRecord` and `ActiveSeamsSessionRecord`.
+- Repeated status and digest clusters use `RecordStatus` and
+  `OperationDigestSet`.
+- Deferred workload evidence kinds stay out of `GrantEvidenceKind` until their
+  provider phase lands.
+- Audit envelope writing lives in `seams-authorization`; there is no separate
+  `audit-core` package.
+
 | Current term | Target term |
 | --- | --- |
 | signing session | `SeamsSession` |
@@ -987,10 +1072,10 @@ parsed intent. It is bound as `displayDigest`.
 5. Route handlers fail closed when a required capability is missing.
 6. Compatibility code belongs only at request and persistence boundaries, with a
    named deletion condition.
-7. Build a constrained first-party auth method module surface. Support
+7. Build a constrained first-party auth factor module surface. Support
    Better Auth through a session-provider adapter.
 8. Capabilities reference registered grant evidence kinds through operation-level
-   policies. They do not instantiate auth method modules directly.
+   policies. They do not instantiate auth factor modules directly.
 9. Auth providers can create sessions and verify factors. Only Seams
    authorization can mint `CapabilityGrant` records.
 10. `seams-auth` persistence goes through an explicit database adapter. Raw
@@ -1000,11 +1085,17 @@ parsed intent. It is bound as `displayDigest`.
 
 Use an auth provider plus capability-specific grant policies.
 
-First-party auth/session code should expose a Better Auth-style setup API. The
-top-level API should feel like application auth configuration, while internally
-normalizing every enabled mechanism into an `AuthMethodModule`,
-`AuthFactorKind`, `SessionEvidenceKind`, and `GrantEvidenceKind`. The `database`
-option is required for production deployments.
+`seamsAuth(...)` is a composition layer, not a Better Auth reimplementation
+(plan Decided Point 12). It wires the Seams-native factor modules (passkey,
+Email OTP) plus an optional Better Auth instance and the session exchange. In
+the sketch below, `emailAndPassword`, `socialProviders`, `enterpriseSSO`, and
+`organization` are reachable only through the optional Better Auth provider
+composition — they are not implemented natively, and the native surface does
+not grow commodity-auth options. The top-level API should feel like
+application auth configuration, while internally normalizing every enabled
+mechanism into an `AuthFactorModule`, `AuthFactorKind`,
+`SessionEvidenceKind`, and `GrantEvidenceKind`. The `database` option is
+required for production deployments.
 
 ```ts
 import { seamsAuth } from "@seams/auth";
@@ -1180,17 +1271,17 @@ The browser runtime surface is SDK configuration, independent of Vite, Next, and
 framework build hooks. `hostedWalletIframe(...)` selects the runtime that owns
 wallet UI, workers, and WASM. Browser capability builders such as
 `nearEd25519MpcSigning()` and `evmFamilyEcdsaMpcSigning()` declare that they need
-that runtime in browser builds. Passkeys and Email OTP are auth methods; they do
+that runtime in browser builds. Passkeys and Email OTP are auth factors; they do
 not belong in wallet runtime config.
 
 Browser config only selects SDK modules and UI/runtime loading. Server tenant
-runtime config is authoritative for enabled auth methods, capabilities, and
+runtime config is authoritative for enabled auth factors, capabilities, and
 policies:
 
 ```ts
 type TenantRuntimeConfig = {
   tenantId: TenantId;
-  authMethods: readonly AuthMethodKind[];
+  authMethods: readonly AuthFactorKind[];
   capabilities: readonly CapabilityKind[];
   policies: readonly CapabilityPolicyRef[];
 };
@@ -1220,20 +1311,24 @@ type BrowserWalletRuntimeSelection =
       walletHostVariant: WalletHostVariant;
     };
 
-type BrowserCapabilitySelection =
-  | { kind: "near_ed25519_mpc_signing"; walletRuntime: "hosted_wallet_iframe" }
-  | { kind: "evm_family_ecdsa_mpc_signing"; walletRuntime: "hosted_wallet_iframe" };
+type BrowserCapabilitySelection = {
+  capabilityKind: Extract<
+    CapabilityKind,
+    "near_ed25519_mpc_signing" | "evm_ecdsa_mpc_signing"
+  >;
+  walletRuntime: "hosted_wallet_iframe";
+};
 
-type BrowserAuthMethodSelection =
-  | { kind: "passkey_auth" }
-  | { kind: "email_otp_auth" };
+type BrowserAuthFactorSelection = {
+  factorKind: Extract<AuthFactorKind, "passkey" | "email_otp">;
+};
 ```
 
 Rules:
 
 - Parse raw config inputs once in `createSeamsConfig(...)`.
 - Allow at most one wallet runtime selection.
-- Reject duplicate auth method kinds and duplicate capability kinds.
+- Reject duplicate auth factor kinds and duplicate capability kinds.
 - Reject browser MPC signing capabilities unless `hostedWalletIframe(...)` is
   present.
 - Keep passkey auth independent from wallet iframe when the application only
@@ -1243,7 +1338,7 @@ Rules:
   [Refactor 86](./refactor-86-static-wallet-assets.md). This spec owns the SDK
   runtime selection shape.
 
-Low-level auth method modules remain available for internal package assembly and
+Low-level auth factor modules remain available for internal package assembly and
 tests:
 
 ```ts
@@ -1296,47 +1391,98 @@ The embedded defaults should be conservative:
 | Vault export | passkey assertion evidence |
 | Vault permission change | passkey assertion evidence |
 | Vault break-glass reveal | approval plus passkey assertion evidence |
-| MPC transaction signing | passkey assertion or Email OTP evidence |
-| MPC key export | passkey assertion evidence |
-| MPC auth proof | inherited signer capability grant policy |
-| High-assurance vault export | passkey assertion plus MPC signer proof evidence |
+| MPC transaction signing (`near.sign_transaction`, `evm.sign_transaction`) | passkey assertion or Email OTP evidence |
+| MPC signer-proof production (`produceAuthProof`) | inherited signer capability grant policy |
+| Vault export with high-assurance policy | passkey assertion plus MPC signer proof evidence |
 
 Tenant policy can make defaults stricter. It should not silently weaken the
 compiled capability defaults.
 
 ## Target Domain Types
 
-Capability kinds and operation kinds are registered identifiers. They should
-not be closed unions inside `seams-authorization`; capability packages register
-their own supported kinds and descriptors at app assembly time.
+Amended July 3, 2026: capability kinds and operation kinds are closed unions in
+a leaf module (`authorization/capabilityKinds`) that both `seams-authorization`
+and capability modules import. Capability packages still register operation
+descriptors and handlers at app assembly time, keyed by these closed kinds, but
+the kind vocabulary itself is compile-time closed and exhaustiveness-checked.
+There is no runtime kind registry. If third-party capability extensibility ever
+becomes real, reopen via module augmentation or a generic parameter then.
 
 ```ts
-type CapabilityKind = RegisteredCapabilityKind;
-type CapabilityOperationKind = RegisteredCapabilityOperationKind;
+type CapabilityKind =
+  | "vault_access"
+  | "near_ed25519_mpc_signing"
+  | "evm_ecdsa_mpc_signing";
+
+type CapabilityOperationKind =
+  | "vault.proxy_use"
+  | "vault.reveal"
+  | "vault.export"
+  | "vault.rotate"
+  | "vault.permission_change"
+  | "vault.break_glass_reveal"
+  | "near.sign_transaction"
+  | "evm.sign_transaction";
+
+type RecordStatus = "active" | "suspended" | "deleted";
+
+type OperationDigestSet = {
+  laneDigest: DigestB64u;
+  intentDigest: DigestB64u;
+  displayDigest: DigestB64u;
+};
 
 type AuthAccount = {
   tenantId: TenantId;
   principalId: PrincipalId;
-  status: "active" | "suspended" | "deleted";
+  status: RecordStatus;
   recoveryPolicyId: RecoveryPolicyId;
   createdAt: IsoTimestamp;
 };
 
 type AuthFactor =
   | { kind: "passkey"; tenantId: TenantId; principalId: PrincipalId; credentialId: PasskeyCredentialId }
-  | { kind: "email_otp"; tenantId: TenantId; principalId: PrincipalId; email: EmailAddress }
+  | { kind: "email_otp"; tenantId: TenantId; principalId: PrincipalId; provider: EmailOtpProvider; providerUserId: EmailOtpProviderUserId }
   | { kind: "slack_otp"; tenantId: TenantId; principalId: PrincipalId; slackTeamId: SlackTeamId; slackUserId: SlackUserId }
   | { kind: "wallet_login"; tenantId: TenantId; principalId: PrincipalId; walletAccountId: EmbeddedWalletAccountId }
   | { kind: "recovery_code"; tenantId: TenantId; principalId: PrincipalId; recoverySetId: RecoverySetId };
 
 type AuthFactorKind = AuthFactor["kind"];
 
-type SessionEvidenceKind =
-  | AuthFactorKind
-  | "oidc_session"
+type ProviderSessionEvidenceKind = "oidc_session";
+
+type ProviderAssuranceEvidenceKind =
   | "provider_mfa"
   | "provider_phishing_resistant"
   | "provider_device_trust";
+
+type ProviderEvidenceKind =
+  | ProviderSessionEvidenceKind
+  | ProviderAssuranceEvidenceKind;
+
+type SessionEvidenceKind =
+  | AuthFactorKind
+  | ProviderEvidenceKind;
+
+type InteractiveGrantEvidenceKind =
+  | "passkey_assertion"
+  | "email_otp"
+  | "slack_otp"
+  | "wallet_login"
+  | "recovery_code";
+
+type SessionGrantEvidenceKind = "seams_session";
+type ServiceAccountGrantEvidenceKind = "service_account_api_key";
+type ApprovalGrantEvidenceKind = "approval_decision";
+type MpcGrantEvidenceKind = "mpc_signer_proof";
+
+type GrantEvidenceKind =
+  | SessionGrantEvidenceKind
+  | InteractiveGrantEvidenceKind
+  | ProviderEvidenceKind
+  | ServiceAccountGrantEvidenceKind
+  | ApprovalGrantEvidenceKind
+  | MpcGrantEvidenceKind;
 
 type AssuranceLevel =
   | "session"
@@ -1345,47 +1491,39 @@ type AssuranceLevel =
   | "phishing_resistant"
   | "high_assurance";
 
+type SessionEvidenceBase = {
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  evidenceDigest: DigestB64u;
+  assertedAt: IsoTimestamp;
+  expiresAt: IsoTimestamp;
+};
+
 type SessionEvidenceRef =
-  | {
+  | (SessionEvidenceBase & {
       kind: "auth_factor_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
       factorId: AuthFactorId;
       evidenceKind: AuthFactorKind;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (SessionEvidenceBase & {
       kind: "provider_session_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
       providerId: AuthProviderId;
-      evidenceKind: Extract<SessionEvidenceKind, "oidc_session">;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
+      evidenceKind: ProviderSessionEvidenceKind;
+    })
+  | (SessionEvidenceBase & {
       kind: "provider_assurance_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
       providerId: AuthProviderId;
-      evidenceKind: Extract<
-        SessionEvidenceKind,
-        "provider_mfa" | "provider_phishing_resistant" | "provider_device_trust"
-      >;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    };
+      evidenceKind: ProviderAssuranceEvidenceKind;
+    });
 
 type AuthTenant = {
   tenantId: TenantId;
-  status: "active" | "suspended" | "deleted";
+  status: RecordStatus;
   displayName: string;
   createdAt: IsoTimestamp;
 };
+
+type NonHumanPrincipalKind = "agent" | "service_account" | "system";
 
 type AuthPrincipal =
   | {
@@ -1394,73 +1532,25 @@ type AuthPrincipal =
       principalId: PrincipalId;
       email: EmailAddress;
       displayName: string;
-      status: "active" | "suspended" | "deleted";
+      status: RecordStatus;
     }
   | {
-      kind: "agent";
+      kind: NonHumanPrincipalKind;
       tenantId: TenantId;
       principalId: PrincipalId;
       displayName: string;
-      status: "active" | "suspended" | "deleted";
-    }
-  | {
-      kind: "service_account";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      displayName: string;
-      status: "active" | "suspended" | "deleted";
-    }
-  | {
-      kind: "system";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      displayName: string;
-      status: "active" | "suspended" | "deleted";
+      status: RecordStatus;
     };
 
 type PrincipalKind = AuthPrincipal["kind"];
 
-type AuthMethodModule =
-  | {
-      kind: "passkey_auth_method_module";
-      tenantId: TenantId;
-      factorKind: "passkey";
-      schema: AuthMethodSchema;
-      routes: AuthRoute[];
-      clientModule: LazyClientModule;
-    }
-  | {
-      kind: "email_otp_auth_method_module";
-      tenantId: TenantId;
-      factorKind: "email_otp";
-      schema: AuthMethodSchema;
-      routes: AuthRoute[];
-      clientModule: LazyClientModule;
-    }
-  | {
-      kind: "slack_otp_auth_method_module";
-      tenantId: TenantId;
-      factorKind: "slack_otp";
-      schema: AuthMethodSchema;
-      routes: AuthRoute[];
-      clientModule: LazyClientModule;
-    }
-  | {
-      kind: "wallet_login_auth_method_module";
-      tenantId: TenantId;
-      factorKind: "wallet_login";
-      schema: AuthMethodSchema;
-      routes: AuthRoute[];
-      clientModule: LazyClientModule;
-    }
-  | {
-      kind: "recovery_code_auth_method_module";
-      tenantId: TenantId;
-      factorKind: "recovery_code";
-      schema: AuthMethodSchema;
-      routes: AuthRoute[];
-      clientModule: LazyClientModule;
-    };
+type AuthFactorModule = {
+  tenantId: TenantId;
+  factorKind: AuthFactorKind;
+  schema: AuthFactorSchema;
+  routes: AuthRoute[];
+  clientModule: LazyClientModule;
+};
 
 type AuthProvider =
   | {
@@ -1500,45 +1590,36 @@ type SessionProviderEvidence =
     expiresAt: IsoTimestamp;
   };
 
-type MpcSignerProof =
-  | {
-      kind: "near_ed25519_mpc_signer_proof";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      signerCapabilityId: CapabilityId;
-      inheritedPolicyId: PolicyId;
-      challengeDigest: DigestB64u;
-      proofDigest: DigestB64u;
-      deviceId: DeviceId;
-      expiresAt: IsoTimestamp;
-    }
-  | {
-      kind: "evm_ecdsa_mpc_signer_proof";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      signerCapabilityId: CapabilityId;
-      inheritedPolicyId: PolicyId;
-      challengeDigest: DigestB64u;
-      proofDigest: DigestB64u;
-      deviceId: DeviceId;
-      expiresAt: IsoTimestamp;
-    };
+type MpcCapabilityKind = Extract<
+  CapabilityKind,
+  "near_ed25519_mpc_signing" | "evm_ecdsa_mpc_signing"
+>;
 
-type IdpRelyingParty =
-  | {
-      kind: "oidc_relying_party";
-      tenantId: TenantId;
-      relyingPartyId: IdpRelyingPartyId;
-      clientId: OidcClientId;
-      displayName: string;
-      redirectUris: NonEmptyArray<HttpsUrl>;
-      allowedScopes: NonEmptyArray<OidcScope>;
-      claimPolicyId: ClaimPolicyId;
-      tokenPolicyId: TokenPolicyId;
-      status: "active" | "suspended" | "deleted";
-    };
+type MpcSignerProof = {
+  signerKind: MpcCapabilityKind;
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  sessionId: SeamsSessionId;
+  signerCapabilityId: CapabilityId;
+  inheritedPolicyId: PolicyId;
+  challengeDigest: DigestB64u;
+  operationDigests: OperationDigestSet;
+  proofDigest: DigestB64u;
+  deviceId: DeviceId;
+  expiresAt: IsoTimestamp;
+};
+
+type IdpRelyingParty = {
+  tenantId: TenantId;
+  relyingPartyId: IdpRelyingPartyId;
+  clientId: OidcClientId;
+  displayName: string;
+  redirectUris: NonEmptyArray<HttpsUrl>;
+  allowedScopes: NonEmptyArray<OidcScope>;
+  claimPolicyId: ClaimPolicyId;
+  tokenPolicyId: TokenPolicyId;
+  status: RecordStatus;
+};
 
 type IdpTokenIssueRequest =
   | {
@@ -1561,156 +1642,84 @@ type IdpTokenIssueRequest =
       scopes: NonEmptyArray<OidcScope>;
     };
 
-type SeamsSession =
-  | {
-      kind: "active";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      providerId: AuthProviderId;
-      sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
-      assuranceLevel: AssuranceLevel;
-      deviceId: DeviceId;
-      expiresAt: IsoTimestamp;
-    }
-  | {
-      kind: "revoked";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      providerId: AuthProviderId;
-      sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
-      assuranceLevel: AssuranceLevel;
-      deviceId: DeviceId;
-      revokedAt: IsoTimestamp;
-    }
-  | {
-      kind: "expired";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      sessionId: SeamsSessionId;
-      providerId: AuthProviderId;
-      sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
-      assuranceLevel: AssuranceLevel;
-      deviceId: DeviceId;
-      expiredAt: IsoTimestamp;
-    };
+// Public opaque handle. It wraps the session token and resolves server-side
+// to a SeamsSessionId; there is no separate handle-to-id mapping table.
+type SeamsSession = Brand<string, "SeamsSession">;
 
-type GrantEvidenceKind =
-  | "seams_session"
-  | "passkey_assertion"
-  | "email_otp"
-  | "slack_otp"
-  | "wallet_login"
-  | "recovery_code"
-  | "oidc_session"
-  | "provider_mfa"
-  | "provider_phishing_resistant"
-  | "provider_device_trust"
-  | "mpc_signer_proof"
-  | "service_account_api_key"
-  | "approval_decision"
-  | "oidc_workload_federation"
-  | "mtls_client_certificate"
-  | "kms_bound_proof";
+type SeamsSessionState =
+  | { kind: "active"; expiresAt: IsoTimestamp }
+  | { kind: "revoked"; revokedAt: IsoTimestamp }
+  | { kind: "expired"; expiredAt: IsoTimestamp };
+
+type SeamsSessionRecord = {
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  sessionId: SeamsSessionId;
+  providerId: AuthProviderId;
+  sessionEvidence: NonEmptyArray<SessionEvidenceRef>;
+  assuranceLevel: AssuranceLevel;
+  deviceId: DeviceId;
+  state: SeamsSessionState;
+};
+
+type ActiveSeamsSessionRecord = SeamsSessionRecord & {
+  state: Extract<SeamsSessionState, { kind: "active" }>;
+};
+
+type GrantEvidenceBase = {
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  evidenceKind: GrantEvidenceKind;
+  evidenceDigest: DigestB64u;
+  assertedAt: IsoTimestamp;
+  expiresAt: IsoTimestamp;
+};
 
 type GrantEvidenceRef =
-  | {
+  | (GrantEvidenceBase & {
       kind: "session_grant_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      evidenceKind: "seams_session";
+      evidenceKind: SessionGrantEvidenceKind;
       sessionId: SeamsSessionId;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (GrantEvidenceBase & {
       kind: "interactive_challenge_grant_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      evidenceKind: Extract<
-        GrantEvidenceKind,
-        "passkey_assertion" | "email_otp" | "slack_otp" | "wallet_login" | "recovery_code"
-      >;
+      evidenceKind: InteractiveGrantEvidenceKind;
       sessionId: SeamsSessionId;
       challengeId: GrantChallengeId;
-      laneDigest: DigestB64u;
-      intentDigest: DigestB64u;
-      displayDigest: DigestB64u;
+      operationDigests: OperationDigestSet;
       deviceId: DeviceId;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (GrantEvidenceBase & {
       kind: "provider_assurance_grant_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      evidenceKind: Extract<
-        GrantEvidenceKind,
-        "oidc_session" | "provider_mfa" | "provider_phishing_resistant" | "provider_device_trust"
-      >;
+      evidenceKind: ProviderEvidenceKind;
       sessionId: SeamsSessionId;
       providerId: AuthProviderId;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (GrantEvidenceBase & {
       kind: "mpc_signer_grant_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      evidenceKind: "mpc_signer_proof";
+      evidenceKind: MpcGrantEvidenceKind;
       sessionId: SeamsSessionId;
+      signerKind: MpcCapabilityKind;
       signerCapabilityId: CapabilityId;
       inheritedPolicyId: PolicyId;
       challengeDigest: DigestB64u;
+      operationDigests: OperationDigestSet;
       proofDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (GrantEvidenceBase & {
       kind: "service_account_api_key_grant_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      evidenceKind: "service_account_api_key";
+      evidenceKind: ServiceAccountGrantEvidenceKind;
       apiCredentialId: ApiCredentialId;
       apiScopeDigest: DigestB64u;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
+    })
+  | (GrantEvidenceBase & {
       kind: "approval_decision_grant_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      evidenceKind: "approval_decision";
+      evidenceKind: ApprovalGrantEvidenceKind;
       approvalId: ApprovalId;
-      laneDigest: DigestB64u;
-      intentDigest: DigestB64u;
-      displayDigest: DigestB64u;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    }
-  | {
-      kind: "external_workload_grant_evidence";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      evidenceKind: Extract<
-        GrantEvidenceKind,
-        "oidc_workload_federation" | "mtls_client_certificate" | "kms_bound_proof"
-      >;
-      issuerId: WorkloadIssuerId;
-      subjectDigest: DigestB64u;
-      evidenceDigest: DigestB64u;
-      assertedAt: IsoTimestamp;
-      expiresAt: IsoTimestamp;
-    };
+      operationDigests: OperationDigestSet;
+    });
 
 type CapabilityGrantRequest = {
-  kind: "capability_grant_request";
   tenantId: TenantId;
   principalId: PrincipalId;
   principalKind: PrincipalKind;
@@ -1729,28 +1738,24 @@ type GrantEvidenceRequirement =
       evidenceKinds: NonEmptyArray<GrantEvidenceKind>;
     };
 
-type CapabilityGrantPolicy =
-  | {
-      kind: "capability_grant_policy";
-      tenantId: TenantId;
-      policyId: PolicyId;
-      allowedPrincipalKinds: NonEmptyArray<PrincipalKind>;
-      allowedBindingKinds: NonEmptyArray<CapabilityBindingKind>;
-      requiredEvidence: NonEmptyArray<GrantEvidenceRequirement>;
-      minAssuranceLevel: AssuranceLevel;
-      maxTtlSeconds: PositiveInt;
-      maxUses: PositiveInt;
-    };
+type CapabilityGrantPolicy = {
+  tenantId: TenantId;
+  policyId: PolicyId;
+  allowedPrincipalKinds: NonEmptyArray<PrincipalKind>;
+  allowedBindingKinds: NonEmptyArray<CapabilityBindingKind>;
+  requiredEvidence: NonEmptyArray<GrantEvidenceRequirement>;
+  minAssuranceLevel: AssuranceLevel;
+  maxTtlSeconds: PositiveInt;
+  maxUses: PositiveInt;
+};
 
-type CapabilityOperationGrantPolicyBinding =
-  | {
-      kind: "capability_operation_grant_policy_binding";
-      tenantId: TenantId;
-      capabilityId: CapabilityId;
-      capabilityKind: CapabilityKind;
-      operationKind: CapabilityOperationKind;
-      policyId: PolicyId;
-    };
+type CapabilityOperationGrantPolicyBinding = {
+  tenantId: TenantId;
+  capabilityId: CapabilityId;
+  capabilityKind: CapabilityKind;
+  operationKind: CapabilityOperationKind;
+  policyId: PolicyId;
+};
 ```
 
 ### MPC Signer Proof As Grant Evidence
@@ -1816,30 +1821,26 @@ type ResourceScope =
       environmentId: EnvironmentId;
     };
 
-type CapabilityInstance =
-  | {
-      kind: "capability_instance";
-      tenantId: TenantId;
-      capabilityId: CapabilityId;
-      capabilityKind: CapabilityKind;
-      resourceScope: ResourceScope;
-      defaultPolicyId: PolicyId;
-      configDigest: DigestB64u;
-      lifecycle: "active" | "suspended" | "deleted";
-    };
+type CapabilityInstance = {
+  tenantId: TenantId;
+  capabilityId: CapabilityId;
+  capabilityKind: CapabilityKind;
+  resourceScope: ResourceScope;
+  defaultPolicyId: PolicyId;
+  configDigest: DigestB64u;
+  status: RecordStatus;
+};
 
 type CapabilityBindingKind = "owner" | "admin" | "direct_member" | "delegate_member";
 
-type CapabilityBinding =
-  | {
-      kind: "capability_binding";
-      tenantId: TenantId;
-      bindingId: CapabilityBindingId;
-      capabilityId: CapabilityId;
-      principalId: PrincipalId;
-      bindingKind: CapabilityBindingKind;
-      lifecycle: "active" | "suspended" | "deleted";
-    };
+type CapabilityBinding = {
+  tenantId: TenantId;
+  bindingId: CapabilityBindingId;
+  capabilityId: CapabilityId;
+  principalId: PrincipalId;
+  bindingKind: CapabilityBindingKind;
+  status: RecordStatus;
+};
 ```
 
 Capability modules own rich operation lane, intent, and display types. They
@@ -1849,18 +1850,14 @@ authorization resolves the policy server-side and records the selected
 `policyId`.
 
 ```ts
-type CapabilityOperationEnvelope =
-  | {
-      kind: "capability_operation_envelope";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      capabilityKind: CapabilityKind;
-      capabilityId: CapabilityId;
-      operationKind: CapabilityOperationKind;
-      laneDigest: DigestB64u;
-      intentDigest: DigestB64u;
-      displayDigest: DigestB64u;
-    };
+type CapabilityOperationEnvelope = {
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  capabilityKind: CapabilityKind;
+  capabilityId: CapabilityId;
+  operationKind: CapabilityOperationKind;
+  operationDigests: OperationDigestSet;
+};
 
 type CapabilityGrantRecord = {
   tenantId: TenantId;
@@ -1869,9 +1866,7 @@ type CapabilityGrantRecord = {
   capabilityKind: CapabilityKind;
   capabilityId: CapabilityId;
   operationKind: CapabilityOperationKind;
-  laneDigest: DigestB64u;
-  intentDigest: DigestB64u;
-  displayDigest: DigestB64u;
+  operationDigests: OperationDigestSet;
   policyId: PolicyId;
 };
 
@@ -1926,7 +1921,7 @@ Owns:
 
 - principals and auth accounts;
 - auth factors;
-- auth method module registration;
+- auth factor module registration;
 - `SeamsSession`;
 - grant evidence challenge selection;
 - capability grant policies;
@@ -2012,7 +2007,7 @@ audit.
 Registration:
 
 - Always create `AuthAccount`.
-- Register auth providers and auth method modules per tenant.
+- Register auth providers and auth factor modules per tenant.
 - Register IdP relying-party applications only for tenants with IdP mode
   enabled.
 - Create only requested `CapabilityInstance` records.
@@ -2053,7 +2048,7 @@ session/
   seamsSession
   providerAdapters/betterAuth
   idp
-authMethod/
+authFactor/
   passkey
   emailOtp
   slackOtp
@@ -2079,7 +2074,7 @@ internal folders/modules with these ownership boundaries.
 
 `session/` owns `SeamsSession` and provider session normalization.
 
-`authMethod/` owns first-party auth method modules such as passkey, Email OTP,
+`authFactor/` owns first-party auth factor modules such as passkey, Email OTP,
 Slack OTP, wallet login, and recovery codes.
 
 `authorization/` owns grant evidence, grant domain, policy evaluators, and audit
@@ -2176,7 +2171,7 @@ auth_factors(
   factor_id,
   principal_id,
   factor_kind,          -- passkey | email_otp | slack_otp | wallet_login | recovery_code
-  factor_ref_json,
+  factor_ref_json,      -- email_otp stores provider + providerUserId; email is display/profile metadata
   lifecycle_kind,
   created_at_ms,
   updated_at_ms

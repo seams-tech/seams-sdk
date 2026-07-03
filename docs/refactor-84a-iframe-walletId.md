@@ -2,8 +2,8 @@
 
 Date created: June 30, 2026
 
-Status: implemented for visible iframe passkey registration. Server-side route
-assertion expansion remains as follow-up coverage.
+Status: implemented for visible iframe passkey registration and server-side
+route assertion coverage.
 
 ## Problem
 
@@ -181,22 +181,22 @@ type ExpectedPasskeyRegistrationUser = {
 
 ## Phase 4: Server Route Assertions
 
-- [ ] In `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`, keep
+- [x] In `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`, keep
   request parsing strict: normalized request intent wallet ID, digest, and grant
   must match.
-- [ ] In `packages/sdk-server-ts/src/core/AuthService.ts`, verify passkey
-  registration with `intent.walletId`, the intent digest challenge, expected
-  origin, and passkey rpId before constructing registration authority.
-- [ ] In
+- [x] In the active route-service implementations, verify passkey registration
+  with `intent.walletId`, the intent digest challenge, expected origin, and
+  passkey rpId before constructing registration authority.
+- [x] In
   `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`,
   apply the same checks on the D1 path before consuming ceremony state.
-- [ ] Assert stored intent, stored preparation, and stored ceremony wallet IDs
+- [x] Assert stored intent, stored preparation, and stored ceremony wallet IDs
   match the request intent wallet ID.
-- [ ] Keep these checks at route/service boundaries before HSS or signer state is
+- [x] Keep these checks at route/service boundaries before HSS or signer state is
   touched.
-- [ ] Do not add server checks for WebAuthn `user.name` or `user.displayName`;
+- [x] Do not add server checks for WebAuthn `user.name` or `user.displayName`;
   the WebAuthn registration response does not carry those fields.
-- [ ] Add route tests for mismatched intent digest, mismatched stored intent,
+- [x] Add route tests for mismatched intent digest, mismatched stored intent,
   mismatched preparation scope, invalid rpId/origin, and wrong challenge.
 
 ## Phase 5: Behavioral Tests
@@ -212,13 +212,13 @@ type ExpectedPasskeyRegistrationUser = {
   wallet, invalid wallet, and `server_allocated`.
 - [x] Add a type fixture proving activation prepare cannot use
   `server_allocated`.
-- [ ] Add a test proving direct/headless `registerPasskey()` may still use
+- [x] Add a test proving direct/headless `registerPasskey()` may still use
   server allocation without rendering a wallet ID first.
 - [x] Add a WebAuthn-options test proving `user.name` and `displayName` match
   `intent.walletId`.
-- [ ] Add a test proving `SeamsWeb.createPasskeyRegistrationActivationSurface`
+- [x] Add a test proving `SeamsWeb.createPasskeyRegistrationActivationSurface`
   initializes and requires the iframe router with the provided wallet ID.
-- [ ] Add a test proving cancellation/disposal during reroll cannot reuse a
+- [x] Add a test proving cancellation/disposal during reroll cannot reuse a
   stale activation wallet.
 
 ## Phase 6: Source Guards
@@ -233,7 +233,7 @@ type ExpectedPasskeyRegistrationUser = {
     payloads,
   - no WebAuthn registration username derived from anything except the expected
     draft wallet ID.
-- [x] Record the guard in `docs/refactor-9x-clean-source-guards.md` as removable
+- [x] Record the guard in `docs/refactor-89-clean-source-guards.md` as removable
   after the draft model and tests have stabilized.
 
 ## Phase 7: Cleanup
@@ -259,7 +259,7 @@ type ExpectedPasskeyRegistrationUser = {
   postMessage boundary.
 - [x] WebAuthn creation options are rejected before prompt if `user.name` or
   `user.displayName` does not match the expected draft wallet ID.
-- [ ] Server routes reject mismatched intent, digest, challenge, rpId, origin, or
+- [x] Server routes reject mismatched intent, digest, challenge, rpId, origin, or
   ceremony wallet state before signer state is touched.
 - [x] Rerolling wallet ID updates the activation wallet.
 - [x] Direct/headless registration remains available for code-only flows.
@@ -300,5 +300,21 @@ type ExpectedPasskeyRegistrationUser = {
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/passkeyAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/refactor83CapabilitySubjects.guard.unit.test.ts --reporter=line`;
       `git diff --check`.
-- [ ] Follow-up: add expanded server route mismatch tests for stored-intent,
-      preparation, ceremony, rpId, origin, and challenge failures.
+## Implementation Review: July 3, 2026
+
+- [x] Added D1 route-service wallet equality checks for stored intent,
+      preparation, and ceremony authority before HSS or signer state is touched.
+- [x] Added route/client tests for mismatched registration digest, invalid rpId,
+      wrong WebAuthn challenge, invalid origin, stored-intent wallet mismatch,
+      preparation wallet mismatch, and ceremony wallet mismatch.
+- [x] Tightened `parseWebAuthnRpId()` so whitespace/control-character rpIds are
+      rejected at the request boundary.
+- [x] Added client coverage proving direct/headless passkey registration still
+      sends `server_allocated`, public activation surfaces initialize and require
+      the provided wallet-scoped router, and reroll cleanup disposes the stale
+      activation surface before mounting the next wallet.
+- [x] Validation:
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/relayWalletRegistration.boundary.unit.test.ts -g "registration (start rejects mismatched intent digest|prepare rejects invalid passkey rpId)" --reporter=line`;
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts -g "(rejects passkey registration challenge and origin mismatches|rejects stored registration intent wallet mismatch|rejects stored registration preparation wallet mismatch|starts ECDSA wallet registration ceremonies)" --reporter=line`;
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts --reporter=line`;
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/passkeyAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration (shows generated wallet input|reroll disposes stale activation surface)" --reporter=line`.

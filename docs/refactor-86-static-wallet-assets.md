@@ -1,8 +1,24 @@
 # Refactor 86: Static Wallet Assets And Vite Plugin Removal
 
 Date created: July 1, 2026
+Updated: July 3, 2026 — review added the version-skew contract, embedding
+authorization, `/.well-known/webauthn` ownership correction, storage
+partitioning, and sequencing gates.
 
 Status: planning.
+
+Sequencing gates:
+
+- Phases 1-4 are independent of other in-flight refactors and can start now.
+- Phase 5 is gated on Refactor 87 Phase 0E landing: it consumes 0E's
+  `createSeamsConfig` / `walletRuntime: hostedWalletIframe(...)` surface and
+  its typed config-error taxonomy. This plan does not mint its own
+  missing-`walletOrigin` error shape.
+- Browser passkey smokes reuse the Refactor 84a wallet-binding scenarios
+  rather than a parallel suite.
+
+Dated progress entries and validation evidence go to a companion journal file
+(`refactor-86-journal.md`, created on first entry), not this plan.
 
 Parent plan: [Refactor 87 Modular Auth And Capability](./refactor-87-modular-auth-capabilities-plan.md)
 
@@ -55,6 +71,14 @@ These invariants must hold before removing the plugin from app usage:
 - App-origin package imports such as `@seams/sdk/react/styles` must continue to
   resolve through package exports. Removing the Vite plugin must not require app
   aliases or direct `dist/*` imports.
+- The app-side SDK version and the hosted wallet runtime version must be
+  pinned to each other (versioned asset paths) or handshake-checked at iframe
+  boot. A mismatch fails closed with a typed error; the postMessage protocol
+  must never silently drift under an older app SDK.
+- The `/wallet-service` document must not be embeddable by arbitrary origins.
+  Default embedding control on the wallet document is part of the asset
+  contract; postMessage origin checks protect the channel, not the rendered
+  confirm UI.
 
 ## Current State
 
@@ -114,8 +138,13 @@ Critique:
   into same-origin wallet workers.
 - Content-Security-Policy is useful hardening, but it should not be part of the
   required/default wallet asset contract.
-- `/.well-known/webauthn` is an RP/auth configuration endpoint, not a wallet
-  asset concern. It should not remain coupled to static wallet asset hosting.
+- `/.well-known/webauthn` is not a wallet asset concern — and it is not a
+  Router/API concern either. It is the WebAuthn Related Origin Requests file,
+  which the browser fetches from the RP ID origin (normally the app's domain)
+  when the wallet origin calls WebAuthn with the app's `rpId`. In production
+  it is app-platform configuration, the same bucket as any required
+  `Permissions-Policy` header; Router/API or an auth dev helper serves it only
+  in local development where `rpId=localhost`.
 
 Addressed plan:
 
@@ -136,7 +165,7 @@ Addressed plan:
 - Keep wallet HTML Content-Security-Policy only in an optional hardening
   profile, outside the default asset contract.
 
-## Tangential Risk Remediation Matrix
+## Risk Remediation Matrix
 
 All known plugin-removal risks are fixable. Treat this table as the checklist
 for avoiding a plugin-free build that passes static checks while wallet runtime
@@ -153,7 +182,10 @@ flows fail.
 | Header tests still assert plugin-era CSP/COOP/COEP/CORP behavior. | Replace them with hosted wallet `headers.manifest.json` tests and browser smokes. Keep strict-isolation tests only under an explicit optional profile. | Phase 7 |
 | `@seams/sdk/plugins/vite` and `@seams/sdk/plugins/next` keep teaching app-owned runtime hosting. | Remove app-facing examples. Keep only package-internal/static-build helpers that emit hosted wallet artifacts, or delete plugin exports after consumers stop importing them. | Phase 5, Phase 6, Phase 7 |
 | App package imports depended on Vite plugin aliases or direct dist paths. | Add package export smoke for `@seams/sdk/react`, `@seams/sdk/react/provider`, `@seams/sdk/react/styles`, and `@seams/sdk/advanced` with a minimal app Vite config. | Phase 2, Phase 3 |
-| `/.well-known/webauthn` disappears with the plugin. | Keep it owned by Router/API/auth dev helper. It is RP/auth configuration, not wallet static asset hosting. | Phase 1, Phase 6 |
+| `/.well-known/webauthn` disappears with the plugin. | It is the WebAuthn Related Origin Requests file, served at the RP ID origin — app-platform configuration in production (the app's domain, not Router/API). Router/auth dev helper serves it only in local dev where `rpId=localhost`. | Phase 1, Phase 6 |
+| App SDK version and hosted wallet runtime version drift apart, breaking the postMessage protocol under older app SDKs. | Version the asset tree (`/v{sdkVersion}/sdk/*` pinned through `sdkBasePath`) and/or add an iframe boot protocol-version handshake that fails closed with a typed error. Decide with the cache/naming strategy. | Phase 1, Phase 2, Phase 7 |
+| Arbitrary origins embed `/wallet-service` and clickjack or context-spoof the confirm UI. | Default embedding control on the wallet-service document (`frame-ancestors` or equivalent), driven by the per-tenant embedding-authorization model. postMessage origin checks protect the channel, not the rendered UI. | Phase 1, Phase 7 |
+| Browser storage partitioning silently changes local-material expectations: wallet-origin IndexedDB is partitioned by top-level site, so material cached under one app does not exist under another. | Document the partitioned-storage model per browser, confirm restore/re-registration UX from a second app is acceptable, and record the implications against Refactor 85's local-material assumptions. | Phase 1 |
 
 Remaining decisions:
 
@@ -168,6 +200,18 @@ Remaining decisions:
       wallet capabilities. Missing `walletOrigin` must fail clearly at
       config/use boundary. Any remaining direct browser worker mode is
       internal/test-only.
+- [ ] Version-skew contract: choose versioned asset paths
+      (`/v{sdkVersion}/sdk/*` pinned through `sdkBasePath`), an iframe boot
+      protocol-version handshake, or both. Decide together with the
+      cache/naming strategy (Open Question 1): versioned immutable paths allow
+      long-lived caching with stable entry names; unversioned stable names
+      force short cache lifetimes or ETags. Resolve before Phase 2 emits the
+      tree layout.
+- [ ] Embedding authorization model: how the hosted wallet origin resolves
+      which parent origins may embed it (per-tenant allowed origins from
+      `environmentId`/publishable key server config), and how that drives both
+      postMessage origin checks and the wallet-service embedding-control
+      response. Resolve during Phase 1.
 
 ## Implementation Preconditions
 
@@ -271,8 +315,12 @@ static mount owned by the Seams dev environment. Do not add an SDK
 `seamsStaticWalletDev()` helper unless plain static hosting leaves repeated
 setup in multiple Seams-owned local-dev consumers.
 
-`/.well-known/webauthn` ownership: Router/API or an explicit auth dev helper.
-Static wallet asset hosting does not serve RP/auth configuration.
+`/.well-known/webauthn` ownership: this is the WebAuthn Related Origin
+Requests file and is served at the RP ID origin — normally the app's domain —
+so in production it is app-platform configuration, documented beside the
+conditional `Permissions-Policy` requirement. Router/API or an explicit auth
+dev helper serves it only in local development where `rpId=localhost`. Static
+wallet asset hosting does not serve RP/auth configuration.
 
 ## Phased Todo List
 
@@ -295,12 +343,33 @@ Tasks:
 - [ ] Inventory package-level imports that app code uses without the plugin:
       `@seams/sdk/react`, `@seams/sdk/react/provider`,
       `@seams/sdk/react/styles`, and `@seams/sdk/advanced`.
+- [ ] Decide the version-skew contract (see Remaining decisions): versioned
+      asset paths pinned through `sdkBasePath`, an iframe boot
+      protocol-version handshake that fails closed with a typed error, or
+      both. No wallet-origin deploy may silently change the postMessage
+      protocol under an older app SDK.
+- [ ] Define the embedding-authorization model: how per-tenant allowed parent
+      origins are resolved (from `environmentId`/publishable key server
+      config) and how they drive both postMessage origin checks and the
+      wallet-service embedding-control response.
+- [ ] Document the browser storage-partitioning model: wallet-origin
+      IndexedDB and sealed material are partitioned by top-level site in
+      current Chrome/Firefox/Safari, so local material cached under one app
+      does not exist under another. Confirm restore/re-registration UX is
+      acceptable for a user opening the same wallet from a second app, and
+      record the implications against Refactor 85's local-material
+      assumptions.
 - [ ] Document required response headers per route group:
       `/wallet-service`, `/export-viewer`, `/sdk/*.js`, `/sdk/*.css`,
       `/sdk/workers/*.worker.js`, and `/sdk/workers/*.wasm`.
-- [ ] Confirm the default required headers are only:
+- [ ] Distinguish route classes in the header contract. For `/sdk/*` asset
+      routes the default required headers are only:
       - correct `Content-Type`, especially `application/wasm`;
       - cache policy.
+      The `/wallet-service` and `/export-viewer` document class additionally
+      requires default embedding control (`frame-ancestors` or equivalent)
+      driven by the embedding-authorization model. That is a security
+      default, not optional hardening.
 - [ ] Verify the SDK-created wallet iframe sets the required WebAuthn
       delegation attributes for hosted wallet-origin use.
 - [ ] Treat iframe `allow` as the primary WebAuthn delegation mechanism:
@@ -322,10 +391,13 @@ Tasks:
       hosted `/export-viewer` or wallet-origin-owned inline viewer.
 - [ ] Confirm Lit component CSS base resolution never falls back to app-origin
       `/sdk/*` during iframe-hosted confirmation/export flows.
-- [ ] Remove `Content-Security-Policy` from the default
-      `headers.manifest.json`.
-- [ ] Mark wallet HTML Content-Security-Policy as optional production hardening,
-      outside the default header profile.
+- [ ] Remove full `Content-Security-Policy` from the default
+      `headers.manifest.json` for `/sdk/*` asset routes. Keep default
+      embedding control (`frame-ancestors` or equivalent) on the
+      wallet-service and export-viewer document class.
+- [ ] Mark broader wallet HTML Content-Security-Policy (beyond embedding
+      control) as optional production hardening, outside the default header
+      profile.
 - [ ] Remove `Cross-Origin-Embedder-Policy`,
       `Cross-Origin-Opener-Policy`, and `Cross-Origin-Resource-Policy` from the
       default `headers.manifest.json`.
@@ -335,8 +407,14 @@ Tasks:
       `contentType`, `cachePolicy`, `requiredHeaders`, and `owner`.
 - [ ] Define `headers.manifest.json` with the platform-independent header
       contract.
-- [ ] Assign `/.well-known/webauthn` to Router/API or a dedicated auth dev
-      helper.
+- [ ] Assign `/.well-known/webauthn`: app-platform configuration at the RP ID
+      origin in production (it is the WebAuthn Related Origin Requests file);
+      Router/API or an auth dev helper only for local dev where
+      `rpId=localhost`. Document it beside the conditional
+      `Permissions-Policy` requirement.
+- [ ] Run the browser WebAuthn smoke campaign as a parallel sub-track
+      (Phase 1B) so the manifest and contract tasks are not blocked on
+      multi-browser scheduling.
 
 Acceptance:
 
@@ -352,6 +430,10 @@ hosted wallet origin deploy.
 Tasks:
 
 - [ ] Add a build step that creates `dist/public/sdk`.
+- [ ] Apply the Phase 1 version-skew contract to the tree layout: if versioned
+      paths were chosen, emit the version segment and record it in
+      `wallet-assets.manifest.json`; if handshake-only, emit the protocol
+      version into the wallet HTML and SDK entry metadata.
 - [ ] Copy `dist/esm/sdk/*` into `dist/public/sdk/*`.
 - [ ] Copy `dist/workers/*` into `dist/public/sdk/workers/*`.
 - [ ] Delete or quarantine build constants and scripts that copy SDK workers into
@@ -458,6 +540,13 @@ Acceptance:
 
 Goal: make wallet runtime delivery plugin-free.
 
+Gate: this phase consumes Refactor 87 Phase 0E's `createSeamsConfig` /
+`walletRuntime: hostedWalletIframe(...)` surface and its typed config-error
+taxonomy. Phases 1-4 are independent of 0E and can run first. Do not start the
+Phase 5 config work before 0E lands, and do not mint a separate
+missing-`walletOrigin` error shape here — 0E owns the config-error taxonomy;
+this plan consumes it.
+
 Tasks:
 
 - [ ] Avoid adding `seamsStaticWalletDev(...)` unless Caddy/plain static hosting
@@ -535,8 +624,10 @@ Tasks:
       - app origin on local Vite;
       - wallet origin on Seams-owned Caddy/static server;
       - Router/API on local Router.
-- [ ] Document `/.well-known/webauthn` as Router/API/auth-server
-      configuration.
+- [ ] Document `/.well-known/webauthn` as app-platform configuration served at
+      the RP ID origin (WebAuthn Related Origin Requests), listed beside the
+      conditional `Permissions-Policy` requirement; Router/auth dev helper
+      ownership is local-dev-only (`rpId=localhost`).
 - [ ] Document that app developers should not serve or reverse-proxy
       `@seams/sdk/dist/public`.
 - [ ] Document that app developers should not run a wallet static server in
@@ -588,6 +679,14 @@ Tasks:
       - passkey registration succeeds in Chrome, Safari, and Firefox where
         supported;
       - passkey login succeeds in Chrome, Safari, and Firefox where supported.
+- [ ] Reuse the Refactor 84a wallet-binding passkey scenarios for the hosted
+      origin smokes instead of writing a parallel suite.
+- [ ] Add a version-skew smoke per the Phase 1 contract: an older app SDK
+      entry against newer wallet-origin assets must fail closed with the typed
+      mismatch error (or be impossible by versioned pathing) — never silently
+      talk a drifted postMessage protocol.
+- [ ] Add a negative-control smoke that embeds `/wallet-service` from a
+      non-allowed origin and expects the embedding control to block it.
 - [ ] Add a negative-control browser smoke that removes iframe `allow` and
       expects cross-origin WebAuthn to fail.
 - [ ] Add a browser smoke that denies app-origin `/sdk/*`, `/wallet-service`,
@@ -624,7 +723,10 @@ Acceptance:
 ## Open Questions
 
 - Should static entry file names stay stable while imported chunks remain
-  generated filenames?
+  generated filenames? Decide together with the version-skew/cache contract
+  (Remaining decisions): versioned immutable paths permit stable entry names
+  with long-lived caching; unversioned stable names force short cache
+  lifetimes or ETags.
 - Should direct no-iframe mode eventually use bundler-owned
   `new Worker(new URL(..., import.meta.url))` instead of `/sdk/workers/*`?
 - Can `wallet-service.css` and `wallet-shims.js` become normal source files

@@ -1,36 +1,52 @@
-# Proper E2E Tests
+# Refactor 88: Intended Behaviour E2E Contract
 
 Date created: 2026-07-02
+Updated: July 3, 2026 — merged the companion implementation plan
+(`proper-e2e-tests.md`, now deleted) into this document. The two files
+described one initiative and had already drifted: the companion still linked
+this plan by its pre-rename number (refactor-93).
 
 Status: planning.
 
-Source of truth:
+Source of truth: [Intended Behaviours](./intended-behaviours.md)
 
-- [Intended Behaviours](./intended-behaviours.md)
-- [Refactor 93: Intended Behaviour E2E Contract](./refactor-93-intended-behaviour-e2e.md)
+Sequencing:
+
+- Run this refactor early. This suite is the safety net for the in-flight
+  82B/83/87 migration work; refactors touching auth, registration, warm
+  sessions, signing lanes, budget, key export, D1/DO state, or wallet iframe
+  routing gate on `test:intended` once it exists.
+- Guard cleanup ([refactor-89-clean-source-guards.md](./refactor-89-clean-source-guards.md))
+  follows this suite, not the other way around: the e2e contract is the
+  replacement coverage that justifies deleting transitional guards. Guard
+  retirement then executes incrementally at Refactor 87 slice exits, with the
+  final sweep at 87 Phase P3.
+- Phases 5-7 below (mocked-fixture audit and deletion, setup cleanup) record
+  their deletions and retired guards in the Refactor 89 ledger.
 
 ## Problem
 
-The current suite has many unit and guard tests, but the failures we keep
-finding manually happen across full lifecycle boundaries:
+The test suite is large, but the regressions keep landing in lifecycle seams:
 
 - registration -> transaction signing
 - wallet unlock -> transaction signing
 - session exhaustion -> step-up auth -> first transaction
 - key export authorization
 
-These paths cross the wallet iframe, IndexedDB, D1 Router API, Durable Objects,
-workers, signing-engine lane selection, budget, and export flows. Tests that
-mock SDK internals do not prove these behaviours.
+Many current tests validate units, guards, or mocked demo surfaces. These
+paths cross the wallet iframe, IndexedDB, D1 Router API, Durable Objects,
+workers, signing-engine lane selection, budget, and export flows — and tests
+that mock SDK internals do not prove them as one system.
 
-## Goal
+The missing gate is a small e2e contract suite that exercises the behaviours
+users actually depend on.
 
-Create one small e2e contract suite that runs real local infrastructure and
-proves the behaviours in `docs/intended-behaviours.md`.
+## Rule
 
-This suite should be the default gate before merging refactors that touch auth,
-registration, unlock, signing lanes, worker material, budget, key export,
-Router API, D1/DO state, or wallet iframe routing.
+Do not add more broad unit coverage for these behaviours. Add one small e2e
+contract suite and keep it mandatory for refactors touching auth, registration,
+warm sessions, signing lanes, budget, key export, D1/DO state, or wallet iframe
+routing.
 
 ## Non-Goals
 
@@ -44,7 +60,7 @@ Router API, D1/DO state, or wallet iframe routing.
 
 ## Real Components Under Test
 
-The e2e suite must run:
+The e2e suite must run real SDK/runtime code:
 
 - `pnpm router` local Router A/B workers and D1 backend
 - `pnpm site` local app and wallet origins
@@ -63,80 +79,35 @@ Stub only network edges outside our system:
 - Tempo RPC responses
 - Arc/EVM RPC responses
 
-## Test Command
+Do not mock SDK internals, signing-engine lane selection, budget coordinator,
+wallet iframe messages, worker material persistence, or Router API responses.
 
-Add:
+## Minimal Contract Matrix
 
-```json
-"test:intended": "pnpm -C tests test:intended"
-```
+Keep this suite small. The E2E contract is four lifecycle specs total. Each spec
+must exercise real Ed25519 and ECDSA behaviour, but step-up and export assertions
+belong inside these lifecycle specs rather than separate test files.
 
-Add in `tests/package.json`:
+| Flow | Required checks |
+| --- | --- |
+| Passkey registration lifecycle | registration succeeds; NEAR, Tempo, and Arc/EVM sign without another prompt while budget remains; budget decreases correctly; Ed25519 and ECDSA export require fresh export authorization and succeed |
+| Passkey unlock lifecycle | unlock warms NEAR and configured ECDSA targets; NEAR, Tempo, and Arc/EVM sign without another prompt while budget remains; after budget exhaustion, step-up uses passkey and the first post-step-up NEAR and ECDSA transaction succeeds |
+| Email OTP registration lifecycle | registration sends one OTP; wallet-name reroll does not send another OTP; NEAR, Tempo, and Arc/EVM sign without another OTP while budget remains; Ed25519 and ECDSA export require fresh export OTP and succeed |
+| Email OTP unlock lifecycle | unlock sends one wallet-unlock OTP; unlock warms NEAR and configured ECDSA targets; NEAR, Tempo, and Arc/EVM sign without another OTP while budget remains; after budget exhaustion, step-up uses Email OTP and the first post-step-up NEAR and ECDSA transaction succeeds |
 
-```json
-"test:intended": "playwright test -c playwright.intended.config.ts --reporter=line"
-```
+Cross-row assertions:
 
-Local developer mode:
+- Passkey flows never call Email OTP verification.
+- Email OTP flows never call WebAuthn/passkey PRF or passkey sealed restore.
+- Registration and default unlock produce equivalent lane inventory for the same
+  wallet, auth method, and configured chains.
+- ECDSA checks are chain-target exact for Tempo and Arc/EVM.
+- `budget_unknown` must fail the test. It is not an acceptable intermediate
+  state in a successful signing path.
+- The first transaction after step-up must succeed. A failure followed by a
+  successful retry is a test failure.
 
-```sh
-pnpm router
-pnpm site
-pnpm test:intended
-```
-
-CI mode can start services in Playwright `webServer` once the local developer
-mode is stable.
-
-## Files To Add
-
-```text
-tests/playwright.intended.config.ts
-tests/e2e/intended-behaviours/
-  harness.ts
-  passkey.registration.contract.test.ts
-  passkey.unlock.contract.test.ts
-  email-otp.registration.contract.test.ts
-  email-otp.unlock.contract.test.ts
-```
-
-Keep the suite intentionally small. Four contract files are enough because each
-file should exercise Ed25519, ECDSA, step-up, and key export for one lifecycle
-entry point.
-
-## Harness Design
-
-Use a single harness that:
-
-- opens the local site at the real app origin
-- configures local Router API, wallet origin, environment ID, and publishable key
-- resets browser storage for each test
-- creates a unique wallet ID per test
-- uses Playwright's virtual WebAuthn authenticator for passkey flows
-- provides deterministic Google identity and Email OTP test responses
-- intercepts only external chain RPC/faucet calls
-- records lifecycle events from app console, SDK events, and network requests
-- fails on any console/network error matching known lifecycle failure strings
-
-The harness must expose high-level actions only:
-
-```ts
-registerPasskeyWallet()
-registerEmailOtpWallet()
-unlockPasskeyWallet()
-unlockEmailOtpWallet()
-signNearTransaction()
-signTempoTransaction()
-signArcEvmTransaction()
-exhaustSigningBudget()
-exportEd25519Key()
-exportEcdsaKey()
-```
-
-Each action should drive the public SDK/UI flow. It must not call private
-signing-engine helpers.
-
-## Contract Matrix
+## Detailed Contract Specs
 
 ### Passkey Registration
 
@@ -243,6 +214,80 @@ Every test should fail on:
 - missing chain target in ECDSA budget, readiness, or persistence
 - key export succeeding without fresh export authorization
 
+## Test Command And Layout
+
+Add a dedicated directory and config:
+
+```text
+tests/playwright.intended.config.ts
+tests/e2e/intended-behaviours/
+  harness.ts
+  passkey.registration.contract.test.ts
+  passkey.unlock.contract.test.ts
+  email-otp.registration.contract.test.ts
+  email-otp.unlock.contract.test.ts
+```
+
+Add one command at the repo root:
+
+```json
+"test:intended": "pnpm -C tests test:intended"
+```
+
+Add in `tests/package.json`:
+
+```json
+"test:intended": "playwright test -c playwright.intended.config.ts --reporter=line"
+```
+
+Local developer mode:
+
+```sh
+pnpm router
+pnpm site
+pnpm test:intended
+```
+
+The tests should be optimized for local refactor use:
+
+- assume `pnpm router` and `pnpm site` can already be running during local
+  debugging
+- provide one CI mode that starts the required local services
+- fail fast on the first contract violation
+- emit a compact lifecycle trace on failure
+
+## Harness Design
+
+Use a single harness that:
+
+- opens the local site at the real app origin
+- configures local Router API, wallet origin, environment ID, and publishable key
+- resets browser storage for each test
+- creates a unique wallet ID per test
+- uses Playwright's virtual WebAuthn authenticator for passkey flows
+- provides deterministic Google identity and Email OTP test responses
+- intercepts only external chain RPC/faucet calls
+- records lifecycle events from app console, SDK events, and network requests
+- fails on any console/network error matching known lifecycle failure strings
+
+The harness must expose high-level actions only:
+
+```ts
+registerPasskeyWallet()
+registerEmailOtpWallet()
+unlockPasskeyWallet()
+unlockEmailOtpWallet()
+signNearTransaction()
+signTempoTransaction()
+signArcEvmTransaction()
+exhaustSigningBudget()
+exportEd25519Key()
+exportEcdsaKey()
+```
+
+Each action should drive the public SDK/UI flow. It must not call private
+signing-engine helpers.
+
 ## Service Startup
 
 Phase 1 should assume services are already running, because that is the fastest
@@ -254,7 +299,7 @@ pnpm site
 pnpm test:intended
 ```
 
-Phase 2 can add CI-managed startup:
+Phase 4 can add CI-managed startup:
 
 - reset local D1 state
 - run local D1 migrations
@@ -353,7 +398,8 @@ Classify each test as one of:
 - Delete mocked e2e/unit tests covered by `test:intended`.
 - Delete fixture helpers that only feed those tests.
 - Delete stale snapshots, source guards, and allowlists that preserve old runtime
-  shapes.
+  shapes. Record retired guards in
+  [refactor-89-clean-source-guards.md](./refactor-89-clean-source-guards.md).
 - Stop updating mocked runtime fixtures during refactors. If a runtime-shape
   change breaks one of these tests, use that as a signal to delete the test once
   `test:intended` covers the behaviour.
@@ -398,8 +444,8 @@ Concrete cleanup targets:
 - Stop using `tests/setup/test-utils.ts` from intended e2e tests.
 - Delete `tests/scripts/test-router-api-server.mjs` once no current test needs
   the fake AuthService server.
-- Delete `tests/relayer/helpers.ts` fake AuthService helpers once Phase 11/12
-  D1 adapter cleanup is complete.
+- Delete `tests/relayer/helpers.ts` fake AuthService helpers once Refactor 82
+  Phase 11/12 D1 adapter cleanup is complete.
 - Add a small guard that fails if `tests/e2e/intended-behaviours/**` imports
   mocked setup helpers or calls known mock installers.
 
@@ -416,9 +462,12 @@ test:intended
 ## Exit Criteria
 
 - `pnpm test:intended` fails for the regressions we have been finding manually.
+- A refactor that breaks any listed intended behaviour fails `test:intended`.
 - Refactors touching auth/session/signing/export must run `pnpm test:intended`.
-- Manual testing becomes a UX check, not the first place we discover lifecycle
+- Manual testing is used for UX polish, not for discovering lifecycle contract
   regressions.
+- The suite stays at four lifecycle specs unless a new auth factor or signer
+  family adds a user-visible lifecycle that these specs cannot cover.
 - Mocked runtime fixture tests no longer block runtime refactors.
 - Intended e2e tests have one setup entrypoint and cannot import mocked setup
   helpers.
