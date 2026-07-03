@@ -77,7 +77,7 @@ const passkeyAuth = {
   rpId,
   credentialIdB64u: passkeyCredentialIdB64u,
 } as const;
-const emailOtpEmailHashHex = 'email-hash-restorable';
+const emailOtpEmailHashHex = '33'.repeat(32);
 const emailOtpAuth = {
   kind: 'email_otp',
   providerSubjectId: 'google:restorable',
@@ -602,9 +602,32 @@ test.describe('ECDSA restorable lane selection', () => {
       retention: 'single_use',
       remainingUses: 1,
     });
+    const resolverJwt = 'jwt:record-backed-email-otp-authority';
+    let resolverCalls = 0;
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,
+      resolveEmailOtpEcdsaSigningSessionAuthority: ({ lane, chain }) => {
+        resolverCalls += 1;
+        expect(chain).toBe('evm');
+        return {
+          authLane: {
+            kind: 'signing_session',
+            jwt: resolverJwt,
+            thresholdSessionId: lane.thresholdSessionId,
+            authorizingSigningGrantId: toAuthorizingSigningGrantId(lane.signingGrantId),
+            curve: 'ecdsa',
+            chainTarget: lane.signer.chainTarget,
+          },
+          authority: buildEmailOtpWalletAuthAuthority({
+            walletId: lane.signer.walletId,
+            provider: 'google',
+            providerUserId:
+              lane.auth.kind === 'email_otp' ? lane.auth.providerSubjectId : 'google:invalid',
+            emailHashHex: emailOtpEmailHashHex,
+          }),
+        };
+      },
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -626,6 +649,9 @@ test.describe('ECDSA restorable lane selection', () => {
       'single_use',
     );
     expect(selection.material.record.remainingUses).toBe(1);
+    expect(resolverCalls).toBe(1);
+    expect(selection.committedLane.source).toBe('record_backed');
+    expect(selection.committedLane.authLane.jwt).toBe(resolverJwt);
   });
 
   test('rejects Email OTP source material for direct EVM lanes when exact lookup is unavailable', async () => {

@@ -983,6 +983,7 @@ async function resolveEmailOtpAuthorityForSelection(args: {
   candidate: EcdsaLaneCandidate;
   record: ThresholdEcdsaSessionRecord | null;
 }): Promise<EmailOtpSelectionAuthority | null> {
+  const exactLane = exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane);
   if (args.record) {
     if (args.record.source !== SIGNER_AUTH_METHODS.emailOtp) {
       logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for source', {
@@ -991,21 +992,12 @@ async function resolveEmailOtpAuthorityForSelection(args: {
       });
       return null;
     }
-    const recordAuthLane = resolveEmailOtpEcdsaAuthLaneFromRecord(args.record);
-    if (recordAuthLane.kind !== 'ready') {
-      logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for authority', {
-        rejection: recordAuthLane,
-        lane: summarizeEvmFamilyEcdsaLane(args.lane),
-        record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
-      });
-      return null;
-    }
-    const laneAuthority = buildEmailOtpEcdsaSigningSessionAuthority({
-      authority: args.record.emailOtpAuthContext.authority,
-      authLane: recordAuthLane.authLane,
+    const laneAuthority = await args.deps.resolveEmailOtpEcdsaSigningSessionAuthority({
+      lane: exactLane,
+      chain: args.lane.chainTarget.kind,
     });
     if (!laneAuthority) {
-      logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for auth-lane shape', {
+      logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for authority', {
         lane: summarizeEvmFamilyEcdsaLane(args.lane),
         record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
       });
@@ -1021,7 +1013,7 @@ async function resolveEmailOtpAuthorityForSelection(args: {
     lane: summarizeEvmFamilyEcdsaLane(args.lane),
   });
   const laneAuthority = await args.deps.resolveEmailOtpEcdsaSigningSessionAuthority({
-    lane: exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane),
+    lane: exactLane,
     chain: args.lane.chainTarget.kind,
   });
   if (laneAuthority) {

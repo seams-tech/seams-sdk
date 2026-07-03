@@ -1276,6 +1276,9 @@ Tracking:
     of passing a naked record-derived auth lane forward. The old
     `emailOtpEcdsaAuthLaneFromRecord` convenience wrapper is deleted; boundary
     code must consume the structured resolution result.
+  - Partial July 3 EVM-family selection slice complete: normal Email OTP ECDSA
+    selection keeps exact runtime records only as material/restore metadata and
+    obtains signing-session authority through the injected authority resolver.
 - [ ] Delete durable sealed records as authority inputs.
   - Partial July 3 slice complete: sealed Email OTP ECDSA recovery metadata is
     normalized at the sealed-session boundary into
@@ -1364,6 +1367,9 @@ Tracking:
   - Partial July 3 warm authority missing-JWT slice complete: a matching warm
     Email OTP ECDSA lane with no record-owned Wallet Session JWT no longer
     resolves to signing-session authority.
+  - Partial July 3 EVM-family exact-record selection slice complete:
+    record-backed Email OTP ECDSA selection no longer builds its
+    wallet-session authority directly from the runtime record.
   - Partial July 3 Ed25519 login route-plan slice complete: core Email OTP
     Ed25519 fresh login now follows the same rule. Raw unlock auth is accepted
     only by the `emailOtpPublic` facade and converted into `EmailOtpRoutePlan`
