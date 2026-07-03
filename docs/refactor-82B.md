@@ -1544,10 +1544,10 @@ July 3 review follow-ups (Decided Simplification 4, gated on 87 F2):
     authority.
   - Identity-only consumers: none of the current `authority.rpId` reads. Pure
     identity consumers must use `AuthFactorIdentity`.
-- [ ] Restructure `WalletAuthAuthority` into the wallet-bound
-      factor/verifier shape and add `AuthFactorIdentity`, in one cut with the
-      87 F2 vocabulary landing and the digest recomputation; delete local dev
-      state rather than writing digest compatibility readers.
+- [x] Restructure `WalletAuthAuthority` into the wallet-bound
+      factor/verifier shape and add `AuthFactorIdentity`; 87 F2 owns any
+      follow-up vocabulary alignment, while 82B owns the bound authority shape,
+      digest preimage, and strict parser behavior.
   - Partial July 3 slice complete: the Passkey branch is now wallet-bound
     (`walletId` + `factor` + `verifier.rpId` + `bindingId`), flat Passkey
     authorities are rejected by the shared parser, and SDK Passkey Ed25519
