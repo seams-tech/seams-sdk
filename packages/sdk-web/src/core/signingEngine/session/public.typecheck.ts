@@ -150,7 +150,6 @@ void invalidEmailOtpEd25519AuthorityScopeWithProofKind;
 void invalidEmailOtpEd25519AuthorityScopeWithGoogleRegistrationIds;
 
 const passkeyEd25519PolicyParams: BuildPasskeyEd25519SessionPolicyParams = {
-  walletId,
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'ed25519ks_alice',
   relayerKeyId: 'router-key-1',
@@ -159,8 +158,14 @@ const passkeyEd25519PolicyParams: BuildPasskeyEd25519SessionPolicyParams = {
 };
 void passkeyEd25519PolicyParams;
 
-const invalidPasskeyEd25519PolicyParamsWithRpId: BuildPasskeyEd25519SessionPolicyParams = {
+const invalidPasskeyEd25519PolicyParamsWithWalletId: BuildPasskeyEd25519SessionPolicyParams = {
+  ...passkeyEd25519PolicyParams,
+  // @ts-expect-error Ed25519 policy builders derive wallet identity from bound authority.
   walletId,
+};
+void invalidPasskeyEd25519PolicyParamsWithWalletId;
+
+const invalidPasskeyEd25519PolicyParamsWithRpId: BuildPasskeyEd25519SessionPolicyParams = {
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'ed25519ks_alice',
   relayerKeyId: 'router-key-1',
@@ -180,7 +185,6 @@ const invalidPasskeyEd25519PolicyParamsWithAuthorityScope: BuildPasskeyEd25519Se
 void invalidPasskeyEd25519PolicyParamsWithAuthorityScope;
 
 const emailOtpEd25519PolicyParams: BuildEmailOtpEd25519SessionPolicyParams = {
-  walletId,
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'ed25519ks_alice',
   relayerKeyId: 'router-key-1',

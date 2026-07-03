@@ -109,7 +109,6 @@ export async function connectEd25519Session(args: {
   const runtimePolicyScope = args.runtimePolicyScope || appSessionRuntimePolicyScope;
 
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
-    walletId: args.walletId,
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     authority: args.authority,

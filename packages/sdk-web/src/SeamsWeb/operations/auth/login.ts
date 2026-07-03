@@ -1439,7 +1439,6 @@ async function unlockInternal(
             warmupInput.ed25519SessionAuthority,
           );
           const plannedEd25519Policy = await buildEd25519SessionPolicy({
-            walletId: String(walletBinding.walletId),
             nearAccountId,
             nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
             authority: passkeyAuthority.authority,

@@ -159,7 +159,6 @@ type Ed25519SessionPolicyBuildResult = Promise<{
 }>;
 
 type Ed25519SessionPolicyBaseParams = {
-  walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   relayerKeyId: string;
@@ -270,7 +269,6 @@ export async function computeEcdsaSessionPolicyDigest32(
 }
 
 export async function buildEd25519SessionPolicy(params: {
-  walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   authority: Ed25519SessionPolicyAuthority;
@@ -284,7 +282,6 @@ export async function buildEd25519SessionPolicy(params: {
   remainingUses?: number;
 }): Ed25519SessionPolicyBuildResult {
   return buildExactEd25519SessionPolicy({
-    walletId: params.walletId,
     nearAccountId: params.nearAccountId,
     nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
     authority: params.authority.authority,
@@ -303,7 +300,6 @@ export async function buildPasskeyEd25519SessionPolicy(
   params: BuildPasskeyEd25519SessionPolicyParams,
 ): Ed25519SessionPolicyBuildResult {
   return buildExactEd25519SessionPolicy({
-    walletId: params.walletId,
     nearAccountId: params.nearAccountId,
     nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
     authority: params.authority,
@@ -322,7 +318,6 @@ export async function buildEmailOtpEd25519SessionPolicy(
   params: BuildEmailOtpEd25519SessionPolicyParams,
 ): Ed25519SessionPolicyBuildResult {
   return buildExactEd25519SessionPolicy({
-    walletId: params.walletId,
     nearAccountId: params.nearAccountId,
     nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
     authority: params.authority,
@@ -337,20 +332,6 @@ export async function buildEmailOtpEd25519SessionPolicy(
   });
 }
 
-function assertEd25519SessionPolicyAuthorityWallet(args: {
-  walletId: string;
-  authority: WalletAuthAuthority;
-}): void {
-  const walletId = String(args.walletId || '').trim();
-  const authorityWalletId = String(args.authority.walletId || '').trim();
-  if (!walletId) {
-    throw new Error('[threshold-ed25519] walletId is required');
-  }
-  if (authorityWalletId !== walletId) {
-    throw new Error('[threshold-ed25519] authority.walletId must match walletId');
-  }
-}
-
 async function buildExactEd25519SessionPolicy(
   params: BuildExactEd25519SessionPolicyParams,
 ): Ed25519SessionPolicyBuildResult {
@@ -362,10 +343,6 @@ async function buildExactEd25519SessionPolicy(
   });
   const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
-  assertEd25519SessionPolicyAuthorityWallet({
-    walletId: params.walletId,
-    authority: params.authority,
-  });
   const policy: Ed25519SessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     nearAccountId: params.nearAccountId,

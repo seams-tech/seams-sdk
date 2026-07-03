@@ -1079,7 +1079,6 @@ function buildNearPasskeyEd25519Reconnect(args: {
         credentialIdB64u: passkeyCredentialIdB64u,
       });
       const { policy, sessionPolicyDigest32 } = await buildPasskeyEd25519SessionPolicy({
-        walletId: String(thresholdSessionRecord.walletId),
         nearAccountId: args.commandSubject.nearAccount.accountId,
         nearEd25519SigningKeyId: String(thresholdSessionRecord.nearEd25519SigningKeyId),
         authority,

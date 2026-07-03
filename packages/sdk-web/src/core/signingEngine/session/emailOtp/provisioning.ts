@@ -252,7 +252,6 @@ export async function reconstructEmailOtpEd25519Session(args: {
     workerCtx,
   });
   const { policy } = await buildEd25519SessionPolicy({
-    walletId: String(walletId),
     nearAccountId,
     nearEd25519SigningKeyId,
     authority: { kind: 'wallet_auth_authority', authority: input.emailOtpAuthContext.authority },

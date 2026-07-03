@@ -8,7 +8,10 @@ import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/wall
 import { base58Encode } from '@shared/utils/encoders';
 import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   createThresholdSigningServiceForUnitTests,
   deriveThresholdEd25519VerifyingShareForUnitTests,
@@ -26,6 +29,18 @@ function passkeyPolicyAuthority(walletId: string, rpId: string, credentialIdB64u
   } as const;
 }
 
+function emailOtpPolicyAuthority(input: {
+  walletId: string;
+  provider: 'google' | 'email';
+  providerUserId: string;
+  emailHashHex: string;
+}) {
+  return {
+    kind: 'wallet_auth_authority',
+    authority: buildEmailOtpWalletAuthAuthority(input),
+  } as const;
+}
+
 test('threshold-ed25519 passkey session mint verifies the client runtime-scoped policy digest', async () => {
   const nearAccountId = 'alice.testnet';
   const rpId = 'localhost';
@@ -36,7 +51,6 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
     signingShareB64u: relayerSigningShareB64u,
   });
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
-    walletId: nearAccountId,
     nearAccountId,
     nearEd25519SigningKeyId: nearAccountId,
     authority: passkeyPolicyAuthority(nearAccountId, rpId, 'cred-runtime-scope'),
@@ -117,7 +131,6 @@ test('threshold-ed25519 passkey session mint does not require access-key reads f
     signingShareB64u: relayerSigningShareB64u,
   });
   const { policy } = await buildEd25519SessionPolicy({
-    walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
     authority: passkeyPolicyAuthority(walletId, rpId, 'cred-implicit-session'),
@@ -190,10 +203,14 @@ test('threshold-ed25519 registration session mint accepts Email OTP authority', 
     providerUserId: 'google:alice@example.test',
   } as const satisfies Extract<Ed25519AuthorityScope, { kind: 'email_otp' }>;
   const { policy } = await buildEd25519SessionPolicy({
-    walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
-    authority: { kind: 'exact_authority_scope', authorityScope },
+    authority: emailOtpPolicyAuthority({
+      walletId,
+      provider: authorityScope.provider,
+      providerUserId: authorityScope.providerUserId,
+      emailHashHex: 'email-otp-registration-email-hash',
+    }),
     relayerKeyId,
     thresholdSessionId: 'tsess-email-otp-registration',
     signingGrantId: 'wsess-email-otp-registration',
@@ -261,7 +278,6 @@ test('threshold-ed25519 passkey session mint creates wallet budgets per signing 
 
   async function mintSession(sessionId: string, signingGrantId: string, remainingUses: number) {
     const { policy } = await buildEd25519SessionPolicy({
-      walletId: nearAccountId,
       nearAccountId,
       nearEd25519SigningKeyId: nearAccountId,
       authority: passkeyPolicyAuthority(nearAccountId, rpId, `cred-${sessionId}`),

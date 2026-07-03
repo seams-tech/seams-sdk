@@ -881,6 +881,7 @@ function parseThresholdEd25519SessionRequest(
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  authority: Ed25519SessionPolicy['authority'];
   authorityScope: ThresholdEd25519AuthorityScope;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -1076,6 +1077,7 @@ function parseThresholdEd25519SessionRequest(
       walletId,
       nearAccountId,
       nearEd25519SigningKeyId,
+      authority,
       authorityScope,
       thresholdSessionId,
       signingGrantId,
@@ -3485,6 +3487,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
+        authority,
         authorityScope,
         relayerKeyId,
         keyVersion,
@@ -4693,6 +4696,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
+        authority,
         authorityScope,
         thresholdSessionId,
         signingGrantId,
@@ -4709,6 +4713,7 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
+        authorityKind: authority.factor.kind,
         authorityScope,
         relayerKeyId,
         thresholdSessionId,
@@ -4776,10 +4781,9 @@ export class ThresholdSigningService {
       const participantIds = policyParticipantIds || [...this.participantIds2p];
       const normalizedPolicy = {
         version: 'threshold_session_v1',
-        walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
-        authorityScope,
+        authority,
         relayerKeyId,
         thresholdSessionId,
         signingGrantId,
