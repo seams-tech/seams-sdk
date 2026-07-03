@@ -511,6 +511,56 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     expect(rejections).toEqual(['missing_restore_metadata']);
   });
 
+  test('rejects stale sealed-record identity aliases before restore', async () => {
+    const rejections: string[] = [];
+    const ed25519Record = makeSealedRecord({ curve: 'ed25519' });
+
+    const result = await restorePersistedSessionForSigningCommand(
+      ed25519RestoreInput(),
+      {
+        listExactSealedSessionsForWallet: async () => [
+          {
+            ...ed25519Record,
+            ed25519Restore: {
+              ...ed25519Record.ed25519Restore!,
+              authSubjectId: 'legacy-auth-subject',
+            },
+          },
+        ],
+        restoreSealedRecordForWallet: async () => 'restored',
+        onRejectedRecord: ({ rejection }) => {
+          rejections.push(rejection.reason);
+        },
+      },
+    );
+
+    expect(result).toEqual({ kind: 'completed', attempted: 0, restored: 0, deferred: 0 });
+    expect(rejections).toEqual(['invalid_identity']);
+  });
+
+  test('rejects stale ECDSA sealed-record signing-root siblings before restore', async () => {
+    const rejections: string[] = [];
+
+    const result = await restorePersistedSessionForSigningCommand(
+      ecdsaRestoreInput(),
+      {
+        listExactSealedSessionsForWallet: async () => [
+          {
+            ...makeSealedRecord({ curve: 'ecdsa' }),
+            signingRootId: 'legacy-root',
+          },
+        ],
+        restoreSealedRecordForWallet: async () => 'restored',
+        onRejectedRecord: ({ rejection }) => {
+          rejections.push(rejection.reason);
+        },
+      },
+    );
+
+    expect(result).toEqual({ kind: 'completed', attempted: 0, restored: 0, deferred: 0 });
+    expect(rejections).toEqual(['invalid_identity']);
+  });
+
   test('restores exhausted passkey exact-purpose sealed records for step-up reconnect', async () => {
     let restoreCalls = 0;
 

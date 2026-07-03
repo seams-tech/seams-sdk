@@ -2052,6 +2052,10 @@ Tracking:
   - Partial July 3 sealed-policy slice complete: `updateExactSealedSessionPolicy`
     now requires explicit `updatedAtMs`, so policy updates cannot synthesize
     lifecycle time inside the sealed-session store.
+  - Partial July 3 sealed parser strictness coverage complete:
+    `signingSessionRestoreCoordinator.unit.test.ts` now proves stale Ed25519
+    `authSubjectId` aliases and ECDSA top-level signing-root siblings are
+    rejected at the sealed-record boundary before restore is attempted.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.
@@ -2194,6 +2198,8 @@ Tracking:
       requests reject client-sent server finalize output and current
       orchestration fixtures carry canonical ECDSA key-slot and Ed25519
       material-state data.
+- [x] Add focused sealed parser coverage proving stale Ed25519 `authSubjectId`
+      and ECDSA top-level signing-root aliases are rejected before restore.
 - [ ] Add runtime coverage for Passkey registration, unlock, sign, and export.
 - [ ] Add runtime coverage for Google SSO Email OTP registration, unlock, sign,
       and export.
