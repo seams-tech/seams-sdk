@@ -464,8 +464,10 @@ test.describe('Email OTP operation split guard', () => {
     expect(signNear).not.toContain('resolveRecordBackedEmailOtpEd25519SigningCommittedLane');
     expect(ed25519Warmup).not.toContain("kind: 'email_otp_ed25519_signing_committed_lane'");
     expect(ed25519Warmup).not.toContain('RecordBackedEmailOtpEd25519SigningCommittedLane');
-    expect(signNear).toContain('activeCommittedLane');
+    expect(signNear).toContain('committedLane: Ed25519SigningLane');
+    expect(signNear).toContain('walletSessionJwtForPreparedNearExecution');
     expect(signNear).toContain('committedLane,');
+    expect(signNear).not.toContain('walletSessionJwtFromPersistedEd25519Record(thresholdSessionRecord)');
     expect(signNear).not.toContain('authLane: committedLane.authLane');
     expect(nearPort).toContain('committedLane,');
     expect(nearPort).not.toContain('authLane: committedLane.authLane');
@@ -592,6 +594,13 @@ test.describe('Email OTP operation split guard', () => {
         readySelectionStart,
       ),
     );
+    const committedLaneTypeStart = ecdsaSelection.indexOf(
+      'export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority>',
+    );
+    const committedLaneType = ecdsaSelection.slice(
+      committedLaneTypeStart,
+      ecdsaSelection.indexOf('export type EmailOtpEcdsaCommittedLane', committedLaneTypeStart),
+    );
 
     expect(ecdsaSelection).toContain(
       'export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority>',
@@ -600,6 +609,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(ecdsaSelection).toContain('A extends EmailOtpWalletAuthAuthority');
     expect(ecdsaSelection).not.toContain("kind: 'passkey_ecdsa_committed_lane'");
     expect(ecdsaSelection).not.toContain("kind: 'email_otp_ecdsa_committed_lane'");
+    expect(committedLaneType).not.toContain('walletId:');
     expect(ecdsaSelection).not.toContain('function passkeyAuthorityFromCandidate');
     expect(ecdsaSelection).toContain('function passkeyAuthorityFromRecord');
     expect(ecdsaSelection).toContain(

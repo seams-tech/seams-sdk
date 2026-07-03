@@ -297,6 +297,7 @@ type NearTransactionConfirmedSigningDeps = {
 };
 
 type NearEd25519EmailOtpSigning = {
+  committedLane: Ed25519SigningLane;
   prepare: (args: { requiredSignatureUses: number }) => Promise<{
     challengeId: string;
     emailHint?: string;
@@ -817,8 +818,12 @@ async function resolveNearTransactionWalletAuth(args: {
   }
 
   let activeChallenge: { challengeId: string; email?: string } | null = null;
-  let activeCommittedLane: Ed25519SigningLane | null = null;
   let activeEmailOtpRequiredSignatureUses = 1;
+  const committedLane = resolveEd25519SigningLane({
+    confirmedDeps: args.confirmedDeps,
+    lane: preparedOperation.metadata.transactionLane,
+    record,
+  });
   const prepareEmailOtpChallenge = async (prepareArgs: { requiredSignatureUses: number }) => {
     activeEmailOtpRequiredSignatureUses = Math.max(
       1,
@@ -842,12 +847,6 @@ async function resolveNearTransactionWalletAuth(args: {
         phase: 'confirmed',
       }),
     );
-    const committedLane = resolveEd25519SigningLane({
-      confirmedDeps: args.confirmedDeps,
-      lane: preparedOperation.metadata.transactionLane,
-      record,
-    });
-    activeCommittedLane = committedLane;
     const challenge = await args.confirmedDeps.requestEmailOtpTransactionSigningChallenge({
       walletSession: args.commandSubject.walletSession,
       nearAccountId,
@@ -878,6 +877,7 @@ async function resolveNearTransactionWalletAuth(args: {
     signingAuthPlan,
     signingLane: lane,
     emailOtpSigning: {
+      committedLane,
       prepare: prepareEmailOtpChallenge,
       resend: prepareEmailOtpChallenge,
       complete: async (authorization: NearEd25519EmailOtpStepUpAuthorization) => {
@@ -897,13 +897,6 @@ async function resolveNearTransactionWalletAuth(args: {
           operationId: args.operationId,
           requiredSignatureUses: activeEmailOtpRequiredSignatureUses,
         });
-        const committedLane =
-          activeCommittedLane ||
-          resolveEd25519SigningLane({
-            confirmedDeps: args.confirmedDeps,
-            lane: preparedOperation.metadata.transactionLane,
-            record,
-          });
         const emailOtpAuthentication =
           await args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning({
             nearAccountId,
@@ -927,6 +920,20 @@ async function resolveNearTransactionWalletAuth(args: {
       },
     },
   };
+}
+
+function walletSessionJwtForPreparedNearExecution(args: {
+  record: ThresholdEd25519SessionRecord | null | undefined;
+  emailOtpSigning: NearEd25519EmailOtpSigning | null;
+}): string {
+  const record = args.record;
+  if (!record) return '';
+  if (record.source === 'email_otp') {
+    return String(
+      args.emailOtpSigning?.committedLane.walletSessionAuthority.walletSessionJwt || '',
+    ).trim();
+  }
+  return walletSessionJwtFromPersistedEd25519Record(record);
 }
 
 function resolvePreparedSigningRequestSessionId(args: {
@@ -1724,7 +1731,10 @@ export async function signTransactionWithActions(
           signingSessionCoordinator,
           passkeyEd25519Reconnect: passkeyEd25519Reconnect || null,
         });
-        const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(thresholdSessionRecord);
+        const walletSessionJwt = walletSessionJwtForPreparedNearExecution({
+          record: thresholdSessionRecord,
+          emailOtpSigning: executionState.emailOtpSigning,
+        });
         if (!walletSessionJwt) {
           throw new Error(
             '[SigningEngine][near] prepared Ed25519 session is missing Wallet Session bearer JWT',

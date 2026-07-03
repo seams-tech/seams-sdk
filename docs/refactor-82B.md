@@ -1261,6 +1261,10 @@ Tracking:
     lane through signing and port assembly; only the final Email OTP session
     adapter extracts `committedLane.authLane`. The old
     `emailOtpEd25519AuthLaneFromRecord` fallback is deleted.
+  - Partial July 3 NEAR execution-boundary slice complete: Email OTP NEAR
+    transaction execution reads the Wallet Session bearer JWT from
+    `Ed25519SigningLane.walletSessionAuthority`, not from the persisted
+    Ed25519 session record.
   - Partial July 3 Email OTP ECDSA signing-session slice complete: the public
     transaction challenge/refresh boundary now resolves a full
     `EmailOtpEcdsaSigningSessionAuthority` (`authLane` + bound authority) from
@@ -1305,6 +1309,10 @@ Tracking:
     wallet-session authority through the Ed25519 committed-authority resolver
     instead of probing the record for a naked wallet-session JWT auth lane, and
     challenge issuance receives a committed lane until the adapter boundary.
+  - Partial July 3 NEAR execution-boundary slice complete: the final NEAR
+    transaction signing boundary now uses the prepared Email OTP committed lane
+    as its wallet-session authority source, so a refreshed or stale persisted
+    record cannot silently replace the authority selected for step-up.
   - Partial July 3 auth-projection slice complete: Email OTP app-session JWT
     and route-auth projection helpers now require a concrete
     `EmailOtpAuthLane`; missing auth is rejected by type fixtures instead of
@@ -1414,11 +1422,11 @@ July 3 review follow-ups (Decided Simplification 1):
 - [x] Update fixtures and source guards to reject reintroduction of
       method-kinded lane types and deleted per-cell record-backed committed-lane
       aliases.
-- [ ] Delete duplicated `walletId` sibling fields from remaining objects that
+- [x] Delete duplicated `walletId` sibling fields from remaining objects that
       carry a bound authority (`EcdsaCommittedLane`, remaining lane/read-model
       projections); the bound authority is the single
-      source of truth. Until then, lane builders validate that the lane
-      `walletId` equals the authority's wallet binding.
+      source of truth. Lane builders validate nested lane/key/candidate wallet
+      facts against the authority binding before committed objects are built.
   - Partial July 3 slice complete: `ActiveWalletSession` no longer carries a
     sibling `walletId`, and shared type fixtures reject adding it back.
   - Partial July 3 authority-ref API slice complete: shared digest/ref builders
@@ -1426,15 +1434,17 @@ July 3 review follow-ups (Decided Simplification 1):
     reject the old sibling helper input.
   - Partial July 3 ECDSA lane slice complete: committed ECDSA lanes now carry
     direct bound authority, and ready/reauth selected-path metadata derives the
-    auth method from `committedLane.authority.factor.kind`. Remaining ECDSA work
-    is deleting duplicated wallet facts where the bound authority is
-    authoritative and narrowing pre-commit candidate identity.
+    auth method from `committedLane.authority.factor.kind`.
   - Partial July 3 validation slice complete: ECDSA committed-lane builders now
     reject mismatches between `committedLane.authority.walletId`,
     `committedLane.lane.key.walletId`, and the selected candidate `walletId`
     before the candidate is discarded at the builder boundary. Source guards
-    keep the assertion in place until the remaining duplicated wallet facts are
-    deleted.
+    keep the assertion in place.
+  - Complete July 3 guard slice: `EcdsaCommittedLane` has no direct sibling
+    `walletId`, shared authority refs/digests derive wallet identity from the
+    bound authority, and type fixtures reject reintroducing duplicate wallet
+    facts on active wallet sessions, authority helpers, and ECDSA committed
+    lanes.
   - July 3 ECDSA candidate-copy slice complete: committed ECDSA lanes no
     longer carry the selected lane candidate as a stored field. Builders still
     validate candidate/authority/lane agreement at the boundary, while

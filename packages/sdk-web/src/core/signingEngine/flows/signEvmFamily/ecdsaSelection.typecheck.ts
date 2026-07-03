@@ -251,6 +251,25 @@ const committedEmailOtpLaneWithCandidateCopy: EmailOtpEcdsaCommittedLane = {
 };
 void committedEmailOtpLaneWithCandidateCopy;
 
+const committedEmailOtpLaneWithWalletIdCopy: EmailOtpEcdsaCommittedLane = {
+  source: 'record_backed',
+  lane: missingHotMaterialSelection.lane,
+  authority: emailOtpAuthority,
+  authLane: emailOtpEcdsaAuthLane,
+  walletSessionAuthority: {
+    kind: 'wallet_session_authority',
+    walletSessionJwt: 'wallet-session-jwt',
+    thresholdSessionId: 'threshold-session-1',
+    signingGrantId: 'signing-grant-1',
+  },
+  material: missingHotMaterialSelection.material,
+  record: emailOtpRecord,
+  durableRestore: 'record_restore_metadata',
+  // @ts-expect-error committed ECDSA lanes derive wallet identity from the bound authority and lane key.
+  walletId: emailOtpAuthority.walletId,
+};
+void committedEmailOtpLaneWithWalletIdCopy;
+
 const committedEmailOtpLaneFromDurableExactAuthOnly: EmailOtpEcdsaCommittedLane = {
   // @ts-expect-error durable exact auth-lane-only state cannot form a committed Email OTP lane.
   source: 'durable_exact_lane',
