@@ -1349,6 +1349,12 @@ Tracking:
     ECDSA signer-row persistence no longer reads the obsolete
     `keyRef.walletSessionJwt` fallback while deriving signer identity from the
     role-local ready record.
+  - Partial July 3 Ed25519 warm-authorization cleanup complete:
+    `parseWarmEd25519SigningSessionAuthorizationFromRecord` now consumes
+    `parseRouterAbEd25519WalletSessionAuthorityFromRecord` instead of reading
+    `record.walletSessionJwt`, `thresholdSessionId`, and `signingGrantId`
+    independently. Focused coverage rejects JWT claims that do not match the
+    Ed25519 record identity.
 - [x] Delete exact lane candidate authority rebuilders.
   - Complete July 3 slice: Passkey ECDSA committed-lane authority is rebuilt
     from the selected session record's role-local auth method, not from the

@@ -3,7 +3,11 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
-import { resolveRouterAbEd25519SigningRootFromRecord } from '../routerAbSigningWalletSession';
+import {
+  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
+  resolveRouterAbEd25519SigningRootFromRecord,
+  type RouterAbEd25519WalletSessionAuthorityFailureReason,
+} from '../routerAbSigningWalletSession';
 
 export type WarmEd25519SigningSessionMaterialState =
   | {
@@ -140,6 +144,42 @@ function warmAuthorizationSigningRootFailureReason(
   }
 }
 
+function warmAuthorizationWalletSessionFailureReason(
+  reason: RouterAbEd25519WalletSessionAuthorityFailureReason,
+): WarmEd25519SigningSessionAuthorizationFailureReason {
+  switch (reason) {
+    case 'missing_record':
+      return 'missing_record';
+    case 'cookie_session':
+    case 'missing_wallet_session_jwt':
+    case 'missing_threshold_session_id':
+    case 'missing_signing_grant_id':
+      return reason;
+    case 'wallet_binding_mismatch':
+      return 'material_identity_invalid';
+  }
+}
+
+function warmAuthorizationWalletSessionFailureDetails(args: {
+  record: ThresholdEd25519SessionRecord;
+  reason: RouterAbEd25519WalletSessionAuthorityFailureReason;
+}): Record<string, unknown> {
+  const thresholdSessionId = nonEmptyString(args.record.thresholdSessionId);
+  switch (args.reason) {
+    case 'cookie_session':
+      return { thresholdSessionKind: args.record.thresholdSessionKind };
+    case 'missing_signing_grant_id':
+    case 'missing_wallet_session_jwt':
+    case 'wallet_binding_mismatch':
+      return thresholdSessionId
+        ? { thresholdSessionId, authorityReason: args.reason }
+        : { authorityReason: args.reason };
+    case 'missing_record':
+    case 'missing_threshold_session_id':
+      return {};
+  }
+}
+
 function activePrfClaimFromStatus(args: {
   status: SigningSessionStatus | null | undefined;
   thresholdSessionId: string;
@@ -217,22 +257,19 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
     };
   }
 
-  if (record.thresholdSessionKind !== 'jwt') {
-    return { ok: false, reason: 'cookie_session', details: { thresholdSessionKind: record.thresholdSessionKind } };
+  const walletSessionAuthority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+  if (!walletSessionAuthority.ok) {
+    return {
+      ok: false,
+      reason: warmAuthorizationWalletSessionFailureReason(walletSessionAuthority.reason),
+      details: warmAuthorizationWalletSessionFailureDetails({
+        record,
+        reason: walletSessionAuthority.reason,
+      }),
+    };
   }
-
-  const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
-  if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id', details: {} };
-
-  const signingGrantId = nonEmptyString(record.signingGrantId);
-  if (!signingGrantId) {
-    return { ok: false, reason: 'missing_signing_grant_id', details: { thresholdSessionId } };
-  }
-
-  const walletSessionJwt = nonEmptyString(record.walletSessionJwt);
-  if (!walletSessionJwt) {
-    return { ok: false, reason: 'missing_wallet_session_jwt', details: { thresholdSessionId } };
-  }
+  const { thresholdSessionId, signingGrantId } = walletSessionAuthority.value;
+  const walletSessionJwt = walletSessionAuthority.value.auth.walletSessionJwt;
 
   if (!record.runtimePolicyScope) {
     return { ok: false, reason: 'missing_runtime_policy_scope', details: { thresholdSessionId } };

@@ -24,6 +24,36 @@ const routerAbNormalSigning = {
   signingWorkerId: 'signing-worker-a',
 } as const;
 
+function base64UrlEncodeJsonFixture(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function buildUnsignedJwtFixture(payload: Record<string, unknown>): string {
+  return `${base64UrlEncodeJsonFixture({ alg: 'none', typ: 'JWT' })}.${base64UrlEncodeJsonFixture(payload)}.fixture`;
+}
+
+function buildRouterAbEd25519WalletSessionJwtFixture(args: {
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  relayerKeyId: string;
+}): string {
+  return buildUnsignedJwtFixture({
+    kind: 'router_ab_ed25519_wallet_session_v1',
+    sub: args.walletId,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId: args.relayerKeyId,
+    rpId: 'localhost',
+    participantIds: [1, 2, 3],
+  });
+}
+
 function activeStatus(overrides: Partial<SigningSessionStatus> = {}): SigningSessionStatus {
   return {
     sessionId: 'threshold-session-1',
@@ -38,7 +68,7 @@ function activeStatus(overrides: Partial<SigningSessionStatus> = {}): SigningSes
 function ed25519Record(
   overrides: Partial<ThresholdEd25519SessionRecord> = {},
 ): ThresholdEd25519SessionRecord {
-  return {
+  const record: ThresholdEd25519SessionRecord = {
     walletId: WALLET_ID,
     nearAccountId: ACCOUNT_ID,
     nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
@@ -53,7 +83,6 @@ function ed25519Record(
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
-    walletSessionJwt: 'wallet-session-jwt',
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
     signerSlot: 1,
@@ -63,6 +92,17 @@ function ed25519Record(
     source: 'login',
     ...overrides,
   };
+  if (!Object.prototype.hasOwnProperty.call(overrides, 'walletSessionJwt')) {
+    record.walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: String(record.walletId),
+      nearAccountId: String(record.nearAccountId),
+      nearEd25519SigningKeyId: String(record.nearEd25519SigningKeyId),
+      thresholdSessionId: String(record.thresholdSessionId),
+      signingGrantId: String(record.signingGrantId),
+      relayerKeyId: String(record.relayerKeyId),
+    });
+  }
+  return record;
 }
 
 test.describe('warm Ed25519 signing session authorization', () => {
@@ -170,6 +210,35 @@ test.describe('warm Ed25519 signing session authorization', () => {
     expect(result).toMatchObject({
       ok: false,
       reason: 'missing_wallet_session_jwt',
+    });
+  });
+
+  test('rejects Wallet Session JWT claims that do not match the Ed25519 record', () => {
+    const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record: ed25519Record({
+        walletSessionJwt: buildRouterAbEd25519WalletSessionJwtFixture({
+          walletId: String(WALLET_ID),
+          nearAccountId: String(ACCOUNT_ID),
+          nearEd25519SigningKeyId: String(ED25519_KEY_SCOPE_ID),
+          thresholdSessionId: 'wrong-threshold-session',
+          signingGrantId: 'signing-grant-1',
+          relayerKeyId: 'near-key-1',
+        }),
+      }),
+      walletId: WALLET_ID,
+      nearAccountId: ACCOUNT_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+      authMethod: 'passkey',
+      signingSessionStatus: activeStatus(),
+      nowMs: 1_800_000_000_000,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'material_identity_invalid',
+      details: {
+        authorityReason: 'wallet_binding_mismatch',
+      },
     });
   });
 
