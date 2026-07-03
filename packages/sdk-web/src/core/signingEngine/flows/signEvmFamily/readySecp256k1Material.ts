@@ -10,6 +10,10 @@ import {
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import {
+  emailOtpAuthContextConsumedAtMs,
+  emailOtpAuthContextRetention,
+} from '../../session/identity/laneIdentity';
+import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   requireRouterAbEcdsaHssSigningWalletSessionFromRecord,
 } from '../../session/routerAbSigningWalletSession';
@@ -57,8 +61,8 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
   }
   if (
     args.record.source === 'email_otp' &&
-    args.record.emailOtpAuthContext?.retention === 'single_use' &&
-    Number(args.record.emailOtpAuthContext.consumedAtMs) > 0
+    emailOtpAuthContextRetention(args.record.emailOtpAuthContext) === 'single_use' &&
+    Number(emailOtpAuthContextConsumedAtMs(args.record.emailOtpAuthContext)) > 0
   ) {
     throw new Error(
       `[SigningEngine] ${requestChain || args.record.chainTarget.kind} signing requires fresh Email OTP verification with per_operation policy`,
@@ -94,6 +98,6 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
     signerSession,
     singleUseEmailOtpSession:
       args.record.source === 'email_otp' &&
-      args.record.emailOtpAuthContext?.retention === 'single_use',
+      emailOtpAuthContextRetention(args.record.emailOtpAuthContext) === 'single_use',
   });
 }

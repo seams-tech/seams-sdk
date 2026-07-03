@@ -6,7 +6,7 @@ use crate::ddh::hidden_eval_executor::{
     compute_message_schedule_completed_digest, compute_output_projection_continuation_digest,
     compute_round_core_completed_digest, DdhHiddenEvalMessageScheduleContinuation,
     DdhHiddenEvalOutputBundles, DdhHiddenEvalProjectorInputs, DdhHiddenEvalRoundCoreContinuation,
-    DdhHiddenEvalServerOutputBundles,
+    DdhHiddenEvalServerInputs, DdhHiddenEvalServerOutputBundles,
 };
 use crate::ddh::{
     DdhHssBackendVersion, DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle,
@@ -165,6 +165,7 @@ pub struct ServerEvalState {
     pub ot_transcript: OtTranscript,
     pub last_request_digest: Option<[u8; 32]>,
     pub server_roots: Option<ServerEvalServerRoots>,
+    pub server_input_bundles: Option<DdhHiddenEvalServerInputs>,
     pub hidden_eval_program: Option<HiddenEvalProgram>,
     pub execution_state: Option<ServerEvalExecutionState>,
 }
@@ -192,9 +193,20 @@ impl ServerEvalState {
             ot_transcript,
             last_request_digest: None,
             server_roots: Some(server_roots),
+            server_input_bundles: None,
             hidden_eval_program: None,
             execution_state: None,
         }
+    }
+
+    pub fn with_role_separated_server_input_bundles(
+        &self,
+        server_input_bundles: DdhHiddenEvalServerInputs,
+    ) -> Self {
+        let mut next = self.clone();
+        next.server_roots = None;
+        next.server_input_bundles = Some(server_input_bundles);
+        next
     }
 
     pub fn with_add_stage_materialization(
@@ -207,6 +219,7 @@ impl ServerEvalState {
     ) -> Self {
         let mut next = self.clone();
         next.server_roots = None;
+        next.server_input_bundles = None;
         next.hidden_eval_program = Some(hidden_eval_program);
         next.execution_state = Some(ServerEvalExecutionState::MessageSchedule(
             ServerEvalMessageScheduleState {
@@ -276,6 +289,10 @@ impl ServerEvalState {
 
     pub fn server_roots(&self) -> Option<&ServerEvalServerRoots> {
         self.server_roots.as_ref()
+    }
+
+    pub fn server_input_bundles(&self) -> Option<&DdhHiddenEvalServerInputs> {
+        self.server_input_bundles.as_ref()
     }
 
     pub fn retains_raw_server_roots(&self) -> bool {

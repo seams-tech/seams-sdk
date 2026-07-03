@@ -4,6 +4,7 @@ import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget'
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
@@ -157,12 +158,15 @@ const validEmailOtpBootstrap = {
   sessionKind: 'jwt',
   sessionIdentity,
   emailOtpWorkerSessionHandle,
-  emailOtpAuthContext: {
-    policy: 'session',
+  emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'session',
     retention: 'session',
     reason: 'sign',
-    authMethod: 'email_otp',
-  },
+    provider: 'google',
+    providerUserId: 'google-subject-1',
+  }),
 } satisfies EcdsaBootstrapRequest;
 
 void validReuseBootstrap;
@@ -279,12 +283,15 @@ const invalidEmailOtpBootstrapWithSubjectId: EcdsaBootstrapRequest = {
   sessionKind: 'jwt',
   sessionIdentity,
   emailOtpWorkerSessionHandle,
-  emailOtpAuthContext: {
-    policy: 'session',
+  emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'session',
     retention: 'session',
     reason: 'sign',
-    authMethod: 'email_otp',
-  },
+    provider: 'google',
+    providerUserId: 'google-subject-1',
+  }),
 };
 void invalidEmailOtpBootstrapWithSubjectId;
 

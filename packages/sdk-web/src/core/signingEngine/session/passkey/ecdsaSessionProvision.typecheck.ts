@@ -4,7 +4,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaWalletKey,
@@ -53,26 +53,34 @@ const walletSessionAuth = {
   relayerKeyId: 'relayer-key-1',
 } satisfies VerifiedEcdsaWalletSessionAuth;
 
-const emailOtpAuthContext = {
-  policy: 'session',
+const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'session',
   retention: 'session',
   reason: 'sign',
-  authMethod: 'email_otp',
-} satisfies ThresholdEcdsaEmailOtpAuthContext;
+  provider: 'google',
+  providerUserId: 'google-subject-1',
+});
 
-const emailOtpSessionAuthContext = {
-  policy: 'session',
+const emailOtpSessionAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'session',
   retention: 'session',
   reason: 'sign',
-  authMethod: 'email_otp',
-} satisfies ThresholdEcdsaEmailOtpAuthContext & { retention: 'session' };
+  provider: 'google',
+  providerUserId: 'google-subject-1',
+});
 
-const emailOtpSingleUseAuthContext = {
-  policy: 'per_operation',
+const emailOtpSingleUseAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'per_operation',
   retention: 'single_use',
-  reason: 'sign',
-  authMethod: 'email_otp',
-} satisfies ThresholdEcdsaEmailOtpAuthContext & { retention: 'single_use' };
+  provider: 'google',
+  providerUserId: 'google-subject-1',
+});
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,

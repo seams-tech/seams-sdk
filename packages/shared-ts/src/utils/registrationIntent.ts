@@ -3,13 +3,21 @@ import type {
   AppSessionVersion,
   ChallengeSubjectId,
   EmailOtpChallengeId,
+  EmailOtpProviderUserId,
   OrgId,
   ProviderSubject,
+  WalletAuthMethodId,
   WalletId,
   WebAuthnRpId,
 } from './domainIds';
-import { parseWalletId, parseWebAuthnRpId } from './domainIds';
+import {
+  parseEmailOtpProviderUserId,
+  parseWalletAuthMethodId,
+  parseWalletId,
+  parseWebAuthnRpId,
+} from './domainIds';
 import { base64UrlEncode } from './encoders';
+import type { EmailOtpProvider } from './walletAuthAuthority';
 import {
   parseNamedNearAccountId,
   type ImplicitNearAccountId,
@@ -267,6 +275,18 @@ export type WalletAuthMethodRecord =
       credentialPublicKeyB64u?: never;
       counter?: never;
     };
+
+export function walletAuthMethodRecordId(record: WalletAuthMethodRecord): WalletAuthMethodId {
+  const raw =
+    record.kind === 'passkey'
+      ? `passkey:${record.rpId}:${record.credentialIdB64u}`
+      : `email_otp:${record.walletId}:${record.emailHashHex}`;
+  const parsed = parseWalletAuthMethodId(raw);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
+}
 
 export type RegistrationNearAccountProvisioning =
   | {
@@ -683,59 +703,51 @@ export type RegistrationEd25519AuthorityScope =
     }
   | {
       kind: 'email_otp';
-      proofKind: 'otp_challenge';
-      email: string;
-      challengeId?: string;
+      provider: EmailOtpProvider;
+      providerUserId: EmailOtpProviderUserId;
+      proofKind?: never;
       rpId?: never;
+      email?: never;
+      challengeId?: never;
       googleEmailOtpRegistrationAttemptId?: never;
       googleEmailOtpRegistrationOfferId?: never;
       googleEmailOtpRegistrationCandidateId?: never;
-    }
-  | {
-      kind: 'email_otp';
-      proofKind: 'google_sso_registration';
-      email: string;
-      googleEmailOtpRegistrationAttemptId: string;
-      googleEmailOtpRegistrationOfferId: string;
-      googleEmailOtpRegistrationCandidateId: string;
-      rpId?: never;
-      challengeId?: never;
     };
 
 export function registrationEd25519AuthorityScope(
-  authMethod: RegistrationAuthMethodInput,
+  authMethod: Extract<RegistrationAuthMethodInput, { kind: 'passkey' }>,
+): Extract<RegistrationEd25519AuthorityScope, { kind: 'passkey' }> {
+  return {
+    kind: 'passkey',
+    rpId: authMethod.rpId,
+  };
+}
+
+function emailOtpProviderUserIdFromRegistrationAuthority(
+  authority: Extract<RegistrationAuthority, { kind: 'email_otp' }>,
+): EmailOtpProviderUserId {
+  const parsed = parseEmailOtpProviderUserId(authority.providerSubject);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+export function registrationEd25519AuthorityScopeFromAuthority(
+  authority: RegistrationAuthority,
 ): RegistrationEd25519AuthorityScope {
-  switch (authMethod.kind) {
+  switch (authority.kind) {
     case 'passkey':
       return {
         kind: 'passkey',
-        rpId: authMethod.rpId,
+        rpId: authority.rpId,
       };
     case 'email_otp':
-      switch (authMethod.proofKind) {
-        case 'otp_challenge':
-          return {
-            kind: 'email_otp',
-            proofKind: 'otp_challenge',
-            email: authMethod.email,
-            ...(authMethod.challengeId ? { challengeId: authMethod.challengeId } : {}),
-          };
-        case 'google_sso_registration':
-          return {
-            kind: 'email_otp',
-            proofKind: 'google_sso_registration',
-            email: authMethod.email,
-            googleEmailOtpRegistrationAttemptId: authMethod.googleEmailOtpRegistrationAttemptId,
-            googleEmailOtpRegistrationOfferId: authMethod.googleEmailOtpRegistrationOfferId,
-            googleEmailOtpRegistrationCandidateId: authMethod.googleEmailOtpRegistrationCandidateId,
-          };
-        default: {
-          const exhaustive: never = authMethod;
-          return exhaustive;
-        }
-      }
+      return {
+        kind: 'email_otp',
+        provider: authority.proofKind === 'google_sso_registration' ? 'google' : 'email',
+        providerUserId: emailOtpProviderUserIdFromRegistrationAuthority(authority),
+      };
     default: {
-      const exhaustive: never = authMethod;
+      const exhaustive: never = authority;
       return exhaustive;
     }
   }

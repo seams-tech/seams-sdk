@@ -12,7 +12,6 @@ import {
   ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
   ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
   ROUTER_AB_ECDSA_HSS_HEALTH_PATH,
-  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
@@ -124,6 +123,97 @@ const API_CREDENTIAL_TYPE_SET = new Set<string>(API_CREDENTIAL_TYPES);
 const API_CREDENTIAL_ROUTE_SCOPE_SET = new Set<string>(API_CREDENTIAL_ROUTE_SCOPES);
 const PUBLIC_PROOF_TYPE_SET = new Set<string>(PUBLIC_PROOF_TYPES);
 const ROUTE_SERVICE_KEY_SET = new Set<string>(ROUTE_SERVICE_KEYS);
+
+const ROUTER_API_ROUTER_SERVICE = ['router'] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_WELL_KNOWN_SERVICES = [] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_WALLET_REGISTRATION_SERVICES = [
+  'walletRegistration',
+  'walletAuthMethods',
+  'thresholdRuntime',
+  'sessionVersions',
+  'webAuthn',
+  'nearFunding',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES = [
+  ...ROUTER_API_WALLET_REGISTRATION_SERVICES,
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_AUTH_PROVIDER_SERVICES = [
+  'webAuthn',
+  'identity',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_SYNC_ACCOUNT_SERVICES = ['webAuthn'] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_ED25519_WALLET_SESSION_SERVICES = [
+  'thresholdRuntime',
+  'sessionVersions',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_THRESHOLD_RUNTIME_SERVICES = [
+  'thresholdRuntime',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_THRESHOLD_SESSION_SERVICES = [
+  'thresholdRuntime',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_ECDSA_BOOTSTRAP_SERVICES = [
+  'thresholdRuntime',
+  'webAuthn',
+  'sessionVersions',
+  'emailOtp',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_WEBAUTHN_AUTHENTICATOR_SERVICES = [
+  'webAuthn',
+  'sessionVersions',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_NEAR_PUBLIC_KEY_SERVICES = [
+  'nearFunding',
+  'sessionVersions',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_SESSION_EXCHANGE_SERVICES = [
+  'identity',
+  'emailOtp',
+  'webAuthn',
+  'sessionVersions',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_SESSION_VERSION_SERVICES = [
+  'sessionVersions',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_WALLET_UNLOCK_SERVICES = [
+  'walletUnlock',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_EMAIL_OTP_SESSION_SERVICES = [
+  'emailOtp',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES = [
+  'emailOtp',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_AUTH_IDENTITY_SERVICES = [
+  'identity',
+  'sessionVersions',
+  'webAuthn',
+  'emailOtp',
+  'session',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES = [
+  'emailRecoveryAuth',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_RECOVER_EMAIL_SERVICES = [
+  'recovery',
+  'emailRecoveryExecution',
+] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_SIGNED_DELEGATE_SERVICES = [
+  'signedDelegateAuth',
+  'publishableKeyAuth',
+  'billing',
+  'runtimeSnapshots',
+  'sponsoredCalls',
+] as const satisfies readonly RouteServiceKey[];
 
 function normalizeAliases(
   path: string,
@@ -1344,7 +1434,7 @@ export function createRouterApiRouteDefinitions(
         '/healthz',
         'Router API health probe',
         { plane: 'public', rationale: 'Health probes are intentionally public diagnostics.' },
-        ['authService'],
+        ROUTER_API_ROUTER_SERVICE,
       ),
     );
   }
@@ -1356,7 +1446,7 @@ export function createRouterApiRouteDefinitions(
         '/readyz',
         'Router API readiness probe',
         { plane: 'public', rationale: 'Readiness probes are intentionally public diagnostics.' },
-        ['authService'],
+        ROUTER_API_ROUTER_SERVICE,
       ),
     );
   }
@@ -1368,7 +1458,7 @@ export function createRouterApiRouteDefinitions(
       '/.well-known/webauthn',
       'Related Origin Requests manifest',
       { plane: 'public', rationale: 'Well-known discovery endpoints are intentionally public.' },
-      ['authService'],
+      ROUTER_API_WELL_KNOWN_SERVICES,
       { kind: 'none' },
       ['/.well-known/webauthn/'],
     ),
@@ -1399,7 +1489,7 @@ export function createRouterApiRouteDefinitions(
         originBinding: 'required',
       },
       { kind: 'none' },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_registration_start',
@@ -1411,7 +1501,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'webauthn',
         rationale: 'Registration start is authorized by an intent grant and WebAuthn create proof.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_registration_hss_respond',
@@ -1423,7 +1513,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'threshold_protocol_state',
         rationale: 'Registration HSS respond is bound to an unexpired ceremony id.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_registration_finalize',
@@ -1435,7 +1525,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'threshold_protocol_state',
         rationale: 'Registration finalize is bound to completed ceremony protocol state.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
       { kind: 'event', action: 'wallet_created' },
     ),
     apiCredentialRoute(
@@ -1451,7 +1541,7 @@ export function createRouterApiRouteDefinitions(
         originBinding: 'required',
       },
       { kind: 'none' },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_add_signer_start',
@@ -1464,7 +1554,7 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Add-signer start is authorized by a wallet WebAuthn assertion or app-session signer-provisioning policy.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_add_signer_hss_respond',
@@ -1476,7 +1566,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'threshold_protocol_state',
         rationale: 'Add-signer HSS respond is bound to an unexpired ceremony id.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_add_signer_finalize',
@@ -1488,7 +1578,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'threshold_protocol_state',
         rationale: 'Add-signer finalize is bound to completed ceremony protocol state.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
       { kind: 'none' },
     ),
     apiCredentialRoute(
@@ -1504,7 +1594,7 @@ export function createRouterApiRouteDefinitions(
         originBinding: 'required',
       },
       { kind: 'none' },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_add_auth_method_start',
@@ -1517,7 +1607,7 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Add-auth-method start is authorized by an active wallet authority and a new auth-method proof.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_add_auth_method_finalize',
@@ -1530,7 +1620,7 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Add-auth-method finalize is bound to a completed add-auth-method ceremony state.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
       { kind: 'none' },
     ),
     publicRoute(
@@ -1543,7 +1633,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'challenge_exchange',
         rationale: 'Auth-method revoke is authorized by an active wallet authority.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
       { kind: 'none' },
     ),
     userSessionRoute(
@@ -1551,14 +1641,14 @@ export function createRouterApiRouteDefinitions(
       'POST',
       '/wallets/:walletId/signers/ecdsa/key-facts/inventory',
       'Resolve wallet ECDSA key facts for explicit repair inventory',
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_near_implicit_account_fund',
       'POST',
       '/wallets/:walletId/near/implicit-account/fund',
       'Fund a wallet implicit NEAR account for local testing',
-      ['authService', 'session'],
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
     ),
     apiCredentialRoute(
       'registration_bootstrap_grants',
@@ -1624,7 +1714,7 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Provider login bootstrap and verification are intentionally public challenge-based routes.',
       },
-      ['authService'],
+      ROUTER_API_AUTH_PROVIDER_SERVICES,
     ),
     publicRoute(
       'sync_account_options',
@@ -1637,7 +1727,7 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Sync-account flows are public because they are challenge-driven WebAuthn entrypoints.',
       },
-      ['authService'],
+      ROUTER_API_SYNC_ACCOUNT_SERVICES,
     ),
     publicRoute(
       'sync_account_verify',
@@ -1649,7 +1739,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'webauthn',
         rationale: 'Sync-account verification is public because the WebAuthn proof is the gate.',
       },
-      ['authService'],
+      ROUTER_API_SYNC_ACCOUNT_SERVICES,
     ),
     publicRoute(
       'router_ab_ed25519_healthz',
@@ -1660,7 +1750,7 @@ export function createRouterApiRouteDefinitions(
         plane: 'public',
         rationale: 'Router A/B health probes are intentionally public diagnostics.',
       },
-      ['threshold'],
+      ROUTER_API_THRESHOLD_RUNTIME_SERVICES,
     ),
     publicRoute(
       'router_ab_ed25519_wallet_session',
@@ -1673,7 +1763,7 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Router A/B Wallet Session issuance is intentionally public because it validates proof payloads.',
       },
-      ['threshold', 'session'],
+      ROUTER_API_ED25519_WALLET_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_hss_prepare',
@@ -1681,7 +1771,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_HSS_PREPARE_PATH,
       'Prepare Router A/B Ed25519 HSS Router API ceremony step',
       'ed25519',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_hss_respond',
@@ -1689,7 +1779,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_HSS_RESPOND_PATH,
       'Respond to Router A/B Ed25519 HSS client request',
       'ed25519',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_hss_finalize',
@@ -1697,7 +1787,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
       'Finalize Router A/B Ed25519 HSS server ceremony step',
       'ed25519',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_sign_prepare',
@@ -1705,7 +1795,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B Ed25519 normal signing',
       'ed25519',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_sign_presign_pool_prepare',
@@ -1713,7 +1803,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH,
       'Prepare Router A/B Ed25519 presign-pool signing',
       'ed25519',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_sign_finalize',
@@ -1721,7 +1811,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
       'Finalize Router A/B Ed25519 normal signing',
       'ed25519',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     publicRoute(
       'router_ab_ecdsa_hss_healthz',
@@ -1732,15 +1822,7 @@ export function createRouterApiRouteDefinitions(
         plane: 'public',
         rationale: 'Router A/B health probes are intentionally public diagnostics.',
       },
-      ['threshold'],
-    ),
-    thresholdSessionRoute(
-      'router_ab_ecdsa_hss_key_identities',
-      'POST',
-      ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
-      'Resolve Router A/B ECDSA-HSS key identities for an active Wallet Session',
-      'ed25519',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_RUNTIME_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_bootstrap',
@@ -1748,7 +1830,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
       'Bootstrap Router A/B ECDSA-HSS material',
       'ecdsa',
-      ['threshold', 'session'],
+      ROUTER_API_ECDSA_BOOTSTRAP_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_export_share',
@@ -1756,7 +1838,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
       'Release an authorized Router A/B ECDSA-HSS export share',
       'ecdsa',
-      ['threshold', 'session'],
+      ROUTER_API_ECDSA_BOOTSTRAP_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_sign_prepare',
@@ -1764,7 +1846,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B ECDSA-HSS normal signing',
       'ecdsa',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_sign_finalize',
@@ -1772,7 +1854,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH,
       'Finalize Router A/B ECDSA-HSS normal signing',
       'ecdsa',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_presignature_pool_fill_init',
@@ -1780,7 +1862,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
       'Begin Router A/B ECDSA-HSS presignature pool-fill session',
       'ecdsa',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_hss_presignature_pool_fill_step',
@@ -1788,21 +1870,21 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
       'Continue Router A/B ECDSA-HSS presignature pool-fill session',
       'ecdsa',
-      ['threshold', 'session'],
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     userSessionRoute(
       'webauthn_authenticators',
       'GET',
       '/webauthn/authenticators',
       'List registered WebAuthn authenticators',
-      ['authService', 'session'],
+      ROUTER_API_WEBAUTHN_AUTHENTICATOR_SERVICES,
     ),
     userSessionRoute(
       'near_public_keys',
       'GET',
       '/near/public-keys',
       'List NEAR public keys for current session',
-      ['authService', 'session'],
+      ROUTER_API_NEAR_PUBLIC_KEY_SERVICES,
     ),
     userSessionRoute(
       'session_state',
@@ -1823,16 +1905,22 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Session exchange is intentionally public because OIDC JWTs or passkey assertions are the gate.',
       },
-      ['authService', 'session'],
+      ROUTER_API_SESSION_EXCHANGE_SERVICES,
     ),
-    userSessionRoute('session_revoke', 'POST', '/session/revoke', 'Revoke current app session', [
-      'authService',
-      'session',
-    ]),
-    userSessionRoute('session_refresh', 'POST', '/session/refresh', 'Refresh current app session', [
-      'authService',
-      'session',
-    ]),
+    userSessionRoute(
+      'session_revoke',
+      'POST',
+      '/session/revoke',
+      'Revoke current app session',
+      ROUTER_API_SESSION_VERSION_SERVICES,
+    ),
+    userSessionRoute(
+      'session_refresh',
+      'POST',
+      '/session/refresh',
+      'Refresh current app session',
+      ROUTER_API_SESSION_VERSION_SERVICES,
+    ),
     thresholdSessionRoute(
       'session_signing_budget_status',
       'POST',
@@ -1851,7 +1939,7 @@ export function createRouterApiRouteDefinitions(
         proof: 'challenge_exchange',
         rationale: 'Wallet unlock challenge issuance is intentionally public.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_UNLOCK_SERVICES,
     ),
     publicRoute(
       'wallet_unlock_verify',
@@ -1864,119 +1952,119 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Wallet unlock verification is intentionally public because the challenge proof is the gate.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_UNLOCK_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_registration_challenge',
       'POST',
       '/wallet/email-otp/registration/challenge',
       'Create Email OTP registration challenge for the current app session',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_registration_seal',
       'POST',
       '/wallet/email-otp/registration/seal',
       'Apply the Email OTP server seal for a new registration blob',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_registration_finalize',
       'POST',
       '/wallet/email-otp/registration/finalize',
       'Finalize Email OTP registration challenge for the current app session',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_login_challenge',
       'POST',
       '/wallet/email-otp/login/challenge',
       'Create Email OTP login challenge for the current app session',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_signing_session_challenge',
       'POST',
       '/wallet/email-otp/signing-session/challenge',
       'Create Email OTP operation challenge for a restored signing session',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_recovery_challenge',
       'POST',
       '/wallet/email-otp/recovery-challenge',
       'Create Email OTP recovery challenge for restoring device-local enrollment escrow',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_login_verify',
       'POST',
       '/wallet/email-otp/login/verify',
       'Verify Email OTP login challenge for the current app session',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_login_verify_and_unseal',
       'POST',
       '/wallet/email-otp/login/verify-and-unseal',
       'Verify Email OTP login challenge and remove the server seal in one request',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_recovery_wrapped_escrows',
       'POST',
       '/wallet/email-otp/recovery-wrapped-escrows',
       'Verify recovery challenge and return recovery-wrapped Email OTP enrollment escrows',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_recovery_key_consume',
       'POST',
       '/wallet/email-otp/recovery-key/consume',
       'Mark an Email OTP recovery key consumed after device-local enrollment escrow restore',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_recovery_key_status',
       'POST',
       '/wallet/email-otp/recovery-key/status',
       'Read non-secret Email OTP recovery-code backup status metadata',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_recovery_key_rotate',
       'POST',
       '/wallet/email-otp/recovery-key/rotate',
       'Replace active Email OTP recovery codes after fresh account authentication',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_recovery_key_attempt_failed',
       'POST',
       '/wallet/email-otp/recovery-key/attempt-failed',
       'Record a failed Email OTP recovery-key unwrap attempt for server-side rate limiting',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_signing_session_verify',
       'POST',
       '/wallet/email-otp/signing-session/verify',
       'Verify Email OTP operation challenge for a restored signing session',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_unseal',
       'POST',
       '/wallet/email-otp/unseal',
       'Remove the server Shamir seal after Email OTP authorization',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_signing_session_unseal',
       'POST',
       '/wallet/email-otp/signing-session/unseal',
       'Remove the server Shamir seal after signing-session Email OTP authorization',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     publicRoute(
       'wallet_email_otp_dev_cleanup_google_registration',
@@ -1989,35 +2077,50 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'This development-only cleanup path verifies a Google id token before touching stale local registration state.',
       },
-      ['authService'],
+      ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES,
     ),
     userSessionRoute(
       'wallet_email_otp_dev_otp_outbox',
       'GET',
       '/wallet/email-otp/dev/otp-outbox',
       'Read local development Email OTP outbox entry for the current app session',
-      ['authService', 'session'],
+      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute('wallet_state', 'GET', '/wallet/state', 'Read wallet state', [
-      'authService',
-      'session',
-    ]),
-    userSessionRoute('wallet_lock', 'POST', '/wallet/lock', 'Lock wallet', [
-      'authService',
-      'session',
-    ]),
-    userSessionRoute('auth_identities', 'GET', '/auth/identities', 'List linked identities', [
-      'authService',
-      'session',
-    ]),
-    userSessionRoute('auth_link', 'POST', '/auth/link', 'Link an additional identity', [
-      'authService',
-      'session',
-    ]),
-    userSessionRoute('auth_unlink', 'POST', '/auth/unlink', 'Unlink an identity', [
-      'authService',
-      'session',
-    ]),
+    userSessionRoute(
+      'wallet_state',
+      'GET',
+      '/wallet/state',
+      'Read wallet state',
+      ROUTER_API_SESSION_VERSION_SERVICES,
+    ),
+    userSessionRoute(
+      'wallet_lock',
+      'POST',
+      '/wallet/lock',
+      'Lock wallet',
+      ROUTER_API_SESSION_VERSION_SERVICES,
+    ),
+    userSessionRoute(
+      'auth_identities',
+      'GET',
+      '/auth/identities',
+      'List linked identities',
+      ROUTER_API_AUTH_IDENTITY_SERVICES,
+    ),
+    userSessionRoute(
+      'auth_link',
+      'POST',
+      '/auth/link',
+      'Link an additional identity',
+      ROUTER_API_AUTH_IDENTITY_SERVICES,
+    ),
+    userSessionRoute(
+      'auth_unlink',
+      'POST',
+      '/auth/unlink',
+      'Unlink an identity',
+      ROUTER_API_AUTH_IDENTITY_SERVICES,
+    ),
   );
 
   definitions.push(
@@ -2032,7 +2135,7 @@ export function createRouterApiRouteDefinitions(
         rationale:
           'Registration prepare is bound to an unconsumed registration intent grant and creates only inert HSS material.',
       },
-      ['authService'],
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
   );
 
@@ -2048,7 +2151,7 @@ export function createRouterApiRouteDefinitions(
           proof: 'recovery_proof',
           rationale: 'Email recovery preparation is a public recovery bootstrap route.',
         },
-        ['authService'],
+        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
       ),
       publicRoute(
         'email_recovery_ecdsa_respond',
@@ -2061,7 +2164,7 @@ export function createRouterApiRouteDefinitions(
           rationale:
             'Email recovery ECDSA respond is scoped by the recovery request id and stored prepare context.',
         },
-        ['authService'],
+        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
       ),
     );
   }
@@ -2078,7 +2181,7 @@ export function createRouterApiRouteDefinitions(
           rationale:
             'Recover-email remains auth-free for now and should be revisited if it starts incurring billable execution cost.',
         },
-        ['authService'],
+        ROUTER_API_RECOVER_EMAIL_SERVICES,
       ),
     );
   }
@@ -2135,7 +2238,7 @@ export function createRouterApiRouteDefinitions(
           originBinding: 'required',
         },
         { kind: 'gas', ledger: 'near_delegate' },
-        ['authService', 'publishableKeyAuth', 'billing', 'runtimeSnapshots', 'sponsoredCalls'],
+        ROUTER_API_SIGNED_DELEGATE_SERVICES,
       ),
     );
   }

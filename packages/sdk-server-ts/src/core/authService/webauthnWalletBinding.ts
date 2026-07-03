@@ -8,8 +8,12 @@ import type {
 import type { EmailRecoveryResolvedWalletBinding } from '../EmailRecoveryPreparationStore';
 import type { Ed25519SessionPolicy, ThresholdRuntimePolicyScope } from '../types';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  buildPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthority,
+  walletAuthAuthoritiesMatch,
+} from '@shared/utils/walletAuthAuthority';
 import { normalizeThresholdRuntimePolicyScope } from './thresholdRuntimePolicy';
-import { passkeyThresholdEd25519AuthorityScope } from './webauthnAuthority';
 
 export async function resolveExistingThresholdEd25519Binding(args: {
   bindingStore: WebAuthnCredentialBindingStore;
@@ -50,6 +54,7 @@ export function resolvedEd25519WalletBindingFromCredentialBinding(args: {
     nearAccountId: args.binding.nearAccountId,
     nearEd25519SigningKeyId: args.binding.nearEd25519SigningKeyId,
     rpId: args.binding.rpId,
+    credentialIdB64u: args.binding.credentialIdB64u,
     signerSlot:
       Number.isSafeInteger(args.signerSlot) && Number(args.signerSlot) > 0
         ? Math.floor(Number(args.signerSlot))
@@ -63,6 +68,31 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   relayerKeyId: string;
   persistedRuntimePolicyScope?: ThresholdRuntimePolicyScope;
 }): { sessionPolicy: Ed25519SessionPolicy; runtimePolicyScope?: ThresholdRuntimePolicyScope } {
+  if (Object.prototype.hasOwnProperty.call(args.requestedSessionPolicy, 'rpId')) {
+    throw new Error('threshold-ed25519 session policy rpId belongs in authority');
+  }
+  if (Object.prototype.hasOwnProperty.call(args.requestedSessionPolicy, 'authorityScope')) {
+    throw new Error('threshold-ed25519 session policy authorityScope is obsolete; use authority');
+  }
+  const requestedWalletId = toOptionalTrimmedString(args.requestedSessionPolicy.walletId);
+  if (requestedWalletId && requestedWalletId !== args.binding.walletId) {
+    throw new Error('threshold-ed25519 session policy walletId mismatch');
+  }
+  const requestedNearAccountId = toOptionalTrimmedString(
+    args.requestedSessionPolicy.nearAccountId,
+  );
+  if (requestedNearAccountId && requestedNearAccountId !== args.binding.nearAccountId) {
+    throw new Error('threshold-ed25519 session policy nearAccountId mismatch');
+  }
+  const requestedNearEd25519SigningKeyId = toOptionalTrimmedString(
+    args.requestedSessionPolicy.nearEd25519SigningKeyId,
+  );
+  if (
+    requestedNearEd25519SigningKeyId &&
+    requestedNearEd25519SigningKeyId !== args.binding.nearEd25519SigningKeyId
+  ) {
+    throw new Error('threshold-ed25519 session policy nearEd25519SigningKeyId mismatch');
+  }
   const runtimePolicyScope =
     normalizeThresholdRuntimePolicyScope(args.requestedSessionPolicy.runtimePolicyScope) ||
     args.persistedRuntimePolicyScope;
@@ -82,9 +112,22 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     args.requestedSessionPolicy.routerAbNormalSigning,
   );
+  const expectedAuthority = buildPasskeyWalletAuthAuthority({
+    walletId: args.binding.walletId,
+    rpId: rpId.value,
+    credentialIdB64u: args.binding.credentialIdB64u,
+  });
+  const requestedAuthority = parseWalletAuthAuthority(args.requestedSessionPolicy.authority);
+  if (!requestedAuthority) {
+    throw new Error('threshold-ed25519 session policy authority is required');
+  }
+  if (!walletAuthAuthoritiesMatch(requestedAuthority, expectedAuthority)) {
+    throw new Error('threshold-ed25519 session policy authority mismatch');
+  }
   if (
     args.requestedSessionPolicy.version !== 'threshold_session_v1' ||
     !thresholdSessionId ||
+    !signingGrantId ||
     !Number.isFinite(ttlMs) ||
     ttlMs <= 0 ||
     !Number.isFinite(remainingUses) ||
@@ -94,13 +137,12 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   }
   const sessionPolicy: Ed25519SessionPolicy = {
     version: 'threshold_session_v1',
-    walletId: args.binding.walletId,
     nearAccountId: args.binding.nearAccountId,
     nearEd25519SigningKeyId: args.binding.nearEd25519SigningKeyId,
-    authorityScope: passkeyThresholdEd25519AuthorityScope(rpId.value),
+    authority: expectedAuthority,
     relayerKeyId: args.relayerKeyId,
     thresholdSessionId,
-    ...(signingGrantId ? { signingGrantId } : {}),
+    signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     ...(participantIds && participantIds.length > 0 ? { participantIds } : {}),

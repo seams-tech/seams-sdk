@@ -2,10 +2,12 @@ import type { NormalizedLogger } from './logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
   ThresholdEcdsaChainTarget,
-  ThresholdStoreConfigInput,
-  WalletRegistrationEcdsaWalletKey,
-  WalletId,
+  ThresholdStoreConfigInput
 } from './types';
+import type {
+  WalletRegistrationEcdsaWalletKey,
+  WalletId
+} from './registrationContracts';
 import {
   THRESHOLD_DO_OBJECT_NAME_DEFAULT,
   THRESHOLD_PREFIX_DEFAULT,

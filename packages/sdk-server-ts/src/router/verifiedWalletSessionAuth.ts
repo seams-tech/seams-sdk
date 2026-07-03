@@ -1,8 +1,8 @@
-import type { ThresholdEd25519AuthorityScope } from '../core/types';
 import type {
   RouterAbEcdsaHssWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 type BaseVerifiedWalletSessionAuth = {
   kind: 'wallet_session';
@@ -25,7 +25,8 @@ export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
 
 export type VerifiedEd25519WalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ed25519';
-  authorityScope: ThresholdEd25519AuthorityScope;
+  authority: WalletAuthAuthority;
+  authorityScope?: never;
   ed25519RelayerKeyId: string;
   rpId?: never;
   keyHandle?: never;
@@ -63,7 +64,7 @@ export function buildVerifiedEd25519WalletSessionAuth(
     thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
     userId: claims.walletId,
-    authorityScope: claims.authorityScope,
+    authority: claims.authority,
     relayerKeyId: claims.relayerKeyId,
     participantIds: claims.participantIds,
     expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),

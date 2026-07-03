@@ -1,17 +1,17 @@
 import type { NormalizedLogger } from './logger';
 import type {
+  ThresholdEd25519AuthorityScope,
   ThresholdEd25519BootstrapSession,
   ThresholdRuntimePolicyScope,
-  ThresholdStoreConfigInput,
-  WalletRegistrationEcdsaPreparePayload,
+  ThresholdStoreConfigInput
 } from './types';
+import type {
+  WalletRegistrationEcdsaPreparePayload
+} from './registrationContracts';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import {
-  parseThresholdEd25519AuthorityScope,
-  type ThresholdEd25519AuthorityScope,
-} from './ThresholdService/validation';
+import { parseThresholdEd25519AuthorityScope } from './ThresholdService/validation';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -43,6 +43,7 @@ export type EmailRecoveryResolvedWalletBinding = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   rpId: string;
+  credentialIdB64u: string;
   signerSlot: number;
 };
 
@@ -271,13 +272,24 @@ function parseEmailRecoveryResolvedWalletBinding(
   const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalTrimmedString(raw.nearEd25519SigningKeyId);
   const rpId = toOptionalTrimmedString(raw.rpId);
+  const credentialIdB64u = toOptionalTrimmedString(raw.credentialIdB64u);
   const signerSlot = parsePositiveInteger(raw.signerSlot);
-  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !rpId || !signerSlot) return null;
+  if (
+    !walletId ||
+    !nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !rpId ||
+    !credentialIdB64u ||
+    !signerSlot
+  ) {
+    return null;
+  }
   return {
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
     rpId,
+    credentialIdB64u,
     signerSlot,
   };
 }

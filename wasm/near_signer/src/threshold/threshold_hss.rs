@@ -22,6 +22,8 @@ use ed25519_hss::server::ServerDriverState;
 use ed25519_hss::server::ServerEvalFinalizeOutput;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerEvalOperation;
+#[cfg(feature = "hss-server-exports")]
+use ed25519_hss::server::ServerEvalState;
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use ed25519_hss::shared::public_key_from_base_shares;
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
@@ -124,7 +126,6 @@ pub(crate) struct ThresholdEd25519HssBuildClientOwnedStagedArtifactArgs {
 pub(crate) struct ThresholdEd25519HssBuildClientOwnedStagedArtifactOutput {
     context_binding_b64u: String,
     staged_evaluator_artifact_b64u: String,
-    server_eval_finalize_output_b64u: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,6 +203,7 @@ struct ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryArgs {
 struct ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryOutput {
     context_binding_b64u: String,
     server_input_delivery_b64u: String,
+    server_eval_state_b64u: String,
     timings: ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryTimings,
 }
 
@@ -326,7 +328,7 @@ struct ThresholdEd25519HssFinalizeReportArgs {
     #[serde(default)]
     staged_evaluator_artifact_handle: String,
     staged_evaluator_artifact_bytes: Vec<u8>,
-    server_eval_finalize_output_bytes: Vec<u8>,
+    server_eval_state_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Serialize)]
@@ -691,22 +693,20 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
                 &args.staged_evaluator_artifact_bytes,
                 "stagedEvaluatorArtifactBytes",
             )?;
-            let server_output: ServerEvalFinalizeOutput = decode_state_blob_bytes(
-                &args.server_eval_finalize_output_bytes,
-                "serverEvalFinalizeOutputBytes",
-            )?;
+            let server_eval_state: ServerEvalState =
+                decode_state_blob_bytes(&args.server_eval_state_bytes, "serverEvalStateBytes")?;
             let decode_artifact_ms = (Date::now() - decode_artifact_started).max(0.0);
             if let Some(report) =
                 with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
                     let finalize_report_started = Date::now();
                     session
-                        .shared_runtime()
-                        .finalize_report_from_staged_evaluator_artifact(
-                            &session.garbler_session(),
+                        .garbler_session()
+                        .prepare_server_finalize_packet_from_staged_evaluator_artifact(
+                            &session.shared_runtime(),
+                            &server_eval_state,
                             &staged_evaluator_artifact,
-                            &server_output,
                         )
-                        .map(|report| {
+                        .map(|(_packet, report)| {
                             (
                                 report,
                                 decode_artifact_ms,
@@ -732,11 +732,11 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
                 let serialized_session_materialize_ms =
                     (Date::now() - serialized_session_materialize_started).max(0.0);
                 let finalize_report_started = Date::now();
-                let report = runtime
-                    .finalize_report_from_staged_evaluator_artifact(
-                        &garbler_session,
+                let (_packet, report) = garbler_session
+                    .prepare_server_finalize_packet_from_staged_evaluator_artifact(
+                        &runtime,
+                        &server_eval_state,
                         &staged_evaluator_artifact,
-                        &server_output,
                     )
                     .map_err(|e| JsValue::from_str(&e.to_string()))?;
                 let finalize_report_ms = (Date::now() - finalize_report_started).max(0.0);
@@ -1212,7 +1212,7 @@ pub(crate) fn build_threshold_ed25519_hss_client_owned_staged_evaluator_artifact
     )
     .map_err(js_value_to_string)?;
     let (runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
-    let (artifact, server_output) = evaluator_session
+    let (artifact, _server_output) = evaluator_session
         .build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_message(
             &runtime,
             &client_request_message,
@@ -1225,10 +1225,6 @@ pub(crate) fn build_threshold_ed25519_hss_client_owned_staged_evaluator_artifact
     Ok(ThresholdEd25519HssBuildClientOwnedStagedArtifactOutput {
         context_binding_b64u: base64_url_encode(&evaluator_state.evaluator_session.context_binding),
         staged_evaluator_artifact_b64u: encode_state_blob(&artifact, "staged evaluator artifact")?,
-        server_eval_finalize_output_b64u: encode_state_blob(
-            &server_output,
-            "server eval finalize output",
-        )?,
     })
 }
 
@@ -1457,7 +1453,7 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
     if let Some(output) =
         with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
             let prepare_delivery_started = Date::now();
-            let (delivery, _state, delivery_timing) = session
+            let (delivery, state, delivery_timing) = session
                 .garbler_session()
                 .prepare_role_separated_server_input_delivery_message_timed(
                     &client_request_message,
@@ -1478,11 +1474,13 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
             let encode_delivery_started = Date::now();
             let server_input_delivery_b64u =
                 encode_state_blob(&delivery, "role-separated server input delivery")?;
+            let server_eval_state_b64u = encode_state_blob(&state, "server eval state")?;
             let encode_delivery_ms = (Date::now() - encode_delivery_started).max(0.0);
             Ok(
                 ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryOutput {
                     context_binding_b64u: base64_url_encode(&delivery.context_binding),
                     server_input_delivery_b64u,
+                    server_eval_state_b64u,
                     timings: ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryTimings {
                         decode_messages_ms,
                         materialize_session_ms: 0.0,
@@ -1510,7 +1508,7 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
     let materialize_session_ms = (Date::now() - materialize_session_started).max(0.0);
 
     let prepare_delivery_started = Date::now();
-    let (delivery, _state, delivery_timing) = garbler_session
+    let (delivery, state, delivery_timing) = garbler_session
         .prepare_role_separated_server_input_delivery_message_timed(
             &client_request_message,
             y_relayer,
@@ -1531,12 +1529,14 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
     let encode_delivery_started = Date::now();
     let server_input_delivery_b64u =
         encode_state_blob(&delivery, "role-separated server input delivery")?;
+    let server_eval_state_b64u = encode_state_blob(&state, "server eval state")?;
     let encode_delivery_ms = (Date::now() - encode_delivery_started).max(0.0);
 
     Ok(
         ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryOutput {
             context_binding_b64u: base64_url_encode(&delivery.context_binding),
             server_input_delivery_b64u,
+            server_eval_state_b64u,
             timings: ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryTimings {
                 decode_messages_ms,
                 materialize_session_ms,

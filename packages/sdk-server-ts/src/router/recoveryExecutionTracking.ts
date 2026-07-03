@@ -1,4 +1,4 @@
-import type { RouterApiAuthService } from './authServicePort';
+import type { RouterApiRecoveryRouteService } from './authServicePort';
 import { inferNearRecoveryChainIdKey } from '../core/recoveryExecutionRecords';
 import type { NormalizedLogger } from '../core/logger';
 import type { EmailRecoveryRequest, EmailRecoveryResult } from '../email-recovery/types';
@@ -28,9 +28,15 @@ export type TrackedRecoverEmailExecution = {
   trackedRecovery: TrackedNearRecoveryExecution;
 };
 
-type RecoverySessionReadService = Pick<RouterApiAuthService, 'getRecoverySession'>;
-type RecoverySessionStatusService = Pick<RouterApiAuthService, 'updateRecoverySessionStatus'>;
-type RecoveryExecutionRecordService = Pick<RouterApiAuthService, 'recordRecoveryExecution'>;
+type RecoverySessionReadService = {
+  readonly getRecoverySession: RouterApiRecoveryRouteService['getRecoverySession'];
+};
+type RecoverySessionStatusService = {
+  readonly updateRecoverySessionStatus: RouterApiRecoveryRouteService['updateRecoverySessionStatus'];
+};
+type RecoveryExecutionRecordService = {
+  readonly recordRecoveryExecution: RouterApiRecoveryRouteService['recordRecoveryExecution'];
+};
 type RecoverEmailTrackingService = RecoverySessionReadService &
   RecoverySessionStatusService &
   RecoveryExecutionRecordService;
@@ -60,7 +66,7 @@ function recoverEmailFailureRecord(result: EmailRecoveryResult): {
 }
 
 export async function resolveTrackedNearRecoveryExecution(
-  service: Pick<RouterApiAuthService, 'getRecoverySession'>,
+  service: RecoverySessionReadService,
   input: { accountId: string; recoveryPayload: RecoveryEmailPayload },
 ): Promise<TrackedNearRecoveryExecution | null> {
   if (input.recoveryPayload.nearAccountId !== input.accountId) return null;
@@ -132,7 +138,7 @@ export async function prepareTrackedRecoverEmailExecution(input: {
 }
 
 async function markTrackedRecoverySessionVerified(
-  service: Pick<RouterApiAuthService, 'updateRecoverySessionStatus'>,
+  service: RecoverySessionStatusService,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     emailBlob: string;
@@ -169,7 +175,7 @@ export async function recordTrackedRecoverEmailPending(input: {
 }
 
 async function recordTrackedNearRecoveryExecution(
-  service: Pick<RouterApiAuthService, 'recordRecoveryExecution'>,
+  service: RecoveryExecutionRecordService,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     status: 'pending' | 'submitted' | 'failed';
@@ -224,7 +230,7 @@ async function recordTrackedRecoveryExecutionSafely(input: {
 }
 
 async function transitionTrackedRecoverySession(
-  service: Pick<RouterApiAuthService, 'updateRecoverySessionStatus'>,
+  service: RecoverySessionStatusService,
   tracked: TrackedNearRecoveryExecution | null,
   input: {
     status: 'near_recovered' | 'failed';

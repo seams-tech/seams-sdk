@@ -1,8 +1,18 @@
 import {
   resolveEmailOtpAuthLane,
-  type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
-import { selectedEcdsaLane } from '../identity/laneIdentity';
+import {
+  buildEmailOtpEcdsaSigningSessionAuthority,
+  type EmailOtpEcdsaSigningSessionAuthority,
+} from '../emailOtp/ecdsaSigningSessionAuthority';
+import {
+  buildEmailOtpEd25519SigningSessionAuthority,
+  type EmailOtpEd25519SigningSessionAuthority,
+} from '../emailOtp/ed25519SigningSessionAuthority';
+import {
+  emailOtpAuthContextProviderUserId,
+  selectedEcdsaLane,
+} from '../identity/laneIdentity';
 import {
   toExactEcdsaSigningLaneIdentity,
   thresholdEcdsaLaneCandidateFromSessionRecord,
@@ -11,11 +21,8 @@ import {
 } from '../persistence/records';
 import {
   exactSigningLaneIdentityMatches,
-  isExactEcdsaSigningLaneIdentity,
-  isExactEd25519SigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
   type ExactEd25519SigningLaneIdentity,
-  type ExactSigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
 import {
   readWarmSessionCapabilityRecordsForWallet,
@@ -90,9 +97,12 @@ export type WarmSessionCapabilityReaderCore = {
   resolveEcdsaAuthByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEcdsaAuthMaterial | null;
-  resolveEmailOtpSigningSessionAuthLane: (args: {
-    lane: ExactSigningLaneIdentity;
-  }) => EmailOtpAuthLane | null;
+  resolveEmailOtpEd25519SigningSessionAuthority: (args: {
+    lane: ExactEd25519SigningLaneIdentity;
+  }) => EmailOtpEd25519SigningSessionAuthority | null;
+  resolveEmailOtpEcdsaSigningSessionAuthority: (args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+  }) => EmailOtpEcdsaSigningSessionAuthority | null;
   getEd25519CapabilityByThresholdSessionId: (
     thresholdSessionId: string,
   ) => Promise<WarmSessionEd25519CapabilityState | null>;
@@ -398,9 +408,10 @@ export function createWarmSessionCapabilityReaderCore(
     if (String(record.thresholdSessionId || '').trim() !== String(lane.thresholdSessionId)) {
       return false;
     }
+    if (!record.emailOtpAuthContext) return false;
     return (
-      String(record.emailOtpAuthContext?.authSubjectId || '').trim() ===
-      String(lane.auth.providerSubjectId)
+      emailOtpAuthContextProviderUserId(record.emailOtpAuthContext) ===
+      lane.auth.providerSubjectId
     );
   }
 
@@ -417,26 +428,35 @@ export function createWarmSessionCapabilityReaderCore(
     }
   }
 
-  function resolveEmailOtpSigningSessionAuthLane(args: {
-    lane: ExactSigningLaneIdentity;
-  }): EmailOtpAuthLane | null {
+  function resolveEmailOtpEd25519SigningSessionAuthority(args: {
+    lane: ExactEd25519SigningLaneIdentity;
+  }): EmailOtpEd25519SigningSessionAuthority | null {
     const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return null;
     if (args.lane.auth.kind !== 'email_otp') return null;
-    if (isExactEd25519SigningLaneIdentity(args.lane)) {
-      const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-      if (!ed25519RecordMatchesExactLane({ record, lane: args.lane })) return null;
-      const auth = resolveEd25519AuthMaterial(record);
-      const jwt = String(auth?.walletSessionJwt || '').trim();
-      const lane = resolveEmailOtpAuthLane({
-        routeAuth: jwt ? { kind: 'wallet_session', jwt } : undefined,
-        thresholdSessionId,
-        authorizingSigningGrantId: record?.signingGrantId,
-        curve: 'ed25519',
-      });
-      return lane?.kind === 'signing_session' && lane.curve === 'ed25519' ? lane : null;
-    }
-    if (!isExactEcdsaSigningLaneIdentity(args.lane)) return null;
+    const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
+    if (!ed25519RecordMatchesExactLane({ record, lane: args.lane })) return null;
+    const auth = resolveEd25519AuthMaterial(record);
+    const jwt = String(auth?.walletSessionJwt || '').trim();
+    if (record?.source !== 'email_otp' || !jwt || !record.emailOtpAuthContext) return null;
+    const lane = resolveEmailOtpAuthLane({
+      routeAuth: { kind: 'wallet_session', jwt },
+      thresholdSessionId,
+      authorizingSigningGrantId: record.signingGrantId,
+      curve: 'ed25519',
+    });
+    return buildEmailOtpEd25519SigningSessionAuthority({
+      authLane: lane,
+      authority: record.emailOtpAuthContext.authority,
+    });
+  }
+
+  function resolveEmailOtpEcdsaSigningSessionAuthority(args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+  }): EmailOtpEcdsaSigningSessionAuthority | null {
+    const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
+    if (!thresholdSessionId) return null;
+    if (args.lane.auth.kind !== 'email_otp') return null;
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
     if (!ecdsaRecordMatchesExactLane({ record, lane: args.lane })) return null;
     const auth = resolveEcdsaAuthMaterial(record);
@@ -450,7 +470,10 @@ export function createWarmSessionCapabilityReaderCore(
       curve: 'ecdsa',
       chainTarget: args.lane.signer.chainTarget,
     });
-    return lane?.kind === 'signing_session' && lane.curve === 'ecdsa' ? lane : null;
+    return buildEmailOtpEcdsaSigningSessionAuthority({
+      authLane: lane,
+      authority: record.emailOtpAuthContext.authority,
+    });
   }
 
   async function getEd25519CapabilityByThresholdSessionId(
@@ -522,7 +545,8 @@ export function createWarmSessionCapabilityReaderCore(
     resolveEcdsaRecordByThresholdSessionId,
     resolveEd25519AuthByThresholdSessionId,
     resolveEcdsaAuthByThresholdSessionId,
-    resolveEmailOtpSigningSessionAuthLane,
+    resolveEmailOtpEd25519SigningSessionAuthority,
+    resolveEmailOtpEcdsaSigningSessionAuthority,
     getEd25519CapabilityByThresholdSessionId,
     getEcdsaCapabilityByThresholdSessionId,
     getEcdsaCapabilityForLane,

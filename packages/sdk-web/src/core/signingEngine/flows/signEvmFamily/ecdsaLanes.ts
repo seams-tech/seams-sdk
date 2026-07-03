@@ -7,6 +7,8 @@ import type {
 import {
   selectedEcdsaLane,
   selectedLaneAuthMethod,
+  emailOtpAuthContextReason,
+  emailOtpAuthContextRetention,
   type SelectedEcdsaLane,
   type ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
@@ -76,8 +78,12 @@ export function summarizeEvmFamilyEcdsaSessionRecord(
     keyHandle: record.keyHandle,
     remainingUses: record.remainingUses,
     expiresAtMs: record.expiresAtMs,
-    emailOtpRetention: record.source === 'email_otp' ? record.emailOtpAuthContext.retention : null,
-    emailOtpReason: record.source === 'email_otp' ? record.emailOtpAuthContext.reason : null,
+    emailOtpRetention:
+      record.source === 'email_otp'
+        ? emailOtpAuthContextRetention(record.emailOtpAuthContext)
+        : null,
+    emailOtpReason:
+      record.source === 'email_otp' ? emailOtpAuthContextReason(record.emailOtpAuthContext) : null,
     routerAbWalletSessionAuth: walletSessionAuth.kind,
     routerAbWalletSessionAuthSource:
       walletSessionAuth.kind === 'ready' ? walletSessionAuth.source : walletSessionAuth.reason,
@@ -383,8 +389,13 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
       ...base,
       auth: recordCandidate.auth,
       chainTarget: args.chainTarget,
-      retention: emailOtpAuthContext?.retention || 'session',
-      sessionOrigin: emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+      retention: emailOtpAuthContext
+        ? emailOtpAuthContextRetention(emailOtpAuthContext)
+        : 'session',
+      sessionOrigin:
+        emailOtpAuthContext && emailOtpAuthContextReason(emailOtpAuthContext) === 'login'
+          ? 'login'
+          : 'per_operation',
     });
     return requireResolvedEvmFamilyEcdsaSigningLane({
       lane,
@@ -418,62 +429,22 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
   });
 }
 
-export function getThresholdEcdsaSessionRecordForLane(args: {
-  deps: EvmFamilyEcdsaSessionReaderDeps;
-  walletId: EcdsaSigningLookupArgs['walletId'];
-  chainTarget: ThresholdEcdsaChainTarget;
-  source: ThresholdEcdsaSessionStoreSource;
-}): ThresholdEcdsaSessionRecord {
-  if (args.source === SIGNER_AUTH_METHODS.emailOtp) {
-    return args.deps.getEmailOtpThresholdEcdsaSessionRecordForSigning({
-      walletId: args.walletId,
-      chainTarget: args.chainTarget,
-    });
-  }
-  const passkeySource = args.source as PasskeyEcdsaSessionStoreSource;
-  return args.deps.getPasskeyThresholdEcdsaSessionRecordForSigning({
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    source: passkeySource,
-  });
-}
-
-export function tryGetThresholdEcdsaSessionRecordForLane(args: {
-  deps: EvmFamilyEcdsaSessionReaderDeps;
-  walletId: EcdsaSigningLookupArgs['walletId'];
-  chainTarget: ThresholdEcdsaChainTarget;
-  source: ThresholdEcdsaSessionStoreSource;
-}): ThresholdEcdsaSessionRecord | undefined {
-  try {
-    return getThresholdEcdsaSessionRecordForLane(args);
-  } catch {
-    return undefined;
-  }
-}
-
-export function tryGetEmailOtpThresholdEcdsaSessionRecordForSigning(args: {
-  deps: EvmFamilyEcdsaSessionReaderDeps;
-  walletId: EcdsaSigningLookupArgs['walletId'];
-  chainTarget: ThresholdEcdsaChainTarget;
-}): ThresholdEcdsaSessionRecord | undefined {
-  return tryGetThresholdEcdsaSessionRecordForLane({
-    ...args,
-    source: SIGNER_AUTH_METHODS.emailOtp,
-  });
-}
-
 export function tryGetPasskeyThresholdEcdsaSessionRecordForSigning(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
   walletId: EcdsaSigningLookupArgs['walletId'];
   chainTarget: ThresholdEcdsaChainTarget;
   source: PasskeyEcdsaSessionStoreSource;
 }): ThresholdEcdsaSessionRecord | undefined {
-  const candidate = tryGetThresholdEcdsaSessionRecordForLane({
-    deps: args.deps,
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    source: args.source,
-  });
+  let candidate: ThresholdEcdsaSessionRecord | undefined;
+  try {
+    candidate = args.deps.getPasskeyThresholdEcdsaSessionRecordForSigning({
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+      source: args.source,
+    });
+  } catch {
+    candidate = undefined;
+  }
   return candidate && !isEmailOtpThresholdEcdsaSigningContext({ record: candidate })
     ? candidate
     : undefined;

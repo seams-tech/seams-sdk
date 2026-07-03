@@ -13,7 +13,7 @@ export async function handleHealth(ctx: CloudflareRouterApiContext): Promise<Res
   return json(
     {
       ok: true,
-      relayerAccount: ctx.service.getConfiguredRelayerAccount?.() ?? null,
+      relayerAccount: ctx.service.router.getConfiguredRelayerAccount(),
       thresholdEd25519: { configured: thresholdConfigured },
       cors: { allowedOrigins: corsAllowed },
     },
@@ -33,7 +33,7 @@ export async function handleReady(ctx: CloudflareRouterApiContext): Promise<Resp
     if (ctx.opts.readyCheck) {
       await ctx.opts.readyCheck();
     }
-    await ctx.service.getRelayerAccount();
+    await ctx.service.router.getRelayerAccount();
     return json(
       {
         ok: true,

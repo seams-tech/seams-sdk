@@ -4,41 +4,41 @@ import {
 } from '../../core/ThresholdService/createCloudflareDurableObjectThresholdSigningService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
 import type { ThresholdStoreConfigInput } from '../../core/types';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  RouterApiThresholdRuntimeService,
+} from '../authServicePort';
 
 const DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT = 'cloudflare-d1-relayer.local';
 const DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY = 'd1-relayer-public-key';
 
-type ListThresholdEcdsaKeyIdentityTargetsForUserInput = Parameters<
-  RouterApiAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']
->[0];
-type ListThresholdEcdsaKeyIdentityTargetsForUserResult = Awaited<
-  ReturnType<RouterApiAuthService['listThresholdEcdsaKeyIdentityTargetsForUser']>
->;
-type ListWalletEcdsaKeyFactsInventoryInput = Parameters<
-  RouterApiAuthService['listWalletEcdsaKeyFactsInventory']
->[0];
-type ListWalletEcdsaKeyFactsInventoryResult = Awaited<
-  ReturnType<RouterApiAuthService['listWalletEcdsaKeyFactsInventory']>
->;
-type EcdsaHssRoleLocalBootstrapInput = Parameters<
-  RouterApiAuthService['ecdsaHssRoleLocalBootstrap']
->[0];
-type EcdsaHssRoleLocalBootstrapResult = Awaited<
-  ReturnType<RouterApiAuthService['ecdsaHssRoleLocalBootstrap']>
->;
-type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyInput = Parameters<
-  RouterApiAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
->[0];
-type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']>
->;
-type EcdsaHssRoleLocalExportShareInput = Parameters<
-  RouterApiAuthService['ecdsaHssRoleLocalExportShare']
->[0];
-type EcdsaHssRoleLocalExportShareResult = Awaited<
-  ReturnType<RouterApiAuthService['ecdsaHssRoleLocalExportShare']>
->;
+type ListThresholdEcdsaKeyIdentityTargetsForUserInput =
+  Parameters<RouterApiThresholdRuntimeService['listThresholdEcdsaKeyIdentityTargetsForUser']>[0];
+type ListThresholdEcdsaKeyIdentityTargetsForUserResult =
+  Awaited<
+    ReturnType<RouterApiThresholdRuntimeService['listThresholdEcdsaKeyIdentityTargetsForUser']>
+  >;
+type ListWalletEcdsaKeyFactsInventoryInput =
+  Parameters<RouterApiThresholdRuntimeService['listWalletEcdsaKeyFactsInventory']>[0];
+type ListWalletEcdsaKeyFactsInventoryResult =
+  Awaited<ReturnType<RouterApiThresholdRuntimeService['listWalletEcdsaKeyFactsInventory']>>;
+type EcdsaHssRoleLocalBootstrapInput =
+  Parameters<RouterApiThresholdRuntimeService['ecdsaHssRoleLocalBootstrap']>[0];
+type EcdsaHssRoleLocalBootstrapResult =
+  Awaited<ReturnType<RouterApiThresholdRuntimeService['ecdsaHssRoleLocalBootstrap']>>;
+type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyInput =
+  Parameters<
+    RouterApiThresholdRuntimeService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
+  >[0];
+type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyResult =
+  Awaited<
+    ReturnType<
+      RouterApiThresholdRuntimeService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
+    >
+  >;
+type EcdsaHssRoleLocalExportShareInput =
+  Parameters<RouterApiThresholdRuntimeService['ecdsaHssRoleLocalExportShare']>[0];
+type EcdsaHssRoleLocalExportShareResult =
+  Awaited<ReturnType<RouterApiThresholdRuntimeService['ecdsaHssRoleLocalExportShare']>>;
 
 type CloudflareD1ThresholdSigningRuntimeOptions = {
   readonly relayerAccount?: string | null;
@@ -174,7 +174,9 @@ export class CloudflareD1ThresholdSigningRuntime {
 }
 
 async function unsupportedCloudflareD1NearTransactionDispatch(): Promise<never> {
-  throw new Error('Cloudflare D1 Router API auth service does not support NEAR transaction dispatch');
+  throw new Error(
+    'Cloudflare D1 Router API auth service does not support NEAR transaction dispatch',
+  );
 }
 
 function optionalTrimmedString(input: unknown): string {

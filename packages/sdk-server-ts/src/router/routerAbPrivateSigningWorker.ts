@@ -16,6 +16,7 @@ import type {
   RouterAbEcdsaHssWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
 import type {
   VerifiedEcdsaWalletSessionAuth,
   VerifiedEd25519WalletSessionAuth,
@@ -252,7 +253,9 @@ export async function evaluateRouterAbNormalSigningAdmission(
       curve: 'ed25519',
       phase: input.phase,
       walletId: input.walletSessionAuth.userId,
-      authorityScope: input.walletSessionAuth.authorityScope,
+      authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(
+        input.walletSessionAuth.authority,
+      ),
       thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
       signingGrantId: input.walletSessionAuth.signingGrantId,
       requestId: input.admission.requestId,

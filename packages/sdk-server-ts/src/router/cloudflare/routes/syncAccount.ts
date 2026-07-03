@@ -8,6 +8,7 @@ import {
   parseSyncAccountOptionsRequest,
   parseSyncAccountVerifyRequest,
 } from '../../syncAccountRequestValidation';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
@@ -16,7 +17,7 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
     const body = await readJson(ctx.request);
     const parsed = parseSyncAccountOptionsRequest(body);
     if (!parsed.ok) return json(parsed.body, { status: parsed.status });
-    const result = await ctx.service.createWebAuthnSyncAccountOptions(parsed.request);
+    const result = await ctx.service.webAuthn.createWebAuthnSyncAccountOptions(parsed.request);
     return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
   }
 
@@ -27,7 +28,7 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
       origin: ctx.request.headers.get('origin'),
     });
     if (!parsed.ok) return json(parsed.body, { status: parsed.status });
-    const result = await ctx.service.verifyWebAuthnSyncAccount(parsed.request);
+    const result = await ctx.service.webAuthn.verifyWebAuthnSyncAccount(parsed.request);
     if (result.ok && result.verified && result.thresholdEd25519?.session) {
       if (result.thresholdEd25519.session.sessionKind !== 'jwt') {
         return json(
@@ -52,10 +53,26 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
           { status: 500 },
         );
       }
+      const walletBinding = result.walletBinding;
+      const credentialIdB64u = String(result.credentialIdB64u || '').trim();
+      if (!walletBinding || !credentialIdB64u) {
+        return json(
+          {
+            ok: false,
+            code: 'internal',
+            message: 'sync-account threshold session is missing wallet authority binding',
+          },
+          { status: 500 },
+        );
+      }
       const signed = await signRouterAbEd25519WalletSessionJwt({
         session: ctx.opts.session,
         userId: sessionInfo.walletId,
-        authorityScope: { kind: 'passkey_rp', rpId: result.rpId },
+        authority: buildPasskeyWalletAuthAuthority({
+          walletId: walletBinding.walletId,
+          rpId: walletBinding.rpId,
+          credentialIdB64u,
+        }),
         relayerKeyId: result.thresholdEd25519.relayerKeyId,
         sessionInfo,
         fallbackParticipantIds: result.thresholdEd25519.participantIds,

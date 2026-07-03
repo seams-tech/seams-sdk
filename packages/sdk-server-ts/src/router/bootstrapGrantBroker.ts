@@ -40,7 +40,11 @@ export class RouterApiBootstrapGrantError extends Error {
   readonly code: RouterApiBootstrapGrantFailureCode;
   readonly status: 400 | 409;
 
-  constructor(input: { code: RouterApiBootstrapGrantFailureCode; status: 400 | 409; message: string }) {
+  constructor(input: {
+    code: RouterApiBootstrapGrantFailureCode;
+    status: 400 | 409;
+    message: string;
+  }) {
     super(input.message);
     this.name = 'RouterApiBootstrapGrantError';
     this.code = input.code;
@@ -67,6 +71,10 @@ function readRequiredString(source: Record<string, unknown>, key: string): strin
 function readOptionalString(source: Record<string, unknown>, key: string): string | undefined {
   const value = String(source[key] ?? '').trim();
   return value || undefined;
+}
+
+function hasOwnField(source: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(source, key);
 }
 
 function normalizeOrigin(input: string): string {
@@ -107,13 +115,37 @@ function normalizeRegistrationBootstrapGrantFlow(raw: unknown): 'registration_v1
   return 'registration_v1';
 }
 
-function bootstrapGrantIssueAuthority(
-  rpId: string | undefined,
-): RouterApiBootstrapGrantIssueAuthority {
-  if (rpId) {
-    return { kind: 'passkey_rp', rpId };
+function parseBootstrapGrantIssueAuthority(raw: unknown): RouterApiBootstrapGrantIssueAuthority {
+  if (!isRecord(raw)) {
+    throw new RouterApiBootstrapGrantError({
+      code: 'invalid_body',
+      status: 400,
+      message: 'Missing required field: authority',
+    });
   }
-  return { kind: 'wallet_auth' };
+  const kind = readRequiredString(raw, 'kind');
+  switch (kind) {
+    case 'passkey_rp':
+      return {
+        kind: 'passkey_rp',
+        rpId: readRequiredString(raw, 'rpId'),
+      };
+    case 'wallet_auth':
+      if (hasOwnField(raw, 'rpId')) {
+        throw new RouterApiBootstrapGrantError({
+          code: 'invalid_body',
+          status: 400,
+          message: 'Wallet-auth bootstrap grant authority must not include rpId',
+        });
+      }
+      return { kind: 'wallet_auth' };
+    default:
+      throw new RouterApiBootstrapGrantError({
+        code: 'invalid_body',
+        status: 400,
+        message: 'Field authority.kind must be "passkey_rp" or "wallet_auth"',
+      });
+  }
 }
 
 function routerApiBootstrapGrantRecordRpId(
@@ -160,10 +192,16 @@ export function parseRouterApiBootstrapGrantIssueBody(
   }
   const environmentId = readRequiredString(body, 'environmentId');
   const newAccountId = readOptionalString(body, 'newAccountId');
-  const rpId = readOptionalString(body, 'rpId');
+  if (hasOwnField(body, 'rpId')) {
+    throw new RouterApiBootstrapGrantError({
+      code: 'invalid_body',
+      status: 400,
+      message: 'Root field rpId is not valid on bootstrap grant requests',
+    });
+  }
   const flow = normalizeRegistrationBootstrapGrantFlow(body.flow);
   const clientContext = normalizeClientContext(body.clientContext);
-  const authority = bootstrapGrantIssueAuthority(rpId);
+  const authority = parseBootstrapGrantIssueAuthority(body.authority);
   if (newAccountId && clientContext) {
     return {
       environmentId,

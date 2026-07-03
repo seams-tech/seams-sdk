@@ -23,8 +23,57 @@ export type EmailOtpSigningSessionChallengeOperation =
   | WalletEmailOtpTransactionSignOperation
   | WalletEmailOtpExportOperation;
 
-export const EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE =
-  'Email OTP signing-session authority is unavailable; unlock wallet again';
+export type EmailOtpSigningSessionExpectedCurve = 'ed25519' | 'ecdsa' | 'unknown';
+
+export type EmailOtpSigningSessionAuthStateFailure =
+  | {
+      kind: 'auth_lane_missing';
+      source:
+        | 'route_plan'
+        | 'provided_route_auth'
+        | 'record_backed_export'
+        | 'evm_reauth_anchor'
+        | 'evm_signing_refresh';
+      expectedCurve: EmailOtpSigningSessionExpectedCurve;
+    }
+  | {
+      kind: 'signing_grant_missing';
+      source: 'record_backed_export';
+    };
+
+export class EmailOtpSigningSessionAuthStateError extends Error {
+  readonly kind = 'email_otp_signing_session_auth_state_error';
+  readonly failure: EmailOtpSigningSessionAuthStateFailure;
+
+  constructor(failure: EmailOtpSigningSessionAuthStateFailure) {
+    super(emailOtpSigningSessionAuthStateFailureMessage(failure));
+    this.name = 'EmailOtpSigningSessionAuthStateError';
+    this.failure = failure;
+    Object.setPrototypeOf(this, EmailOtpSigningSessionAuthStateError.prototype);
+  }
+}
+
+function assertNeverEmailOtpSigningSessionAuthStateFailure(value: never): never {
+  throw new Error(`[EmailOtpRoutePlan] unexpected signing-session auth failure: ${value}`);
+}
+
+function emailOtpSigningSessionAuthStateFailureMessage(
+  failure: EmailOtpSigningSessionAuthStateFailure,
+): string {
+  switch (failure.kind) {
+    case 'auth_lane_missing':
+      return `Email OTP ${failure.expectedCurve} signing-session auth lane is unavailable at ${failure.source}; unlock wallet again`;
+    case 'signing_grant_missing':
+      return 'Email OTP signing-session grant is unavailable for record-backed export; unlock wallet again';
+  }
+  return assertNeverEmailOtpSigningSessionAuthStateFailure(failure);
+}
+
+export function throwEmailOtpSigningSessionAuthStateError(
+  failure: EmailOtpSigningSessionAuthStateFailure,
+): never {
+  throw new EmailOtpSigningSessionAuthStateError(failure);
+}
 
 export type EmailOtpAppSessionRouteAuth = {
   kind: 'app_session';
@@ -90,7 +139,11 @@ export function assertEmailOtpSigningSessionAuthLane(
   authLane: EmailOtpAuthLane | undefined,
 ): EmailOtpSigningSessionAuthLane {
   if (authLane?.kind !== 'signing_session') {
-    throw new Error(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
+    throwEmailOtpSigningSessionAuthStateError({
+      kind: 'auth_lane_missing',
+      source: 'route_plan',
+      expectedCurve: 'unknown',
+    });
   }
   return authLane;
 }

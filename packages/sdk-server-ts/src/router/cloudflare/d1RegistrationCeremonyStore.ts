@@ -2,6 +2,7 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import type { CloudflareDurableObjectStubLike } from '../../core/types';
 import {
+  storedRegistrationAuthoritiesMatch,
   storedEd25519RegistrationPrepareScopesMatch,
   type ConsumeRegistrationIntentForPreparationInput,
   type ConsumeRegistrationIntentForPreparationResult,
@@ -160,6 +161,7 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       preparation.kind !== 'hss_prepare_prepared' ||
       preparation.registrationIntentGrant !== input.registrationIntentGrant ||
       preparation.registrationIntentDigestB64u !== input.registrationIntentDigestB64u ||
+      !storedRegistrationAuthoritiesMatch(preparation.authority, input.authority) ||
       !storedEd25519RegistrationPrepareScopesMatch(
         preparation.ed25519Scope,
         input.ed25519Scope,

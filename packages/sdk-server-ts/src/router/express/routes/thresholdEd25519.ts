@@ -20,6 +20,7 @@ import {
 import {
   parseAppSessionClaims,
   parseRouterAbEcdsaHssWalletSessionClaims,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '../../../core/ThresholdService/validation';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
@@ -107,7 +108,7 @@ async function handleRouterAbEd25519NormalSigningRoute(
       rawBody: bodyUnknown,
       headers: req.headers || {},
       session: ctx.opts.session,
-      getThreshold: () => ctx.service.getThresholdSigningService(),
+      getThreshold: () => ctx.service.thresholdRuntime.getThresholdSigningService(),
       admissionAdapter: ctx.opts.routerAbNormalSigningAdmission,
       privatePath,
       phase,
@@ -209,7 +210,7 @@ export function registerThresholdEd25519Routes(
           if (parsedSession.ok) {
             appSessionClaims = parseAppSessionClaims(parsedSession.claims);
             if (appSessionClaims) {
-              const validated = await ctx.service.validateAppSessionVersion({
+              const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
                 userId: appSessionClaims.sub,
                 appSessionVersion: appSessionClaims.appSessionVersion,
               });
@@ -268,7 +269,7 @@ export function registerThresholdEd25519Routes(
           };
         }
         const sessionAuth = verifiedWalletAuth
-          ? ({ kind: 'verified_wallet' as const, walletAuth: verifiedWalletAuth })
+          ? { kind: 'verified_wallet' as const, walletAuth: verifiedWalletAuth }
           : request.routeAuth.kind === 'passkey'
             ? {
                 kind: 'passkey' as const,
@@ -286,7 +287,9 @@ export function registerThresholdEd25519Routes(
         const result = await resolved.scheme.session({
           relayerKeyId: request.relayerKeyId,
           sessionPolicy: request.sessionPolicy,
-          ...(request.runtimeEnvironmentId ? { runtimeEnvironmentId: request.runtimeEnvironmentId } : {}),
+          ...(request.runtimeEnvironmentId
+            ? { runtimeEnvironmentId: request.runtimeEnvironmentId }
+            : {}),
           ...(request.sessionKind ? { sessionKind: request.sessionKind } : {}),
           auth: sessionAuth,
         });
@@ -311,7 +314,6 @@ export function registerThresholdEd25519Routes(
             message: 'threshold session missing walletId/nearAccountId/nearEd25519SigningKeyId',
           };
         }
-        const authorityScope = request.sessionPolicy.authorityScope;
         const relayerKeyId = String((body as any).relayerKeyId || '').trim();
         if (!relayerKeyId) {
           return { ok: false, code: 'internal', message: 'threshold session missing relayerKeyId' };
@@ -331,7 +333,7 @@ export function registerThresholdEd25519Routes(
         const signed = await signRouterAbEd25519WalletSessionJwt({
           session,
           userId: walletId,
-          authorityScope,
+          authority: request.sessionPolicy.authority,
           relayerKeyId,
           sessionInfo: {
             sessionKind: 'jwt',

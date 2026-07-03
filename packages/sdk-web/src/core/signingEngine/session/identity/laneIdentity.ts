@@ -1,6 +1,14 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import {
+  buildEmailOtpWalletAuthAuthority,
+  emailOtpWalletAuthAuthorityEmailHashHex,
+  emailOtpWalletAuthAuthorityProvider,
+  emailOtpWalletAuthAuthorityProviderUserId,
+  type EmailOtpProvider,
+  type EmailOtpWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -67,12 +75,261 @@ export type ThresholdEd25519SessionStoreSource =
 
 export type ThresholdEcdsaEmailOtpAuthContext = {
   policy: EmailOtpAuthPolicy;
-  retention: 'session' | 'single_use';
-  reason: 'login' | 'sign';
   authMethod: 'email_otp';
-  authSubjectId?: string;
-  consumedAtMs?: number;
+  authority: EmailOtpWalletAuthAuthority;
+  use: EmailOtpAuthUse;
 };
+
+export type EmailOtpAuthUse =
+  | {
+      kind: 'session';
+      reason: 'login' | 'sign';
+    }
+  | {
+      kind: 'single_use_pending';
+    }
+  | {
+      kind: 'single_use_consumed';
+      consumedAtMs: number;
+    };
+
+export type ThresholdEcdsaEmailOtpSessionAuthContext =
+  ThresholdEcdsaEmailOtpAuthContext & {
+    use: Extract<EmailOtpAuthUse, { kind: 'session' }>;
+  };
+
+export type ThresholdEcdsaEmailOtpPendingSingleUseAuthContext =
+  ThresholdEcdsaEmailOtpAuthContext & {
+    use: Extract<EmailOtpAuthUse, { kind: 'single_use_pending' }>;
+  };
+
+export type ThresholdEcdsaEmailOtpConsumedSingleUseAuthContext =
+  ThresholdEcdsaEmailOtpAuthContext & {
+    use: Extract<EmailOtpAuthUse, { kind: 'single_use_consumed' }>;
+  };
+
+export function emailOtpAuthContextProviderUserId(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): string {
+  return String(emailOtpWalletAuthAuthorityProviderUserId(context.authority));
+}
+
+export function emailOtpAuthContextProvider(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): EmailOtpProvider {
+  return emailOtpWalletAuthAuthorityProvider(context.authority);
+}
+
+export function emailOtpAuthContextEmailHashHex(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): string {
+  return emailOtpWalletAuthAuthorityEmailHashHex(context.authority);
+}
+
+export function emailOtpAuthContextReason(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): 'login' | 'sign' {
+  switch (context.use.kind) {
+    case 'session':
+      return context.use.reason;
+    case 'single_use_pending':
+    case 'single_use_consumed':
+      return 'sign';
+  }
+  context.use satisfies never;
+  throw new Error('[SigningSession] unsupported Email OTP auth use');
+}
+
+export function emailOtpAuthContextRetention(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): 'session' | 'single_use' {
+  switch (context.use.kind) {
+    case 'session':
+      return 'session';
+    case 'single_use_pending':
+    case 'single_use_consumed':
+      return 'single_use';
+  }
+  context.use satisfies never;
+  throw new Error('[SigningSession] unsupported Email OTP auth use');
+}
+
+export function emailOtpAuthContextConsumedAtMs(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): number | null {
+  return context.use.kind === 'single_use_consumed' ? context.use.consumedAtMs : null;
+}
+
+export function isEmailOtpSessionAuthContext(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): context is ThresholdEcdsaEmailOtpSessionAuthContext {
+  return context.use.kind === 'session';
+}
+
+export function isEmailOtpPendingSingleUseAuthContext(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): context is ThresholdEcdsaEmailOtpPendingSingleUseAuthContext {
+  return context.use.kind === 'single_use_pending';
+}
+
+export function isEmailOtpConsumedSingleUseAuthContext(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): context is ThresholdEcdsaEmailOtpConsumedSingleUseAuthContext {
+  return context.use.kind === 'single_use_consumed';
+}
+
+type BuildEmailOtpSessionAuthContextArgs = {
+  policy: EmailOtpAuthPolicy;
+  reason: 'login' | 'sign';
+  retention: 'session';
+  authority: EmailOtpWalletAuthAuthority;
+  consumedAtMs?: never;
+};
+
+type BuildEmailOtpPendingSingleUseAuthContextArgs = {
+  policy: EmailOtpAuthPolicy;
+  retention: 'single_use';
+  authority: EmailOtpWalletAuthAuthority;
+  reason?: never;
+  consumedAtMs?: never;
+};
+
+type BuildEmailOtpConsumedSingleUseAuthContextArgs = {
+  policy: EmailOtpAuthPolicy;
+  retention: 'single_use';
+  authority: EmailOtpWalletAuthAuthority;
+  reason?: never;
+  consumedAtMs: number;
+};
+
+type BuildEmailOtpAuthContextArgs =
+  | BuildEmailOtpSessionAuthContextArgs
+  | BuildEmailOtpPendingSingleUseAuthContextArgs
+  | BuildEmailOtpConsumedSingleUseAuthContextArgs;
+
+type BuildEmailOtpAuthContextForWalletAuthMethodArgs = {
+  policy: EmailOtpAuthPolicy;
+  walletId: unknown;
+  emailHashHex: unknown;
+  provider: EmailOtpProvider;
+  providerUserId: unknown;
+} & (
+  | {
+      retention: 'session';
+      reason: 'login' | 'sign';
+      consumedAtMs?: never;
+    }
+  | {
+      retention: 'single_use';
+      reason?: never;
+      consumedAtMs?: number;
+    }
+);
+
+export function buildEmailOtpAuthContext(
+  args: BuildEmailOtpSessionAuthContextArgs,
+): ThresholdEcdsaEmailOtpSessionAuthContext;
+export function buildEmailOtpAuthContext(
+  args: BuildEmailOtpPendingSingleUseAuthContextArgs,
+): ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
+export function buildEmailOtpAuthContext(
+  args: BuildEmailOtpConsumedSingleUseAuthContextArgs,
+): ThresholdEcdsaEmailOtpConsumedSingleUseAuthContext;
+export function buildEmailOtpAuthContext(
+  args: BuildEmailOtpAuthContextArgs,
+): ThresholdEcdsaEmailOtpAuthContext;
+export function buildEmailOtpAuthContext(
+  args: BuildEmailOtpAuthContextArgs,
+): ThresholdEcdsaEmailOtpAuthContext {
+  if (args.policy === 'per_operation' && args.retention !== 'single_use') {
+    throw new Error('Invalid Email OTP auth context: per-operation sessions must be single-use');
+  }
+  if (args.retention === 'single_use' && Object.prototype.hasOwnProperty.call(args, 'reason')) {
+    throw new Error('Invalid Email OTP auth context: single-use sessions must not carry reason');
+  }
+  const consumedAtMs = Math.floor(Number(args.consumedAtMs) || 0);
+  const use: EmailOtpAuthUse =
+    args.retention === 'session'
+      ? { kind: 'session', reason: args.reason }
+      : consumedAtMs > 0
+        ? { kind: 'single_use_consumed', consumedAtMs }
+        : { kind: 'single_use_pending' };
+  return {
+    policy: args.policy,
+    authMethod: 'email_otp',
+    authority: args.authority,
+    use,
+  };
+}
+
+export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
+  policy: EmailOtpAuthPolicy;
+  walletId: unknown;
+  emailHashHex: unknown;
+  reason: 'login' | 'sign';
+  retention: 'session';
+  provider: EmailOtpProvider;
+  providerUserId: unknown;
+  consumedAtMs?: never;
+}): ThresholdEcdsaEmailOtpSessionAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
+  policy: EmailOtpAuthPolicy;
+  walletId: unknown;
+  emailHashHex: unknown;
+  retention: 'single_use';
+  provider: EmailOtpProvider;
+  providerUserId: unknown;
+  reason?: never;
+  consumedAtMs?: never;
+}): ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
+  policy: EmailOtpAuthPolicy;
+  walletId: unknown;
+  emailHashHex: unknown;
+  retention: 'single_use';
+  provider: EmailOtpProvider;
+  providerUserId: unknown;
+  reason?: never;
+  consumedAtMs: number;
+}): ThresholdEcdsaEmailOtpConsumedSingleUseAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(
+  args: BuildEmailOtpAuthContextForWalletAuthMethodArgs,
+): ThresholdEcdsaEmailOtpAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(
+  args: BuildEmailOtpAuthContextForWalletAuthMethodArgs,
+): ThresholdEcdsaEmailOtpAuthContext {
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: args.walletId,
+    provider: args.provider,
+    providerUserId: args.providerUserId,
+    emailHashHex: args.emailHashHex,
+  });
+  if (args.retention === 'session') {
+    return buildEmailOtpAuthContext({
+      policy: args.policy,
+      reason: args.reason,
+      retention: 'session',
+      authority,
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(args, 'reason')) {
+    throw new Error('Invalid Email OTP auth context: single-use sessions must not carry reason');
+  }
+  const consumedAtMs = Math.floor(Number(args.consumedAtMs) || 0);
+  if (consumedAtMs > 0) {
+    return buildEmailOtpAuthContext({
+      policy: args.policy,
+      retention: 'single_use',
+      authority,
+      consumedAtMs,
+    });
+  }
+  return buildEmailOtpAuthContext({
+    policy: args.policy,
+    retention: 'single_use',
+    authority,
+  });
+}
 
 export type BaseSelectedLane = {
   kind: 'selected_lane';

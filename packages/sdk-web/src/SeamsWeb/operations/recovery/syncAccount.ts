@@ -24,6 +24,7 @@ import {
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { formatEd25519HssKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
   parseRecoveryResolvedWalletBindingFromResponse,
   type RecoveryResolvedWalletBinding,
@@ -36,6 +37,12 @@ function syncAccountFailure(error: string): SyncAccountResult {
     success: false,
     error,
   };
+}
+
+function requireSyncAccountWebAuthnRpId(value: unknown): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 function thresholdEd25519SessionFromSyncVerifyResponse(
@@ -68,8 +75,8 @@ export async function syncAccount(
     return syncAccountFailure('missing_relayer_url');
   }
 
-  const rpId = context.signingEngine.getRpId();
-  if (!rpId) {
+  const rpIdRaw = context.signingEngine.getRpId();
+  if (!rpIdRaw) {
     emit({
       phase: AccountSyncEventPhase.FAILED,
       status: 'failed',
@@ -78,6 +85,7 @@ export async function syncAccount(
     });
     return syncAccountFailure('missing_rp_id');
   }
+  const rpId = requireSyncAccountWebAuthnRpId(rpIdRaw);
 
   try {
     const requestedWalletId = walletId ? walletIdFromString(String(walletId)) : null;
@@ -178,7 +186,7 @@ export async function syncAccount(
         walletId: String(optionsWalletBinding.walletId),
         nearAccountId: String(optionsWalletBinding.nearAccountId),
         nearEd25519SigningKeyId: String(optionsWalletBinding.nearEd25519SigningKeyId),
-        authority: { kind: 'passkey_rp', rpId },
+        authorityScope: { kind: 'passkey_rp', rpId },
         requestedPolicy: thresholdWarmPolicyDraft,
       });
     }

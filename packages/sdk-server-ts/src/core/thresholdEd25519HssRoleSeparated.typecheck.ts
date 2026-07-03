@@ -3,10 +3,12 @@ import type {
   ThresholdEd25519HssRoleSeparatedRespondResponse,
   ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
-  ThresholdEd25519RegistrationAccountScope,
-  WalletRegistrationFinalizeRequest,
-  WalletRegistrationHssRespondRequest,
+  ThresholdEd25519RegistrationAccountScope
 } from './types';
+import type {
+  WalletRegistrationFinalizeRequest,
+  WalletRegistrationHssRespondRequest
+} from './registrationContracts';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 const serverVisibleClientRequest = {
@@ -224,6 +226,17 @@ void ({
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
+    },
+  },
+} satisfies WalletRegistrationFinalizeRequest);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    evaluationResult: {
+      contextBindingB64u: 'context-binding',
+      stagedEvaluatorArtifactB64u: 'staged-artifact',
+      // @ts-expect-error wallet registration finalize rejects client-sent server finalize output
       serverEvalFinalizeOutputB64u: 'server-finalize-output',
     },
   },
@@ -235,7 +248,6 @@ void ({
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
-      serverEvalFinalizeOutputB64u: 'server-finalize-output',
       // @ts-expect-error wallet registration finalize rejects raw opened client output
       xClientBaseB64u: 'client-output',
     },
@@ -248,7 +260,6 @@ void ({
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
-      serverEvalFinalizeOutputB64u: 'server-finalize-output',
       // @ts-expect-error wallet registration finalize rejects seed output
       seedOutputMessageB64u: 'seed-output',
     },

@@ -20,17 +20,22 @@ import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/uti
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   AccountCreationResult,
+  ThresholdEd25519BootstrapSession
+} from '../../core/types';
+import {
   registrationPreparationIdFromString,
-  ThresholdEd25519BootstrapSession,
+  WalletRegistrationFinalizeRequest,
+  WalletRegistrationPrepareRequest,
   WalletRegistrationPrepareResponse,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
-  WalletRegistrationStartResponse,
-} from '../../core/types';
+  WalletRegistrationStartRequest,
+  WalletRegistrationStartResponse
+} from '../../core/registrationContracts';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../core/ThresholdService';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
 import type { WalletStore } from '../../core/d1WalletStore';
-import type { RouterApiAuthService } from '../authServicePort';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
@@ -44,7 +49,6 @@ import {
   getPreparedWalletRegistrationHssPreparation,
   replaceStoredWalletRegistrationSignerBranch,
   storedEd25519RegistrationPrepareScopesMatch,
-  storedThresholdEd25519HssRespondedServerState,
 } from '../../core/RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
@@ -63,8 +67,9 @@ import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegi
 import {
   buildD1ThresholdEd25519RegistrationSessionPolicy,
   buildD1WalletEd25519SignerRecord,
-  d1RegistrationIntentNearEd25519SigningKeyId,
-  d1RegistrationIntentThresholdEd25519AuthorityScope,
+  d1RegistrationAuthorityNearEd25519SigningKeyId,
+  d1RegistrationAuthorityThresholdEd25519AuthorityScope,
+  d1WalletAuthAuthorityFromRegistrationAuthority,
   d1RegistrationIntentSigningRootId,
   d1RegistrationIntentSigningRootVersion,
   d1ThresholdEd25519RegistrationAccountScope,
@@ -74,18 +79,10 @@ import {
   toD1ThresholdEd25519BootstrapSession,
 } from './d1NearEd25519RegistrationBranch';
 
-type StartWalletRegistrationInput = Parameters<
-  RouterApiAuthService['startWalletRegistration']
->[0];
-type PrepareWalletRegistrationInput = Parameters<
-  RouterApiAuthService['prepareWalletRegistration']
->[0];
-type RespondWalletRegistrationHssInput = Parameters<
-  RouterApiAuthService['respondWalletRegistrationHss']
->[0];
-type FinalizeWalletRegistrationInput = Parameters<
-  RouterApiAuthService['finalizeWalletRegistration']
->[0];
+type StartWalletRegistrationInput = WalletRegistrationStartRequest;
+type PrepareWalletRegistrationInput = WalletRegistrationPrepareRequest;
+type RespondWalletRegistrationHssInput = WalletRegistrationHssRespondRequest;
+type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
 type ThresholdSigningServiceProvider = () => ThresholdSigningService | null;
 type WalletStoreProvider = () => WalletStore;
@@ -135,6 +132,37 @@ function registrationIntentSignerBranches(
 
 function registrationIntentResponseRpId(intent: RegistrationIntentV1): string | undefined {
   return intent.authMethod.kind === 'passkey' ? intent.authMethod.rpId : undefined;
+}
+
+function registrationIntentWalletsMatch(input: {
+  readonly requestIntent: RegistrationIntentV1;
+  readonly storedIntent: RegistrationIntentV1;
+}): boolean {
+  return input.requestIntent.walletId === input.storedIntent.walletId;
+}
+
+function registrationPreparationWalletsMatch(input: {
+  readonly expectedWalletId: string;
+  readonly preparation: {
+    readonly intent: RegistrationIntentV1;
+    readonly authority: { readonly walletId: string };
+    readonly ed25519Scope: { readonly walletId: string };
+  };
+}): boolean {
+  return (
+    input.preparation.intent.walletId === input.expectedWalletId &&
+    input.preparation.authority.walletId === input.expectedWalletId &&
+    input.preparation.ed25519Scope.walletId === input.expectedWalletId
+  );
+}
+
+function registrationCeremonyWalletsMatch(input: {
+  readonly ceremony: {
+    readonly intent: RegistrationIntentV1;
+    readonly authority: { readonly walletId: string };
+  };
+}): boolean {
+  return input.ceremony.authority.walletId === input.ceremony.intent.walletId;
 }
 
 function resolvedRegistrationNearAccount(input: {
@@ -257,6 +285,13 @@ export class CloudflareD1WalletRegistrationService {
       if (!digestB64u || digestB64u !== requestDigest || digestB64u !== storedIntent.digestB64u) {
         return { ok: false, code: 'invalid_body', message: 'registration intent mismatch' };
       }
+      if (!registrationIntentWalletsMatch({ requestIntent, storedIntent: storedIntent.intent })) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration intent walletId mismatch',
+        };
+      }
       const signingRootId =
         storedIntent.signingRootId ||
         (storedIntent.intent.runtimePolicyScope
@@ -266,14 +301,39 @@ export class CloudflareD1WalletRegistrationService {
         storedIntent.signingRootVersion ||
         storedIntent.intent.runtimePolicyScope?.signingRootVersion ||
         'default';
+      const authority = request.authority;
+      if (!authority || (authority.kind !== 'passkey' && authority.kind !== 'email_otp')) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration authority is required',
+        };
+      }
+      const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin) || '';
+      if (authority.kind === 'passkey' && !storedExpectedOrigin) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn registration verification',
+        };
+      }
+      const verifiedAuthority = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
+        orgId: storedIntent.orgId,
+        authority,
+        expectedDigestB64u: storedIntent.digestB64u,
+        expectedOrigin: storedExpectedOrigin,
+        intent: storedIntent.intent,
+      });
+      if (!verifiedAuthority.ok) return verifiedAuthority;
       const scope = await resolveD1NearEd25519RegistrationPrepareScope({
         intent: storedIntent.intent,
+        authority: verifiedAuthority.authority,
         nearEd25519: ed25519Selection,
         registrationIntentDigestB64u: storedIntent.digestB64u,
         orgId: storedIntent.orgId,
         signingRootId,
         signingRootVersion,
-        expectedOrigin: toOptionalTrimmedString(storedIntent.expectedOrigin) || '',
+        expectedOrigin: storedExpectedOrigin,
       });
       const prepared = await prepareD1NearEd25519RegistrationHss({
         threshold: this.getThresholdSigningService(),
@@ -297,8 +357,9 @@ export class CloudflareD1WalletRegistrationService {
           registrationIntentGrant: grant,
           registrationIntentDigestB64u: storedIntent.digestB64u,
           intent: storedIntent.intent,
+          authority: verifiedAuthority.authority,
           orgId: storedIntent.orgId,
-          expectedOrigin: toOptionalTrimmedString(storedIntent.expectedOrigin) || '',
+          expectedOrigin: storedExpectedOrigin,
           signingRootId,
           signingRootVersion,
           ed25519Scope: scope,
@@ -366,6 +427,13 @@ export class CloudflareD1WalletRegistrationService {
           message: 'registration intent digest mismatch',
         };
       }
+      if (!registrationIntentWalletsMatch({ requestIntent, storedIntent: intentPreview.intent })) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration intent walletId mismatch',
+        };
+      }
       const previewBranches = registrationIntentSignerBranches(intentPreview.intent);
       if (!previewBranches.ok) return previewBranches;
       const previewNearEd25519 = previewBranches.value.nearEd25519;
@@ -411,31 +479,7 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
 
-      const authority = request.authority;
-      if (!authority || (authority.kind !== 'passkey' && authority.kind !== 'email_otp')) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration authority is required',
-        };
-      }
       const storedExpectedOrigin = toOptionalTrimmedString(intentPreview.expectedOrigin);
-      if (authority.kind === 'passkey' && !storedExpectedOrigin) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'expected_origin is required for WebAuthn registration verification',
-        };
-      }
-      const verifiedAuthority = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
-        orgId: intentPreview.orgId,
-        authority,
-        expectedDigestB64u: intentPreview.digestB64u,
-        expectedOrigin: storedExpectedOrigin || '',
-        intent: intentPreview.intent,
-      });
-      if (!verifiedAuthority.ok) return verifiedAuthority;
-
       const preparedRegistration = !previewNearEd25519
         ? null
         : request.registrationPreparationId
@@ -458,10 +502,40 @@ export class CloudflareD1WalletRegistrationService {
           message: preparedRegistrationState.message,
         };
       }
+      if (
+        preparedRegistrationState?.ok &&
+        !registrationPreparationWalletsMatch({
+          expectedWalletId: intentPreview.intent.walletId,
+          preparation: preparedRegistrationState.preparation,
+        })
+      ) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'registration preparation walletId mismatch',
+        };
+      }
+      const verifiedAuthority = preparedRegistrationState?.ok
+        ? { ok: true as const, authority: preparedRegistrationState.preparation.authority }
+        : request.authority
+          ? await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
+              orgId: intentPreview.orgId,
+              authority: request.authority,
+              expectedDigestB64u: intentPreview.digestB64u,
+              expectedOrigin: storedExpectedOrigin || '',
+              intent: intentPreview.intent,
+            })
+          : {
+              ok: false as const,
+              code: 'invalid_body',
+              message: 'registration authority is required',
+            };
+      if (!verifiedAuthority.ok) return verifiedAuthority;
       const preparedScope = !previewNearEd25519
         ? null
         : await resolveD1NearEd25519RegistrationPrepareScope({
             intent: intentPreview.intent,
+            authority: verifiedAuthority.authority,
             nearEd25519: previewNearEd25519,
             registrationIntentDigestB64u: intentPreview.digestB64u,
             orgId: intentPreview.orgId,
@@ -502,10 +576,18 @@ export class CloudflareD1WalletRegistrationService {
             registrationIntentGrant: grant,
             registrationIntentDigestB64u: intentPreview.digestB64u,
             registrationPreparationId: request.registrationPreparationId!,
+            authority: verifiedAuthority.authority,
             ed25519Scope: preparedScope!,
           });
       if (!storedIntentResult.ok) return storedIntentResult;
       const storedIntent = storedIntentResult.intent;
+      if (!registrationIntentWalletsMatch({ requestIntent, storedIntent: storedIntent.intent })) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration intent walletId mismatch',
+        };
+      }
       const storedBranches = registrationIntentSignerBranches(storedIntent.intent);
       if (!storedBranches.ok) return storedBranches;
       const storedNearEd25519 = storedBranches.value.nearEd25519;
@@ -692,6 +774,13 @@ export class CloudflareD1WalletRegistrationService {
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
       }
+      if (!registrationCeremonyWalletsMatch({ ceremony })) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'registration ceremony walletId mismatch',
+        };
+      }
       if (ceremony.signerState.kind !== 'signer_set_registration') {
         return {
           ok: false,
@@ -753,9 +842,7 @@ export class CloudflareD1WalletRegistrationService {
             ceremonyHandle: ed25519Branch.ceremonyHandle,
             preparedSession: ed25519Branch.preparedSession,
             clientOtOfferMessageB64u: ed25519Branch.clientOtOfferMessageB64u,
-            serverState: storedThresholdEd25519HssRespondedServerState(
-              ed25519Branch.serverState,
-            ),
+            serverState: ed25519Response.serverState,
             responded: ed25519Response.responded,
           },
         });
@@ -869,6 +956,13 @@ export class CloudflareD1WalletRegistrationService {
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
       }
+      if (!registrationCeremonyWalletsMatch({ ceremony })) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'registration ceremony walletId mismatch',
+        };
+      }
       const signerBranches = registrationIntentSignerBranches(ceremony.intent);
       if (!signerBranches.ok) return signerBranches;
       const requestedNearEd25519 = signerBranches.value.nearEd25519;
@@ -935,14 +1029,15 @@ export class CloudflareD1WalletRegistrationService {
           };
         }
         const ed25519 = requestedNearEd25519;
-        const nearEd25519SigningKeyId = await d1RegistrationIntentNearEd25519SigningKeyId({
+        const nearEd25519SigningKeyId = await d1RegistrationAuthorityNearEd25519SigningKeyId({
           intent: ceremony.intent,
+          authority: ceremony.authority,
           nearEd25519: requestedNearEd25519,
           signingRootId: ceremony.signingRootId,
           signingRootVersion: ceremony.signingRootVersion,
         });
-        const ed25519AuthorityScope = d1RegistrationIntentThresholdEd25519AuthorityScope(
-          ceremony.intent,
+        const ed25519AuthorityScope = d1RegistrationAuthorityThresholdEd25519AuthorityScope(
+          ceremony.authority,
         );
         const finalized = await threshold.ed25519Hss.finalizeForRegistration({
           orgId: ceremony.orgId,
@@ -1046,8 +1141,11 @@ export class CloudflareD1WalletRegistrationService {
             walletId: ceremony.intent.walletId,
             orgId: ceremony.orgId,
             nowMs: now,
-          });
+        });
         if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
+        const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
+          ceremony.authority,
+        );
         let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
         if (request.ed25519.sessionPolicy) {
           const sessionKind = String(request.ed25519.sessionKind || 'jwt')
@@ -1063,7 +1161,7 @@ export class CloudflareD1WalletRegistrationService {
             nearAccountId: finalized.nearAccountId,
             nearEd25519SigningKeyId,
             relayerKeyId: keygen.relayerKeyId,
-            expectedAuthorityScope: ed25519AuthorityScope,
+            authority: walletAuthAuthority,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           });
           if (!sessionPolicy.ok) return sessionPolicy;
@@ -1071,7 +1169,7 @@ export class CloudflareD1WalletRegistrationService {
             walletId: String(ceremony.intent.walletId),
             nearAccountId: finalized.nearAccountId,
             nearEd25519SigningKeyId,
-            authorityScope: sessionPolicy.value.authorityScope,
+            authorityScope: ed25519AuthorityScope,
             relayerKeyId: keygen.relayerKeyId,
             sessionPolicy: sessionPolicy.value,
           });
@@ -1090,7 +1188,7 @@ export class CloudflareD1WalletRegistrationService {
             walletId: session.walletId,
             nearAccountId: session.nearAccountId,
             nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
-            authorityScope: sessionPolicy.value.authorityScope,
+            authorityScope: ed25519AuthorityScope,
             thresholdSessionId: session.thresholdSessionId,
             signingGrantId: session.signingGrantId,
             expiresAtMs: session.expiresAtMs,
@@ -1175,6 +1273,7 @@ export class CloudflareD1WalletRegistrationService {
         const response: Extract<WalletRegistrationFinalizeResponse, { ed25519: object }> = {
           ok: true,
           walletId: ceremony.intent.walletId,
+          authority: walletAuthAuthority,
           authorityScope: ed25519AuthorityScope,
           authMethod: walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority),
           accountProvisioning: ed25519.accountProvisioning,
@@ -1266,6 +1365,9 @@ export class CloudflareD1WalletRegistrationService {
       const walletStore = this.getWalletStore();
       await walletStore.putSubject(wallet);
       await walletStore.putSigners(walletSigners);
+      const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
+        ceremony.authority,
+      );
       await this.walletAuthMethods.persistAuthority({
         authority: ceremony.authority,
         now,
@@ -1301,6 +1403,7 @@ export class CloudflareD1WalletRegistrationService {
       const response: Extract<WalletRegistrationFinalizeResponse, { ecdsa: object }> = {
         ok: true,
         walletId: ceremony.intent.walletId,
+        authority: walletAuthAuthority,
         authMethod: walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority),
         ecdsa: {
           walletKeys: walletKeyResult.walletKeys,
@@ -1326,5 +1429,4 @@ export class CloudflareD1WalletRegistrationService {
       };
     }
   }
-
 }

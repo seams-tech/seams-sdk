@@ -17,7 +17,10 @@ import type {
   LinkIdentityResult,
   UnlinkIdentityResult,
 } from '../../core/IdentityStore';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  RouterApiEmailOtpRouteService,
+  RouterApiIdentityService,
+} from '../authServicePort';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
@@ -33,35 +36,33 @@ import {
   googleEmailOtpRegistrationOfferForResponse,
   requireRuntimePolicyScope,
 } from './d1GoogleEmailOtpRegistrationRecords';
-import {
-  parseD1BoundaryWalletId,
-  parseD1BoundaryWalletIdResult,
-} from './d1RouterApiAuthBoundary';
+import { parseD1BoundaryWalletId, parseD1BoundaryWalletIdResult } from './d1RouterApiAuthBoundary';
 
-type ResolveGoogleEmailOtpSessionInput = Parameters<
-  RouterApiAuthService['resolveGoogleEmailOtpSession']
->[0];
+type ResolveGoogleEmailOtpSessionInput =
+  Parameters<RouterApiIdentityService['resolveGoogleEmailOtpSession']>[0];
 type ResolveGoogleEmailOtpSessionResult = Awaited<
-  ReturnType<RouterApiAuthService['resolveGoogleEmailOtpSession']>
+  ReturnType<RouterApiIdentityService['resolveGoogleEmailOtpSession']>
 >;
-type CleanupGoogleEmailOtpDevRegistrationStateInput = Parameters<
-  RouterApiAuthService['cleanupGoogleEmailOtpDevRegistrationState']
->[0];
-type CleanupGoogleEmailOtpDevRegistrationStateResult = Awaited<
-  ReturnType<RouterApiAuthService['cleanupGoogleEmailOtpDevRegistrationState']>
->;
-type ValidateGoogleEmailOtpRegistrationCandidateWalletInput = Parameters<
-  RouterApiAuthService['validateGoogleEmailOtpRegistrationCandidateWallet']
->[0];
-type ValidateGoogleEmailOtpRegistrationCandidateWalletResult = Awaited<
-  ReturnType<RouterApiAuthService['validateGoogleEmailOtpRegistrationCandidateWallet']>
->;
-type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitInput = Parameters<
-  RouterApiAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']
->[0];
-type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitResult = Awaited<
-  ReturnType<RouterApiAuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']>
->;
+type CleanupGoogleEmailOtpDevRegistrationStateInput =
+  Parameters<RouterApiEmailOtpRouteService['cleanupGoogleEmailOtpDevRegistrationState']>[0];
+type CleanupGoogleEmailOtpDevRegistrationStateResult =
+  Awaited<ReturnType<RouterApiEmailOtpRouteService['cleanupGoogleEmailOtpDevRegistrationState']>>;
+type ValidateGoogleEmailOtpRegistrationCandidateWalletInput =
+  Parameters<
+    RouterApiEmailOtpRouteService['validateGoogleEmailOtpRegistrationCandidateWallet']
+  >[0];
+type ValidateGoogleEmailOtpRegistrationCandidateWalletResult =
+  Awaited<
+    ReturnType<RouterApiEmailOtpRouteService['validateGoogleEmailOtpRegistrationCandidateWallet']>
+  >;
+type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitInput =
+  Parameters<
+    RouterApiIdentityService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']
+  >[0];
+type ConsumeGoogleEmailOtpRegistrationAttemptRateLimitResult =
+  Awaited<
+    ReturnType<RouterApiIdentityService['consumeGoogleEmailOtpRegistrationAttemptRateLimit']>
+  >;
 
 type GoogleEmailOtpIdentityLinker = (input: {
   readonly userId: string;
@@ -563,7 +564,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     readonly identitySubject: string;
   }): Promise<ResolveGoogleEmailOtpSessionResult> {
     const nowMs = Date.now();
-    const authProvider = 'google_oidc';
+    const authProvider = 'google';
     const walletIdDerivationNonce = secureRandomBase64Url(
       18,
       'google email otp wallet derivation nonces',

@@ -1,6 +1,6 @@
 import { toOptionalRecordString } from '@shared/utils/validation';
 import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
-import type { RouterApiAuthService } from './authServicePort';
+import type { RouterApiEmailOtpRouteService } from './authServicePort';
 import type { RouterApiOptions } from './routerApi';
 import {
   authorizeEmailOtpExportPolicy,
@@ -40,7 +40,7 @@ export type EmitEmailOtpRouteWebhook = (input: {
 }) => Promise<void>;
 
 async function requireEmailOtpEnrollmentMutationAuth(input: {
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   claims: Record<string, unknown>;
   walletId: string;
 }): Promise<EmailOtpRouteResponse | null> {
@@ -73,9 +73,7 @@ async function requireEmailOtpEnrollmentMutationAuth(input: {
 function resolveEmailOtpProviderUserId(input: {
   claims: Record<string, unknown>;
   userId: string;
-}):
-  | { ok: true; providerUserId: string }
-  | { ok: false; response: EmailOtpRouteResponse } {
+}): { ok: true; providerUserId: string } | { ok: false; response: EmailOtpRouteResponse } {
   if (!isGoogleOidcEmailOtpSession(input.claims)) {
     return { ok: true, providerUserId: input.userId };
   }
@@ -99,14 +97,12 @@ function resolveEmailOtpProviderUserId(input: {
 function googleEmailOtpRegistrationCandidateScope(input: {
   claims: Record<string, unknown>;
   walletId: string;
-}):
-  | {
-      registrationAttemptId: string;
-      walletId: string;
-      appSessionVersion: string;
-      providerSubject: string;
-    }
-  | null {
+}): {
+  registrationAttemptId: string;
+  walletId: string;
+  appSessionVersion: string;
+  providerSubject: string;
+} | null {
   if (!isGoogleOidcEmailOtpSession(input.claims)) return null;
   const mode = toOptionalRecordString(input.claims, 'googleEmailOtpResolutionMode');
   const registrationAttemptId = toOptionalRecordString(
@@ -135,7 +131,7 @@ async function validateEmailOtpRegistrationWalletId(input: {
   body: Record<string, unknown>;
   claims: Record<string, unknown>;
   userId: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<{ ok: true; walletId: string } | { ok: false; response: EmailOtpRouteResponse }> {
   const walletValidation = validateEmailOtpWalletId({
     body: input.body,
@@ -162,9 +158,8 @@ async function validateEmailOtpRegistrationWalletId(input: {
     };
   }
 
-  const result = await input.service.validateGoogleEmailOtpRegistrationCandidateWallet(
-    candidateScope,
-  );
+  const result =
+    await input.service.validateGoogleEmailOtpRegistrationCandidateWallet(candidateScope);
   if (result.ok) return { ok: true, walletId };
   return {
     ok: false,
@@ -181,7 +176,7 @@ export async function handleEmailOtpRegistrationChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -244,7 +239,7 @@ export async function handleEmailOtpRegistrationSealRoute(input: {
   body: unknown;
   claims: Record<string, unknown>;
   userId: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -289,7 +284,7 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -417,7 +412,7 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
@@ -554,7 +549,7 @@ export async function handleEmailOtpDeviceRecoveryChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -609,7 +604,7 @@ export async function handleEmailOtpRecoveryWrappedEscrowsRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -682,7 +677,7 @@ export async function handleEmailOtpRecoveryKeyConsumeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -744,8 +739,6 @@ export async function handleEmailOtpRecoveryKeyConsumeRoute(input: {
     walletId: walletValidation.walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     recoveryKeyId: recoveryKeyIdValidation.value,
-    sessionHash,
-    appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
   });
   return { status: emailOtpResultStatus(result), body: result };
@@ -757,7 +750,7 @@ export async function handleEmailOtpRecoveryKeyStatusRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -789,7 +782,7 @@ export async function handleEmailOtpRecoveryKeyRotateRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -841,7 +834,7 @@ export async function handleEmailOtpRecoveryKeyAttemptFailedRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
@@ -878,7 +871,6 @@ export async function handleEmailOtpRecoveryKeyAttemptFailedRoute(input: {
     };
   }
 
-  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const providerUser = resolveEmailOtpProviderUserId({
     claims: input.claims,
     userId: input.userId,
@@ -889,8 +881,6 @@ export async function handleEmailOtpRecoveryKeyAttemptFailedRoute(input: {
     userId: providerUser.providerUserId,
     walletId: walletValidation.walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
-    sessionHash,
-    appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
   });
   return { status: emailOtpResultStatus(result), body: result };
@@ -937,7 +927,7 @@ function readEmailOtpOrgIdFromClaims(claims: Record<string, unknown>): string {
 }
 
 async function readServerKnownEmailOtpAddress(input: {
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   walletId: string;
   orgId?: string;
   providerUserId?: string;
@@ -988,7 +978,7 @@ export async function handleEmailOtpSigningSessionChallengeRoute(input: {
   appSessionVersion: string;
   sessionHash: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
@@ -1110,7 +1100,7 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
@@ -1286,7 +1276,7 @@ export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
@@ -1306,7 +1296,6 @@ export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
   if (verified.status !== 200 || verified.body.ok !== true) return verified;
 
   const loginGrant = String(verified.body.loginGrant || '').trim();
-  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const sessionWalletId = getSessionWalletId(input.claims, input.userId);
   const providerUser = resolveEmailOtpProviderUserId({
     claims: input.claims,
@@ -1319,8 +1308,6 @@ export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
     walletId: sessionWalletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash,
-    appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
   });
   if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
@@ -1349,7 +1336,7 @@ export async function handleEmailOtpSigningSessionVerifyRoute(input: {
   appSessionVersion: string;
   sessionHash: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
@@ -1517,7 +1504,7 @@ export async function handleEmailOtpUnsealRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1539,7 +1526,6 @@ export async function handleEmailOtpUnsealRoute(input: {
   }
   const wrappedCiphertext = wrappedCiphertextValidation.value;
 
-  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const sessionWalletId = getSessionWalletId(input.claims, input.userId);
   const providerUser = resolveEmailOtpProviderUserId({
     claims: input.claims,
@@ -1552,8 +1538,6 @@ export async function handleEmailOtpUnsealRoute(input: {
     walletId: sessionWalletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash,
-    appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
   });
   if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
@@ -1580,7 +1564,7 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
   appSessionVersion: string;
   sessionHash: string;
   clientIp?: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
   emitWebhook: EmitEmailOtpRouteWebhook;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -1612,8 +1596,6 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash: input.sessionHash,
-    appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
   });
   if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
@@ -1650,7 +1632,7 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
 
 export async function handleEmailOtpDevCleanupGoogleRegistrationRoute(input: {
   body: unknown;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const body = input.body && typeof input.body === 'object' ? input.body : {};
   const verified = await input.service.verifyGoogleLogin({
@@ -1691,7 +1673,7 @@ export async function handleEmailOtpDevOtpOutboxRoute(input: {
   walletId?: string;
   claims: Record<string, unknown>;
   userId: string;
-  service: RouterApiAuthService;
+  service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const challengeId = String(input.challengeId || '').trim();
   const sessionWalletId = getSessionWalletId(input.claims, input.userId);

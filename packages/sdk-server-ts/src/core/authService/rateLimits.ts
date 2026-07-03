@@ -1,5 +1,7 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { WalletRegistrationPrepareRequest } from '../types';
+import type {
+  WalletRegistrationPrepareRequest
+} from '../registrationContracts';
 import type { StoredRegistrationIntent } from '../RegistrationCeremonyStore';
 import {
   resolveSigningSessionSealRateLimitFromEnv,

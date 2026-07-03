@@ -1,12 +1,12 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { RouterApiAuthService } from '../authServicePort';
-import {
-  positiveInteger,
-} from './d1RouterApiAuthBoundary';
+import type { LinkIdentityResult } from '../../core/IdentityStore';
+import type {
+  RouterApiIdentityService,
+} from '../authServicePort';
+import { positiveInteger } from './d1RouterApiAuthBoundary';
 
-type LinkIdentityResult = Awaited<ReturnType<RouterApiAuthService['linkIdentity']>>;
 type ResolveGoogleEmailOtpSessionResult = Awaited<
-  ReturnType<RouterApiAuthService['resolveGoogleEmailOtpSession']>
+  ReturnType<RouterApiIdentityService['resolveGoogleEmailOtpSession']>
 >;
 
 export type D1IdentityRow = {

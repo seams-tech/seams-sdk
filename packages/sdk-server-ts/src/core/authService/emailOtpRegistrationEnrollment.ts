@@ -24,7 +24,9 @@ import {
 } from '../EmailOtpStores';
 import type { IdentityStore } from '../IdentityStore';
 import type { WalletStore } from '../WalletStore';
-import type { WalletRegistrationFinalizeRequest } from '../types';
+import type {
+  WalletRegistrationFinalizeRequest
+} from '../registrationContracts';
 import { validateSecp256k1PublicKey33 } from '../ThresholdService/ethSignerWasm';
 import { sha256BytesPortable } from './portableCrypto';
 import {

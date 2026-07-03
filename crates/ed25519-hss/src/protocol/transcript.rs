@@ -2,8 +2,10 @@ use sha2::{Digest, Sha256};
 
 use crate::ddh::{
     DdhHiddenEvalOutputBundles, DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle,
+    DdhHssShareSide, DdhHssTransportBundle, HiddenEvalInputOwner,
 };
 use crate::runtime::PrimeOrderCpuExecutionResult;
+use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
     ClientOtOffer, ClientOutputValueKind, ClientPacket, ClientStageRequestPacket, OtTranscript,
     OutputProjectionMode, OutputProjectorBinding, OutputProjectorBindingKind,
@@ -609,22 +611,75 @@ pub(crate) fn server_input_packet_aad(
     aad
 }
 
+pub(crate) fn server_output_value_commitment(
+    left: &DdhHssTransportBundle,
+    right: &DdhHssTransportBundle,
+) -> ProtoResult<[u8; 32]> {
+    if left.owner != HiddenEvalInputOwner::Server || right.owner != HiddenEvalInputOwner::Server {
+        return Err(ProtoError::InvalidInput(
+            "server output transport bundles must be server-owned".to_string(),
+        ));
+    }
+    if left.label != "x_server_base" || right.label != "x_server_base" {
+        return Err(ProtoError::InvalidInput(
+            "server output transport bundles must carry x_server_base".to_string(),
+        ));
+    }
+    if left.share_side != DdhHssShareSide::Left || right.share_side != DdhHssShareSide::Right {
+        return Err(ProtoError::InvalidInput(
+            "server output transport bundles must be left/right".to_string(),
+        ));
+    }
+    if left.words.len() != 256 || right.words.len() != 256 {
+        return Err(ProtoError::InvalidInput(
+            "server output transport bundles must contain 256 bits".to_string(),
+        ));
+    }
+    let mut value = [0u8; 32];
+    for (bit_idx, (left_word, right_word)) in left.words.iter().zip(&right.words).enumerate() {
+        let joined = crate::ddh::ddh_hss::join_transport_word_pair_public(
+            left.owner,
+            right.owner,
+            left_word,
+            right_word,
+        )?;
+        if joined.width_bits != 1 {
+            return Err(ProtoError::InvalidInput(
+                "server output transport words must be 1-bit".to_string(),
+            ));
+        }
+        let bit = ((joined.left_word + joined.right_word) & 1) as u8;
+        value[bit_idx / 8] |= bit << (bit_idx % 8);
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"succinct-garbling-proto/prime-order-succinct-hss/server-output-value/v0");
+    hasher.update(match left.owner {
+        HiddenEvalInputOwner::Client => b"client".as_slice(),
+        HiddenEvalInputOwner::Server => b"server".as_slice(),
+        HiddenEvalInputOwner::Derived => b"derived".as_slice(),
+    });
+    hasher.update(left.label.as_bytes());
+    hasher.update(value);
+    Ok(hasher.finalize().into())
+}
+
 pub(crate) fn compute_evaluation_digest(
     artifact_digest: [u8; 32],
     run_binding: [u8; 32],
     executor_result: &PrimeOrderCpuExecutionResult,
     output: &DdhHiddenEvalOutputBundles,
-) -> [u8; 32] {
-    compute_evaluation_digest_from_output_commitments(
+) -> ProtoResult<[u8; 32]> {
+    Ok(compute_evaluation_digest_from_output_commitments(
         artifact_digest,
         run_binding,
         executor_result,
         output.canonical_seed.commitment,
         output.client_output.value_kind,
         output.client_output.as_bundle().commitment,
-        output.x_server_base_left.commitment,
+        server_output_value_commitment(&output.x_server_base_left, &output.x_server_base_right)?,
         output.output_projector_binding,
-    )
+    ))
 }
 
 pub(crate) fn compute_evaluation_digest_from_output_commitments(
@@ -634,7 +689,7 @@ pub(crate) fn compute_evaluation_digest_from_output_commitments(
     canonical_seed_commitment: [u8; 32],
     client_output_value_kind: ClientOutputValueKind,
     client_output_commitment: [u8; 32],
-    x_server_base_left_commitment: [u8; 32],
+    server_output_value_commitment: [u8; 32],
     output_projector_binding: OutputProjectorBinding,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -646,7 +701,7 @@ pub(crate) fn compute_evaluation_digest_from_output_commitments(
     hasher.update(canonical_seed_commitment);
     hasher.update(client_output_value_kind.domain_tag());
     hasher.update(client_output_commitment);
-    hasher.update(x_server_base_left_commitment);
+    hasher.update(server_output_value_commitment);
     bind_output_projector_binding(&mut hasher, output_projector_binding);
     let digest = hasher.finalize();
     let mut out = [0u8; 32];

@@ -1,7 +1,9 @@
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  RouterApiWebAuthnService,
+} from '../authServicePort';
 import {
   d1HostIsWithinWebAuthnRpId,
   d1WebAuthnCredentialIdB64uFromCredential,
@@ -27,39 +29,32 @@ import {
   type WebAuthnSyncWalletBinding,
 } from './d1WebAuthnRecords';
 
-type ListWebAuthnAuthenticatorsInput = Parameters<
-  RouterApiAuthService['listWebAuthnAuthenticatorsForUser']
->[0];
+type ListWebAuthnAuthenticatorsInput =
+  Parameters<RouterApiWebAuthnService['listWebAuthnAuthenticatorsForUser']>[0];
 type ListWebAuthnAuthenticatorsResult = Awaited<
-  ReturnType<RouterApiAuthService['listWebAuthnAuthenticatorsForUser']>
+  ReturnType<RouterApiWebAuthnService['listWebAuthnAuthenticatorsForUser']>
 >;
-type CreateWebAuthnLoginOptionsInput = Parameters<
-  RouterApiAuthService['createWebAuthnLoginOptions']
->[0];
+type CreateWebAuthnLoginOptionsInput =
+  Parameters<RouterApiWebAuthnService['createWebAuthnLoginOptions']>[0];
 type CreateWebAuthnLoginOptionsResult = Awaited<
-  ReturnType<RouterApiAuthService['createWebAuthnLoginOptions']>
+  ReturnType<RouterApiWebAuthnService['createWebAuthnLoginOptions']>
 >;
-type CreateWebAuthnSyncAccountOptionsInput = Parameters<
-  RouterApiAuthService['createWebAuthnSyncAccountOptions']
->[0];
-type CreateWebAuthnSyncAccountOptionsResult = Awaited<
-  ReturnType<RouterApiAuthService['createWebAuthnSyncAccountOptions']>
->;
-type VerifyWebAuthnAuthenticationLiteInput = Parameters<
-  RouterApiAuthService['verifyWebAuthnAuthenticationLite']
->[0];
-type VerifyWebAuthnAuthenticationLiteResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyWebAuthnAuthenticationLite']>
->;
-type VerifyWebAuthnLoginInput = Parameters<RouterApiAuthService['verifyWebAuthnLogin']>[0];
+type CreateWebAuthnSyncAccountOptionsInput =
+  Parameters<RouterApiWebAuthnService['createWebAuthnSyncAccountOptions']>[0];
+type CreateWebAuthnSyncAccountOptionsResult =
+  Awaited<ReturnType<RouterApiWebAuthnService['createWebAuthnSyncAccountOptions']>>;
+type VerifyWebAuthnAuthenticationLiteInput =
+  Parameters<RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']>[0];
+type VerifyWebAuthnAuthenticationLiteResult =
+  Awaited<ReturnType<RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']>>;
+type VerifyWebAuthnLoginInput = Parameters<RouterApiWebAuthnService['verifyWebAuthnLogin']>[0];
 type VerifyWebAuthnLoginResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyWebAuthnLogin']>
+  ReturnType<RouterApiWebAuthnService['verifyWebAuthnLogin']>
 >;
-type VerifyWebAuthnSyncAccountInput = Parameters<
-  RouterApiAuthService['verifyWebAuthnSyncAccount']
->[0];
+type VerifyWebAuthnSyncAccountInput =
+  Parameters<RouterApiWebAuthnService['verifyWebAuthnSyncAccount']>[0];
 type VerifyWebAuthnSyncAccountResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyWebAuthnSyncAccount']>
+  ReturnType<RouterApiWebAuthnService['verifyWebAuthnSyncAccount']>
 >;
 
 type SimpleWebAuthnVerifier = (args: unknown) => Promise<unknown>;
@@ -75,9 +70,7 @@ function errorMessage(error: unknown): string {
 export class CloudflareD1WebAuthnAuthService {
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
 
-  constructor(input: {
-    readonly webAuthnStore: CloudflareD1WebAuthnStore;
-  }) {
+  constructor(input: { readonly webAuthnStore: CloudflareD1WebAuthnStore }) {
     this.webAuthnStore = input.webAuthnStore;
   }
 
@@ -609,6 +602,10 @@ export class CloudflareD1WebAuthnAuthService {
         binding.relayerKeyId && binding.publicKey
           ? {
               relayerKeyId: binding.relayerKeyId,
+              authorityScope: {
+                kind: 'passkey_rp' as const,
+                rpId: rpId.value,
+              },
               publicKey: binding.publicKey,
               ...(binding.keyVersion ? { keyVersion: binding.keyVersion } : {}),
               ...(typeof binding.recoveryExportCapable === 'boolean'

@@ -136,11 +136,11 @@ export class EmailOtpAppSessionJwtCache {
   }
 }
 
-export function appSessionJwtFromEmailOtpAuthLane(authLane?: EmailOtpAuthLane): string {
+export function appSessionJwtFromEmailOtpAuthLane(authLane: EmailOtpAuthLane): string {
   return authLaneAppSessionJwt(authLane);
 }
 
-export function appSessionSubjectFromEmailOtpAuthLane(authLane?: EmailOtpAuthLane): string {
+export function appSessionSubjectFromEmailOtpAuthLane(authLane: EmailOtpAuthLane): string {
   const jwt = appSessionJwtFromEmailOtpAuthLane(authLane);
   if (!jwt) return '';
   const payload = decodeJwtPayloadRecord(jwt);

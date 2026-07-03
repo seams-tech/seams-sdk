@@ -142,7 +142,10 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
       res.status(401).json({ ok: false, code: 'unauthorized', message: 'Invalid app session' });
       return null;
     }
-    const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+    const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+      userId,
+      appSessionVersion,
+    });
     if (!validated.ok) {
       await maybeEmitWarmExpired({
         code: validated.code,
@@ -165,7 +168,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
     res: any,
     input: { userId: string; stepUp: AuthPasskeyStepUpRequest },
   ): Promise<boolean> {
-    const result = await ctx.service.verifyWebAuthnLogin(input.stepUp);
+    const result = await ctx.service.webAuthn.verifyWebAuthnLogin(input.stepUp);
     if (!result.ok || !result.verified || !result.userId) {
       res.status(result.code === 'internal' ? 500 : 400).json(result);
       return false;
@@ -181,7 +184,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
     try {
       const sess = await requireAppSession(req, res, { source: 'auth.identities' });
       if (!sess) return;
-      const out = await ctx.service.listIdentities({ userId: sess.userId });
+      const out = await ctx.service.identity.listIdentities({ userId: sess.userId });
       res.status(out.ok ? 200 : out.code === 'internal' ? 500 : 400).json(out);
     } catch (e: any) {
       res
@@ -207,16 +210,18 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
         stepUp: parsed.request.stepUp,
       });
       if (!stepUpOk) return;
-      await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
+      await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
-      const verified = await ctx.service.verifyGoogleLogin({ idToken: parsed.request.idToken });
+      const verified = await ctx.service.identity.verifyGoogleLogin({
+        idToken: parsed.request.idToken,
+      });
       if (!verified.ok || !verified.verified || !verified.providerSubject) {
         res.status(verified.code === 'internal' ? 500 : 400).json(verified);
         return;
       }
       const subject = verified.providerSubject;
 
-      const linked = await ctx.service.linkIdentity({
+      const linked = await ctx.service.identity.linkIdentity({
         userId: sess.userId,
         subject,
         allowMoveIfSoleIdentity: true,
@@ -226,7 +231,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
         return;
       }
 
-      const identities = await ctx.service.listIdentities({ userId: sess.userId });
+      const identities = await ctx.service.identity.listIdentities({ userId: sess.userId });
       res.status(200).json({
         ok: true,
         linked: true,
@@ -258,7 +263,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
         stepUp: parsed.request.stepUp,
       });
       if (!stepUpOk) return;
-      await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
+      await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
       const subject = parsed.request.subject;
       if (subject.startsWith('near:')) {
@@ -268,15 +273,17 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
         return;
       }
 
-      const out = await ctx.service.unlinkIdentity({ userId: sess.userId, subject });
+      const out = await ctx.service.identity.unlinkIdentity({ userId: sess.userId, subject });
       if (!out.ok) {
         res.status(out.code === 'internal' ? 500 : 400).json(out);
         return;
       }
-      const identities = await ctx.service.listIdentities({ userId: sess.userId });
+      const identities = await ctx.service.identity.listIdentities({ userId: sess.userId });
 
       // Rotate app sessions after unlink to revoke existing sessions bound to removed identities.
-      const rotated = await ctx.service.rotateAppSessionVersion({ userId: sess.userId });
+      const rotated = await ctx.service.sessionVersions.rotateAppSessionVersion({
+        userId: sess.userId,
+      });
       if (!rotated.ok) {
         res
           .status(rotated.code === 'internal' ? 500 : 400)
@@ -374,7 +381,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
             res.status(parsed.status).json(parsed.body);
             return;
           }
-          const result = await ctx.service.createWebAuthnLoginOptions(parsed.request);
+          const result = await ctx.service.webAuthn.createWebAuthnLoginOptions(parsed.request);
           res.status(result.ok ? 200 : result.code === 'internal' ? 500 : 400).json(result);
           return;
         }
@@ -387,7 +394,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
             res.status(parsed.status).json(parsed.body);
             return;
           }
-          const result = await ctx.service.verifyWebAuthnLogin(parsed.request);
+          const result = await ctx.service.webAuthn.verifyWebAuthnLogin(parsed.request);
           if (!result.ok || !result.verified) {
             res.status(result.code === 'internal' ? 500 : 400).json(result);
             return;
@@ -396,7 +403,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
           return;
         }
         case 'google_options': {
-          const publicConfig = ctx.service.getGoogleOidcPublicConfig();
+          const publicConfig = ctx.service.identity.getGoogleOidcPublicConfig();
           res.status(200).json({ ok: true, ...publicConfig });
           return;
         }
@@ -406,7 +413,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRouterApiC
             res.status(parsed.status).json(parsed.body);
             return;
           }
-          const result = await ctx.service.verifyGoogleLogin(parsed.request);
+          const result = await ctx.service.identity.verifyGoogleLogin(parsed.request);
           if (!result.ok || !result.verified || !result.userId) {
             res.status(result.code === 'internal' ? 500 : 400).json(result);
             return;

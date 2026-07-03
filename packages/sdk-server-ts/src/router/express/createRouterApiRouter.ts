@@ -1,7 +1,7 @@
 import type { Router as ExpressRouter } from 'express';
 import express from 'express';
 import type { RouterApiOptions } from '../routerApi';
-import type { RouterApiAuthService } from '../authServicePort';
+import type { RouterApiServiceBag } from '../authServicePort';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { installCors } from './cors';
@@ -39,7 +39,7 @@ import {
 import { resolveRouterApiModuleRouteExtensions } from '../modules';
 
 export interface ExpressRouterApiContext {
-  service: RouterApiAuthService;
+  service: RouterApiServiceBag;
   opts: RouterApiOptions;
   logger: NormalizedRouterLogger;
   mePath: string;
@@ -48,7 +48,7 @@ export interface ExpressRouterApiContext {
 }
 
 export function createRouterApiRouter(
-  service: RouterApiAuthService,
+  service: RouterApiServiceBag,
   opts: RouterApiOptions = {},
 ): ExpressRouter {
   const router = express.Router();

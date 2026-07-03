@@ -25,6 +25,7 @@ import { EmailRecoveryPendingStore } from '@/utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { isObject } from '@shared/utils/validation';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '@/utils/emailRecovery';
@@ -76,6 +77,12 @@ function coercePositiveInt(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) return Math.max(1, Math.floor(fallback));
   return Math.floor(n);
+}
+
+function requireEmailRecoveryWebAuthnRpId(value: unknown): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 function requireEmailRecoveryString(value: unknown, field: string): string {
@@ -376,8 +383,9 @@ export class EmailRecoveryDomain {
       const relayerUrl = String(context.configs?.network?.relayer?.url || '').trim();
       if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
 
-      const rpId = context.signingEngine.getRpId();
-      if (!rpId) throw new Error('Missing rpId for email recovery flow');
+      const rpIdRaw = context.signingEngine.getRpId();
+      if (!rpIdRaw) throw new Error('Missing rpId for email recovery flow');
+      const rpId = requireEmailRecoveryWebAuthnRpId(rpIdRaw);
 
       const requestId = generateEmailRecoveryRequestId();
       const initialSignerSlot = 1;
@@ -437,7 +445,7 @@ export class EmailRecoveryDomain {
       }
       const thresholdWarmSessionRequest = buildThresholdWarmSessionRequestEnvelope({
         walletId: String(walletId),
-        authority: { kind: 'passkey_rp', rpId },
+        authorityScope: { kind: 'passkey_rp', rpId },
         requestedPolicy: thresholdWarmPolicy,
       });
       const ecdsaProvisionTargets = listThresholdEcdsaProvisionTargets({

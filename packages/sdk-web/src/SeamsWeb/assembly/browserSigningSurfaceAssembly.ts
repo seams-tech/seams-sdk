@@ -169,12 +169,6 @@ export function createBrowserSigningSurfaceEnginePorts(
       ),
     getThresholdEcdsaSessionRecordByKey: (identity) =>
       getThresholdEcdsaSessionRecordByIdentityOperation(args.warmSigning.ecdsaSessions, identity),
-    getEmailOtpThresholdEcdsaSessionRecordForSigning: (recordArgs) =>
-      getThresholdEcdsaSessionRecordForWalletTargetOperation(args.warmSigning.ecdsaSessions, {
-        walletId: recordArgs.walletId,
-        chainTarget: recordArgs.chainTarget,
-        source: 'email_otp',
-      }),
     getPasskeyThresholdEcdsaSessionRecordForSigning: (recordArgs) =>
       getThresholdEcdsaSessionRecordForWalletTargetOperation(args.warmSigning.ecdsaSessions, {
         walletId: recordArgs.walletId,
@@ -188,13 +182,13 @@ export function createBrowserSigningSurfaceEnginePorts(
 	            walletSession: challengeArgs.walletSession,
 	            nearAccountId: challengeArgs.nearAccountId,
 	            chain: challengeArgs.chain,
-	            ...(challengeArgs.authLane ? { authLane: challengeArgs.authLane } : {}),
+	            authLane: challengeArgs.committedLane.authLane,
 	          })
 	        : args.emailOtpSessions.requestTransactionSigningChallenge({
 	            kind: 'wallet_session_challenge',
 	            walletSession: challengeArgs.walletSession,
 	            chain: challengeArgs.chain,
-	            ...(challengeArgs.authLane ? { authLane: challengeArgs.authLane } : {}),
+	            authLane: challengeArgs.authLane,
 	          }),
     isEmailOtpEd25519WarmupPending: (warmupArgs) =>
       args.emailOtpSessions.isEd25519WarmupPending(warmupArgs),

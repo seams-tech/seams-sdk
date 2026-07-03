@@ -22,6 +22,8 @@ export type GoogleProviderSubject = ProviderSubject & {
   readonly __googleProviderSubjectBrand: 'GoogleProviderSubject';
 };
 export type VerifiedGoogleEmail = DomainId<'VerifiedGoogleEmail'>;
+export type VerifiedEmailAddress = DomainId<'VerifiedEmailAddress'>;
+export type EmailOtpProviderUserId = DomainId<'EmailOtpProviderUserId'>;
 
 // Subject that owns an Email OTP challenge. For Google registration this should
 // match ProviderSubject after parsing, but it remains a separate type so
@@ -47,6 +49,10 @@ export type AppSessionVersion = DomainId<'AppSessionVersion'>;
 // WebAuthn relying-party id. This belongs to passkey/WebAuthn auth scope and
 // must not be used as a wallet, NEAR account, or signing-key identity.
 export type WebAuthnRpId = DomainId<'WebAuthnRpId'>;
+export type WebAuthnCredentialIdB64u = DomainId<'WebAuthnCredentialIdB64u'>;
+export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
+export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
+export type AppSessionJwt = DomainId<'AppSessionJwt'>;
 
 // Client signing grant id. This groups one local approval/session
 // budget and can cover multiple threshold-session ids.
@@ -127,14 +133,14 @@ function parseDomainId<T>(raw: unknown, fieldName: string): DomainIdParseResult<
   return { ok: true, value: value as T };
 }
 
-function walletIdHasEmbeddedWhitespaceOrControl(value: string): boolean {
+function domainIdHasEmbeddedWhitespaceOrControl(value: string): boolean {
   return /[\s\x00-\x1F\x7F]/.test(value);
 }
 
 export function parseWalletId(raw: unknown): DomainIdParseResult<WalletId> {
   const parsed = parseDomainId<WalletId>(raw, 'walletId');
   if (!parsed.ok) return parsed;
-  if (walletIdHasEmbeddedWhitespaceOrControl(parsed.value)) {
+  if (domainIdHasEmbeddedWhitespaceOrControl(parsed.value)) {
     return {
       ok: false,
       error: {
@@ -183,6 +189,30 @@ export function parseVerifiedGoogleEmail(raw: unknown): DomainIdParseResult<Veri
   return { ok: true, value: normalized as VerifiedGoogleEmail };
 }
 
+export function parseVerifiedEmailAddress(
+  raw: unknown,
+): DomainIdParseResult<VerifiedEmailAddress> {
+  const parsed = parseDomainId<VerifiedEmailAddress>(raw, 'verifiedEmailAddress');
+  if (!parsed.ok) return parsed;
+  const normalized = parsed.value.toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'verifiedEmailAddress must be an email address',
+      },
+    };
+  }
+  return { ok: true, value: normalized as VerifiedEmailAddress };
+}
+
+export function parseEmailOtpProviderUserId(
+  raw: unknown,
+): DomainIdParseResult<EmailOtpProviderUserId> {
+  return parseDomainId(raw, 'emailOtpProviderUserId');
+}
+
 export function parseChallengeSubjectId(raw: unknown): DomainIdParseResult<ChallengeSubjectId> {
   return parseDomainId(raw, 'challengeSubjectId');
 }
@@ -206,7 +236,40 @@ export function parseAppSessionVersion(raw: unknown): DomainIdParseResult<AppSes
 }
 
 export function parseWebAuthnRpId(raw: unknown): DomainIdParseResult<WebAuthnRpId> {
-  return parseDomainId(raw, 'rpId');
+  const parsed = parseDomainId<WebAuthnRpId>(raw, 'rpId');
+  if (!parsed.ok) return parsed;
+  if (domainIdHasEmbeddedWhitespaceOrControl(parsed.value)) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'rpId contains whitespace or control characters',
+      },
+    };
+  }
+  return parsed;
+}
+
+export function parseWebAuthnCredentialIdB64u(
+  raw: unknown,
+): DomainIdParseResult<WebAuthnCredentialIdB64u> {
+  return parseDomainId(raw, 'credentialIdB64u');
+}
+
+export function parseWalletAuthMethodId(
+  raw: unknown,
+): DomainIdParseResult<WalletAuthMethodId> {
+  return parseDomainId(raw, 'walletAuthMethodId');
+}
+
+export function parseWalletAuthorityBindingDigest(
+  raw: unknown,
+): DomainIdParseResult<WalletAuthorityBindingDigest> {
+  return parseDomainId(raw, 'walletAuthorityBindingDigest');
+}
+
+export function parseAppSessionJwt(raw: unknown): DomainIdParseResult<AppSessionJwt> {
+  return parseDomainId(raw, 'appSessionJwt');
 }
 
 export function formatWebAuthnRpIdForWire(value: WebAuthnRpId): string {

@@ -20,7 +20,17 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { WalletAuthMethodStore } from '../../core/d1WalletAuthMethodStore';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  WalletAddAuthMethodFinalizeRequest,
+  WalletAddAuthMethodFinalizeResponse,
+  WalletAddAuthMethodStartRequest,
+  WalletAddAuthMethodStartResponse,
+  WalletAddSignerStartRequest,
+  WalletRegistrationStartAuthority,
+  WalletRegistrationStartRequest,
+  WalletRevokeAuthMethodRequest,
+  WalletRevokeAuthMethodResponse
+} from '../../core/registrationContracts';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
@@ -50,29 +60,16 @@ import {
   type D1AddAuthMethodExistingAuthResolution,
   type D1AddSignerExistingAuthResolution,
 } from './d1WalletAuthMethodBoundary';
+import { d1WalletAuthAuthorityFromRegistrationAuthority } from './d1NearEd25519RegistrationBranch';
 import type { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 
-type StartWalletRegistrationInput = Parameters<
-  RouterApiAuthService['startWalletRegistration']
->[0];
-type StartWalletAddAuthMethodInput = Parameters<
-  RouterApiAuthService['startWalletAddAuthMethod']
->[0];
-type StartWalletAddAuthMethodResult = Awaited<
-  ReturnType<RouterApiAuthService['startWalletAddAuthMethod']>
->;
-type FinalizeWalletAddAuthMethodInput = Parameters<
-  RouterApiAuthService['finalizeWalletAddAuthMethod']
->[0];
-type FinalizeWalletAddAuthMethodResult = Awaited<
-  ReturnType<RouterApiAuthService['finalizeWalletAddAuthMethod']>
->;
-type RevokeWalletAuthMethodInput = Parameters<
-  RouterApiAuthService['revokeWalletAuthMethod']
->[0];
-type RevokeWalletAuthMethodResult = Awaited<
-  ReturnType<RouterApiAuthService['revokeWalletAuthMethod']>
->;
+type StartWalletRegistrationInput = WalletRegistrationStartRequest;
+type StartWalletAddAuthMethodInput = WalletAddAuthMethodStartRequest;
+type StartWalletAddAuthMethodResult = WalletAddAuthMethodStartResponse;
+type FinalizeWalletAddAuthMethodInput = WalletAddAuthMethodFinalizeRequest;
+type FinalizeWalletAddAuthMethodResult = WalletAddAuthMethodFinalizeResponse;
+type RevokeWalletAuthMethodInput = WalletRevokeAuthMethodRequest;
+type RevokeWalletAuthMethodResult = WalletRevokeAuthMethodResponse;
 type WalletAuthMethodError = {
   readonly ok: false;
   readonly code: string;
@@ -275,9 +272,11 @@ export class CloudflareD1WalletAuthMethodService {
         authority: consumed.authority,
         now: Date.now(),
       });
+      const authority = d1WalletAuthAuthorityFromRegistrationAuthority(consumed.authority);
       return {
         ok: true,
         walletId: consumed.intent.walletId,
+        authority,
         ...(consumed.authority.kind === 'passkey' ? { rpId: consumed.authority.rpId } : {}),
         authMethod: {
           kind: consumed.authority.kind,
@@ -294,7 +293,7 @@ export class CloudflareD1WalletAuthMethodService {
   }
 
   async resolveAddSignerExistingAuth(input: {
-    readonly auth: Parameters<RouterApiAuthService['startWalletAddSigner']>[0]['auth'];
+    readonly auth: WalletAddSignerStartRequest['auth'];
     readonly walletId: WalletId;
     readonly intent: AddSignerIntentV1;
     readonly nowMs: number;
@@ -309,9 +308,7 @@ export class CloudflareD1WalletAuthMethodService {
   }
 
   async resolveAddAuthMethodExistingAuth(input: {
-    readonly auth: Parameters<
-      RouterApiAuthService['startWalletAddAuthMethod']
-    >[0]['auth'];
+    readonly auth: WalletAddAuthMethodStartRequest['auth'];
     readonly walletId: WalletId;
     readonly intent: AddAuthMethodIntentV1;
     readonly nowMs: number;
@@ -335,7 +332,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   async verifyRegistrationAuthorityForIntent(input: {
     readonly orgId: string;
-    readonly authority: StartWalletRegistrationInput['authority'];
+    readonly authority: WalletRegistrationStartAuthority;
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: RegistrationIntentV1;

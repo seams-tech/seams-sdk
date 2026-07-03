@@ -1,5 +1,7 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import {
   createSigningFlowEvent,
@@ -32,6 +34,8 @@ import {
   type ThresholdEd25519SessionRecord,
 } from '../../session/persistence/records';
 import {
+  emailOtpAuthContextReason,
+  emailOtpAuthContextRetention,
   type Ed25519LaneCandidate,
   type SelectedEd25519Lane,
   type ThresholdEd25519SessionStoreSource,
@@ -47,7 +51,7 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import { publishResolvedIdentity } from '../../session/persistence/sealedSessionStore';
 import {
-  buildEd25519SessionPolicy,
+  buildPasskeyEd25519SessionPolicy,
   isSigningSessionAuthUnavailableError,
 } from '../../threshold/sessionPolicy';
 import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';
@@ -90,10 +94,13 @@ import {
   type ThresholdSigningReadinessInput,
 } from '../../session/operationState/preparedOperation';
 import {
-  emailOtpEd25519AuthLaneFromRecord,
   resolveRouterAbEd25519WalletSessionStateFromRecord,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from './shared/routerAbEd25519WalletSessionState';
+import {
+  buildEd25519SigningLane,
+  type Ed25519SigningLane,
+} from '../../session/emailOtp/ed25519Warmup';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   routerAbEd25519WorkerMaterialIdentityFromPersistedState,
@@ -134,6 +141,12 @@ import type {
   NearEd25519PasskeyStepUpAuthorization,
 } from './stepUpAuthorization';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
+
+function requirePasskeyEd25519ReauthRpId(value: unknown): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 export type SignDelegateActionResult = {
   signedDelegate: WasmSignedDelegate;
@@ -279,7 +292,7 @@ type NearTransactionPreConfirmSigningDeps = {
 
 type NearTransactionConfirmedSigningDeps = {
   requestEmailOtpTransactionSigningChallenge?: NearSigningApiDeps['requestEmailOtpTransactionSigningChallenge'];
-  resolveEmailOtpSigningSessionAuthLane?: NearSigningApiDeps['resolveEmailOtpSigningSessionAuthLane'];
+  resolveEmailOtpEd25519SigningSessionAuthority?: NearSigningApiDeps['resolveEmailOtpEd25519SigningSessionAuthority'];
   loginWithEmailOtpEd25519CapabilityForSigning?: NearSigningApiDeps['loginWithEmailOtpEd25519CapabilityForSigning'];
 };
 
@@ -402,10 +415,8 @@ function summarizeNearEd25519Lane(lane: AvailableEd25519SigningLane): Record<str
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
     expiresAtMs: lane.expiresAtMs,
-    hasMaterialBindingDigest: Boolean(
-      String(lane.ed25519WorkerMaterialBindingDigest || '').trim(),
-    ),
-    hasMaterialKeyId: Boolean(String(lane.materialKeyId || '').trim()),
+    materialKind: lane.material.kind,
+    hasMaterialIdentity: lane.material.kind !== 'material_pending',
   };
 }
 
@@ -460,6 +471,11 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
     if (args.selectedLane.auth.kind !== 'email_otp') {
       throw new Error('[SigningEngine][near] selected Email OTP lane is missing Email OTP auth');
     }
+    if (!args.record.emailOtpAuthContext) {
+      throw new Error(
+        '[SigningEngine][near] selected Email OTP record is missing auth context',
+      );
+    }
     return buildNearTransactionSigningLane({
       walletId,
       nearAccountId: signer.account.nearAccountId,
@@ -468,9 +484,11 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
       auth: args.selectedLane.auth,
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
-      retention: args.record.emailOtpAuthContext?.retention || 'session',
+      retention: emailOtpAuthContextRetention(args.record.emailOtpAuthContext),
       sessionOrigin:
-        args.record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+        emailOtpAuthContextReason(args.record.emailOtpAuthContext) === 'login'
+          ? 'login'
+          : 'per_operation',
     });
   }
   if (args.selectedLane.auth.kind !== 'passkey') {
@@ -570,6 +588,28 @@ function trustedBudgetStatusAuthFromEd25519Record(
   };
 }
 
+function resolveEd25519SigningLane(args: {
+  confirmedDeps: NearTransactionConfirmedSigningDeps;
+  lane: SelectedEd25519Lane;
+  record: ThresholdEd25519SessionRecord;
+}): Ed25519SigningLane {
+  if (args.record.source !== 'email_otp') {
+    throw new Error('[SigningEngine][near] Email OTP Ed25519 step-up requires Email OTP record');
+  }
+  const authority = args.confirmedDeps.resolveEmailOtpEd25519SigningSessionAuthority?.({
+    lane: exactEd25519IdentityFromSelectedLane(args.lane),
+  });
+  if (!authority) {
+    throw new Error(
+      '[SigningEngine][near] Email OTP Ed25519 committed lane is unavailable; unlock wallet again',
+    );
+  }
+  return buildEd25519SigningLane({
+    record: args.record,
+    authority,
+  });
+}
+
 async function resolveNearTransactionPlannerReadiness(args: {
   preConfirmDeps: NearTransactionPreConfirmSigningDeps;
   nearAccount: NearCommandSubject['nearAccount'];
@@ -614,9 +654,12 @@ async function resolveNearTransactionPlannerReadiness(args: {
     };
   };
 
+  const emailOtpAuthContext =
+    args.record.source === 'email_otp' ? args.record.emailOtpAuthContext : null;
   const isSingleUseEmailOtpRecord =
-    args.record.source === 'email_otp' &&
-    args.record.emailOtpAuthContext?.retention === 'single_use';
+    emailOtpAuthContext
+      ? emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use'
+      : false;
   const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
   const hasRuntimeValidatedWorkerMaterial = persistedState.kind === 'runtime_validated';
   const hasRestoreAvailablePasskeyWorkerMaterial =
@@ -745,7 +788,9 @@ async function resolveNearTransactionWalletAuth(args: {
       signingGrantId: lane.signingGrantId,
       thresholdSessionId: lane.thresholdSessionId,
       recordSource: record.source,
-      retention: record.emailOtpAuthContext?.retention,
+      retention: record.emailOtpAuthContext
+        ? emailOtpAuthContextRetention(record.emailOtpAuthContext)
+        : null,
       remainingUses: preparedOperation.remainingUses,
       expiresAtMs: preparedOperation.expiresAtMs,
     });
@@ -772,6 +817,7 @@ async function resolveNearTransactionWalletAuth(args: {
   }
 
   let activeChallenge: { challengeId: string; email?: string } | null = null;
+  let activeCommittedLane: Ed25519SigningLane | null = null;
   let activeEmailOtpRequiredSignatureUses = 1;
   const prepareEmailOtpChallenge = async (prepareArgs: { requiredSignatureUses: number }) => {
     activeEmailOtpRequiredSignatureUses = Math.max(
@@ -796,16 +842,17 @@ async function resolveNearTransactionWalletAuth(args: {
         phase: 'confirmed',
       }),
     );
-    const authLane = record
-      ? args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
-          lane: exactEd25519IdentityFromSelectedLane(lane),
-        }) || emailOtpEd25519AuthLaneFromRecord(record)
-      : undefined;
+    const committedLane = resolveEd25519SigningLane({
+      confirmedDeps: args.confirmedDeps,
+      lane: preparedOperation.metadata.transactionLane,
+      record,
+    });
+    activeCommittedLane = committedLane;
     const challenge = await args.confirmedDeps.requestEmailOtpTransactionSigningChallenge({
       walletSession: args.commandSubject.walletSession,
       nearAccountId,
       chain: 'near',
-      ...(authLane ? { authLane } : {}),
+      committedLane,
     });
     const challengeId = String(challenge.challengeId || '').trim();
     if (!challengeId) {
@@ -850,17 +897,19 @@ async function resolveNearTransactionWalletAuth(args: {
           operationId: args.operationId,
           requiredSignatureUses: activeEmailOtpRequiredSignatureUses,
         });
-        const authLane =
-          args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
-            lane: exactEd25519IdentityFromSelectedLane(lane),
-          }) || emailOtpEd25519AuthLaneFromRecord(record);
+        const committedLane =
+          activeCommittedLane ||
+          resolveEd25519SigningLane({
+            confirmedDeps: args.confirmedDeps,
+            lane: preparedOperation.metadata.transactionLane,
+            record,
+          });
         const emailOtpAuthentication =
           await args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning({
             nearAccountId,
             challengeId: resolvedChallengeId,
             otpCode: authorization.otpCode,
-            record,
-            ...(authLane ? { authLane } : {}),
+            committedLane,
             remainingUses: sessionBudgetUses,
           });
         if (emailOtpAuthentication.record) {
@@ -1008,23 +1057,32 @@ function buildNearPasskeyEd25519Reconnect(args: {
             operationId: args.operationId,
             requiredSignatureUses,
           });
-      const rpId = String(args.ctx.touchIdPrompt.getRpId() || '').trim();
+      const rpIdRaw = String(args.ctx.touchIdPrompt.getRpId() || '').trim();
       const thresholdSessionId = String(thresholdSessionRecord.thresholdSessionId || '').trim();
       const signingGrantId = String(thresholdSessionRecord.signingGrantId || '').trim();
-      if (!rpId) {
+      if (!rpIdRaw) {
         throw new Error('[SigningEngine] missing rpId for passkey Ed25519 reauth');
       }
+      const rpId = requirePasskeyEd25519ReauthRpId(rpIdRaw);
+      const passkeyCredentialIdB64u = String(
+        thresholdSessionRecord.passkeyCredentialIdB64u || '',
+      ).trim();
       if (materialRestoreOnly && !thresholdSessionId) {
         throw new Error('[SigningEngine] missing threshold session id for passkey Ed25519 restore');
       }
       if (!signingGrantId) {
         throw new Error('[SigningEngine] missing signing grant id for passkey Ed25519 reauth');
       }
-      const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
+      const authority = buildPasskeyWalletAuthAuthority({
+        walletId: thresholdSessionRecord.walletId,
+        rpId,
+        credentialIdB64u: passkeyCredentialIdB64u,
+      });
+      const { policy, sessionPolicyDigest32 } = await buildPasskeyEd25519SessionPolicy({
         walletId: String(thresholdSessionRecord.walletId),
         nearAccountId: args.commandSubject.nearAccount.accountId,
         nearEd25519SigningKeyId: String(thresholdSessionRecord.nearEd25519SigningKeyId),
-        authority: { kind: 'passkey_rp', rpId },
+        authority,
         relayerKeyId: thresholdSessionRecord.relayerKeyId,
         ...(thresholdSessionRecord.runtimePolicyScope
           ? { runtimePolicyScope: thresholdSessionRecord.runtimePolicyScope }
@@ -1411,7 +1469,9 @@ async function prepareNearEd25519TransactionOperation(args: {
       readiness: readiness.readiness.status,
       thresholdSessionId: recordForLifecycle.thresholdSessionId,
       signingGrantId: recordForLifecycle.signingGrantId,
-      retention: recordForLifecycle.emailOtpAuthContext?.retention,
+      retention: recordForLifecycle.emailOtpAuthContext
+        ? emailOtpAuthContextRetention(recordForLifecycle.emailOtpAuthContext)
+        : null,
       remainingUses: readiness.remainingUses,
       expiresAtMs: readiness.expiresAtMs,
       requiredSignatureUses: operationUsesNeeded,
@@ -1567,7 +1627,8 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     confirmedDeps: {
       requestEmailOtpTransactionSigningChallenge:
         args.deps.requestEmailOtpTransactionSigningChallenge,
-      resolveEmailOtpSigningSessionAuthLane: args.deps.resolveEmailOtpSigningSessionAuthLane,
+      resolveEmailOtpEd25519SigningSessionAuthority:
+        args.deps.resolveEmailOtpEd25519SigningSessionAuthority,
       loginWithEmailOtpEd25519CapabilityForSigning:
         args.deps.loginWithEmailOtpEd25519CapabilityForSigning,
     },

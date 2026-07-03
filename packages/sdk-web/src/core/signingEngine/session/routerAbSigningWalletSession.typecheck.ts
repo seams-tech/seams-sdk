@@ -6,12 +6,14 @@ import { buildRouterAbEcdsaHssSigningMaterialRef } from '../routerAb/ecdsaHss/si
 import type {
   RouterAbEcdsaHssSigningWalletSession,
   RouterAbEd25519PersistedSigningRecordState,
+  RouterAbEd25519RestorableWorkerMaterial,
   RouterAbEd25519SigningWalletSession,
   RouterAbSigningWalletSessionAuth,
 } from './routerAbSigningWalletSession';
 import type { ThresholdEd25519SessionRecord } from './persistence/records';
 import { toWalletId } from '../interfaces/ecdsaChainTarget';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import { parseEd25519SealedWorkerMaterialRef } from './keyMaterialBrands';
 
 type ExactType<TValue, TShape> = TValue extends TShape
   ? Exclude<keyof TValue, keyof TShape> extends never
@@ -61,6 +63,21 @@ const ed25519SigningMaterial = buildRouterAbEd25519SigningMaterialRef({
   clientVerifyingShareB64u: 'client-verifying-share',
 });
 void ed25519SigningMaterial;
+
+const ed25519RestorableMaterial = {
+  identity: {
+    materialKeyId: ed25519SigningMaterial.materialKeyId,
+    bindingDigest: ed25519SigningMaterial.bindingDigest,
+    clientVerifierB64u: ed25519SigningMaterial.clientVerifierB64u,
+  },
+  sealedMaterial: {
+    kind: 'inline_sealed_blob',
+    sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef('sealed-worker-material-ref'),
+    sealedWorkerMaterialB64u: 'sealed-worker-material-b64u',
+  },
+  materialCreatedAtMs: 1_800_000_000_000,
+} satisfies RouterAbEd25519RestorableWorkerMaterial;
+void ed25519RestorableMaterial;
 
 const ecdsaRouterAbNormalSigning = {
   kind: 'router_ab_ecdsa_hss_normal_signing_v1',
@@ -217,6 +234,7 @@ const validEd25519RuntimeValidatedState = {
   kind: 'runtime_validated',
   record: validEd25519SessionRecord,
   value: validEd25519SigningWalletSession,
+  restorableMaterial: ed25519RestorableMaterial,
 } satisfies RouterAbEd25519PersistedSigningRecordState;
 void validEd25519RuntimeValidatedState;
 exactEd25519RuntimeValidatedState(validEd25519RuntimeValidatedState);

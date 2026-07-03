@@ -1,6 +1,8 @@
 import type { RouterAbWalletSessionCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type {
   ThresholdEcdsaSessionRecord,
+  ThresholdEd25519MaterialReadySessionRecord,
+  ThresholdEd25519RestoreAvailableSessionRecord,
   ThresholdEd25519SessionRecord,
 } from './persistence/records';
 import {
@@ -33,12 +35,14 @@ import {
 import {
   parseEd25519ClientVerifyingShareB64u,
   parseEd25519RelayerKeyId,
+  parseEd25519SealedWorkerMaterialRef,
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   type Ed25519ClientVerifyingShareB64u,
+  type Ed25519SealedWorkerMaterialRef,
   type Ed25519WorkerMaterialBindingDigest,
   type Ed25519WorkerMaterialHandle,
   type Ed25519WorkerMaterialKeyId,
@@ -114,6 +118,28 @@ export type RouterAbEd25519RestorableWorkerMaterialIdentity = {
   bindingDigest: Ed25519WorkerMaterialBindingDigest;
   clientVerifierB64u: Ed25519ClientVerifyingShareB64u;
 };
+
+export type RouterAbEd25519SealedWorkerMaterial =
+  | {
+      kind: 'inline_sealed_blob';
+      sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
+      sealedWorkerMaterialB64u: string;
+    }
+  | {
+      kind: 'storage_ref';
+      sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
+      sealedWorkerMaterialB64u?: never;
+    };
+
+export type RouterAbEd25519RestorableWorkerMaterial = {
+  identity: RouterAbEd25519RestorableWorkerMaterialIdentity;
+  sealedMaterial: RouterAbEd25519SealedWorkerMaterial;
+  materialCreatedAtMs: number;
+};
+
+type ThresholdEd25519RestorableWorkerMaterialSessionRecord =
+  | ThresholdEd25519RestoreAvailableSessionRecord
+  | ThresholdEd25519MaterialReadySessionRecord;
 
 export type RouterAbEd25519WalletSessionCredentialFingerprint = {
   kind: 'router_ab_ed25519_wallet_session_credential_fingerprint_v1';
@@ -192,6 +218,7 @@ type RouterAbEd25519PersistedSigningRecordStateBase<TRecord, TSession> =
       kind: 'runtime_validated';
       record: TRecord;
       value: TSession;
+      restorableMaterial: RouterAbEd25519RestorableWorkerMaterial;
       reason?: never;
     }
   | {
@@ -199,6 +226,7 @@ type RouterAbEd25519PersistedSigningRecordStateBase<TRecord, TSession> =
       record: TRecord;
       reason: 'loaded_material_missing';
       materialIdentity: RouterAbEd25519RestorableWorkerMaterialIdentity;
+      restorableMaterial: RouterAbEd25519RestorableWorkerMaterial;
       value?: never;
     }
   | {
@@ -715,6 +743,17 @@ function resolveRouterAbEcdsaHssSigningIdentityFromRecord(
   };
 }
 
+function routerAbEd25519SigningMaterialRefFromReadyRecord(
+  record: ThresholdEd25519MaterialReadySessionRecord,
+): RouterAbEd25519SigningMaterialRef {
+  return buildRouterAbEd25519SigningMaterialRef({
+    materialHandle: record.ed25519WorkerMaterialHandle,
+    materialKeyId: record.materialKeyId,
+    bindingDigest: record.ed25519WorkerMaterialBindingDigest,
+    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+  });
+}
+
 export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
@@ -742,12 +781,7 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   if (!positiveInteger(record.signerSlot)) {
     return { ok: false, reason: 'material_identity_mismatch' };
   }
-  const signingMaterial = buildRouterAbEd25519SigningMaterialRef({
-    materialHandle: record.ed25519WorkerMaterialHandle,
-    materialKeyId: record.materialKeyId,
-    bindingDigest: record.ed25519WorkerMaterialBindingDigest,
-    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-  });
+  const signingMaterial = routerAbEd25519SigningMaterialRefFromReadyRecord(record);
   const remainingUses = positiveInteger(record.remainingUses);
   const expiresAtMs = positiveInteger(record.expiresAtMs);
   if (!remainingUses || !expiresAtMs) return { ok: false, reason: 'invalid_budget' };
@@ -835,7 +869,9 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   };
 }
 
-function hasEd25519SealedWorkerMaterial(record: ThresholdEd25519SessionRecord): boolean {
+function hasEd25519SealedWorkerMaterial(
+  record: ThresholdEd25519SessionRecord,
+): record is ThresholdEd25519RestorableWorkerMaterialSessionRecord {
   return hasThresholdEd25519RestorableWorkerMaterial(record);
 }
 
@@ -850,9 +886,8 @@ function routerAbEd25519MaterialIdentityFromSigningMaterial(
 }
 
 function routerAbEd25519RestorableWorkerMaterialIdentity(
-  record: ThresholdEd25519SessionRecord,
+  record: ThresholdEd25519RestorableWorkerMaterialSessionRecord,
 ): RouterAbEd25519RestorableWorkerMaterialIdentity | null {
-  if (!hasThresholdEd25519RestorableWorkerMaterial(record)) return null;
   return {
     materialKeyId: parseEd25519WorkerMaterialKeyId(record.materialKeyId),
     bindingDigest: parseEd25519WorkerMaterialBindingDigest(
@@ -862,14 +897,49 @@ function routerAbEd25519RestorableWorkerMaterialIdentity(
   };
 }
 
+function routerAbEd25519SealedWorkerMaterialFromRecord(
+  record: ThresholdEd25519RestorableWorkerMaterialSessionRecord,
+): RouterAbEd25519SealedWorkerMaterial | null {
+  const sealedWorkerMaterialRef = parseEd25519SealedWorkerMaterialRef(
+    record.sealedWorkerMaterialRef,
+  );
+  const sealedWorkerMaterialB64u = nonEmptyString(record.sealedWorkerMaterialB64u);
+  if (sealedWorkerMaterialB64u) {
+    return {
+      kind: 'inline_sealed_blob',
+      sealedWorkerMaterialRef,
+      sealedWorkerMaterialB64u,
+    };
+  }
+  return {
+    kind: 'storage_ref',
+    sealedWorkerMaterialRef,
+  };
+}
+
+function routerAbEd25519RestorableWorkerMaterial(
+  record: ThresholdEd25519SessionRecord,
+): RouterAbEd25519RestorableWorkerMaterial | null {
+  if (!hasEd25519SealedWorkerMaterial(record)) return null;
+  const identity = routerAbEd25519RestorableWorkerMaterialIdentity(record);
+  const sealedMaterial = routerAbEd25519SealedWorkerMaterialFromRecord(record);
+  const materialCreatedAtMs = positiveInteger(record.materialCreatedAtMs);
+  if (!identity || !sealedMaterial || !materialCreatedAtMs) return null;
+  return {
+    identity,
+    sealedMaterial,
+    materialCreatedAtMs,
+  };
+}
+
 export function routerAbEd25519WorkerMaterialIdentityFromPersistedState(
   state: RouterAbEd25519PersistedSigningRecordState,
 ): RouterAbEd25519RestorableWorkerMaterialIdentity | null {
   switch (state.kind) {
     case 'runtime_validated':
-      return routerAbEd25519MaterialIdentityFromSigningMaterial(state.value.signingMaterial);
+      return state.restorableMaterial.identity;
     case 'restore_available':
-      return state.materialIdentity;
+      return state.restorableMaterial.identity;
     case 'auth_ready_material_pending':
     case 'material_hint_unvalidated':
     case 'non_signing':
@@ -916,26 +986,28 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
   }
   const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
   if (parsed.ok) {
+    const restorableMaterial = routerAbEd25519RestorableWorkerMaterial(record);
+    if (!restorableMaterial) {
+      return {
+        kind: 'invalid',
+        record,
+        reason: 'material_identity_mismatch',
+      };
+    }
     if (isRouterAbEd25519WorkerMaterialRuntimeValidated(record)) {
       return {
         kind: 'runtime_validated',
         record,
         value: parsed.value,
-      };
-    }
-    const materialIdentity = routerAbEd25519RestorableWorkerMaterialIdentity(record);
-    if (materialIdentity) {
-      return {
-        kind: 'restore_available',
-        record,
-        reason: 'loaded_material_missing',
-        materialIdentity,
+        restorableMaterial,
       };
     }
     return {
-      kind: 'material_hint_unvalidated',
+      kind: 'restore_available',
       record,
-      reason: 'worker_material_unvalidated',
+      reason: 'loaded_material_missing',
+      materialIdentity: restorableMaterial.identity,
+      restorableMaterial,
     };
   }
   if (parsed.reason === 'cookie_session') {
@@ -945,13 +1017,14 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
       reason: 'cookie_session',
     };
   }
-  const materialIdentity = routerAbEd25519RestorableWorkerMaterialIdentity(record);
-  if (parsed.reason === 'missing_material_handle' && materialIdentity) {
+  const restorableMaterial = routerAbEd25519RestorableWorkerMaterial(record);
+  if (parsed.reason === 'missing_material_handle' && restorableMaterial) {
     return {
       kind: 'restore_available',
       record,
       reason: 'loaded_material_missing',
-      materialIdentity,
+      materialIdentity: restorableMaterial.identity,
+      restorableMaterial,
     };
   }
   if (

@@ -1,5 +1,5 @@
 import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
-import type { RouterApiAuthService } from '../authServicePort';
+import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiOptions } from '../routerApi';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../routerApi';
 import { resolveThresholdOption } from '../routerOptions';
@@ -64,14 +64,14 @@ export type SelfHostedCloudflareSigningWorkerFactoryInput<Env extends CfEnv = Cf
     readonly request: Request;
     readonly env: Env;
     readonly ctx: CfExecutionContext;
-  }) => RouterApiAuthService | Promise<RouterApiAuthService>;
+  }) => RouterApiServiceBag | Promise<RouterApiServiceBag>;
   readonly routerOptions?:
     | RouterApiOptions
     | ((input: {
         readonly request: Request;
         readonly env: Env;
         readonly ctx: CfExecutionContext;
-        readonly service: RouterApiAuthService;
+        readonly service: RouterApiServiceBag;
       }) => RouterApiOptions | Promise<RouterApiOptions>);
   readonly signingRootAdmin?:
     | SelfHostedSigningRootAdminRoutes
@@ -79,7 +79,7 @@ export type SelfHostedCloudflareSigningWorkerFactoryInput<Env extends CfEnv = Cf
         readonly request: Request;
         readonly env: Env;
         readonly ctx: CfExecutionContext;
-        readonly service: RouterApiAuthService;
+        readonly service: RouterApiServiceBag;
       }) =>
         | SelfHostedSigningRootAdminRoutes
         | null
@@ -350,7 +350,7 @@ function createSelfHostedContext(input: {
   readonly request: Request;
   readonly env?: CfEnv;
   readonly cfCtx?: CfExecutionContext;
-  readonly service: RouterApiAuthService;
+  readonly service: RouterApiServiceBag;
   readonly opts: RouterApiOptions;
   readonly logger: NormalizedRouterLogger;
 }): SelfHostedCloudflareRouterApiContext {
@@ -372,7 +372,7 @@ function createSelfHostedContext(input: {
 }
 
 export function createSelfHostedCloudflareSigningRouter(
-  service: RouterApiAuthService,
+  service: RouterApiServiceBag,
   opts: RouterApiOptions = {},
   selfHostedOpts: SelfHostedCloudflareSigningRouterOptions = {},
 ): FetchHandler {

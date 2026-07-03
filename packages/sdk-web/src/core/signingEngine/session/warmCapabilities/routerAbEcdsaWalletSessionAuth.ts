@@ -1,12 +1,9 @@
-import { resolveThresholdEcdsaKeyIdFromRecord } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import { thresholdEcdsaChainTargetsEqual } from '../../interfaces/ecdsaChainTarget';
-import { createWarmSessionCapabilityReader } from './capabilityReader';
 
 export type RouterAbEcdsaWalletSessionAuthReady = {
   kind: 'ready';
   walletSessionJwt: string;
-  source: 'warm_capability' | 'record';
+  source: 'record';
 };
 
 export type RouterAbEcdsaWalletSessionAuthUnavailable = {
@@ -25,31 +22,6 @@ export function resolveRouterAbEcdsaWalletSessionAuthFromRecord(
 ): RouterAbEcdsaWalletSessionAuthResolution {
   if (record.thresholdSessionKind !== 'jwt') {
     return { kind: 'unavailable', reason: 'cookie_session' };
-  }
-
-  const resolvedAuthMaterial =
-    createWarmSessionCapabilityReader().resolveEcdsaAuthByThresholdSessionId(
-      record.thresholdSessionId,
-    );
-  const resolvedRecord = resolvedAuthMaterial?.record || null;
-  const resolvedRecordMatches =
-    !!resolvedRecord &&
-    String(resolvedRecord.walletId || '') === String(record.walletId || '') &&
-    String(resolveThresholdEcdsaKeyIdFromRecord({ record: resolvedRecord })) ===
-      String(resolveThresholdEcdsaKeyIdFromRecord({ record })) &&
-    thresholdEcdsaChainTargetsEqual(resolvedRecord.chainTarget, record.chainTarget) &&
-    String(resolvedRecord.thresholdSessionId || '') === String(record.thresholdSessionId || '') &&
-    String(resolvedRecord.signingGrantId || '') ===
-      String(record.signingGrantId || '');
-  const resolvedWalletSessionJwt = String(
-    resolvedRecordMatches ? resolvedAuthMaterial?.walletSessionJwt || '' : '',
-  ).trim();
-  if (resolvedWalletSessionJwt) {
-    return {
-      kind: 'ready',
-      walletSessionJwt: resolvedWalletSessionJwt,
-      source: 'warm_capability',
-    };
   }
 
   const recordWalletSessionJwt = String(record.walletSessionJwt || '').trim();

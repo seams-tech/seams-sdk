@@ -42,6 +42,7 @@ export type WebAuthnSyncWalletBinding = {
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
   readonly rpId: string;
+  readonly credentialIdB64u: string;
   readonly signerSlot: number;
 };
 
@@ -205,6 +206,7 @@ export function webAuthnSyncWalletBindingFromCredentialBinding(
     nearAccountId: binding.nearAccountId,
     nearEd25519SigningKeyId: binding.nearEd25519SigningKeyId,
     rpId: binding.rpId,
+    credentialIdB64u: binding.credentialIdB64u,
     signerSlot: binding.signerSlot,
   };
 }

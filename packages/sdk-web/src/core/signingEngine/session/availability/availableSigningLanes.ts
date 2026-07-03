@@ -10,6 +10,7 @@ import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import type { SigningSessionSealedStoreRecord } from '../persistence/sealedSessionStore';
 import {
+  ed25519SealedRecoveryMaterialIdentity,
   normalizeSealedRecoveryRecord,
   sealedRecoveryWalletSessionJwt,
 } from '../sealedRecovery/recoveryRecord';
@@ -72,6 +73,12 @@ import type {
   SigningOperationFingerprint,
   SigningOperationId,
 } from '../operationState/types';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+  type Ed25519WorkerMaterialBindingDigest,
+  type Ed25519WorkerMaterialKeyId,
+} from '../keyMaterialBrands';
 
 export type AvailableSigningLaneState =
   | 'ready'
@@ -172,7 +179,27 @@ export type MissingAvailableEd25519SigningLane = {
   policyHint?: never;
   updatedAtMs?: never;
   source?: never;
+  material?: never;
 };
+
+export type Ed25519AvailableWorkerMaterialIdentity = {
+  bindingDigest: Ed25519WorkerMaterialBindingDigest;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
+};
+
+export type Ed25519AvailableWorkerMaterialState =
+  | {
+      kind: 'material_pending';
+      identity?: never;
+    }
+  | {
+      kind: 'loaded_worker_material';
+      identity: Ed25519AvailableWorkerMaterialIdentity;
+    }
+  | {
+      kind: 'sealed_worker_material';
+      identity: Ed25519AvailableWorkerMaterialIdentity;
+    };
 
 export type ConcreteAvailableEd25519SigningLane = {
   auth: SigningLaneAuthBinding;
@@ -189,8 +216,7 @@ export type ConcreteAvailableEd25519SigningLane = {
   expiresAtMs?: number;
   policyHint?: AvailableSigningLanePolicyHint;
   updatedAtMs?: number;
-  ed25519WorkerMaterialBindingDigest?: string;
-  materialKeyId?: string;
+  material: Ed25519AvailableWorkerMaterialState;
   source?: 'durable_sealed_record' | 'runtime_session_record';
 };
 
@@ -360,8 +386,7 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
-  ed25519WorkerMaterialBindingDigest?: string;
-  materialKeyId?: string;
+  material: Ed25519AvailableWorkerMaterialState;
 };
 
 export type InvalidAvailableSigningLaneDiagnostic =
@@ -488,7 +513,10 @@ export function isConcreteAvailableSigningLane(
   if (lane.signingGrantId !== signingGrantId) return false;
   if (!thresholdSessionId || !signingGrantId) return false;
   if (lane.curve !== 'ecdsa') {
-    return lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey';
+    return (
+      (lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey') &&
+      isEd25519AvailableWorkerMaterialState(lane.material)
+    );
   }
   if (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey') return false;
   const hasEcdsaFields = Boolean(
@@ -548,6 +576,57 @@ function nullablePositiveInteger(value: unknown): number | null {
 function nullableNonNegativeInteger(value: unknown): number | null {
   const normalized = Math.max(0, Math.floor(Number(value)));
   return Number.isFinite(normalized) ? normalized : null;
+}
+
+export function ed25519AvailableMaterialStateFromBoundaryFields(args: {
+  bindingDigest: unknown;
+  materialKeyId: unknown;
+  kind: 'loaded_worker_material' | 'sealed_worker_material';
+}): Ed25519AvailableWorkerMaterialState | null {
+  const bindingDigest = String(args.bindingDigest || '').trim();
+  const materialKeyId = String(args.materialKeyId || '').trim();
+  if (!bindingDigest && !materialKeyId) return { kind: 'material_pending' };
+  if (!bindingDigest || !materialKeyId) return null;
+  return {
+    kind: args.kind,
+    identity: {
+      bindingDigest: parseEd25519WorkerMaterialBindingDigest(bindingDigest),
+      materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
+    },
+  };
+}
+
+function isEd25519AvailableWorkerMaterialState(
+  value: unknown,
+): value is Ed25519AvailableWorkerMaterialState {
+  if (!value || typeof value !== 'object') return false;
+  const material = value as Partial<Ed25519AvailableWorkerMaterialState>;
+  switch (material.kind) {
+    case 'material_pending':
+      return !('identity' in material);
+    case 'loaded_worker_material':
+    case 'sealed_worker_material':
+      return Boolean(
+        material.identity &&
+          String(material.identity.bindingDigest || '').trim() &&
+          String(material.identity.materialKeyId || '').trim(),
+      );
+    default:
+      return false;
+  }
+}
+
+function resolveEd25519RuntimeAvailableMaterial(args: {
+  material: Ed25519AvailableWorkerMaterialState;
+  matchingDurableLane: ConcreteAvailableEd25519SigningLane | null;
+}): Ed25519AvailableWorkerMaterialState | null {
+  const runtimeMaterial = args.material;
+  if (!isEd25519AvailableWorkerMaterialState(runtimeMaterial)) return null;
+  if (runtimeMaterial.kind !== 'material_pending') return runtimeMaterial;
+  const durableMaterial = args.matchingDurableLane?.material;
+  return durableMaterial && durableMaterial.kind !== 'material_pending'
+    ? durableMaterial
+    : runtimeMaterial;
 }
 
 export function ed25519LaneCandidateFromAvailableLane(args: {
@@ -653,7 +732,6 @@ function ecdsaRecoveryRecordAuthBinding(
   const raw = record as typeof record & {
     credentialIdB64u?: unknown;
     providerSubjectId?: unknown;
-    authSubjectId?: unknown;
   };
   if (record.authMethod === 'passkey') {
     const credentialIdB64u = String(raw.credentialIdB64u || '').trim();
@@ -661,7 +739,7 @@ function ecdsaRecoveryRecordAuthBinding(
       ? { kind: 'passkey', rpId: toRpId(record.rpId), credentialIdB64u }
       : null;
   }
-  const providerSubjectId = String(raw.providerSubjectId || raw.authSubjectId || '').trim();
+  const providerSubjectId = String(raw.providerSubjectId || '').trim();
   return providerSubjectId ? { kind: 'email_otp', providerSubjectId } : null;
 }
 
@@ -1200,7 +1278,6 @@ function ed25519RecoveryRecordAuthBinding(
   const raw = record as typeof record & {
     credentialIdB64u?: unknown;
     providerSubjectId?: unknown;
-    authSubjectId?: unknown;
   };
   if (record.authMethod === 'passkey') {
     const credentialIdB64u = String(raw.credentialIdB64u || '').trim();
@@ -1208,7 +1285,7 @@ function ed25519RecoveryRecordAuthBinding(
       ? { kind: 'passkey', rpId: toRpId(record.rpId), credentialIdB64u }
       : null;
   }
-  const providerSubjectId = String(raw.providerSubjectId || raw.authSubjectId || '').trim();
+  const providerSubjectId = String(raw.providerSubjectId || '').trim();
   return providerSubjectId ? { kind: 'email_otp', providerSubjectId } : null;
 }
 
@@ -1230,6 +1307,13 @@ function recordToEd25519Lane(args: {
   if (!auth) return null;
   const signerSlot = parseSignerSlot(recoveryRecord.signerSlot);
   if (signerSlot == null) return null;
+  const materialIdentity = ed25519SealedRecoveryMaterialIdentity(recoveryRecord);
+  const material = ed25519AvailableMaterialStateFromBoundaryFields({
+    bindingDigest: materialIdentity.bindingDigest,
+    materialKeyId: materialIdentity.materialKeyId,
+    kind: 'sealed_worker_material',
+  });
+  if (!material) return null;
 
   return {
     auth,
@@ -1246,10 +1330,7 @@ function recordToEd25519Lane(args: {
     signingGrantId,
     updatedAtMs: Math.floor(Number(args.record.updatedAtMs) || 0),
     thresholdSessionId,
-    ...(recoveryRecord.ed25519WorkerMaterialBindingDigest
-      ? { ed25519WorkerMaterialBindingDigest: recoveryRecord.ed25519WorkerMaterialBindingDigest }
-      : {}),
-    ...(recoveryRecord.materialKeyId ? { materialKeyId: recoveryRecord.materialKeyId } : {}),
+    material,
     ...(policyHint ? { policyHint } : {}),
   };
 }
@@ -1448,6 +1529,11 @@ function runtimeRecordToEd25519Lane(args: {
   const updatedAtMs = Math.max(runtimeUpdatedAtMs, durableUpdatedAtMs);
   const signerSlot = parseSignerSlot(args.record.signerSlot);
   if (signerSlot == null) return null;
+  const material = resolveEd25519RuntimeAvailableMaterial({
+    material: args.record.material,
+    matchingDurableLane,
+  });
+  if (!material) return null;
 
   return {
     auth: args.record.auth,
@@ -1468,16 +1554,7 @@ function runtimeRecordToEd25519Lane(args: {
     ...(remainingUses == null ? {} : { remainingUses }),
     ...(expiresAtMs == null ? {} : { expiresAtMs }),
     ...(updatedAtMs > 0 ? { updatedAtMs } : {}),
-    ...(args.record.ed25519WorkerMaterialBindingDigest
-      ? { ed25519WorkerMaterialBindingDigest: args.record.ed25519WorkerMaterialBindingDigest }
-      : matchingDurableLane?.ed25519WorkerMaterialBindingDigest
-        ? { ed25519WorkerMaterialBindingDigest: matchingDurableLane.ed25519WorkerMaterialBindingDigest }
-        : {}),
-    ...(args.record.materialKeyId
-      ? { materialKeyId: args.record.materialKeyId }
-      : matchingDurableLane?.materialKeyId
-        ? { materialKeyId: matchingDurableLane.materialKeyId }
-        : {}),
+    material,
   };
 }
 
@@ -1534,11 +1611,14 @@ function compareAvailableLanePriority(
 
 function ed25519AvailableLaneMaterialPriority(lane: AvailableEd25519SigningLane): number {
   if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') return 0;
-  const hasBindingDigest = Boolean(String(lane.ed25519WorkerMaterialBindingDigest || '').trim());
-  const hasMaterialKey = Boolean(String(lane.materialKeyId || '').trim());
-  if (hasBindingDigest && hasMaterialKey) return 2;
-  if (hasBindingDigest || hasMaterialKey) return 1;
-  return 0;
+  switch (lane.material.kind) {
+    case 'loaded_worker_material':
+      return 3;
+    case 'sealed_worker_material':
+      return 2;
+    case 'material_pending':
+      return 0;
+  }
 }
 
 function compareEd25519AvailableLanePriority(

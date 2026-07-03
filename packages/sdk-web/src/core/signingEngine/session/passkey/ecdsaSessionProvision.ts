@@ -15,7 +15,13 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
+  ThresholdEcdsaEmailOtpPendingSingleUseAuthContext,
+  ThresholdEcdsaEmailOtpSessionAuthContext,
   ThresholdEcdsaSessionStoreSource,
+} from '../identity/laneIdentity';
+import {
+  emailOtpAuthContextProviderUserId,
+  emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
 import type {
   EvmFamilyEcdsaWalletKey,
@@ -146,7 +152,7 @@ type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: 'jwt';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
-    emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & { retention: 'session' };
+    emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
     walletSessionRouteAuth?: never;
@@ -157,7 +163,7 @@ type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: 'jwt';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
-    emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & { retention: 'single_use' };
+    emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
     walletSessionRouteAuth?: never;
@@ -243,15 +249,38 @@ function buildEmailOtpEcdsaActivationRequest(
   return applyOptionalActivationFields(request, args);
 }
 
+function assertEmailOtpActivationRetention(args: {
+  context: ThresholdEcdsaEmailOtpAuthContext;
+  expected: 'session' | 'single_use';
+  label: string;
+}): void {
+  const actual = emailOtpAuthContextRetention(args.context);
+  if (actual !== args.expected) {
+    throw new Error(
+      `Email OTP ${args.label} activation requires ${args.expected} retention`,
+    );
+  }
+}
+
 export function buildEmailOtpSessionBootstrapEcdsaActivation(
   args: BuildEmailOtpSessionBootstrapEcdsaActivationArgs,
 ): ThresholdEcdsaEmailOtpActivationRequest {
+  assertEmailOtpActivationRetention({
+    context: args.emailOtpAuthContext,
+    expected: 'session',
+    label: 'session bootstrap',
+  });
   return buildEmailOtpEcdsaActivationRequest(args);
 }
 
 export function buildEmailOtpPerOperationReauthEcdsaActivation(
   args: BuildEmailOtpPerOperationReauthEcdsaActivationArgs,
 ): ThresholdEcdsaEmailOtpActivationRequest {
+  assertEmailOtpActivationRetention({
+    context: args.emailOtpAuthContext,
+    expected: 'single_use',
+    label: 'per-operation reauth',
+  });
   return buildEmailOtpEcdsaActivationRequest(args);
 }
 
@@ -440,7 +469,9 @@ function exactEcdsaBootstrapAuthBinding(args: {
   request: EcdsaBootstrapRequest;
 }): SigningLaneAuthBinding | null {
   if (args.request.kind === 'email_otp_ecdsa_bootstrap') {
-    const providerSubjectId = String(args.request.emailOtpAuthContext.authSubjectId || '').trim();
+    const providerSubjectId = String(
+      emailOtpAuthContextProviderUserId(args.request.emailOtpAuthContext),
+    ).trim();
     return providerSubjectId
       ? {
           kind: 'email_otp',

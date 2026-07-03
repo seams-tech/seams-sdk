@@ -17,7 +17,9 @@ function isCloudflareRecoverEmailAsync(ctx: CloudflareRouterApiContext): boolean
   );
 }
 
-export async function handleRecoverEmail(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleRecoverEmail(
+  ctx: CloudflareRouterApiContext,
+): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/recover-email') return null;
 
   const emailRecovery = ctx.opts.emailRecovery;
@@ -40,7 +42,7 @@ export async function handleRecoverEmail(ctx: CloudflareRouterApiContext): Promi
   }
   const { accountId, emailBlob, recoveryPayload } = parsed;
   const execution = await prepareTrackedRecoverEmailExecution({
-    service: ctx.service,
+    service: ctx.service.recovery,
     accountId,
     emailBlob,
     recoveryPayload,
@@ -57,13 +59,13 @@ export async function handleRecoverEmail(ctx: CloudflareRouterApiContext): Promi
 
   if (respondAsync && ctx.cfCtx && typeof ctx.cfCtx.waitUntil === 'function') {
     await recordTrackedRecoverEmailPending({
-      service: ctx.service,
+      service: ctx.service.recovery,
       logger: ctx.logger,
       execution,
     });
     ctx.cfCtx.waitUntil(
       runTrackedRecoverEmailExecutionAsync({
-        service: ctx.service,
+        service: ctx.service.recovery,
         executionService: emailRecovery.executionService,
         logger: ctx.logger,
         execution,
@@ -73,12 +75,12 @@ export async function handleRecoverEmail(ctx: CloudflareRouterApiContext): Promi
   }
 
   await recordTrackedRecoverEmailPending({
-    service: ctx.service,
+    service: ctx.service.recovery,
     logger: ctx.logger,
     execution,
   });
   const result = await runTrackedRecoverEmailExecution({
-    service: ctx.service,
+    service: ctx.service.recovery,
     executionService: emailRecovery.executionService,
     logger: ctx.logger,
     execution,

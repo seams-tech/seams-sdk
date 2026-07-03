@@ -45,6 +45,7 @@ import { ActionType } from '@/core/types/actions';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
@@ -98,6 +99,7 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
 import {
   parseExactEcdsaSigningLaneIdentity,
   parseExactEd25519SigningLaneIdentity,
@@ -1724,6 +1726,35 @@ export class SeamsWeb {
     await preferences.reloadUserSettings().catch(() => undefined);
   }
 
+  private async requireEmailOtpWalletAuthMethodEmailHashHex(walletId: WalletId): Promise<string> {
+    const normalizedWalletId = String(walletId || '').trim();
+    if (!normalizedWalletId) {
+      throw new Error('[SeamsWeb][email-otp] walletId is required for auth-method binding');
+    }
+    const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(normalizedWalletId);
+    const matches = authMethods.filter(
+      (record) => record.kind === 'email_otp' && record.status === 'active',
+    );
+    if (matches.length !== 1) {
+      throw new Error(
+        '[SeamsWeb][email-otp] expected one active Email OTP wallet auth-method binding',
+      );
+    }
+    const emailHashHex = String(matches[0].emailHashHex || '').trim();
+    if (!emailHashHex) {
+      throw new Error('[SeamsWeb][email-otp] Email OTP wallet auth-method binding is missing hash');
+    }
+    return emailHashHex;
+  }
+
+  private async emailOtpEmailHashHex(email: string | undefined): Promise<string> {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new Error('[SeamsWeb][email-otp] verified email is required for auth-method hash');
+    }
+    return bytesToHex(await sha256BytesUtf8(normalizedEmail));
+  }
+
   private async loginWithEmailOtpEd25519CapabilityDomain(
     args: InternalEmailOtpEd25519CapabilityArgs,
   ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
@@ -1745,8 +1776,10 @@ export class SeamsWeb {
           `[SeamsWeb][email-otp] Ed25519-only login cannot reconstruct signing session: ${ed25519SessionReconstruction.reason}`,
         );
       }
+      const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(walletId);
       const result = await this.signingEngine.loginWithEmailOtpEd25519CapabilityInternal({
         ...args,
+        emailHashHex,
         ed25519SessionReconstruction,
       });
       await this.activateEmailOtpWalletAfterUnlock({
@@ -1857,12 +1890,15 @@ export class SeamsWeb {
         this.emitEmailOtpUnlockEvent(args.onEvent, input);
       };
       const ed25519SessionReconstruction = await resolveEmailOtpEd25519SessionReconstruction(args);
+      const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(walletId);
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
+        emailHashHex,
         ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
         ed25519ReconstructionMode: 'await',
         ed25519SessionReconstruction,
+        providerIdentity: { kind: 'derive_from_route_auth' },
         onProgress: markWorkerProgress,
       });
       await this.activateEmailOtpWalletAfterUnlock({
@@ -2115,9 +2151,11 @@ export class SeamsWeb {
         if (workerProgressPhases.has(input.phase)) return;
         this.emitEmailOtpRegistrationEvent(args.onEvent, input);
       };
+      const emailHashHex = await this.emailOtpEmailHashHex(args.emailOtpAuthorityEmail);
       const result = await this.signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
+        emailHashHex,
         onProgress: markWorkerProgress,
       });
       emitIfWorkerProgressMissing({

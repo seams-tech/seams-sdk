@@ -3,10 +3,13 @@ import type {
   VerifiedEd25519WalletSessionAuth,
   VerifiedWalletSessionAuth,
 } from './verifiedWalletSessionAuth';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
-const rpId = parseWebAuthnRpId('example.localhost');
-if (!rpId.ok) throw new Error('type fixture rpId is invalid');
+const passkeyAuthority = buildPasskeyWalletAuthAuthority({
+  walletId: 'wallet-ed25519',
+  rpId: 'example.localhost',
+  credentialIdB64u: 'credential-id',
+});
 
 const ecdsaAuth = {
   kind: 'wallet_session',
@@ -27,7 +30,7 @@ const ed25519Auth = {
   thresholdSessionId: 'threshold-session-ed25519',
   signingGrantId: 'signing-grant-ed25519',
   userId: 'wallet-ed25519',
-  authorityScope: { kind: 'passkey_rp', rpId: rpId.value },
+  authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
@@ -80,7 +83,7 @@ const invalidEd25519WithEcdsaOnlyField = {
   thresholdSessionId: 'threshold-session-ed25519',
   signingGrantId: 'signing-grant-ed25519',
   userId: 'wallet-ed25519',
-  authorityScope: { kind: 'passkey_rp', rpId: rpId.value },
+  authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
@@ -89,5 +92,21 @@ const invalidEd25519WithEcdsaOnlyField = {
   keyHandle: 'ehss-key-1',
 } satisfies VerifiedEd25519WalletSessionAuth;
 void invalidEd25519WithEcdsaOnlyField;
+
+const invalidEd25519WithAuthorityScope = {
+  kind: 'wallet_session',
+  curve: 'ed25519',
+  thresholdSessionId: 'threshold-session-ed25519',
+  signingGrantId: 'signing-grant-ed25519',
+  userId: 'wallet-ed25519',
+  authority: passkeyAuthority,
+  relayerKeyId: 'ed25519-relayer',
+  participantIds: [1, 2] as const,
+  expiresAtMs: Date.now() + 60_000,
+  ed25519RelayerKeyId: 'ed25519-relayer',
+  // @ts-expect-error Verified Ed25519 auth carries WalletAuthAuthority, not authorityScope.
+  authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
+} satisfies VerifiedEd25519WalletSessionAuth;
+void invalidEd25519WithAuthorityScope;
 
 export {};

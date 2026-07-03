@@ -48,6 +48,7 @@ import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
   EmailOtpThresholdEcdsaRehydrateResult,
 } from './ecdsaRecovery';
+import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
 
 export type EmailOtpSealedRestoreOrchestratorPorts = {
   sessionPersistenceMode: string;
@@ -180,16 +181,19 @@ export class EmailOtpSealedRestoreOrchestrator {
       this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
     const ecdsaEmailOtpAuthContext =
       ecdsaRecord?.source === 'email_otp' ? ecdsaRecord.emailOtpAuthContext : null;
+    const ecdsaEmailOtpRetention = ecdsaEmailOtpAuthContext
+      ? emailOtpAuthContextRetention(ecdsaEmailOtpAuthContext)
+      : null;
     if (
       (ecdsaRecord && ecdsaRecord.source !== 'email_otp') ||
-      (ecdsaRecord && ecdsaEmailOtpAuthContext?.retention !== 'session')
+      (ecdsaRecord && ecdsaEmailOtpRetention !== 'session')
     ) {
       const diagnosticKey = `missing-ecdsa-record:${thresholdSessionId}`;
       if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
         console.debug('[EmailOtpSession] sealed refresh restore waiting for ECDSA record', {
           thresholdSessionId,
           source: ecdsaRecord?.source,
-          retention: ecdsaEmailOtpAuthContext?.retention,
+          retention: ecdsaEmailOtpRetention,
         });
       }
       return null;
@@ -201,11 +205,15 @@ export class EmailOtpSealedRestoreOrchestrator {
     const ed25519Record = sealedEd25519SessionId
       ? this.ports.getThresholdEd25519SessionRecordByThresholdSessionId(sealedEd25519SessionId)
       : null;
+    const ed25519Retention =
+      ed25519Record?.source === 'email_otp' && ed25519Record.emailOtpAuthContext
+        ? emailOtpAuthContextRetention(ed25519Record.emailOtpAuthContext)
+        : null;
     if (
       sealedEd25519SessionId &&
       (!ed25519Record ||
         ed25519Record.source !== 'email_otp' ||
-        ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
+        ed25519Retention !== 'session' ||
         ed25519Record.signingGrantId !== sealedRecord.signingGrantId)
     ) {
       const diagnosticKey = `missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;
@@ -216,7 +224,7 @@ export class EmailOtpSealedRestoreOrchestrator {
             thresholdSessionId,
             sealedEd25519SessionId,
             ed25519Source: ed25519Record?.source,
-            ed25519Retention: ed25519Record?.emailOtpAuthContext?.retention,
+            ed25519Retention,
             ed25519SigningGrantId: ed25519Record?.signingGrantId,
             signingGrantId: sealedRecord.signingGrantId,
           },
@@ -532,11 +540,15 @@ export class EmailOtpSealedRestoreOrchestrator {
             sealedEd25519SessionId,
           )
         : null;
+      const ed25519Retention =
+        ed25519Record?.source === 'email_otp' && ed25519Record.emailOtpAuthContext
+          ? emailOtpAuthContextRetention(ed25519Record.emailOtpAuthContext)
+          : null;
       if (
         sealedEd25519SessionId &&
         (!ed25519Record ||
           ed25519Record.source !== 'email_otp' ||
-          ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
+          ed25519Retention !== 'session' ||
           ed25519Record.signingGrantId !== args.purpose.signingGrantId)
       ) {
         const diagnosticKey = `exact-purpose-missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;

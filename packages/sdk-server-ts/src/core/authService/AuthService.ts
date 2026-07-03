@@ -38,10 +38,12 @@ import type {
   EcdsaHssExportShareResponse,
   EcdsaHssRouteResult,
   EcdsaHssServerBootstrapResponse,
-  WebAuthnAuthenticationCredential,
-  WalletRegistrationFinalizeRequest,
-  WalletRegistrationPrepareRequest,
+  WebAuthnAuthenticationCredential
 } from '../types';
+import type {
+  WalletRegistrationFinalizeRequest,
+  WalletRegistrationPrepareRequest
+} from '../registrationContracts';
 import { type RouterAbEcdsaHssWalletSessionClaims } from '../ThresholdService/validation';
 import type { GoogleEmailOtpResolutionResult } from './googleEmailOtpRegistration';
 export type {

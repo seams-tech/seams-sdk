@@ -4,9 +4,12 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
-import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
+import type {
+  WarmSessionStatusReader,
+  WarmSessionStatusResult,
+} from '../../uiConfirm/uiConfirm.types';
 import type {
   SigningSessionCoordinator,
   SigningSessionReadiness,
@@ -19,9 +22,7 @@ import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type { PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
-import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -43,6 +44,7 @@ import {
   type EcdsaMaterialState,
 } from './ecdsaMaterialState';
 import type {
+  EmailOtpEcdsaCommittedLane,
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
@@ -63,20 +65,15 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
-    authLane?: EmailOtpAuthLane;
+    authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
-  resolveEmailOtpSigningSessionAuthLane?: (args: {
-    lane: ExactEcdsaSigningLaneIdentity;
-    chain: EvmFamilyChain;
-  }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
     subjectId?: never;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
-    record?: ThresholdEcdsaSessionRecord;
-    authLane?: EmailOtpAuthLane;
+    committedLane: EmailOtpEcdsaCommittedLane;
     remainingUses?: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
@@ -251,8 +248,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
     return null;
   }
   const signerSession = args.material.signerSession;
-  const walletSessionJwt =
-    signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
+  const walletSessionJwt = signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
   const trustedStatusAuth: SigningSessionBudgetStatusAuth = {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
@@ -324,42 +320,32 @@ export async function resolveEvmFamilyTransactionStepUp(
   const preparedEcdsaLane =
     args.senderSignatureAlgorithm === 'secp256k1' ? args.preparedOperation.lane : undefined;
   const preparedSelection = preparedEcdsaMetadata?.selection;
-  const preparedMaterial = preparedEcdsaMetadata?.material;
-  const laneWarmRecord = preparedMaterial ? getEcdsaMaterialRecord(preparedMaterial) : undefined;
   const confirmedEmailOtpDeps = args.confirmedDeps;
-  const emailOtpReauthRecord =
+  const emailOtpCommittedLane =
     args.senderSignatureAlgorithm === 'secp256k1' &&
     preparedEcdsaLane &&
-    signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp
-      ? preparedSelection?.kind === 'reauth_required'
-        ? getEcdsaMaterialRecord(preparedSelection.material) || laneWarmRecord
-        : laneWarmRecord
+    signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp &&
+    preparedSelection?.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? preparedSelection.committedLane
       : undefined;
   const emailOtpAuthBridge =
-    args.senderSignatureAlgorithm === 'secp256k1'
+    args.senderSignatureAlgorithm === 'secp256k1' && emailOtpCommittedLane
       ? createEmailOtpEcdsaTransactionSigningBridge({
           walletId,
           walletSession: args.walletSession,
           chain: args.chain,
           chainTarget: args.chainTarget,
           selectedLane: preparedEcdsaLane,
-          material: preparedMaterial,
-          signingSessionRecord: emailOtpReauthRecord || null,
+          committedLane: emailOtpCommittedLane,
           reauthSource:
             preparedSelection?.kind === 'reauth_required' &&
             'reauthAnchor' in preparedSelection &&
             preparedSelection.reauthAnchor
               ? { kind: 'reauth_anchor', anchor: preparedSelection.reauthAnchor }
               : { kind: 'material' },
-          ...(preparedSelection?.kind === 'reauth_required' &&
-          preparedSelection.authMethod === SIGNER_AUTH_METHODS.emailOtp
-            ? { reauthAuthLane: preparedSelection.reauthAuthority.authLane }
-            : {}),
           onEvent: args.onEvent,
           requestEmailOtpTransactionSigningChallenge:
             confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
-          resolveEmailOtpSigningSessionAuthLane:
-            confirmedEmailOtpDeps.resolveEmailOtpSigningSessionAuthLane,
           loginWithEmailOtpEcdsaCapabilityForSigning:
             confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning,
         })

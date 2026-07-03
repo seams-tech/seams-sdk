@@ -4,7 +4,12 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type {
+  EmailOtpWalletAuthAuthority,
+  PasskeyWalletAuthAuthority,
+  WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -36,6 +41,8 @@ export type Ed25519AuthorityScope =
       rpId: WebAuthnRpId;
       proofKind?: never;
       email?: never;
+      provider?: never;
+      providerUserId?: never;
       challengeId?: never;
       googleEmailOtpRegistrationAttemptId?: never;
       googleEmailOtpRegistrationOfferId?: never;
@@ -43,56 +50,38 @@ export type Ed25519AuthorityScope =
     }
   | {
       kind: 'email_otp';
-      proofKind: 'otp_challenge';
-      email: string;
-      challengeId?: string;
+      provider: 'google' | 'email';
+      providerUserId: string;
+      proofKind?: never;
       rpId?: never;
+      email?: never;
+      challengeId?: never;
       googleEmailOtpRegistrationAttemptId?: never;
       googleEmailOtpRegistrationOfferId?: never;
       googleEmailOtpRegistrationCandidateId?: never;
-    }
-  | {
-      kind: 'email_otp';
-      proofKind: 'google_sso_registration';
-      email: string;
-      googleEmailOtpRegistrationAttemptId: string;
-      googleEmailOtpRegistrationOfferId: string;
-      googleEmailOtpRegistrationCandidateId: string;
-      rpId?: never;
-      challengeId?: never;
     };
 
 export type Ed25519SessionPolicyAuthority =
-  | {
-      kind: 'passkey_rp';
-      rpId: string;
-      authorityScope?: never;
-    }
-  | {
-      kind: 'exact_authority_scope';
-      authorityScope: Ed25519AuthorityScope;
-      rpId?: never;
-    };
+  {
+    kind: 'wallet_auth_authority';
+    authority: WalletAuthAuthority;
+    authorityScope?: never;
+    rpId?: never;
+  };
 
-function assertNeverEd25519SessionPolicyAuthority(value: never): never {
-  throw new Error(`[threshold-ed25519] unsupported session policy authority: ${String(value)}`);
-}
+export type PasskeyEd25519SessionPolicyAuthority = {
+  kind: 'wallet_auth_authority';
+  authority: PasskeyWalletAuthAuthority;
+  authorityScope?: never;
+  rpId?: never;
+};
 
-function ed25519AuthorityScopeFromPolicyAuthority(
-  authority: Ed25519SessionPolicyAuthority,
-): Ed25519AuthorityScope {
-  switch (authority.kind) {
-    case 'passkey_rp': {
-      const rpId = parseWebAuthnRpId(authority.rpId);
-      if (!rpId.ok) throw new Error('[threshold-ed25519] rpId is required');
-      return { kind: 'passkey_rp', rpId: rpId.value };
-    }
-    case 'exact_authority_scope':
-      return authority.authorityScope;
-    default:
-      return assertNeverEd25519SessionPolicyAuthority(authority);
-  }
-}
+export type EmailOtpEd25519SessionPolicyAuthority = {
+  kind: 'wallet_auth_authority';
+  authority: EmailOtpWalletAuthAuthority;
+  authorityScope?: never;
+  rpId?: never;
+};
 
 function decodeBase64UrlUtf8(input: string): string | null {
   const normalized = String(input || '')
@@ -144,10 +133,9 @@ export function parseThresholdRuntimePolicyScopeFromJwt(
 
 export type Ed25519SessionPolicy = {
   version: typeof THRESHOLD_SESSION_POLICY_VERSION;
-  walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  authorityScope: Ed25519AuthorityScope;
+  authority: WalletAuthAuthority;
   relayerKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -162,6 +150,44 @@ export type Ed25519SessionPolicy = {
   participantIds?: number[];
   ttlMs: number;
   remainingUses: number;
+};
+
+type Ed25519SessionPolicyBuildResult = Promise<{
+  policy: Ed25519SessionPolicy;
+  policyJson: string;
+  sessionPolicyDigest32: string;
+}>;
+
+type Ed25519SessionPolicyBaseParams = {
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  relayerKeyId: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  participantIds?: number[];
+  thresholdSessionId?: string;
+  signingGrantId?: string;
+  ttlMs?: number;
+  remainingUses?: number;
+};
+
+export type BuildPasskeyEd25519SessionPolicyParams = Ed25519SessionPolicyBaseParams & {
+  authority: PasskeyWalletAuthAuthority;
+  authorityScope?: never;
+  rpId?: never;
+};
+
+export type BuildEmailOtpEd25519SessionPolicyParams = Ed25519SessionPolicyBaseParams & {
+  authority: EmailOtpWalletAuthAuthority;
+  rpId?: never;
+  authorityScope?: never;
+};
+
+type BuildExactEd25519SessionPolicyParams = Ed25519SessionPolicyBaseParams & {
+  authority: WalletAuthAuthority;
+  rpId?: never;
+  authorityScope?: never;
 };
 
 export type EcdsaHssSessionPolicy = {
@@ -256,11 +282,78 @@ export async function buildEd25519SessionPolicy(params: {
   signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
-}): Promise<{
-  policy: Ed25519SessionPolicy;
-  policyJson: string;
-  sessionPolicyDigest32: string;
-}> {
+}): Ed25519SessionPolicyBuildResult {
+  return buildExactEd25519SessionPolicy({
+    walletId: params.walletId,
+    nearAccountId: params.nearAccountId,
+    nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
+    authority: params.authority.authority,
+    relayerKeyId: params.relayerKeyId,
+    runtimePolicyScope: params.runtimePolicyScope,
+    routerAbNormalSigning: params.routerAbNormalSigning,
+    participantIds: params.participantIds,
+    thresholdSessionId: params.thresholdSessionId,
+    signingGrantId: params.signingGrantId,
+    ttlMs: params.ttlMs,
+    remainingUses: params.remainingUses,
+  });
+}
+
+export async function buildPasskeyEd25519SessionPolicy(
+  params: BuildPasskeyEd25519SessionPolicyParams,
+): Ed25519SessionPolicyBuildResult {
+  return buildExactEd25519SessionPolicy({
+    walletId: params.walletId,
+    nearAccountId: params.nearAccountId,
+    nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
+    authority: params.authority,
+    relayerKeyId: params.relayerKeyId,
+    runtimePolicyScope: params.runtimePolicyScope,
+    routerAbNormalSigning: params.routerAbNormalSigning,
+    participantIds: params.participantIds,
+    thresholdSessionId: params.thresholdSessionId,
+    signingGrantId: params.signingGrantId,
+    ttlMs: params.ttlMs,
+    remainingUses: params.remainingUses,
+  });
+}
+
+export async function buildEmailOtpEd25519SessionPolicy(
+  params: BuildEmailOtpEd25519SessionPolicyParams,
+): Ed25519SessionPolicyBuildResult {
+  return buildExactEd25519SessionPolicy({
+    walletId: params.walletId,
+    nearAccountId: params.nearAccountId,
+    nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
+    authority: params.authority,
+    relayerKeyId: params.relayerKeyId,
+    runtimePolicyScope: params.runtimePolicyScope,
+    routerAbNormalSigning: params.routerAbNormalSigning,
+    participantIds: params.participantIds,
+    thresholdSessionId: params.thresholdSessionId,
+    signingGrantId: params.signingGrantId,
+    ttlMs: params.ttlMs,
+    remainingUses: params.remainingUses,
+  });
+}
+
+function assertEd25519SessionPolicyAuthorityWallet(args: {
+  walletId: string;
+  authority: WalletAuthAuthority;
+}): void {
+  const walletId = String(args.walletId || '').trim();
+  const authorityWalletId = String(args.authority.walletId || '').trim();
+  if (!walletId) {
+    throw new Error('[threshold-ed25519] walletId is required');
+  }
+  if (authorityWalletId !== walletId) {
+    throw new Error('[threshold-ed25519] authority.walletId must match walletId');
+  }
+}
+
+async function buildExactEd25519SessionPolicy(
+  params: BuildExactEd25519SessionPolicyParams,
+): Ed25519SessionPolicyBuildResult {
   const thresholdSessionId = params.thresholdSessionId || generateThresholdSessionId();
   const signingGrantId = String(params.signingGrantId || '').trim() || generateSigningGrantId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
@@ -269,12 +362,15 @@ export async function buildEd25519SessionPolicy(params: {
   });
   const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
+  assertEd25519SessionPolicyAuthorityWallet({
+    walletId: params.walletId,
+    authority: params.authority,
+  });
   const policy: Ed25519SessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
-    walletId: params.walletId,
     nearAccountId: params.nearAccountId,
     nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
-    authorityScope: ed25519AuthorityScopeFromPolicyAuthority(params.authority),
+    authority: params.authority,
     relayerKeyId: params.relayerKeyId,
     thresholdSessionId,
     signingGrantId,

@@ -48,6 +48,8 @@ type GoogleEmailOtpRegistrationAttemptParseFields = {
   readonly runtimePolicyScope?: RuntimePolicyScope;
 };
 
+const GOOGLE_EMAIL_OTP_AUTH_PROVIDER = 'google';
+
 export function requireRuntimePolicyScope(input: unknown): RuntimePolicyScope {
   const scope = parseRuntimePolicyScope(input);
   if (scope) return scope;
@@ -159,7 +161,7 @@ export function parseGoogleEmailOtpRegistrationAttemptRecord(
       candidateId: selectedCandidateId,
     }) ||
     !appSessionVersion ||
-    !authProvider ||
+    authProvider !== GOOGLE_EMAIL_OTP_AUTH_PROVIDER ||
     accountIdSlugVersion !== 'hmac_readable_v1' ||
     !walletIdDerivationNonce ||
     !isB64uString(walletIdDerivationNonce) ||

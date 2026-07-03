@@ -1,7 +1,10 @@
 import {
   listStoredThresholdEcdsaSessionRecordsForWallet,
+  thresholdEcdsaLaneCandidateFromSessionRecord,
+  toExactEcdsaSigningLaneIdentity,
 } from '@/core/signingEngine/session/persistence/records';
 import type {
+  EmailOtpEcdsaSessionRecord,
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
@@ -9,11 +12,21 @@ import {
   thresholdEcdsaChainTargetKey,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type {
   BuildCurrentSealedSessionRecordInput,
   SigningSessionSealedRecordFilter,
   SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { buildEcdsaMaterialStateForCandidate } from '../../flows/signEvmFamily/ecdsaMaterialState';
+import {
+  commitEmailOtpEcdsaLaneFromRecordForMaterial,
+  EmailOtpEcdsaCommittedLaneStateError,
+  resolvedEvmFamilyEcdsaSigningLaneFromCandidate,
+  type RecordBackedEcdsaCommittedLane,
+} from '../../flows/signEvmFamily/ecdsaSelection';
 
 type EmailOtpEcdsaRecordForEd25519SigningSelection =
   | {
@@ -29,64 +42,225 @@ type EmailOtpEcdsaRecordForEd25519SigningSelection =
       listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
     };
 
-export type EmailOtpEcdsaRecordForEd25519SigningSelectionResult =
+export type EmailOtpEcdsaCompanionLaneForEd25519Signing = {
+  kind: 'email_otp_ecdsa_companion_lane';
+  authMethod: 'email_otp';
+  walletId: WalletId;
+  signingGrantId: string;
+  chainTargetKey: string;
+  committedLane: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
+  record?: never;
+  passkeyRecord?: never;
+  exactIdentity: ExactEcdsaSigningLaneIdentity;
+  walletSessionAuthority?: never;
+};
+
+export type ChainDistinctEmailOtpEcdsaCompanionLanes = readonly [
+  EmailOtpEcdsaCompanionLaneForEd25519Signing,
+  EmailOtpEcdsaCompanionLaneForEd25519Signing,
+  ...EmailOtpEcdsaCompanionLaneForEd25519Signing[],
+];
+
+export type EmailOtpEcdsaCompanionForEd25519Signing =
   | {
-      kind: 'exact_match';
-      record: ThresholdEcdsaSessionRecord;
+      kind: 'single_companion_lane';
+      lane: EmailOtpEcdsaCompanionLaneForEd25519Signing;
+      primaryLane?: never;
+      lanes?: never;
     }
   | {
-      kind: 'duplicate_records';
-      exactMatchCount: number;
+      kind: 'chain_distinct_companion_lanes';
+      primaryLane: EmailOtpEcdsaCompanionLaneForEd25519Signing;
+      lanes: ChainDistinctEmailOtpEcdsaCompanionLanes;
+      lane?: never;
+    };
+
+export type EmailOtpEcdsaCompanionSelectionResult =
+  | {
+      kind: 'ready';
+      companion: EmailOtpEcdsaCompanionForEd25519Signing;
+    }
+  | {
+      kind: 'duplicate_chain_lanes';
+      chainTargetKey: string;
+      count: number;
     }
   | {
       kind: 'not_found';
     }
   | {
       kind: 'display_only_fallback';
-      record: ThresholdEcdsaSessionRecord;
+      lane: EmailOtpEcdsaCompanionLaneForEd25519Signing;
     };
 
-function hasDuplicateChainTarget(
-  records: readonly ThresholdEcdsaSessionRecord[],
-): boolean {
-  const seen = new Set<string>();
-  for (const record of records) {
-    const targetKey = thresholdEcdsaChainTargetKey(record.chainTarget);
-    if (seen.has(targetKey)) return true;
-    seen.add(targetKey);
-  }
-  return false;
+function emailOtpEcdsaSessionRecord(
+  record: ThresholdEcdsaSessionRecord,
+): record is EmailOtpEcdsaSessionRecord {
+  return record.source === 'email_otp';
 }
 
-function sortedEmailOtpEcdsaRecordsForWallet(args: {
+function duplicateChainTarget(
+  lanes: readonly EmailOtpEcdsaCompanionLaneForEd25519Signing[],
+): { chainTargetKey: string; count: number } | null {
+  const counts = new Map<string, number>();
+  for (const lane of lanes) {
+    counts.set(lane.chainTargetKey, (counts.get(lane.chainTargetKey) || 0) + 1);
+  }
+  for (const [chainTargetKey, count] of counts.entries()) {
+    if (count > 1) return { chainTargetKey, count };
+  }
+  return null;
+}
+
+function commitEmailOtpEcdsaCompanionLaneForEd25519Signing(
+  record: EmailOtpEcdsaSessionRecord,
+): EmailOtpEcdsaCompanionLaneForEd25519Signing {
+  const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
+  const lane = resolvedEvmFamilyEcdsaSigningLaneFromCandidate(candidate);
+  const material = buildEcdsaMaterialStateForCandidate({
+    candidate,
+    record,
+    authMethod: 'email_otp',
+    source: 'email_otp',
+    chainTarget: record.chainTarget,
+    materialChainTarget: record.chainTarget,
+  });
+  const committedLane = commitEmailOtpEcdsaLaneFromRecordForMaterial({
+    lane,
+    record,
+    material,
+  });
+  if (committedLane.source !== 'record_backed') {
+    throw new Error('Email OTP ECDSA companion lane requires record-backed committed lane');
+  }
+  return {
+    kind: 'email_otp_ecdsa_companion_lane',
+    authMethod: 'email_otp',
+    walletId: record.walletId,
+    signingGrantId: record.signingGrantId,
+    chainTargetKey: thresholdEcdsaChainTargetKey(record.chainTarget),
+    committedLane,
+    exactIdentity: toExactEcdsaSigningLaneIdentity(record),
+  };
+}
+
+function isMissingEmailOtpEcdsaCompanionAuthority(error: unknown): boolean {
+  return (
+    error instanceof EmailOtpEcdsaCommittedLaneStateError &&
+    error.failure.kind === 'authority_missing'
+  );
+}
+
+function tryCommitEmailOtpEcdsaCompanionLaneForEd25519Signing(
+  record: EmailOtpEcdsaSessionRecord,
+): EmailOtpEcdsaCompanionLaneForEd25519Signing | null {
+  try {
+    return commitEmailOtpEcdsaCompanionLaneForEd25519Signing(record);
+  } catch (error) {
+    if (!isMissingEmailOtpEcdsaCompanionAuthority(error)) throw error;
+    return null;
+  }
+}
+
+function toChainDistinctEmailOtpEcdsaCompanionLanes(
+  lanes: readonly EmailOtpEcdsaCompanionLaneForEd25519Signing[],
+): ChainDistinctEmailOtpEcdsaCompanionLanes {
+  const firstLane = lanes[0];
+  const secondLane = lanes[1];
+  if (!firstLane || !secondLane) {
+    throw new Error('Email OTP chain-distinct companion selection requires at least two lanes');
+  }
+  return [firstLane, secondLane, ...lanes.slice(2)];
+}
+
+function emailOtpEcdsaRecordHasSigningMaterial(record: EmailOtpEcdsaSessionRecord): boolean {
+  return (
+    String(record.keyHandle || '').trim().length > 0 &&
+    Array.isArray(record.participantIds) &&
+    record.participantIds.length > 0
+  );
+}
+
+function compareEmailOtpEcdsaCompanionLanesForEd25519Signing(
+  left: EmailOtpEcdsaCompanionLaneForEd25519Signing,
+  right: EmailOtpEcdsaCompanionLaneForEd25519Signing,
+): number {
+  return (
+    Math.floor(Number(right.committedLane.record.updatedAtMs) || 0) -
+      Math.floor(Number(left.committedLane.record.updatedAtMs) || 0) ||
+    left.chainTargetKey.localeCompare(right.chainTargetKey) ||
+    String(left.committedLane.record.thresholdSessionId).localeCompare(
+      String(right.committedLane.record.thresholdSessionId),
+    )
+  );
+}
+
+function emailOtpEcdsaCompanionLanesMatchingSigningGrantId(args: {
+  lanes: readonly EmailOtpEcdsaCompanionLaneForEd25519Signing[];
+  signingGrantId: string;
+}): EmailOtpEcdsaCompanionLaneForEd25519Signing[] {
+  const matches: EmailOtpEcdsaCompanionLaneForEd25519Signing[] = [];
+  for (const lane of args.lanes) {
+    if (lane.signingGrantId === args.signingGrantId) matches.push(lane);
+  }
+  return matches;
+}
+
+function companionSelectionFromExactLanes(
+  lanes: readonly EmailOtpEcdsaCompanionLaneForEd25519Signing[],
+): EmailOtpEcdsaCompanionSelectionResult {
+  const firstLane = lanes[0];
+  if (!firstLane) return { kind: 'not_found' };
+  const duplicate = duplicateChainTarget(lanes);
+  if (duplicate) {
+    return {
+      kind: 'duplicate_chain_lanes',
+      chainTargetKey: duplicate.chainTargetKey,
+      count: duplicate.count,
+    };
+  }
+  if (lanes.length === 1) {
+    return {
+      kind: 'ready',
+      companion: {
+        kind: 'single_companion_lane',
+        lane: firstLane,
+      },
+    };
+  }
+  return {
+    kind: 'ready',
+    companion: {
+      kind: 'chain_distinct_companion_lanes',
+      primaryLane: firstLane,
+      lanes: toChainDistinctEmailOtpEcdsaCompanionLanes(lanes),
+    },
+  };
+}
+
+function committedEmailOtpEcdsaCompanionLanesForWallet(args: {
   walletId: WalletId;
   listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
-}): ThresholdEcdsaSessionRecord[] {
-  return (
+}): EmailOtpEcdsaCompanionLaneForEd25519Signing[] {
+  const lanes: EmailOtpEcdsaCompanionLaneForEd25519Signing[] = [];
+  const records = (
     args.listThresholdEcdsaSessionRecordsForWallet?.(args.walletId) ??
     listStoredThresholdEcdsaSessionRecordsForWallet(args.walletId)
   )
-    .filter(
-      (record) =>
-        record.source === 'email_otp' &&
-        String(record.keyHandle || '').trim() &&
-        Array.isArray(record.participantIds) &&
-        record.participantIds.length > 0,
-    )
-    .sort(
-      (left, right) =>
-        Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0) ||
-        thresholdEcdsaChainTargetKey(left.chainTarget).localeCompare(
-          thresholdEcdsaChainTargetKey(right.chainTarget),
-        ) ||
-        String(left.thresholdSessionId).localeCompare(String(right.thresholdSessionId)),
-    );
+    .filter((record) => record.walletId === args.walletId)
+    .filter(emailOtpEcdsaSessionRecord)
+    .filter(emailOtpEcdsaRecordHasSigningMaterial);
+  for (const record of records) {
+    const lane = tryCommitEmailOtpEcdsaCompanionLaneForEd25519Signing(record);
+    if (lane) lanes.push(lane);
+  }
+  return lanes.sort(compareEmailOtpEcdsaCompanionLanesForEd25519Signing);
 }
 
-export function selectEmailOtpEcdsaRecordForEd25519Signing(
+export function selectEmailOtpEcdsaCompanionLaneForEd25519Signing(
   args: EmailOtpEcdsaRecordForEd25519SigningSelection,
-): EmailOtpEcdsaRecordForEd25519SigningSelectionResult {
-  const records = sortedEmailOtpEcdsaRecordsForWallet({
+): EmailOtpEcdsaCompanionSelectionResult {
+  const lanes = committedEmailOtpEcdsaCompanionLanesForWallet({
     walletId: args.walletId,
     listThresholdEcdsaSessionRecordsForWallet: args.listThresholdEcdsaSessionRecordsForWallet,
   });
@@ -94,22 +268,19 @@ export function selectEmailOtpEcdsaRecordForEd25519Signing(
     case 'signing_grant_exact': {
       const signingGrantId = String(args.signingGrantId || '').trim();
       if (!signingGrantId) return { kind: 'not_found' };
-      const matches = records.filter((record) => record.signingGrantId === signingGrantId);
-      const exactRecord = matches[0];
-      if (matches.length === 1 && exactRecord) {
-        return { kind: 'exact_match', record: exactRecord };
-      }
-      if (matches.length > 1) {
-        if (exactRecord && !hasDuplicateChainTarget(matches)) {
-          return { kind: 'exact_match', record: exactRecord };
-        }
-        return { kind: 'duplicate_records', exactMatchCount: matches.length };
-      }
-      return { kind: 'not_found' };
+      const matches = emailOtpEcdsaCompanionLanesMatchingSigningGrantId({
+        lanes,
+        signingGrantId,
+      });
+      return companionSelectionFromExactLanes(matches);
     }
     case 'latest_wallet_record': {
-      const record = records[0];
-      return record ? { kind: 'display_only_fallback', record } : { kind: 'not_found' };
+      const lane = lanes[0];
+      if (!lane) return { kind: 'not_found' };
+      return {
+        kind: 'display_only_fallback',
+        lane,
+      };
     }
     default: {
       const exhaustive: never = args;
@@ -190,9 +361,7 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSeal(args: {
   getThresholdEd25519SessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEd25519SessionRecord | null;
-  registerSigningSession: (
-    record: BuildCurrentSealedSessionRecordInput,
-  ) => Promise<void>;
+  registerSigningSession: (record: BuildCurrentSealedSessionRecordInput) => Promise<void>;
 }): Promise<EmailOtpCompanionSessionAttachResult> {
   if (args.sessionPersistenceMode !== 'sealed_refresh_v1') {
     return { kind: 'not_required', reason: 'session_persistence_disabled' };
@@ -217,7 +386,8 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSeal(args: {
     return { kind: 'missing_required_material', reason: 'missing_email_otp_ed25519_record' };
   }
   if (
-    ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
+    !ed25519Record.emailOtpAuthContext ||
+    emailOtpAuthContextRetention(ed25519Record.emailOtpAuthContext) !== 'session' ||
     ed25519Record.signingGrantId !== candidate.existingRecord.signingGrantId
   ) {
     return { kind: 'missing_required_material', reason: 'signing_grant_mismatch' };

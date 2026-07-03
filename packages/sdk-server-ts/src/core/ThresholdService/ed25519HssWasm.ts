@@ -25,6 +25,7 @@ import type {
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssSessionOperation,
   ThresholdEd25519HssStoredPreparedServerSession,
+  ThresholdEd25519HssStoredRespondedServerSession,
   ThresholdEd25519HssStoredServerInputs,
   ThresholdEd25519HssStoredStagedEvaluatorArtifact,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
@@ -79,6 +80,7 @@ const threshold_ed25519_hss_prepare_role_separated_server_input_delivery_server 
 }) => {
   contextBindingB64u: string;
   serverInputDeliveryB64u: string;
+  serverEvalStateB64u: string;
   timings?: {
     decodeMessagesMs?: number;
     materializeSessionMs?: number;
@@ -744,6 +746,7 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
 }): Promise<{
   engine: 'wasm';
   serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
+  serverEvalStateBytes: Uint8Array;
   timings?: ThresholdEd25519HssServerInputDeliveryTimings;
 }> {
   const expectedBinding = String(input.expectedContextBindingB64u || '').trim();
@@ -766,6 +769,7 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
   }) as {
     contextBindingB64u: string;
     serverInputDeliveryB64u: string;
+    serverEvalStateB64u: string;
     timings?: {
       decodeMessagesMs?: number;
       materializeSessionMs?: number;
@@ -794,6 +798,7 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
   return {
     engine: 'wasm',
     serverInputDelivery,
+    serverEvalStateBytes: base64UrlDecode(String(result.serverEvalStateB64u || '').trim()),
     timings: result.timings
       ? {
           decodeMessagesMs: Number(result.timings.decodeMessagesMs || 0),
@@ -817,8 +822,8 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
 
 export async function finalizeThresholdEd25519HssReport(input: {
   preparedServerSession: Pick<
-    ThresholdEd25519HssStoredPreparedServerSession,
-    'preparedSessionHandle' | 'garblerDriverStateBytes'
+    ThresholdEd25519HssStoredRespondedServerSession,
+    'preparedSessionHandle' | 'garblerDriverStateBytes' | 'serverEvalStateBytes'
   >;
   evaluationResult: ThresholdEd25519HssStoredStagedEvaluatorArtifact;
 }): Promise<{
@@ -836,7 +841,7 @@ export async function finalizeThresholdEd25519HssReport(input: {
     garblerDriverStateBytes: input.preparedServerSession.garblerDriverStateBytes,
     stagedEvaluatorArtifactHandle: '',
     stagedEvaluatorArtifactBytes: input.evaluationResult.stagedEvaluatorArtifactBytes,
-    serverEvalFinalizeOutputBytes: input.evaluationResult.serverEvalFinalizeOutputBytes,
+    serverEvalStateBytes: input.preparedServerSession.serverEvalStateBytes,
   }) as {
     contextBindingB64u: string;
     evaluationReportJson: string;
@@ -923,7 +928,7 @@ export async function openThresholdEd25519HssSeedOutput(input: {
 export async function finalizeThresholdEd25519HssServerCeremony(input: {
   operation: ThresholdEd25519HssSessionOperation | 'registration';
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession;
+  preparedServerSession: ThresholdEd25519HssStoredRespondedServerSession;
   evaluationResult: ThresholdEd25519HssStoredStagedEvaluatorArtifact;
   expectedContextBindingB64u: string;
 }): Promise<{

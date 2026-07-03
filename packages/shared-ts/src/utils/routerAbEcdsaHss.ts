@@ -12,8 +12,6 @@ export const ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1 = 'evm-family' as const;
 export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1 =
   'router_ab_ecdsa_hss_normal_signing_v1' as const;
 export const ROUTER_AB_ECDSA_HSS_HEALTH_PATH = '/router-ab/ecdsa-hss/healthz' as const;
-export const ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH =
-  '/router-ab/ecdsa-hss/key-identities' as const;
 export const ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH = '/router-ab/ecdsa-hss/bootstrap' as const;
 export const ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH =
   '/router-ab/ecdsa-hss/export/share' as const;

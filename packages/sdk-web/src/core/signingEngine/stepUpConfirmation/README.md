@@ -18,7 +18,7 @@ or concrete `uiConfirm/*` runtime internals.
 ## Entrypoints
 
 Current entrypoints: `confirmOperation.ts`, `types.ts`, `channel/confirmTypes.ts`,
-`intentDigestPreparation.ts`, `walletAuthModeResolver.ts`, `passkeyPrompt/*`,
+`intentDigestPreparation.ts`, `walletAuthPolicyError.ts`, `passkeyPrompt/*`,
 and `otpPrompt/*`.
 
 ## Auth Method Rule

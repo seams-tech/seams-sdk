@@ -61,6 +61,7 @@ import type {
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssSessionOperation,
   ThresholdEd25519HssStoredPreparedServerSession,
+  ThresholdEd25519HssStoredRespondedServerSession,
   ThresholdEd25519HssStoredServerInputs,
   ThresholdEd25519HssStoredStagedEvaluatorArtifact,
 } from '../../types';
@@ -1019,6 +1020,7 @@ type DurableEd25519HssSessionCeremonyWireRecord = {
   preparedServerSession: {
     evaluatorDriverStateB64u: string;
     garblerDriverStateB64u: string;
+    serverEvalStateB64u?: string;
   };
   serverInputs?: {
     yRelayerB64u: string;
@@ -1026,7 +1028,6 @@ type DurableEd25519HssSessionCeremonyWireRecord = {
   };
   evaluationResult?: {
     stagedEvaluatorArtifactB64u: string;
-    serverEvalFinalizeOutputB64u: string;
   };
 };
 
@@ -1079,7 +1080,7 @@ function parseDurableEd25519HssPreparedSession(
 
 function parseDurableEd25519HssPreparedServerSession(
   raw: unknown,
-): ThresholdEd25519HssStoredPreparedServerSession {
+): ThresholdEd25519HssStoredPreparedServerSession | ThresholdEd25519HssStoredRespondedServerSession {
   if (!isObject(raw)) {
     throw new Error('durable Ed25519 HSS preparedServerSession is invalid');
   }
@@ -1091,9 +1092,13 @@ function parseDurableEd25519HssPreparedServerSession(
   if (!evaluatorDriverStateB64u || !garblerDriverStateB64u) {
     throw new Error('durable Ed25519 HSS preparedServerSession is incomplete');
   }
+  const serverEvalStateB64u = toOptionalTrimmedString(raw.serverEvalStateB64u);
   return {
     evaluatorDriverStateBytes: base64UrlDecode(evaluatorDriverStateB64u),
     garblerDriverStateBytes: base64UrlDecode(garblerDriverStateB64u),
+    ...(serverEvalStateB64u
+      ? { serverEvalStateBytes: base64UrlDecode(serverEvalStateB64u) }
+      : {}),
   };
 }
 
@@ -1122,17 +1127,22 @@ function parseDurableEd25519HssEvaluationResult(
     throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
   }
   const stagedEvaluatorArtifactB64u = toOptionalTrimmedString(raw.stagedEvaluatorArtifactB64u);
-  const serverEvalFinalizeOutputB64u = toOptionalTrimmedString(raw.serverEvalFinalizeOutputB64u);
   if (!stagedEvaluatorArtifactB64u) {
     throw new Error('durable Ed25519 HSS evaluationResult artifact is required');
   }
-  if (!serverEvalFinalizeOutputB64u) {
-    throw new Error('durable Ed25519 HSS evaluationResult server finalize output is required');
-  }
   return {
     stagedEvaluatorArtifactBytes: base64UrlDecode(stagedEvaluatorArtifactB64u),
-    serverEvalFinalizeOutputBytes: base64UrlDecode(serverEvalFinalizeOutputB64u),
   };
+}
+
+function isDurableEd25519HssRespondedServerSession(
+  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession,
+): preparedServerSession is ThresholdEd25519HssStoredRespondedServerSession {
+  return (
+    'serverEvalStateBytes' in preparedServerSession &&
+    preparedServerSession.serverEvalStateBytes instanceof Uint8Array &&
+    preparedServerSession.serverEvalStateBytes.byteLength > 0
+  );
 }
 
 function durableEd25519HssPreparedServerSessionWire(
@@ -1141,9 +1151,13 @@ function durableEd25519HssPreparedServerSessionWire(
   if (toOptionalTrimmedString(preparedServerSession.preparedSessionHandle)) {
     throw new Error('durable Ed25519 HSS ceremony cannot store preparedSessionHandle');
   }
+  const respondedFields = isDurableEd25519HssRespondedServerSession(preparedServerSession)
+    ? { serverEvalStateB64u: base64UrlEncode(preparedServerSession.serverEvalStateBytes) }
+    : {};
   return {
     evaluatorDriverStateB64u: base64UrlEncode(preparedServerSession.evaluatorDriverStateBytes),
     garblerDriverStateB64u: base64UrlEncode(preparedServerSession.garblerDriverStateBytes),
+    ...respondedFields,
   };
 }
 
@@ -1167,14 +1181,8 @@ function durableEd25519HssEvaluationResultWire(
   if (!evaluationResult.stagedEvaluatorArtifactBytes) {
     throw new Error('durable Ed25519 HSS ceremony evaluationResult bytes are required');
   }
-  if (!evaluationResult.serverEvalFinalizeOutputBytes) {
-    throw new Error(
-      'durable Ed25519 HSS ceremony evaluationResult server finalize output bytes are required',
-    );
-  }
   return {
     stagedEvaluatorArtifactB64u: base64UrlEncode(evaluationResult.stagedEvaluatorArtifactBytes),
-    serverEvalFinalizeOutputB64u: base64UrlEncode(evaluationResult.serverEvalFinalizeOutputBytes),
   };
 }
 

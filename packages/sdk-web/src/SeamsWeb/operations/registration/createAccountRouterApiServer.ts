@@ -240,13 +240,21 @@ type ManagedRegistrationGrantRequestBody =
       environmentId: string;
       flow: 'registration_v1';
       clientContext: ReturnType<typeof buildManagedClientContext>;
+      authority: {
+        kind: 'passkey_rp';
+        rpId: string;
+      };
       newAccountId?: string;
-      rpId: string;
+      rpId?: never;
     }
   | {
       environmentId: string;
       flow: 'registration_v1';
       clientContext: ReturnType<typeof buildManagedClientContext>;
+      authority: {
+        kind: 'wallet_auth';
+        rpId?: never;
+      };
       newAccountId?: string;
       rpId?: never;
     };
@@ -266,14 +274,14 @@ function buildManagedRegistrationGrantRequestBody(args: {
         return {
           environmentId: args.environmentId,
           newAccountId,
-          rpId: args.authority.rpId,
+          authority: args.authority,
           flow: 'registration_v1',
           clientContext,
         };
       }
       return {
         environmentId: args.environmentId,
-        rpId: args.authority.rpId,
+        authority: args.authority,
         flow: 'registration_v1',
         clientContext,
       };
@@ -283,12 +291,14 @@ function buildManagedRegistrationGrantRequestBody(args: {
         return {
           environmentId: args.environmentId,
           newAccountId,
+          authority: args.authority,
           flow: 'registration_v1',
           clientContext,
         };
       }
       return {
         environmentId: args.environmentId,
+        authority: args.authority,
         flow: 'registration_v1',
         clientContext,
       };
@@ -394,8 +404,7 @@ export async function createManagedRegistrationFlowGrant(args: {
   });
   console.debug('[Registration] managed registration flow grant issued', {
     durationMs: Math.round(performance.now() - grantStartedAt),
-    requestBytes:
-      args.authority.kind === 'passkey_rp' ? utf8Bytes(args.authority.rpId) : 0,
+    requestBytes: args.authority.kind === 'passkey_rp' ? utf8Bytes(args.authority.rpId) : 0,
   });
   return grant;
 }

@@ -3,8 +3,8 @@ import type {
   CreateAddSignerIntentRequest,
   CreateRegistrationIntentRequest,
   WalletAddAuthMethodStartRequest,
-  WalletRegistrationStartRequest,
-} from './types';
+  WalletRegistrationStartRequest
+} from './registrationContracts';
 import {
   addAuthMethodIntentGrantFromString,
   implicitNearAccountProvisioning,

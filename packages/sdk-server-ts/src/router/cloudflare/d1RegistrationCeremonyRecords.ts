@@ -43,24 +43,34 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64UrlDecode } from '@shared/utils/encoders';
-import { registrationPreparationIdFromString } from '../../core/types';
+import {
+  registrationPreparationIdFromString
+} from '../../core/registrationContracts';
 import type {
   EcdsaHssClientBootstrapRequest,
   EcdsaHssServerBootstrapResponse,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssPersistedPreparedServerSession,
+  ThresholdEd25519HssPersistedRespondedServerSession,
   ThresholdEd25519HssPersistedServerInputs,
   ThresholdEd25519HssRegistrationPreparedServerState,
   ThresholdEd25519HssRegistrationRespondedServerState,
-  ThresholdEd25519HssServerVisibleClientRequestEnvelope,
+  ThresholdEd25519HssServerVisibleClientRequestEnvelope
+} from '../../core/types';
+import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationFinalizeAuthMethod,
-  WalletRegistrationFinalizeResponse,
-} from '../../core/types';
-import { parseThresholdEd25519AuthorityScope } from '../../core/ThresholdService/validation';
+  WalletRegistrationFinalizeResponse
+} from '../../core/registrationContracts';
+import {
+  parseThresholdEd25519AuthorityScope,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
+  thresholdEd25519AuthorityScopesMatch,
+} from '../../core/ThresholdService/validation';
+import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   parseStoredWalletRegistrationHssPreparation,
   type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
@@ -386,13 +396,22 @@ function parseD1WalletRegistrationFinalizeReplayResponse(
   if (!record || record.ok !== true || record.kind !== undefined) return null;
   const walletId = parseWalletIdForIntent(record.walletId);
   const authMethod = parseD1WalletRegistrationFinalizeAuthMethod(record.authMethod);
+  const authority = parseWalletAuthAuthority(record.authority);
   const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
-  if (!walletId || !authMethod) return null;
+  if (!walletId || !authMethod || !authority || authority.walletId !== walletId) return null;
   const rpId = toOptionalTrimmedString(record.rpId);
   const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
   const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
   if (ed25519) {
-    if (!authorityScope) return null;
+    if (
+      !authorityScope ||
+      !thresholdEd25519AuthorityScopesMatch(
+        authorityScope,
+        thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
+      )
+    ) {
+      return null;
+    }
     const accountProvisioning = parseD1RegistrationNearAccountProvisioning(
       record.accountProvisioning,
     );
@@ -401,6 +420,7 @@ function parseD1WalletRegistrationFinalizeReplayResponse(
     const response: D1WalletRegistrationEd25519FinalizeSuccess = {
       ok: true,
       walletId,
+      authority,
       authMethod,
       authorityScope,
       accountProvisioning,
@@ -415,6 +435,7 @@ function parseD1WalletRegistrationFinalizeReplayResponse(
   const response: Extract<D1WalletRegistrationFinalizeSuccess, { ecdsa: object }> = {
     ok: true,
     walletId,
+    authority,
     authMethod,
     ecdsa,
   };
@@ -866,6 +887,20 @@ function parseD1ThresholdEd25519HssPreparedServerSession(
   };
 }
 
+function parseD1ThresholdEd25519HssRespondedServerSession(
+  raw: unknown,
+): ThresholdEd25519HssPersistedRespondedServerSession | null {
+  const prepared = parseD1ThresholdEd25519HssPreparedServerSession(raw);
+  const record = toRecordValue(raw);
+  if (!prepared || !record) return null;
+  const serverEvalStateB64u = parseD1Base64Url(record.serverEvalStateB64u);
+  if (!serverEvalStateB64u) return null;
+  return {
+    ...prepared,
+    serverEvalStateB64u,
+  };
+}
+
 function parseD1ThresholdEd25519HssServerInputs(
   raw: unknown,
 ): ThresholdEd25519HssPersistedServerInputs | null {
@@ -904,7 +939,7 @@ function parseD1ThresholdEd25519HssRespondedServerState(
   const record = toRecordValue(raw);
   if (!record || Object.prototype.hasOwnProperty.call(record, 'serverInputs')) return null;
   const context = parseD1ThresholdEd25519HssCanonicalContext(record.context);
-  const preparedServerSession = parseD1ThresholdEd25519HssPreparedServerSession(
+  const preparedServerSession = parseD1ThresholdEd25519HssRespondedServerSession(
     record.preparedServerSession,
   );
   if (!context || !preparedServerSession) return null;

@@ -1,5 +1,6 @@
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { parseWebAuthnRpId, type WalletAuthMethodId } from '@shared/utils/domainIds';
 import {
+  walletAuthMethodRecordId,
   walletIdFromString,
   type WalletAuthMethodRecord as SharedWalletAuthMethodRecord,
 } from '@shared/utils/registrationIntent';
@@ -181,10 +182,8 @@ function trimString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function walletAuthMethodId(record: WalletAuthMethodRecord): string {
-  return record.kind === 'passkey'
-    ? `passkey:${record.rpId}:${record.credentialIdB64u}`
-    : `email_otp:${record.walletId}:${record.emailHashHex}`;
+export function walletAuthMethodId(record: WalletAuthMethodRecord): WalletAuthMethodId {
+  return walletAuthMethodRecordId(record);
 }
 
 export function normalizeWalletAuthMethod(raw: unknown): WalletAuthMethodRecord | null {

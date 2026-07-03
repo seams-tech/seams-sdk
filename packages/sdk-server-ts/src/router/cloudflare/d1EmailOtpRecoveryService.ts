@@ -14,7 +14,10 @@ import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
 } from '../../core/ThresholdService/ethSignerWasm';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  RouterApiEmailOtpRouteService,
+  RouterApiWalletUnlockService,
+} from '../authServicePort';
 import { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
 import { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
@@ -39,76 +42,64 @@ import {
   type EmailOtpRecoveryRotationHash,
 } from './d1EmailOtpRecords';
 
-type ReadActiveEmailOtpEnrollmentInput = Parameters<
-  RouterApiAuthService['readActiveEmailOtpEnrollment']
->[0];
+type ReadActiveEmailOtpEnrollmentInput =
+  Parameters<RouterApiEmailOtpRouteService['readActiveEmailOtpEnrollment']>[0];
 type ReadActiveEmailOtpEnrollmentResult = Awaited<
-  ReturnType<RouterApiAuthService['readActiveEmailOtpEnrollment']>
+  ReturnType<RouterApiEmailOtpRouteService['readActiveEmailOtpEnrollment']>
 >;
-type ReadEmailOtpEnrollmentInput = Parameters<
-  RouterApiAuthService['readEmailOtpEnrollment']
->[0];
+type ReadEmailOtpEnrollmentInput =
+  Parameters<RouterApiEmailOtpRouteService['readEmailOtpEnrollment']>[0];
 type ReadEmailOtpEnrollmentResult = Awaited<
-  ReturnType<RouterApiAuthService['readEmailOtpEnrollment']>
+  ReturnType<RouterApiEmailOtpRouteService['readEmailOtpEnrollment']>
 >;
-type IsEmailOtpStrongAuthRequiredInput = Parameters<
-  RouterApiAuthService['isEmailOtpStrongAuthRequired']
->[0];
+type IsEmailOtpStrongAuthRequiredInput =
+  Parameters<RouterApiEmailOtpRouteService['isEmailOtpStrongAuthRequired']>[0];
 type IsEmailOtpStrongAuthRequiredResult = Awaited<
-  ReturnType<RouterApiAuthService['isEmailOtpStrongAuthRequired']>
+  ReturnType<RouterApiEmailOtpRouteService['isEmailOtpStrongAuthRequired']>
 >;
-type MarkEmailOtpStrongAuthSatisfiedInput = Parameters<
-  RouterApiAuthService['markEmailOtpStrongAuthSatisfied']
->[0];
+type MarkEmailOtpStrongAuthSatisfiedInput =
+  Parameters<RouterApiEmailOtpRouteService['markEmailOtpStrongAuthSatisfied']>[0];
 type MarkEmailOtpStrongAuthSatisfiedResult = Awaited<
-  ReturnType<RouterApiAuthService['markEmailOtpStrongAuthSatisfied']>
+  ReturnType<RouterApiEmailOtpRouteService['markEmailOtpStrongAuthSatisfied']>
 >;
-type GetEmailOtpRecoveryCodeStatusInput = Parameters<
-  RouterApiAuthService['getEmailOtpRecoveryCodeStatus']
->[0];
+type GetEmailOtpRecoveryCodeStatusInput =
+  Parameters<RouterApiEmailOtpRouteService['getEmailOtpRecoveryCodeStatus']>[0];
 type GetEmailOtpRecoveryCodeStatusResult = Awaited<
-  ReturnType<RouterApiAuthService['getEmailOtpRecoveryCodeStatus']>
+  ReturnType<RouterApiEmailOtpRouteService['getEmailOtpRecoveryCodeStatus']>
 >;
-type VerifyEmailOtpDeviceRecoveryChallengeInput = Parameters<
-  RouterApiAuthService['verifyEmailOtpDeviceRecoveryChallenge']
->[0];
-type VerifyEmailOtpDeviceRecoveryChallengeResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyEmailOtpDeviceRecoveryChallenge']>
->;
-type CreateEmailOtpUnlockChallengeInput = Parameters<
-  RouterApiAuthService['createEmailOtpUnlockChallenge']
->[0];
+type VerifyEmailOtpDeviceRecoveryChallengeInput =
+  Parameters<RouterApiEmailOtpRouteService['verifyEmailOtpDeviceRecoveryChallenge']>[0];
+type VerifyEmailOtpDeviceRecoveryChallengeResult =
+  Awaited<ReturnType<RouterApiEmailOtpRouteService['verifyEmailOtpDeviceRecoveryChallenge']>>;
+type CreateEmailOtpUnlockChallengeInput =
+  Parameters<RouterApiWalletUnlockService['createEmailOtpUnlockChallenge']>[0];
 type CreateEmailOtpUnlockChallengeResult = Awaited<
-  ReturnType<RouterApiAuthService['createEmailOtpUnlockChallenge']>
+  ReturnType<RouterApiWalletUnlockService['createEmailOtpUnlockChallenge']>
 >;
-type VerifyEmailOtpUnlockProofInput = Parameters<
-  RouterApiAuthService['verifyEmailOtpUnlockProof']
->[0];
+type VerifyEmailOtpUnlockProofInput =
+  Parameters<RouterApiWalletUnlockService['verifyEmailOtpUnlockProof']>[0];
 type VerifyEmailOtpUnlockProofResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyEmailOtpUnlockProof']>
+  ReturnType<RouterApiWalletUnlockService['verifyEmailOtpUnlockProof']>
 >;
-type ConsumeEmailOtpGrantInput = Parameters<RouterApiAuthService['consumeEmailOtpGrant']>[0];
+type ConsumeEmailOtpGrantInput =
+  Parameters<RouterApiEmailOtpRouteService['consumeEmailOtpGrant']>[0];
 type ConsumeEmailOtpGrantResult = Awaited<
-  ReturnType<RouterApiAuthService['consumeEmailOtpGrant']>
+  ReturnType<RouterApiEmailOtpRouteService['consumeEmailOtpGrant']>
 >;
-type ConsumeEmailOtpRecoveryKeyInput = Parameters<
-  RouterApiAuthService['consumeEmailOtpRecoveryKey']
->[0];
+type ConsumeEmailOtpRecoveryKeyInput =
+  Parameters<RouterApiEmailOtpRouteService['consumeEmailOtpRecoveryKey']>[0];
 type ConsumeEmailOtpRecoveryKeyResult = Awaited<
-  ReturnType<RouterApiAuthService['consumeEmailOtpRecoveryKey']>
+  ReturnType<RouterApiEmailOtpRouteService['consumeEmailOtpRecoveryKey']>
 >;
-type RotateEmailOtpRecoveryKeysInput = Parameters<
-  RouterApiAuthService['rotateEmailOtpRecoveryKeys']
->[0];
+type RotateEmailOtpRecoveryKeysInput =
+  Parameters<RouterApiEmailOtpRouteService['rotateEmailOtpRecoveryKeys']>[0];
 type RotateEmailOtpRecoveryKeysResult = Awaited<
-  ReturnType<RouterApiAuthService['rotateEmailOtpRecoveryKeys']>
+  ReturnType<RouterApiEmailOtpRouteService['rotateEmailOtpRecoveryKeys']>
 >;
-type RecordEmailOtpRecoveryKeyAttemptFailureInput = Parameters<
-  RouterApiAuthService['recordEmailOtpRecoveryKeyAttemptFailure']
->[0];
-type RecordEmailOtpRecoveryKeyAttemptFailureResult = Awaited<
-  ReturnType<RouterApiAuthService['recordEmailOtpRecoveryKeyAttemptFailure']>
->;
+type RecordEmailOtpRecoveryKeyAttemptFailureInput =
+  Parameters<RouterApiEmailOtpRouteService['recordEmailOtpRecoveryKeyAttemptFailure']>[0];
+type RecordEmailOtpRecoveryKeyAttemptFailureResult =
+  Awaited<ReturnType<RouterApiEmailOtpRouteService['recordEmailOtpRecoveryKeyAttemptFailure']>>;
 
 type NormalizedRecoveryCodeStatusInput = {
   readonly userId: string;
@@ -148,8 +139,6 @@ type NormalizedGrantConsumptionInput = {
   readonly userId: string;
   readonly walletId: string;
   readonly orgId: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
   readonly clientIp: string | undefined;
 };
 
@@ -158,8 +147,6 @@ type NormalizedRecoveryGrantInput = {
   readonly userId: string;
   readonly walletId: string;
   readonly orgId: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
   readonly clientIp: string | undefined;
 };
 
@@ -1025,8 +1012,6 @@ function normalizeGrantConsumptionInput(
   const walletId = parseD1BoundaryWalletIdResult(input.walletId);
   const orgId = toOptionalTrimmedString(input.orgId);
   const otpChannel = toOptionalTrimmedString(input.otpChannel);
-  const sessionHash = toOptionalTrimmedString(input.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
   const clientIp = toOptionalTrimmedString(input.clientIp);
   if (!loginGrant) return invalidGrantConsumptionBody('Missing loginGrant');
   if (!userId) return invalidGrantConsumptionBody('Missing userId');
@@ -1039,8 +1024,6 @@ function normalizeGrantConsumptionInput(
   if (otpChannel !== EMAIL_OTP_CHANNEL) {
     return invalidGrantConsumptionBody('otpChannel must be email_otp');
   }
-  if (!sessionHash) return invalidGrantConsumptionBody('Missing sessionHash');
-  if (!appSessionVersion) return invalidGrantConsumptionBody('Missing appSessionVersion');
   return {
     ok: true,
     value: {
@@ -1048,8 +1031,6 @@ function normalizeGrantConsumptionInput(
       userId,
       walletId: walletId.value,
       orgId,
-      sessionHash,
-      appSessionVersion,
       clientIp,
     },
   };
@@ -1073,8 +1054,6 @@ function normalizeRecoveryGrantInput<TResult>(
   const userId = toOptionalTrimmedString(input.userId);
   const walletId = parseD1BoundaryWalletIdResult(input.walletId);
   const orgId = toOptionalTrimmedString(input.orgId);
-  const sessionHash = toOptionalTrimmedString(input.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
   const clientIp = toOptionalTrimmedString(input.clientIp);
   if (!recoveryConsumeGrant) return invalidBody('Missing recoveryConsumeGrant');
   if (!userId) return invalidBody('Missing userId');
@@ -1082,8 +1061,6 @@ function normalizeRecoveryGrantInput<TResult>(
     return invalidBody(walletId.code === 'missing' ? 'Missing walletId' : 'Invalid walletId');
   }
   if (!orgId) return invalidBody('Missing orgId');
-  if (!sessionHash) return invalidBody('Missing sessionHash');
-  if (!appSessionVersion) return invalidBody('Missing appSessionVersion');
   return {
     ok: true,
     value: {
@@ -1091,8 +1068,6 @@ function normalizeRecoveryGrantInput<TResult>(
       userId,
       walletId: walletId.value,
       orgId,
-      sessionHash,
-      appSessionVersion,
       clientIp,
     },
   };
@@ -1203,8 +1178,6 @@ function emailOtpGrantBindingMismatch(
     readonly userId: string;
     readonly walletId: string;
     readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
-    readonly sessionHash: string;
-    readonly appSessionVersion: string;
     readonly orgId?: string;
   },
   input: NormalizedGrantConsumptionInput,
@@ -1213,8 +1186,6 @@ function emailOtpGrantBindingMismatch(
     record.userId !== input.userId ||
     record.walletId !== input.walletId ||
     record.otpChannel !== EMAIL_OTP_CHANNEL ||
-    record.sessionHash !== input.sessionHash ||
-    record.appSessionVersion !== input.appSessionVersion ||
     record.orgId !== input.orgId
   );
 }
@@ -1224,8 +1195,6 @@ function emailOtpRecoveryGrantBindingMismatch(
     readonly userId: string;
     readonly walletId: string;
     readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
-    readonly sessionHash: string;
-    readonly appSessionVersion: string;
     readonly orgId?: string;
   },
   input: NormalizedRecoveryGrantInput,
@@ -1234,8 +1203,6 @@ function emailOtpRecoveryGrantBindingMismatch(
     record.userId !== input.userId ||
     record.walletId !== input.walletId ||
     record.otpChannel !== EMAIL_OTP_CHANNEL ||
-    record.sessionHash !== input.sessionHash ||
-    record.appSessionVersion !== input.appSessionVersion ||
     record.orgId !== input.orgId
   );
 }
@@ -1338,7 +1305,7 @@ function emailOtpRecoveryGrantBindingMismatchResult(): {
   return {
     ok: false,
     code: 'recovery_grant_binding_mismatch',
-    message: 'Recovery grant is not valid for the current app session',
+    message: 'Recovery grant is not valid for the current Email OTP authority',
   };
 }
 

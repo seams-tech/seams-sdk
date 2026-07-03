@@ -1,9 +1,10 @@
 import {
   computeRegistrationNearEd25519SigningKeyId,
   nearEd25519SigningKeyIdFromString,
-  registrationEd25519AuthorityScope,
+  registrationEd25519AuthorityScopeFromAuthority,
   walletIdFromString,
   type NearEd25519SigningKeyId,
+  type RegistrationAuthority,
   type RegistrationEd25519AuthorityScope,
   type RegistrationIntentV1,
   type RegistrationNearAccountProvisioning,
@@ -18,23 +19,34 @@ import {
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { computeSdkEd25519HssApplicationBindingDigestB64u } from '@shared/threshold/ed25519HssBinding';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import {
+  parseRouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthority,
+  walletAuthAuthoritiesMatch,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   type Ed25519SessionPolicy,
   type ThresholdEd25519AuthorityScope,
   type ThresholdEd25519BootstrapSession,
+  type ThresholdEd25519HssRegistrationRespondedServerState,
   type ThresholdEd25519RegistrationAccountScope,
-  type ThresholdRuntimePolicyScope,
-  type WalletRegistrationHssRespondRequest,
+  type ThresholdRuntimePolicyScope
 } from '../../core/types';
+import {
+  type WalletRegistrationHssRespondRequest
+} from '../../core/registrationContracts';
 import type {
   ThresholdSigningService,
 } from '../../core/ThresholdService/ThresholdSigningService';
 import type { ThresholdEd25519RegistrationKeygenResult } from '../../core/ThresholdService';
 import {
   parseThresholdEd25519AuthorityScope,
-  thresholdEd25519AuthorityScopesMatch,
 } from '../../core/ThresholdService/validation';
 import { buildWalletEd25519SignerId } from '../../core/WalletStore';
 import type { WalletSignerRecord } from '../../core/d1WalletStore';
@@ -78,15 +90,16 @@ function d1RegistrationEd25519SpecFromPlanBranch(
   };
 }
 
-export async function d1RegistrationIntentNearEd25519SigningKeyId(input: {
+export async function d1RegistrationAuthorityNearEd25519SigningKeyId(input: {
   readonly signingRootId?: string;
   readonly signingRootVersion?: string;
   readonly intent: RegistrationIntentV1;
+  readonly authority: RegistrationAuthority;
   readonly nearEd25519: RegistrationNearEd25519SignerPlan;
 }): Promise<NearEd25519SigningKeyId> {
   return await computeRegistrationNearEd25519SigningKeyId({
     walletId: input.intent.walletId,
-    authorityScope: registrationEd25519AuthorityScope(input.intent.authMethod),
+    authorityScope: registrationEd25519AuthorityScopeFromAuthority(input.authority),
     signingRootId: d1RegistrationIntentSigningRootId({
       signingRootId: input.signingRootId,
       intent: input.intent,
@@ -106,35 +119,44 @@ export function d1ThresholdEd25519AuthorityScopeFromRegistrationScope(
     case 'passkey':
       return { kind: 'passkey_rp', rpId: authorityScope.rpId };
     case 'email_otp':
-      switch (authorityScope.proofKind) {
-        case 'otp_challenge':
-          return {
-            kind: 'email_otp',
-            proofKind: 'otp_challenge',
-            email: authorityScope.email,
-            ...(authorityScope.challengeId ? { challengeId: authorityScope.challengeId } : {}),
-          };
-        case 'google_sso_registration':
-          return {
-            kind: 'email_otp',
-            proofKind: 'google_sso_registration',
-            email: authorityScope.email,
-            googleEmailOtpRegistrationAttemptId:
-              authorityScope.googleEmailOtpRegistrationAttemptId,
-            googleEmailOtpRegistrationOfferId: authorityScope.googleEmailOtpRegistrationOfferId,
-            googleEmailOtpRegistrationCandidateId:
-              authorityScope.googleEmailOtpRegistrationCandidateId,
-          };
-      }
+      return {
+        kind: 'email_otp',
+        provider: authorityScope.provider,
+        providerUserId: authorityScope.providerUserId,
+      };
   }
 }
 
-export function d1RegistrationIntentThresholdEd25519AuthorityScope(
-  intent: RegistrationIntentV1,
+export function d1RegistrationAuthorityThresholdEd25519AuthorityScope(
+  authority: RegistrationAuthority,
 ): ThresholdEd25519AuthorityScope {
   return d1ThresholdEd25519AuthorityScopeFromRegistrationScope(
-    registrationEd25519AuthorityScope(intent.authMethod),
+    registrationEd25519AuthorityScopeFromAuthority(authority),
   );
+}
+
+export function d1WalletAuthAuthorityFromRegistrationAuthority(
+  authority: RegistrationAuthority,
+): WalletAuthAuthority {
+  switch (authority.kind) {
+    case 'passkey':
+      return buildPasskeyWalletAuthAuthority({
+        walletId: authority.walletId,
+        rpId: authority.rpId,
+        credentialIdB64u: authority.credentialIdB64u,
+      });
+    case 'email_otp':
+      return buildEmailOtpWalletAuthAuthority({
+        walletId: authority.walletId,
+        provider: authority.proofKind === 'google_sso_registration' ? 'google' : 'email',
+        providerUserId: authority.providerSubject,
+        emailHashHex: authority.emailHashHex,
+      });
+    default: {
+      const exhaustive: never = authority;
+      return exhaustive;
+    }
+  }
 }
 
 export function d1ThresholdEd25519RegistrationAccountScope(input: {
@@ -192,6 +214,7 @@ async function d1ThresholdEd25519HssContextFromRegistrationAccountScope(
 
 export async function resolveD1NearEd25519RegistrationPrepareScope(input: {
   readonly intent: RegistrationIntentV1;
+  readonly authority: RegistrationAuthority;
   readonly nearEd25519: RegistrationNearEd25519SignerPlan;
   readonly registrationIntentDigestB64u: string;
   readonly orgId: string;
@@ -199,15 +222,17 @@ export async function resolveD1NearEd25519RegistrationPrepareScope(input: {
   readonly signingRootVersion: string;
   readonly expectedOrigin: string;
 }): Promise<StoredEd25519RegistrationPrepareScope> {
-  const nearEd25519SigningKeyId = await d1RegistrationIntentNearEd25519SigningKeyId({
+  const authorityScope = registrationEd25519AuthorityScopeFromAuthority(input.authority);
+  const nearEd25519SigningKeyId = await d1RegistrationAuthorityNearEd25519SigningKeyId({
     intent: input.intent,
+    authority: input.authority,
     nearEd25519: input.nearEd25519,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
   });
   return {
     walletId: input.intent.walletId,
-    authorityScope: registrationEd25519AuthorityScope(input.intent.authMethod),
+    authorityScope,
     registrationIntentDigestB64u: input.registrationIntentDigestB64u,
     expectedOrigin: input.expectedOrigin,
     orgId: input.orgId,
@@ -272,11 +297,12 @@ export async function respondD1NearEd25519RegistrationHss(input: {
 }): Promise<
   | {
       ok: true;
-      responded: {
-        readonly contextBindingB64u: string;
-        readonly serverInputDeliveryB64u: string;
-      };
-    }
+    responded: {
+      readonly contextBindingB64u: string;
+      readonly serverInputDeliveryB64u: string;
+    };
+    serverState: ThresholdEd25519HssRegistrationRespondedServerState;
+  }
   | { ok: false; code: string; message: string }
 > {
   if (!input.threshold) {
@@ -286,8 +312,9 @@ export async function respondD1NearEd25519RegistrationHss(input: {
       message: 'threshold signing is not configured on this server',
     };
   }
-  const nearEd25519SigningKeyId = await d1RegistrationIntentNearEd25519SigningKeyId({
+  const nearEd25519SigningKeyId = await d1RegistrationAuthorityNearEd25519SigningKeyId({
     intent: input.ceremony.intent,
+    authority: input.ceremony.authority,
     nearEd25519: input.nearEd25519,
     signingRootId: input.ceremony.signingRootId,
     signingRootVersion: input.ceremony.signingRootVersion,
@@ -334,6 +361,7 @@ export async function respondD1NearEd25519RegistrationHss(input: {
       contextBindingB64u: responded.contextBindingB64u,
       serverInputDeliveryB64u: responded.serverInputDeliveryB64u,
     },
+    serverState: responded.serverState,
   };
 }
 
@@ -375,7 +403,9 @@ type D1Ed25519SessionPolicyBuildResult =
 
 function parseD1ThresholdEd25519SessionPolicyRouterAbNormalSigning(
   requestedSessionPolicy: Record<string, unknown>,
-): { ok: true; value: Ed25519SessionPolicy['routerAbNormalSigning'] } | D1InvalidBodyResult {
+):
+  | { ok: true; value: Ed25519SessionPolicy['routerAbNormalSigning'] }
+  | D1InvalidBodyResult {
   if (!Object.prototype.hasOwnProperty.call(requestedSessionPolicy, 'routerAbNormalSigning')) {
     return { ok: true, value: undefined };
   }
@@ -425,7 +455,7 @@ function validateD1ThresholdEd25519SessionPolicyBindings(input: {
   readonly expectedRelayerKeyId: string;
   readonly expectedNearAccountId: string;
   readonly expectedNearEd25519SigningKeyId: string;
-  readonly expectedAuthorityScope: ThresholdEd25519AuthorityScope;
+  readonly expectedAuthority: WalletAuthAuthority;
 }): string | null {
   const walletId = toOptionalTrimmedString(input.requestedSessionPolicy.walletId);
   if (walletId && walletId !== input.expectedWalletId) {
@@ -448,18 +478,18 @@ function validateD1ThresholdEd25519SessionPolicyBindings(input: {
   ) {
     return 'threshold_ed25519.session_policy.nearEd25519SigningKeyId mismatch';
   }
-  const rootRpId = toOptionalTrimmedString(input.requestedSessionPolicy.rpId);
-  if (rootRpId) {
-    return 'threshold_ed25519.session_policy.rpId belongs in authorityScope';
+  if (Object.prototype.hasOwnProperty.call(input.requestedSessionPolicy, 'rpId')) {
+    return 'threshold_ed25519.session_policy.rpId belongs in authority';
   }
-  const authorityScope = parseThresholdEd25519AuthorityScope(
-    input.requestedSessionPolicy.authorityScope,
-  );
-  if (!authorityScope) {
-    return 'threshold_ed25519.session_policy.authorityScope is required';
+  if (Object.prototype.hasOwnProperty.call(input.requestedSessionPolicy, 'authorityScope')) {
+    return 'threshold_ed25519.session_policy.authorityScope is obsolete; use authority';
   }
-  if (!thresholdEd25519AuthorityScopesMatch(authorityScope, input.expectedAuthorityScope)) {
-    return 'threshold_ed25519.session_policy.authorityScope mismatch';
+  const authority = parseWalletAuthAuthority(input.requestedSessionPolicy.authority);
+  if (!authority) {
+    return 'threshold_ed25519.session_policy.authority is required';
+  }
+  if (!walletAuthAuthoritiesMatch(authority, input.expectedAuthority)) {
+    return 'threshold_ed25519.session_policy.authority mismatch';
   }
   return null;
 }
@@ -470,7 +500,7 @@ export function buildD1ThresholdEd25519RegistrationSessionPolicy(input: {
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
   readonly relayerKeyId: string;
-  readonly expectedAuthorityScope: ThresholdEd25519AuthorityScope;
+  readonly authority: WalletAuthAuthority;
   readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): D1Ed25519SessionPolicyBuildResult {
   const requestedSessionPolicy = input.requestedSessionPolicy;
@@ -480,9 +510,16 @@ export function buildD1ThresholdEd25519RegistrationSessionPolicy(input: {
     expectedRelayerKeyId: input.relayerKeyId,
     expectedNearAccountId: input.nearAccountId,
     expectedNearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-    expectedAuthorityScope: input.expectedAuthorityScope,
+    expectedAuthority: input.authority,
   });
   if (bindingError) return { ok: false, code: 'invalid_body', message: bindingError };
+  if (String(input.authority.walletId || '').trim() !== input.walletId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'threshold_ed25519.session_policy.authority.walletId mismatch',
+    };
+  }
 
   const version = toOptionalTrimmedString(requestedSessionPolicy.version);
   if (version !== 'threshold_session_v1') {
@@ -490,16 +527,6 @@ export function buildD1ThresholdEd25519RegistrationSessionPolicy(input: {
       ok: false,
       code: 'invalid_body',
       message: 'threshold_ed25519.session_policy.version must be threshold_session_v1',
-    };
-  }
-  const authorityScope = parseThresholdEd25519AuthorityScope(
-    requestedSessionPolicy.authorityScope,
-  );
-  if (!authorityScope) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'threshold_ed25519.session_policy.authorityScope is required',
     };
   }
   const thresholdSessionId = toOptionalTrimmedString(
@@ -532,20 +559,19 @@ export function buildD1ThresholdEd25519RegistrationSessionPolicy(input: {
   const participantIds =
     parseD1ThresholdEd25519SessionPolicyParticipantIds(requestedSessionPolicy);
   if (!participantIds.ok) return participantIds;
+  const signingGrantId = toOptionalTrimmedString(requestedSessionPolicy.signingGrantId);
 
   const policy: Ed25519SessionPolicy = {
     version: 'threshold_session_v1',
-    walletId: input.walletId,
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-    authorityScope,
+    authority: input.authority,
     relayerKeyId: input.relayerKeyId,
     thresholdSessionId,
+    signingGrantId: signingGrantId || thresholdSessionId,
     ttlMs,
     remainingUses,
   };
-  const signingGrantId = toOptionalTrimmedString(requestedSessionPolicy.signingGrantId);
-  if (signingGrantId) policy.signingGrantId = signingGrantId;
   if (input.runtimePolicyScope) policy.runtimePolicyScope = input.runtimePolicyScope;
   if (routerAbNormalSigning.value) policy.routerAbNormalSigning = routerAbNormalSigning.value;
   if (participantIds.value) policy.participantIds = participantIds.value;

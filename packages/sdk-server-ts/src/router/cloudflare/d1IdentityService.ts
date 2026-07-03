@@ -1,25 +1,27 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
 import type { IdentityStore } from '../../core/IdentityStore';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  RouterApiIdentityService,
+} from '../authServicePort';
 import { parseD1BoundaryWalletId } from './d1RouterApiAuthBoundary';
 import { requireD1RouterApiAuthScopeString } from './d1RouterApiAuthConfig';
 
-type ListIdentitiesInput = Parameters<RouterApiAuthService['listIdentities']>[0];
-type ListIdentitiesResult = Awaited<ReturnType<RouterApiAuthService['listIdentities']>>;
-type LinkIdentityInput = Parameters<RouterApiAuthService['linkIdentity']>[0];
-type LinkIdentityResult = Awaited<ReturnType<RouterApiAuthService['linkIdentity']>>;
-type UnlinkIdentityInput = Parameters<RouterApiAuthService['unlinkIdentity']>[0];
-type UnlinkIdentityResult = Awaited<ReturnType<RouterApiAuthService['unlinkIdentity']>>;
-type ResolveOidcWalletIdInput = Parameters<RouterApiAuthService['resolveOidcWalletId']>[0];
+type ListIdentitiesInput = Parameters<RouterApiIdentityService['listIdentities']>[0];
+type ListIdentitiesResult = Awaited<ReturnType<RouterApiIdentityService['listIdentities']>>;
+type LinkIdentityInput = Parameters<RouterApiIdentityService['linkIdentity']>[0];
+type LinkIdentityResult = Awaited<ReturnType<RouterApiIdentityService['linkIdentity']>>;
+type UnlinkIdentityInput = Parameters<RouterApiIdentityService['unlinkIdentity']>[0];
+type UnlinkIdentityResult = Awaited<ReturnType<RouterApiIdentityService['unlinkIdentity']>>;
+type ResolveOidcWalletIdInput = Parameters<RouterApiIdentityService['resolveOidcWalletId']>[0];
 type ResolveOidcWalletIdResult = Awaited<
-  ReturnType<RouterApiAuthService['resolveOidcWalletId']>
+  ReturnType<RouterApiIdentityService['resolveOidcWalletId']>
 >;
 type ResolveGoogleEmailOtpSessionInput = Parameters<
-  RouterApiAuthService['resolveGoogleEmailOtpSession']
+  RouterApiIdentityService['resolveGoogleEmailOtpSession']
 >[0];
 type ResolveGoogleEmailOtpSessionResult = Awaited<
-  ReturnType<RouterApiAuthService['resolveGoogleEmailOtpSession']>
+  ReturnType<RouterApiIdentityService['resolveGoogleEmailOtpSession']>
 >;
 type ResolveGoogleEmailOtpSession = (
   input: ResolveGoogleEmailOtpSessionInput,

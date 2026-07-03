@@ -5,6 +5,7 @@ import type {
   ConcreteAvailableEcdsaSigningLane,
   AvailableEcdsaSigningLane,
   AvailableEd25519SigningLane,
+  Ed25519AvailableWorkerMaterialIdentity,
 } from '../availability/availableSigningLanes';
 import {
   ecdsaLaneCandidateFromAvailableLane,
@@ -25,12 +26,6 @@ import {
   type SelectedLane,
 } from './laneIdentity';
 import type { SigningAuthMethod } from '../operationState/types';
-import {
-  parseEd25519WorkerMaterialBindingDigest,
-  parseEd25519WorkerMaterialKeyId,
-  type Ed25519WorkerMaterialBindingDigest,
-  type Ed25519WorkerMaterialKeyId,
-} from '../keyMaterialBrands';
 import type {
   EvmFamilyEcdsaTransactionSigningIntent,
   TransactionLane,
@@ -60,15 +55,12 @@ export type Ed25519LaneAuthorityKey = string & { readonly __brand: 'Ed25519LaneA
 
 export type NearEd25519TransactionReadyAvailableLane = Omit<
   NearEd25519AvailableLane,
-  'source' | 'ed25519WorkerMaterialBindingDigest' | 'materialKeyId'
+  'source'
 > & {
   state: 'ready' | 'restorable';
 };
 
-export type Ed25519TransactionMaterialIdentity = {
-  bindingDigest: Ed25519WorkerMaterialBindingDigest;
-  materialKeyId: Ed25519WorkerMaterialKeyId;
-};
+export type Ed25519TransactionMaterialIdentity = Ed25519AvailableWorkerMaterialIdentity;
 
 export type Ed25519TransactionMaterialAvailability =
   | {
@@ -193,11 +185,6 @@ function isConcreteEvmFamilyEcdsaLane(
   );
 }
 
-function nonEmptyString(value: unknown): string | null {
-  const normalized = String(value ?? '').trim();
-  return normalized ? normalized : null;
-}
-
 function toEd25519LaneAuthorityKey(lane: NearEd25519AvailableLane): Ed25519LaneAuthorityKey | null {
   const key = ed25519AvailableLaneIdentityKey(lane);
   return key ? (key as Ed25519LaneAuthorityKey) : null;
@@ -229,6 +216,7 @@ function nearEd25519TransactionReadyAvailableLaneProjection(
     state,
     signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
+    material: lane.material,
     ...(lane.remainingUses == null ? {} : { remainingUses: lane.remainingUses }),
     ...(lane.expiresAtMs == null ? {} : { expiresAtMs: lane.expiresAtMs }),
     ...(lane.policyHint ? { policyHint: lane.policyHint } : {}),
@@ -242,23 +230,21 @@ export function ed25519TransactionMaterialAvailabilityFromLane(
   if (!isConcreteNearEd25519Lane(lane)) return null;
   const state = nearEd25519TransactionReadyState(lane);
   if (!state) return null;
-  const bindingDigest = nonEmptyString(lane.ed25519WorkerMaterialBindingDigest);
-  const materialKeyId = nonEmptyString(lane.materialKeyId);
-  if (!bindingDigest || !materialKeyId) return null;
-  const identity = {
-    bindingDigest: parseEd25519WorkerMaterialBindingDigest(bindingDigest),
-    materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
-  };
-  if (state === 'ready') {
-    return {
-      kind: 'loaded_worker_material',
-      identity,
-    };
+  switch (lane.material.kind) {
+    case 'loaded_worker_material':
+      if (state !== 'ready') return null;
+      return {
+        kind: 'loaded_worker_material',
+        identity: lane.material.identity,
+      };
+    case 'sealed_worker_material':
+      return {
+        kind: 'sealed_worker_material',
+        identity: lane.material.identity,
+      };
+    case 'material_pending':
+      return null;
   }
-  return {
-    kind: 'sealed_worker_material',
-    identity,
-  };
 }
 
 export function toNearEd25519TransactionReadyLane(

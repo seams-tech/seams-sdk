@@ -316,7 +316,10 @@ export class ThresholdEd25519SigningHandlers {
           userId: mpcSession.userId,
           authorityScope: mpcSession.authorityScope,
           commitmentsById,
-          relayerSigningShareB64u: cosignerShareB64u,
+          signingShare: {
+            kind: 'embedded_cosigner_share',
+            relayerSigningShareB64u: cosignerShareB64u,
+          },
           relayerNoncesB64u: commit.relayerNoncesB64u,
           participantIds: [...this.participantIds2p],
         },
@@ -444,13 +447,19 @@ export class ThresholdEd25519SigningHandlers {
           message: 'signingSessionId does not match coordinatorGrant scope',
         };
       }
-      const storedShareB64u = toOptionalTrimmedString(sess.relayerSigningShareB64u);
-      if (!storedShareB64u) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: 'cosigner signing session missing share material',
-        };
+      let storedShareB64u: string;
+      switch (sess.signingShare.kind) {
+        case 'embedded_cosigner_share':
+          storedShareB64u = sess.signingShare.relayerSigningShareB64u;
+          break;
+        case 'key_store':
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'cosigner signing session missing share material',
+          };
+        default:
+          return assertNeverSigningShareMaterial(sess.signingShare);
       }
 
       await this.ensureSignerWasm();
@@ -500,4 +509,8 @@ export class ThresholdEd25519SigningHandlers {
     this.logResult(route, startedAtMs, result, logExtra);
     return result;
   }
+}
+
+function assertNeverSigningShareMaterial(value: never): never {
+  throw new Error(`Unhandled threshold-ed25519 signing share source: ${String(value)}`);
 }

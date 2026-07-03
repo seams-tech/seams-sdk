@@ -1,17 +1,16 @@
 import { thresholdEcdsaHssRoleLocalExportShare } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
 } from '../../session/identity/emailOtpHssIdentity';
-import {
-  type ReadyEcdsaSignerSession,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import { type ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial } from '../../session/persistence/ecdsaRoleLocalRecords';
+import type { ReadyEcdsaExportLane } from './ecdsaExportMaterial';
 import { buildEcdsaRoleLocalExportArtifactCommandWasm } from '../../threshold/crypto/hssClientSignerWasm';
 import {
   parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
@@ -48,7 +47,7 @@ export async function exportEcdsaHssKeyWithWalletSession(
   args: {
     walletSessionUserId: string;
     signerSession: ReadyEcdsaSignerSession;
-    record: ThresholdEcdsaSessionRecord;
+    committedLane: ReadyEcdsaExportLane<PasskeyWalletAuthAuthority>;
     credential: WebAuthnAuthenticationCredential;
   },
 ): Promise<{
@@ -56,6 +55,7 @@ export async function exportEcdsaHssKeyWithWalletSession(
   privateKeyHex: string;
   ethereumAddress: string;
 }> {
+  const record = args.committedLane.record;
   const signerTransport = args.signerSession.transport;
   const walletSessionJwt = String(
     args.signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt || '',
@@ -63,16 +63,15 @@ export async function exportEcdsaHssKeyWithWalletSession(
   const relayerUrl = String(signerTransport.relayerUrl || '').trim();
   const keyHandle = String(args.signerSession.publicFacts.keyHandle || '').trim();
   const walletId = toWalletId(args.walletSessionUserId);
-  const sessionKind = 'jwt' as const;
   if (!relayerUrl || !keyHandle || !walletSessionJwt) {
     throw new Error(
       '[SigningEngine][ecdsa-export] ready export signer session is missing canonical transport',
     );
   }
 
-  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(args.record);
+  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(record);
   const readyRecord = roleLocalMaterial.readyRecord;
-  const evmFamilySigningKeySlotId = String(args.record.evmFamilySigningKeySlotId || '').trim();
+  const evmFamilySigningKeySlotId = String(record.evmFamilySigningKeySlotId || '').trim();
   if (!evmFamilySigningKeySlotId) {
     throw new Error('[SigningEngine][ecdsa-export] session record is missing evmFamilySigningKeySlotId');
   }
@@ -86,15 +85,15 @@ export async function exportEcdsaHssKeyWithWalletSession(
   if (authorizedCredentialId && authorizedCredentialId !== readyRecord.authMethod.credentialIdB64u) {
     throw new Error('[SigningEngine][ecdsa-export] passkey export authorization credential mismatch');
   }
-  const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(args.record.ecdsaThresholdKeyId);
-  const signingRootId = toEcdsaHssSigningRootId(args.record.signingRootId);
+  const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(record.ecdsaThresholdKeyId);
+  const signingRootId = toEcdsaHssSigningRootId(record.signingRootId);
   const signingRootVersion = toEcdsaHssSigningRootVersion(
-    args.record.signingRootVersion || ECDSA_HSS_SIGNING_ROOT_VERSION_DEFAULT,
+    record.signingRootVersion || ECDSA_HSS_SIGNING_ROOT_VERSION_DEFAULT,
   );
   const issuedAtUnixMs = Date.now();
   const expiresAtUnixMs = Math.min(
     issuedAtUnixMs + ECDSA_HSS_EXPORT_AUTH_TTL_MS,
-    Number(args.record.expiresAtMs),
+    Number(record.expiresAtMs),
   );
   if (!Number.isFinite(expiresAtUnixMs) || expiresAtUnixMs <= issuedAtUnixMs) {
     throw new Error('Threshold ECDSA export session is expired');
@@ -142,8 +141,8 @@ export async function exportEcdsaHssKeyWithWalletSession(
     clientSessionId: String(args.signerSession.session.thresholdSessionId),
     thresholdSessionId: String(args.signerSession.session.thresholdSessionId),
     signingGrantId: String(args.signerSession.session.signingGrantId),
-    thresholdExpiresAtMs: args.record.expiresAtMs,
-    participantIds: args.record.participantIds,
+    thresholdExpiresAtMs: record.expiresAtMs,
+    participantIds: record.participantIds,
   });
 
   const exportShare = await thresholdEcdsaHssRoleLocalExportShare(relayerUrl, {

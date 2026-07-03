@@ -1,10 +1,12 @@
 import type { ThresholdWarmSessionContext } from './thresholdWarmSessionBootstrap';
+import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
 } from './thresholdWarmSessionBootstrap';
 
 declare const context: ThresholdWarmSessionContext;
+declare const rpId: WebAuthnRpId;
 
 createThresholdWarmSessionPolicyDraft(context, {
   kind: 'generated_signing_grant',
@@ -33,7 +35,7 @@ createThresholdWarmSessionPolicyDraft(context, {
 });
 
 buildThresholdWarmSessionRequestEnvelope({
-  authority: { kind: 'passkey_rp', rpId: 'example.localhost' },
+  authorityScope: { kind: 'passkey_rp', rpId },
   // @ts-expect-error warm-session request drafts must always carry a signing grant.
   requestedPolicy: {
     sessionId: 'threshold-session-1',
@@ -47,7 +49,7 @@ buildThresholdWarmSessionRequestEnvelope({
 });
 
 const warmSessionEnvelope = buildThresholdWarmSessionRequestEnvelope({
-  authority: { kind: 'passkey_rp', rpId: 'example.localhost' },
+  authorityScope: { kind: 'passkey_rp', rpId },
   requestedPolicy: {
     sessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
@@ -66,16 +68,10 @@ warmSessionEnvelope.session_policy.authorityScope.rpId;
 warmSessionEnvelope.session_policy.rpId;
 
 buildThresholdWarmSessionRequestEnvelope({
-  authority: {
-    kind: 'exact_authority_scope',
-    authorityScope: {
-      kind: 'email_otp',
-      proofKind: 'google_sso_registration',
-      email: 'alice@example.test',
-      googleEmailOtpRegistrationAttemptId: 'attempt-1',
-      googleEmailOtpRegistrationOfferId: 'offer-1',
-      googleEmailOtpRegistrationCandidateId: 'candidate-1',
-    },
+  authorityScope: {
+    kind: 'email_otp',
+    provider: 'google',
+    providerUserId: 'google:alice',
   },
   requestedPolicy: {
     sessionId: 'threshold-session-2',

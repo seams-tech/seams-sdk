@@ -1,6 +1,7 @@
 import {
   parseRouterAbEcdsaHssWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   thresholdEd25519AuthorityScopesMatch,
   type RouterAbEcdsaHssWalletSessionClaims,
   type RouterAbEd25519WalletSessionClaims,
@@ -113,7 +114,10 @@ function statusMatchesAuthScope(
     case 'ed25519':
       return (
         status.curve === 'ed25519' &&
-        thresholdEd25519AuthorityScopesMatch(status.authorityScope, auth.authorityScope)
+        thresholdEd25519AuthorityScopesMatch(
+          status.authorityScope,
+          thresholdEd25519AuthorityScopeFromWalletAuthAuthority(auth.authority),
+        )
       );
   }
 }

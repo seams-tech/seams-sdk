@@ -5,9 +5,11 @@ import {
 } from '../session/persistence/records';
 import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { ResolveExactEcdsaRecordResult } from '../session/warmCapabilities/statusReader';
-import type {
-  ThresholdEcdsaEmailOtpAuthContext,
-  ThresholdEcdsaSessionStoreSource,
+import {
+  isEmailOtpPendingSingleUseAuthContext,
+  isEmailOtpSessionAuthContext,
+  type ThresholdEcdsaEmailOtpAuthContext,
+  type ThresholdEcdsaSessionStoreSource,
 } from '../session/identity/laneIdentity';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
@@ -674,21 +676,8 @@ async function provisionEmailOtpEcdsaSession(
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
     emailOtpWorkerSessionHandle: plan.provisionSecretSource.workerHandle,
   };
-  if (plan.provisionSecretSource.emailOtpAuthContext.retention === 'single_use') {
-    const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & {
-      retention: 'single_use';
-    } = {
-      policy: plan.provisionSecretSource.emailOtpAuthContext.policy,
-      retention: 'single_use',
-      reason: plan.provisionSecretSource.emailOtpAuthContext.reason,
-      authMethod: 'email_otp',
-      ...(plan.provisionSecretSource.emailOtpAuthContext.authSubjectId
-        ? { authSubjectId: plan.provisionSecretSource.emailOtpAuthContext.authSubjectId }
-        : {}),
-      ...(typeof plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs === 'number'
-        ? { consumedAtMs: plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs }
-        : {}),
-    };
+  const emailOtpAuthContext = plan.provisionSecretSource.emailOtpAuthContext;
+  if (isEmailOtpPendingSingleUseAuthContext(emailOtpAuthContext)) {
     return await deps.provisionThresholdEcdsaSession(
       buildEmailOtpPerOperationReauthEcdsaActivation({
         source: baseArgs.source,
@@ -708,38 +697,27 @@ async function provisionEmailOtpEcdsaSession(
       }),
     );
   }
-  const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & {
-    retention: 'session';
-  } = {
-    policy: plan.provisionSecretSource.emailOtpAuthContext.policy,
-    retention: 'session',
-    reason: plan.provisionSecretSource.emailOtpAuthContext.reason,
-    authMethod: 'email_otp',
-    ...(plan.provisionSecretSource.emailOtpAuthContext.authSubjectId
-      ? { authSubjectId: plan.provisionSecretSource.emailOtpAuthContext.authSubjectId }
-      : {}),
-    ...(typeof plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs === 'number'
-      ? { consumedAtMs: plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs }
-      : {}),
-  };
-  return await deps.provisionThresholdEcdsaSession(
-    buildEmailOtpSessionBootstrapEcdsaActivation({
-      source: baseArgs.source,
-      relayerUrl: baseArgs.relayerUrl,
-      sessionIdentity: baseArgs.sessionIdentity,
-      sessionKind: baseArgs.sessionKind,
-      sessionBudgetUses: baseArgs.sessionBudgetUses,
-      runtimePolicy: baseArgs.runtimePolicy,
-      ...(baseArgs.runtimeScopeBootstrap
-        ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
-        : {}),
-      ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
-      emailOtpWorkerSessionHandle: baseArgs.emailOtpWorkerSessionHandle,
-      walletKey: activation.walletKey,
-      lanePolicy: activation.lanePolicy,
-      emailOtpAuthContext,
-    }),
-  );
+  if (isEmailOtpSessionAuthContext(emailOtpAuthContext)) {
+    return await deps.provisionThresholdEcdsaSession(
+      buildEmailOtpSessionBootstrapEcdsaActivation({
+        source: baseArgs.source,
+        relayerUrl: baseArgs.relayerUrl,
+        sessionIdentity: baseArgs.sessionIdentity,
+        sessionKind: baseArgs.sessionKind,
+        sessionBudgetUses: baseArgs.sessionBudgetUses,
+        runtimePolicy: baseArgs.runtimePolicy,
+        ...(baseArgs.runtimeScopeBootstrap
+          ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
+          : {}),
+        ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
+        emailOtpWorkerSessionHandle: baseArgs.emailOtpWorkerSessionHandle,
+        walletKey: activation.walletKey,
+        lanePolicy: activation.lanePolicy,
+        emailOtpAuthContext,
+      }),
+    );
+  }
+  throw new Error('Email OTP ECDSA activation cannot use a consumed single-use context');
 }
 
 export async function tryReuseReadyWarmEcdsaBootstrap(

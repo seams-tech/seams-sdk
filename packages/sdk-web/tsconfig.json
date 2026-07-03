@@ -21,7 +21,7 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": ".",
-    "types": ["node", "react", "react-dom", "qrcode"],
+    "types": ["node", "react", "react-dom", "qrcode", "express"],
     "typeRoots": [
       "./node_modules/@types",
       "../node_modules/@types",
@@ -45,6 +45,7 @@
       "@seams/sdk-server/router/ror": ["../sdk-server-ts/src/router/ror-adaptor.ts"],
       "@seams/sdk-server/wasm/signer": ["../sdk-server-ts/src/wasm/signer.ts"],
       "@build-paths": ["./build-paths.ts"],
+      "express": ["./node_modules/@types/express/index.d.ts"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "react-dom": ["./node_modules/@types/react-dom/index.d.ts"],

@@ -3,6 +3,7 @@ import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from './commonRouterUtils';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 type EmailRecoveryPrepareResult = Awaited<
   ReturnType<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']>
@@ -61,7 +62,11 @@ export async function signEmailRecoveryThresholdSessionJwt(input: {
   const signed = await signRouterAbEd25519WalletSessionJwt({
     session: input.session,
     userId: sessionInfo.walletId,
-    authorityScope: input.result.thresholdEd25519.authorityScope,
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId: input.result.walletBinding.walletId,
+      rpId: input.result.walletBinding.rpId,
+      credentialIdB64u: input.result.credentialIdB64u,
+    }),
     relayerKeyId: input.result.thresholdEd25519.relayerKeyId,
     sessionInfo,
     fallbackParticipantIds: input.result.thresholdEd25519.participantIds,

@@ -5,13 +5,72 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { EmailOtpEcdsaRegistrationBootstrapInput } from './ecdsaEnrollment';
+import type {
+  EmailOtpEcdsaRegistrationBootstrapInput,
+  EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
+} from './ecdsaEnrollment';
 
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const routePlan: EmailOtpRoutePlan;
 declare const routeAuth: AppOrWalletSessionAuth;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
+
+const validEnrollAndLogin: EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  registrationAttemptId: 'registration-attempt-1',
+  emailHashHex: 'email-hash',
+};
+void validEnrollAndLogin;
+
+// @ts-expect-error ECDSA registration core requires a committed route plan.
+const invalidEnrollAndLoginWithoutRoutePlan: EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  registrationAttemptId: 'registration-attempt-1',
+  emailHashHex: 'email-hash',
+};
+void invalidEnrollAndLoginWithoutRoutePlan;
+
+const invalidEnrollAndLoginWithRawAppSession: EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  registrationAttemptId: 'registration-attempt-1',
+  emailHashHex: 'email-hash',
+  // @ts-expect-error ECDSA registration core must not accept raw app-session JWTs.
+  appSessionJwt: 'app-session-jwt',
+};
+void invalidEnrollAndLoginWithRawAppSession;
+
+const invalidEnrollAndLoginWithRawRouteAuth: EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  registrationAttemptId: 'registration-attempt-1',
+  emailHashHex: 'email-hash',
+  // @ts-expect-error ECDSA registration core must not accept loose route auth.
+  routeAuth,
+};
+void invalidEnrollAndLoginWithRawRouteAuth;
+
+const invalidEnrollAndLoginWithSessionKind: EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  registrationAttemptId: 'registration-attempt-1',
+  emailHashHex: 'email-hash',
+  // @ts-expect-error ECDSA registration core receives session transport through routePlan.
+  sessionKind: 'jwt',
+};
+void invalidEnrollAndLoginWithSessionKind;
 
 const existingKeyRegistration: EmailOtpEcdsaRegistrationBootstrapInput = {
   mode: 'registration_bootstrap',

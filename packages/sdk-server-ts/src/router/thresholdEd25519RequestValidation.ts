@@ -3,9 +3,9 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   Ed25519SessionPolicy,
-  ThresholdEd25519AuthorityScope,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519HssFinalizeWithSessionRequest,
@@ -20,7 +20,6 @@ import {
   optionalRouteTrimmedString,
   parseWebAuthnAuthenticationCredential,
 } from './routeRequestValidation';
-import { parseThresholdEd25519AuthorityScope } from '../core/ThresholdService/validation';
 
 export type ThresholdEd25519RouteErrorBody = {
   ok: false;
@@ -57,10 +56,9 @@ const SESSION_KEYS = [
 
 const SESSION_POLICY_KEYS = [
   'version',
-  'walletId',
   'nearAccountId',
   'nearEd25519SigningKeyId',
-  'authorityScope',
+  'authority',
   'relayerKeyId',
   'thresholdSessionId',
   'signingGrantId',
@@ -79,7 +77,6 @@ const CLIENT_REQUEST_KEYS = ['clientRequestMessageB64u'] as const;
 const EVALUATION_RESULT_KEYS = [
   'contextBindingB64u',
   'stagedEvaluatorArtifactB64u',
-  'serverEvalFinalizeOutputB64u',
 ] as const;
 
 function invalidThresholdEd25519Body(message: string): ThresholdEd25519RouteParseError {
@@ -99,16 +96,6 @@ function requiredStringField(
 
 function optionalStringField(record: Record<string, unknown>, field: string): string | undefined {
   return optionalRouteTrimmedString(record, field);
-}
-
-function parseEd25519AuthorityScope(
-  raw: unknown,
-): ThresholdEd25519RouteParseResult<ThresholdEd25519AuthorityScope> {
-  const authorityScope = parseThresholdEd25519AuthorityScope(raw);
-  if (!authorityScope) {
-    return invalidThresholdEd25519Body('sessionPolicy.authorityScope is invalid');
-  }
-  return { ok: true, request: authorityScope };
 }
 
 function optionalWebAuthnAuthentication(
@@ -147,9 +134,7 @@ function parseEd25519SessionPolicy(
 ): ThresholdEd25519RouteParseResult<Ed25519SessionPolicy> {
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('sessionPolicy is required');
   if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) {
-    return invalidThresholdEd25519Body(
-      'sessionPolicy.rpId belongs in sessionPolicy.authorityScope',
-    );
+    return invalidThresholdEd25519Body('sessionPolicy.rpId belongs in sessionPolicy.authority');
   }
   const unsupported = findUnexpectedRouteKey(raw, SESSION_POLICY_KEYS);
   if (unsupported) {
@@ -160,18 +145,20 @@ function parseEd25519SessionPolicy(
   if (raw.version !== 'threshold_session_v1') {
     return invalidThresholdEd25519Body('sessionPolicy.version must be threshold_session_v1');
   }
-  const walletId = requiredStringField(raw, 'walletId');
-  if (!walletId.ok) return walletId;
   const nearAccountId = requiredStringField(raw, 'nearAccountId');
   if (!nearAccountId.ok) return nearAccountId;
   const nearEd25519SigningKeyId = requiredStringField(raw, 'nearEd25519SigningKeyId');
   if (!nearEd25519SigningKeyId.ok) return nearEd25519SigningKeyId;
-  const authorityScope = parseEd25519AuthorityScope(raw.authorityScope);
-  if (!authorityScope.ok) return authorityScope;
+  const authority = parseWalletAuthAuthority(raw.authority);
+  if (!authority) {
+    return invalidThresholdEd25519Body('sessionPolicy.authority is invalid');
+  }
   const relayerKeyId = requiredStringField(raw, 'relayerKeyId');
   if (!relayerKeyId.ok) return relayerKeyId;
   const thresholdSessionId = requiredStringField(raw, 'thresholdSessionId');
   if (!thresholdSessionId.ok) return thresholdSessionId;
+  const signingGrantId = requiredStringField(raw, 'signingGrantId');
+  if (!signingGrantId.ok) return signingGrantId;
   if (typeof raw.ttlMs !== 'number' || !Number.isFinite(raw.ttlMs)) {
     return invalidThresholdEd25519Body('sessionPolicy.ttlMs is required');
   }
@@ -198,15 +185,12 @@ function parseEd25519SessionPolicy(
     ok: true,
     request: {
       version: 'threshold_session_v1',
-      walletId: walletId.request,
       nearAccountId: nearAccountId.request,
       nearEd25519SigningKeyId: nearEd25519SigningKeyId.request,
-      authorityScope: authorityScope.request,
+      authority,
       relayerKeyId: relayerKeyId.request,
       thresholdSessionId: thresholdSessionId.request,
-      ...(optionalStringField(raw, 'signingGrantId')
-        ? { signingGrantId: optionalStringField(raw, 'signingGrantId') }
-        : {}),
+      signingGrantId: signingGrantId.request,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
       ...(participantIds ? { participantIds } : {}),
@@ -281,14 +265,11 @@ function parseEvaluationResultEnvelope(
   if (!contextBindingB64u.ok) return contextBindingB64u;
   const stagedEvaluatorArtifactB64u = requiredStringField(raw, 'stagedEvaluatorArtifactB64u');
   if (!stagedEvaluatorArtifactB64u.ok) return stagedEvaluatorArtifactB64u;
-  const serverEvalFinalizeOutputB64u = requiredStringField(raw, 'serverEvalFinalizeOutputB64u');
-  if (!serverEvalFinalizeOutputB64u.ok) return serverEvalFinalizeOutputB64u;
   return {
     ok: true,
     request: {
       contextBindingB64u: contextBindingB64u.request,
       stagedEvaluatorArtifactB64u: stagedEvaluatorArtifactB64u.request,
-      serverEvalFinalizeOutputB64u: serverEvalFinalizeOutputB64u.request,
     },
   };
 }

@@ -6,10 +6,13 @@ import type {
   VerifiedEcdsaWalletSessionAuth,
   VerifiedEd25519WalletSessionAuth,
 } from './verifiedWalletSessionAuth';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
-const rpId = parseWebAuthnRpId('example.localhost');
-if (!rpId.ok) throw new Error('type fixture rpId is invalid');
+const passkeyAuthority = buildPasskeyWalletAuthAuthority({
+  walletId: 'wallet-ed25519',
+  rpId: 'example.localhost',
+  credentialIdB64u: 'credential-id',
+});
 
 const ecdsaAuth = {
   kind: 'wallet_session',
@@ -30,7 +33,7 @@ const ed25519Auth = {
   thresholdSessionId: 'threshold-session-ed25519',
   signingGrantId: 'signing-grant-ed25519',
   userId: 'wallet-ed25519',
-  authorityScope: { kind: 'passkey_rp', rpId: rpId.value },
+  authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,

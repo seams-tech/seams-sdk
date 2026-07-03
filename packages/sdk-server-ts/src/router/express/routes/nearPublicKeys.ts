@@ -29,7 +29,12 @@ export function registerNearPublicKeysRoutes(
       return value.trim().toLowerCase().startsWith('bearer ');
     }
     if (Array.isArray(value)) {
-      return value.some((entry) => String(entry || '').trim().toLowerCase().startsWith('bearer '));
+      return value.some((entry) =>
+        String(entry || '')
+          .trim()
+          .toLowerCase()
+          .startsWith('bearer '),
+      );
     }
     return false;
   };
@@ -114,7 +119,10 @@ export function registerNearPublicKeysRoutes(
         res.status(401).json({ ok: false, code: 'unauthorized', message: 'Invalid app session' });
         return;
       }
-      const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+      const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+        userId,
+        appSessionVersion,
+      });
       if (!validated.ok) {
         await maybeEmitWarmExpired({
           code: validated.code,
@@ -129,7 +137,7 @@ export function registerNearPublicKeysRoutes(
         return;
       }
 
-      const result = await ctx.service.listNearPublicKeysForUser({ userId });
+      const result = await ctx.service.nearFunding.listNearPublicKeysForUser({ userId });
       if (!result.ok) {
         const status =
           result.code === 'not_supported' ? 501 : result.code === 'invalid_args' ? 400 : 500;

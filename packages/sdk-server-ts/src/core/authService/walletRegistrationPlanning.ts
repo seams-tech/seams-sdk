@@ -10,7 +10,6 @@ import {
   findRegistrationSignerPlanNearEd25519Branch,
   nearEd25519SigningKeyIdFromString,
   parseServerAllocatedWalletId,
-  registrationEd25519AuthorityScope,
   registrationSignerPlanFromSelection,
   type AddSignerIntentV1,
   type NearEd25519SigningKeyId,
@@ -436,29 +435,6 @@ export function normalizeRegistrationEcdsaChainTargets(
     chainTargets.push(chainTarget);
   }
   return { ok: true, chainTargets };
-}
-
-export async function registrationIntentNearEd25519SigningKeyId(input: {
-  signingRootId?: string;
-  signingRootVersion?: string;
-  intent: RegistrationIntentV1;
-}): Promise<NearEd25519SigningKeyId> {
-  const ed25519 = registrationEd25519SpecFromPlanBranch(
-    requireRegistrationIntentNearEd25519Branch(input.intent),
-  );
-  return await computeRegistrationNearEd25519SigningKeyId({
-    walletId: input.intent.walletId,
-    authorityScope: registrationEd25519AuthorityScope(input.intent.authMethod),
-    signingRootId: registrationIntentSigningRootId({
-      signingRootId: input.signingRootId,
-      intent: input.intent,
-    }),
-    signingRootVersion: registrationIntentSigningRootVersion({
-      signingRootVersion: input.signingRootVersion,
-      intent: input.intent,
-    }),
-    ed25519,
-  });
 }
 
 export function addSignerIntentSigningRootId(input: {

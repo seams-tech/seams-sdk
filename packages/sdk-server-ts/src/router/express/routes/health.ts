@@ -8,7 +8,7 @@ export function registerHealthRoutes(router: ExpressRouter, ctx: ExpressRouterAp
 
       res.status(200).json({
         ok: true,
-        relayerAccount: ctx.service.getConfiguredRelayerAccount?.() ?? null,
+        relayerAccount: ctx.service.router.getConfiguredRelayerAccount(),
         thresholdEd25519: { configured: thresholdConfigured },
       });
     });
@@ -18,7 +18,7 @@ export function registerHealthRoutes(router: ExpressRouter, ctx: ExpressRouterAp
     router.get('/readyz', async (_req: Request, res: Response) => {
       const thresholdConfigured = Boolean(ctx.opts.threshold);
       try {
-        await ctx.service.getRelayerAccount();
+        await ctx.service.router.getRelayerAccount();
         res.status(200).json({
           ok: true,
           thresholdEd25519: { configured: thresholdConfigured },

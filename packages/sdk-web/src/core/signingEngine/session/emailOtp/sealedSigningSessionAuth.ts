@@ -9,6 +9,10 @@ import {
   resolveEmailOtpAuthLane,
   type EmailOtpSigningSessionAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import {
+  buildEmailOtpEcdsaSigningSessionAuthority,
+  type EmailOtpEcdsaSigningSessionAuthority,
+} from './ecdsaSigningSessionAuthority';
 
 export type SealedEmailOtpEcdsaSigningSessionAuthInput = {
   lane: ExactEcdsaSigningLaneIdentity;
@@ -18,6 +22,12 @@ export type SealedEmailOtpEcdsaSigningSessionAuthInput = {
 export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
   input: SealedEmailOtpEcdsaSigningSessionAuthInput,
 ): EmailOtpSigningSessionAuthLane | null {
+  return emailOtpEcdsaSigningSessionAuthorityFromSealedRecord(input)?.authLane || null;
+}
+
+export function emailOtpEcdsaSigningSessionAuthorityFromSealedRecord(
+  input: SealedEmailOtpEcdsaSigningSessionAuthInput,
+): EmailOtpEcdsaSigningSessionAuthority | null {
   const thresholdSessionId = String(input.lane.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
   if (input.lane.auth.kind !== 'email_otp') return null;
@@ -60,5 +70,8 @@ export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
   });
-  return lane?.kind === 'signing_session' && lane.curve === 'ecdsa' ? lane : null;
+  return buildEmailOtpEcdsaSigningSessionAuthority({
+    authLane: lane,
+    authority: record.authority,
+  });
 }

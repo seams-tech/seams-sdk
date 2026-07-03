@@ -7,7 +7,7 @@ import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
 import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
@@ -26,6 +26,7 @@ import {
   getEcdsaFreshProvisionSessionIdentity,
   getEcdsaProvisionPlanLaneIdentity,
   getEcdsaReconnectSessionIdentity,
+  type EcdsaReconnectMaterial,
   type EcdsaSigningKeyContext,
   type EcdsaSessionProvisionPlan,
   type PasskeyEcdsaProvisionSecretSource,
@@ -71,12 +72,15 @@ const walletSessionAuth = {
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   relayerKeyId: 'relayer-key-1',
 } satisfies VerifiedEcdsaWalletSessionAuth;
-const emailOtpAuthContext = {
-  policy: 'session',
+const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'session',
   retention: 'session',
   reason: 'sign',
-  authMethod: 'email_otp',
-} satisfies ThresholdEcdsaEmailOtpAuthContext;
+  provider: 'google',
+  providerUserId: 'google-subject-1',
+});
 const passkeyProvisionSecretSource = buildPasskeyEcdsaProvisionSecretSource({
   passkeyPrfFirstB64u: 'prf-first',
   webauthnAuthentication,
@@ -233,6 +237,22 @@ void buildEcdsaReconnectMaterial({
   // @ts-expect-error reconnect material derives key refs from the session record
   keyRef: reconnectKeyRef,
 });
+
+const invalidDirectReconnectMaterial = {
+  kind: 'ecdsa_session_record',
+  record: reconnectRecord,
+  // @ts-expect-error reconnect material carries verified wallet-session auth from its builder.
+} satisfies EcdsaReconnectMaterial;
+void invalidDirectReconnectMaterial;
+
+const invalidDirectReconnectMaterialWithJwt = {
+  kind: 'ecdsa_session_record',
+  record: reconnectRecord,
+  walletSessionAuth,
+  // @ts-expect-error reconnect material must not expose raw walletSessionJwt beside verified auth.
+  walletSessionJwt: 'jwt-token',
+} satisfies EcdsaReconnectMaterial;
+void invalidDirectReconnectMaterialWithJwt;
 
 void buildEmailOtpEcdsaSessionProvision({
   key: exactKey,

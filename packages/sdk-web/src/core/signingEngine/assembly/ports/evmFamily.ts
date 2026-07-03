@@ -1,7 +1,7 @@
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { readExactSealedSession } from '../../session/persistence/sealedSessionStore';
-import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '../../session/emailOtp/sealedSigningSessionAuth';
+import { emailOtpEcdsaSigningSessionAuthorityFromSealedRecord } from '../../session/emailOtp/sealedSigningSessionAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
@@ -22,11 +22,6 @@ export function createEvmFamilySigningDeps(args: {
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget }) =>
-      createArgs.getEmailOtpThresholdEcdsaSessionRecordForSigning({
-        walletId,
-        chainTarget,
-      }),
     getPasskeyThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget, source }) =>
       createArgs.getPasskeyThresholdEcdsaSessionRecordForSigning({
         walletId,
@@ -51,35 +46,34 @@ export function createEvmFamilySigningDeps(args: {
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,
         chain,
-        ...(authLane ? { authLane } : {}),
+        authLane,
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
-    resolveEmailOtpSigningSessionAuthLane: async ({ lane }) => {
-      const runtimeLane = createWarmSessionCapabilityReader({
+    resolveEmailOtpEcdsaSigningSessionAuthority: async ({ lane }) => {
+      const runtimeAuthority = createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
         signingSessionSeal: null,
         getEmailOtpWarmSessionStatus,
-      }).resolveEmailOtpSigningSessionAuthLane({ lane });
-      if (runtimeLane) return runtimeLane;
+      }).resolveEmailOtpEcdsaSigningSessionAuthority({ lane });
+      if (runtimeAuthority) return runtimeAuthority;
       const sealedRecord = await readExactSealedSession(String(lane.thresholdSessionId), {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chainTarget: lane.signer.chainTarget,
       }).catch(() => null);
-      const exactLane = sealedRecord
-        ? emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord({
+      const exactAuthority = sealedRecord
+        ? emailOtpEcdsaSigningSessionAuthorityFromSealedRecord({
             lane,
             sealedRecord,
           })
         : null;
-      return exactLane;
+      return exactAuthority;
     },
     loginWithEmailOtpEcdsaCapabilityForSigning: ({
       walletSession,
       chainTarget,
       challengeId,
       otpCode,
-      record,
-      authLane,
+      committedLane,
       remainingUses,
     }) =>
       createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
@@ -87,8 +81,7 @@ export function createEvmFamilySigningDeps(args: {
         chainTarget,
         challengeId,
         otpCode,
-        record,
-        ...(authLane ? { authLane } : {}),
+        committedLane,
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
       }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
     restorePersistedSessionForSigning: (restoreArgs) =>

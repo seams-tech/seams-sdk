@@ -1,7 +1,9 @@
 import {
   formatWebAuthnRpIdForWire,
+  parseWalletAuthMethodId,
   parseWalletId,
   parseWebAuthnRpId,
+  type WalletAuthMethodId,
   type WalletId,
   type WebAuthnRpId,
 } from './domainIds';
@@ -123,6 +125,12 @@ function missingObject(typeName: string): WalletCapabilityBindingParseResult<nev
   };
 }
 
+function requireWalletAuthMethodId(raw: string): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(raw);
+  if (parsed.ok) return parsed.value;
+  throw new Error(parsed.error.message);
+}
+
 export function parseRpId(raw: unknown): WalletCapabilityBindingParseResult<RpId> {
   const parsed = parseWebAuthnRpId(raw);
   if (!parsed.ok) return { ok: false, error: parsed.error };
@@ -194,6 +202,21 @@ export function buildEmailOtpWalletAuthMethodBinding(args: {
     emailHashHex,
     registrationAuthorityId,
   };
+}
+
+export function walletAuthMethodBindingId(binding: WalletAuthMethodBinding): WalletAuthMethodId {
+  switch (binding.kind) {
+    case 'passkey':
+      return requireWalletAuthMethodId(
+        `passkey:${binding.scope.rpId}:${binding.credentialIdB64u}`,
+      );
+    case 'email_otp':
+      return requireWalletAuthMethodId(
+        `email_otp:${binding.wallet.walletId}:${binding.emailHashHex}`,
+      );
+  }
+  binding satisfies never;
+  throw new Error('Unsupported wallet auth-method binding');
 }
 
 export function walletAuthMethodBindingFromRaw(

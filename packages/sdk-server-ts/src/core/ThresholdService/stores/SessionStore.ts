@@ -38,6 +38,15 @@ export type ThresholdEd25519Commitments = { hiding: string; binding: string };
 
 export type ThresholdEd25519CommitmentsById = Record<string, ThresholdEd25519Commitments>;
 
+export type ThresholdEd25519SigningShareMaterial =
+  | {
+      kind: 'key_store';
+    }
+  | {
+      kind: 'embedded_cosigner_share';
+      relayerSigningShareB64u: string;
+    };
+
 export type ThresholdEd25519MpcSessionRecord = {
   expiresAtMs: number;
   ecdsaThresholdKeyId?: string;
@@ -96,11 +105,7 @@ export type ThresholdEd25519SigningSessionRecord = {
   userId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   commitmentsById: ThresholdEd25519CommitmentsById;
-  /**
-   * Optional relayer signing share material for internal flows (e.g. relayer-fleet cosigners).
-   * For normal relayer signing sessions this should be re-derived from key material instead.
-   */
-  relayerSigningShareB64u?: string;
+  signingShare: ThresholdEd25519SigningShareMaterial;
   relayerNoncesB64u: string;
   participantIds: number[];
 };

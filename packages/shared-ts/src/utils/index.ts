@@ -16,6 +16,7 @@ export * from './signingSessionSeal';
 export * from './emailOtpRecoveryKey';
 export * from './registrationIntent';
 export * from './walletCapabilityBindings';
+export * from './walletAuthAuthority';
 export * from './ecdsaKeyFactsInventory';
 export * from './secureRandomId';
 export * from './routerAbPublicKeyset';

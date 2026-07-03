@@ -5,11 +5,6 @@ import type {
   RouterAbEcdsaHssPoolFillStepRequest,
 } from '../core/types';
 
-export type RouterAbEcdsaHssKeyIdentitiesRequest = {
-  sessionKind?: 'jwt' | 'cookie';
-  keyTargets: unknown[];
-};
-
 export type ThresholdEcdsaRouteErrorBody = {
   ok: false;
   code: 'invalid_body';
@@ -20,7 +15,6 @@ export type ThresholdEcdsaRouteParseResult<T> =
   | { ok: true; request: T }
   | { ok: false; body: ThresholdEcdsaRouteErrorBody };
 
-const KEY_IDENTITIES_KEYS = ['sessionKind', 'keyTargets'] as const;
 const POOL_FILL_INIT_KEYS = [
   'sessionKind',
   'keyHandle',
@@ -55,13 +49,6 @@ function unexpectedThresholdEcdsaKey(
   return null;
 }
 
-function parseSessionKindField(raw: unknown): 'jwt' | 'cookie' | undefined {
-  const value = String(raw ?? '').trim();
-  if (!value) return undefined;
-  if (value === 'jwt' || value === 'cookie') return value;
-  return undefined;
-}
-
 function rejectNonJwtSessionKind(
   record: Record<string, unknown>,
   message: string,
@@ -83,27 +70,6 @@ function isStringValue(value: unknown): value is string {
 
 function hasNonStringValue(values: unknown[]): boolean {
   return values.some((value) => !isStringValue(value));
-}
-
-export function parseRouterAbEcdsaHssKeyIdentitiesRequest(
-  raw: unknown,
-): ThresholdEcdsaRouteParseResult<RouterAbEcdsaHssKeyIdentitiesRequest> {
-  if (!isPlainObject(raw)) {
-    return invalidThresholdEcdsaBody('Expected JSON object body');
-  }
-  const unexpectedKey = unexpectedThresholdEcdsaKey(raw, KEY_IDENTITIES_KEYS);
-  if (unexpectedKey) {
-    return invalidThresholdEcdsaBody(`Unsupported threshold-ecdsa key-identities field: ${unexpectedKey}`);
-  }
-  const sessionKind = parseSessionKindField(raw.sessionKind);
-  const keyTargets = Array.isArray(raw.keyTargets) ? raw.keyTargets : [];
-  return {
-    ok: true,
-    request: {
-      ...(sessionKind ? { sessionKind } : {}),
-      keyTargets,
-    },
-  };
 }
 
 export function parseRouterAbEcdsaHssPoolFillInitRouteRequest(

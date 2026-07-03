@@ -39,19 +39,24 @@ export function createNearSigningDeps(args: {
     },
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    requestEmailOtpTransactionSigningChallenge: ({ walletSession, nearAccountId, chain, authLane }) =>
+    requestEmailOtpTransactionSigningChallenge: ({
+      walletSession,
+      nearAccountId,
+      chain,
+      committedLane,
+    }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,
         nearAccountId,
         chain,
-        ...(authLane ? { authLane } : {}),
+        committedLane,
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
-    resolveEmailOtpSigningSessionAuthLane: ({ lane }) =>
+    resolveEmailOtpEd25519SigningSessionAuthority: ({ lane }) =>
       createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
         signingSessionSeal: null,
         getEmailOtpWarmSessionStatus,
-      }).resolveEmailOtpSigningSessionAuthLane({ lane }),
+      }).resolveEmailOtpEd25519SigningSessionAuthority({ lane }),
     isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>
       createArgs.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true,
     waitForPendingEmailOtpEd25519Warmup: ({ nearAccountId }) =>
@@ -61,17 +66,15 @@ export function createNearSigningDeps(args: {
       nearAccountId,
       challengeId,
       otpCode,
-      record,
+      committedLane,
       remainingUses,
-      authLane,
     }) =>
       createArgs.loginWithEmailOtpEd25519CapabilityForSigning?.({
         nearAccountId,
         challengeId,
         otpCode,
-        record,
+        committedLane,
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
-        ...(authLane ? { authLane } : {}),
       }) || Promise.reject(new Error('Email OTP Ed25519 signing bootstrap is not configured')),
     restorePersistedSessionForSigning: (restoreArgs) =>
       createArgs.restorePersistedSessionForSigning(restoreArgs),

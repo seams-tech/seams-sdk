@@ -25,6 +25,7 @@ import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/Threshold
 import {
   parseAppSessionClaims,
   parseRouterAbEcdsaHssWalletSessionClaims,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '../../../core/ThresholdService/validation';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import {
@@ -55,7 +56,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-    getThreshold: () => input.ctx.service.getThresholdSigningService(),
+    getThreshold: () => input.ctx.service.thresholdRuntime.getThresholdSigningService(),
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
     privatePath: input.privatePath,
     phase: input.phase,
@@ -172,7 +173,7 @@ export async function handleThresholdEd25519(
       if (parsedSession?.ok) {
         appSessionClaims = parseAppSessionClaims(parsedSession.claims);
         if (appSessionClaims) {
-          const validated = await ctx.service.validateAppSessionVersion({
+          const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
             userId: appSessionClaims.sub,
             appSessionVersion: appSessionClaims.appSessionVersion,
           });
@@ -247,7 +248,7 @@ export async function handleThresholdEd25519(
         );
       }
       const sessionAuth = verifiedWalletAuth
-        ? ({ kind: 'verified_wallet' as const, walletAuth: verifiedWalletAuth })
+        ? { kind: 'verified_wallet' as const, walletAuth: verifiedWalletAuth }
         : b.routeAuth.kind === 'passkey'
           ? {
               kind: 'passkey' as const,
@@ -295,7 +296,6 @@ export async function handleThresholdEd25519(
       const walletId = String(result.walletId || '').trim();
       const nearAccountId = String(result.nearAccountId || '').trim();
       const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId || '').trim();
-      const authorityScope = b.sessionPolicy.authorityScope;
       const relayerKeyId = String(b.relayerKeyId || '').trim();
       const thresholdExpiresAtMs = (() => {
         const ms =
@@ -334,7 +334,7 @@ export async function handleThresholdEd25519(
       const signed = await signRouterAbEd25519WalletSessionJwt({
         session,
         userId: walletId,
-        authorityScope,
+        authority: b.sessionPolicy.authority,
         relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',

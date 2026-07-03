@@ -35,6 +35,7 @@ import {
   classifyRouterAbEd25519PersistedSigningRecord,
   type RouterAbEd25519PersistedSigningRecordState,
 } from '../routerAbSigningWalletSession';
+import { ed25519AvailableMaterialStateFromSessionRecord } from './ed25519AvailableMaterialState';
 import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
@@ -412,6 +413,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
             record: runtimeRecord,
           });
           if (!candidate) continue;
+          const material = ed25519AvailableMaterialStateFromSessionRecord(runtimeRecord);
+          if (!material) continue;
           pushRecord({
             auth: candidate.auth,
             curve: 'ed25519',
@@ -426,15 +429,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,
-            ...(runtimeRecord.ed25519WorkerMaterialBindingDigest
-              ? {
-                  ed25519WorkerMaterialBindingDigest:
-                    runtimeRecord.ed25519WorkerMaterialBindingDigest,
-                }
-              : {}),
-            ...(runtimeRecord.materialKeyId
-              ? { materialKeyId: runtimeRecord.materialKeyId }
-              : {}),
+            material,
           });
         }
         return records;

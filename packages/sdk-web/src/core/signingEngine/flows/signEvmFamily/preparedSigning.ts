@@ -8,7 +8,6 @@ import {
   laneCandidateAuthMethod,
   selectedLaneAuthMethod,
 } from '../../session/identity/laneIdentity';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
@@ -78,11 +77,8 @@ import {
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import type {
-  EcdsaSigningLookupArgs,
-  PasskeyEcdsaSigningLookupArgs,
-} from '../../interfaces/operationDeps';
 import {
+  ecdsaCommittedLaneAuthMethod,
   resolveEvmFamilyEcdsaSigningSelection,
   type EvmFamilyEcdsaSigningSelectionResult,
   type EvmFamilyEcdsaSigningSelectionDeps,
@@ -244,10 +240,21 @@ function assertSelectionMatchesLaneCandidate(args: {
 }): void {
   const candidate = args.candidate;
   const candidateAuthMethod = laneCandidateAuthMethod(candidate);
-  const selectionAuthMethod = selectedLaneAuthMethod(args.selection.lane);
-  if (candidateAuthMethod !== selectionAuthMethod) {
+  const committedAuthMethod = ecdsaCommittedLaneAuthMethod(args.selection.committedLane);
+  if (candidateAuthMethod !== committedAuthMethod) {
     throw new Error(
-      `[SigningEngine][ecdsa] prepared restore auth method ${candidateAuthMethod} did not match selected lane auth method ${selectionAuthMethod}`,
+      `[SigningEngine][ecdsa] prepared restore auth method ${candidateAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
+    );
+  }
+  if (args.selection.authMethod !== committedAuthMethod) {
+    throw new Error(
+      `[SigningEngine][ecdsa] selected auth method ${args.selection.authMethod} did not match committed lane auth method ${committedAuthMethod}`,
+    );
+  }
+  const selectionLaneAuthMethod = selectedLaneAuthMethod(args.selection.lane);
+  if (selectionLaneAuthMethod !== committedAuthMethod) {
+    throw new Error(
+      `[SigningEngine][ecdsa] selected lane auth method ${selectionLaneAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
     );
   }
   if (candidate.thresholdSessionId !== String(args.selection.lane.thresholdSessionId)) {
@@ -267,6 +274,30 @@ function assertSelectionMatchesLaneCandidate(args: {
     })
   ) {
     throw new Error('[SigningEngine][ecdsa] prepared restore material did not match selected lane');
+  }
+  const committedLaneKey = exactSigningLaneIdentityKey(
+    exactEcdsaSigningLaneIdentityFromSelectedLane(args.selection.committedLane.lane),
+  );
+  const selectionLaneKey = exactSigningLaneIdentityKey(
+    exactEcdsaSigningLaneIdentityFromSelectedLane(args.selection.lane),
+  );
+  if (committedLaneKey !== selectionLaneKey) {
+    throw new Error('[SigningEngine][ecdsa] committed lane did not match selected lane');
+  }
+  if (
+    args.selection.committedLane.candidate.thresholdSessionId !==
+      args.candidate.thresholdSessionId ||
+    args.selection.committedLane.candidate.signingGrantId !== args.candidate.signingGrantId
+  ) {
+    throw new Error('[SigningEngine][ecdsa] committed lane candidate did not match selected candidate');
+  }
+  if (
+    !materialIdentityMatchesResolvedLane({
+      state: args.selection.committedLane.material,
+      lane: args.selection.lane,
+    })
+  ) {
+    throw new Error('[SigningEngine][ecdsa] committed lane material did not match selected lane');
   }
 }
 
@@ -295,8 +326,9 @@ function readinessFromSelection(
       };
     }
     case 'reauth_required': {
+      const committedAuthMethod = ecdsaCommittedLaneAuthMethod(selection.committedLane);
       if (
-        selection.authMethod === 'passkey' &&
+        committedAuthMethod === 'passkey' &&
         selection.reason === 'missing_hot_material' &&
         selection.material.kind === 'reauth_required' &&
         selection.material.reason === 'missing_inline_share'
@@ -394,17 +426,29 @@ type PreparedEvmFamilyEcdsaMetadata = {
   availableLanesGeneration: number;
 };
 
-function budgetStatusAuthFromReadyEcdsaMaterial(
-  material: ReadyEcdsaMaterial,
-): SigningSessionBudgetStatusAuth | null {
-  const signerSession = material.signerSession;
+function budgetStatusAuthFromReadyEcdsaMaterial(args: {
+  selection: ReadyEvmFamilyEcdsaSigningSelection;
+  material: ReadyEcdsaMaterial;
+}): SigningSessionBudgetStatusAuth | null {
+  const authority = args.selection.committedLane.walletSessionAuthority;
+  const committedAuthMethod = ecdsaCommittedLaneAuthMethod(args.selection.committedLane);
+  if (authority.kind !== 'wallet_session_authority') {
+    return null;
+  }
+  const signerSession = args.material.signerSession;
   const relayerUrl = String(signerSession.transport.relayerUrl || '').trim();
-  const thresholdSessionId = String(signerSession.session.thresholdSessionId || '').trim();
-  if (!relayerUrl || !thresholdSessionId) return null;
-  const walletSessionJwt = String(
-    signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt || '',
-  ).trim();
-  if (!walletSessionJwt) return null;
+  const thresholdSessionId = String(authority.thresholdSessionId || '').trim();
+  const signingGrantId = String(authority.signingGrantId || '').trim();
+  const walletSessionJwt = String(authority.walletSessionJwt || '').trim();
+  if (!relayerUrl || !thresholdSessionId || !signingGrantId || !walletSessionJwt) return null;
+  if (
+    String(signerSession.session.thresholdSessionId) !== thresholdSessionId ||
+    String(signerSession.session.signingGrantId) !== signingGrantId
+  ) {
+    throw new Error(
+      `[SigningSessionBudget] committed ${committedAuthMethod} ECDSA lane does not match ready signer session`,
+    );
+  }
   return {
     relayerUrl,
     thresholdSessionId,
@@ -466,12 +510,6 @@ export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDep
     readAvailableSigningLanesForSigning: (
       args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
     ) => Promise<AvailableSigningLanes>;
-    getEmailOtpThresholdEcdsaSessionRecordForSigning: (
-      args: EcdsaSigningLookupArgs,
-    ) => ThresholdEcdsaSessionRecord;
-    getPasskeyThresholdEcdsaSessionRecordForSigning: (
-      args: PasskeyEcdsaSigningLookupArgs,
-    ) => ThresholdEcdsaSessionRecord;
   };
 
 export async function prepareEvmFamilyEcdsaSigningSession(args: {
@@ -803,18 +841,26 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           });
           throw new Error('[SigningEngine][ecdsa] selected ECDSA lane budget is budget_unknown');
         }
+        const committedSelectionAuthMethod = ecdsaCommittedLaneAuthMethod(
+          selection.committedLane,
+        );
+        if (selection.authMethod !== committedSelectionAuthMethod) {
+          throw new Error(
+            `[SigningEngine][ecdsa] selection auth method ${selection.authMethod} did not match committed lane authority ${committedSelectionAuthMethod}`,
+          );
+        }
         const availableLanes = await args.deps.readAvailableSigningLanesForSigning({
           walletId,
           curve: 'ecdsa',
           ecdsaChainTargets: [chainTarget],
-          authMethod: selection.authMethod,
+          authMethod: committedSelectionAuthMethod,
         });
         emitSigningLaneResolutionTrace('evm-family', selection.lane, {
           reason: 'evm_family_ecdsa_selection',
         });
         args.diagnostics.selection = {
           kind: selection.kind,
-          authMethod: selection.authMethod,
+          authMethod: committedSelectionAuthMethod,
           source: selection.kind === 'ready' ? selection.source : selection.material.source,
           lane: summarizeEvmFamilyEcdsaLane(selection.lane),
           material: summarizeEcdsaMaterialState(selection.material),
@@ -845,7 +891,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           accountId: walletId,
           chain,
           chainTarget,
-          authMethod: selection.authMethod,
+          authMethod: committedSelectionAuthMethod,
           lane: summarizeEvmFamilyEcdsaLane(resolvedLane),
           readinessStatus: readiness.readiness.status,
         });
@@ -873,7 +919,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           availableLanesGeneration: availableLanes.generation,
           metadata: {
             accountAuth: selection.accountAuth,
-            authMethod: selection.authMethod,
+            authMethod: committedSelectionAuthMethod,
             source: selection.kind === 'ready' ? selection.source : selection.material.source,
             selection,
             materialBinding: {
@@ -908,7 +954,12 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           'budget_identity_not_prepared',
         );
   const budgetStatusAuth =
-    material.kind === 'ready_to_sign' ? budgetStatusAuthFromReadyEcdsaMaterial(material) : null;
+    material.kind === 'ready_to_sign' && metadata.selection.kind === 'ready'
+      ? budgetStatusAuthFromReadyEcdsaMaterial({
+          selection: metadata.selection,
+          material,
+        })
+      : null;
   return {
     accountAuth: metadata.accountAuth,
     authMethod: metadata.authMethod,

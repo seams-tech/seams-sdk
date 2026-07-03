@@ -39,7 +39,7 @@ async function handleExpressRecoverEmailRoute(
     }
     const { accountId, emailBlob, recoveryPayload } = parsed;
     const execution = await prepareTrackedRecoverEmailExecution({
-      service: ctx.service,
+      service: ctx.service.recovery,
       accountId,
       emailBlob,
       recoveryPayload,
@@ -54,12 +54,12 @@ async function handleExpressRecoverEmailRoute(
 
     if (isExpressRecoverEmailAsync(req)) {
       await recordTrackedRecoverEmailPending({
-        service: ctx.service,
+        service: ctx.service.recovery,
         logger: ctx.logger,
         execution,
       });
       void runTrackedRecoverEmailExecutionAsync({
-        service: ctx.service,
+        service: ctx.service.recovery,
         executionService: emailRecovery.executionService,
         logger: ctx.logger,
         execution,
@@ -69,12 +69,12 @@ async function handleExpressRecoverEmailRoute(
     }
 
     await recordTrackedRecoverEmailPending({
-      service: ctx.service,
+      service: ctx.service.recovery,
       logger: ctx.logger,
       execution,
     });
     const result = await runTrackedRecoverEmailExecution({
-      service: ctx.service,
+      service: ctx.service.recovery,
       executionService: emailRecovery.executionService,
       logger: ctx.logger,
       execution,
@@ -88,6 +88,9 @@ async function handleExpressRecoverEmailRoute(
   }
 }
 
-export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
+export function registerRecoverEmailRoute(
+  router: ExpressRouter,
+  ctx: ExpressRouterApiContext,
+): void {
   router.post('/recover-email', handleExpressRecoverEmailRoute.bind(null, ctx));
 }

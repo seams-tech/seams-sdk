@@ -7,8 +7,10 @@ import type {
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
+import type {
+  WalletRegistrationFinalizeRequest
+} from '../../core/registrationContracts';
 import { validateSecp256k1PublicKey33 } from '../../core/ThresholdService/ethSignerWasm';
-import type { RouterApiAuthService } from '../authServicePort';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRecoveryEscrowStore } from './d1EmailOtpRecoveryEscrowStore';
 import type { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';
@@ -19,9 +21,7 @@ import {
   type EmailOtpEnrollmentMaterialBoundaryInput,
 } from './d1EmailOtpRecords';
 
-type FinalizeWalletRegistrationInput = Parameters<
-  RouterApiAuthService['finalizeWalletRegistration']
->[0];
+type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
 type D1EmailOtpRegistrationEnrollmentPersistence =
   | {
@@ -124,7 +124,10 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
 
   async prepareRegistrationFinalize(input: {
     readonly authority: RegistrationAuthority;
-    readonly request: Pick<FinalizeWalletRegistrationInput, 'emailOtpEnrollment' | 'emailOtpBackupAck'>;
+    readonly request: Pick<
+      FinalizeWalletRegistrationInput,
+      'emailOtpEnrollment' | 'emailOtpBackupAck'
+    >;
     readonly walletId: WalletId;
     readonly orgId: string;
     readonly nowMs: number;
@@ -259,9 +262,7 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
     readonly registrationAttemptId?: string;
     readonly nowMs: number;
   }): Promise<D1EmailOtpVerifiedRegistrationEnrollmentPersistResult> {
-    const canonicalWalletExists = await this.emailOtpEnrollments.signerWalletExists(
-      input.walletId,
-    );
+    const canonicalWalletExists = await this.emailOtpEnrollments.signerWalletExists(input.walletId);
     if (!canonicalWalletExists) {
       return {
         ok: false,

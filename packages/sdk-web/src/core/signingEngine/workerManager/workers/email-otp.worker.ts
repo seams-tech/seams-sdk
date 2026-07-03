@@ -2994,7 +2994,6 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
   }) as {
     contextBindingB64u?: unknown;
     stagedEvaluatorArtifactB64u?: unknown;
-    serverEvalFinalizeOutputB64u?: unknown;
   };
   const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: relayUrl,
@@ -3006,10 +3005,6 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
       stagedEvaluatorArtifactB64u: readString(
         evaluationResult.stagedEvaluatorArtifactB64u,
         'stagedEvaluatorArtifactB64u',
-      ),
-      serverEvalFinalizeOutputB64u: readString(
-        evaluationResult.serverEvalFinalizeOutputB64u,
-        'serverEvalFinalizeOutputB64u',
       ),
     },
   });

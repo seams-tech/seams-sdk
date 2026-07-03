@@ -18,6 +18,10 @@ import type {
   EmailOtpWalletSessionExportAuthorizationDeps,
 } from '../../flows/recovery/keyExportConfirmation';
 import type { CreateSigningEnginePortsArgs } from './shared';
+import type {
+  EmailOtpEcdsaExportArtifact,
+  ExportEcdsaKeyWithAuthorizationArgs,
+} from '../../session/emailOtp/exportRecoveryRuntime';
 
 export function createPrivateKeyExportRecoveryDeps(
   args: CreateSigningEnginePortsArgs,
@@ -47,7 +51,9 @@ export function createRecoveryPublicDeps(args: {
       & EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']
       & EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithFreshEmailOtpLane: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithFreshEmailOtpLane'];
-    exportEcdsaKeyWithAuthorization: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithAuthorization'];
+    exportEcdsaKeyWithAuthorization: (
+      request: ExportEcdsaKeyWithAuthorizationArgs,
+    ) => Promise<EmailOtpEcdsaExportArtifact>;
     exportEd25519SeedWithAuthorization: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['exportEd25519SeedWithAuthorization'];
   };
   keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];

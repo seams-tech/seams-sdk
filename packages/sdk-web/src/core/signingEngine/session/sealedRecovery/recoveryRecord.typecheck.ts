@@ -2,15 +2,36 @@ import type {
   EmailOtpEd25519SealedRecoveryRecord,
   SealedRecoveryWalletSessionAuth,
 } from './recoveryRecord';
+import type {
+  EmailOtpWalletAuthAuthority,
+  PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 
 declare const currentRecord: EmailOtpEd25519SealedRecoveryRecord;
 declare const walletSessionAuth: SealedRecoveryWalletSessionAuth;
+declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
+declare const passkeyAuthority: PasskeyWalletAuthAuthority;
 
 const validRecoveryRecordWithWalletSessionAuth = {
   ...currentRecord,
   walletSessionAuth,
+  authority: emailOtpAuthority,
 } satisfies EmailOtpEd25519SealedRecoveryRecord;
 void validRecoveryRecordWithWalletSessionAuth;
+
+const invalidRecoveryRecordWithWrongAuthority = {
+  ...currentRecord,
+  // @ts-expect-error Email OTP sealed recovery records require Email OTP wallet auth authority.
+  authority: passkeyAuthority,
+} satisfies EmailOtpEd25519SealedRecoveryRecord;
+void invalidRecoveryRecordWithWrongAuthority;
+
+const invalidRecoveryRecordWithLooseAuthority = {
+  ...currentRecord,
+  // @ts-expect-error normalized sealed recovery records expose one bound authority field.
+  walletSessionAuthority: emailOtpAuthority,
+} satisfies EmailOtpEd25519SealedRecoveryRecord;
+void invalidRecoveryRecordWithLooseAuthority;
 
 const invalidRecoveryRecordWithOldTokenField = {
   ...currentRecord,

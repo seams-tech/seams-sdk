@@ -9,6 +9,7 @@ import {
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   ConsumedAddAuthMethodIntent,
   ConsumedRegistrationIntent,
@@ -31,11 +32,13 @@ import type {
   StoredWalletRegistrationCeremony,
 } from './RegistrationCeremonyStore';
 import type {
-  EcdsaHssServerBootstrapResponse,
+  EcdsaHssServerBootstrapResponse
+} from './types';
+import type {
   RegistrationPreparationId,
   WalletRegistrationEcdsaPreparePayload,
-  WalletRegistrationEcdsaWalletKey,
-} from './types';
+  WalletRegistrationEcdsaWalletKey
+} from './registrationContracts';
 import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
@@ -77,6 +80,12 @@ const passkeyAuthority = {
   registrationIntentDigestB64u: 'digest',
 } as const;
 
+const walletBoundPasskeyAuthority = buildPasskeyWalletAuthAuthority({
+  walletId: intent.walletId,
+  rpId: webAuthnRpId,
+  credentialIdB64u: 'credential',
+});
+
 const preparedSession = {
   contextBindingB64u: 'context',
   evaluatorDriverStateB64u: 'driver',
@@ -99,7 +108,10 @@ const preparedEd25519ServerState = {
 
 const respondedEd25519ServerState = {
   context: preparedEd25519ServerState.context,
-  preparedServerSession: preparedEd25519ServerState.preparedServerSession,
+  preparedServerSession: {
+    ...preparedEd25519ServerState.preparedServerSession,
+    serverEvalStateB64u: 'server-eval-state',
+  },
 };
 
 const ecdsaChainTarget = {
@@ -173,6 +185,7 @@ const preparationBase = {
   registrationIntentGrant: allocatedIntent.grant,
   registrationIntentDigestB64u: allocatedIntent.digestB64u,
   intent,
+  authority: passkeyAuthority,
   orgId: allocatedIntent.orgId,
   expectedOrigin: 'https://wallet.example.test',
   signingRootId: 'project:env',
@@ -353,6 +366,17 @@ void ({
   orgId: 'org',
   expiresAtMs: 1,
   authority: passkeyAuthority,
+  signerState: preparedEd25519,
+} satisfies StoredWalletRegistrationCeremony);
+
+void ({
+  registrationCeremonyId: 'wrc_123',
+  intent,
+  digestB64u: 'digest',
+  orgId: 'org',
+  expiresAtMs: 1,
+  // @ts-expect-error pre-finalize registration state stores RegistrationAuthority, not wallet-bound WalletAuthAuthority.
+  authority: walletBoundPasskeyAuthority,
   signerState: preparedEd25519,
 } satisfies StoredWalletRegistrationCeremony);
 

@@ -93,6 +93,7 @@ import type {
   ThresholdEd25519HssRegistrationPreparedServerState,
   ThresholdEd25519HssRegistrationRespondedServerState,
   ThresholdEd25519HssStoredPreparedServerSession,
+  ThresholdEd25519HssStoredRespondedServerSession,
   ThresholdEd25519HssSessionOperation,
   ThresholdEd25519HssStoredStagedEvaluatorArtifact,
   ThresholdEd25519HssServerInputs,
@@ -140,12 +141,14 @@ import {
   parseThresholdEd25519AuthorityScope,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   thresholdEd25519AuthorityScopesMatch,
   toNearPublicKeyStr,
   type RouterAbEd25519WalletSessionClaims,
   type RouterAbEcdsaHssWalletSessionClaims,
 } from './validation';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   normalizeThresholdEd25519ParticipantId,
@@ -326,6 +329,7 @@ const ED25519_HSS_SERVER_VISIBLE_CLIENT_REQUEST_FORBIDDEN_FIELDS = [
 ] as const;
 
 const ED25519_HSS_CLIENT_OWNED_STAGED_ARTIFACT_FORBIDDEN_FIELDS = [
+  'serverEvalFinalizeOutputB64u',
   'stagedEvaluatorArtifactHandle',
   'evaluatorOtStateB64u',
   'xClientBaseB64u',
@@ -706,41 +710,37 @@ function storedThresholdEd25519HssEvaluationResultFromClientOwnedEnvelope(
 ): ThresholdEd25519HssStoredStagedEvaluatorArtifact {
   return {
     stagedEvaluatorArtifactBytes: base64UrlDecode(evaluationResult.stagedEvaluatorArtifactB64u),
-    serverEvalFinalizeOutputBytes: base64UrlDecode(evaluationResult.serverEvalFinalizeOutputB64u),
   };
 }
 
 function thresholdEd25519HssEvaluationResultTransportBytes(
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
 ): number {
-  return (
-    utf8Bytes(evaluationResult.stagedEvaluatorArtifactB64u) +
-    utf8Bytes(evaluationResult.serverEvalFinalizeOutputB64u)
-  );
+  return utf8Bytes(evaluationResult.stagedEvaluatorArtifactB64u);
 }
 
 function thresholdEd25519HssEvaluationResultPayloadBytes(
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
 ): number {
-  return (
-    base64UrlPayloadBytes(evaluationResult.stagedEvaluatorArtifactB64u) +
-    base64UrlPayloadBytes(evaluationResult.serverEvalFinalizeOutputB64u)
-  );
+  return base64UrlPayloadBytes(evaluationResult.stagedEvaluatorArtifactB64u);
 }
 
 function summarizeThresholdEd25519HssCeremonyRecordBytes(
   record: ThresholdEd25519HssCeremonyRecordInput | ThresholdEd25519HssCeremonyRecord,
 ): Record<string, number> {
+  const respondedServerSession = requireThresholdEd25519HssRespondedServerSession(
+    record.preparedServerSession,
+  );
   const preparedServerSessionBytes =
     record.preparedServerSession.evaluatorDriverStateBytes.byteLength +
-    record.preparedServerSession.garblerDriverStateBytes.byteLength;
+    record.preparedServerSession.garblerDriverStateBytes.byteLength +
+    (respondedServerSession ? respondedServerSession.serverEvalStateBytes.byteLength : 0);
   const serverInputsBytes = record.serverInputs
     ? record.serverInputs.yRelayerBytes.byteLength + record.serverInputs.tauRelayerBytes.byteLength
     : 0;
   const evaluationResultBytes =
     'evaluationResult' in record && record.evaluationResult
-      ? record.evaluationResult.stagedEvaluatorArtifactBytes.byteLength +
-        record.evaluationResult.serverEvalFinalizeOutputBytes.byteLength
+      ? record.evaluationResult.stagedEvaluatorArtifactBytes.byteLength
       : 0;
   const totalWithoutEvaluationResult =
     'evaluationResult' in record && record.evaluationResult
@@ -770,8 +770,9 @@ function summarizeThresholdEd25519HssCeremonyRecordBytes(
     base.evaluationResultBytes = evaluationResultBytes;
     base.stagedEvaluatorArtifactBytes =
       record.evaluationResult.stagedEvaluatorArtifactBytes.byteLength;
-    base.serverEvalFinalizeOutputBytes =
-      record.evaluationResult.serverEvalFinalizeOutputBytes.byteLength;
+  }
+  if (respondedServerSession) {
+    base.serverEvalStateBytes = respondedServerSession.serverEvalStateBytes.byteLength;
   }
   return base;
 }
@@ -908,7 +909,6 @@ function parseThresholdEd25519SessionRequest(
       message: 'sessionPolicy.version must be threshold_session_v1',
     };
   }
-  const walletId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).walletId);
   const nearAccountId = toOptionalTrimmedString(
     (policyRaw as Record<string, unknown>).nearAccountId,
   );
@@ -919,12 +919,14 @@ function parseThresholdEd25519SessionRequest(
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'sessionPolicy.rpId belongs in sessionPolicy.authorityScope',
+      message: 'sessionPolicy.rpId belongs in sessionPolicy.authority',
     };
   }
-  const authorityScope = parseThresholdEd25519AuthorityScope(
-    (policyRaw as Record<string, unknown>).authorityScope,
-  );
+  const authority = parseWalletAuthAuthority((policyRaw as Record<string, unknown>).authority);
+  const walletId = authority ? toOptionalTrimmedString(authority.walletId) : '';
+  const authorityScope = authority
+    ? thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority)
+    : null;
   const thresholdSessionId = toOptionalTrimmedString(
     (policyRaw as Record<string, unknown>).thresholdSessionId,
   );
@@ -1011,7 +1013,7 @@ function parseThresholdEd25519SessionRequest(
       ok: false,
       code: 'invalid_body',
       message:
-        'sessionPolicy{walletId,nearAccountId,nearEd25519SigningKeyId,authorityScope,relayerKeyId,thresholdSessionId,signingGrantId} are required',
+        'sessionPolicy{authority,nearAccountId,nearEd25519SigningKeyId,relayerKeyId,thresholdSessionId,signingGrantId} are required',
     };
   }
   if (policyRelayerKeyId !== relayerKeyId) {
@@ -1087,23 +1089,31 @@ function parseThresholdEd25519SessionRequest(
   };
 }
 
-type ThresholdEd25519SessionWalletAuthProof =
-  | (Extract<ThresholdEd25519VerifiedWalletAuth, { kind: 'app_session' }> & {
-      method: 'app_session';
-    })
-  | (Extract<ThresholdEd25519VerifiedWalletAuth, { kind: 'threshold_ecdsa_session' }> & {
-      method: 'threshold_ecdsa_session';
-    })
+type AuthorizedThresholdEd25519SessionAuth =
   | {
-      method: 'passkey';
+      kind: 'authorized_app_session';
+      walletAuth: Extract<ThresholdEd25519VerifiedWalletAuth, { kind: 'app_session' }>;
+      webauthnAuthentication?: never;
+    }
+  | {
+      kind: 'authorized_threshold_ecdsa_session';
+      walletAuth: Extract<
+        ThresholdEd25519VerifiedWalletAuth,
+        { kind: 'threshold_ecdsa_session' }
+      >;
+      webauthnAuthentication?: never;
+    }
+  | {
+      kind: 'passkey_challenge_response';
+      walletAuth?: never;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
     };
 
-function resolveThresholdEd25519SessionWalletAuthProof(input: {
+function resolveAuthorizedThresholdEd25519SessionAuth(input: {
   auth: ThresholdEd25519SessionAuth;
   hasAppSessionAuth: boolean;
   hasEcdsaSessionAuth: boolean;
-}): ParseResult<ThresholdEd25519SessionWalletAuthProof> {
+}): ParseResult<AuthorizedThresholdEd25519SessionAuth> {
   switch (input.auth.kind) {
     case 'verified_wallet': {
       switch (input.auth.walletAuth.kind) {
@@ -1118,8 +1128,8 @@ function resolveThresholdEd25519SessionWalletAuthProof(input: {
           return {
             ok: true,
             value: {
-              ...input.auth.walletAuth,
-              method: 'app_session',
+              kind: 'authorized_app_session',
+              walletAuth: input.auth.walletAuth,
             },
           };
         case 'threshold_ecdsa_session':
@@ -1133,8 +1143,8 @@ function resolveThresholdEd25519SessionWalletAuthProof(input: {
           return {
             ok: true,
             value: {
-              ...input.auth.walletAuth,
-              method: 'threshold_ecdsa_session',
+              kind: 'authorized_threshold_ecdsa_session',
+              walletAuth: input.auth.walletAuth,
             },
           };
         default:
@@ -1145,7 +1155,7 @@ function resolveThresholdEd25519SessionWalletAuthProof(input: {
       return {
         ok: true,
         value: {
-          method: 'passkey',
+          kind: 'passkey_challenge_response',
           webauthnAuthentication: input.auth.webauthn_authentication,
         },
       };
@@ -1279,6 +1289,32 @@ function parseThresholdEd25519HssPersistedPreparedServerSession(
   };
 }
 
+function parseThresholdEd25519HssPersistedRespondedServerSession(
+  raw: unknown,
+): ParseResult<ThresholdEd25519HssStoredRespondedServerSession> {
+  const preparedServerSession = parseThresholdEd25519HssPersistedPreparedServerSession(raw);
+  if (!preparedServerSession.ok) return preparedServerSession;
+  if (!isObject(raw)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'serverState.preparedServerSession is required',
+    };
+  }
+  const serverEvalStateBytes = decodeThresholdEd25519HssBase64UrlField(
+    raw.serverEvalStateB64u,
+    'serverState.preparedServerSession.serverEvalStateB64u',
+  );
+  if (!serverEvalStateBytes.ok) return serverEvalStateBytes;
+  return {
+    ok: true,
+    value: {
+      ...preparedServerSession.value,
+      serverEvalStateBytes: serverEvalStateBytes.value,
+    },
+  };
+}
+
 function parseThresholdEd25519HssPersistedServerInputs(
   raw: unknown,
 ): ParseResult<ThresholdEd25519HssStoredServerInputs> {
@@ -1332,7 +1368,7 @@ function parseThresholdEd25519HssRegistrationPreparedServerState(raw: unknown): 
 
 function parseThresholdEd25519HssRegistrationRespondedServerState(raw: unknown): ParseResult<{
   context: ThresholdEd25519HssCanonicalContext;
-  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession;
+  preparedServerSession: ThresholdEd25519HssStoredRespondedServerSession;
 }> {
   if (!isObject(raw)) {
     return { ok: false, code: 'invalid_body', message: 'serverState is required' };
@@ -1346,7 +1382,7 @@ function parseThresholdEd25519HssRegistrationRespondedServerState(raw: unknown):
   }
   const context = parseThresholdEd25519HssCanonicalContext(raw.context);
   if (!context.ok) return context;
-  const preparedServerSession = parseThresholdEd25519HssPersistedPreparedServerSession(
+  const preparedServerSession = parseThresholdEd25519HssPersistedRespondedServerSession(
     raw.preparedServerSession,
   );
   if (!preparedServerSession.ok) return preparedServerSession;
@@ -1375,6 +1411,40 @@ function thresholdEd25519HssRegistrationPreparedServerState(input: {
       tauRelayerB64u: input.serverInputs.tauRelayerB64u,
     },
   };
+}
+
+function thresholdEd25519HssRegistrationRespondedServerState(input: {
+  readonly context: ThresholdEd25519HssCanonicalContext;
+  readonly preparedServerSession: ThresholdEd25519HssStoredRespondedServerSession;
+}): ThresholdEd25519HssRegistrationRespondedServerState {
+  return {
+    context: input.context,
+    preparedServerSession: {
+      evaluatorDriverStateB64u: base64UrlEncode(
+        input.preparedServerSession.evaluatorDriverStateBytes,
+      ),
+      garblerDriverStateB64u: base64UrlEncode(input.preparedServerSession.garblerDriverStateBytes),
+      serverEvalStateB64u: base64UrlEncode(input.preparedServerSession.serverEvalStateBytes),
+    },
+  };
+}
+
+function isThresholdEd25519HssStoredRespondedServerSession(
+  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession,
+): preparedServerSession is ThresholdEd25519HssStoredRespondedServerSession {
+  return (
+    'serverEvalStateBytes' in preparedServerSession &&
+    preparedServerSession.serverEvalStateBytes instanceof Uint8Array &&
+    preparedServerSession.serverEvalStateBytes.byteLength > 0
+  );
+}
+
+function requireThresholdEd25519HssRespondedServerSession(
+  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession,
+): ThresholdEd25519HssStoredRespondedServerSession | null {
+  return isThresholdEd25519HssStoredRespondedServerSession(preparedServerSession)
+    ? preparedServerSession
+    : null;
 }
 
 function parseNearEd25519SigningKeyIdField(
@@ -1722,7 +1792,6 @@ function parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
   }
   const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
   const stagedEvaluatorArtifactB64u = toOptionalTrimmedString(raw.stagedEvaluatorArtifactB64u);
-  const serverEvalFinalizeOutputB64u = toOptionalTrimmedString(raw.serverEvalFinalizeOutputB64u);
   if (!contextBindingB64u) {
     return {
       ok: false,
@@ -1735,13 +1804,6 @@ function parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
       ok: false,
       code: 'invalid_body',
       message: 'evaluationResult.stagedEvaluatorArtifactB64u is required',
-    };
-  }
-  if (!serverEvalFinalizeOutputB64u) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'evaluationResult.serverEvalFinalizeOutputB64u is required',
     };
   }
   const forbiddenField = findOwnField(
@@ -1757,7 +1819,7 @@ function parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
   }
   return {
     ok: true,
-    value: { contextBindingB64u, stagedEvaluatorArtifactB64u, serverEvalFinalizeOutputB64u },
+    value: { contextBindingB64u, stagedEvaluatorArtifactB64u },
   };
 }
 
@@ -3484,17 +3546,20 @@ export class ThresholdSigningService {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy.rpId belongs in authorityScope',
+          message: 'threshold_ed25519.session_policy.rpId belongs in authority',
         };
       }
-      const policyAuthorityScope = parseThresholdEd25519AuthorityScope(policy.authorityScope);
-      if (!policyAuthorityScope) {
+      const policyAuthority = parseWalletAuthAuthority(policy.authority);
+      if (!policyAuthority) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy.authorityScope is required',
+          message: 'threshold_ed25519.session_policy.authority is required',
         };
       }
+      const policyWalletId = String(policyAuthority.walletId || '').trim();
+      const policyAuthorityScope =
+        thresholdEd25519AuthorityScopeFromWalletAuthAuthority(policyAuthority);
       const runtimePolicyScope = (() => {
         const raw = policy.runtimePolicyScope;
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
@@ -3546,11 +3611,11 @@ export class ThresholdSigningService {
           message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
         };
       }
-      if (String(policy.walletId || '').trim() !== walletId) {
+      if (policyWalletId !== walletId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy.walletId mismatch',
+          message: 'threshold_ed25519.session_policy.authority.walletId mismatch',
         };
       }
       if (String(policy.nearEd25519SigningKeyId || '').trim() !== nearEd25519SigningKeyId) {
@@ -3564,7 +3629,7 @@ export class ThresholdSigningService {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy.authorityScope mismatch',
+          message: 'threshold_ed25519.session_policy.authority mismatch',
         };
       }
       if (String(policy.relayerKeyId || '').trim() !== relayerKeyId) {
@@ -4749,67 +4814,74 @@ export class ThresholdSigningService {
         }
       }
 
-      const walletAuthProof = resolveThresholdEd25519SessionWalletAuthProof({
+      const authorizedSessionAuth = resolveAuthorizedThresholdEd25519SessionAuth({
         auth: sessionAuth,
         hasAppSessionAuth,
         hasEcdsaSessionAuth,
       });
-      if (!walletAuthProof.ok) return walletAuthProof;
+      if (!authorizedSessionAuth.ok) return authorizedSessionAuth;
 
-      if (walletAuthProof.value.method === 'app_session') {
-        if (
-          walletAuthProof.value.claims?.sub !== walletId &&
-          walletAuthProof.value.sessionWalletId !== walletId
-        ) {
-          return {
-            ok: false,
-            code: 'unauthorized',
-            message: 'app session does not match threshold-ed25519 session scope',
-          };
-        }
-      } else if (walletAuthProof.value.method === 'passkey') {
-        if (!parsedRequest.value.expectedOrigin) {
-          return {
-            ok: false,
-            code: 'unauthorized',
-            message: 'expected_origin is required for threshold-ed25519 passkey session mint',
-          };
-        }
-        const rpId = thresholdEd25519PasskeyAuthorityRpId(authorityScope);
-        if (!rpId) {
-          return {
-            ok: false,
-            code: 'unauthorized',
-            message: 'threshold-ed25519 passkey session mint requires passkey_rp authority',
-          };
-        }
-        const webAuthnRpId = parseWebAuthnRpIdField(rpId, 'sessionPolicy.authorityScope.rpId');
-        if (!webAuthnRpId.ok) return webAuthnRpId;
-        const verification = await this.verifyWebAuthnAuthenticationLite!({
-          userId: walletId,
-          rpId: webAuthnRpId.value,
-          expectedChallenge,
-          expected_origin: parsedRequest.value.expectedOrigin,
-          webauthn_authentication: walletAuthProof.value.webauthnAuthentication,
-        });
-
-        if (!verification.success || !verification.verified) {
-          return {
-            ok: false,
-            code: verification.code || 'not_verified',
-            message: verification.message || 'Authentication verification failed',
-          };
-        }
-
-        if (isImplicitNearAccountId(nearAccountId)) {
-          const scope = verifyImplicitNearAccountPublicKeyBinding({
-            nearAccountId,
-            relayerPublicKey: relayerKey.publicKey,
-          });
-          if (!scope.ok) {
-            return { ok: false, code: scope.code, message: scope.message };
+      switch (authorizedSessionAuth.value.kind) {
+        case 'authorized_app_session': {
+          const walletAuth = authorizedSessionAuth.value.walletAuth;
+          if (walletAuth.claims.sub !== walletId && walletAuth.sessionWalletId !== walletId) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'app session does not match threshold-ed25519 session scope',
+            };
           }
+          break;
         }
+        case 'authorized_threshold_ecdsa_session':
+          break;
+        case 'passkey_challenge_response': {
+          if (!parsedRequest.value.expectedOrigin) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'expected_origin is required for threshold-ed25519 passkey session mint',
+            };
+          }
+          const rpId = thresholdEd25519PasskeyAuthorityRpId(authorityScope);
+          if (!rpId) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'threshold-ed25519 passkey session mint requires passkey_rp authority',
+            };
+          }
+          const webAuthnRpId = parseWebAuthnRpIdField(rpId, 'sessionPolicy.authority.verifier.rpId');
+          if (!webAuthnRpId.ok) return webAuthnRpId;
+          const verification = await this.verifyWebAuthnAuthenticationLite!({
+            userId: walletId,
+            rpId: webAuthnRpId.value,
+            expectedChallenge,
+            expected_origin: parsedRequest.value.expectedOrigin,
+            webauthn_authentication: authorizedSessionAuth.value.webauthnAuthentication,
+          });
+
+          if (!verification.success || !verification.verified) {
+            return {
+              ok: false,
+              code: verification.code || 'not_verified',
+              message: verification.message || 'Authentication verification failed',
+            };
+          }
+
+          if (isImplicitNearAccountId(nearAccountId)) {
+            const scope = verifyImplicitNearAccountPublicKeyBinding({
+              nearAccountId,
+              relayerPublicKey: relayerKey.publicKey,
+            });
+            if (!scope.ok) {
+              return { ok: false, code: scope.code, message: scope.message };
+            }
+          }
+          break;
+        }
+        default:
+          assertNever(authorizedSessionAuth.value);
       }
 
       if (existingSession) {
@@ -5471,7 +5543,15 @@ export class ThresholdSigningService {
         serverInputs,
       });
       clearThresholdEd25519HssStoredServerInputs(serverInputs);
-      await this.ed25519HssCeremonyStore.put(ceremonyHandle, respondedCeremony);
+      const respondedServerSession: ThresholdEd25519HssStoredRespondedServerSession = {
+        ...respondedCeremony.preparedServerSession,
+        serverEvalStateBytes: result.serverEvalStateBytes,
+      };
+      const storedRespondedCeremony: ThresholdEd25519HssCeremonyRecord = {
+        ...respondedCeremony,
+        preparedServerSession: respondedServerSession,
+      };
+      await this.ed25519HssCeremonyStore.put(ceremonyHandle, storedRespondedCeremony);
       const wasmRespondMs = Date.now() - wasmStartedAt;
       const responsePayload = {
         ok: true,
@@ -5500,7 +5580,7 @@ export class ThresholdSigningService {
         serverInputDeliveryPayloadBytes: base64UrlPayloadBytes(
           result.serverInputDelivery.serverInputDeliveryB64u,
         ),
-        ceremonyStateBytes: summarizeThresholdEd25519HssCeremonyRecordBytes(respondedCeremony),
+        ceremonyStateBytes: summarizeThresholdEd25519HssCeremonyRecordBytes(storedRespondedCeremony),
         totalMs: Date.now() - respondStartedAt,
       });
 
@@ -5578,6 +5658,14 @@ export class ThresholdSigningService {
         serverInputs,
       });
       clearThresholdEd25519HssStoredServerInputs(serverInputs);
+      const respondedServerSession: ThresholdEd25519HssStoredRespondedServerSession = {
+        ...serverState.value.preparedServerSession,
+        serverEvalStateBytes: result.serverEvalStateBytes,
+      };
+      const respondedServerState = thresholdEd25519HssRegistrationRespondedServerState({
+        context: serverState.value.context,
+        preparedServerSession: respondedServerSession,
+      });
       const wasmRespondMs = Date.now() - wasmStartedAt;
       const responsePayload = {
         ok: true,
@@ -5612,6 +5700,7 @@ export class ThresholdSigningService {
         ok: true,
         contextBindingB64u: result.serverInputDelivery.contextBindingB64u,
         serverInputDeliveryB64u: result.serverInputDelivery.serverInputDeliveryB64u,
+        serverState: respondedServerState,
         ...(result.timings ? { serverInputDeliveryTimings: result.timings } : {}),
       };
     } catch (e: unknown) {
@@ -5678,13 +5767,24 @@ export class ThresholdSigningService {
         ...takenCeremony.value,
         evaluationResult: storedEvaluationResult,
       };
+      const respondedServerSession = requireThresholdEd25519HssRespondedServerSession(
+        takenCeremony.value.preparedServerSession,
+      );
+      if (!respondedServerSession) {
+        await this.ed25519HssCeremonyStore.put(ceremonyHandle, takenCeremony.value);
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ceremonyHandle has not recorded responded server eval state',
+        };
+      }
       await this.ed25519HssCeremonyStore.put(ceremonyHandle, finalizingCeremony);
       try {
         const wasmStartedAt = Date.now();
         const result = await finalizeThresholdEd25519HssServerCeremony({
           operation: takenCeremony.value.operation,
           preparedSession: takenCeremony.value.preparedSession,
-          preparedServerSession: takenCeremony.value.preparedServerSession,
+          preparedServerSession: respondedServerSession,
           evaluationResult: storedEvaluationResult,
           expectedContextBindingB64u: takenCeremony.value.preparedSession.contextBindingB64u,
         });

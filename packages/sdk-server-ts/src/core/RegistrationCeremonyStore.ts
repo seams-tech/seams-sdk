@@ -1,8 +1,16 @@
 import type {
   CloudflareDurableObjectNamespaceLike,
+  EcdsaHssServerBootstrapResponse,
+  ThresholdEd25519HssCanonicalContext,
+  ThresholdEd25519HssPersistedPreparedServerSession,
+  ThresholdEd25519HssPersistedRespondedServerSession,
+  ThresholdEd25519HssPersistedServerInputs,
+  ThresholdEd25519HssRegistrationPreparedServerState,
+  ThresholdEd25519HssRegistrationRespondedServerState
+} from './types';
+import type {
   AddAuthMethodIntentGrant,
   AddAuthMethodIntentV1,
-  EcdsaHssServerBootstrapResponse,
   AddSignerIntentGrant,
   AddSignerIntentV1,
   RegistrationIntentGrant,
@@ -13,13 +21,8 @@ import type {
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
   WalletRegistrationStartResponse,
-  WalletId,
-  ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssPersistedPreparedServerSession,
-  ThresholdEd25519HssPersistedServerInputs,
-  ThresholdEd25519HssRegistrationPreparedServerState,
-  ThresholdEd25519HssRegistrationRespondedServerState,
-} from './types';
+  WalletId
+} from './registrationContracts';
 import type {
   ServerAllocatedWalletId,
   RegistrationAuthority,
@@ -37,6 +40,7 @@ import {
   parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
+  parseEmailOtpProviderUserId,
   parseOrgId,
   parseProviderSubject,
   parseWalletId,
@@ -45,7 +49,12 @@ import {
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
 import { base64UrlDecode } from '@shared/utils/encoders';
-import { parseThresholdEd25519AuthorityScope } from './ThresholdService/validation';
+import {
+  parseThresholdEd25519AuthorityScope,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
+  thresholdEd25519AuthorityScopesMatch,
+} from './ThresholdService/validation';
+import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export type StoredRegistrationIntent = {
   kind: 'intent_allocated';
@@ -169,6 +178,7 @@ export type StoredWalletRegistrationHssPreparationBase = {
   registrationIntentGrant: RegistrationIntentGrant;
   registrationIntentDigestB64u: string;
   intent: RegistrationIntentV1;
+  authority: StoredRegistrationAuthority;
   orgId: string;
   expectedOrigin: string;
   signingRootId: string;
@@ -247,12 +257,9 @@ export function buildStoredWalletRegistrationHssPreparationFailed(
 }
 
 export function storedThresholdEd25519HssRespondedServerState(
-  input: ThresholdEd25519HssRegistrationPreparedServerState,
+  input: ThresholdEd25519HssRegistrationRespondedServerState,
 ): ThresholdEd25519HssRegistrationRespondedServerState {
-  return {
-    context: input.context,
-    preparedServerSession: input.preparedServerSession,
-  };
+  return input;
 }
 
 function assertNever(value: never): never {
@@ -318,29 +325,45 @@ function registrationEd25519AuthorityScopesMatch(
     case 'passkey':
       return right.kind === 'passkey' && left.rpId === right.rpId;
     case 'email_otp':
-      if (right.kind !== 'email_otp' || left.proofKind !== right.proofKind) return false;
-      switch (left.proofKind) {
-        case 'otp_challenge':
-          return (
-            right.proofKind === 'otp_challenge' &&
-            left.email === right.email &&
-            (left.challengeId || '') === (right.challengeId || '')
-          );
-        case 'google_sso_registration':
-          return (
-            right.proofKind === 'google_sso_registration' &&
-            left.email === right.email &&
-            left.googleEmailOtpRegistrationAttemptId ===
-              right.googleEmailOtpRegistrationAttemptId &&
-            left.googleEmailOtpRegistrationOfferId === right.googleEmailOtpRegistrationOfferId &&
-            left.googleEmailOtpRegistrationCandidateId ===
-              right.googleEmailOtpRegistrationCandidateId
-          );
-        default: {
-          const exhaustive: never = left;
-          return exhaustive;
-        }
-      }
+      return (
+        right.kind === 'email_otp' &&
+        left.provider === right.provider &&
+        left.providerUserId === right.providerUserId
+      );
+    default: {
+      const exhaustive: never = left;
+      return exhaustive;
+    }
+  }
+}
+
+export function storedRegistrationAuthoritiesMatch(
+  left: StoredRegistrationAuthority,
+  right: StoredRegistrationAuthority,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case 'passkey':
+      return (
+        right.kind === 'passkey' &&
+        left.walletId === right.walletId &&
+        left.rpId === right.rpId &&
+        left.credentialIdB64u === right.credentialIdB64u &&
+        left.credentialPublicKeyB64u === right.credentialPublicKeyB64u &&
+        left.registrationIntentDigestB64u === right.registrationIntentDigestB64u
+      );
+    case 'email_otp':
+      return (
+        right.kind === 'email_otp' &&
+        left.proofKind === right.proofKind &&
+        left.walletId === right.walletId &&
+        left.providerSubject === right.providerSubject &&
+        left.emailHashHex === right.emailHashHex &&
+        left.registrationAuthorityId === right.registrationAuthorityId &&
+        left.finalWalletId === right.finalWalletId &&
+        left.orgId === right.orgId &&
+        left.registrationIntentDigestB64u === right.registrationIntentDigestB64u
+      );
     default: {
       const exhaustive: never = left;
       return exhaustive;
@@ -352,6 +375,7 @@ export type ConsumeRegistrationIntentForPreparationInput = {
   registrationIntentGrant: RegistrationIntentGrant;
   registrationIntentDigestB64u: string;
   registrationPreparationId: RegistrationPreparationId;
+  authority: StoredRegistrationAuthority;
   ed25519Scope: StoredEd25519RegistrationPrepareScope;
 };
 
@@ -374,6 +398,7 @@ function registrationPreparationMatchesIntentConsume(
     preparation.kind === 'hss_prepare_prepared' &&
     preparation.registrationIntentGrant === input.registrationIntentGrant &&
     preparation.registrationIntentDigestB64u === input.registrationIntentDigestB64u &&
+    storedRegistrationAuthoritiesMatch(preparation.authority, input.authority) &&
     storedEd25519RegistrationPrepareScopesMatch(preparation.ed25519Scope, input.ed25519Scope)
   );
 }
@@ -1139,7 +1164,8 @@ function parseFinalizeReplayResponse(
     };
   }
   const authMethod = parseWalletRegistrationFinalizeAuthMethod(value.authMethod);
-  if (!authMethod) return null;
+  const authority = parseWalletAuthAuthority(value.authority);
+  if (!authMethod || !authority || authority.walletId !== walletId) return null;
   const authorityScope = parseThresholdEd25519AuthorityScope(value.authorityScope);
   let ed25519: Extract<WalletRegistrationFinalizeResponse, { ok: true }>['ed25519'];
   const accountProvisioning = isRecord(value.accountProvisioning)
@@ -1198,11 +1224,20 @@ function parseFinalizeReplayResponse(
   }
   if (ed25519 && (!accountProvisioning || !resolvedAccount)) return null;
   if (ed25519) {
-    if (!authorityScope) return null;
+    if (
+      !authorityScope ||
+      !thresholdEd25519AuthorityScopesMatch(
+        authorityScope,
+        thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
+      )
+    ) {
+      return null;
+    }
     return {
       ok: true,
       walletId,
       ...(rpId ? { rpId } : {}),
+      authority,
       authorityScope,
       authMethod,
       accountProvisioning: accountProvisioning!,
@@ -1216,6 +1251,7 @@ function parseFinalizeReplayResponse(
       ok: true,
       walletId,
       ...(rpId ? { rpId } : {}),
+      authority,
       authMethod,
       ecdsa,
     };
@@ -1315,6 +1351,19 @@ function parseStoredThresholdEd25519HssPreparedServerSession(
   };
 }
 
+function parseStoredThresholdEd25519HssRespondedServerSession(
+  value: unknown,
+): ThresholdEd25519HssPersistedRespondedServerSession | null {
+  const prepared = parseStoredThresholdEd25519HssPreparedServerSession(value);
+  if (!prepared || !isRecord(value)) return null;
+  const serverEvalStateB64u = parseStoredBase64Url(value.serverEvalStateB64u);
+  if (!serverEvalStateB64u) return null;
+  return {
+    ...prepared,
+    serverEvalStateB64u,
+  };
+}
+
 function parseStoredThresholdEd25519HssServerInputs(
   value: unknown,
 ): ThresholdEd25519HssPersistedServerInputs | null {
@@ -1350,7 +1399,7 @@ function parseStoredThresholdEd25519HssRespondedServerState(
 ): ThresholdEd25519HssRegistrationRespondedServerState | null {
   if (!isRecord(value)) return null;
   const context = parseStoredThresholdEd25519HssCanonicalContext(value.context);
-  const preparedServerSession = parseStoredThresholdEd25519HssPreparedServerSession(
+  const preparedServerSession = parseStoredThresholdEd25519HssRespondedServerSession(
     value.preparedServerSession,
   );
   if (!context || !preparedServerSession || hasDefinedField(value, 'serverInputs')) return null;
@@ -1397,48 +1446,21 @@ function parseRegistrationEd25519AuthorityScope(
       return rpId.ok ? { kind: 'passkey', rpId: rpId.value } : null;
     }
     case 'email_otp': {
-      const proofKind = trimString(value.proofKind);
-      const email = trimString(value.email);
-      if (!email) return null;
-      switch (proofKind) {
-        case 'otp_challenge': {
-          const challengeId = trimString(value.challengeId);
-          return {
-            kind: 'email_otp',
-            proofKind: 'otp_challenge',
-            email,
-            ...(challengeId ? { challengeId } : {}),
-          };
-        }
-        case 'google_sso_registration': {
-          const googleEmailOtpRegistrationAttemptId = trimString(
-            value.googleEmailOtpRegistrationAttemptId,
-          );
-          const googleEmailOtpRegistrationOfferId = trimString(
-            value.googleEmailOtpRegistrationOfferId,
-          );
-          const googleEmailOtpRegistrationCandidateId = trimString(
-            value.googleEmailOtpRegistrationCandidateId,
-          );
-          if (
-            !googleEmailOtpRegistrationAttemptId ||
-            !googleEmailOtpRegistrationOfferId ||
-            !googleEmailOtpRegistrationCandidateId
-          ) {
-            return null;
-          }
-          return {
-            kind: 'email_otp',
-            proofKind: 'google_sso_registration',
-            email,
-            googleEmailOtpRegistrationAttemptId,
-            googleEmailOtpRegistrationOfferId,
-            googleEmailOtpRegistrationCandidateId,
-          };
-        }
-        default:
-          return null;
+      const provider = trimString(value.provider);
+      const providerUserId = parseEmailOtpProviderUserId(value.providerUserId);
+      if (
+        (provider !== 'google' && provider !== 'email') ||
+        !providerUserId.ok ||
+        trimString(value.email) ||
+        trimString(value.proofKind) ||
+        trimString(value.challengeId) ||
+        trimString(value.googleEmailOtpRegistrationAttemptId) ||
+        trimString(value.googleEmailOtpRegistrationOfferId) ||
+        trimString(value.googleEmailOtpRegistrationCandidateId)
+      ) {
+        return null;
       }
+      return { kind: 'email_otp', provider, providerUserId: providerUserId.value };
     }
     default:
       return null;
@@ -1523,6 +1545,7 @@ function parseStoredWalletRegistrationHssPreparationBase(
     expiresAtMs,
   });
   const ed25519Scope = parseStoredEd25519RegistrationPrepareScope(value.ed25519Scope);
+  const authority = parseStoredRegistrationAuthority(value.authority);
   if (
     !registrationPreparationId ||
     !registrationIntentGrant ||
@@ -1534,6 +1557,7 @@ function parseStoredWalletRegistrationHssPreparationBase(
     !Number.isSafeInteger(expiresAtMs) ||
     expiresAtMs <= 0 ||
     !intentRecord ||
+    !authority ||
     !ed25519Scope
   ) {
     return null;
@@ -1543,6 +1567,7 @@ function parseStoredWalletRegistrationHssPreparationBase(
     registrationIntentGrant: registrationIntentGrant as RegistrationIntentGrant,
     registrationIntentDigestB64u,
     intent: intentRecord.intent,
+    authority,
     orgId,
     expectedOrigin,
     signingRootId,

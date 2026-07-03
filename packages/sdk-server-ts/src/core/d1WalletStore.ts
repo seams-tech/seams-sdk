@@ -2,7 +2,10 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { formatD1ExecStatement, parseD1JsonColumn } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
-import type { WalletId, WalletRegistrationEcdsaWalletKey } from './types';
+import type {
+  WalletId,
+  WalletRegistrationEcdsaWalletKey
+} from './registrationContracts';
 import { thresholdEcdsaChainTargetKey } from './thresholdEcdsaChainTarget';
 import type {
   WalletEcdsaSignerRecord,

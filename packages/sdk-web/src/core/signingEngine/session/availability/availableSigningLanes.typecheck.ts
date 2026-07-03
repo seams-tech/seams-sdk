@@ -13,10 +13,15 @@ import type {
   EcdsaAvailableLaneIdentityInput,
   ReadAvailableSigningLanesInput,
   AvailableLaneStateAdvisory,
+  AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
 import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '../keyMaterialBrands';
 
 const chainTarget = {
   kind: 'evm',
@@ -27,6 +32,13 @@ const chainTarget = {
 const ed25519WalletId = toWalletId('frost-vermillion-k7p9m2');
 const ed25519NearAccountId = toAccountId('alice.testnet');
 const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
+const ed25519LoadedMaterial = {
+  kind: 'loaded_worker_material',
+  identity: {
+    bindingDigest: parseEd25519WorkerMaterialBindingDigest('binding-digest'),
+    materialKeyId: parseEd25519WorkerMaterialKeyId('material-key-id'),
+  },
+} as const;
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
@@ -48,6 +60,7 @@ const emailOtpAuth = {
 } as const;
 
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
+declare const ed25519RouterAbNormalSigning: AvailableSigningLanesRuntimeEd25519Record['routerAbNormalSigning'];
 
 const publicFacts = buildVerifiedEcdsaPublicFacts({
   keyHandle,
@@ -195,41 +208,72 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   state: 'ready',
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
+  material: ed25519LoadedMaterial,
 };
 void ed25519Lane;
 
-const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane = {
+const invalidEd25519LaneFlatMaterial: ConcreteAvailableEd25519SigningLane = {
+  ...ed25519Lane,
+  // @ts-expect-error Ed25519 available lanes carry material as a union, not flat fields.
+  materialKeyId: 'material-key-id',
+};
+void invalidEd25519LaneFlatMaterial;
+
+const runtimeEd25519Record: AvailableSigningLanesRuntimeEd25519Record = {
   auth: passkeyAuth,
-  // @ts-expect-error Ed25519 lanes derive auth method from the auth binding.
-  authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
   walletId: ed25519WalletId,
   nearAccountId: ed25519NearAccountId,
   nearEd25519SigningKeyId,
-  state: 'ready',
-  signingGrantId: 'signing-grant-1',
+  signerSlot: 1,
+  routerAbNormalSigning: ed25519RouterAbNormalSigning,
   thresholdSessionId: 'threshold-session-1',
+  signingGrantId: 'signing-grant-1',
+  material: ed25519LoadedMaterial,
+};
+void runtimeEd25519Record;
+
+// @ts-expect-error runtime Ed25519 records require an explicit material-state branch.
+const runtimeEd25519RecordMissingMaterial: AvailableSigningLanesRuntimeEd25519Record = {
+  auth: passkeyAuth,
+  curve: 'ed25519',
+  chain: 'near',
+  walletId: ed25519WalletId,
+  nearAccountId: ed25519NearAccountId,
+  nearEd25519SigningKeyId,
+  signerSlot: 1,
+  routerAbNormalSigning: ed25519RouterAbNormalSigning,
+  thresholdSessionId: 'threshold-session-1',
+  signingGrantId: 'signing-grant-1',
+};
+void runtimeEd25519RecordMissingMaterial;
+
+const runtimeEd25519RecordWithFlatMaterial: AvailableSigningLanesRuntimeEd25519Record = {
+  ...runtimeEd25519Record,
+  // @ts-expect-error runtime Ed25519 records reject obsolete flat material fields.
+  materialKeyId: 'material-key-id',
+};
+void runtimeEd25519RecordWithFlatMaterial;
+
+const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane = {
+  ...ed25519Lane,
+  // @ts-expect-error Ed25519 lanes derive auth method from the auth binding.
+  authMethod: 'passkey',
 };
 void readyEd25519LaneWithStoredAuthMethod;
 
-// @ts-expect-error ready Ed25519 lanes require a signing grant id.
 const readyEd25519LaneMissingSigningGrantId: ConcreteAvailableEd25519SigningLane = {
-  auth: passkeyAuth,
-  curve: 'ed25519',
-  chain: 'near',
-  state: 'ready',
-  thresholdSessionId: 'threshold-session-1',
+  ...ed25519Lane,
+  // @ts-expect-error ready Ed25519 lanes require a signing grant id.
+  signingGrantId: undefined,
 };
 void readyEd25519LaneMissingSigningGrantId;
 
-// @ts-expect-error ready Ed25519 lanes require a threshold session id.
 const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519SigningLane = {
-  auth: passkeyAuth,
-  curve: 'ed25519',
-  chain: 'near',
-  state: 'ready',
-  signingGrantId: 'signing-grant-1',
+  ...ed25519Lane,
+  // @ts-expect-error ready Ed25519 lanes require a threshold session id.
+  thresholdSessionId: undefined,
 };
 void readyEd25519LaneMissingThresholdSessionId;
 

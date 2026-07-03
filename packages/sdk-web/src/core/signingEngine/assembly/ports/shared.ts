@@ -9,6 +9,7 @@ import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
+import type { EmailOtpEcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import type {
   EmailOtpEcdsaSigningBootstrapResult,
   EvmFamilySigningDeps,
@@ -50,13 +51,17 @@ import type {
   ProvisionWarmEd25519CapabilityResult,
 } from '../../session/warmCapabilities/types';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { Ed25519SigningLane } from '../../session/emailOtp/ed25519Warmup';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { PersistEmailOtpThresholdEd25519LocalMetadataDeps } from '../../session/emailOtp/ed25519LocalMetadata';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
-import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
+import type {
+  UiConfirmRuntimeBridgePort,
+  WarmSessionStatusResult,
+} from '../../uiConfirm/uiConfirm.types';
 import { prewarmTxConfirmerUi } from '../../uiConfirm/ui/confirm-ui';
 
 type RequestEmailOtpTransactionSigningChallengeArgs =
@@ -146,10 +151,6 @@ export type CreateSigningEnginePortsArgs = {
   getThresholdEcdsaSessionRecordByKey: (
     identity: ThresholdEcdsaSessionRecordLookupKey,
   ) => ThresholdEcdsaSessionRecord | null;
-  getEmailOtpThresholdEcdsaSessionRecordForSigning: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-  }) => ThresholdEcdsaSessionRecord;
   getPasskeyThresholdEcdsaSessionRecordForSigning: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -164,9 +165,10 @@ export type CreateSigningEnginePortsArgs = {
     nearAccountId: AccountId;
     challengeId: string;
     otpCode: string;
-    record: ThresholdEd25519SessionRecord;
+    committedLane: Ed25519SigningLane;
+    record?: never;
     remainingUses?: number;
-    authLane?: EmailOtpAuthLane;
+    authLane?: never;
   }) => Promise<{ sessionId: string }>;
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
@@ -183,8 +185,7 @@ export type CreateSigningEnginePortsArgs = {
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
-    record?: ThresholdEcdsaSessionRecord;
-    authLane?: EmailOtpAuthLane;
+    committedLane: EmailOtpEcdsaCommittedLane;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   restorePersistedSessionForSigning: (
     args: RestorePersistedSessionForSigningInput,

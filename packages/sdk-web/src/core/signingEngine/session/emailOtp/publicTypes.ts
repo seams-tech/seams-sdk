@@ -42,7 +42,7 @@ export type EmailOtpRecoveryCodeStatus = {
 export type EmailOtpRecoveryCodeRotationMaterial = {
   walletId: string;
   userId: string;
-  authSubjectId: string;
+  providerUserId: string;
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
@@ -56,7 +56,7 @@ export type EmailOtpRecoveryCodeRotationMaterial = {
 export type EmailOtpDeviceEnrollmentRestoreResult = {
   walletId: string;
   userId: string;
-  authSubjectId: string;
+  providerUserId: string;
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
@@ -66,7 +66,7 @@ export type EmailOtpDeviceEnrollmentRestoreResult = {
 
 export type EmailOtpDeviceEnrollmentRemoveResult = {
   walletId: string;
-  authSubjectId: string;
+  providerUserId: string;
   enrollmentId: string;
   removed: true;
 };

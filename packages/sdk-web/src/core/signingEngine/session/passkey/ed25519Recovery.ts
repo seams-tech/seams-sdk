@@ -3,6 +3,8 @@ import type { AccountId } from '@/core/types/accountIds';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   upsertStoredThresholdEd25519SessionRecord,
+  type ThresholdEd25519MaterialReadySessionRecord,
+  type ThresholdEd25519RestoreAvailableSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
 import type {
@@ -33,6 +35,7 @@ import {
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 type PasskeyEd25519ReconnectRuntimeHandle =
   | {
@@ -45,6 +48,21 @@ type PasskeyEd25519ReconnectRuntimeHandle =
     };
 
 type PasskeyEd25519ReconnectWorkerMaterialFacts = PasskeyEd25519ReconnectRuntimeHandle & {
+  clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+  ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
+  sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
+  sealedWorkerMaterialB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
+  materialCreatedAtMs: number;
+  signerSlot: number;
+};
+
+type PasskeyEd25519ReconnectWorkerMaterialSourceRecord =
+  | ThresholdEd25519MaterialReadySessionRecord
+  | ThresholdEd25519RestoreAvailableSessionRecord;
+
+type PasskeyEd25519ReconnectCommonWorkerMaterialFacts = {
   clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
   ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
   sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
@@ -78,50 +96,62 @@ function sameParticipantIds(left: readonly number[], right: readonly number[]): 
 function readPasskeyEd25519ReconnectWorkerMaterialFacts(
   record: ThresholdEd25519SessionRecord,
 ): PasskeyEd25519ReconnectWorkerMaterialFacts | null {
-  const clientVerifyingShareB64u = nonEmptyString(record.clientVerifyingShareB64u);
-  const ed25519WorkerMaterialBindingDigest = nonEmptyString(
-    record.ed25519WorkerMaterialBindingDigest,
-  );
-  const sealedWorkerMaterialRef = nonEmptyString(record.sealedWorkerMaterialRef);
+  switch (record.materialState) {
+    case 'material_ready':
+      return readReadyPasskeyEd25519ReconnectWorkerMaterialFacts(record);
+    case 'restore_available':
+      return readRestorablePasskeyEd25519ReconnectWorkerMaterialFacts(record);
+    case 'auth_ready_material_pending':
+      return null;
+  }
+}
+
+function readPasskeyEd25519ReconnectCommonWorkerMaterialFacts(
+  record: PasskeyEd25519ReconnectWorkerMaterialSourceRecord,
+): PasskeyEd25519ReconnectCommonWorkerMaterialFacts | null {
   const sealedWorkerMaterialB64u = nonEmptyString(record.sealedWorkerMaterialB64u);
-  const materialFormatVersion = nonEmptyString(record.materialFormatVersion);
-  const materialKeyId = nonEmptyString(record.materialKeyId);
-  const materialCreatedAtMs = positiveInteger(record.materialCreatedAtMs);
   const signerSlot = positiveInteger(record.signerSlot);
   if (
-    !clientVerifyingShareB64u ||
-    !ed25519WorkerMaterialBindingDigest ||
-    !sealedWorkerMaterialRef ||
     !sealedWorkerMaterialB64u ||
-    !materialFormatVersion ||
-    !materialKeyId ||
-    !materialCreatedAtMs ||
     !signerSlot
   ) {
     return null;
   }
-  const ed25519WorkerMaterialHandle = nonEmptyString(record.ed25519WorkerMaterialHandle);
-  const commonFacts = {
-    clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
-    ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
-      ed25519WorkerMaterialBindingDigest,
+  return {
+    clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
+      record.clientVerifyingShareB64u,
     ),
-    sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(sealedWorkerMaterialRef),
+    ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+      record.ed25519WorkerMaterialBindingDigest,
+    ),
+    sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(record.sealedWorkerMaterialRef),
     sealedWorkerMaterialB64u,
-    materialFormatVersion,
-    materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
-    materialCreatedAtMs,
+    materialFormatVersion: record.materialFormatVersion,
+    materialKeyId: parseEd25519WorkerMaterialKeyId(record.materialKeyId),
+    materialCreatedAtMs: record.materialCreatedAtMs,
     signerSlot,
   };
-  if (ed25519WorkerMaterialHandle) {
-    return {
-      kind: 'runtime_handle_available',
-      ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
-        ed25519WorkerMaterialHandle,
-      ),
-      ...commonFacts,
-    };
-  }
+}
+
+function readReadyPasskeyEd25519ReconnectWorkerMaterialFacts(
+  record: ThresholdEd25519MaterialReadySessionRecord,
+): PasskeyEd25519ReconnectWorkerMaterialFacts | null {
+  const commonFacts = readPasskeyEd25519ReconnectCommonWorkerMaterialFacts(record);
+  if (!commonFacts) return null;
+  return {
+    kind: 'runtime_handle_available',
+    ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
+      record.ed25519WorkerMaterialHandle,
+    ),
+    ...commonFacts,
+  };
+}
+
+function readRestorablePasskeyEd25519ReconnectWorkerMaterialFacts(
+  record: ThresholdEd25519RestoreAvailableSessionRecord,
+): PasskeyEd25519ReconnectWorkerMaterialFacts | null {
+  const commonFacts = readPasskeyEd25519ReconnectCommonWorkerMaterialFacts(record);
+  if (!commonFacts) return null;
   return {
     kind: 'runtime_handle_absent',
     ...commonFacts,
@@ -262,7 +292,14 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     source: 'login',
-    authority: { kind: 'passkey_rp', rpId: args.record.rpId },
+    authority: {
+      kind: 'wallet_auth_authority',
+      authority: buildPasskeyWalletAuthAuthority({
+        walletId: args.record.walletId,
+        rpId: args.record.rpId,
+        credentialIdB64u: args.record.passkeyCredentialIdB64u,
+      }),
+    },
     auth: {
       kind: 'threshold_session_policy_webauthn',
       policySecretSource: args.policySecretSource,

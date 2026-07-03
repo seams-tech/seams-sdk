@@ -63,10 +63,6 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
     artifact: &StagedEvaluatorArtifact,
     server_output: &ServerEvalFinalizeOutput,
 ) -> ProtoResult<EvaluationReport> {
-    debug_assert_eq!(
-        artifact.context_binding, runtime.candidate.context_binding,
-        "evaluation result context binding should already match shared runtime"
-    );
     if artifact.context_binding != runtime.candidate.context_binding {
         return Err(ProtoError::InvalidInput(
             "evaluation result context binding does not match shared runtime".to_string(),
@@ -158,7 +154,10 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
             server_output.canonical_seed_commitment,
             artifact.client_output_value_kind,
             artifact.client_output_commitment,
-            server_output.x_server_base_left.commitment,
+            crate::protocol::transcript::server_output_value_commitment(
+                &server_output.x_server_base_left,
+                &server_output.x_server_base_right,
+            )?,
             artifact.output_projector_binding,
         );
     if artifact.bindings.evaluation_digest != expected_evaluation_digest {

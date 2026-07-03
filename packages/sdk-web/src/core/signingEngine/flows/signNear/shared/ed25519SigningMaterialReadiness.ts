@@ -1,11 +1,7 @@
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import { restoreThresholdEd25519WorkerMaterialNearSignerWasm } from '@/core/signingEngine/chains/near/nearSignerWasm';
 import {
-  isThresholdEd25519MaterialReadyRecord,
-  isThresholdEd25519RestoreAvailableRecord,
   persistStoredThresholdEd25519SessionMaterialHandle,
-  type ThresholdEd25519MaterialReadySessionRecord,
-  type ThresholdEd25519RestoreAvailableSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
@@ -13,12 +9,11 @@ import {
   classifyRouterAbEd25519PersistedSigningRecord,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
   resolveRouterAbEd25519SigningRootFromRecord,
-  routerAbEd25519WorkerMaterialIdentityFromPersistedState,
   type RouterAbEd25519PersistedSigningRecordState,
+  type RouterAbEd25519RestorableWorkerMaterial,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  ThresholdEd25519RestoreWorkerMaterialRequest,
   ThresholdEd25519WorkerMaterialCredentialAuthorization,
   ThresholdEd25519WorkerMaterialFailure,
 } from '@/core/types/signer-worker';
@@ -62,6 +57,11 @@ export type RouterAbEd25519ReadySigningMaterialState = {
   routerAbReadyState: RouterAbEd25519NormalSigningReadyState;
   signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
 };
+
+type RouterAbEd25519RestorableSigningRecordState = Extract<
+  RouterAbEd25519PersistedSigningRecordState,
+  { kind: 'runtime_validated' | 'restore_available' }
+>;
 
 function assertNeverRouterAbEd25519PersistedSigningRecordState(value: never): never {
   throw new Error(`Unexpected Router A/B Ed25519 persisted signing state: ${String(value)}`);
@@ -157,7 +157,7 @@ export async function requireOrRestoreRouterAbEd25519WalletSessionState(args: {
     case 'runtime_validated':
       return await requireLoadedOrRestoreRouterAbEd25519SigningMaterial({
         ctx: args.ctx,
-        record: state.record,
+        state,
         thresholdSessionId,
         operation: args.operation,
         nearAccountId: args.nearAccountId,
@@ -167,7 +167,7 @@ export async function requireOrRestoreRouterAbEd25519WalletSessionState(args: {
     case 'restore_available': {
       return await requireLoadedOrRestoreRouterAbEd25519SigningMaterial({
         ctx: args.ctx,
-        record: state.record,
+        state,
         thresholdSessionId,
         operation: args.operation,
         nearAccountId: args.nearAccountId,
@@ -207,7 +207,7 @@ export async function requireOrRestoreRouterAbEd25519WalletSessionState(args: {
 
 async function requireLoadedOrRestoreRouterAbEd25519SigningMaterial(args: {
   ctx: WorkerOperationContext;
-  record: ThresholdEd25519SessionRecord;
+  state: RouterAbEd25519RestorableSigningRecordState;
   thresholdSessionId: string;
   operation: Ed25519MaterialRestoreOperation;
   nearAccountId: string;
@@ -216,7 +216,7 @@ async function requireLoadedOrRestoreRouterAbEd25519SigningMaterial(args: {
 }): Promise<RouterAbEd25519ReadySigningMaterialState> {
   const loaded = await tryRequireLoadedRouterAbEd25519SigningMaterial({
     ctx: args.ctx,
-    record: args.record,
+    record: args.state.record,
     thresholdSessionId: args.thresholdSessionId,
     operation: args.operation,
     nearAccountId: args.nearAccountId,
@@ -261,7 +261,7 @@ async function requireLoadedRouterAbEd25519SigningMaterial(args: {
       reason: 'pending_material',
     });
   }
-  if (!isThresholdEd25519MaterialReadyRecord(args.record)) {
+  if (args.record.materialState !== 'material_ready') {
     throwEd25519MaterialRestoreRequired({
       operation: args.operation,
       thresholdSessionId: args.thresholdSessionId,
@@ -304,7 +304,7 @@ async function requireLoadedRouterAbEd25519SigningMaterial(args: {
 
 async function restoreRouterAbEd25519SigningMaterial(args: {
   ctx: WorkerOperationContext;
-  record: ThresholdEd25519SessionRecord;
+  state: RouterAbEd25519RestorableSigningRecordState;
   thresholdSessionId: string;
   operation: Ed25519MaterialRestoreOperation;
   nearAccountId: string;
@@ -317,20 +317,8 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
       thresholdSessionId: args.thresholdSessionId,
     });
   }
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  if (
-    !routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState) ||
-    (!isThresholdEd25519MaterialReadyRecord(args.record) &&
-      !isThresholdEd25519RestoreAvailableRecord(args.record))
-  ) {
-    throwEd25519MaterialRestoreRequired({
-      operation: args.operation,
-      thresholdSessionId: args.thresholdSessionId,
-      reason: 'pending_material',
-    });
-  }
   const material = await buildExpectedWorkerMaterialBindingForRestore({
-    record: args.record,
+    state: args.state,
     operation: args.operation,
     thresholdSessionId: args.thresholdSessionId,
     thresholdKeyMaterial: args.thresholdKeyMaterial,
@@ -338,7 +326,7 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
   const restored = await restoreThresholdEd25519WorkerMaterialNearSignerWasm({
     request: {
       kind: 'ed25519_restore_worker_material_v1',
-      sealedMaterial: sealedMaterialTransportFromRecord(args.record),
+      sealedMaterial: args.state.restorableMaterial.sealedMaterial,
       expectedMaterialBinding: material.materialBinding,
       unsealAuthorization: args.restoreAuthorization.unsealAuthorization,
     },
@@ -411,36 +399,32 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
 }
 
 async function buildExpectedWorkerMaterialBindingForRestore(args: {
-  record:
-    | ThresholdEd25519MaterialReadySessionRecord
-    | ThresholdEd25519RestoreAvailableSessionRecord;
+  state: RouterAbEd25519RestorableSigningRecordState;
   operation: Ed25519MaterialRestoreOperation;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
 }): Promise<Awaited<ReturnType<typeof buildRouterAbEd25519WorkerMaterialBinding>>> {
-  const signingRoot = resolveRouterAbEd25519SigningRootFromRecord(args.record);
+  const record = args.state.record;
+  const restorableMaterial: RouterAbEd25519RestorableWorkerMaterial =
+    args.state.restorableMaterial;
+  const signingRoot = resolveRouterAbEd25519SigningRootFromRecord(record);
   if (!signingRoot.ok) {
     throw new Error(
       `Router A/B Ed25519 sealed material signing root invalid: ${signingRoot.reason}`,
     );
   }
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  const materialIdentity =
-    routerAbEd25519WorkerMaterialIdentityFromPersistedState(persistedState);
-  if (!materialIdentity) {
-    throw new Error('Router A/B Ed25519 sealed material identity is missing');
-  }
+  const materialIdentity = restorableMaterial.identity;
   const material = await buildRouterAbEd25519WorkerMaterialBinding({
-    nearAccountId: String(args.record.nearAccountId || '').trim(),
-    signerSlot: Math.floor(Number(args.record.signerSlot) || 0),
+    nearAccountId: String(record.nearAccountId || '').trim(),
+    signerSlot: Math.floor(Number(record.signerSlot) || 0),
     signingRootId: signingRoot.value.signingRootId,
     signingRootVersion: signingRoot.value.signingRootVersion,
-    relayerKeyId: parseEd25519RelayerKeyId(args.record.relayerKeyId),
-    participantIds: args.record.participantIds,
+    relayerKeyId: parseEd25519RelayerKeyId(record.relayerKeyId),
+    participantIds: record.participantIds,
     clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
-      args.record.clientVerifyingShareB64u,
+      materialIdentity.clientVerifierB64u,
     ),
-    createdAtMs: args.record.materialCreatedAtMs,
+    createdAtMs: restorableMaterial.materialCreatedAtMs,
   });
   if (material.materialBindingDigest !== materialIdentity.bindingDigest) {
     throw new Error('Router A/B Ed25519 sealed material binding digest mismatch');
@@ -461,24 +445,6 @@ async function buildExpectedWorkerMaterialBindingForRestore(args: {
     throw new Error('Router A/B Ed25519 sealed material relayer key mismatch');
   }
   return material;
-}
-
-function sealedMaterialTransportFromRecord(
-  record:
-    | ThresholdEd25519MaterialReadySessionRecord
-    | ThresholdEd25519RestoreAvailableSessionRecord,
-): ThresholdEd25519RestoreWorkerMaterialRequest['sealedMaterial'] {
-  if (record.sealedWorkerMaterialB64u) {
-    return {
-      kind: 'inline_sealed_blob',
-      sealedWorkerMaterialRef: record.sealedWorkerMaterialRef,
-      sealedWorkerMaterialB64u: record.sealedWorkerMaterialB64u,
-    };
-  }
-  return {
-    kind: 'storage_ref',
-    sealedWorkerMaterialRef: record.sealedWorkerMaterialRef,
-  };
 }
 
 function throwWorkerMaterialRestoreFailure(args: {

@@ -26,9 +26,9 @@ import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEd25519SessionStoreSource,
 } from '@/core/signingEngine/session/identity/laneIdentity';
+import { emailOtpAuthContextProviderUserId } from '@/core/signingEngine/session/identity/laneIdentity';
 import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/threshold/crypto/webauthn';
 import {
-  parseWebAuthnRpId,
   type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
@@ -57,7 +57,6 @@ import {
   normalizeThresholdRuntimePolicyScope,
   parseThresholdRuntimePolicyScopeFromJwt,
   type Ed25519AuthorityScope,
-  type Ed25519SessionPolicyAuthority,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -1686,7 +1685,7 @@ export function createThresholdWarmSessionPolicyDraft(
 }
 
 export function buildThresholdWarmSessionRequestEnvelope(args: {
-  authority: Ed25519SessionPolicyAuthority;
+  authorityScope: Ed25519AuthorityScope;
   requestedPolicy: ThresholdWarmSessionPolicyDraft;
   walletId?: string;
   nearAccountId?: string;
@@ -1708,7 +1707,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       ...(args.nearEd25519SigningKeyId
         ? { nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId || '').trim() }
         : {}),
-      authorityScope: thresholdWarmSessionAuthorityScope(args.authority),
+      authorityScope: args.authorityScope,
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
       thresholdSessionId,
       signingGrantId,
@@ -1721,26 +1720,6 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
     },
     session_kind: 'jwt',
   };
-}
-
-function thresholdWarmSessionAuthorityScope(
-  authority: Ed25519SessionPolicyAuthority,
-): Ed25519AuthorityScope {
-  switch (authority.kind) {
-    case 'passkey_rp': {
-      const parsed = parseWebAuthnRpId(authority.rpId);
-      if (!parsed.ok) throw new Error(parsed.error.message);
-      return { kind: 'passkey_rp', rpId: parsed.value };
-    }
-    case 'exact_authority_scope':
-      return authority.authorityScope;
-    default:
-      return assertNeverThresholdWarmSessionPolicyAuthority(authority);
-  }
-}
-
-function assertNeverThresholdWarmSessionPolicyAuthority(value: never): never {
-  throw new Error(`Unsupported threshold warm-session authority: ${String(value)}`);
 }
 
 export async function prepareThresholdEd25519RegistrationHssClientMaterial(args: {
@@ -2334,18 +2313,20 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
     participantIds: materialBinding.participantIds,
     createdAtMs: materialBinding.createdAtMs,
   };
-  const authSubjectId = String(args.emailOtpAuthContext.authSubjectId || '').trim();
-  if (!authSubjectId) {
-    throw new Error('Email OTP Ed25519 registration worker material requires auth subject id');
+  const providerUserId = String(
+    emailOtpAuthContextProviderUserId(args.emailOtpAuthContext),
+  ).trim();
+  if (!providerUserId) {
+    throw new Error('Email OTP Ed25519 registration worker material requires provider user id');
   }
   const recoveryCodeBindingDigest = await recoveryCodeBindingDigestForEmailOtpMaterial({
-    authSubjectId,
+    providerUserId,
     rpId: args.rpId,
     nearAccountId: String(args.nearAccountId),
   });
   const preparedSealAuthorization = await prepareRecoveryCodeSealAuthorizationForEmailOtp({
     bindingInput,
-    authSubjectId,
+    providerUserId,
     recoveryCodeBindingDigest,
     recoveryCodeSecret32B64u: args.recoveryCodeSecret32B64u,
     workerCtx: args.workerCtx,

@@ -688,19 +688,7 @@ function ed25519AdmissionAuthorityScopeKey(scope: ThresholdEd25519AuthorityScope
     case 'passkey_rp':
       return `passkey_rp:${scope.rpId}`;
     case 'email_otp':
-      switch (scope.proofKind) {
-        case 'otp_challenge':
-          return `email_otp:otp_challenge:${scope.email}:${scope.challengeId || ''}`;
-        case 'google_sso_registration':
-          return [
-            'email_otp',
-            'google_sso_registration',
-            scope.email,
-            scope.googleEmailOtpRegistrationAttemptId,
-            scope.googleEmailOtpRegistrationOfferId,
-            scope.googleEmailOtpRegistrationCandidateId,
-          ].join(':');
-      }
+      return `email_otp:${scope.provider}:${scope.providerUserId}`;
   }
 }
 

@@ -14,11 +14,18 @@ import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
+import {
+  emailOtpAuthContextConsumedAtMs,
+  emailOtpAuthContextRetention,
+} from '../identity/laneIdentity';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { EmailOtpEcdsaSigningSessionAuthority } from '../emailOtp/ecdsaSigningSessionAuthority';
+import type { EmailOtpEd25519SigningSessionAuthority } from '../emailOtp/ed25519SigningSessionAuthority';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
+  EmailOtpEd25519SessionPolicyAuthority,
   Ed25519SessionPolicyAuthority,
+  PasskeyEd25519SessionPolicyAuthority,
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
@@ -34,7 +41,7 @@ import {
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   ExactEcdsaSigningLaneIdentity,
-  ExactSigningLaneIdentity,
+  ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
 import { persistedWarmSessionRecordRequiresWalletSessionJwt } from './walletSessionAuthBoundary';
 import {
@@ -433,8 +440,9 @@ function assertCapabilityStateInvariant(args: {
   const hasWalletSessionJwt = Boolean(String(auth?.walletSessionJwt || '').trim());
   const emailOtpSingleUseConsumed =
     record.source === 'email_otp' &&
-    emailOtpAuthContext?.retention === 'single_use' &&
-    Number(emailOtpAuthContext.consumedAtMs) > 0;
+    emailOtpAuthContext &&
+    emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use' &&
+    Number(emailOtpAuthContextConsumedAtMs(emailOtpAuthContext)) > 0;
   const expectedState = (() => {
     if (!auth || (requiresWalletSessionJwt && !hasWalletSessionJwt)) return 'auth_missing';
     if (emailOtpSingleUseConsumed) return 'prf_missing';
@@ -526,13 +534,13 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
 
 type ProvisionWarmEd25519PasskeyCapabilityArgs = ProvisionWarmEd25519CapabilityBaseArgs & {
   source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
-  authority: Ed25519SessionPolicyAuthority;
+  authority: PasskeyEd25519SessionPolicyAuthority;
   emailOtpAuthContext?: never;
 };
 
 type ProvisionWarmEd25519EmailOtpCapabilityArgs = ProvisionWarmEd25519CapabilityBaseArgs & {
   source: 'email_otp';
-  authority: Extract<Ed25519SessionPolicyAuthority, { kind: 'exact_authority_scope' }>;
+  authority: EmailOtpEd25519SessionPolicyAuthority;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
 
@@ -728,9 +736,12 @@ export type WarmSessionCapabilityReader = {
   resolveEcdsaAuthByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEcdsaAuthMaterial | null;
-  resolveEmailOtpSigningSessionAuthLane: (args: {
-    lane: ExactSigningLaneIdentity;
-  }) => EmailOtpAuthLane | null;
+  resolveEmailOtpEd25519SigningSessionAuthority: (args: {
+    lane: ExactEd25519SigningLaneIdentity;
+  }) => EmailOtpEd25519SigningSessionAuthority | null;
+  resolveEmailOtpEcdsaSigningSessionAuthority: (args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+  }) => EmailOtpEcdsaSigningSessionAuthority | null;
   getEd25519CapabilityByThresholdSessionId: (
     thresholdSessionId: string,
   ) => Promise<WarmSessionEd25519CapabilityState | null>;

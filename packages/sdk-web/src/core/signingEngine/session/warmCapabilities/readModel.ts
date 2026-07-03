@@ -25,6 +25,10 @@ import {
   walletSessionJwtFromPersistedWarmSessionRecord,
 } from './walletSessionAuthBoundary';
 import {
+  emailOtpAuthContextConsumedAtMs,
+  emailOtpAuthContextRetention,
+} from '../identity/laneIdentity';
+import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
 } from '../routerAbSigningWalletSession';
@@ -256,10 +260,12 @@ export function deriveEd25519CapabilityState(args: {
   if (!args.auth || !args.auth.walletSessionJwt) {
     return 'auth_missing';
   }
+  const ed25519EmailOtpAuthContext =
+    args.record.source === 'email_otp' ? args.record.emailOtpAuthContext : null;
   if (
-    args.record.source === 'email_otp' &&
-    args.record.emailOtpAuthContext?.retention === 'single_use' &&
-    Number(args.record.emailOtpAuthContext.consumedAtMs) > 0
+    ed25519EmailOtpAuthContext &&
+    emailOtpAuthContextRetention(ed25519EmailOtpAuthContext) === 'single_use' &&
+    Number(emailOtpAuthContextConsumedAtMs(ed25519EmailOtpAuthContext)) > 0
   ) {
     return 'prf_missing';
   }
@@ -307,10 +313,12 @@ export function deriveEcdsaCapabilityState(args: {
   if (requiresWalletSessionJwt && (!args.auth || args.auth.state === 'unavailable')) {
     return 'auth_missing';
   }
+  const ecdsaEmailOtpAuthContext =
+    args.record.source === 'email_otp' ? args.record.emailOtpAuthContext : null;
   if (
-    args.record.source === 'email_otp' &&
-    args.record.emailOtpAuthContext?.retention === 'single_use' &&
-    Number(args.record.emailOtpAuthContext.consumedAtMs) > 0
+    ecdsaEmailOtpAuthContext &&
+    emailOtpAuthContextRetention(ecdsaEmailOtpAuthContext) === 'single_use' &&
+    Number(emailOtpAuthContextConsumedAtMs(ecdsaEmailOtpAuthContext)) > 0
   ) {
     return 'prf_missing';
   }

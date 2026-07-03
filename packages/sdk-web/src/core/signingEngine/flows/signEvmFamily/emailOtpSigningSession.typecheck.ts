@@ -6,12 +6,14 @@ import type {
 import type { EmailOtpEcdsaSigningSessionDeps } from './emailOtpSigningSession';
 import type { EmailOtpPublicDeps } from './emailOtpPublic';
 import { requestEmailOtpSigningSessionChallenge } from './emailOtpPublic';
+import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 
 declare const deps: EmailOtpPublicDeps;
 declare const signingSessionDeps: EmailOtpEcdsaSigningSessionDeps;
 declare const walletId: WalletId;
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const ecdsaAuthLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
 
 type WalletSessionSigningChallengeArgs = Parameters<
   EmailOtpEcdsaSigningSessionDeps['emailOtpSessions']['requestTransactionSigningChallenge']
@@ -21,6 +23,7 @@ const validWalletSessionSigningChallengeArgs: WalletSessionSigningChallengeArgs 
   kind: 'wallet_session_challenge',
   walletSession,
   chain: 'evm',
+  authLane: ecdsaAuthLane,
 };
 void validWalletSessionSigningChallengeArgs;
 

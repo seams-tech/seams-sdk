@@ -110,7 +110,10 @@ export async function handleWebAuthnAuthenticators(
         { status: 401 },
       );
     }
-    const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+    const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+      userId,
+      appSessionVersion,
+    });
     if (!validated.ok) {
       await maybeEmitWarmExpired({
         code: validated.code,
@@ -130,7 +133,7 @@ export async function handleWebAuthnAuthenticators(
     ).trim();
     const rpId = rpIdFromQuery || String(claims.rpId || '').trim();
 
-    const result = await ctx.service.listWebAuthnAuthenticatorsForUser({
+    const result = await ctx.service.webAuthn.listWebAuthnAuthenticatorsForUser({
       userId,
       ...(rpId ? { rpId } : {}),
     });

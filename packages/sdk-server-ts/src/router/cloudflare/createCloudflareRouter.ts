@@ -1,4 +1,4 @@
-import type { RouterApiAuthService } from '../authServicePort';
+import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiOptions } from '../routerApi';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -58,10 +58,7 @@ import {
   isRecoverEmailRouteEnabled,
   resolveRouterApiRouteSurface,
 } from '../routerApiRouteSurface';
-import {
-  findRouteDefinitionForRequest,
-  type RouteDefinition,
-} from '../routeDefinitions';
+import { findRouteDefinitionForRequest, type RouteDefinition } from '../routeDefinitions';
 import {
   getRouterApiRouteExtensionRoutes,
   getRouterApiRouteExtensionsForTransport,
@@ -76,7 +73,7 @@ export interface CloudflareRouterApiContext {
   env?: CfEnv;
   cfCtx?: CfExecutionContext;
 
-  service: RouterApiAuthService;
+  service: RouterApiServiceBag;
   opts: RouterApiOptions;
   logger: NormalizedRouterLogger;
 
@@ -86,7 +83,7 @@ export interface CloudflareRouterApiContext {
 }
 
 export function createCloudflareRouter(
-  service: RouterApiAuthService,
+  service: RouterApiServiceBag,
   opts: RouterApiOptions = {},
 ): FetchHandler {
   const notFound = () => new Response('Not Found', { status: 404 });

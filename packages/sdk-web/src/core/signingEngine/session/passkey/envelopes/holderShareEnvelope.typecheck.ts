@@ -1,4 +1,4 @@
-import type { WalletId } from '@shared/utils/domainIds';
+import type { WalletId, WebAuthnCredentialIdB64u, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { LaneShareEpoch, SigningLaneId, WalletKeyId } from '@shared/signing-lanes';
 import type { PasskeyHolderShareEnvelopeRecord } from './holderShareEnvelope';
 
@@ -6,6 +6,8 @@ declare const walletId: WalletId;
 declare const walletKeyId: WalletKeyId;
 declare const laneId: SigningLaneId;
 declare const laneShareEpoch: LaneShareEpoch;
+declare const rpId: WebAuthnRpId;
+declare const credentialIdB64u: WebAuthnCredentialIdB64u;
 
 const envelope: PasskeyHolderShareEnvelopeRecord = {
   kind: 'passkey_holder_share_envelope_v1',
@@ -13,8 +15,8 @@ const envelope: PasskeyHolderShareEnvelopeRecord = {
   walletKeyId,
   laneId,
   laneShareEpoch,
-  rpId: 'example.localhost',
-  credentialIdB64u: 'credential',
+  rpId,
+  credentialIdB64u,
   passkeyEnvelopeVersion: 'v1',
   passkeyKekVersion: 'v1',
   nonceB64u: 'nonce',
@@ -32,8 +34,8 @@ const invalidEnvelope: PasskeyHolderShareEnvelopeRecord = {
   walletKeyId,
   laneId,
   laneShareEpoch,
-  rpId: 'example.localhost',
-  credentialIdB64u: 'credential',
+  rpId,
+  credentialIdB64u,
   passkeyEnvelopeVersion: 'v1',
   passkeyKekVersion: 'v1',
   nonceB64u: 'nonce',

@@ -1,4 +1,4 @@
-import type { WalletId } from './domainIds';
+import type { WalletAuthMethodId, WalletId } from './domainIds';
 import type { NamedNearAccountId } from './near';
 import type { NearEd25519SigningKeyId } from './registrationIntent';
 import type {
@@ -9,6 +9,7 @@ import type {
   WalletAuthMethodBinding,
   WalletIdentity,
 } from './walletCapabilityBindings';
+import { walletAuthMethodBindingId } from './walletCapabilityBindings';
 
 declare const wallet: WalletIdentity;
 declare const walletId: WalletId;
@@ -28,6 +29,7 @@ const validPasskeyBinding = {
   credentialIdB64u,
 } satisfies WalletAuthMethodBinding;
 void validPasskeyBinding;
+void (walletAuthMethodBindingId(validPasskeyBinding) satisfies WalletAuthMethodId);
 
 const validEmailOtpBinding = {
   kind: 'email_otp',
@@ -36,6 +38,7 @@ const validEmailOtpBinding = {
   registrationAuthorityId,
 } satisfies WalletAuthMethodBinding;
 void validEmailOtpBinding;
+void (walletAuthMethodBindingId(validEmailOtpBinding) satisfies WalletAuthMethodId);
 
 const validCurrentAuthMethod = {
   kind: 'selected',

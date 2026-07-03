@@ -36,6 +36,10 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
+import {
+  buildPasskeyWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
   getNearAccountProjection,
@@ -73,6 +77,7 @@ import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
 } from '@/core/signingEngine/session/identity/laneIdentity';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   STALE_ECDSA_KEY_IDENTITY_ERROR_CODE,
   type ThresholdEcdsaSessionBootstrapResult,
@@ -80,8 +85,9 @@ import {
 import {
   buildEd25519SessionPolicy,
   parseThresholdRuntimePolicyScopeFromJwt,
-  type Ed25519AuthorityScope,
+  type EmailOtpEd25519SessionPolicyAuthority,
   type Ed25519SessionPolicyAuthority,
+  type PasskeyEd25519SessionPolicyAuthority,
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
@@ -490,6 +496,37 @@ function selectCurrentWalletAuthMethod(args: {
   return buildSelectedCurrentWalletAuthMethod({ binding: matches[0] });
 }
 
+function selectThresholdWarmupAuthMethodBinding(args: {
+  authMethods: readonly WalletAuthMethodBinding[];
+  authMethod: WalletAuthMethod;
+  walletId: WalletId;
+}): WalletAuthMethodBinding | null {
+  if (args.authMethod === SIGNER_AUTH_METHODS.passkey) return null;
+  if (args.authMethod !== SIGNER_AUTH_METHODS.emailOtp) {
+    throw new Error(`[login] unsupported wallet auth method for warm-up: ${args.authMethod}`);
+  }
+  const matches = args.authMethods.filter((binding) => binding.kind === 'email_otp');
+  if (matches.length !== 1) {
+    throw new Error('[login] Email OTP warm-up requires one active wallet auth-method binding');
+  }
+  const binding = matches[0];
+  if (String(binding.wallet.walletId) !== String(args.walletId)) {
+    throw new Error('[login] Email OTP warm-up auth-method binding wallet mismatch');
+  }
+  return binding;
+}
+
+async function readThresholdWarmupAuthMethodBinding(args: {
+  walletId: WalletId;
+  authMethod: WalletAuthMethod;
+}): Promise<WalletAuthMethodBinding | null> {
+  return selectThresholdWarmupAuthMethodBinding({
+    authMethods: await readWalletAuthMethodBindingsForSession(args.walletId),
+    authMethod: args.authMethod,
+    walletId: args.walletId,
+  });
+}
+
 type LoginUnlockAccountSubject =
   | {
       kind: 'near_operational_signer';
@@ -631,13 +668,13 @@ type LoginWarmupEd25519SessionAuthority =
     }
   | {
       kind: 'passkey';
-      authority: Ed25519SessionPolicyAuthority;
+      authority: PasskeyEd25519SessionPolicyAuthority;
       source: 'login';
       emailOtpAuthContext?: never;
     }
   | {
       kind: 'email_otp';
-      authority: Extract<Ed25519SessionPolicyAuthority, { kind: 'exact_authority_scope' }>;
+      authority: EmailOtpEd25519SessionPolicyAuthority;
       source: 'email_otp';
       emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     };
@@ -721,44 +758,67 @@ function readLoginAppSessionClaimString(args: {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function emailOtpAuthorityScopeFromLoginAppSession(args: {
+function emailOtpProviderUserIdFromLoginAppSession(args: {
   routeAuthorization: Extract<LoginWarmupRouteAuthorization, { kind: 'app_session_jwt' }>;
-}): {
-  authorityScope: Extract<Ed25519AuthorityScope, { kind: 'email_otp' }>;
-  authSubjectId: string;
-} {
+}): string {
   const claims = decodeJwtPayloadRecord(args.routeAuthorization.appSessionJwt);
   if (!claims) {
     throw new Error('[login] Email OTP Ed25519 warm-up requires a valid app-session JWT');
   }
-  const email = readLoginAppSessionClaimString({ claims, field: 'email' }).toLowerCase();
-  if (!email) {
-    throw new Error('[login] Email OTP Ed25519 warm-up requires app-session email claim');
-  }
   const providerSubject = readLoginAppSessionClaimString({ claims, field: 'providerSubject' });
   const subject = readLoginAppSessionClaimString({ claims, field: 'sub' });
-  return {
-    authorityScope: {
-      kind: 'email_otp',
-      proofKind: 'otp_challenge',
-      email,
-    },
-    authSubjectId: providerSubject || subject || email,
-  };
+  const email = readLoginAppSessionClaimString({ claims, field: 'email' }).toLowerCase();
+  const providerUserId = providerSubject || subject || email;
+  if (!providerUserId) {
+    throw new Error('[login] Email OTP Ed25519 warm-up requires app-session provider subject');
+  }
+  return providerUserId;
+}
+
+function loginPasskeyCredentialIdB64u(args: {
+  authenticators: readonly ClientAuthenticatorData[];
+  signerSlot: number;
+}): string {
+  return String(
+    args.authenticators.find((authenticator) => authenticator.signerSlot === args.signerSlot)
+      ?.credentialId ||
+      args.authenticators[0]?.credentialId ||
+      '',
+  ).trim();
+}
+
+function buildLoginPasskeyWalletAuthAuthority(args: {
+  walletId: WalletId;
+  rpId: string;
+  credentialIdB64u: string;
+}): PasskeyWalletAuthAuthority {
+  return buildPasskeyWalletAuthAuthority({
+    walletId: args.walletId,
+    rpId: args.rpId,
+    credentialIdB64u: args.credentialIdB64u,
+  });
 }
 
 function resolveLoginEd25519SessionAuthority(args: {
   wantsEd25519Warmup: boolean;
   authMethod: WalletAuthMethod;
+  authMethodBinding: WalletAuthMethodBinding | null;
+  walletId: WalletId;
   rpId: string;
+  passkeyCredentialIdB64u: string;
   routeAuthorization: LoginWarmupRouteAuthorization;
   emailOtpAuthPolicy: ThresholdEcdsaEmailOtpAuthContext['policy'];
 }): LoginWarmupEd25519SessionAuthority {
   if (!args.wantsEd25519Warmup) return { kind: 'not_requested' };
   if (args.authMethod === SIGNER_AUTH_METHODS.passkey) {
+    const authority = buildLoginPasskeyWalletAuthAuthority({
+      walletId: args.walletId,
+      rpId: args.rpId,
+      credentialIdB64u: args.passkeyCredentialIdB64u,
+    });
     return {
       kind: 'passkey',
-      authority: { kind: 'passkey_rp', rpId: args.rpId },
+      authority: { kind: 'wallet_auth_authority', authority },
       source: 'login',
     };
   }
@@ -766,20 +826,26 @@ function resolveLoginEd25519SessionAuthority(args: {
     if (args.routeAuthorization.kind !== 'app_session_jwt') {
       throw new Error('[login] Email OTP Ed25519 warm-up requires app-session JWT authority');
     }
-    const { authorityScope, authSubjectId } = emailOtpAuthorityScopeFromLoginAppSession({
+    if (!args.authMethodBinding || args.authMethodBinding.kind !== 'email_otp') {
+      throw new Error('[login] Email OTP Ed25519 warm-up requires wallet auth-method binding');
+    }
+    const providerUserId = emailOtpProviderUserIdFromLoginAppSession({
       routeAuthorization: args.routeAuthorization,
+    });
+    const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: args.emailOtpAuthPolicy,
+      walletId: args.walletId,
+      emailHashHex: args.authMethodBinding.emailHashHex,
+      retention: 'session',
+      reason: 'login',
+      provider: 'google',
+      providerUserId,
     });
     return {
       kind: 'email_otp',
-      authority: { kind: 'exact_authority_scope', authorityScope },
+      authority: { kind: 'wallet_auth_authority', authority: emailOtpAuthContext.authority },
       source: 'email_otp',
-      emailOtpAuthContext: {
-        policy: args.emailOtpAuthPolicy,
-        retention: 'session',
-        reason: 'login',
-        authMethod: SIGNER_AUTH_METHODS.emailOtp,
-        authSubjectId,
-      },
+      emailOtpAuthContext,
     };
   }
   throw new Error(
@@ -844,8 +910,11 @@ function resolveLoginWarmupPasskeyCredentialPlan(args: {
 type ResolveThresholdLoginWarmupPhaseInputArgs = {
   context: LoginWebContext;
   signerSlot: number;
+  authenticators: readonly ClientAuthenticatorData[];
   selection: WalletUnlockSelection;
   authMethod: WalletAuthMethod;
+  authMethodBinding: WalletAuthMethodBinding | null;
+  walletId: WalletId;
   keyFactsInventoryRequest: LoginHooksOptions['ecdsaKeyFactsInventory'] | null;
   routeAuthorization: LoginWarmupRouteAuthorization;
 };
@@ -894,7 +963,13 @@ function resolveThresholdLoginWarmupPhaseInput(
     ed25519SessionAuthority: resolveLoginEd25519SessionAuthority({
       wantsEd25519Warmup,
       authMethod: args.authMethod,
+      authMethodBinding: args.authMethodBinding,
+      walletId: args.walletId,
       rpId,
+      passkeyCredentialIdB64u: loginPasskeyCredentialIdB64u({
+        authenticators: args.authenticators,
+        signerSlot: args.signerSlot,
+      }),
       routeAuthorization: args.routeAuthorization,
       emailOtpAuthPolicy: args.context.configs.signing.emailOtp.authPolicy,
     }),
@@ -1685,12 +1760,19 @@ async function unlockInternal(
 
         // App-session auth can authorize warmup and key-facts inventory in the same unlock.
         if (requireThresholdWarmup) {
+          const authMethodBinding = await readThresholdWarmupAuthMethodBinding({
+            walletId: walletBinding.walletId,
+            authMethod: localUnlockAuthMethod,
+          });
           const warmupPhase = await warmThresholdSigningSessions(
             resolveThresholdLoginWarmupPhaseInput({
               context,
               signerSlot: baseSignerSlot,
+              authenticators,
               selection: walletUnlockSelection,
               authMethod: localUnlockAuthMethod,
+              authMethodBinding,
+              walletId: walletBinding.walletId,
               keyFactsInventoryRequest: options?.ecdsaKeyFactsInventory,
               routeAuthorization: resolveLoginWarmupRouteAuthorization({
                 appSessionJwt: String(exchanged.jwt || ''),
@@ -1786,12 +1868,19 @@ async function unlockInternal(
 
     // Warm threshold sessions without app-session route authorization.
     if (requireThresholdWarmup) {
+      const authMethodBinding = await readThresholdWarmupAuthMethodBinding({
+        walletId: walletBinding.walletId,
+        authMethod: localUnlockAuthMethod,
+      });
       const warmupPhase = await warmThresholdSigningSessions(
         resolveThresholdLoginWarmupPhaseInput({
           context,
           signerSlot: baseSignerSlot,
+          authenticators,
           selection: walletUnlockSelection,
           authMethod: localUnlockAuthMethod,
+          authMethodBinding,
+          walletId: walletBinding.walletId,
           keyFactsInventoryRequest: options?.ecdsaKeyFactsInventory,
           routeAuthorization: resolveLoginWarmupRouteAuthorization({
             appSessionJwt: '',

@@ -4,10 +4,14 @@ import {
 } from '../../core/d1WalletAuthMethodStore';
 import { D1WalletStore, type WalletStore } from '../../core/d1WalletStore';
 import { D1IdentityStore } from '../../core/d1IdentityStore';
-import type { IdentityStore } from '../../core/IdentityStore';
+import type { IdentityStore, LinkIdentityResult } from '../../core/IdentityStore';
 import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
-import type { AccountCreationResult } from '../../core/types';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  AccountCreationResult,
+  FundImplicitNearAccountRequest,
+  FundImplicitNearAccountResult,
+} from '../../core/types';
+import type { RouterApiServiceBag } from '../authServicePort';
 import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
@@ -55,714 +59,703 @@ export type {
   CloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
 
-type RouterApiAuthServiceCallableKey = {
-  [K in keyof RouterApiAuthService]: RouterApiAuthService[K] extends (...args: never[]) => unknown
-    ? K
-    : never;
-}[keyof RouterApiAuthService];
+type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
 
-type RouterApiAuthServiceMethodAt<M extends RouterApiAuthServiceCallableKey> = Extract<
-  RouterApiAuthService[M],
-  (...args: never[]) => unknown
+type D1IdentityLinkInput = {
+  readonly userId: string;
+  readonly subject: string;
+  readonly allowMoveIfSoleIdentity?: boolean;
+};
+
+type SponsoredNamedNearAccountInput = {
+  readonly accountId: string;
+  readonly publicKey: string;
+};
+
+type CloudflareD1RouterApiLazyStoreState = {
+  readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
+  walletStore: WalletStore | null;
+  walletAuthMethodStore: WalletAuthMethodStore | null;
+  registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
+};
+
+type CloudflareD1RouterApiAuthAssembly = {
+  readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
+  readonly emailOtpServerSeal: CloudflareD1EmailOtpServerSealRuntime;
+  readonly emailOtpChallengeService: CloudflareD1EmailOtpChallengeService;
+  readonly emailOtpRecoveryService: CloudflareD1EmailOtpRecoveryService;
+  readonly identityService: CloudflareD1IdentityService;
+  readonly oidcVerification: CloudflareD1OidcVerificationService;
+  readonly sessionService: CloudflareD1SessionService;
+  readonly googleEmailOtpSessions: CloudflareD1GoogleEmailOtpSessionResolver;
+  readonly nearPublicKeys: CloudflareD1NearPublicKeyStore;
+  readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
+  readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
+  readonly walletRegistrations: CloudflareD1WalletRegistrationService;
+  readonly walletAddSigners: CloudflareD1WalletAddSignerService;
+  readonly registrationIntents: CloudflareD1RegistrationIntentService;
+  readonly thresholdSigning: CloudflareD1ThresholdSigningRuntime;
+};
+
+type D1WalletRegistrationRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'registrationIntents' | 'walletRegistrations'
 >;
 
-type RouterApiInput<M extends RouterApiAuthServiceCallableKey> = Parameters<
-  RouterApiAuthServiceMethodAt<M>
->[0];
-
-type RouterApiResult<M extends RouterApiAuthServiceCallableKey> = Awaited<
-  ReturnType<RouterApiAuthServiceMethodAt<M>>
+type D1WalletAuthMethodRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'registrationIntents' | 'walletAuthMethods' | 'walletAddSigners'
 >;
 
-class CloudflareD1RouterApiAuthMetadataService {
-  private readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
-  private readonly emailOtpChallenges: CloudflareD1EmailOtpChallengeStore;
-  private readonly emailOtpDelivery: CloudflareD1EmailOtpDeliveryRuntime;
-  private readonly emailOtpEnrollments: CloudflareD1EmailOtpEnrollmentStore;
-  private readonly emailOtpGrants: CloudflareD1EmailOtpGrantStore;
-  private readonly emailOtpRateLimits: CloudflareD1EmailOtpRateLimitStore;
-  private readonly emailOtpRecoveryEscrows: CloudflareD1EmailOtpRecoveryEscrowStore;
-  private readonly emailOtpServerSeal: CloudflareD1EmailOtpServerSealRuntime;
-  private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
-  private readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
-  private readonly emailOtpChallengeIssuer: CloudflareD1EmailOtpChallengeIssuer;
-  private readonly emailOtpChallengeService: CloudflareD1EmailOtpChallengeService;
-  private readonly emailOtpRecoveryService: CloudflareD1EmailOtpRecoveryService;
-  private readonly identityService: CloudflareD1IdentityService;
-  private readonly oidcVerification: CloudflareD1OidcVerificationService;
-  private readonly identityStore: IdentityStore;
-  private readonly sessionStore: CloudflareD1SessionStore;
-  private readonly sessionService: CloudflareD1SessionService;
-  private readonly googleEmailOtpRegistrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
-  private readonly googleEmailOtpSessions: CloudflareD1GoogleEmailOtpSessionResolver;
-  private readonly nearPublicKeys: CloudflareD1NearPublicKeyStore;
-  private readonly webAuthnStore: CloudflareD1WebAuthnStore;
-  private readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
-  private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
-  private readonly walletRegistrations: CloudflareD1WalletRegistrationService;
-  private readonly walletAddSigners: CloudflareD1WalletAddSignerService;
-  private readonly registrationIntents: CloudflareD1RegistrationIntentService;
-  private readonly thresholdSigning: CloudflareD1ThresholdSigningRuntime;
-  private walletStore: WalletStore | null = null;
-  private walletAuthMethodStore: WalletAuthMethodStore | null = null;
-  private registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null =
-    null;
+type D1WalletUnlockRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'emailOtpRecoveryService' | 'webAuthnAuthService'
+>;
 
-  constructor(input: CloudflareD1RouterApiAuthServiceOptions) {
-    this.options = normalizeD1RouterApiAuthOptions(input);
-    this.identityStore = new D1IdentityStore({
-      database: this.options.database,
-      namespace: this.options.namespace,
-      orgId: this.options.orgId,
-      projectId: this.options.projectId,
-      envId: this.options.envId,
-      ensureSchema: false,
+type D1EmailOtpRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  | 'emailOtpServerSeal'
+  | 'emailOtpChallengeService'
+  | 'emailOtpRecoveryService'
+  | 'googleEmailOtpSessions'
+  | 'oidcVerification'
+>;
+
+type D1WebAuthnRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'webAuthnAuthService'
+>;
+
+type D1IdentityRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'googleEmailOtpSessions' | 'identityService' | 'oidcVerification'
+>;
+
+type D1SessionVersionRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'sessionService'
+>;
+
+type D1ThresholdRuntimeRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'thresholdSigning'
+>;
+
+type D1NearFundingRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'nearPublicKeys' | 'options'
+>;
+
+type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'sessionService'>;
+
+type D1RouterAccountRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'thresholdSigning'
+>;
+
+function d1RouterApiErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || '');
+}
+
+async function linkD1Identity(
+  identityStore: IdentityStore,
+  input: D1IdentityLinkInput,
+): Promise<LinkIdentityResult> {
+  try {
+    return await identityStore.linkSubjectToUserId(input);
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'internal',
+      message: d1RouterApiErrorMessage(error) || 'Failed to link identity',
+    };
+  }
+}
+
+function createLazyStoreState(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): CloudflareD1RouterApiLazyStoreState {
+  return {
+    options,
+    walletStore: null,
+    walletAuthMethodStore: null,
+    registrationCeremonyIntentStore: null,
+  };
+}
+
+function getRegistrationCeremonyIntentStoreForState(
+  state: CloudflareD1RouterApiLazyStoreState,
+): CloudflareD1RegistrationCeremonyIntentStore | null {
+  if (state.registrationCeremonyIntentStore) return state.registrationCeremonyIntentStore;
+  const config = resolveRegistrationCeremonyDoConfig(state.options.thresholdStore);
+  if (!config) return null;
+  state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore(config);
+  return state.registrationCeremonyIntentStore;
+}
+
+function getWalletAuthMethodStoreForState(
+  state: CloudflareD1RouterApiLazyStoreState,
+): WalletAuthMethodStore {
+  if (state.walletAuthMethodStore) return state.walletAuthMethodStore;
+  state.walletAuthMethodStore = new D1WalletAuthMethodStore({
+    database: state.options.database,
+    namespace: state.options.namespace,
+    orgId: state.options.orgId,
+    projectId: state.options.projectId,
+    envId: state.options.envId,
+    ensureSchema: false,
+  });
+  return state.walletAuthMethodStore;
+}
+
+function getWalletStoreForState(state: CloudflareD1RouterApiLazyStoreState): WalletStore {
+  if (state.walletStore) return state.walletStore;
+  state.walletStore = new D1WalletStore({
+    database: state.options.database,
+    namespace: state.options.namespace,
+    orgId: state.options.orgId,
+    projectId: state.options.projectId,
+    envId: state.options.envId,
+    ensureSchema: false,
+  });
+  return state.walletStore;
+}
+
+function scopePrepareForOptions(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+  sql: string,
+  values: readonly unknown[],
+): D1PreparedStatementLike {
+  return options.database.prepare(sql).bind(...scopeValuesForOptions(options, values));
+}
+
+function scopeValuesForOptions(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+  values: readonly unknown[],
+): readonly unknown[] {
+  return [options.namespace, options.orgId, options.projectId, options.envId, ...values];
+}
+
+async function fundImplicitNearAccountForOptions(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+  input: FundImplicitNearAccountRequest,
+): Promise<FundImplicitNearAccountResult> {
+  if (!options.implicitNearAccountTestFundingEnabled) {
+    return {
+      ok: false,
+      code: 'not_configured',
+      message: 'Implicit NEAR account test funding is not enabled on this server',
+    };
+  }
+  const relayerAccount = options.relayerAccount;
+  const relayerPrivateKey = options.relayerPrivateKey;
+  const nearRpcUrl = options.nearRpcUrl;
+  const fundedAmountYocto = options.accountInitialBalance;
+  if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !fundedAmountYocto) {
+    return {
+      ok: false,
+      code: 'not_configured',
+      message: 'Implicit NEAR account funding is not configured on this server',
+    };
+  }
+  return await fundImplicitNearAccountWithRelayer({
+    ...input,
+    relayerAccount,
+    relayerPrivateKey,
+    relayerPublicKey: options.relayerPublicKey,
+    nearRpcUrl,
+    fundedAmountYocto,
+  });
+}
+
+async function createSponsoredNamedNearAccountForOptions(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+  input: SponsoredNamedNearAccountInput,
+): Promise<AccountCreationResult> {
+  const relayerAccount = options.relayerAccount;
+  const relayerPrivateKey = options.relayerPrivateKey;
+  const nearRpcUrl = options.nearRpcUrl;
+  const initialBalanceYocto = options.accountInitialBalance;
+  if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !initialBalanceYocto) {
+    return {
+      success: false,
+      error: 'Sponsored NEAR account creation is not configured on this server',
+      message: 'Sponsored NEAR account creation is not configured on this server',
+    };
+  }
+  return await createNamedNearAccountWithRelayer({
+    ...input,
+    relayerAccount,
+    relayerPrivateKey,
+    relayerPublicKey: options.relayerPublicKey,
+    nearRpcUrl,
+    initialBalanceYocto,
+  });
+}
+
+function createCloudflareD1RouterApiAuthAssembly(
+  input: CloudflareD1RouterApiAuthServiceOptions,
+): CloudflareD1RouterApiAuthAssembly {
+  const options = normalizeD1RouterApiAuthOptions(input);
+  const prepare: ScopedD1Prepare = scopePrepareForOptions.bind(undefined, options);
+  const lazyStores = createLazyStoreState(options);
+  const getRegistrationCeremonyIntentStore =
+    getRegistrationCeremonyIntentStoreForState.bind(undefined, lazyStores);
+  const getWalletAuthMethodStore = getWalletAuthMethodStoreForState.bind(undefined, lazyStores);
+  const getWalletStore = getWalletStoreForState.bind(undefined, lazyStores);
+  const createSponsoredNamedNearAccount =
+    createSponsoredNamedNearAccountForOptions.bind(undefined, options);
+
+  const identityStore = new D1IdentityStore({
+    database: options.database,
+    namespace: options.namespace,
+    orgId: options.orgId,
+    projectId: options.projectId,
+    envId: options.envId,
+    ensureSchema: false,
+  });
+  const linkIdentity = linkD1Identity.bind(undefined, identityStore);
+  const sessionStore = new CloudflareD1SessionStore({ prepare });
+  const sessionService = new CloudflareD1SessionService({ sessionStore });
+  const googleEmailOtpRegistrationAttempts =
+    new CloudflareD1GoogleEmailOtpRegistrationAttemptStore({
+      prepare,
+      orgId: options.orgId,
     });
-    this.identityService = new CloudflareD1IdentityService({
-      accountIdDerivationSecret: this.options.accountIdDerivationSecret,
-      identityStore: this.identityStore,
-      relayerAccount: this.options.relayerAccount,
-      resolveGoogleEmailOtpSession: this.resolveGoogleEmailOtpSession.bind(this),
+  const nearPublicKeys = new CloudflareD1NearPublicKeyStore({ prepare });
+  const webAuthnStore = new CloudflareD1WebAuthnStore({
+    database: options.database,
+    namespace: options.namespace,
+    orgId: options.orgId,
+    projectId: options.projectId,
+    envId: options.envId,
+  });
+  const webAuthnAuthService = new CloudflareD1WebAuthnAuthService({ webAuthnStore });
+  const emailOtpChallenges = new CloudflareD1EmailOtpChallengeStore({
+    database: options.database,
+    namespace: options.namespace,
+    orgId: options.orgId,
+    projectId: options.projectId,
+    envId: options.envId,
+  });
+  const emailOtpDelivery = new CloudflareD1EmailOtpDeliveryRuntime(options.emailOtp);
+  const emailOtpEnrollments = new CloudflareD1EmailOtpEnrollmentStore({ prepare });
+  const emailOtpGrants = new CloudflareD1EmailOtpGrantStore({ prepare });
+  const emailOtpRateLimits = new CloudflareD1EmailOtpRateLimitStore({
+    prepare,
+    rateLimits: options.emailOtp.rateLimits,
+  });
+  const emailOtpRecoveryEscrows = new CloudflareD1EmailOtpRecoveryEscrowStore({
+    database: options.database,
+    namespace: options.namespace,
+    orgId: options.orgId,
+    projectId: options.projectId,
+    envId: options.envId,
+  });
+  const emailOtpServerSeal = new CloudflareD1EmailOtpServerSealRuntime(
+    options.emailOtpServerSeal,
+  );
+  const googleEmailOtpSessions = new CloudflareD1GoogleEmailOtpSessionResolver({
+    emailOtpEnrollments,
+    emailOtpRateLimits,
+    identityStore,
+    linkIdentity,
+    production: options.emailOtp.production,
+    registrationAttempts: googleEmailOtpRegistrationAttempts,
+  });
+  const identityService = new CloudflareD1IdentityService({
+    accountIdDerivationSecret: options.accountIdDerivationSecret,
+    identityStore,
+    relayerAccount: options.relayerAccount,
+    resolveGoogleEmailOtpSession: googleEmailOtpSessions.resolve.bind(googleEmailOtpSessions),
+  });
+  const oidcVerification = new CloudflareD1OidcVerificationService({
+    googleOidcClientId: options.googleOidcClientId,
+    identityStore,
+    linkIdentity,
+    oidcExchange: options.oidcExchange,
+  });
+  const emailOtpRegistrationEnrollmentFinalizer =
+    new CloudflareD1EmailOtpRegistrationEnrollmentFinalizer({
+      emailOtpEnrollments,
+      emailOtpRecoveryEscrows,
+      googleEmailOtpSessions,
     });
-    this.sessionStore = new CloudflareD1SessionStore({
-      prepare: this.scopePrepare.bind(this),
-    });
-    this.sessionService = new CloudflareD1SessionService({
-      sessionStore: this.sessionStore,
-    });
-    this.googleEmailOtpRegistrationAttempts =
-      new CloudflareD1GoogleEmailOtpRegistrationAttemptStore({
-        prepare: this.scopePrepare.bind(this),
-        orgId: this.options.orgId,
-      });
-    this.nearPublicKeys = new CloudflareD1NearPublicKeyStore({
-      prepare: this.scopePrepare.bind(this),
-    });
-    this.webAuthnStore = new CloudflareD1WebAuthnStore({
-      database: this.options.database,
-      namespace: this.options.namespace,
-      orgId: this.options.orgId,
-      projectId: this.options.projectId,
-      envId: this.options.envId,
-    });
-    this.webAuthnAuthService = new CloudflareD1WebAuthnAuthService({
-      webAuthnStore: this.webAuthnStore,
-    });
-    this.emailOtpChallenges = new CloudflareD1EmailOtpChallengeStore({
-      database: this.options.database,
-      namespace: this.options.namespace,
-      orgId: this.options.orgId,
-      projectId: this.options.projectId,
-      envId: this.options.envId,
-    });
-    this.emailOtpDelivery = new CloudflareD1EmailOtpDeliveryRuntime(this.options.emailOtp);
-    this.emailOtpEnrollments = new CloudflareD1EmailOtpEnrollmentStore({
-      prepare: this.scopePrepare.bind(this),
-    });
-    this.emailOtpGrants = new CloudflareD1EmailOtpGrantStore({
-      prepare: this.scopePrepare.bind(this),
-    });
-    this.emailOtpRateLimits = new CloudflareD1EmailOtpRateLimitStore({
-      prepare: this.scopePrepare.bind(this),
-      rateLimits: this.options.emailOtp.rateLimits,
-    });
-    this.emailOtpRecoveryEscrows = new CloudflareD1EmailOtpRecoveryEscrowStore({
-      database: this.options.database,
-      namespace: this.options.namespace,
-      orgId: this.options.orgId,
-      projectId: this.options.projectId,
-      envId: this.options.envId,
-    });
-    this.emailOtpServerSeal = new CloudflareD1EmailOtpServerSealRuntime(
-      this.options.emailOtpServerSeal,
-    );
-    this.googleEmailOtpSessions = new CloudflareD1GoogleEmailOtpSessionResolver({
-      emailOtpEnrollments: this.emailOtpEnrollments,
-      emailOtpRateLimits: this.emailOtpRateLimits,
-      identityStore: this.identityStore,
-      linkIdentity: this.identityService.linkIdentity.bind(this.identityService),
-      production: this.options.emailOtp.production,
-      registrationAttempts: this.googleEmailOtpRegistrationAttempts,
-    });
-    this.oidcVerification = new CloudflareD1OidcVerificationService({
-      googleOidcClientId: this.options.googleOidcClientId,
-      identityStore: this.identityStore,
-      linkIdentity: this.identityService.linkIdentity.bind(this.identityService),
-      oidcExchange: this.options.oidcExchange,
-    });
-    this.emailOtpRegistrationEnrollmentFinalizer =
-      new CloudflareD1EmailOtpRegistrationEnrollmentFinalizer({
-        emailOtpEnrollments: this.emailOtpEnrollments,
-        emailOtpRecoveryEscrows: this.emailOtpRecoveryEscrows,
-        googleEmailOtpSessions: this.googleEmailOtpSessions,
-      });
-    this.emailOtpChallengeVerifier = new CloudflareD1EmailOtpChallengeVerifier({
-      emailOtpChallenges: this.emailOtpChallenges,
-      emailOtpEnrollments: this.emailOtpEnrollments,
-      emailOtpRateLimits: this.emailOtpRateLimits,
-      lockoutTtlMs: this.options.emailOtp.lockoutTtlMs,
-    });
-    this.walletAuthMethods = new CloudflareD1WalletAuthMethodService({
-      emailOtpChallengeVerifier: this.emailOtpChallengeVerifier,
-      getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
-      getWalletAuthMethodStore: this.getWalletAuthMethodStore.bind(this),
-      googleEmailOtpRegistrationAttempts: this.googleEmailOtpRegistrationAttempts,
-      sha256Bytes: sha256BytesPortable,
-      webAuthnStore: this.webAuthnStore,
-    });
-    this.walletRegistrations = new CloudflareD1WalletRegistrationService({
-      createSponsoredNamedNearAccount: this.createSponsoredNamedNearAccount.bind(this),
-      emailOtpRegistrationEnrollmentFinalizer: this.emailOtpRegistrationEnrollmentFinalizer,
-      getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
-      getThresholdSigningService: this.getThresholdSigningService.bind(this),
-      getWalletStore: this.getWalletStore.bind(this),
-      walletAuthMethods: this.walletAuthMethods,
-    });
-    this.walletAddSigners = new CloudflareD1WalletAddSignerService({
-      getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
-      getThresholdSigningService: this.getThresholdSigningService.bind(this),
-      getWalletStore: this.getWalletStore.bind(this),
-      walletAuthMethods: this.walletAuthMethods,
-    });
-    this.registrationIntents = new CloudflareD1RegistrationIntentService({
-      getRegistrationCeremonyIntentStore: this.getRegistrationCeremonyIntentStore.bind(this),
-      signerWallets: this.emailOtpEnrollments,
-    });
-    this.emailOtpChallengeIssuer = new CloudflareD1EmailOtpChallengeIssuer({
-      config: {
-        challengeTtlMs: this.options.emailOtp.challengeTtlMs,
-        codeLength: this.options.emailOtp.codeLength,
-        deliveryMode: this.options.emailOtp.deliveryMode,
-        maxActiveChallengesPerContext: this.options.emailOtp.maxActiveChallengesPerContext,
-        maxAttempts: this.options.emailOtp.maxAttempts,
-      },
-      emailOtpChallenges: this.emailOtpChallenges,
-      emailOtpDelivery: this.emailOtpDelivery,
-      emailOtpEnrollments: this.emailOtpEnrollments,
-      emailOtpRateLimits: this.emailOtpRateLimits,
-    });
-    this.emailOtpChallengeService = new CloudflareD1EmailOtpChallengeService({
-      challenges: this.emailOtpChallenges,
-      devOutboxEnabled: this.options.emailOtp.devOutboxEnabled,
-      finalizer: this.emailOtpRegistrationEnrollmentFinalizer,
-      grantTtlMs: this.options.emailOtp.grantTtlMs,
-      grants: this.emailOtpGrants,
-      issuer: this.emailOtpChallengeIssuer,
-      registrationAttempts: this.googleEmailOtpRegistrationAttempts,
-      verifier: this.emailOtpChallengeVerifier,
-    });
-    this.emailOtpRecoveryService = new CloudflareD1EmailOtpRecoveryService({
-      challengeVerifier: this.emailOtpChallengeVerifier,
-      emailOtpChallenges: this.emailOtpChallenges,
-      emailOtpEnrollments: this.emailOtpEnrollments,
-      emailOtpGrants: this.emailOtpGrants,
-      emailOtpRateLimits: this.emailOtpRateLimits,
-      emailOtpRecoveryEscrows: this.emailOtpRecoveryEscrows,
-      grantTtlMs: this.options.emailOtp.grantTtlMs,
-      sha256Bytes: sha256BytesPortable,
-    });
-    this.thresholdSigning = new CloudflareD1ThresholdSigningRuntime({
-      relayerAccount: this.options.relayerAccount,
-      relayerPublicKey: this.options.relayerPublicKey,
-      thresholdSigningService: this.options.thresholdSigningService,
-      thresholdStore: this.options.thresholdStore,
-      auth: {
-        verifyWebAuthnAuthenticationLite: this.verifyWebAuthnAuthenticationLite.bind(this),
-      },
-    });
-  }
-
-  async createRegistrationIntent(
-    input: RouterApiInput<'createRegistrationIntent'>,
-  ): Promise<RouterApiResult<'createRegistrationIntent'>> {
-    return await this.registrationIntents.createRegistrationIntent(input);
-  }
-
-  async startWalletRegistration(
-    request: RouterApiInput<'startWalletRegistration'>,
-  ): Promise<RouterApiResult<'startWalletRegistration'>> {
-    return await this.walletRegistrations.startWalletRegistration(request);
-  }
-
-  async prepareWalletRegistration(
-    request: RouterApiInput<'prepareWalletRegistration'>,
-  ): Promise<RouterApiResult<'prepareWalletRegistration'>> {
-    return await this.walletRegistrations.prepareWalletRegistration(request);
-  }
-
-  async respondWalletRegistrationHss(
-    request: RouterApiInput<'respondWalletRegistrationHss'>,
-  ): Promise<RouterApiResult<'respondWalletRegistrationHss'>> {
-    return await this.walletRegistrations.respondWalletRegistrationHss(request);
-  }
-
-  async finalizeWalletRegistration(
-    request: RouterApiInput<'finalizeWalletRegistration'>,
-  ): Promise<RouterApiResult<'finalizeWalletRegistration'>> {
-    return await this.walletRegistrations.finalizeWalletRegistration(request);
-  }
-
-  async createAddSignerIntent(
-    input: RouterApiInput<'createAddSignerIntent'>,
-  ): Promise<RouterApiResult<'createAddSignerIntent'>> {
-    return await this.registrationIntents.createAddSignerIntent(input);
-  }
-
-  async startWalletAddSigner(
-    request: RouterApiInput<'startWalletAddSigner'>,
-  ): Promise<RouterApiResult<'startWalletAddSigner'>> {
-    return await this.walletAddSigners.startWalletAddSigner(request);
-  }
-
-  async respondWalletAddSignerHss(
-    request: RouterApiInput<'respondWalletAddSignerHss'>,
-  ): Promise<RouterApiResult<'respondWalletAddSignerHss'>> {
-    return await this.walletAddSigners.respondWalletAddSignerHss(request);
-  }
-
-  async finalizeWalletAddSigner(
-    request: RouterApiInput<'finalizeWalletAddSigner'>,
-  ): Promise<RouterApiResult<'finalizeWalletAddSigner'>> {
-    return await this.walletAddSigners.finalizeWalletAddSigner(request);
-  }
-
-  async createAddAuthMethodIntent(
-    input: RouterApiInput<'createAddAuthMethodIntent'>,
-  ): Promise<RouterApiResult<'createAddAuthMethodIntent'>> {
-    return await this.registrationIntents.createAddAuthMethodIntent(input);
-  }
-
-  async startWalletAddAuthMethod(
-    request: RouterApiInput<'startWalletAddAuthMethod'>,
-  ): Promise<RouterApiResult<'startWalletAddAuthMethod'>> {
-    return await this.walletAuthMethods.startWalletAddAuthMethod(request);
-  }
-
-  async finalizeWalletAddAuthMethod(
-    request: RouterApiInput<'finalizeWalletAddAuthMethod'>,
-  ): Promise<RouterApiResult<'finalizeWalletAddAuthMethod'>> {
-    return await this.walletAuthMethods.finalizeWalletAddAuthMethod(request);
-  }
-
-  async listIdentities(
-    input: RouterApiInput<'listIdentities'>,
-  ): Promise<RouterApiResult<'listIdentities'>> {
-    return await this.identityService.listIdentities(input);
-  }
-
-  async linkIdentity(
-    input: RouterApiInput<'linkIdentity'>,
-  ): Promise<RouterApiResult<'linkIdentity'>> {
-    return await this.identityService.linkIdentity(input);
-  }
-
-  async unlinkIdentity(
-    input: RouterApiInput<'unlinkIdentity'>,
-  ): Promise<RouterApiResult<'unlinkIdentity'>> {
-    return await this.identityService.unlinkIdentity(input);
-  }
-
-  async resolveOidcWalletId(
-    input: RouterApiInput<'resolveOidcWalletId'>,
-  ): Promise<RouterApiResult<'resolveOidcWalletId'>> {
-    return await this.identityService.resolveOidcWalletId(input);
-  }
-
-  async consumeGoogleEmailOtpRegistrationAttemptRateLimit(
-    input: RouterApiInput<'consumeGoogleEmailOtpRegistrationAttemptRateLimit'>,
-  ): Promise<RouterApiResult<'consumeGoogleEmailOtpRegistrationAttemptRateLimit'>> {
-    return await this.googleEmailOtpSessions.consumeRegistrationAttemptRateLimit(input);
-  }
-
-  async resolveGoogleEmailOtpSession(
-    input: RouterApiInput<'resolveGoogleEmailOtpSession'>,
-  ): Promise<RouterApiResult<'resolveGoogleEmailOtpSession'>> {
-    return await this.googleEmailOtpSessions.resolve(input);
-  }
-
-  async cleanupGoogleEmailOtpDevRegistrationState(
-    input: RouterApiInput<'cleanupGoogleEmailOtpDevRegistrationState'>,
-  ): Promise<RouterApiResult<'cleanupGoogleEmailOtpDevRegistrationState'>> {
-    return await this.googleEmailOtpSessions.cleanupDevRegistrationState(input);
-  }
-
-  async validateGoogleEmailOtpRegistrationCandidateWallet(
-    input: RouterApiInput<'validateGoogleEmailOtpRegistrationCandidateWallet'>,
-  ): Promise<RouterApiResult<'validateGoogleEmailOtpRegistrationCandidateWallet'>> {
-    return await this.googleEmailOtpSessions.validateRegistrationCandidateWallet(input);
-  }
-
-  async readEmailOtpEnrollment(
-    input: RouterApiInput<'readEmailOtpEnrollment'>,
-  ): Promise<RouterApiResult<'readEmailOtpEnrollment'>> {
-    return await this.emailOtpRecoveryService.readEmailOtpEnrollment(input);
-  }
-
-  async readActiveEmailOtpEnrollment(
-    input: RouterApiInput<'readActiveEmailOtpEnrollment'>,
-  ): Promise<RouterApiResult<'readActiveEmailOtpEnrollment'>> {
-    return await this.emailOtpRecoveryService.readActiveEmailOtpEnrollment(input);
-  }
-
-  async isEmailOtpStrongAuthRequired(
-    input: RouterApiInput<'isEmailOtpStrongAuthRequired'>,
-  ): Promise<RouterApiResult<'isEmailOtpStrongAuthRequired'>> {
-    return await this.emailOtpRecoveryService.isEmailOtpStrongAuthRequired(input);
-  }
-
-  async markEmailOtpStrongAuthSatisfied(
-    input: RouterApiInput<'markEmailOtpStrongAuthSatisfied'>,
-  ): Promise<RouterApiResult<'markEmailOtpStrongAuthSatisfied'>> {
-    return await this.emailOtpRecoveryService.markEmailOtpStrongAuthSatisfied(input);
-  }
-
-  async getEmailOtpRecoveryCodeStatus(
-    input: RouterApiInput<'getEmailOtpRecoveryCodeStatus'>,
-  ): Promise<RouterApiResult<'getEmailOtpRecoveryCodeStatus'>> {
-    return await this.emailOtpRecoveryService.getEmailOtpRecoveryCodeStatus(input);
-  }
-
-  async createEmailOtpChallenge(
-    input: RouterApiInput<'createEmailOtpChallenge'>,
-  ): Promise<RouterApiResult<'createEmailOtpChallenge'>> {
-    return await this.emailOtpChallengeService.createEmailOtpChallenge(input);
-  }
-
-  async createEmailOtpEnrollmentChallenge(
-    input: RouterApiInput<'createEmailOtpEnrollmentChallenge'>,
-  ): Promise<RouterApiResult<'createEmailOtpEnrollmentChallenge'>> {
-    return await this.emailOtpChallengeService.createEmailOtpEnrollmentChallenge(input);
-  }
-
-  async createEmailOtpDeviceRecoveryChallenge(
-    input: RouterApiInput<'createEmailOtpDeviceRecoveryChallenge'>,
-  ): Promise<RouterApiResult<'createEmailOtpDeviceRecoveryChallenge'>> {
-    return await this.emailOtpChallengeService.createEmailOtpDeviceRecoveryChallenge(input);
-  }
-
-  async verifyEmailOtpEnrollment(
-    input: RouterApiInput<'verifyEmailOtpEnrollment'>,
-  ): Promise<RouterApiResult<'verifyEmailOtpEnrollment'>> {
-    return await this.emailOtpChallengeService.verifyEmailOtpEnrollment(input);
-  }
-
-  async verifyEmailOtpChallenge(
-    input: RouterApiInput<'verifyEmailOtpChallenge'>,
-  ): Promise<RouterApiResult<'verifyEmailOtpChallenge'>> {
-    return await this.emailOtpChallengeService.verifyEmailOtpChallenge(input);
-  }
-
-  async revokeWalletAuthMethod(
-    input: RouterApiInput<'revokeWalletAuthMethod'>,
-  ): Promise<RouterApiResult<'revokeWalletAuthMethod'>> {
-    return await this.walletAuthMethods.revokeWalletAuthMethod(input);
-  }
-
-  async removeEmailOtpServerSeal(
-    input: RouterApiInput<'removeEmailOtpServerSeal'>,
-  ): Promise<RouterApiResult<'removeEmailOtpServerSeal'>> {
-    return await this.emailOtpServerSeal.removeEmailOtpServerSeal(input);
-  }
-
-  async applyEmailOtpServerSeal(
-    input: RouterApiInput<'applyEmailOtpServerSeal'>,
-  ): Promise<RouterApiResult<'applyEmailOtpServerSeal'>> {
-    return await this.emailOtpServerSeal.applyEmailOtpServerSeal(input);
-  }
-
-  async verifyEmailOtpDeviceRecoveryChallenge(
-    input: RouterApiInput<'verifyEmailOtpDeviceRecoveryChallenge'>,
-  ): Promise<RouterApiResult<'verifyEmailOtpDeviceRecoveryChallenge'>> {
-    return await this.emailOtpRecoveryService.verifyEmailOtpDeviceRecoveryChallenge(input);
-  }
-
-  async readEmailOtpOutboxEntry(
-    input: RouterApiInput<'readEmailOtpOutboxEntry'>,
-  ): Promise<RouterApiResult<'readEmailOtpOutboxEntry'>> {
-    return await this.emailOtpChallengeService.readEmailOtpOutboxEntry(input);
-  }
-
-  async createEmailOtpUnlockChallenge(
-    input: RouterApiInput<'createEmailOtpUnlockChallenge'>,
-  ): Promise<RouterApiResult<'createEmailOtpUnlockChallenge'>> {
-    return await this.emailOtpRecoveryService.createEmailOtpUnlockChallenge(input);
-  }
-
-  async verifyEmailOtpUnlockProof(
-    input: RouterApiInput<'verifyEmailOtpUnlockProof'>,
-  ): Promise<RouterApiResult<'verifyEmailOtpUnlockProof'>> {
-    return await this.emailOtpRecoveryService.verifyEmailOtpUnlockProof(input);
-  }
-
-  async consumeEmailOtpGrant(
-    input: RouterApiInput<'consumeEmailOtpGrant'>,
-  ): Promise<RouterApiResult<'consumeEmailOtpGrant'>> {
-    return await this.emailOtpRecoveryService.consumeEmailOtpGrant(input);
-  }
-
-  async consumeEmailOtpRecoveryKey(
-    input: RouterApiInput<'consumeEmailOtpRecoveryKey'>,
-  ): Promise<RouterApiResult<'consumeEmailOtpRecoveryKey'>> {
-    return await this.emailOtpRecoveryService.consumeEmailOtpRecoveryKey(input);
-  }
-
-  async rotateEmailOtpRecoveryKeys(
-    input: RouterApiInput<'rotateEmailOtpRecoveryKeys'>,
-  ): Promise<RouterApiResult<'rotateEmailOtpRecoveryKeys'>> {
-    return await this.emailOtpRecoveryService.rotateEmailOtpRecoveryKeys(input);
-  }
-
-  async recordEmailOtpRecoveryKeyAttemptFailure(
-    input: RouterApiInput<'recordEmailOtpRecoveryKeyAttemptFailure'>,
-  ): Promise<RouterApiResult<'recordEmailOtpRecoveryKeyAttemptFailure'>> {
-    return await this.emailOtpRecoveryService.recordEmailOtpRecoveryKeyAttemptFailure(input);
-  }
-
-  async getRecoverySession(
-    input: RouterApiInput<'getRecoverySession'>,
-  ): Promise<RouterApiResult<'getRecoverySession'>> {
-    return await this.sessionService.getRecoverySession(input);
-  }
-
-  async updateRecoverySessionStatus(
-    input: RouterApiInput<'updateRecoverySessionStatus'>,
-  ): Promise<RouterApiResult<'updateRecoverySessionStatus'>> {
-    return await this.sessionService.updateRecoverySessionStatus(input);
-  }
-
-  async recordRecoveryExecution(
-    input: RouterApiInput<'recordRecoveryExecution'>,
-  ): Promise<RouterApiResult<'recordRecoveryExecution'>> {
-    return await this.sessionService.recordRecoveryExecution(input);
-  }
-
-  async getOrCreateAppSessionVersion(
-    input: RouterApiInput<'getOrCreateAppSessionVersion'>,
-  ): Promise<RouterApiResult<'getOrCreateAppSessionVersion'>> {
-    return await this.sessionService.getOrCreateAppSessionVersion(input);
-  }
-
-  async rotateAppSessionVersion(
-    input: RouterApiInput<'rotateAppSessionVersion'>,
-  ): Promise<RouterApiResult<'rotateAppSessionVersion'>> {
-    return await this.sessionService.rotateAppSessionVersion(input);
-  }
-
-  async validateAppSessionVersion(
-    input: RouterApiInput<'validateAppSessionVersion'>,
-  ): Promise<RouterApiResult<'validateAppSessionVersion'>> {
-    return await this.sessionService.validateAppSessionVersion(input);
-  }
-
-  async listWebAuthnAuthenticatorsForUser(
-    input: RouterApiInput<'listWebAuthnAuthenticatorsForUser'>,
-  ): Promise<RouterApiResult<'listWebAuthnAuthenticatorsForUser'>> {
-    return await this.webAuthnAuthService.listWebAuthnAuthenticatorsForUser(input);
-  }
-
-  async createWebAuthnLoginOptions(
-    input: RouterApiInput<'createWebAuthnLoginOptions'>,
-  ): Promise<RouterApiResult<'createWebAuthnLoginOptions'>> {
-    return await this.webAuthnAuthService.createWebAuthnLoginOptions(input);
-  }
-
-  async createWebAuthnSyncAccountOptions(
-    input: RouterApiInput<'createWebAuthnSyncAccountOptions'>,
-  ): Promise<RouterApiResult<'createWebAuthnSyncAccountOptions'>> {
-    return await this.webAuthnAuthService.createWebAuthnSyncAccountOptions(input);
-  }
-
-  async verifyWebAuthnAuthenticationLite(
-    input: RouterApiInput<'verifyWebAuthnAuthenticationLite'>,
-  ): Promise<RouterApiResult<'verifyWebAuthnAuthenticationLite'>> {
-    return await this.webAuthnAuthService.verifyWebAuthnAuthenticationLite(input);
-  }
-
-  async verifyWebAuthnLogin(
-    input: RouterApiInput<'verifyWebAuthnLogin'>,
-  ): Promise<RouterApiResult<'verifyWebAuthnLogin'>> {
-    return await this.webAuthnAuthService.verifyWebAuthnLogin(input);
-  }
-
-  async verifyWebAuthnSyncAccount(
-    input: RouterApiInput<'verifyWebAuthnSyncAccount'>,
-  ): Promise<RouterApiResult<'verifyWebAuthnSyncAccount'>> {
-    return await this.webAuthnAuthService.verifyWebAuthnSyncAccount(input);
-  }
-
-  async listNearPublicKeysForUser(
-    input: RouterApiInput<'listNearPublicKeysForUser'>,
-  ): Promise<RouterApiResult<'listNearPublicKeysForUser'>> {
-    return await this.nearPublicKeys.listForRelayUser(input);
-  }
-
-  async listThresholdEcdsaKeyIdentityTargetsForUser(
-    input: RouterApiInput<'listThresholdEcdsaKeyIdentityTargetsForUser'>,
-  ): Promise<RouterApiResult<'listThresholdEcdsaKeyIdentityTargetsForUser'>> {
-    return await this.thresholdSigning.listThresholdEcdsaKeyIdentityTargetsForUser(input);
-  }
-
-  async listWalletEcdsaKeyFactsInventory(
-    input: RouterApiInput<'listWalletEcdsaKeyFactsInventory'>,
-  ): Promise<RouterApiResult<'listWalletEcdsaKeyFactsInventory'>> {
-    return await this.thresholdSigning.listWalletEcdsaKeyFactsInventory(input);
-  }
-
-  async fundImplicitNearAccount(
-    input: RouterApiInput<'fundImplicitNearAccount'>,
-  ): Promise<RouterApiResult<'fundImplicitNearAccount'>> {
-    if (!this.options.implicitNearAccountTestFundingEnabled) {
-      return {
-        ok: false,
-        code: 'not_configured',
-        message: 'Implicit NEAR account test funding is not enabled on this server',
-      };
-    }
-    const relayerAccount = this.options.relayerAccount;
-    const relayerPrivateKey = this.options.relayerPrivateKey;
-    const nearRpcUrl = this.options.nearRpcUrl;
-    const fundedAmountYocto = this.options.accountInitialBalance;
-    if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !fundedAmountYocto) {
-      return {
-        ok: false,
-        code: 'not_configured',
-        message: 'Implicit NEAR account funding is not configured on this server',
-      };
-    }
-    return await fundImplicitNearAccountWithRelayer({
-      ...input,
-      relayerAccount,
-      relayerPrivateKey,
-      relayerPublicKey: this.options.relayerPublicKey,
-      nearRpcUrl,
-      fundedAmountYocto,
-    });
-  }
-
-  private async createSponsoredNamedNearAccount(input: {
-    readonly accountId: string;
-    readonly publicKey: string;
-  }): Promise<AccountCreationResult> {
-    const relayerAccount = this.options.relayerAccount;
-    const relayerPrivateKey = this.options.relayerPrivateKey;
-    const nearRpcUrl = this.options.nearRpcUrl;
-    const initialBalanceYocto = this.options.accountInitialBalance;
-    if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !initialBalanceYocto) {
-      return {
-        success: false,
-        error: 'Sponsored NEAR account creation is not configured on this server',
-        message: 'Sponsored NEAR account creation is not configured on this server',
-      };
-    }
-    return await createNamedNearAccountWithRelayer({
-      ...input,
-      relayerAccount,
-      relayerPrivateKey,
-      relayerPublicKey: this.options.relayerPublicKey,
-      nearRpcUrl,
-      initialBalanceYocto,
-    });
-  }
-
-  getConfiguredRelayerAccount(): RouterApiResult<'getConfiguredRelayerAccount'> {
-    return this.thresholdSigning.getConfiguredRelayerAccount();
-  }
-
-  async getRelayerAccount(): Promise<RouterApiResult<'getRelayerAccount'>> {
-    return await this.thresholdSigning.getRelayerAccount();
-  }
-
-  getThresholdSigningService(): RouterApiResult<'getThresholdSigningService'> {
-    return this.thresholdSigning.getThresholdSigningService();
-  }
-
-  async ecdsaHssRoleLocalBootstrap(
-    request: RouterApiInput<'ecdsaHssRoleLocalBootstrap'>,
-  ): Promise<RouterApiResult<'ecdsaHssRoleLocalBootstrap'>> {
-    return await this.thresholdSigning.ecdsaHssRoleLocalBootstrap(request);
-  }
-
-  async verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
-    request: RouterApiInput<'verifyEcdsaHssRoleLocalClientRootProofForExistingKey'>,
-  ): Promise<RouterApiResult<'verifyEcdsaHssRoleLocalClientRootProofForExistingKey'>> {
-    return await this.thresholdSigning.verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
-      request,
-    );
-  }
-
-  async ecdsaHssRoleLocalExportShare(
-    input: RouterApiInput<'ecdsaHssRoleLocalExportShare'>,
-  ): Promise<RouterApiResult<'ecdsaHssRoleLocalExportShare'>> {
-    return await this.thresholdSigning.ecdsaHssRoleLocalExportShare(input);
-  }
-
-  getGoogleOidcPublicConfig(): RouterApiResult<'getGoogleOidcPublicConfig'> {
-    return this.oidcVerification.getGoogleOidcPublicConfig();
-  }
-
-  async verifyOidcJwtExchange(
-    input: RouterApiInput<'verifyOidcJwtExchange'>,
-  ): Promise<RouterApiResult<'verifyOidcJwtExchange'>> {
-    return await this.oidcVerification.verifyOidcJwtExchange(input);
-  }
-
-  async verifyGoogleLogin(
-    input: RouterApiInput<'verifyGoogleLogin'>,
-  ): Promise<RouterApiResult<'verifyGoogleLogin'>> {
-    return await this.oidcVerification.verifyGoogleLogin(input);
-  }
-
-  private getRegistrationCeremonyIntentStore(): CloudflareD1RegistrationCeremonyIntentStore | null {
-    if (this.registrationCeremonyIntentStore) return this.registrationCeremonyIntentStore;
-    const config = resolveRegistrationCeremonyDoConfig(this.options.thresholdStore);
-    if (!config) return null;
-    this.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore(config);
-    return this.registrationCeremonyIntentStore;
-  }
-
-  private getWalletAuthMethodStore(): WalletAuthMethodStore {
-    if (this.walletAuthMethodStore) return this.walletAuthMethodStore;
-    this.walletAuthMethodStore = new D1WalletAuthMethodStore({
-      database: this.options.database,
-      namespace: this.options.namespace,
-      orgId: this.options.orgId,
-      projectId: this.options.projectId,
-      envId: this.options.envId,
-      ensureSchema: false,
-    });
-    return this.walletAuthMethodStore;
-  }
-
-  private getWalletStore(): WalletStore {
-    if (this.walletStore) return this.walletStore;
-    this.walletStore = new D1WalletStore({
-      database: this.options.database,
-      namespace: this.options.namespace,
-      orgId: this.options.orgId,
-      projectId: this.options.projectId,
-      envId: this.options.envId,
-      ensureSchema: false,
-    });
-    return this.walletStore;
-  }
-
-  private scopePrepare(sql: string, values: readonly unknown[]): D1PreparedStatementLike {
-    return this.options.database.prepare(sql).bind(...this.scopeValues(values));
-  }
-
-  private scopeValues(values: readonly unknown[]): readonly unknown[] {
-    return [
-      this.options.namespace,
-      this.options.orgId,
-      this.options.projectId,
-      this.options.envId,
-      ...values,
-    ];
-  }
+  const emailOtpChallengeVerifier = new CloudflareD1EmailOtpChallengeVerifier({
+    emailOtpChallenges,
+    emailOtpEnrollments,
+    emailOtpRateLimits,
+    lockoutTtlMs: options.emailOtp.lockoutTtlMs,
+  });
+  const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
+    emailOtpChallengeVerifier,
+    getRegistrationCeremonyIntentStore,
+    getWalletAuthMethodStore,
+    googleEmailOtpRegistrationAttempts,
+    sha256Bytes: sha256BytesPortable,
+    webAuthnStore,
+  });
+  const thresholdSigning = new CloudflareD1ThresholdSigningRuntime({
+    relayerAccount: options.relayerAccount,
+    relayerPublicKey: options.relayerPublicKey,
+    thresholdSigningService: options.thresholdSigningService,
+    thresholdStore: options.thresholdStore,
+    auth: {
+      verifyWebAuthnAuthenticationLite:
+        webAuthnAuthService.verifyWebAuthnAuthenticationLite.bind(webAuthnAuthService),
+    },
+  });
+  const walletRegistrations = new CloudflareD1WalletRegistrationService({
+    createSponsoredNamedNearAccount,
+    emailOtpRegistrationEnrollmentFinalizer,
+    getRegistrationCeremonyIntentStore,
+    getThresholdSigningService: thresholdSigning.getThresholdSigningService.bind(thresholdSigning),
+    getWalletStore,
+    walletAuthMethods,
+  });
+  const walletAddSigners = new CloudflareD1WalletAddSignerService({
+    getRegistrationCeremonyIntentStore,
+    getThresholdSigningService: thresholdSigning.getThresholdSigningService.bind(thresholdSigning),
+    getWalletStore,
+    walletAuthMethods,
+  });
+  const registrationIntents = new CloudflareD1RegistrationIntentService({
+    getRegistrationCeremonyIntentStore,
+    signerWallets: emailOtpEnrollments,
+  });
+  const emailOtpChallengeIssuer = new CloudflareD1EmailOtpChallengeIssuer({
+    config: {
+      challengeTtlMs: options.emailOtp.challengeTtlMs,
+      codeLength: options.emailOtp.codeLength,
+      deliveryMode: options.emailOtp.deliveryMode,
+      maxActiveChallengesPerContext: options.emailOtp.maxActiveChallengesPerContext,
+      maxAttempts: options.emailOtp.maxAttempts,
+    },
+    emailOtpChallenges,
+    emailOtpDelivery,
+    emailOtpEnrollments,
+    emailOtpRateLimits,
+  });
+  const emailOtpChallengeService = new CloudflareD1EmailOtpChallengeService({
+    challenges: emailOtpChallenges,
+    devOutboxEnabled: options.emailOtp.devOutboxEnabled,
+    finalizer: emailOtpRegistrationEnrollmentFinalizer,
+    grantTtlMs: options.emailOtp.grantTtlMs,
+    grants: emailOtpGrants,
+    issuer: emailOtpChallengeIssuer,
+    registrationAttempts: googleEmailOtpRegistrationAttempts,
+    verifier: emailOtpChallengeVerifier,
+  });
+  const emailOtpRecoveryService = new CloudflareD1EmailOtpRecoveryService({
+    challengeVerifier: emailOtpChallengeVerifier,
+    emailOtpChallenges,
+    emailOtpEnrollments,
+    emailOtpGrants,
+    emailOtpRateLimits,
+    emailOtpRecoveryEscrows,
+    grantTtlMs: options.emailOtp.grantTtlMs,
+    sha256Bytes: sha256BytesPortable,
+  });
+
+  return {
+    options,
+    emailOtpServerSeal,
+    emailOtpChallengeService,
+    emailOtpRecoveryService,
+    identityService,
+    oidcVerification,
+    sessionService,
+    googleEmailOtpSessions,
+    nearPublicKeys,
+    webAuthnAuthService,
+    walletAuthMethods,
+    walletRegistrations,
+    walletAddSigners,
+    registrationIntents,
+    thresholdSigning,
+  };
+}
+
+function createD1WalletRegistrationRouteService(
+  assembly: D1WalletRegistrationRouteServiceAssembly,
+): RouterApiServiceBag['walletRegistration'] {
+  return {
+    createRegistrationIntent:
+      assembly.registrationIntents.createRegistrationIntent.bind(assembly.registrationIntents),
+    prepareWalletRegistration:
+      assembly.walletRegistrations.prepareWalletRegistration.bind(assembly.walletRegistrations),
+    startWalletRegistration:
+      assembly.walletRegistrations.startWalletRegistration.bind(assembly.walletRegistrations),
+    respondWalletRegistrationHss:
+      assembly.walletRegistrations.respondWalletRegistrationHss.bind(assembly.walletRegistrations),
+    finalizeWalletRegistration:
+      assembly.walletRegistrations.finalizeWalletRegistration.bind(assembly.walletRegistrations),
+  };
+}
+
+function createD1WalletAuthMethodRouteService(
+  assembly: D1WalletAuthMethodRouteServiceAssembly,
+): RouterApiServiceBag['walletAuthMethods'] {
+  return {
+    createAddAuthMethodIntent:
+      assembly.registrationIntents.createAddAuthMethodIntent.bind(assembly.registrationIntents),
+    createAddSignerIntent:
+      assembly.registrationIntents.createAddSignerIntent.bind(assembly.registrationIntents),
+    finalizeWalletAddAuthMethod:
+      assembly.walletAuthMethods.finalizeWalletAddAuthMethod.bind(assembly.walletAuthMethods),
+    finalizeWalletAddSigner:
+      assembly.walletAddSigners.finalizeWalletAddSigner.bind(assembly.walletAddSigners),
+    respondWalletAddSignerHss:
+      assembly.walletAddSigners.respondWalletAddSignerHss.bind(assembly.walletAddSigners),
+    revokeWalletAuthMethod:
+      assembly.walletAuthMethods.revokeWalletAuthMethod.bind(assembly.walletAuthMethods),
+    startWalletAddAuthMethod:
+      assembly.walletAuthMethods.startWalletAddAuthMethod.bind(assembly.walletAuthMethods),
+    startWalletAddSigner:
+      assembly.walletAddSigners.startWalletAddSigner.bind(assembly.walletAddSigners),
+  };
+}
+
+function createD1WalletUnlockRouteService(
+  assembly: D1WalletUnlockRouteServiceAssembly,
+): RouterApiServiceBag['walletUnlock'] {
+  return {
+    createEmailOtpUnlockChallenge:
+      assembly.emailOtpRecoveryService.createEmailOtpUnlockChallenge.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    createWebAuthnLoginOptions:
+      assembly.webAuthnAuthService.createWebAuthnLoginOptions.bind(assembly.webAuthnAuthService),
+    markEmailOtpStrongAuthSatisfied:
+      assembly.emailOtpRecoveryService.markEmailOtpStrongAuthSatisfied.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    verifyEmailOtpUnlockProof:
+      assembly.emailOtpRecoveryService.verifyEmailOtpUnlockProof.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    verifyWebAuthnLogin:
+      assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(assembly.webAuthnAuthService),
+  };
+}
+
+function createD1EmailOtpRouteService(
+  assembly: D1EmailOtpRouteServiceAssembly,
+): RouterApiServiceBag['emailOtp'] {
+  return {
+    applyEmailOtpServerSeal:
+      assembly.emailOtpServerSeal.applyEmailOtpServerSeal.bind(assembly.emailOtpServerSeal),
+    cleanupGoogleEmailOtpDevRegistrationState:
+      assembly.googleEmailOtpSessions.cleanupDevRegistrationState.bind(
+        assembly.googleEmailOtpSessions,
+      ),
+    consumeEmailOtpGrant:
+      assembly.emailOtpRecoveryService.consumeEmailOtpGrant.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    consumeEmailOtpRecoveryKey:
+      assembly.emailOtpRecoveryService.consumeEmailOtpRecoveryKey.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    createEmailOtpChallenge:
+      assembly.emailOtpChallengeService.createEmailOtpChallenge.bind(
+        assembly.emailOtpChallengeService,
+      ),
+    createEmailOtpDeviceRecoveryChallenge:
+      assembly.emailOtpChallengeService.createEmailOtpDeviceRecoveryChallenge.bind(
+        assembly.emailOtpChallengeService,
+      ),
+    createEmailOtpEnrollmentChallenge:
+      assembly.emailOtpChallengeService.createEmailOtpEnrollmentChallenge.bind(
+        assembly.emailOtpChallengeService,
+      ),
+    getEmailOtpRecoveryCodeStatus:
+      assembly.emailOtpRecoveryService.getEmailOtpRecoveryCodeStatus.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    isEmailOtpStrongAuthRequired:
+      assembly.emailOtpRecoveryService.isEmailOtpStrongAuthRequired.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    markEmailOtpStrongAuthSatisfied:
+      assembly.emailOtpRecoveryService.markEmailOtpStrongAuthSatisfied.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    readActiveEmailOtpEnrollment:
+      assembly.emailOtpRecoveryService.readActiveEmailOtpEnrollment.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    readEmailOtpEnrollment:
+      assembly.emailOtpRecoveryService.readEmailOtpEnrollment.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    readEmailOtpOutboxEntry:
+      assembly.emailOtpChallengeService.readEmailOtpOutboxEntry.bind(
+        assembly.emailOtpChallengeService,
+      ),
+    recordEmailOtpRecoveryKeyAttemptFailure:
+      assembly.emailOtpRecoveryService.recordEmailOtpRecoveryKeyAttemptFailure.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    removeEmailOtpServerSeal:
+      assembly.emailOtpServerSeal.removeEmailOtpServerSeal.bind(assembly.emailOtpServerSeal),
+    rotateEmailOtpRecoveryKeys:
+      assembly.emailOtpRecoveryService.rotateEmailOtpRecoveryKeys.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    validateGoogleEmailOtpRegistrationCandidateWallet:
+      assembly.googleEmailOtpSessions.validateRegistrationCandidateWallet.bind(
+        assembly.googleEmailOtpSessions,
+      ),
+    verifyEmailOtpChallenge:
+      assembly.emailOtpChallengeService.verifyEmailOtpChallenge.bind(
+        assembly.emailOtpChallengeService,
+      ),
+    verifyEmailOtpDeviceRecoveryChallenge:
+      assembly.emailOtpRecoveryService.verifyEmailOtpDeviceRecoveryChallenge.bind(
+        assembly.emailOtpRecoveryService,
+      ),
+    verifyEmailOtpEnrollment:
+      assembly.emailOtpChallengeService.verifyEmailOtpEnrollment.bind(
+        assembly.emailOtpChallengeService,
+      ),
+    verifyGoogleLogin:
+      assembly.oidcVerification.verifyGoogleLogin.bind(assembly.oidcVerification),
+  };
+}
+
+function createD1WebAuthnRouteService(
+  assembly: D1WebAuthnRouteServiceAssembly,
+): RouterApiServiceBag['webAuthn'] {
+  return {
+    createWebAuthnLoginOptions:
+      assembly.webAuthnAuthService.createWebAuthnLoginOptions.bind(assembly.webAuthnAuthService),
+    createWebAuthnSyncAccountOptions:
+      assembly.webAuthnAuthService.createWebAuthnSyncAccountOptions.bind(
+        assembly.webAuthnAuthService,
+      ),
+    listWebAuthnAuthenticatorsForUser:
+      assembly.webAuthnAuthService.listWebAuthnAuthenticatorsForUser.bind(
+        assembly.webAuthnAuthService,
+      ),
+    verifyWebAuthnAuthenticationLite:
+      assembly.webAuthnAuthService.verifyWebAuthnAuthenticationLite.bind(
+        assembly.webAuthnAuthService,
+      ),
+    verifyWebAuthnLogin:
+      assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(assembly.webAuthnAuthService),
+    verifyWebAuthnSyncAccount:
+      assembly.webAuthnAuthService.verifyWebAuthnSyncAccount.bind(assembly.webAuthnAuthService),
+  };
+}
+
+function createD1IdentityRouteService(
+  assembly: D1IdentityRouteServiceAssembly,
+): RouterApiServiceBag['identity'] {
+  return {
+    consumeGoogleEmailOtpRegistrationAttemptRateLimit:
+      assembly.googleEmailOtpSessions.consumeRegistrationAttemptRateLimit.bind(
+        assembly.googleEmailOtpSessions,
+      ),
+    getGoogleOidcPublicConfig:
+      assembly.oidcVerification.getGoogleOidcPublicConfig.bind(assembly.oidcVerification),
+    linkIdentity: assembly.identityService.linkIdentity.bind(assembly.identityService),
+    listIdentities: assembly.identityService.listIdentities.bind(assembly.identityService),
+    resolveGoogleEmailOtpSession:
+      assembly.googleEmailOtpSessions.resolve.bind(assembly.googleEmailOtpSessions),
+    resolveOidcWalletId:
+      assembly.identityService.resolveOidcWalletId.bind(assembly.identityService),
+    unlinkIdentity: assembly.identityService.unlinkIdentity.bind(assembly.identityService),
+    verifyGoogleLogin:
+      assembly.oidcVerification.verifyGoogleLogin.bind(assembly.oidcVerification),
+    verifyOidcJwtExchange:
+      assembly.oidcVerification.verifyOidcJwtExchange.bind(assembly.oidcVerification),
+  };
+}
+
+function createD1SessionVersionRouteService(
+  assembly: D1SessionVersionRouteServiceAssembly,
+): RouterApiServiceBag['sessionVersions'] {
+  return {
+    getOrCreateAppSessionVersion:
+      assembly.sessionService.getOrCreateAppSessionVersion.bind(assembly.sessionService),
+    rotateAppSessionVersion:
+      assembly.sessionService.rotateAppSessionVersion.bind(assembly.sessionService),
+    validateAppSessionVersion:
+      assembly.sessionService.validateAppSessionVersion.bind(assembly.sessionService),
+  };
+}
+
+function createD1ThresholdRuntimeRouteService(
+  assembly: D1ThresholdRuntimeRouteServiceAssembly,
+): RouterApiServiceBag['thresholdRuntime'] {
+  return {
+    ecdsaHssRoleLocalBootstrap:
+      assembly.thresholdSigning.ecdsaHssRoleLocalBootstrap.bind(assembly.thresholdSigning),
+    ecdsaHssRoleLocalExportShare:
+      assembly.thresholdSigning.ecdsaHssRoleLocalExportShare.bind(assembly.thresholdSigning),
+    getThresholdSigningService:
+      assembly.thresholdSigning.getThresholdSigningService.bind(assembly.thresholdSigning),
+    listThresholdEcdsaKeyIdentityTargetsForUser:
+      assembly.thresholdSigning.listThresholdEcdsaKeyIdentityTargetsForUser.bind(
+        assembly.thresholdSigning,
+      ),
+    listWalletEcdsaKeyFactsInventory:
+      assembly.thresholdSigning.listWalletEcdsaKeyFactsInventory.bind(assembly.thresholdSigning),
+    verifyEcdsaHssRoleLocalClientRootProofForExistingKey:
+      assembly.thresholdSigning.verifyEcdsaHssRoleLocalClientRootProofForExistingKey.bind(
+        assembly.thresholdSigning,
+      ),
+  };
+}
+
+function createD1NearFundingRouteService(
+  assembly: D1NearFundingRouteServiceAssembly,
+): RouterApiServiceBag['nearFunding'] {
+  return {
+    fundImplicitNearAccount: fundImplicitNearAccountForOptions.bind(undefined, assembly.options),
+    listNearPublicKeysForUser:
+      assembly.nearPublicKeys.listForRelayUser.bind(assembly.nearPublicKeys),
+  };
+}
+
+function createD1RecoveryRouteService(
+  assembly: D1RecoveryRouteServiceAssembly,
+): RouterApiServiceBag['recovery'] {
+  return {
+    getRecoverySession: assembly.sessionService.getRecoverySession.bind(assembly.sessionService),
+    recordRecoveryExecution:
+      assembly.sessionService.recordRecoveryExecution.bind(assembly.sessionService),
+    updateRecoverySessionStatus:
+      assembly.sessionService.updateRecoverySessionStatus.bind(assembly.sessionService),
+  };
+}
+
+function createD1RouterAccountRouteService(
+  assembly: D1RouterAccountRouteServiceAssembly,
+): RouterApiServiceBag['router'] {
+  return {
+    getConfiguredRelayerAccount:
+      assembly.thresholdSigning.getConfiguredRelayerAccount.bind(assembly.thresholdSigning),
+    getRelayerAccount: assembly.thresholdSigning.getRelayerAccount.bind(assembly.thresholdSigning),
+  };
 }
 
 export function createCloudflareD1RouterApiAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
-): RouterApiAuthService {
-  return new CloudflareD1RouterApiAuthMetadataService(input);
+): RouterApiServiceBag {
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
+  return {
+    walletRegistration: createD1WalletRegistrationRouteService(assembly),
+    walletAuthMethods: createD1WalletAuthMethodRouteService(assembly),
+    walletUnlock: createD1WalletUnlockRouteService(assembly),
+    emailOtp: createD1EmailOtpRouteService(assembly),
+    webAuthn: createD1WebAuthnRouteService(assembly),
+    identity: createD1IdentityRouteService(assembly),
+    sessionVersions: createD1SessionVersionRouteService(assembly),
+    thresholdRuntime: createD1ThresholdRuntimeRouteService(assembly),
+    nearFunding: createD1NearFundingRouteService(assembly),
+    recovery: createD1RecoveryRouteService(assembly),
+    router: createD1RouterAccountRouteService(assembly),
+  };
 }

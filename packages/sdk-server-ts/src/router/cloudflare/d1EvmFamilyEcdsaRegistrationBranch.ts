@@ -5,11 +5,13 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
-  RegistrationPreparationId,
   ThresholdEcdsaChainTarget,
-  ThresholdRuntimePolicyScope,
-  WalletRegistrationEcdsaPreparePayload,
+  ThresholdRuntimePolicyScope
 } from '../../core/types';
+import type {
+  RegistrationPreparationId,
+  WalletRegistrationEcdsaPreparePayload
+} from '../../core/registrationContracts';
 import { deriveEvmFamilySigningKeySlotId } from './d1RegistrationCeremonyRecords';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;

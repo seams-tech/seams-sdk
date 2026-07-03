@@ -28,6 +28,10 @@ import {
   type SigningSessionReadiness,
 } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import {
+  emailOtpAuthContextReason,
+  emailOtpAuthContextRetention,
+} from '@/core/signingEngine/session/identity/laneIdentity';
+import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
   emitSigningLaneResolutionTrace,
@@ -317,9 +321,11 @@ export async function resolveNearSigningSessionAuthContext(args: {
   if (!recordCandidate) {
     throw new Error('[SigningEngine][near] selected Ed25519 record has no lane candidate');
   }
+  const emailOtpAuthContext =
+    record.source === 'email_otp' ? record.emailOtpAuthContext : null;
   const lane =
     record?.source === 'email_otp'
-      ? recordCandidate.auth.kind === 'email_otp'
+      ? recordCandidate.auth.kind === 'email_otp' && emailOtpAuthContext
         ? buildNearTransactionSigningLane({
             walletId: record.walletId,
             nearAccountId: record.nearAccountId,
@@ -328,9 +334,11 @@ export async function resolveNearSigningSessionAuthContext(args: {
             auth: recordCandidate.auth,
             signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
             thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
-            retention: record.emailOtpAuthContext?.retention || 'session',
+            retention: emailOtpAuthContextRetention(emailOtpAuthContext),
             sessionOrigin:
-              record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+              emailOtpAuthContextReason(emailOtpAuthContext) === 'login'
+                ? 'login'
+                : 'per_operation',
           })
         : null
       : recordCandidate.auth.kind === 'passkey'

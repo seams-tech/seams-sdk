@@ -249,20 +249,23 @@ impl ServerSession {
                     .to_string(),
             ));
         }
-        let server_roots = state.server_roots().ok_or_else(|| {
-            crate::shared::ProtoError::InvalidInput(
-                "server eval state no longer retains raw server roots for execution materialization"
-                    .to_string(),
-            )
-        })?;
-        let y_server_bundle = self
-            .ddh_garbler
-            .share_server_input_bit_bundle("y_server_bits", &server_roots.y_server)?;
-        let tau_server_bundle = self
-            .ddh_garbler
-            .share_server_input_bit_bundle("tau_server_bits", &server_roots.tau_server)?;
-        let server_inputs =
-            DdhHiddenEvalServerInputs::from_joint_bundles(&y_server_bundle, &tau_server_bundle);
+        let server_inputs = if let Some(server_input_bundles) = state.server_input_bundles() {
+            server_input_bundles.clone()
+        } else {
+            let server_roots = state.server_roots().ok_or_else(|| {
+                crate::shared::ProtoError::InvalidInput(
+                    "server eval state no longer retains input material for execution materialization"
+                        .to_string(),
+                )
+            })?;
+            let y_server_bundle = self
+                .ddh_garbler
+                .share_server_input_bit_bundle("y_server_bits", &server_roots.y_server)?;
+            let tau_server_bundle = self
+                .ddh_garbler
+                .share_server_input_bit_bundle("tau_server_bits", &server_roots.tau_server)?;
+            DdhHiddenEvalServerInputs::from_joint_bundles(&y_server_bundle, &tau_server_bundle)
+        };
         let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
         let staged_materialization =
             materialize_staged_server_execution_with_split_server_inputs_with_pool(
@@ -1198,6 +1201,10 @@ impl ServerSession {
         let tau_server_split = self
             .ddh_garbler
             .split_share_bundle(&material.tau_server_bundle);
+        let state_server_inputs = DdhHiddenEvalServerInputs::from_joint_bundles(
+            &material.y_server_bundle,
+            &material.tau_server_bundle,
+        );
         let server_input_seal_started = monotonic_now_ns();
         let server_inputs = self.seal_role_separated_server_inputs_packet(
             material.packet.server_input_commitment,
@@ -1217,7 +1224,9 @@ impl ServerSession {
                 tau_client_remote_release: material.packet.tau_client_remote_release,
                 server_inputs,
             },
-            material.state,
+            material
+                .state
+                .with_role_separated_server_input_bundles(state_server_inputs),
             material.timing,
         ))
     }
@@ -1555,7 +1564,10 @@ impl ServerSession {
                 finalize_state.output.canonical_seed_commitment,
                 artifact.client_output_value_kind,
                 artifact.client_output_commitment,
-                finalize_state.output.x_server_base_left.commitment,
+                crate::protocol::transcript::server_output_value_commitment(
+                    &finalize_state.output.x_server_base_left,
+                    &finalize_state.output.x_server_base_right,
+                )?,
                 artifact.output_projector_binding,
             );
         if artifact.bindings.evaluation_digest != expected_evaluation_digest {

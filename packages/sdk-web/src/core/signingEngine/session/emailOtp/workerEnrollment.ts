@@ -61,6 +61,14 @@ function readOptionalString(value: unknown): string | undefined {
   return toOptionalTrimmedNonEmptyString(value);
 }
 
+function readNonNegativeInteger(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return Math.floor(parsed);
+}
+
 function zeroizeBytes(bytes?: Uint8Array | null): void {
   if (!(bytes instanceof Uint8Array)) return;
   bytes.fill(0);
@@ -125,6 +133,38 @@ function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult
       'clientUnlockPublicKeyB64u',
     ),
     unlockKeyVersion: readString(response.unlockKeyVersion, 'unlockKeyVersion'),
+  };
+}
+
+function parseEmailOtpRecoveryCodeRotationMaterial(
+  value: unknown,
+): EmailOtpRecoveryCodeRotationMaterial {
+  const response = requireObjectJson(value, 'Email OTP recovery-code rotation result');
+  const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
+  return {
+    walletId: readString(response.walletId, 'walletId'),
+    userId: readString(response.userId, 'userId'),
+    providerUserId: readString(response.authSubjectId, 'authSubjectId'),
+    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
+    enrollmentVersion: readString(response.enrollmentVersion, 'enrollmentVersion'),
+    enrollmentSealKeyVersion: readString(
+      response.enrollmentSealKeyVersion,
+      'enrollmentSealKeyVersion',
+    ),
+    recoveryKeys: recoveryCodeMaterial.recoveryKeys,
+    recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
+    activeRecoveryCodeCount: readNonNegativeInteger(
+      response.activeRecoveryCodeCount,
+      'activeRecoveryCodeCount',
+    ),
+    revokedRecoveryCodeCount: readNonNegativeInteger(
+      response.revokedRecoveryCodeCount,
+      'revokedRecoveryCodeCount',
+    ),
+    totalRecoveryCodeCount: readNonNegativeInteger(
+      response.totalRecoveryCodeCount,
+      'totalRecoveryCodeCount',
+    ),
   };
 }
 
@@ -258,19 +298,21 @@ export async function rotateEmailOtpRecoveryCodesWithWorker(args: {
   appSessionJwt?: string;
 }): Promise<EmailOtpRecoveryCodeRotationMaterial> {
   const workerCtx = requireWorkerCtx(args.workerCtx);
-  return await workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'rotateEmailOtpRecoveryCodes',
-      payload: {
-        relayUrl: readString(args.relayUrl, 'relayUrl'),
-        walletId: readString(args.walletId, 'walletId'),
-        userId: readString(args.userId, 'userId'),
-        routePlan: buildWorkerEmailOtpRoutePlan({
-          routeFamily: 'login',
-          appSessionJwt: args.appSessionJwt,
-        }),
+  return parseEmailOtpRecoveryCodeRotationMaterial(
+    await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'rotateEmailOtpRecoveryCodes',
+        payload: {
+          relayUrl: readString(args.relayUrl, 'relayUrl'),
+          walletId: readString(args.walletId, 'walletId'),
+          userId: readString(args.userId, 'userId'),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'login',
+            appSessionJwt: args.appSessionJwt,
+          }),
+        },
       },
-    },
-  });
+    }),
+  );
 }

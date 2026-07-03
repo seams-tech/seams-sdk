@@ -20,10 +20,15 @@ import {
   type EmailOtpEd25519SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
   EmailOtpThresholdEcdsaRehydrateResult,
 } from './ecdsaRecovery';
+import {
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  emailOtpAuthContextRetention,
+} from '../identity/laneIdentity';
 
 export type EmailOtpEd25519RestorePurpose = RestorePersistedEd25519SessionPurpose & {
   authMethod: 'email_otp';
@@ -42,7 +47,8 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   }
   if (
     existing?.source === 'email_otp' &&
-    existing.emailOtpAuthContext?.retention === 'session' &&
+    existing.emailOtpAuthContext &&
+    emailOtpAuthContextRetention(existing.emailOtpAuthContext) === 'session' &&
     existing.signingGrantId === args.purpose.signingGrantId
   ) {
     return existing;
@@ -74,12 +80,15 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
       : {}),
     expiresAtMs: args.record.expiresAtMs,
     remainingUses: args.record.remainingUses,
-    emailOtpAuthContext: {
+    emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
       policy: 'session',
+      walletId: toWalletId(args.record.authority.walletId),
+      emailHashHex: args.record.authority.verifier.emailHashHex,
       retention: 'session',
       reason: 'login',
-      authMethod: 'email_otp',
-    },
+      provider: args.record.authority.factor.provider,
+      providerUserId: args.record.authority.factor.providerUserId,
+    }),
     source: 'email_otp',
   });
 }

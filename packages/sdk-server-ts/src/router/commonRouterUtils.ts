@@ -6,7 +6,7 @@ import type {
 import {
   parseRouterAbEd25519WalletSessionClaims,
   parseRouterAbEcdsaHssWalletSessionClaims,
-  parseThresholdEd25519AuthorityScope,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   type RouterAbEd25519WalletSessionClaims,
   type RouterAbEcdsaHssWalletSessionClaims,
 } from '../core/ThresholdService/validation';
@@ -41,6 +41,7 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = { ok: false; code: 'sessions_disabled' | 'unauthorized'; message: string };
@@ -177,7 +178,7 @@ type RouterAbWalletSessionJwtSigningInput = {
 };
 
 export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
-  authorityScope: unknown;
+  authority: WalletAuthAuthority;
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
     walletId: unknown;
@@ -555,7 +556,7 @@ type RouterAbWalletSessionClaimsToSign =
 
 type RouterAbEd25519WalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
-  authorityScope: ThresholdEd25519AuthorityScope;
+  authority: WalletAuthAuthority;
   binding: {
     nearAccountId: string;
     nearEd25519SigningKeyId: string;
@@ -586,7 +587,8 @@ function buildRouterAbEd25519WalletSessionClaims(
     thresholdSessionId: input.base.thresholdSessionId,
     signingGrantId: input.base.signingGrantId,
     relayerKeyId: input.base.relayerKeyId,
-    authorityScope: input.authorityScope,
+    authority: input.authority,
+    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(input.authority),
     runtimePolicyScope: input.binding.runtimePolicyScope,
     routerAbNormalSigning: input.binding.routerAbNormalSigning,
     participantIds: input.base.participantIds,
@@ -664,8 +666,7 @@ export async function signRouterAbEd25519WalletSessionJwt(
 ): Promise<WalletSessionJwtSigningResult> {
   const base = normalizeRouterAbWalletSessionSigningBase(args);
   if (!base.ok) return base;
-  const authorityScope = parseThresholdEd25519AuthorityScope(args.authorityScope);
-  if (!authorityScope) {
+  if (String(args.authority.walletId || '').trim() !== base.value.userId) {
     return {
       ok: false,
       status: 500,
@@ -677,7 +678,7 @@ export async function signRouterAbEd25519WalletSessionJwt(
   if (!binding.ok) return binding;
   const claims = buildRouterAbEd25519WalletSessionClaims({
     base: base.value,
-    authorityScope,
+    authority: args.authority,
     binding,
   });
   return await signRouterAbWalletSessionClaims({

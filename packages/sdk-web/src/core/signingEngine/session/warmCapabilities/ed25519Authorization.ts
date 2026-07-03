@@ -6,8 +6,21 @@ import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/
 import { resolveRouterAbEd25519SigningRootFromRecord } from '../routerAbSigningWalletSession';
 
 export type WarmEd25519SigningSessionMaterialState =
-  | { materialState: 'material_ready' }
-  | { materialState: 'material_pending' };
+  | {
+      materialState: 'material_ready';
+      persistedMaterialState: 'material_ready';
+      materialPendingReason?: never;
+    }
+  | {
+      materialState: 'material_pending';
+      persistedMaterialState: 'restore_available';
+      materialPendingReason: 'restore_available';
+    }
+  | {
+      materialState: 'material_pending';
+      persistedMaterialState: 'auth_ready_material_pending';
+      materialPendingReason: 'worker_material_missing';
+    };
 
 export type WarmEd25519PrfClaimReady = {
   kind: 'hot_prf_claim';
@@ -95,10 +108,22 @@ function materialStateForEd25519Record(
 ): WarmEd25519SigningSessionMaterialState {
   switch (record.materialState) {
     case 'material_ready':
-      return { materialState: 'material_ready' };
+      return {
+        materialState: 'material_ready',
+        persistedMaterialState: 'material_ready',
+      };
     case 'restore_available':
+      return {
+        materialState: 'material_pending',
+        persistedMaterialState: 'restore_available',
+        materialPendingReason: 'restore_available',
+      };
     case 'auth_ready_material_pending':
-      return { materialState: 'material_pending' };
+      return {
+        materialState: 'material_pending',
+        persistedMaterialState: 'auth_ready_material_pending',
+        materialPendingReason: 'worker_material_missing',
+      };
   }
 }
 

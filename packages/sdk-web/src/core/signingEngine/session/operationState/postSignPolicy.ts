@@ -9,8 +9,12 @@ import {
   type EmailOtpEcdsaPostSignMaterial,
   type ThresholdEcdsaSessionRecord,
 } from '../persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
-import { WalletAuthPolicyError } from '../../stepUpConfirmation/walletAuthModeResolver';
+import {
+  emailOtpAuthContextConsumedAtMs,
+  emailOtpAuthContextRetention,
+  type ThresholdEcdsaSessionStoreSource,
+} from '../identity/laneIdentity';
+import { WalletAuthPolicyError } from '../../stepUpConfirmation/walletAuthPolicyError';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -50,14 +54,18 @@ export function ecdsaPostSignPolicySessionFromRecord(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaPostSignPolicySession {
   const emailOtpAuthContext = record.source === 'email_otp' ? record.emailOtpAuthContext : null;
-  const consumedAtMs = Math.floor(Number(emailOtpAuthContext?.consumedAtMs));
+  const consumedAtMs = emailOtpAuthContext
+    ? Math.floor(Number(emailOtpAuthContextConsumedAtMs(emailOtpAuthContext)))
+    : 0;
   return {
     walletId: record.walletId,
     chainTarget: record.chainTarget,
     source: record.source,
     signingGrantId: String(record.signingGrantId || '').trim(),
     thresholdSessionId: String(record.thresholdSessionId || '').trim(),
-    emailOtpRetention: emailOtpAuthContext?.retention || null,
+    emailOtpRetention: emailOtpAuthContext
+      ? emailOtpAuthContextRetention(emailOtpAuthContext)
+      : null,
     emailOtpConsumedAtMs: Number.isFinite(consumedAtMs) && consumedAtMs > 0 ? consumedAtMs : null,
   };
 }

@@ -4,7 +4,7 @@ import {
   buildThresholdEd25519SessionRecordKey,
   clearStoredThresholdEd25519SessionRecordForLaneKey,
   serializeThresholdEd25519SessionLaneKey,
-  type ReadyEmailOtpEcdsaSessionRecord,
+  type EmailOtpEcdsaSessionRecord,
   type ThresholdEd25519SessionRecordKey,
 } from './records';
 import { SigningSessionIds } from '../operationState/types';
@@ -102,17 +102,17 @@ serializeThresholdEd25519SessionLaneKey({
   nearAccountId: weakAccountId,
 });
 
-declare const emailOtpEcdsaSessionRecord: ReadyEmailOtpEcdsaSessionRecord;
+declare const emailOtpEcdsaSessionRecord: EmailOtpEcdsaSessionRecord;
 emailOtpEcdsaSessionRecord.walletSessionJwt.toUpperCase();
 
-const emailOtpEcdsaSessionRecordWithoutJwt: ReadyEmailOtpEcdsaSessionRecord = {
+const emailOtpEcdsaSessionRecordWithoutJwt: EmailOtpEcdsaSessionRecord = {
   ...emailOtpEcdsaSessionRecord,
   // @ts-expect-error Email OTP ECDSA session records require walletSessionJwt.
   walletSessionJwt: undefined,
 };
 void emailOtpEcdsaSessionRecordWithoutJwt;
 
-const emailOtpEcdsaCookieSessionRecord: ReadyEmailOtpEcdsaSessionRecord = {
+const emailOtpEcdsaCookieSessionRecord: EmailOtpEcdsaSessionRecord = {
   ...emailOtpEcdsaSessionRecord,
   // @ts-expect-error Email OTP ECDSA session records are JWT-backed.
   thresholdSessionKind: 'cookie',

@@ -4,6 +4,10 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../identity/laneIdentity';
 import {
+  emailOtpAuthContextReason,
+  emailOtpAuthContextRetention,
+} from '../identity/laneIdentity';
+import {
   upsertThresholdEcdsaSessionFromBootstrap,
   toExactEcdsaSigningLaneIdentity,
   type ThresholdEcdsaSessionRecord,
@@ -190,9 +194,12 @@ function summarizeThresholdEcdsaCommitRecord(
     walletSessionAuthSource:
       walletSessionAuth.kind === 'ready' ? walletSessionAuth.source : walletSessionAuth.reason,
     hasWalletSessionJwt: Boolean(record.walletSessionJwt),
-    emailOtpReason: record.source === 'email_otp' ? record.emailOtpAuthContext.reason : null,
+    emailOtpReason:
+      record.source === 'email_otp' ? emailOtpAuthContextReason(record.emailOtpAuthContext) : null,
     emailOtpRetention:
-      record.source === 'email_otp' ? record.emailOtpAuthContext.retention : null,
+      record.source === 'email_otp'
+        ? emailOtpAuthContextRetention(record.emailOtpAuthContext)
+        : null,
   };
 }
 

@@ -5,9 +5,8 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import type {
-  WalletSessionRef,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/persistence/records';
+import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   toWalletId,
   walletSessionRefFromSession,
@@ -20,12 +19,13 @@ import {
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import {
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import {
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  emailOtpAuthContextEmailHashHex,
+} from '../identity/laneIdentity';
 import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
   type RouterAbEd25519NormalSigningState,
@@ -35,27 +35,24 @@ import type {
   readExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { PersistWarmSessionEd25519CapabilityArgs } from '../warmCapabilities/persistence';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
-  authLaneToRouteAuth,
-  resolveEmailOtpAuthLane,
-  type EmailOtpAuthLane,
+  type EmailOtpRoutePlan,
+  type EmailOtpSigningSessionAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { appSessionSubjectFromEmailOtpAuthLane } from './appSessionJwtCache';
 import {
   assertEmailOtpSigningSessionAuthLane,
   buildEmailOtpSigningSessionRoutePlan,
-  buildFreshEmailOtpRoutePlan,
   routeAuthFromEmailOtpRoutePlan,
   type EmailOtpEcdsaBootstrapRouteAuth,
 } from './routePlan';
 import {
-  selectEmailOtpEcdsaRecordForEd25519Signing,
-  type EmailOtpEcdsaRecordForEd25519SigningSelectionResult,
+  selectEmailOtpEcdsaCompanionLaneForEd25519Signing,
+  type EmailOtpEcdsaCompanionLaneForEd25519Signing,
+  type EmailOtpEcdsaCompanionSelectionResult,
 } from './companionSessions';
 import {
   EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
-  emailOtpAuthorityScopeFromEmail,
   reconstructEmailOtpEd25519Session,
   type EmailOtpEd25519SessionReconstructionKey,
   type EmailOtpEd25519SessionReconstructionPlan,
@@ -66,16 +63,19 @@ import type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
-import {
-  unlockEmailOtpWalletForEd25519Session,
-} from './walletUnlock';
-import type {
-  EmailOtpEd25519RecoveryCodeSigningSessionHydration,
-} from './recoveryCodeWarmSessionHydration';
+import { emailOtpEcdsaProviderIdentityFromRecord } from './ecdsaLogin';
+import { unlockEmailOtpWalletForEd25519Session } from './walletUnlock';
+import type { EmailOtpEd25519RecoveryCodeSigningSessionHydration } from './recoveryCodeWarmSessionHydration';
 import {
   buildNearEd25519SignerBinding,
   nearAccountBindingFromRaw,
 } from '@shared/utils/walletCapabilityBindings';
+import type {
+  EmailOtpEd25519CommittedSessionRecord,
+  RecordBackedEd25519CommittedLane,
+} from './ed25519CommittedLane';
+import type { EmailOtpEd25519SigningSessionAuthority } from './ed25519SigningSessionAuthority';
+import { walletAuthAuthoritiesMatch } from '@shared/utils/walletAuthAuthority';
 
 export type LoginEmailOtpEd25519CapabilityArgs = {
   walletSession: WalletSessionRef;
@@ -84,12 +84,15 @@ export type LoginEmailOtpEd25519CapabilityArgs = {
   challengeId?: string;
   otpCode: string;
   shamirPrimeB64u?: string;
-  appSessionJwt?: string;
-  routeAuth?: AppOrWalletSessionAuth;
+  appSessionJwt?: never;
+  routeAuth?: never;
+  sessionKind?: never;
+  routePlan: EmailOtpRoutePlan;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
   remainingUses?: number;
   emailOtpAuthorityEmail?: string;
+  emailHashHex: string;
   ed25519SessionReconstruction: Extract<
     EmailOtpEd25519SessionReconstructionPlan,
     { kind: 'reconstruct' }
@@ -97,9 +100,55 @@ export type LoginEmailOtpEd25519CapabilityArgs = {
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
 
-function assertNeverEmailOtpEcdsaRecordSelection(
-  selection: never,
-): never {
+export type Ed25519SigningSessionRecord = EmailOtpEd25519CommittedSessionRecord;
+
+export type Ed25519SigningLane = RecordBackedEd25519CommittedLane<Ed25519SigningSessionRecord>;
+
+export function buildEd25519SigningLane(args: {
+  record: ThresholdEd25519SessionRecord;
+  authority: EmailOtpEd25519SigningSessionAuthority;
+}): Ed25519SigningLane {
+  if (args.record.source !== 'email_otp') {
+    throw new Error('Email OTP Ed25519 signing committed lane requires Email OTP record');
+  }
+  const emailOtpAuthContext = args.record.emailOtpAuthContext;
+  if (!emailOtpAuthContext) {
+    throw new Error('Email OTP Ed25519 signing committed lane requires bound Email OTP authority');
+  }
+  const thresholdSessionId = String(args.record.thresholdSessionId || '').trim();
+  const signingGrantId = String(args.record.signingGrantId || '').trim();
+  if (!thresholdSessionId || !signingGrantId) {
+    throw new Error('Email OTP Ed25519 signing committed lane requires session identity');
+  }
+  if (!walletAuthAuthoritiesMatch(emailOtpAuthContext.authority, args.authority.authority)) {
+    throw new Error('Email OTP Ed25519 signing committed lane authority drifted');
+  }
+  if (
+    args.authority.authLane.thresholdSessionId !== thresholdSessionId ||
+    args.authority.authLane.authorizingSigningGrantId !== signingGrantId
+  ) {
+    throw new Error('Email OTP Ed25519 signing committed lane authority drifted');
+  }
+  return {
+    source: 'record_backed',
+    record: {
+      ...args.record,
+      source: 'email_otp',
+      signingGrantId,
+      emailOtpAuthContext,
+    },
+    authority: args.authority.authority,
+    authLane: args.authority.authLane,
+    walletSessionAuthority: {
+      kind: 'wallet_session_authority',
+      walletSessionJwt: args.authority.authLane.jwt,
+      thresholdSessionId,
+      signingGrantId,
+    },
+  };
+}
+
+function assertNeverEmailOtpEcdsaCompanionSelection(selection: never): never {
   throw new Error(
     `[EmailOtpSession] unsupported ECDSA companion selection: ${String(
       (selection as { kind?: unknown })?.kind || '',
@@ -107,26 +156,31 @@ function assertNeverEmailOtpEcdsaRecordSelection(
   );
 }
 
-function requireExactEmailOtpEcdsaRecordForEd25519Signing(
-  selection: EmailOtpEcdsaRecordForEd25519SigningSelectionResult,
-): ThresholdEcdsaSessionRecord {
+function requireEmailOtpEcdsaCompanionLaneForEd25519Signing(
+  selection: EmailOtpEcdsaCompanionSelectionResult,
+): EmailOtpEcdsaCompanionLaneForEd25519Signing {
   switch (selection.kind) {
-    case 'exact_match':
-      return selection.record;
-    case 'duplicate_records':
+    case 'ready':
+      switch (selection.companion.kind) {
+        case 'single_companion_lane':
+          return selection.companion.lane;
+        case 'chain_distinct_companion_lanes':
+          return selection.companion.primaryLane;
+      }
+      selection.companion satisfies never;
+      throw new Error('[EmailOtpSession] unsupported ready ECDSA companion selection');
+    case 'duplicate_chain_lanes':
       throw new Error(
-        `[EmailOtpSession] Email OTP Ed25519 signing ECDSA bootstrap lane has duplicate exact records: exact matches=${selection.exactMatchCount}`,
+        `[EmailOtpSession] Email OTP Ed25519 signing ECDSA bootstrap lane has duplicate chain records: chain=${selection.chainTargetKey}, count=${selection.count}`,
       );
     case 'not_found':
-      throw new Error(
-        'Email OTP Ed25519 signing requires an exact concrete ECDSA bootstrap lane',
-      );
+      throw new Error('Email OTP Ed25519 signing requires an exact concrete ECDSA bootstrap lane');
     case 'display_only_fallback':
       throw new Error(
         'Email OTP Ed25519 signing cannot use display-only ECDSA bootstrap lane fallback',
       );
     default:
-      return assertNeverEmailOtpEcdsaRecordSelection(selection);
+      return assertNeverEmailOtpEcdsaCompanionSelection(selection);
   }
 }
 
@@ -186,31 +240,20 @@ function ed25519ReconstructionKeyFromRecord(
   };
 }
 
-function emailOtpEcdsaBootstrapRouteAuthFromRecord(
-  record: ThresholdEcdsaSessionRecord,
+function emailOtpEcdsaBootstrapRouteAuthFromCompanionLane(
+  companionLane: EmailOtpEcdsaCompanionLaneForEd25519Signing,
 ): EmailOtpEcdsaBootstrapRouteAuth {
-  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  if (walletSessionAuth.kind !== 'ready') {
-    throw new Error('Email OTP Ed25519 signing requires companion ECDSA Wallet Session auth');
-  }
-  const jwt = walletSessionAuth.walletSessionJwt;
-  const lane = resolveEmailOtpAuthLane({
-    routeAuth: jwt ? { kind: 'wallet_session', jwt } : undefined,
-    thresholdSessionId: record.thresholdSessionId,
-    authorizingSigningGrantId: record.signingGrantId,
-    curve: 'ecdsa',
-    chainTarget: record.chainTarget,
-  });
-  if (!lane || lane.kind !== 'signing_session' || lane.curve !== 'ecdsa') {
+  const authLane = companionLane.committedLane.authLane;
+  if (authLane.kind !== 'signing_session' || authLane.curve !== 'ecdsa') {
     throw new Error('Email OTP Ed25519 signing requires companion ECDSA session auth');
   }
   return {
     kind: 'threshold_ecdsa_session',
-    jwt: lane.jwt,
+    jwt: authLane.jwt,
     curve: 'ecdsa',
-    thresholdSessionId: lane.thresholdSessionId,
-    signingGrantId: lane.authorizingSigningGrantId,
-    chainTarget: lane.chainTarget,
+    thresholdSessionId: authLane.thresholdSessionId,
+    signingGrantId: authLane.authorizingSigningGrantId,
+    chainTarget: authLane.chainTarget,
   };
 }
 
@@ -237,9 +280,7 @@ export type EmailOtpEd25519WarmupPorts = {
   getThresholdEd25519SessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEd25519SessionRecord | null;
-  registerSigningSession: (
-    record: BuildCurrentSealedSessionRecordInput,
-  ) => Promise<void>;
+  registerSigningSession: (record: BuildCurrentSealedSessionRecordInput) => Promise<void>;
   requireRelayUrl: () => string;
   requireShamirPrimeB64u: () => string;
   requireRpId: (operation: string) => string;
@@ -286,31 +327,17 @@ export class EmailOtpEd25519Warmup {
     args: LoginEmailOtpEd25519CapabilityArgs,
   ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
     const relayUrl = String(args.relayUrl || this.ports.requireRelayUrl()).trim();
-    const shamirPrimeB64u = String(args.shamirPrimeB64u || this.ports.requireShamirPrimeB64u()).trim();
+    const shamirPrimeB64u = String(
+      args.shamirPrimeB64u || this.ports.requireShamirPrimeB64u(),
+    ).trim();
     const rpId = this.ports.requireRpId('Email OTP Ed25519 login');
-    const sessionKind = 'jwt';
-    const authLane =
-      resolveEmailOtpAuthLane({
-        routeAuth: args.routeAuth,
-        appSessionJwt: args.appSessionJwt,
-        sessionKind,
-      }) ||
-      (() => {
-        throw new Error('Email OTP Ed25519 login requires route auth');
-      })();
-    const routePlan = buildFreshEmailOtpRoutePlan({
-      freshRouteFamily: 'login',
-      authLane,
-      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-    });
+    const routePlan = args.routePlan;
     const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
     if (!routeAuth) {
       throw new Error('Email OTP Ed25519 login requires bearer route auth');
     }
     const runtimePolicyScope =
-      args.runtimePolicyScope ||
-      parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt) ||
-      parseThresholdRuntimePolicyScopeFromJwt(routeAuth.jwt);
+      args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(routeAuth.jwt);
     if (!runtimePolicyScope) {
       throw new Error('Email OTP Ed25519 login requires runtimePolicyScope');
     }
@@ -335,19 +362,18 @@ export class EmailOtpEd25519Warmup {
     if (!recoveryCodeSecret32B64u) {
       throw new Error('Email OTP Ed25519 login did not return recovery-code material');
     }
-    const emailOtpAuthContext = {
+    const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
       policy: args.emailOtpAuthPolicy || this.ports.configs.signing.emailOtp.authPolicy,
-      retention: 'session' as const,
-      reason: 'login' as const,
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      authSubjectId: toEmailOtpAuthSubjectId(
+      walletId: args.walletSession.walletId,
+      emailHashHex: args.emailHashHex,
+      retention: 'session',
+      reason: 'login',
+      provider: 'google',
+      providerUserId: toEmailOtpAuthSubjectId(
         appSessionSubjectFromEmailOtpAuthLane(routePlan.authLane) ||
           args.walletSession.walletSessionUserId,
       ),
-    };
-    const authorityScope = emailOtpAuthorityScopeFromEmail(
-      args.emailOtpAuthorityEmail || emailOtpAuthContext.authSubjectId,
-    );
+    });
     return await this.reconstructSession({
       kind: 'session_ed25519_reconstruction',
       relayUrl,
@@ -357,7 +383,6 @@ export class EmailOtpEd25519Warmup {
       routeAuth,
       runtimePolicyScope,
       routerAbNormalSigning: routerAbNormalSigningStateFromConfigs(this.ports.configs),
-      authorityScope,
       ed25519Key: args.ed25519SessionReconstruction.ed25519Key,
       signingGrantId: generateSigningGrantId(),
       ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
@@ -369,62 +394,32 @@ export class EmailOtpEd25519Warmup {
     nearAccountId: AccountId;
     challengeId: string;
     otpCode: string;
-    record: ThresholdEd25519SessionRecord;
-    routeAuth?: AppOrWalletSessionAuth;
-    authLane?: EmailOtpAuthLane;
+    committedLane: Ed25519SigningLane;
+    record?: never;
+    routeAuth?: never;
+    authLane?: never;
     remainingUses?: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
     const nearAccountId = args.nearAccountId;
-    const relayUrl = String(args.record.relayerUrl || this.ports.requireRelayUrl()).trim();
-    const providedAuthLane = args.authLane;
-    const providedRouteAuth = providedAuthLane
-      ? authLaneToRouteAuth(providedAuthLane)
-      : args.routeAuth;
+    const record = args.committedLane.record;
+    const relayUrl = String(record.relayerUrl || this.ports.requireRelayUrl()).trim();
     const operation = WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
-    const walletIdRaw = String(args.record.walletId || '').trim();
+    const walletIdRaw = String(record.walletId || '').trim();
     if (!walletIdRaw) {
       throw new Error('Email OTP Ed25519 signing requires wallet identity');
     }
     const walletId = toWalletId(walletIdRaw);
-    const routePlan =
-      providedAuthLane || providedRouteAuth
-        ? buildEmailOtpSigningSessionRoutePlan({
-            authLane: assertEmailOtpSigningSessionAuthLane(
-              providedAuthLane?.kind === 'signing_session'
-                ? providedAuthLane
-                : resolveEmailOtpAuthLane({
-                    routeAuth: providedRouteAuth,
-                    thresholdSessionId: args.record.thresholdSessionId,
-                    authorizingSigningGrantId: args.record.signingGrantId,
-                    curve: 'ed25519',
-                  }),
-            ),
-            operation,
-          })
-        : buildFreshEmailOtpRoutePlan({
-            freshRouteFamily: 'login',
-            authLane:
-              resolveEmailOtpAuthLane({
-                appSessionJwt: await this.ports.resolveAppSessionJwt({
-                  walletSession: walletSessionRefFromSession({
-                    walletId,
-                    walletSessionUserId: walletId,
-                  }),
-                  relayUrl,
-                }),
-                sessionKind: 'jwt',
-              }) || (() => {
-                throw new Error('Email OTP login requires route auth');
-              })(),
-            operation,
-          });
+    const routePlan = buildEmailOtpSigningSessionRoutePlan({
+      authLane: assertEmailOtpSigningSessionAuthLane(args.committedLane.authLane),
+      operation,
+    });
     const defaultRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
-    const signingGrantId = String(args.record.signingGrantId || '').trim();
+    const signingGrantId = String(record.signingGrantId || '').trim();
     if (!signingGrantId) {
       throw new Error('Email OTP Ed25519 signing requires a signing-grant identity');
     }
-    const ecdsaRecord = requireExactEmailOtpEcdsaRecordForEd25519Signing(
-      selectEmailOtpEcdsaRecordForEd25519Signing({
+    const ecdsaCompanionLane = requireEmailOtpEcdsaCompanionLaneForEd25519Signing(
+      selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
         kind: 'signing_grant_exact',
         walletId,
         signingGrantId,
@@ -432,41 +427,49 @@ export class EmailOtpEd25519Warmup {
           this.ports.listThresholdEcdsaSessionRecordsForWallet,
       }),
     );
-    const ecdsaBootstrapRouteAuth = emailOtpEcdsaBootstrapRouteAuthFromRecord(ecdsaRecord);
+    const ecdsaBootstrapRouteAuth =
+      emailOtpEcdsaBootstrapRouteAuthFromCompanionLane(ecdsaCompanionLane);
+    const ecdsaCompanionRecord = ecdsaCompanionLane.committedLane.record;
+    if (ecdsaCompanionRecord.source !== 'email_otp') {
+      throw new Error('Email OTP Ed25519 warm-up requires an Email OTP ECDSA companion record');
+    }
+    const ecdsaCompanionAuthContext = thresholdEcdsaEmailOtpAuthContext(ecdsaCompanionRecord);
+    if (!ecdsaCompanionAuthContext) {
+      throw new Error('Email OTP Ed25519 warm-up requires Email OTP ECDSA auth context');
+    }
     const ecdsaLogin = await this.ports.loginWithEcdsaCapabilityInternal({
       walletSession: walletSessionRefFromSession({
         walletId,
         walletSessionUserId: walletId,
       }),
       relayUrl,
-      chainTarget: ecdsaRecord.chainTarget,
+      chainTarget: ecdsaCompanionRecord.chainTarget,
       emailOtpAuthPolicy: 'per_operation',
       emailOtpAuthReason: 'sign',
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       operation,
-      participantIds: ecdsaRecord.participantIds || args.record.participantIds,
-      sessionKind: 'jwt',
+      participantIds: ecdsaCompanionRecord.participantIds || record.participantIds,
       routePlan,
       ecdsaBootstrapAuthorization: {
         kind: 'explicit_route_auth',
         routeAuth: ecdsaBootstrapRouteAuth,
       },
-      ...(args.record.runtimePolicyScope
-        ? { runtimePolicyScope: args.record.runtimePolicyScope }
-        : {}),
+      emailHashHex: emailOtpAuthContextEmailHashHex(ecdsaCompanionAuthContext),
+      providerIdentity: emailOtpEcdsaProviderIdentityFromRecord(ecdsaCompanionRecord),
+      ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
       remainingUses: defaultRemainingUses,
       ed25519ReconstructionMode: 'await',
-      ed25519SessionReconstruction: args.record.runtimePolicyScope
+      ed25519SessionReconstruction: record.runtimePolicyScope
         ? {
             kind: 'reconstruct',
-            ed25519Key: ed25519ReconstructionKeyFromRecord(args.record),
-            runtimePolicyScope: args.record.runtimePolicyScope,
+            ed25519Key: ed25519ReconstructionKeyFromRecord(record),
+            runtimePolicyScope: record.runtimePolicyScope,
           }
         : {
             kind: 'defer',
             reason: 'missing_runtime_policy_scope',
-            ed25519Key: ed25519ReconstructionKeyFromRecord(args.record),
+            ed25519Key: ed25519ReconstructionKeyFromRecord(record),
           },
     });
     if (ecdsaLogin.ed25519Reconstruction.kind !== 'completed') {
@@ -481,5 +484,4 @@ export class EmailOtpEd25519Warmup {
       ...(refreshedRecord ? { record: refreshedRecord } : {}),
     };
   }
-
 }

@@ -1,6 +1,8 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { IdentityStore, LinkIdentityResult } from '../../core/IdentityStore';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  RouterApiIdentityService,
+} from '../authServicePort';
 import {
   CloudflareD1OidcJwksCache,
   parseOidcJwtExchangeUnverifiedClaims,
@@ -11,17 +13,15 @@ import {
   type NormalizedCloudflareD1OidcExchangeConfig,
 } from './d1OidcBoundary';
 
-type VerifyGoogleLoginInput = Parameters<RouterApiAuthService['verifyGoogleLogin']>[0];
-type VerifyGoogleLoginResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyGoogleLogin']>
->;
+type VerifyGoogleLoginInput = Parameters<RouterApiIdentityService['verifyGoogleLogin']>[0];
+type VerifyGoogleLoginResult = Awaited<ReturnType<RouterApiIdentityService['verifyGoogleLogin']>>;
 type VerifyOidcJwtExchangeInput = Parameters<
-  RouterApiAuthService['verifyOidcJwtExchange']
+  RouterApiIdentityService['verifyOidcJwtExchange']
 >[0];
 type VerifyOidcJwtExchangeResult = Awaited<
-  ReturnType<RouterApiAuthService['verifyOidcJwtExchange']>
+  ReturnType<RouterApiIdentityService['verifyOidcJwtExchange']>
 >;
-type GoogleOidcPublicConfig = ReturnType<RouterApiAuthService['getGoogleOidcPublicConfig']>;
+type GoogleOidcPublicConfig = ReturnType<RouterApiIdentityService['getGoogleOidcPublicConfig']>;
 
 type OidcIdentityLinker = (input: {
   readonly userId: string;

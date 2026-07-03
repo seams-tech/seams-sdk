@@ -4,7 +4,11 @@ import {
   thresholdEd25519LaneCandidateFromSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import type { ThresholdEd25519SessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  emailOtpAuthContextReason,
+  emailOtpAuthContextRetention,
+  type ThresholdEd25519SessionStoreSource,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
@@ -13,14 +17,7 @@ import type {
   NearEd25519PersistableSigningMaterial,
   NearResolvedEd25519SigningSessionState,
 } from '@/core/signingEngine/interfaces/near';
-import {
-  toAuthorizingSigningGrantId,
-  type EmailOtpAuthLane,
-} from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
-import {
-  walletSessionAuthFromPersistedEd25519Record,
-  walletSessionJwtFromPersistedEd25519Record,
-} from '@/core/signingEngine/session/walletSessionAuthBoundary';
+import { walletSessionAuthFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
@@ -74,9 +71,11 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
   if (!walletSessionAuth) return null;
   const recordCandidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
   if (!recordCandidate) return null;
+  const emailOtpAuthContext =
+    record.source === 'email_otp' ? record.emailOtpAuthContext : null;
   const signingLane =
     record.source === 'email_otp'
-      ? recordCandidate.auth.kind === 'email_otp'
+      ? recordCandidate.auth.kind === 'email_otp' && emailOtpAuthContext
         ? buildNearTransactionSigningLane({
             walletId: record.walletId,
             nearAccountId: record.nearAccountId,
@@ -85,9 +84,11 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
             auth: recordCandidate.auth,
             signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
             thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
-            retention: record.emailOtpAuthContext?.retention || 'session',
+            retention: emailOtpAuthContextRetention(emailOtpAuthContext),
             sessionOrigin:
-              record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+              emailOtpAuthContextReason(emailOtpAuthContext) === 'login'
+                ? 'login'
+                : 'per_operation',
           })
         : null
       : recordCandidate.auth.kind === 'passkey'
@@ -141,24 +142,6 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
   return {
     ...common,
     walletSessionAuth,
-  };
-}
-
-export function emailOtpEd25519AuthLaneFromRecord(
-  record: ThresholdEd25519SessionRecord | null | undefined,
-): EmailOtpAuthLane | undefined {
-  const jwt = walletSessionJwtFromPersistedEd25519Record(record);
-  const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-  const signingGrantId = String(record?.signingGrantId || '').trim();
-  if (record?.source !== 'email_otp' || !jwt || !thresholdSessionId || !signingGrantId) {
-    return undefined;
-  }
-  return {
-    kind: 'signing_session',
-    jwt,
-    thresholdSessionId,
-    authorizingSigningGrantId: toAuthorizingSigningGrantId(signingGrantId),
-    curve: 'ed25519',
   };
 }
 

@@ -5,7 +5,13 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  emailOtpAuthContextEmailHashHex,
+  emailOtpAuthContextProviderUserId,
+  emailOtpAuthContextReason,
+  emailOtpAuthContextRetention,
+  type ThresholdEcdsaEmailOtpAuthContext,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   readExactSealedSession,
   type BuildCurrentSealedSessionRecordInput,
@@ -68,7 +74,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
   for (const target of args.additionalChainTargets || []) {
     pushTarget(target);
   }
-  if (args.emailOtpAuthContext.reason === 'login') {
+  if (emailOtpAuthContextReason(args.emailOtpAuthContext) === 'login') {
     for (const target of configuredEmailOtpEcdsaSnapshotChainTargets(args.configs)) {
       pushTarget(target);
     }
@@ -172,7 +178,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   ports: EmailOtpEcdsaPublicationPorts,
 ): Promise<void> {
   if (ports.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return;
-  if (args.emailOtpAuthContext.retention !== 'session') return;
+  if (emailOtpAuthContextRetention(args.emailOtpAuthContext) !== 'session') return;
 
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
@@ -210,10 +216,17 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
         ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
       )
     : '';
-	  const evmFamilySigningKeySlotId = String(args.bootstrap.keygen.evmFamilySigningKeySlotId || '').trim();
-	  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
-	  const userId = String(keyRef.userId || '').trim();
-	  const authSubjectId = String(args.emailOtpAuthContext.authSubjectId || userId).trim();
+  const evmFamilySigningKeySlotId = String(
+    args.bootstrap.keygen.evmFamilySigningKeySlotId || '',
+  ).trim();
+  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  const userId = String(keyRef.userId || '').trim();
+  const providerSubjectId = String(
+    emailOtpAuthContextProviderUserId(args.emailOtpAuthContext) || userId,
+  ).trim();
+  const emailHashHex = String(
+    emailOtpAuthContextEmailHashHex(args.emailOtpAuthContext),
+  ).trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
   const clientVerifyingShareB64u = String(
     keyRef.backendBinding?.clientVerifyingShareB64u || '',
@@ -225,12 +238,13 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
         .map((participantId) => Math.floor(Number(participantId)))
         .filter((participantId) => Number.isFinite(participantId) && participantId > 0)
     : [];
-	  if (
-	    !ecdsaThresholdKeyId ||
-	    !evmFamilySigningKeySlotId ||
-	    !userId ||
-	    !authSubjectId ||
-	    !ethereumAddress ||
+  if (
+    !ecdsaThresholdKeyId ||
+    !evmFamilySigningKeySlotId ||
+    !userId ||
+    !providerSubjectId ||
+    !emailHashHex ||
+    !ethereumAddress ||
     !clientVerifyingShareB64u ||
     !relayerKeyId ||
     !participantIds.length ||
@@ -283,7 +297,6 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     signingGrantId: readyPersistenceInput.signingGrantId,
     thresholdSessionIds: { ecdsa: readyPersistenceInput.thresholdSessionId },
     walletId: String(args.walletId || '').trim(),
-    userId,
     relayerUrl,
     ...(String(sealed.keyVersion || keyVersion).trim()
       ? { keyVersion: String(sealed.keyVersion || keyVersion).trim() }
@@ -306,13 +319,14 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (!keyHandle) {
     throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
   }
-	  await ports.registerSigningSession({
-	    ...sealedRecordBase,
-	    ecdsaRestore: {
-	      chainTarget: actualChainTarget,
-	      evmFamilySigningKeySlotId,
-	      authSubjectId,
-	      walletSessionJwt,
+  await ports.registerSigningSession({
+    ...sealedRecordBase,
+    ecdsaRestore: {
+      chainTarget: actualChainTarget,
+      evmFamilySigningKeySlotId,
+      providerSubjectId,
+      emailHashHex,
+      walletSessionJwt,
       sessionKind: 'jwt',
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle,

@@ -3,7 +3,11 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { RawSigningSessionSealedStoreRecord, SealedRecoveryRecord } from './recoveryRecord';
-import { normalizeSealedRecoveryRecord, type RejectedSealedRecoveryRecord } from './recoveryRecord';
+import {
+  ed25519SealedRecoveryMaterialIdentity,
+  normalizeSealedRecoveryRecord,
+  type RejectedSealedRecoveryRecord,
+} from './recoveryRecord';
 import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionPurpose,
@@ -47,11 +51,14 @@ function ecdsaRestoreRecordMatchesLaneIdentity(
   if (record.authMethod === 'passkey') {
     return (
       lane.auth.kind === 'passkey' &&
-      sameString(record.rpId, lane.auth.rpId) &&
-      sameString(record.credentialIdB64u, lane.auth.credentialIdB64u)
+      sameString(record.authority.verifier.rpId, lane.auth.rpId) &&
+      sameString(record.authority.factor.credentialIdB64u, lane.auth.credentialIdB64u)
     );
   }
-  return lane.auth.kind === 'email_otp' && sameString(record.providerSubjectId, lane.auth.providerSubjectId);
+  return (
+    lane.auth.kind === 'email_otp' &&
+    sameString(record.authority.factor.providerUserId, lane.auth.providerSubjectId)
+  );
 }
 
 function ed25519RestoreRecordMatchesLaneIdentity(
@@ -66,11 +73,14 @@ function ed25519RestoreRecordMatchesLaneIdentity(
   if (record.authMethod === 'passkey') {
     return (
       lane.auth.kind === 'passkey' &&
-      sameString(record.rpId, lane.auth.rpId) &&
-      sameString(record.credentialIdB64u, lane.auth.credentialIdB64u)
+      sameString(record.authority.verifier.rpId, lane.auth.rpId) &&
+      sameString(record.authority.factor.credentialIdB64u, lane.auth.credentialIdB64u)
     );
   }
-  return lane.auth.kind === 'email_otp' && sameString(record.providerSubjectId, lane.auth.providerSubjectId);
+  return (
+    lane.auth.kind === 'email_otp' &&
+    sameString(record.authority.factor.providerUserId, lane.auth.providerSubjectId)
+  );
 }
 
 export type RestoreWorkItemLookupResult =
@@ -160,14 +170,15 @@ function exactPurposeForAcceptedRecord(
     if (!ed25519RestoreRecordMatchesLaneIdentity(exactRecord, input.materialRestoreIdentity.lane)) {
       return null;
     }
+    const materialIdentity = ed25519SealedRecoveryMaterialIdentity(exactRecord);
     if (
-      String(exactRecord.ed25519WorkerMaterialBindingDigest || '').trim() !==
+      String(materialIdentity.bindingDigest).trim() !==
       String(input.materialRestoreIdentity.materialBindingDigest)
     ) {
       return null;
     }
     if (
-      String(exactRecord.materialKeyId || '').trim() !==
+      String(materialIdentity.materialKeyId).trim() !==
       String(input.materialRestoreIdentity.materialKeyId)
     ) {
       return null;

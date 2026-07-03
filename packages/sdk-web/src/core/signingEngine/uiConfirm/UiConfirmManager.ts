@@ -56,6 +56,10 @@ import {
   thresholdEcdsaRecordRpId,
   type ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
+import {
+  emailOtpAuthContextEmailHashHex,
+  emailOtpAuthContextProviderUserId,
+} from '../session/identity/laneIdentity';
 import { normalizeThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import {
   UserConfirmMessageType,
@@ -256,10 +260,40 @@ function completeEd25519RestoreMetadata(
   return hasCompleteEd25519RestoreMetadata(value) ? value : undefined;
 }
 
-function currentEd25519RestoreMetadataFromSessionRecord(
-  record: ThresholdEd25519SessionRecord | null | undefined,
+type CurrentEd25519RestoreSessionRecord = Extract<
+  ThresholdEd25519SessionRecord,
+  { materialState: 'restore_available' | 'material_ready' }
+>;
+
+type CurrentEd25519RestoreAuthBranch =
+  | {
+      kind: 'passkey';
+      credentialIdB64u: string;
+    }
+  | {
+      kind: 'email_otp';
+      providerSubjectId: string;
+      emailHashHex: string;
+    };
+
+function currentEd25519RestoreAuthBranchFromMaterialRecord(
+  record: CurrentEd25519RestoreSessionRecord,
+): CurrentEd25519RestoreAuthBranch | null {
+  if (record.source === 'email_otp') {
+    if (!record.emailOtpAuthContext) return null;
+    const providerSubjectId = emailOtpAuthContextProviderUserId(record.emailOtpAuthContext);
+    const emailHashHex = emailOtpAuthContextEmailHashHex(record.emailOtpAuthContext);
+    return providerSubjectId && emailHashHex
+      ? { kind: 'email_otp', providerSubjectId, emailHashHex }
+      : null;
+  }
+  const credentialIdB64u = String(record.passkeyCredentialIdB64u || '').trim();
+  return credentialIdB64u ? { kind: 'passkey', credentialIdB64u } : null;
+}
+
+function currentEd25519RestoreMetadataFromMaterialRecord(
+  record: CurrentEd25519RestoreSessionRecord,
 ): CurrentEd25519RestoreMetadata | undefined {
-  if (!record) return undefined;
   const rpId = String(record.rpId || '').trim();
   const nearAccountId = String(record.nearAccountId || '').trim();
   const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
@@ -275,6 +309,7 @@ function currentEd25519RestoreMetadataFromSessionRecord(
   const materialCreatedAtMs = positiveInteger(record.materialCreatedAtMs);
   const signerSlot = positiveInteger(record.signerSlot);
   const routerAbNormalSigning = record.routerAbNormalSigning;
+  const authBranch = currentEd25519RestoreAuthBranchFromMaterialRecord(record);
   if (
     !rpId ||
     !nearAccountId ||
@@ -288,11 +323,12 @@ function currentEd25519RestoreMetadataFromSessionRecord(
     !materialKeyId ||
     !materialCreatedAtMs ||
     !signerSlot ||
-    !routerAbNormalSigning
+    !routerAbNormalSigning ||
+    !authBranch
   ) {
     return undefined;
   }
-  return {
+  const commonRestoreMetadata = {
     rpId,
     nearAccountId,
     nearEd25519SigningKeyId,
@@ -310,6 +346,36 @@ function currentEd25519RestoreMetadataFromSessionRecord(
     materialCreatedAtMs,
     routerAbNormalSigning,
   };
+  switch (authBranch.kind) {
+    case 'passkey':
+      return {
+        ...commonRestoreMetadata,
+        credentialIdB64u: authBranch.credentialIdB64u,
+      };
+    case 'email_otp':
+      return {
+        ...commonRestoreMetadata,
+        providerSubjectId: authBranch.providerSubjectId,
+        emailHashHex: authBranch.emailHashHex,
+      };
+    default:
+      return assertNever(authBranch);
+  }
+}
+
+function currentEd25519RestoreMetadataFromSessionRecord(
+  record: ThresholdEd25519SessionRecord | null | undefined,
+): CurrentEd25519RestoreMetadata | undefined {
+  if (!record) return undefined;
+  switch (record.materialState) {
+    case 'auth_ready_material_pending':
+      return undefined;
+    case 'restore_available':
+    case 'material_ready':
+      return currentEd25519RestoreMetadataFromMaterialRecord(record);
+    default:
+      return assertNever(record);
+  }
 }
 
 type WarmSessionSealAuthMethodInput =

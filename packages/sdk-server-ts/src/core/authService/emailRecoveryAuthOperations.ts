@@ -32,11 +32,13 @@ import {
 import type {
   EcdsaHssServerBootstrapResponse,
   ThresholdRuntimePolicyScope,
-  WalletRegistrationEcdsaPreparePayload,
-  WalletRegistrationEcdsaWalletKey,
   WebAuthnAuthenticationCredential,
-  ThresholdEd25519AuthorityScope,
+  ThresholdEd25519AuthorityScope
 } from '../types';
+import type {
+  WalletRegistrationEcdsaPreparePayload,
+  WalletRegistrationEcdsaWalletKey
+} from '../registrationContracts';
 import { parseWalletRegistrationEcdsaClientBootstrap } from '../ThresholdService/validation';
 import { randomBase64Url } from './bytes';
 import { normalizeThresholdRuntimePolicyScope } from './thresholdRuntimePolicy';
@@ -48,7 +50,6 @@ import {
   resolveBoundThresholdRuntimePolicyScope,
   toEcdsaHssClientBootstrapRequest,
   toThresholdEd25519BootstrapSession,
-  validateThresholdEd25519SessionPolicyBindings,
   type ThresholdEd25519BootstrapSession,
 } from './registrationThresholdHelpers';
 import {
@@ -408,21 +409,6 @@ export class EmailRecoveryAuthOperations {
           relayerKeyId: keygen.relayerKeyId,
           persistedRuntimePolicyScope: existingRuntimePolicyScope,
         });
-        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
-          requestedSessionPolicy: resolvedSessionPolicy.sessionPolicy,
-          expectedWalletId: walletBinding.walletId,
-          expectedRelayerKeyId: keygen.relayerKeyId,
-          expectedNearAccountId: walletBinding.nearAccountId,
-          expectedNearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
-          expectedAuthorityScope: walletBindingAuthorityScope,
-        });
-        if (policyBindingError) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: policyBindingError,
-          };
-        }
 
         const session = await threshold.mintEd25519SessionFromRegistration({
           walletId: walletBinding.walletId,

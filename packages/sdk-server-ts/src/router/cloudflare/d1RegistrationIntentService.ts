@@ -19,12 +19,17 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
-  CreateAddAuthMethodIntentResponse,
-  CreateAddSignerIntentResponse,
-  CreateRegistrationIntentResponse,
+  ThresholdRuntimePolicyScope
 } from '../../core/types';
+import type {
+  CreateAddAuthMethodIntentRequest,
+  CreateAddAuthMethodIntentResponse,
+  CreateAddSignerIntentRequest,
+  CreateAddSignerIntentResponse,
+  CreateRegistrationIntentRequest,
+  CreateRegistrationIntentResponse
+} from '../../core/registrationContracts';
 import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
-import type { RouterApiAuthService } from '../authServicePort';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
@@ -39,15 +44,30 @@ import {
   parseWalletIdForIntent,
 } from './d1RegistrationCeremonyRecords';
 
-type CreateRegistrationIntentInput = Parameters<
-  RouterApiAuthService['createRegistrationIntent']
->[0];
-type CreateAddSignerIntentInput = Parameters<
-  RouterApiAuthService['createAddSignerIntent']
->[0];
-type CreateAddAuthMethodIntentInput = Parameters<
-  RouterApiAuthService['createAddAuthMethodIntent']
->[0];
+type CreateRegistrationIntentInput = {
+  readonly request: CreateRegistrationIntentRequest;
+  readonly orgId: string;
+  readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  readonly signingRootId?: string;
+  readonly signingRootVersion?: string;
+  readonly expectedOrigin?: string;
+};
+type CreateAddSignerIntentInput = {
+  readonly request: CreateAddSignerIntentRequest;
+  readonly orgId: string;
+  readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  readonly signingRootId?: string;
+  readonly signingRootVersion?: string;
+  readonly expectedOrigin?: string;
+};
+type CreateAddAuthMethodIntentInput = {
+  readonly request: CreateAddAuthMethodIntentRequest;
+  readonly orgId: string;
+  readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  readonly signingRootId?: string;
+  readonly signingRootVersion?: string;
+  readonly expectedOrigin?: string;
+};
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
 type SignerWalletExistenceStore = {

@@ -1,5 +1,11 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { ensureEd25519Prefix, toOptionalString, toTrimmedString } from '@shared/utils/validation';
 import {
   ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
@@ -36,10 +42,14 @@ import type {
   EcdsaHssPublicIdentity,
   EcdsaHssRoleLocalKeyRecord,
   ThresholdEd25519AuthorityScope,
-  WebAuthnAuthenticationCredential,
-  WalletRegistrationEcdsaClientBootstrap,
+  WebAuthnAuthenticationCredential
 } from '../types';
-import { registrationPreparationIdFromString } from '../types';
+import type {
+  WalletRegistrationEcdsaClientBootstrap
+} from '../registrationContracts';
+import {
+  registrationPreparationIdFromString
+} from '../registrationContracts';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -793,6 +803,8 @@ export function parseThresholdEd25519AuthorityScope(
         !rpId.ok ||
         toOptionalString(raw.proofKind) ||
         toOptionalString(raw.email) ||
+        toOptionalString(raw.provider) ||
+        toOptionalString(raw.providerUserId) ||
         toOptionalString(raw.challengeId) ||
         toOptionalString(raw.googleEmailOtpRegistrationAttemptId) ||
         toOptionalString(raw.googleEmailOtpRegistrationOfferId) ||
@@ -803,61 +815,42 @@ export function parseThresholdEd25519AuthorityScope(
       return { kind, rpId: rpId.value };
     }
     case 'email_otp': {
-      if (toOptionalString(raw.rpId)) return null;
-      const proofKind = toOptionalString(raw.proofKind);
-      const email = toOptionalString(raw.email);
-      if (!email) return null;
-      switch (proofKind) {
-        case 'otp_challenge': {
-          const challengeId = toOptionalString(raw.challengeId);
-          if (
-            toOptionalString(raw.googleEmailOtpRegistrationAttemptId) ||
-            toOptionalString(raw.googleEmailOtpRegistrationOfferId) ||
-            toOptionalString(raw.googleEmailOtpRegistrationCandidateId)
-          ) {
-            return null;
-          }
-          return {
-            kind,
-            proofKind,
-            email,
-            ...(challengeId ? { challengeId } : {}),
-          };
-        }
-        case 'google_sso_registration': {
-          const googleEmailOtpRegistrationAttemptId = toOptionalString(
-            raw.googleEmailOtpRegistrationAttemptId,
-          );
-          const googleEmailOtpRegistrationOfferId = toOptionalString(
-            raw.googleEmailOtpRegistrationOfferId,
-          );
-          const googleEmailOtpRegistrationCandidateId = toOptionalString(
-            raw.googleEmailOtpRegistrationCandidateId,
-          );
-          if (
-            toOptionalString(raw.challengeId) ||
-            !googleEmailOtpRegistrationAttemptId ||
-            !googleEmailOtpRegistrationOfferId ||
-            !googleEmailOtpRegistrationCandidateId
-          ) {
-            return null;
-          }
-          return {
-            kind,
-            proofKind,
-            email,
-            googleEmailOtpRegistrationAttemptId,
-            googleEmailOtpRegistrationOfferId,
-            googleEmailOtpRegistrationCandidateId,
-          };
-        }
-        default:
-          return null;
+      if (
+        toOptionalString(raw.rpId) ||
+        toOptionalString(raw.email) ||
+        toOptionalString(raw.proofKind) ||
+        toOptionalString(raw.challengeId) ||
+        toOptionalString(raw.googleEmailOtpRegistrationAttemptId) ||
+        toOptionalString(raw.googleEmailOtpRegistrationOfferId) ||
+        toOptionalString(raw.googleEmailOtpRegistrationCandidateId)
+      ) {
+        return null;
       }
+      const provider = toOptionalString(raw.provider);
+      const providerUserId = toOptionalString(raw.providerUserId);
+      if ((provider !== 'google' && provider !== 'email') || !providerUserId) return null;
+      return { kind, provider, providerUserId };
     }
     default:
       return null;
   }
+}
+
+export function thresholdEd25519AuthorityScopeFromWalletAuthAuthority(
+  authority: WalletAuthAuthority,
+): ThresholdEd25519AuthorityScope {
+  if (isPasskeyWalletAuthAuthority(authority)) {
+    return { kind: 'passkey_rp', rpId: authority.verifier.rpId };
+  }
+  if (isEmailOtpWalletAuthAuthority(authority)) {
+    return {
+      kind: 'email_otp',
+      provider: authority.factor.provider,
+      providerUserId: authority.factor.providerUserId,
+    };
+  }
+  authority satisfies never;
+  throw new Error('[threshold-ed25519] unsupported wallet auth authority');
 }
 
 export function thresholdEd25519AuthorityScopesMatch(
@@ -871,17 +864,11 @@ export function thresholdEd25519AuthorityScopesMatch(
     case 'email_otp':
       return (
         right.kind === 'email_otp' &&
-        normalizedEmailOtpAuthorityEmail(left.email) ===
-          normalizedEmailOtpAuthorityEmail(right.email)
+        left.provider === right.provider &&
+        left.providerUserId === right.providerUserId
       );
   }
   return false;
-}
-
-function normalizedEmailOtpAuthorityEmail(value: string): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
 }
 
 export type ParsedThresholdEd25519MpcSessionRecord = {
@@ -1005,6 +992,15 @@ export function parseThresholdEcdsaMpcSessionRecord(
   };
 }
 
+export type ParsedThresholdEd25519SigningShareMaterial =
+  | {
+      kind: 'key_store';
+    }
+  | {
+      kind: 'embedded_cosigner_share';
+      relayerSigningShareB64u: string;
+    };
+
 export type ParsedThresholdEd25519SigningSessionRecord = {
   expiresAtMs: number;
   mpcSessionId: string;
@@ -1013,7 +1009,7 @@ export type ParsedThresholdEd25519SigningSessionRecord = {
   userId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   commitmentsById: ParsedThresholdEd25519CommitmentsById;
-  relayerSigningShareB64u?: string;
+  signingShare: ParsedThresholdEd25519SigningShareMaterial;
   relayerNoncesB64u: string;
   participantIds: number[];
 };
@@ -1029,7 +1025,7 @@ export function parseThresholdEd25519SigningSessionRecord(
   const userId = toOptionalString(raw.userId);
   const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
   const commitmentsById = parseThresholdEd25519CommitmentsById(raw.commitmentsById);
-  const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
+  const signingShare = parseThresholdEd25519SigningShareMaterial(raw);
   const relayerNoncesB64u = toOptionalString(raw.relayerNoncesB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -1043,6 +1039,7 @@ export function parseThresholdEd25519SigningSessionRecord(
     !userId ||
     !authorityScope ||
     !commitmentsById ||
+    !signingShare ||
     !relayerNoncesB64u
   ) {
     return null;
@@ -1055,10 +1052,30 @@ export function parseThresholdEd25519SigningSessionRecord(
     userId,
     authorityScope,
     commitmentsById,
-    ...(relayerSigningShareB64u ? { relayerSigningShareB64u } : {}),
+    signingShare,
     relayerNoncesB64u,
     participantIds,
   };
+}
+
+function parseThresholdEd25519SigningShareMaterial(
+  raw: Record<string, unknown>,
+): ParsedThresholdEd25519SigningShareMaterial | null {
+  if (isObject(raw.signingShare)) {
+    const kind = toOptionalString(raw.signingShare.kind);
+    if (kind === 'key_store') {
+      return toOptionalString(raw.signingShare.relayerSigningShareB64u) ? null : { kind };
+    }
+    if (kind === 'embedded_cosigner_share') {
+      const relayerSigningShareB64u = toOptionalString(raw.signingShare.relayerSigningShareB64u);
+      return relayerSigningShareB64u ? { kind, relayerSigningShareB64u } : null;
+    }
+    return null;
+  }
+  const legacyShare = toOptionalString(raw.relayerSigningShareB64u);
+  return legacyShare
+    ? { kind: 'embedded_cosigner_share', relayerSigningShareB64u: legacyShare }
+    : { kind: 'key_store' };
 }
 
 export type ParsedThresholdEd25519StringById = Record<string, string>;
@@ -1448,6 +1465,7 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   thresholdSessionId: string;
   signingGrantId: string;
   relayerKeyId: string;
+  authority: WalletAuthAuthority;
   authorityScope: ThresholdEd25519AuthorityScope;
   runtimePolicyScope?: RuntimePolicyScope;
   thresholdExpiresAtMs: number;
@@ -1495,6 +1513,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   const authorityScope = parseThresholdEd25519AuthorityScope(
     (raw as { authorityScope?: unknown }).authorityScope,
   );
+  const authority = parseWalletAuthAuthority((raw as { authority?: unknown }).authority);
   if (
     !sub ||
     !walletId ||
@@ -1504,7 +1523,13 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !thresholdSessionId ||
     !signingGrantId ||
     !relayerKeyId ||
-    !authorityScope
+    !authorityScope ||
+    !authority ||
+    authority.walletId !== walletId ||
+    !thresholdEd25519AuthorityScopesMatch(
+      thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
+      authorityScope,
+    )
   )
     return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
@@ -1522,6 +1547,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     thresholdSessionId,
     signingGrantId,
     relayerKeyId,
+    authority,
     authorityScope,
     thresholdExpiresAtMs,
     participantIds,

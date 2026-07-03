@@ -4,7 +4,11 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  emailOtpAuthContextRetention,
+  type ThresholdEcdsaEmailOtpAuthContext,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -25,6 +29,7 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import { requestRehydrateEmailOtpEcdsaWarmSessionMaterial } from './workerRequests';
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -152,13 +157,18 @@ function restoreBootstrapWithDurableEcdsaFacts(args: {
   };
 }
 
-function defaultEmailOtpSessionAuthContext(): ThresholdEcdsaEmailOtpAuthContext {
-  return {
+function sealedRecordEmailOtpSessionAuthContext(
+  authority: EmailOtpWalletAuthAuthority,
+): ThresholdEcdsaEmailOtpAuthContext {
+  return buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'session',
+    walletId: toWalletId(authority.walletId),
+    emailHashHex: authority.verifier.emailHashHex,
     retention: 'session',
     reason: 'login',
-    authMethod: 'email_otp',
-  };
+    provider: authority.factor.provider,
+    providerUserId: authority.factor.providerUserId,
+  });
 }
 
 function requireEmailOtpEcdsaSealedTransportSource(
@@ -296,7 +306,7 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
   return {
     kind: 'sealed_record_restore',
     sealedRecord,
-    emailOtpAuthContext: defaultEmailOtpSessionAuthContext(),
+    emailOtpAuthContext: sealedRecordEmailOtpSessionAuthContext(sealedRecord.authority),
     walletSessionJwt,
     thresholdSessionId: sealedRecord.thresholdSessionId,
     signingGrantId: sealedRecord.signingGrantId,
@@ -379,13 +389,16 @@ function resolveEmailOtpCompanionEd25519Session(args: {
   const ed25519Record =
     args.ed25519Record &&
     args.ed25519Record.source === 'email_otp' &&
-    args.ed25519Record.emailOtpAuthContext?.retention === 'session' &&
+    args.ed25519Record.emailOtpAuthContext &&
+    emailOtpAuthContextRetention(args.ed25519Record.emailOtpAuthContext) === 'session' &&
     args.ed25519Record.signingGrantId === args.signingGrantId
       ? args.ed25519Record
       : null;
   if (ed25519Record) {
     const walletSessionAuth = walletSessionAuthFromPersistedEd25519Record(ed25519Record);
     if (!walletSessionAuth) return null;
+    const emailOtpAuthContext = ed25519Record.emailOtpAuthContext;
+    if (!emailOtpAuthContext) return null;
     const matchingSealedCompanion =
       sealedCompanion?.thresholdSessionId === ed25519Record.thresholdSessionId
         ? sealedCompanion
@@ -407,7 +420,7 @@ function resolveEmailOtpCompanionEd25519Session(args: {
       walletSessionAuth,
       thresholdSessionId: ed25519Record.thresholdSessionId,
       signingGrantId: args.signingGrantId,
-      emailOtpAuthContext: ed25519Record.emailOtpAuthContext || defaultEmailOtpSessionAuthContext(),
+      emailOtpAuthContext,
     };
   }
 
@@ -423,7 +436,7 @@ function resolveEmailOtpCompanionEd25519Session(args: {
     walletSessionAuth: companion.walletSessionAuth,
     thresholdSessionId: companion.thresholdSessionId,
     signingGrantId: companion.signingGrantId,
-    emailOtpAuthContext: defaultEmailOtpSessionAuthContext(),
+    emailOtpAuthContext: sealedRecordEmailOtpSessionAuthContext(companion.authority),
     ...(companion.routerAbNormalSigning
       ? { routerAbNormalSigning: companion.routerAbNormalSigning }
       : {}),
@@ -451,7 +464,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     sealedRecord,
     ecdsaRecord: args.ecdsaRecord,
   });
-  if (restoreSource.emailOtpAuthContext.retention !== 'session') return null;
+  if (emailOtpAuthContextRetention(restoreSource.emailOtpAuthContext) !== 'session') return null;
 
   const workerCtx = args.getSignerWorkerContext();
   if (!workerCtx) {

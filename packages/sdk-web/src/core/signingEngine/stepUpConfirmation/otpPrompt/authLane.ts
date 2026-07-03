@@ -154,16 +154,14 @@ export function resolveEmailOtpAuthLane(
   return appSessionJwt ? { kind: 'app_session', jwt: appSessionJwt } : undefined;
 }
 
-export function authLaneToRouteAuth(
-  lane: EmailOtpAuthLane | undefined,
-): AppOrWalletSessionAuth | undefined {
-  if (!lane || lane.kind === 'cookie') return undefined;
+export function authLaneToRouteAuth(lane: EmailOtpAuthLane): AppOrWalletSessionAuth | undefined {
+  if (lane.kind === 'cookie') return undefined;
   if (lane.kind === 'app_session') return { kind: 'app_session', jwt: lane.jwt };
   return { kind: 'wallet_session', jwt: lane.jwt };
 }
 
-export function authLaneAppSessionJwt(lane: EmailOtpAuthLane | undefined): string {
-  return lane?.kind === 'app_session' ? lane.jwt : '';
+export function authLaneAppSessionJwt(lane: EmailOtpAuthLane): string {
+  return lane.kind === 'app_session' ? lane.jwt : '';
 }
 
 export function buildEmailOtpRoutePlan(args: {

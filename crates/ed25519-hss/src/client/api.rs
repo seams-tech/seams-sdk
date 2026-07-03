@@ -3,7 +3,10 @@ use crate::client::{
     ClientSession, ClientSessionState, SeedOutputOpener,
 };
 use crate::ddh::hidden_eval_executor::{
-    execute_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool,
+    advance_message_schedule_continuation_with_pool, advance_round_core_continuation_with_pool,
+    initialize_round_core_continuation_from_message_schedule_with_pool,
+    materialize_output_bundles_from_continuations_with_projection_with_pool,
+    materialize_staged_server_execution_with_split_server_inputs_with_pool,
     DdhHiddenEvalConstantPool, DdhHiddenEvalServerInputBundle, DdhHiddenEvalServerInputs,
 };
 use crate::ddh::{
@@ -353,6 +356,119 @@ impl ClientSession {
         .map(|(artifact, _, stage_profile)| (artifact, stage_profile))
     }
 
+    fn build_role_separated_staged_hidden_eval_run_profiled(
+        &self,
+        runtime: &SharedRuntime,
+        y_client_bundle: &DdhHssInputShareBundle,
+        server_inputs: &DdhHiddenEvalServerInputs,
+        tau_client_bundle: &DdhHssInputShareBundle,
+        client_output_projection: DdhHiddenEvalClientOutputProjection,
+    ) -> ProtoResult<(DdhHiddenEvalRun, DdhHiddenEvalStageProfile)> {
+        let total_started_at = monotonic_now_ns();
+        let hidden_eval_constants = self.hidden_eval_constant_pool()?;
+        let add_stage_started_at = monotonic_now_ns();
+        let staged_materialization =
+            materialize_staged_server_execution_with_split_server_inputs_with_pool(
+                &runtime.hidden_eval_program,
+                &self.ddh_evaluator,
+                &hidden_eval_constants,
+                y_client_bundle,
+                &server_inputs.y_server_bits,
+                tau_client_bundle,
+                &server_inputs.tau_server_bits,
+            )?;
+        let add_stage_duration_ns = elapsed_ns_u64(add_stage_started_at) as u128;
+
+        let message_schedule_started_at = monotonic_now_ns();
+        let mut message_schedule = staged_materialization.message_schedule;
+        for _ in 0..crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
+            message_schedule = advance_message_schedule_continuation_with_pool(
+                &self.ddh_evaluator,
+                &hidden_eval_constants,
+                &message_schedule,
+            )?;
+        }
+        let message_schedule_duration_ns = elapsed_ns_u64(message_schedule_started_at) as u128;
+
+        let round_core_started_at = monotonic_now_ns();
+        let mut round_core = initialize_round_core_continuation_from_message_schedule_with_pool(
+            &runtime.hidden_eval_program,
+            &self.ddh_evaluator,
+            &hidden_eval_constants,
+            &message_schedule,
+        )?;
+        for _ in 0..crate::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
+            round_core = advance_round_core_continuation_with_pool(
+                &self.ddh_evaluator,
+                &hidden_eval_constants,
+                &round_core,
+            )?;
+        }
+        let round_core_duration_ns = elapsed_ns_u64(round_core_started_at) as u128;
+
+        let output_projector_started_at = monotonic_now_ns();
+        let output = materialize_output_bundles_from_continuations_with_projection_with_pool(
+            &runtime.hidden_eval_program,
+            &self.ddh_evaluator,
+            &hidden_eval_constants,
+            &round_core,
+            &staged_materialization.projector_inputs,
+            client_output_projection,
+        )?;
+        let output_projector_duration_ns = elapsed_ns_u64(output_projector_started_at) as u128;
+
+        let run = DdhHiddenEvalRun {
+            client_input_commitment: staged_materialization.client_input_commitment,
+            server_input_commitment: staged_materialization.server_input_commitment,
+            output,
+        };
+        Ok((
+            run,
+            DdhHiddenEvalStageProfile {
+                input_sharing_duration_ns: 0,
+                add_stage_duration_ns,
+                message_schedule_duration_ns,
+                message_schedule_accumulation_duration_ns: 0,
+                message_schedule_accumulation_xor_ab_duration_ns: 0,
+                message_schedule_accumulation_sum_duration_ns: 0,
+                message_schedule_accumulation_a_xor_carry_duration_ns: 0,
+                message_schedule_accumulation_carry_gate_duration_ns: 0,
+                message_schedule_accumulation_next_carry_duration_ns: 0,
+                round_core_duration_ns,
+                round_sigma0_duration_ns: 0,
+                round_sigma1_duration_ns: 0,
+                round_ch_duration_ns: 0,
+                round_maj_duration_ns: 0,
+                round_state3_duration_ns: 0,
+                round_temp1_duration_ns: 0,
+                round_temp1_xor_ab_duration_ns: 0,
+                round_temp1_sum_duration_ns: 0,
+                round_temp1_a_xor_carry_duration_ns: 0,
+                round_temp1_carry_gate_duration_ns: 0,
+                round_temp1_next_carry_duration_ns: 0,
+                round_temp2_duration_ns: 0,
+                round_new_a_bits_duration_ns: 0,
+                round_new_e_bits_duration_ns: 0,
+                output_projector_duration_ns,
+                output_projector_core_duration_ns: 0,
+                output_projector_clamp_a_duration_ns: 0,
+                output_projector_reduce_a_duration_ns: 0,
+                output_projector_tau_duration_ns: 0,
+                output_projector_mask_share_duration_ns: 0,
+                output_projector_mask_add_duration_ns: 0,
+                output_projector_client_base_duration_ns: 0,
+                output_projector_client_output_duration_ns: 0,
+                output_projector_tau_double_duration_ns: 0,
+                output_projector_server_output_duration_ns: 0,
+                output_projector_bundle_build_duration_ns: 0,
+                output_projector_local_word_materializations: 0,
+                total_duration_ns: elapsed_ns_u64(total_started_at) as u128,
+                operation_counts: Default::default(),
+                stage_operation_counts: Default::default(),
+            },
+        ))
+    }
+
     fn build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_with_projection_profiled(
         &self,
         runtime: &SharedRuntime,
@@ -373,16 +489,11 @@ impl ClientSession {
                 &assist,
             )?;
         let server_inputs = self.open_role_separated_server_inputs(&packet.server_inputs)?;
-        let hidden_eval_constants = self.hidden_eval_constant_pool()?;
-        let (run, stage_profile) =
-            execute_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool(
-            &runtime.hidden_eval_program,
-            &self.ddh_evaluator,
-            &hidden_eval_constants,
+        let (run, stage_profile) = self.build_role_separated_staged_hidden_eval_run_profiled(
+            runtime,
             &y_client_bundle,
-            &server_inputs.y_server_bits,
+            &server_inputs,
             &tau_client_bundle,
-            &server_inputs.tau_server_bits,
             client_output_projection,
         )?;
         let expected_client_input_commitment = self.ddh_evaluator.combined_input_commitment(
@@ -1748,7 +1859,7 @@ impl ClientSession {
             run_binding,
             &runtime.execution_result,
             &output,
-        );
+        )?;
         let projection_mode = match (output.client_output.value_kind, client_output_mask) {
             (ClientOutputValueKind::UnmaskedClientBase, None) => {
                 OutputProjectionMode::trusted_server_projection()
@@ -1850,7 +1961,7 @@ impl ClientSession {
             run_binding,
             &runtime.execution_result,
             &ddh_run.output,
-        );
+        )?;
         let result_assembly_duration_ns = elapsed_ns_u64(result_assembly_started);
         let output_sealing_started = monotonic_now_ns();
         let client_output = self.seal_client_output_packet_message(

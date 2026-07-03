@@ -3400,6 +3400,26 @@ pub fn materialize_output_bundles_from_continuations_with_pool<B: DdhHssArithmet
     round_core: &DdhHiddenEvalRoundCoreContinuation,
     projector_inputs: &DdhHiddenEvalProjectorInputs,
 ) -> ProtoResult<DdhHiddenEvalOutputBundles> {
+    materialize_output_bundles_from_continuations_with_projection_with_pool(
+        program,
+        backend,
+        constant_pool,
+        round_core,
+        projector_inputs,
+        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+    )
+}
+
+pub fn materialize_output_bundles_from_continuations_with_projection_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    round_core: &DdhHiddenEvalRoundCoreContinuation,
+    projector_inputs: &DdhHiddenEvalProjectorInputs,
+    client_output_projection: DdhHiddenEvalClientOutputProjection,
+) -> ProtoResult<DdhHiddenEvalOutputBundles> {
     ensure_program_shape(program)?;
     let d_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.add_stage_bits)?;
     let round_state = RoundKernelState::from_shared_bits(&round_core.state_words)?;
@@ -3419,7 +3439,7 @@ pub fn materialize_output_bundles_from_continuations_with_pool<B: DdhHssArithmet
         &tau_client_bits,
         &projector_inputs.tau_server_left_bits,
         &projector_inputs.tau_server_right_bits,
-        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+        client_output_projection,
     )
     .map(|execution| execution.output)
 }
@@ -4265,60 +4285,23 @@ fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
     tau_server_left_bits: &[DdhHssTransportWord],
     tau_server_right_bits: &[DdhHssTransportWord],
 ) -> ProtoResult<DdhHiddenEvalServerOutputBundles> {
-    if stage.kind != HiddenEvalStageKind::OutputProjector {
-        return Err(ProtoError::InvalidInput(
-            "unexpected output-projector stage kind".to_string(),
-        ));
-    }
-
-    let OutputProjectorCoreBits {
-        reduced_a_bits,
-        tau_bits,
-        profile: _,
-    } = compute_output_projector_core_bits(
+    let output = execute_output_projector_stage(
         backend,
         constant_pool,
+        stage,
+        d_bits,
         final_words,
         tau_client_bits,
         tau_server_left_bits,
         tau_server_right_bits,
-    )?;
-    let client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
-        backend,
-        "output_projector/client_base",
-        &reduced_a_bits,
-        &tau_bits,
-        &constant_pool.zero_left,
-        &constant_pool.zero_right,
-        &constant_pool.one_left,
-        &constant_pool.one_right,
-    )?;
-    let x_server_base_bits = add_words_bits_mod_l_canonical_inputs_local(
-        backend,
-        "output_projector/server_base",
-        &client_base_bits,
-        &tau_bits,
-        &constant_pool.zero_left,
-        &constant_pool.zero_right,
-        &constant_pool.one_left,
-        &constant_pool.one_right,
-    )?;
-    let (x_server_base_left, x_server_base_right) = build_hidden_bit_output_transport_bundle_pair(
-        backend,
-        HiddenEvalInputOwner::Server,
-        "x_server_base",
-        &x_server_base_bits,
-    )?;
+        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+    )?
+    .output;
 
     Ok(DdhHiddenEvalServerOutputBundles {
-        canonical_seed_commitment: hidden_bit_output_commitment(
-            backend,
-            HiddenEvalInputOwner::Client,
-            "canonical_seed",
-            d_bits,
-        )?,
-        x_server_base_left,
-        x_server_base_right,
+        canonical_seed_commitment: output.canonical_seed.commitment,
+        x_server_base_left: output.x_server_base_left,
+        x_server_base_right: output.x_server_base_right,
     })
 }
 
@@ -4860,6 +4843,7 @@ fn build_hidden_bit_output_bundle<B: DdhHssArithmeticBackend>(
     })
 }
 
+#[cfg(test)]
 fn hidden_bit_output_commitment<B: DdhHssArithmeticBackend>(
     backend: &B,
     owner: HiddenEvalInputOwner,

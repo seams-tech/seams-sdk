@@ -30,12 +30,8 @@ import type {
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
-  THRESHOLD_ECDSA_SESSION_STORE_SOURCES,
   type ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
-import {
-  getThresholdEcdsaSessionRecordForLane,
-} from './ecdsaLanes';
 import {
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -119,23 +115,16 @@ export function createEvmFamilyWarmSessionServices(
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => {
-    const sources = source ? [source] : THRESHOLD_ECDSA_SESSION_STORE_SOURCES;
-    const records = [];
-    for (const candidateSource of sources) {
-      try {
-        const record = getThresholdEcdsaSessionRecordForLane({
-          deps,
-          walletId,
-          chainTarget,
-          source: candidateSource,
-        });
-        records.push({
-          source: candidateSource,
-          record,
-        });
-      } catch {}
-    }
-    return records;
+    return deps
+      .listThresholdEcdsaSessionRecordsForSigning({
+        walletId,
+        chainTarget,
+        ...(source ? { source } : {}),
+      })
+      .map((record) => ({
+        source: record.source,
+        record,
+      }));
   };
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm,

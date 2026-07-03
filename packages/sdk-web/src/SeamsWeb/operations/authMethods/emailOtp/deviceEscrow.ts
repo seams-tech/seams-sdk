@@ -6,6 +6,8 @@ import type {
 import {
   EMAIL_OTP_CHANNEL,
   buildWorkerEmailOtpRoutePlan,
+  parseEmailOtpDeviceEnrollmentRemoveResult,
+  parseEmailOtpDeviceEnrollmentRestoreResult,
   readOptionalString,
   readString,
   requireWorkerCtx,
@@ -30,26 +32,28 @@ export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
   otpChannel?: WalletEmailOtpChannel;
 }): Promise<EmailOtpDeviceEnrollmentRestoreResult> {
   const workerCtx = requireWorkerCtx(args.workerCtx);
-  return await workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'restoreEmailOtpDeviceEnrollmentEscrow',
-      payload: {
-        relayUrl: readString(args.relayUrl, 'relayUrl'),
-        walletId: readString(args.walletId, 'walletId'),
-        userId: readString(args.userId, 'userId'),
-        challengeId: readString(args.challengeId, 'challengeId'),
-        otpCode: readString(args.otpCode, 'otpCode'),
-        recoveryKey: readString(args.recoveryKey, 'recoveryKey'),
-        shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
-        routePlan: buildWorkerEmailOtpRoutePlan({
-          routeFamily: 'login',
-          appSessionJwt: args.appSessionJwt,
-        }),
-        otpChannel: EMAIL_OTP_CHANNEL,
+  return parseEmailOtpDeviceEnrollmentRestoreResult(
+    await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'restoreEmailOtpDeviceEnrollmentEscrow',
+        payload: {
+          relayUrl: readString(args.relayUrl, 'relayUrl'),
+          walletId: readString(args.walletId, 'walletId'),
+          userId: readString(args.userId, 'userId'),
+          challengeId: readString(args.challengeId, 'challengeId'),
+          otpCode: readString(args.otpCode, 'otpCode'),
+          recoveryKey: readString(args.recoveryKey, 'recoveryKey'),
+          shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'login',
+            appSessionJwt: args.appSessionJwt,
+          }),
+          otpChannel: EMAIL_OTP_CHANNEL,
+        },
       },
-    },
-  });
+    }),
+  );
 }
 
 export async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
@@ -59,17 +63,19 @@ export async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
   workerCtx: WorkerOperationContext;
 }): Promise<EmailOtpDeviceEnrollmentRemoveResult> {
   const workerCtx = requireWorkerCtx(args.workerCtx);
-  return await workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
-      payload: {
-        walletId: readString(args.walletId, 'walletId'),
-        userId: readString(args.userId, 'userId'),
-        ...(readOptionalString(args.enrollmentId)
-          ? { enrollmentId: readOptionalString(args.enrollmentId) }
-          : {}),
+  return parseEmailOtpDeviceEnrollmentRemoveResult(
+    await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
+        payload: {
+          walletId: readString(args.walletId, 'walletId'),
+          userId: readString(args.userId, 'userId'),
+          ...(readOptionalString(args.enrollmentId)
+            ? { enrollmentId: readOptionalString(args.enrollmentId) }
+            : {}),
+        },
       },
-    },
-  });
+    }),
+  );
 }

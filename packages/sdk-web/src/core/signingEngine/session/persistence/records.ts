@@ -5,6 +5,7 @@ import {
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
 import { base64UrlDecode } from '@shared/utils/base64';
+import { parseEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { toAccountId, type AccountId, type StrictAccountId } from '@/core/types/accountIds';
 import type {
   EcdsaLaneCandidate,
@@ -12,8 +13,15 @@ import type {
   LaneCandidateState,
   SelectedEcdsaLane,
   ThresholdEcdsaEmailOtpAuthContext,
+  EmailOtpAuthUse,
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
+} from '../identity/laneIdentity';
+import {
+  buildEmailOtpAuthContext,
+  emailOtpAuthContextConsumedAtMs,
+  emailOtpAuthContextProviderUserId,
+  emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { THRESHOLD_ECDSA_SESSION_STORE_SOURCES } from '../identity/laneIdentity';
@@ -163,7 +171,7 @@ export type ReadyPasskeyEcdsaSessionRecord = NormalizedThresholdEcdsaSessionReco
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
 };
 
-export type ReadyEmailOtpEcdsaSessionRecord = Omit<
+export type EmailOtpEcdsaSessionRecord = Omit<
   NormalizedThresholdEcdsaSessionRecordShared,
   'thresholdSessionKind' | 'walletSessionJwt'
 > & {
@@ -176,7 +184,7 @@ export type ReadyEmailOtpEcdsaSessionRecord = Omit<
 
 export type NormalizedThresholdEcdsaSessionRecord =
   | ReadyPasskeyEcdsaSessionRecord
-  | ReadyEmailOtpEcdsaSessionRecord;
+  | EmailOtpEcdsaSessionRecord;
 
 export type ThresholdEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecord;
 
@@ -571,7 +579,7 @@ function thresholdEcdsaAuthBindingForRecord(
   record: ThresholdEcdsaSessionRecord,
 ): SigningLaneAuthBinding {
   if (record.source === 'email_otp') {
-    const providerSubjectId = String(record.emailOtpAuthContext?.authSubjectId || '').trim();
+    const providerSubjectId = emailOtpAuthContextProviderUserId(record.emailOtpAuthContext);
     if (!providerSubjectId) {
       throw new Error('[SigningEngine] Email OTP ECDSA record is missing auth subject');
     }
@@ -1630,39 +1638,89 @@ function normalizeThresholdEcdsaEmailOtpAuthContext(
     throw new Error('Invalid Email OTP auth context: invalid policy');
   }
   const policy: EmailOtpAuthPolicy = policyRaw;
-  const retentionRaw = String(obj.retention || '')
-    .trim()
-    .toLowerCase();
-  if (retentionRaw !== 'session' && retentionRaw !== 'single_use') {
-    throw new Error('Invalid Email OTP auth context: invalid retention');
-  }
-  const retention: 'session' | 'single_use' = retentionRaw;
-  if (policy === 'per_operation' && retention !== 'single_use') {
-    throw new Error('Invalid Email OTP auth context: per-operation sessions must be single-use');
-  }
-  const reasonRaw = String(obj.reason || '')
-    .trim()
-    .toLowerCase();
-  if (reasonRaw !== 'login' && reasonRaw !== 'sign') {
-    throw new Error('Invalid Email OTP auth context: invalid reason');
-  }
   const authMethodRaw = String(obj.authMethod || '')
     .trim()
     .toLowerCase();
   if (authMethodRaw !== 'email_otp') {
     throw new Error('Invalid Email OTP auth context: invalid authMethod');
   }
-  const reason: 'login' | 'sign' = reasonRaw;
-  const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
-  const consumedAtMs = normalizePositiveInteger(obj.consumedAtMs);
-  return {
-    policy,
-    retention,
-    reason,
-    authMethod: 'email_otp',
-    ...(authSubjectId ? { authSubjectId } : {}),
-    ...(consumedAtMs ? { consumedAtMs } : {}),
-  };
+  if (Object.prototype.hasOwnProperty.call(obj, 'authSubjectId')) {
+    throw new Error('Invalid Email OTP auth context: deleted authSubjectId');
+  }
+  if (Object.prototype.hasOwnProperty.call(obj, 'retention')) {
+    throw new Error('Invalid Email OTP auth context: deleted retention');
+  }
+  if (Object.prototype.hasOwnProperty.call(obj, 'reason')) {
+    throw new Error('Invalid Email OTP auth context: deleted reason');
+  }
+  if (Object.prototype.hasOwnProperty.call(obj, 'consumedAtMs')) {
+    throw new Error('Invalid Email OTP auth context: deleted consumedAtMs');
+  }
+  const authority = parseEmailOtpWalletAuthAuthority(obj.authority);
+  if (!authority) {
+    throw new Error('Invalid Email OTP auth context: invalid wallet auth authority');
+  }
+  const use = normalizeEmailOtpAuthUse(obj.use);
+  switch (use.kind) {
+    case 'session':
+      return buildEmailOtpAuthContext({
+        policy,
+        retention: 'session',
+        reason: use.reason,
+        authority,
+      });
+    case 'single_use_pending':
+      return buildEmailOtpAuthContext({
+        policy,
+        retention: 'single_use',
+        authority,
+      });
+    case 'single_use_consumed':
+      return buildEmailOtpAuthContext({
+        policy,
+        retention: 'single_use',
+        authority,
+        consumedAtMs: use.consumedAtMs,
+      });
+  }
+  use satisfies never;
+  throw new Error('Invalid Email OTP auth context: unsupported use');
+}
+
+function normalizeEmailOtpAuthUse(value: unknown): EmailOtpAuthUse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid Email OTP auth context: missing use');
+  }
+  const obj = value as Record<string, unknown>;
+  const kind = String(obj.kind || '')
+    .trim()
+    .toLowerCase();
+  const reason = String(obj.reason || '')
+    .trim()
+    .toLowerCase();
+  switch (kind) {
+    case 'session':
+      if (reason !== 'login' && reason !== 'sign') {
+        throw new Error('Invalid Email OTP auth context: invalid session use reason');
+      }
+      return { kind: 'session', reason };
+    case 'single_use_pending':
+      if (Object.prototype.hasOwnProperty.call(obj, 'reason')) {
+        throw new Error('Invalid Email OTP auth context: pending single-use reason is deleted');
+      }
+      return { kind: 'single_use_pending' };
+    case 'single_use_consumed': {
+      if (Object.prototype.hasOwnProperty.call(obj, 'reason')) {
+        throw new Error('Invalid Email OTP auth context: consumed single-use reason is deleted');
+      }
+      const consumedAtMs = normalizePositiveInteger(obj.consumedAtMs);
+      if (!consumedAtMs) {
+        throw new Error('Invalid Email OTP auth context: missing consumedAtMs');
+      }
+      return { kind: 'single_use_consumed', consumedAtMs };
+    }
+  }
+  throw new Error('Invalid Email OTP auth context: invalid use kind');
 }
 
 function parseThresholdEd25519SessionIdentity(obj: Record<string, unknown>): {
@@ -2236,7 +2294,9 @@ function thresholdEd25519AuthBindingForRecord(
   record: ThresholdEd25519SessionRecord,
 ): SigningLaneAuthBinding {
   if (record.source === 'email_otp') {
-    const providerSubjectId = String(record.emailOtpAuthContext?.authSubjectId || '').trim();
+    const providerSubjectId = record.emailOtpAuthContext
+      ? emailOtpAuthContextProviderUserId(record.emailOtpAuthContext)
+      : '';
     if (!providerSubjectId) {
       throw new Error('[SigningEngine] Email OTP Ed25519 record is missing auth subject');
     }
@@ -2552,8 +2612,8 @@ function positiveRemainingUses(value: number): PositiveRemainingUses | null {
 }
 
 function normalizedConsumedAtMs(record: ThresholdEcdsaSessionRecord): number | null {
-  const consumedAtMs = Math.floor(Number(thresholdEcdsaEmailOtpAuthContext(record)?.consumedAtMs));
-  return Number.isFinite(consumedAtMs) && consumedAtMs > 0 ? consumedAtMs : null;
+  const context = thresholdEcdsaEmailOtpAuthContext(record);
+  return context ? emailOtpAuthContextConsumedAtMs(context) : null;
 }
 
 function normalizedUpdatedAtMs(record: ThresholdEcdsaSessionRecord): number {
@@ -2764,7 +2824,7 @@ export function emailOtpEcdsaPostSignMaterialFromRecord(
   if (record.emailOtpAuthContext?.authMethod !== 'email_otp') return null;
   const remainingUses = Math.floor(Number(record.remainingUses) || 0);
   const laneRef = toEcdsaEmailOtpRuntimeLaneRef(record);
-  if (record.emailOtpAuthContext.retention === 'single_use') {
+  if (emailOtpAuthContextRetention(record.emailOtpAuthContext) === 'single_use') {
     if (remainingUses !== 1 || normalizedConsumedAtMs(record) !== null) return null;
     return {
       kind: 'consumable_email_otp_ecdsa_lane',
@@ -3208,31 +3268,6 @@ export function getThresholdEcdsaKeyRefByKey(
     : null;
 }
 
-export function getEmailOtpThresholdEcdsaSessionRecordForSigning(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-  },
-): ThresholdEcdsaSessionRecord {
-  return getThresholdEcdsaSessionRecordForWalletTarget(deps, {
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    source: 'email_otp',
-  });
-}
-
-export function getEmailOtpThresholdEcdsaKeyRefForSigning(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-  },
-): ThresholdEcdsaSecp256k1KeyRef {
-  const record = getEmailOtpThresholdEcdsaSessionRecordForSigning(deps, args);
-  return thresholdEcdsaKeyRefFromRecord(deps, record);
-}
-
 export function getPasskeyThresholdEcdsaSessionRecordForSigning(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
@@ -3511,7 +3546,7 @@ export function consumeSingleUseEmailOtpEcdsaLane(
     record.source !== 'email_otp' ||
     !emailOtpAuthContext ||
     emailOtpAuthContext.authMethod !== 'email_otp' ||
-    emailOtpAuthContext.retention !== 'single_use'
+    emailOtpAuthContextRetention(emailOtpAuthContext) !== 'single_use'
   ) {
     return staleSingleUseEmailOtpEcdsaLaneResult({ laneKey, reason: 'retention_mismatch' });
   }
@@ -3537,10 +3572,12 @@ export function consumeSingleUseEmailOtpEcdsaLane(
   const nextRecord: ThresholdEcdsaSessionRecord = {
     ...record,
     remainingUses: Math.max(0, remainingUses - 1),
-    emailOtpAuthContext: {
-      ...emailOtpAuthContext,
+    emailOtpAuthContext: buildEmailOtpAuthContext({
+      policy: emailOtpAuthContext.policy,
+      retention: 'single_use',
+      authority: emailOtpAuthContext.authority,
       consumedAtMs: nowMs,
-    },
+    }),
     updatedAtMs: nowMs,
   };
   deindexThresholdEcdsaRecord(depsIndex, laneKey, record);
@@ -4050,7 +4087,7 @@ export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
   const nowMs = Math.max(0, Math.floor(Number(args.nowMs ?? Date.now()) || 0));
   const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
   const remainingUses = Math.max(0, Math.floor(Number(record.remainingUses) || 0) - uses);
-  const retainMaterial = record.emailOtpAuthContext.retention !== 'single_use';
+  const retainMaterial = emailOtpAuthContextRetention(record.emailOtpAuthContext) !== 'single_use';
   const retainedMaterialFields = retainMaterial
     ? thresholdEd25519UpsertMaterialFieldsFromRecord(record)
     : {};
@@ -4072,10 +4109,12 @@ export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
     ...(record.walletSessionJwt ? { walletSessionJwt: record.walletSessionJwt } : {}),
     expiresAtMs: record.expiresAtMs,
     remainingUses,
-    emailOtpAuthContext: {
-      ...record.emailOtpAuthContext,
+    emailOtpAuthContext: buildEmailOtpAuthContext({
+      policy: record.emailOtpAuthContext.policy,
+      retention: 'single_use',
+      authority: record.emailOtpAuthContext.authority,
       consumedAtMs: nowMs,
-    },
+    }),
     updatedAtMs: nowMs,
     source: 'email_otp',
   });

@@ -20,9 +20,6 @@ import {
   type ReadAvailableSigningLanesInput,
   type AvailableSigningLanes,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   createEmailOtpEcdsaSigningSessionMaterialRestorer,
 } from './ecdsaRecovery';
@@ -36,15 +33,13 @@ import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
 import {
   type EmailOtpThresholdEcdsaLoginResult,
   type LoginEmailOtpEcdsaCapabilityArgs,
+  type LoginEmailOtpEcdsaCapabilityForSigningArgs,
 } from './ecdsaLogin';
 import {
   type EmailOtpThresholdEcdsaEnrollmentResult,
   type EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaEnrollment';
-import {
-  EmailOtpEcdsaLifecycleRuntime,
-  type LoginEmailOtpEcdsaCapabilityForSigningArgs,
-} from './ecdsaLifecycleRuntime';
+import { EmailOtpEcdsaLifecycleRuntime } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
   type EmailOtpEd25519ExportArtifact,
@@ -56,6 +51,7 @@ import {
 } from './exportRecoveryRuntime';
 import {
   EmailOtpEd25519Warmup,
+  type Ed25519SigningLane,
   type LoginEmailOtpEd25519CapabilityArgs,
 } from './ed25519Warmup';
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
@@ -127,7 +123,6 @@ export class EmailOtpWalletSessionRuntime {
       getSignerWorkerContext: deps.getSignerWorkerContext,
       runtimeConfig: this.runtimeConfig,
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
-      resolveAppSessionJwt: (request) => this.resolveAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
       reconstructEd25519Session: (request) => this.reconstructEd25519Session(request),
     });
@@ -355,9 +350,10 @@ export class EmailOtpWalletSessionRuntime {
     nearAccountId: AccountId;
     challengeId: string;
     otpCode: string;
-    record: ThresholdEd25519SessionRecord;
-    routeAuth?: AppOrWalletSessionAuth;
-    authLane?: EmailOtpAuthLane;
+    committedLane: Ed25519SigningLane;
+    record?: never;
+    routeAuth?: never;
+    authLane?: never;
     remainingUses?: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
     return await this.ed25519Warmup.loginForSigning(args);

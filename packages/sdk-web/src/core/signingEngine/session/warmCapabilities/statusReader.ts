@@ -14,7 +14,11 @@ import {
   exactSigningLaneIdentityMatches,
   type ExactEcdsaSigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-import { selectedEcdsaLane, type ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
+import {
+  emailOtpAuthContextRetention,
+  selectedEcdsaLane,
+  type ThresholdEcdsaSessionStoreSource,
+} from '../identity/laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -379,8 +383,8 @@ export function createWarmSessionStatusReader(
       sessionId: thresholdSessionId,
       status,
       authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
-      ...(record.emailOtpAuthContext?.retention
-        ? { retention: record.emailOtpAuthContext.retention }
+      ...(record.emailOtpAuthContext
+        ? { retention: emailOtpAuthContextRetention(record.emailOtpAuthContext) }
         : {}),
       ...(status === 'active' || status === 'exhausted' ? { remainingUses } : {}),
       ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
@@ -438,8 +442,8 @@ export function createWarmSessionStatusReader(
         status: 'unavailable',
         statusCode: 'auth_missing',
         authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
-        ...(record?.emailOtpAuthContext?.retention
-          ? { retention: record.emailOtpAuthContext.retention }
+        ...(record?.emailOtpAuthContext
+          ? { retention: emailOtpAuthContextRetention(record.emailOtpAuthContext) }
           : {}),
       };
     }
@@ -452,7 +456,9 @@ export function createWarmSessionStatusReader(
       sessionId: normalizedThresholdSessionId,
       claim: ed25519Claim,
       authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
-      retention: record?.emailOtpAuthContext?.retention || null,
+      retention: record?.emailOtpAuthContext
+        ? emailOtpAuthContextRetention(record.emailOtpAuthContext)
+        : null,
     });
     if (status.status === 'not_found' && record) {
       return (
@@ -506,7 +512,9 @@ export function createWarmSessionStatusReader(
         claim: args.claim,
         authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
         retention:
-          args.record.source === 'email_otp' ? args.record.emailOtpAuthContext.retention : null,
+          args.record.source === 'email_otp'
+            ? emailOtpAuthContextRetention(args.record.emailOtpAuthContext)
+            : null,
       }),
       key,
       lane: selectedEcdsaLane({

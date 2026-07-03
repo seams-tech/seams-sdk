@@ -1,6 +1,9 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { buildRecoveryExecutionRecord } from '../../core/recoveryExecutionRecords';
-import type { RouterApiAuthService } from '../authServicePort';
+import type {
+  RouterApiRecoveryRouteService,
+  RouterApiSessionVersionService,
+} from '../authServicePort';
 import {
   normalizeAccountAddress,
   parseRecoverySessionStatus,
@@ -9,39 +12,34 @@ import {
 import { CloudflareD1SessionStore } from './d1SessionStore';
 import { isRecordValue } from './d1RouterApiAuthBoundary';
 
-type GetRecoverySessionInput = Parameters<RouterApiAuthService['getRecoverySession']>[0];
+type GetRecoverySessionInput = Parameters<RouterApiRecoveryRouteService['getRecoverySession']>[0];
 type GetRecoverySessionResult = Awaited<
-  ReturnType<RouterApiAuthService['getRecoverySession']>
+  ReturnType<RouterApiRecoveryRouteService['getRecoverySession']>
 >;
-type UpdateRecoverySessionStatusInput = Parameters<
-  RouterApiAuthService['updateRecoverySessionStatus']
->[0];
+type UpdateRecoverySessionStatusInput =
+  Parameters<RouterApiRecoveryRouteService['updateRecoverySessionStatus']>[0];
 type UpdateRecoverySessionStatusResult = Awaited<
-  ReturnType<RouterApiAuthService['updateRecoverySessionStatus']>
+  ReturnType<RouterApiRecoveryRouteService['updateRecoverySessionStatus']>
 >;
-type RecordRecoveryExecutionInput = Parameters<
-  RouterApiAuthService['recordRecoveryExecution']
->[0];
+type RecordRecoveryExecutionInput =
+  Parameters<RouterApiRecoveryRouteService['recordRecoveryExecution']>[0];
 type RecordRecoveryExecutionResult = Awaited<
-  ReturnType<RouterApiAuthService['recordRecoveryExecution']>
+  ReturnType<RouterApiRecoveryRouteService['recordRecoveryExecution']>
 >;
-type GetOrCreateAppSessionVersionInput = Parameters<
-  RouterApiAuthService['getOrCreateAppSessionVersion']
->[0];
+type GetOrCreateAppSessionVersionInput =
+  Parameters<RouterApiSessionVersionService['getOrCreateAppSessionVersion']>[0];
 type GetOrCreateAppSessionVersionResult = Awaited<
-  ReturnType<RouterApiAuthService['getOrCreateAppSessionVersion']>
+  ReturnType<RouterApiSessionVersionService['getOrCreateAppSessionVersion']>
 >;
-type RotateAppSessionVersionInput = Parameters<
-  RouterApiAuthService['rotateAppSessionVersion']
->[0];
+type RotateAppSessionVersionInput =
+  Parameters<RouterApiSessionVersionService['rotateAppSessionVersion']>[0];
 type RotateAppSessionVersionResult = Awaited<
-  ReturnType<RouterApiAuthService['rotateAppSessionVersion']>
+  ReturnType<RouterApiSessionVersionService['rotateAppSessionVersion']>
 >;
-type ValidateAppSessionVersionInput = Parameters<
-  RouterApiAuthService['validateAppSessionVersion']
->[0];
+type ValidateAppSessionVersionInput =
+  Parameters<RouterApiSessionVersionService['validateAppSessionVersion']>[0];
 type ValidateAppSessionVersionResult = Awaited<
-  ReturnType<RouterApiAuthService['validateAppSessionVersion']>
+  ReturnType<RouterApiSessionVersionService['validateAppSessionVersion']>
 >;
 
 function errorMessage(error: unknown): string {

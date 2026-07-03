@@ -8,8 +8,12 @@ import {
   parseSyncAccountOptionsRequest,
   parseSyncAccountVerifyRequest,
 } from '../../syncAccountRequestValidation';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
-export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
+export function registerSyncAccountRoutes(
+  router: ExpressRouter,
+  ctx: ExpressRouterApiContext,
+): void {
   router.post('/sync-account/options', async (req: any, res: any) => {
     try {
       const parsed = parseSyncAccountOptionsRequest(req?.body);
@@ -17,7 +21,7 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRou
         res.status(parsed.status).json(parsed.body);
         return;
       }
-      const result = await ctx.service.createWebAuthnSyncAccountOptions(parsed.request);
+      const result = await ctx.service.webAuthn.createWebAuthnSyncAccountOptions(parsed.request);
       if (!result.ok) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;
@@ -41,7 +45,7 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRou
         return;
       }
 
-      const result = await ctx.service.verifyWebAuthnSyncAccount(parsed.request);
+      const result = await ctx.service.webAuthn.verifyWebAuthnSyncAccount(parsed.request);
       if (!result.ok || !result.verified) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;
@@ -66,10 +70,24 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRou
           });
           return;
         }
+        const walletBinding = result.walletBinding;
+        const credentialIdB64u = String(result.credentialIdB64u || '').trim();
+        if (!walletBinding || !credentialIdB64u) {
+          res.status(500).json({
+            ok: false,
+            code: 'internal',
+            message: 'sync-account threshold session is missing wallet authority binding',
+          });
+          return;
+        }
         const signed = await signRouterAbEd25519WalletSessionJwt({
           session: ctx.opts.session,
           userId: sessionInfo.walletId,
-          authorityScope: { kind: 'passkey_rp', rpId: result.rpId },
+          authority: buildPasskeyWalletAuthAuthority({
+            walletId: walletBinding.walletId,
+            rpId: walletBinding.rpId,
+            credentialIdB64u,
+          }),
           relayerKeyId: result.thresholdEd25519?.relayerKeyId,
           sessionInfo,
           fallbackParticipantIds: result.thresholdEd25519?.participantIds,

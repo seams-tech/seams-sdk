@@ -21,7 +21,7 @@ export function registerSignedDelegateRoutes(
       origin: String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined,
       route,
       services: {
-        authService: signedDelegate.authService,
+        signedDelegateAuth: signedDelegate.authService,
         billing: signedDelegate.billing,
         observabilityIngestion: ctx.opts.observabilityIngestion || null,
         prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,

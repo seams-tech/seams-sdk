@@ -6,13 +6,15 @@ import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
+  WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
+  WalletAddSignerHssRespondRequest,
   WalletAddSignerHssRespondResponse,
-  WalletAddSignerStartResponse,
-} from '../../core/types';
+  WalletAddSignerStartRequest,
+  WalletAddSignerStartResponse
+} from '../../core/registrationContracts';
 import type { WalletStore } from '../../core/d1WalletStore';
 import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
-import type { RouterApiAuthService } from '../authServicePort';
 import {
   CloudflareD1RegistrationCeremonyIntentStore,
   missingRegistrationCeremonyDoStore,
@@ -31,15 +33,9 @@ import {
 import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegistrationBranch';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 
-type StartWalletAddSignerInput = Parameters<
-  RouterApiAuthService['startWalletAddSigner']
->[0];
-type RespondWalletAddSignerHssInput = Parameters<
-  RouterApiAuthService['respondWalletAddSignerHss']
->[0];
-type FinalizeWalletAddSignerInput = Parameters<
-  RouterApiAuthService['finalizeWalletAddSigner']
->[0];
+type StartWalletAddSignerInput = WalletAddSignerStartRequest;
+type RespondWalletAddSignerHssInput = WalletAddSignerHssRespondRequest;
+type FinalizeWalletAddSignerInput = WalletAddSignerFinalizeRequest;
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
 type ThresholdSigningServiceProvider = () => ThresholdSigningService | null;

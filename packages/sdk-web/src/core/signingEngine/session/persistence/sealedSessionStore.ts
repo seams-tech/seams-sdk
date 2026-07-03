@@ -65,18 +65,24 @@ export type EcdsaSealedRecordThresholdSessionIds = {
   ecdsa: string;
 };
 
-export type CurrentEd25519RestoreMetadata = Omit<
-  SealedSigningSessionEd25519RestoreMetadata,
-  | 'clientVerifyingShareB64u'
-  | 'ed25519WorkerMaterialHandle'
-  | 'ed25519WorkerMaterialBindingDigest'
-  | 'sealedWorkerMaterialRef'
-  | 'sealedWorkerMaterialB64u'
-  | 'materialFormatVersion'
-  | 'materialKeyId'
-  | 'materialCreatedAtMs'
-  | 'keyVersion'
-  | 'routerAbNormalSigning'
+type CurrentEd25519RestoreMetadataBase<TMetadata> = TMetadata extends unknown
+  ? Omit<
+      TMetadata,
+      | 'clientVerifyingShareB64u'
+      | 'ed25519WorkerMaterialHandle'
+      | 'ed25519WorkerMaterialBindingDigest'
+      | 'sealedWorkerMaterialRef'
+      | 'sealedWorkerMaterialB64u'
+      | 'materialFormatVersion'
+      | 'materialKeyId'
+      | 'materialCreatedAtMs'
+      | 'keyVersion'
+      | 'routerAbNormalSigning'
+    >
+  : never;
+
+export type CurrentEd25519RestoreMetadata = CurrentEd25519RestoreMetadataBase<
+  SealedSigningSessionEd25519RestoreMetadata
 > & {
   clientVerifyingShareB64u: string;
   ed25519WorkerMaterialHandle?: string;
@@ -91,11 +97,20 @@ export type CurrentEd25519RestoreMetadata = Omit<
 
 export type CurrentEd25519SealedSessionRecord = Omit<
   SigningSessionSealedStoreRecord,
-  'curve' | 'thresholdSessionIds' | 'walletId' | 'relayerUrl' | 'ed25519Restore' | 'ecdsaRestore'
+  | 'curve'
+  | 'thresholdSessionIds'
+  | 'walletId'
+  | 'subjectId'
+  | 'userId'
+  | 'relayerUrl'
+  | 'ed25519Restore'
+  | 'ecdsaRestore'
 > & {
   curve: 'ed25519';
   thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
   walletId: string;
+  subjectId?: never;
+  userId?: never;
   relayerUrl: string;
   ed25519Restore: CurrentEd25519RestoreMetadata;
   ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
@@ -108,6 +123,7 @@ export type CurrentEcdsaSealedSessionRecord = Omit<
   | 'walletId'
   | 'relayerUrl'
   | 'subjectId'
+  | 'userId'
   | 'signingRootId'
   | 'signingRootVersion'
   | 'ecdsaRestore'
@@ -117,6 +133,7 @@ export type CurrentEcdsaSealedSessionRecord = Omit<
   thresholdSessionIds: EcdsaSealedRecordThresholdSessionIds;
   walletId: string;
   subjectId?: never;
+  userId?: never;
   signingRootId?: never;
   signingRootVersion?: never;
   relayerUrl: string;
@@ -218,7 +235,7 @@ export type BuildCurrentEd25519SealedSessionRecordInput =
     curve: 'ed25519';
     thresholdSessionIds?: Ed25519SealedRecordThresholdSessionIds;
     walletId: string;
-    userId?: string;
+    userId?: never;
     subjectId?: never;
     signingRootId?: string;
     signingRootVersion?: string;
@@ -233,7 +250,7 @@ export type BuildCurrentEcdsaSealedSessionRecordInput =
     thresholdSessionIds?: EcdsaSealedRecordThresholdSessionIds;
     subjectId?: never;
     walletId: string;
-    userId?: string;
+    userId?: never;
     signingRootId?: never;
     signingRootVersion?: never;
     relayerUrl: string;
@@ -368,7 +385,6 @@ function sealedRecordStorageRow(record: CurrentSealedSessionRecord): Record<stri
   return {
     store_key: record.storeKey,
     wallet_id: record.walletId,
-    user_id: optionalStringForIndex(record.userId),
     auth_method: record.authMethod,
     curve: record.curve,
     signing_root_id: optionalStringForIndex(record.signingRootId),
@@ -439,7 +455,7 @@ function normalizeEcdsaRestoreMetadata(
   const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
-  const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
+  const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const ethereumAddress = normalizeEthereumAddress(obj.ethereumAddress);
@@ -465,11 +481,11 @@ function normalizeEcdsaRestoreMetadata(
   const authBranch =
     evmFamilySigningKeySlotId && credentialIdB64u && rpId
       ? ({ evmFamilySigningKeySlotId, rpId, credentialIdB64u } as const)
-      : evmFamilySigningKeySlotId && (providerSubjectId || authSubjectId)
+      : evmFamilySigningKeySlotId && providerSubjectId && emailHashHex
         ? ({
             evmFamilySigningKeySlotId,
-            ...(providerSubjectId ? { providerSubjectId } : {}),
-            ...(authSubjectId ? { authSubjectId } : {}),
+            providerSubjectId,
+            emailHashHex,
           } as const)
         : null;
   if (!authBranch) return undefined;
@@ -506,6 +522,7 @@ function normalizeCurrentEd25519RestoreMetadata(
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
+  const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
   const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
   const sessionKindRaw = String(obj.sessionKind || '').trim();
@@ -528,6 +545,12 @@ function normalizeCurrentEd25519RestoreMetadata(
   const materialCreatedAtMs = normalizeInteger(obj.materialCreatedAtMs);
   const signerSlot = normalizeInteger(obj.signerSlot);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
+  const authBranch =
+    credentialIdB64u && !providerSubjectId
+      ? ({ credentialIdB64u } as const)
+      : providerSubjectId && emailHashHex && !credentialIdB64u
+        ? ({ providerSubjectId, emailHashHex } as const)
+        : null;
   if (
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
@@ -544,7 +567,9 @@ function normalizeCurrentEd25519RestoreMetadata(
     materialCreatedAtMs <= 0 ||
     signerSlot == null ||
     signerSlot <= 0 ||
-    !routerAbNormalSigning
+    !routerAbNormalSigning ||
+    !authBranch ||
+    authSubjectId
   ) {
     return undefined;
   }
@@ -553,9 +578,7 @@ function normalizeCurrentEd25519RestoreMetadata(
     nearAccountId,
     nearEd25519SigningKeyId,
     rpId,
-    ...(credentialIdB64u ? { credentialIdB64u } : {}),
-    ...(providerSubjectId ? { providerSubjectId } : {}),
-    ...(authSubjectId ? { authSubjectId } : {}),
+    ...authBranch,
     relayerKeyId,
     participantIds,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
@@ -1050,10 +1073,7 @@ function buildSealedSessionSafeSummary(
     authMethod: normalizeOptionalNonEmptyString(obj?.authMethod) || null,
     curve: normalizeOptionalNonEmptyString(obj?.curve) || null,
     storeKey: normalizeOptionalNonEmptyString(obj?.storeKey) || null,
-    walletId:
-      normalizeOptionalNonEmptyString(obj?.walletId) ||
-      normalizeOptionalNonEmptyString(obj?.userId) ||
-      null,
+    walletId: normalizeOptionalNonEmptyString(obj?.walletId) || null,
     signingGrantId: normalizeStoredSigningGrantId(obj) || null,
     thresholdSessionIds: normalizeThresholdSessionIdsFromStoredRecord(obj),
     hasEcdsaRestore: Boolean(asRawSealedSessionRecord(obj?.ecdsaRestore)),
@@ -1080,10 +1100,7 @@ function classifyNonCurrentRecord(
   return {
     kind,
     storeKey: normalizeOptionalNonEmptyString(obj?.storeKey) || null,
-    walletId:
-      normalizeOptionalNonEmptyString(obj?.walletId) ||
-      normalizeOptionalNonEmptyString(obj?.userId) ||
-      null,
+    walletId: normalizeOptionalNonEmptyString(obj?.walletId) || null,
     reason,
     safeSummary: buildSealedSessionSafeSummary(obj),
   };
@@ -1112,10 +1129,11 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   const sealedSecretB64u = normalizeOptionalNonEmptyString(obj.sealedSecretB64u);
   const curve = normalizeCurve(obj.curve);
   const subjectId = normalizeOptionalNonEmptyString(obj.subjectId);
+  const userId = normalizeOptionalNonEmptyString(obj.userId);
   const walletId = normalizeOptionalNonEmptyString(obj.walletId);
   const signingRootId = normalizeOptionalNonEmptyString(obj.signingRootId);
-  const signingRootVersion =
-    normalizeOptionalNonEmptyString(obj.signingRootVersion) || (signingRootId ? 'default' : null);
+  const explicitSigningRootVersion = normalizeOptionalNonEmptyString(obj.signingRootVersion);
+  const signingRootVersion = explicitSigningRootVersion || (signingRootId ? 'default' : null);
   const relayerUrl = normalizeOptionalNonEmptyString(obj.relayerUrl);
   const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(obj.shamirPrimeB64u);
@@ -1160,7 +1178,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     if (!thresholdSessionIds.ecdsa) {
       return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
     }
-    if (subjectId) return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
+    if (subjectId || userId || signingRootId || explicitSigningRootVersion) {
+      return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
+    }
     if (!ecdsaRestoreObj || !relayerUrl) {
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
     }
@@ -1230,6 +1250,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   if (!thresholdSessionIds.ed25519) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
+  if (subjectId || userId) return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
   if (!ed25519RestoreObj || !relayerUrl) {
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
   }
@@ -1274,7 +1295,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
       },
       sealedSecretB64u,
       curve: 'ed25519',
-      ...(subjectId ? { subjectId } : {}),
       walletId,
       ...(signingRootId ? { signingRootId } : {}),
       ...(signingRootVersion ? { signingRootVersion } : {}),
@@ -1382,6 +1402,9 @@ export function buildCurrentSealedSessionRecord(
   });
   const signingGrantId = normalizeOptionalNonEmptyString(args.signingGrantId);
   const subjectId = normalizeOptionalNonEmptyString(args.subjectId);
+  const userId = normalizeOptionalNonEmptyString(args.userId);
+  const signingRootId = normalizeOptionalNonEmptyString(args.signingRootId);
+  const signingRootVersion = normalizeOptionalNonEmptyString(args.signingRootVersion);
   const walletId = normalizeOptionalNonEmptyString(args.walletId);
   const sealedSecretB64u = normalizeOptionalNonEmptyString(args.sealedSecretB64u);
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
@@ -1399,12 +1422,13 @@ export function buildCurrentSealedSessionRecord(
   const ed25519Restore = normalizeCurrentEd25519RestoreMetadata(args.ed25519Restore);
   if (curve === 'ecdsa') {
     if (!ecdsaRestore?.chainTarget || !walletId) return null;
-    if (subjectId) return null;
+    if (subjectId || userId || signingRootId || signingRootVersion) return null;
   }
+  if (curve === 'ed25519' && (subjectId || userId)) return null;
   const signingRootIdForWrite =
-    curve === 'ed25519' ? normalizeOptionalNonEmptyString(args.signingRootId) : undefined;
+    curve === 'ed25519' ? signingRootId : undefined;
   const signingRootVersionForWrite =
-    curve === 'ed25519' ? normalizeOptionalNonEmptyString(args.signingRootVersion) : undefined;
+    curve === 'ed25519' ? signingRootVersion : undefined;
 
   const classification = classifyRawSealedSessionRecord({
     v: SIGNING_SESSION_SEALED_RECORD_VERSION,
@@ -1416,7 +1440,6 @@ export function buildCurrentSealedSessionRecord(
     thresholdSessionIds,
     sealedSecretB64u,
     curve,
-    ...(curve === 'ed25519' && subjectId ? { subjectId } : {}),
     ...(walletId ? { walletId } : {}),
     ...(signingRootIdForWrite ? { signingRootId: signingRootIdForWrite } : {}),
     ...(signingRootVersionForWrite ? { signingRootVersion: signingRootVersionForWrite } : {}),

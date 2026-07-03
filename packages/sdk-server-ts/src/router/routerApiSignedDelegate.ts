@@ -82,7 +82,7 @@ type MatchedSponsoredNearDelegate =
   NonNullable<ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>>;
 
 interface RouterApiSignedDelegateServices {
-  authService: SignedDelegateRouterApiAuthService;
+  signedDelegateAuth: SignedDelegateRouterApiAuthService;
   billing?: ConsoleBillingService | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   prepaidReservations?: ConsoleBillingPrepaidReservationService | null;
@@ -519,7 +519,7 @@ async function meterSignedDelegate(input: {
             : null;
         const senderId = String(delegateAction?.senderId || '').trim() || 'unknown-sender';
         const receiverId = String(delegateAction?.receiverId || '').trim() || 'unknown-receiver';
-        const relayer = await input.services.authService.getRelayerAccount();
+        const relayer = await input.services.signedDelegateAuth.getRelayerAccount();
         const sponsorshipCtx = {
           orgId: context.principal.principal.orgId,
           actorUserId: 'signed-delegate-executor',
@@ -636,7 +636,7 @@ export async function handleRouterApiSignedDelegate(
     request: { body: input.body, headers: input.headers },
     route: input.route,
     services: {
-      authService: input.services.authService,
+      authService: input.services.signedDelegateAuth,
       ...(input.services.billing ? { billing: input.services.billing } : {}),
       ...(publishableKeyAuth
         ? { publishableKeyAuth }
@@ -901,7 +901,7 @@ export async function handleRouterApiSignedDelegate(
       execute: async () =>
         await executeSponsorshipAdapter(
           createSponsoredNearDelegateExecutionAdapter({
-            authService: input.services.authService,
+            authService: input.services.signedDelegateAuth,
             hash: parsedBody.hash,
             signedDelegate: parsedBody.signedDelegate,
             allowedDelegateAction: matched.allowedDelegateAction,

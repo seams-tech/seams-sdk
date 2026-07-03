@@ -29,7 +29,12 @@ export function registerWebAuthnAuthenticatorRoutes(
       return value.trim().toLowerCase().startsWith('bearer ');
     }
     if (Array.isArray(value)) {
-      return value.some((entry) => String(entry || '').trim().toLowerCase().startsWith('bearer '));
+      return value.some((entry) =>
+        String(entry || '')
+          .trim()
+          .toLowerCase()
+          .startsWith('bearer '),
+      );
     }
     return false;
   };
@@ -114,7 +119,10 @@ export function registerWebAuthnAuthenticatorRoutes(
         res.status(401).json({ ok: false, code: 'unauthorized', message: 'Invalid app session' });
         return;
       }
-      const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+      const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+        userId,
+        appSessionVersion,
+      });
       if (!validated.ok) {
         await maybeEmitWarmExpired({
           code: validated.code,
@@ -132,7 +140,7 @@ export function registerWebAuthnAuthenticatorRoutes(
       const rpIdFromQuery = String((req.query?.rpId ?? req.query?.rp_id ?? '') || '').trim();
       const rpId = rpIdFromQuery || String(claims.rpId || '').trim();
 
-      const result = await ctx.service.listWebAuthnAuthenticatorsForUser({
+      const result = await ctx.service.webAuthn.listWebAuthnAuthenticatorsForUser({
         userId,
         ...(rpId ? { rpId } : {}),
       });

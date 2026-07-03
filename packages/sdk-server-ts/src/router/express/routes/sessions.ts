@@ -1,5 +1,9 @@
 import type { Router as ExpressRouter } from 'express';
-import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../routerApi';
+import {
+  DEFAULT_SESSION_COOKIE_NAME,
+  deriveJwtExpiresAtIso,
+  parseSessionKind,
+} from '../../routerApi';
 import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
 import { resolveSourceIpFromExpressRequest } from '../../routerApiKeyAuth';
 import type { ExpressRouterApiContext } from '../createRouterApiRouter';
@@ -9,6 +13,10 @@ import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
 } from '../../walletUnlockRouteHandlers';
+import {
+  routerApiEmailOtpRouteService,
+  routerApiWalletUnlockRouteService,
+} from '../../authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
@@ -46,8 +54,10 @@ import {
 } from '../../signingBudgetStatus';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
 
-type VerifiedSigningBudgetStatus =
-  Extract<ParseWalletSigningBudgetStatusResult, { ok: true }>['walletBudgetStatus'];
+type VerifiedSigningBudgetStatus = Extract<
+  ParseWalletSigningBudgetStatusResult,
+  { ok: true }
+>['walletBudgetStatus'];
 
 export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterApiContext): void {
   const hasBearerSessionSignal = (
@@ -211,7 +221,10 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         body: { authenticated: false, code: 'unauthorized', message: 'Invalid app session' },
       };
     }
-    const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+    const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+      userId,
+      appSessionVersion,
+    });
     if (!validated.ok) {
       return {
         ok: false,
@@ -473,8 +486,8 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
         const verified =
           oidcProvider === 'google'
-            ? await ctx.service.verifyGoogleLogin({ idToken: command.token })
-            : await ctx.service.verifyOidcJwtExchange({
+            ? await ctx.service.identity.verifyGoogleLogin({ idToken: command.token })
+            : await ctx.service.identity.verifyOidcJwtExchange({
                 token: command.token,
               });
         if (!verified.ok || !verified.verified || !verified.userId) {
@@ -570,7 +583,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
           if (isGoogleEmailOtpExchange) {
             if (!(await requireRuntimePolicyScopeForOidcWallet())) return;
             if (oidcAccountMode === 'register') {
-              const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });
+              const appVersion = await ctx.service.sessionVersions.getOrCreateAppSessionVersion({
+                userId,
+              });
               if (!appVersion.ok) {
                 await emitSessionExchangeFailed({
                   status: appVersion.code === 'internal' ? 500 : 400,
@@ -590,8 +605,8 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
               appSessionVersion = appVersion.appSessionVersion;
             }
             if (oidcAccountMode === 'register') {
-              const rateLimit = await ctx.service.consumeGoogleEmailOtpRegistrationAttemptRateLimit(
-                {
+              const rateLimit =
+                await ctx.service.identity.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
                   providerSubject,
                   email: oidcEmail,
                   accountMode: oidcAccountMode,
@@ -603,8 +618,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
                       headers: req.headers,
                       ip: req.ip,
                     }) || undefined,
-                },
-              );
+                });
               if (!rateLimit.ok) {
                 const status = emailOtpStatusCode(rateLimit.code);
                 await emitSessionExchangeFailed({
@@ -619,7 +633,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
                 return;
               }
             }
-            const resolution = await ctx.service.resolveGoogleEmailOtpSession({
+            const resolution = await ctx.service.identity.resolveGoogleEmailOtpSession({
               providerSubject,
               sub: oidcSub,
               email: oidcEmail,
@@ -654,7 +668,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
             };
           } else if (oidcProvider !== 'google') {
             if (!(await requireRuntimePolicyScopeForOidcWallet())) return;
-            walletId = await ctx.service.resolveOidcWalletId({
+            walletId = await ctx.service.identity.resolveOidcWalletId({
               providerSubject,
               sub: oidcSub,
               email: oidcEmail,
@@ -685,7 +699,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
           return;
         }
         if (isGoogleEmailOtpExchange && oidcAccountMode === 'login') {
-          const enrollment = await ctx.service.readEmailOtpEnrollment({
+          const enrollment = await ctx.service.emailOtp.readEmailOtpEnrollment({
             walletId,
             orgId: runtimePolicyScope?.orgId,
           });
@@ -711,7 +725,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
           const originRaw = req.headers?.origin ?? req.headers?.Origin;
           return typeof originRaw === 'string' ? originRaw.trim() || undefined : undefined;
         })();
-        const verified = await ctx.service.verifyWebAuthnLogin({
+        const verified = await ctx.service.webAuthn.verifyWebAuthnLogin({
           challengeId,
           webauthn_authentication: webauthnAuthentication,
           expected_origin: expectedOrigin,
@@ -759,7 +773,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
       }
 
       if (!appSessionVersion) {
-        const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });
+        const appVersion = await ctx.service.sessionVersions.getOrCreateAppSessionVersion({
+          userId,
+        });
         if (!appVersion.ok) {
           await emitSessionExchangeFailed({
             status: appVersion.code === 'internal' ? 500 : 400,
@@ -811,7 +827,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         providerSubject &&
         runtimePolicyScope?.orgId
       ) {
-        const challengeResult = await ctx.service.createEmailOtpChallenge({
+        const challengeResult = await ctx.service.emailOtp.createEmailOtpChallenge({
           userId: providerSubject,
           walletId,
           orgId: runtimePolicyScope.orgId,
@@ -884,7 +900,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
                   ? {
                       loginChallenge:
                         googleEmailOtpResolution.loginChallenge.delivery === 'sent' ||
-                          googleEmailOtpResolution.loginChallenge.delivery === 'reused'
+                        googleEmailOtpResolution.loginChallenge.delivery === 'reused'
                           ? {
                               delivery: googleEmailOtpResolution.loginChallenge.delivery,
                               challengeId: googleEmailOtpResolution.loginChallenge.challengeId,
@@ -924,7 +940,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         },
       });
       if (provider === 'passkey') {
-        await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
+        await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: userId });
         await emitRouterApiWebhookEvent({
           logger: ctx.logger,
           webhooks: ctx.opts.routerApiWebhooks,
@@ -966,7 +982,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         res.status(validated.status).json(validated.body);
         return;
       }
-      const rotated = await ctx.service.rotateAppSessionVersion({ userId: validated.userId });
+      const rotated = await ctx.service.sessionVersions.rotateAppSessionVersion({
+        userId: validated.userId,
+      });
       if (!rotated.ok) {
         res.status(rotated.code === 'internal' ? 500 : 400).json({
           ok: false,
@@ -1090,10 +1108,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         res.status(validated.status).json(validated.body);
         return;
       }
-      if (
-        expectedSigningGrantId &&
-        expectedSigningGrantId !== validated.signingGrantId
-      ) {
+      if (expectedSigningGrantId && expectedSigningGrantId !== validated.signingGrantId) {
         res.status(403).json({
           ok: false,
           code: 'wallet_signing_session_mismatch',
@@ -1155,7 +1170,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
     try {
       const response = await handleWalletUnlockChallengeRoute({
         body: req?.body,
-        service: ctx.service,
+        service: routerApiWalletUnlockRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1173,7 +1188,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
       const response = await handleWalletUnlockVerifyRoute({
         body: req?.body,
         origin,
-        service: ctx.service,
+        service: routerApiWalletUnlockRouteService(ctx.service),
         emitRouterApiWebhook: async (event) => {
           await emitRouterApiWebhookEvent({
             logger: ctx.logger,
@@ -1219,7 +1234,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1242,7 +1257,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         body: req?.body,
         claims: validated.claims,
         userId: validated.userId,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1269,7 +1284,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
             descriptor: event.descriptor,
@@ -1304,7 +1319,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         opts: ctx.opts,
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
@@ -1340,7 +1355,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1364,7 +1379,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         appSessionVersion: validated.appSessionVersion,
         sessionHash: validated.sessionHash,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         opts: ctx.opts,
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
@@ -1400,7 +1415,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         opts: ctx.opts,
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
@@ -1436,7 +1451,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         opts: ctx.opts,
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
@@ -1472,7 +1487,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1499,7 +1514,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1526,7 +1541,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1553,7 +1568,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1580,7 +1595,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1604,7 +1619,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         appSessionVersion: validated.appSessionVersion,
         sessionHash: validated.sessionHash,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         opts: ctx.opts,
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
@@ -1640,7 +1655,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         userId: validated.userId,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
             descriptor: event.descriptor,
@@ -1672,7 +1687,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         appSessionVersion: validated.appSessionVersion,
         sessionHash: validated.sessionHash,
         clientIp,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
         emitWebhook: async (event) => {
           await emitEmailOtpWebhookDescriptor({
             descriptor: event.descriptor,
@@ -1692,7 +1707,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
     try {
       const response = await handleEmailOtpDevCleanupGoogleRegistrationRoute({
         body: req.body,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1718,7 +1733,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         walletId: String(req?.query?.walletId || ''),
         claims: validated.claims,
         userId: validated.userId,
-        service: ctx.service,
+        service: routerApiEmailOtpRouteService(ctx.service),
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {
@@ -1773,7 +1788,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         });
         return;
       }
-      const rotated = await ctx.service.rotateAppSessionVersion({ userId: validated.userId });
+      const rotated = await ctx.service.sessionVersions.rotateAppSessionVersion({
+        userId: validated.userId,
+      });
       if (!rotated.ok) {
         res.status(rotated.code === 'internal' ? 500 : 400).json({
           ok: false,

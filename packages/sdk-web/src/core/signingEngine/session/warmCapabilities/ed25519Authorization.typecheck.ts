@@ -53,8 +53,49 @@ const warmAuthorization = {
     expiresAtMs: 1_900_000_000_000,
   },
   materialState: 'material_pending',
+  persistedMaterialState: 'auth_ready_material_pending',
+  materialPendingReason: 'worker_material_missing',
 } satisfies WarmEd25519SigningSessionAuthorization;
 void warmAuthorization;
+
+const warmAuthorizationRestoreAvailable = {
+  ...warmAuthorization,
+  persistedMaterialState: 'restore_available',
+  materialPendingReason: 'restore_available',
+} satisfies WarmEd25519SigningSessionAuthorization;
+void warmAuthorizationRestoreAvailable;
+
+const { materialPendingReason: _warmAuthorizationPendingReason, ...warmAuthorizationBase } =
+  warmAuthorization;
+void _warmAuthorizationPendingReason;
+
+const warmAuthorizationReadyMaterial = {
+  ...warmAuthorizationBase,
+  materialState: 'material_ready',
+  persistedMaterialState: 'material_ready',
+} satisfies WarmEd25519SigningSessionAuthorization;
+void warmAuthorizationReadyMaterial;
+
+// @ts-expect-error Ready material authorization cannot carry a pending reason.
+const warmAuthorizationReadyWithPendingReason: WarmEd25519SigningSessionAuthorization = {
+  ...warmAuthorizationReadyMaterial,
+  materialPendingReason: 'restore_available',
+};
+void warmAuthorizationReadyWithPendingReason;
+
+const warmAuthorizationPendingWithoutPersistedState = {
+  ...warmAuthorization,
+  // @ts-expect-error Pending authorization requires the exact persisted material state.
+  persistedMaterialState: undefined,
+} satisfies WarmEd25519SigningSessionAuthorization;
+void warmAuthorizationPendingWithoutPersistedState;
+
+// @ts-expect-error Restore-available authorization requires its matching pending reason.
+const warmAuthorizationRestoreWithMissingReason: WarmEd25519SigningSessionAuthorization = {
+  ...warmAuthorizationRestoreAvailable,
+  materialPendingReason: 'worker_material_missing',
+};
+void warmAuthorizationRestoreWithMissingReason;
 
 const warmAuthorizationWithMaterialHandle = {
   ...warmAuthorization,

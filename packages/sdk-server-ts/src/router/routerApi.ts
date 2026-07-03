@@ -3,6 +3,7 @@ import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type {
   ThresholdEd25519BootstrapSession,
+  ThresholdEd25519AuthorityScope,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssFinalizeWithSessionResponse,
   ThresholdEd25519HssPrepareWithSessionRequest,
@@ -37,7 +38,6 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
 import type { EmailRecoveryService } from '../email-recovery';
-import type { ThresholdEd25519AuthorityScope } from '../core/ThresholdService/validation';
 import type {
   ExecuteSignedDelegateRequest,
   ExecuteSignedDelegateResult,
@@ -46,6 +46,7 @@ import type {
   PrepareEmailRecoveryRequest,
   RespondEmailRecoveryEcdsaRequest,
 } from './emailRecoveryRequestValidation';
+import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -178,7 +179,9 @@ export interface RouterApiSignedDelegateAuthService {
 export type RouterApiEmailRecoveryResult =
   | {
       ok: true;
-      walletBinding: { rpId: string };
+      walletId: string;
+      walletBinding: EmailRecoveryResolvedWalletBinding;
+      credentialIdB64u: string;
       thresholdEd25519: {
         relayerKeyId: string;
         authorityScope: ThresholdEd25519AuthorityScope;

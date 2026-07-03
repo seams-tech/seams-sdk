@@ -1,4 +1,8 @@
-import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../routerApi';
+import {
+  DEFAULT_SESSION_COOKIE_NAME,
+  deriveJwtExpiresAtIso,
+  parseSessionKind,
+} from '../../routerApi';
 import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
 import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
 import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
@@ -9,6 +13,10 @@ import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
 } from '../../walletUnlockRouteHandlers';
+import {
+  routerApiEmailOtpRouteService,
+  routerApiWalletUnlockRouteService,
+} from '../../authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
@@ -45,8 +53,10 @@ import {
 } from '../../signingBudgetStatus';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
 
-type VerifiedSigningBudgetStatus =
-  Extract<ParseWalletSigningBudgetStatusResult, { ok: true }>['walletBudgetStatus'];
+type VerifiedSigningBudgetStatus = Extract<
+  ParseWalletSigningBudgetStatusResult,
+  { ok: true }
+>['walletBudgetStatus'];
 
 async function emitSessionExchangeFailed(
   ctx: CloudflareRouterApiContext,
@@ -209,7 +219,10 @@ async function readAndValidateAppSession(ctx: CloudflareRouterApiContext): Promi
       ),
     };
   }
-  const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+  const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+    userId,
+    appSessionVersion,
+  });
   if (!validated.ok) {
     return {
       ok: false,
@@ -313,7 +326,9 @@ async function maybeEmitWarmExpiredFromValidationFailure(input: {
   });
 }
 
-export async function handleSessionState(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleSessionState(
+  ctx: CloudflareRouterApiContext,
+): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== ctx.mePath && ctx.pathname !== '/session/state') return null;
 
@@ -336,7 +351,9 @@ export async function handleSessionState(ctx: CloudflareRouterApiContext): Promi
   }
 }
 
-export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleSessionExchange(
+  ctx: CloudflareRouterApiContext,
+): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/exchange') return null;
 
   try {
@@ -486,8 +503,8 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
       isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
       const verified =
         oidcProvider === 'google'
-          ? await ctx.service.verifyGoogleLogin({ idToken: command.token })
-          : await ctx.service.verifyOidcJwtExchange({ token: command.token });
+          ? await ctx.service.identity.verifyGoogleLogin({ idToken: command.token })
+          : await ctx.service.identity.verifyOidcJwtExchange({ token: command.token });
       if (!verified.ok || !verified.verified || !verified.userId) {
         const code = verified.code || 'not_verified';
         const status =
@@ -583,7 +600,9 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
           const scoped = await requireRuntimePolicyScopeForOidcWallet();
           if (!scoped.ok) return scoped.response;
           if (oidcAccountMode === 'register') {
-            const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });
+            const appVersion = await ctx.service.sessionVersions.getOrCreateAppSessionVersion({
+              userId,
+            });
             if (!appVersion.ok) {
               await emitSessionExchangeFailed(ctx, {
                 status: appVersion.code === 'internal' ? 500 : 400,
@@ -601,15 +620,16 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
             appSessionVersion = appVersion.appSessionVersion;
           }
           if (oidcAccountMode === 'register') {
-            const rateLimit = await ctx.service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
-              providerSubject,
-              email: oidcEmail,
-              accountMode: oidcAccountMode,
-              restartRegistrationOffer: oidcRestartRegistrationOffer,
-              runtimePolicyScope,
-              appSessionUserId: userId,
-              clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-            });
+            const rateLimit =
+              await ctx.service.identity.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+                providerSubject,
+                email: oidcEmail,
+                accountMode: oidcAccountMode,
+                restartRegistrationOffer: oidcRestartRegistrationOffer,
+                runtimePolicyScope,
+                appSessionUserId: userId,
+                clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+              });
             if (!rateLimit.ok) {
               const status = emailOtpStatusCode(rateLimit.code);
               await emitSessionExchangeFailed(ctx, {
@@ -623,7 +643,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
               return json(rateLimit, { status });
             }
           }
-          const resolution = await ctx.service.resolveGoogleEmailOtpSession({
+          const resolution = await ctx.service.identity.resolveGoogleEmailOtpSession({
             providerSubject,
             sub: oidcSub,
             email: oidcEmail,
@@ -658,7 +678,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
         } else if (oidcProvider !== 'google') {
           const scoped = await requireRuntimePolicyScopeForOidcWallet();
           if (!scoped.ok) return scoped.response;
-          walletId = await ctx.service.resolveOidcWalletId({
+          walletId = await ctx.service.identity.resolveOidcWalletId({
             providerSubject,
             sub: oidcSub,
             email: oidcEmail,
@@ -688,7 +708,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
         return json({ ok: false, code, message }, { status });
       }
       if (isGoogleEmailOtpExchange && oidcAccountMode === 'login') {
-        const enrollment = await ctx.service.readEmailOtpEnrollment({
+        const enrollment = await ctx.service.emailOtp.readEmailOtpEnrollment({
           walletId,
           orgId: runtimePolicyScope?.orgId,
         });
@@ -713,7 +733,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
         const headerOrigin = String(ctx.request.headers.get('origin') || '').trim();
         return headerOrigin || undefined;
       })();
-      const verified = await ctx.service.verifyWebAuthnLogin({
+      const verified = await ctx.service.webAuthn.verifyWebAuthnLogin({
         challengeId,
         webauthn_authentication: webauthnAuthentication,
         expected_origin: expectedOrigin,
@@ -759,7 +779,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
     }
 
     if (!appSessionVersion) {
-      const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });
+      const appVersion = await ctx.service.sessionVersions.getOrCreateAppSessionVersion({ userId });
       if (!appVersion.ok) {
         await emitSessionExchangeFailed(ctx, {
           status: appVersion.code === 'internal' ? 500 : 400,
@@ -809,7 +829,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
       providerSubject &&
       runtimePolicyScope?.orgId
     ) {
-      const challengeResult = await ctx.service.createEmailOtpChallenge({
+      const challengeResult = await ctx.service.emailOtp.createEmailOtpChallenge({
         userId: providerSubject,
         walletId,
         orgId: runtimePolicyScope.orgId,
@@ -875,7 +895,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
                   ? {
                       loginChallenge:
                         googleEmailOtpResolution.loginChallenge.delivery === 'sent' ||
-                          googleEmailOtpResolution.loginChallenge.delivery === 'reused'
+                        googleEmailOtpResolution.loginChallenge.delivery === 'reused'
                           ? {
                               delivery: googleEmailOtpResolution.loginChallenge.delivery,
                               challengeId: googleEmailOtpResolution.loginChallenge.challengeId,
@@ -912,7 +932,7 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
       },
     });
     if (provider === 'passkey') {
-      await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
+      await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: userId });
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,
         webhooks: ctx.opts.routerApiWebhooks,
@@ -950,7 +970,9 @@ export async function handleSessionExchange(ctx: CloudflareRouterApiContext): Pr
   }
 }
 
-export async function handleSessionRevoke(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleSessionRevoke(
+  ctx: CloudflareRouterApiContext,
+): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/revoke') return null;
 
   const validated = await readAndValidateAppSession(ctx);
@@ -963,7 +985,9 @@ export async function handleSessionRevoke(ctx: CloudflareRouterApiContext): Prom
     return validated.response;
   }
 
-  const rotated = await ctx.service.rotateAppSessionVersion({ userId: validated.userId });
+  const rotated = await ctx.service.sessionVersions.rotateAppSessionVersion({
+    userId: validated.userId,
+  });
   if (!rotated.ok) {
     return json(
       { ok: false, code: rotated.code, message: rotated.message },
@@ -992,7 +1016,9 @@ export async function handleSessionRevoke(ctx: CloudflareRouterApiContext): Prom
   );
 }
 
-export async function handleSessionRefresh(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleSessionRefresh(
+  ctx: CloudflareRouterApiContext,
+): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/refresh') return null;
 
   const body = await readJson(ctx.request);
@@ -1094,10 +1120,7 @@ export async function handleSigningBudgetStatus(
       }
       return validated.response;
     }
-    if (
-      expectedSigningGrantId &&
-      expectedSigningGrantId !== validated.signingGrantId
-    ) {
+    if (expectedSigningGrantId && expectedSigningGrantId !== validated.signingGrantId) {
       return json(
         {
           ok: false,
@@ -1166,7 +1189,7 @@ export async function handleWalletUnlockChallenge(
   const body = await readJson(ctx.request);
   const response = await handleWalletUnlockChallengeRoute({
     body,
-    service: ctx.service,
+    service: routerApiWalletUnlockRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1179,7 +1202,7 @@ export async function handleWalletUnlockVerify(
   const response = await handleWalletUnlockVerifyRoute({
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
-    service: ctx.service,
+    service: routerApiWalletUnlockRouteService(ctx.service),
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,
@@ -1222,7 +1245,7 @@ export async function handleWalletEmailOtpRegistrationChallenge(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1248,7 +1271,7 @@ export async function handleWalletEmailOtpRegistrationFinalize(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
         descriptor: event.descriptor,
@@ -1279,7 +1302,7 @@ export async function handleWalletEmailOtpRegistrationSeal(
     body,
     claims: validated.claims,
     userId: validated.userId,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1304,7 +1327,7 @@ export async function handleWalletEmailOtpLoginChallenge(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     opts: ctx.opts,
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
@@ -1334,7 +1357,7 @@ export async function handleWalletEmailOtpSigningSessionChallenge(
     appSessionVersion: validated.appSessionVersion,
     sessionHash: validated.sessionHash,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     opts: ctx.opts,
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
@@ -1370,7 +1393,7 @@ export async function handleWalletEmailOtpDeviceRecoveryChallenge(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1395,7 +1418,7 @@ export async function handleWalletEmailOtpLoginVerify(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     opts: ctx.opts,
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
@@ -1431,7 +1454,7 @@ export async function handleWalletEmailOtpLoginVerifyAndUnseal(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     opts: ctx.opts,
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
@@ -1461,7 +1484,7 @@ export async function handleWalletEmailOtpSigningSessionVerify(
     appSessionVersion: validated.appSessionVersion,
     sessionHash: validated.sessionHash,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     opts: ctx.opts,
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
@@ -1497,7 +1520,7 @@ export async function handleWalletEmailOtpRecoveryWrappedEscrows(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1524,7 +1547,7 @@ export async function handleWalletEmailOtpRecoveryKeyConsume(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1551,7 +1574,7 @@ export async function handleWalletEmailOtpRecoveryKeyStatus(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1578,7 +1601,7 @@ export async function handleWalletEmailOtpRecoveryKeyRotate(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1605,7 +1628,7 @@ export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1630,7 +1653,7 @@ export async function handleWalletEmailOtpUnseal(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
         descriptor: event.descriptor,
@@ -1659,7 +1682,7 @@ export async function handleWalletEmailOtpSigningSessionUnseal(
     appSessionVersion: validated.appSessionVersion,
     sessionHash: validated.sessionHash,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
     emitWebhook: async (event) => {
       await emitEmailOtpWebhookDescriptor(ctx, {
         descriptor: event.descriptor,
@@ -1685,7 +1708,7 @@ export async function handleWalletEmailOtpDevCleanupGoogleRegistration(
   const body = await readJson(ctx.request);
   const response = await handleEmailOtpDevCleanupGoogleRegistrationRoute({
     body,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1709,7 +1732,7 @@ export async function handleWalletEmailOtpDevOtpOutbox(
     walletId: String(ctx.url.searchParams.get('walletId') || ''),
     claims: validated.claims,
     userId: validated.userId,
-    service: ctx.service,
+    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }
@@ -1764,7 +1787,9 @@ export async function handleWalletLock(ctx: CloudflareRouterApiContext): Promise
     );
   }
 
-  const rotated = await ctx.service.rotateAppSessionVersion({ userId: validated.userId });
+  const rotated = await ctx.service.sessionVersions.rotateAppSessionVersion({
+    userId: validated.userId,
+  });
   if (!rotated.ok) {
     return json(
       { ok: false, locked: true, code: rotated.code, message: rotated.message },

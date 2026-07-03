@@ -153,8 +153,7 @@ const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
 ]);
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET =
-  'dev-router-ab-internal-service-auth';
+const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
 const DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL = 'http://127.0.0.1:9093';
 const LOCAL_ROUTER_AB_ED25519_SEED_PATH = '/router-ab/dev/ed25519/normal-signing/seed';
 const LOCAL_ROUTER_AB_ECDSA_HSS_SEED_PATH = '/router-ab/dev/ecdsa-hss/normal-signing/seed';
@@ -343,8 +342,7 @@ function localGoogleOidcClientId(env: LocalD1DevEnv): string | undefined {
 
 function localRouterApiSessionSecret(env: LocalD1DevEnv): string {
   return (
-    normalizeLocalString(env.RELAY_SESSION_HMAC_SECRET) ||
-    DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET
+    normalizeLocalString(env.RELAY_SESSION_HMAC_SECRET) || DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET
   );
 }
 
@@ -353,15 +351,11 @@ function localRouterApiSessionCookieName(env: LocalD1DevEnv): string | undefined
 }
 
 function localRouterApiSessionIssuer(env: LocalD1DevEnv): string {
-  return (
-    normalizeLocalString(env.RELAY_SESSION_ISSUER) || DEFAULT_LOCAL_RELAY_SESSION_ISSUER
-  );
+  return normalizeLocalString(env.RELAY_SESSION_ISSUER) || DEFAULT_LOCAL_RELAY_SESSION_ISSUER;
 }
 
 function localRouterApiSessionAudience(env: LocalD1DevEnv): string {
-  return (
-    normalizeLocalString(env.RELAY_SESSION_AUDIENCE) || DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE
-  );
+  return normalizeLocalString(env.RELAY_SESSION_AUDIENCE) || DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE;
 }
 
 function localOidcExchangeIssuerConfig(
@@ -415,20 +409,10 @@ function localEmailOtpServerSealConfig(
   const shamirPrimeB64u = normalizeLocalString(env.SIGNING_SESSION_SHAMIR_P_B64U);
   const serverEncryptExponentB64u = normalizeLocalString(env.SIGNING_SESSION_SEAL_E_S_B64U);
   const serverDecryptExponentB64u = normalizeLocalString(env.SIGNING_SESSION_SEAL_D_S_B64U);
-  if (
-    !keyVersion &&
-    !shamirPrimeB64u &&
-    !serverEncryptExponentB64u &&
-    !serverDecryptExponentB64u
-  ) {
+  if (!keyVersion && !shamirPrimeB64u && !serverEncryptExponentB64u && !serverDecryptExponentB64u) {
     return undefined;
   }
-  if (
-    !keyVersion ||
-    !shamirPrimeB64u ||
-    !serverEncryptExponentB64u ||
-    !serverDecryptExponentB64u
-  ) {
+  if (!keyVersion || !shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
     throw new Error(
       'Email OTP server seal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
     );
@@ -475,10 +459,7 @@ function parseLocalConsoleRoles(input: string): string[] {
   return roles.length > 0 ? roles : [...DEFAULT_LOCAL_CONSOLE_ROLES];
 }
 
-function localConsoleAuthClaims(
-  env: LocalD1DevEnv,
-  headers: HeaderRecord,
-): ConsoleAuthClaims {
+function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): ConsoleAuthClaims {
   const roles = parseLocalConsoleRoles(
     headerOrEnvString({
       headers,
@@ -522,8 +503,7 @@ function localConsoleOrgId(env: LocalD1DevEnv): string {
 
 function localConsoleProjectId(env: LocalD1DevEnv): string {
   return (
-    normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_PROJECT_ID) ||
-    DEFAULT_LOCAL_CONSOLE_PROJECT_ID
+    normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_PROJECT_ID) || DEFAULT_LOCAL_CONSOLE_PROJECT_ID
   );
 }
 
@@ -536,8 +516,7 @@ function localConsoleEnvironmentId(env: LocalD1DevEnv): string {
 
 function localSigningRootKekId(env: LocalD1DevEnv): string {
   return (
-    normalizeLocalString(env.SEAMS_LOCAL_SIGNING_ROOT_KEK_ID) ||
-    DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID
+    normalizeLocalString(env.SEAMS_LOCAL_SIGNING_ROOT_KEK_ID) || DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID
   );
 }
 
@@ -671,9 +650,7 @@ class LocalD1SigningRootShareSource implements SigningRootShareSource {
     for (const fixture of LOCAL_SIGNING_ROOT_SHARE_FIXTURES) {
       const shareId = normalizeSigningRootSecretShareId(fixture.shareId);
       if (!shareId) throw new Error('local signing-root fixture has invalid shareId');
-      const plaintextShareWire = hexToLocalBytes(
-        fixture.wireHex,
-      ) as SigningRootSecretShareWireV1;
+      const plaintextShareWire = hexToLocalBytes(fixture.wireHex) as SigningRootSecretShareWireV1;
       try {
         const sealedShare = await sealSigningRootSecretShareWireV1({
           signingRootId: input.signingRootId,
@@ -879,8 +856,7 @@ function createLocalD1RouterApiAuthService(env: LocalD1DevEnv) {
     emailOtpServerSeal: localEmailOtpServerSealConfig(env),
     emailOtpDeliveryMode: env.EMAIL_OTP_DELIVERY_MODE || 'dev_d1_outbox',
     emailOtpDevOutboxEnabled: env.EMAIL_OTP_DEV_OUTBOX_ENABLED ?? true,
-    emailOtpRecoveryKeyAttemptRateLimitMax:
-      env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX,
+    emailOtpRecoveryKeyAttemptRateLimitMax: env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpRecoveryKeyAttemptRateLimitWindowMs:
       env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     emailOtpGoogleRegistrationAttemptRateLimitMax:
@@ -1191,9 +1167,9 @@ function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): s
 function normalSigningAuthority(input: RouterAbNormalSigningAdmissionInput): string {
   switch (input.curve) {
     case 'ed25519':
-      return input.authorityScope.kind === 'passkey_rp'
-        ? `passkey_rp:${input.authorityScope.rpId}`
-        : `${input.authorityScope.kind}:${input.authorityScope.proofKind}:${input.authorityScope.email}`;
+    return input.authorityScope.kind === 'passkey_rp'
+      ? `passkey_rp:${input.authorityScope.rpId}`
+      : `${input.authorityScope.kind}:${input.authorityScope.provider}:${input.authorityScope.providerUserId}`;
     case 'ecdsa-hss':
       return input.evmFamilySigningKeySlotId;
   }
@@ -1256,7 +1232,7 @@ async function handleLocalRouterAbEd25519Seed(
     );
   }
   const service = createLocalD1RouterApiAuthService(env);
-  const threshold = service.getThresholdSigningService();
+  const threshold = service.thresholdRuntime.getThresholdSigningService();
   if (!threshold) {
     return jsonResponse(
       { ok: false, code: 'not_configured', message: 'threshold service is not configured' },
@@ -1310,7 +1286,7 @@ async function handleLocalRouterAbEcdsaHssSeed(
     );
   }
   const service = createLocalD1RouterApiAuthService(env);
-  const threshold = service.getThresholdSigningService();
+  const threshold = service.thresholdRuntime.getThresholdSigningService();
   if (!threshold) {
     return jsonResponse(
       { ok: false, code: 'not_configured', message: 'threshold service is not configured' },

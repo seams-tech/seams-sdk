@@ -64,7 +64,7 @@ void invalidRotationFromBroadSpread;
 const invalidRotationWithSigningRoot: EmailOtpRecoveryCodeRotationMaterial = {
   walletId: 'wallet-1',
   userId: 'user-1',
-  authSubjectId: 'subject-1',
+  providerUserId: 'subject-1',
   enrollmentId: 'enrollment-1',
   enrollmentVersion: 'v1',
   enrollmentSealKeyVersion: 'seal-v1',

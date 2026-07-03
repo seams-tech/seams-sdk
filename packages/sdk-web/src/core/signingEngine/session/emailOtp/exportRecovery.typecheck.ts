@@ -77,9 +77,10 @@ const freshExport: EmailOtpEcdsaFreshLoginExportStepUpInput = {
   relayUrl: 'https://relay.example',
   routePlan,
   publicFacts,
+  emailHashHex: 'email-hash',
   runtimePolicyScope,
-  authSubjectMode: 'explicit_auth_subject',
-  authSubjectId: 'email-subject-1',
+  providerIdentityMode: 'explicit_provider_user',
+  providerUserId: 'email-subject-1',
 };
 void freshExport;
 
@@ -93,8 +94,9 @@ const freshExportWithWalletSessionSubject: EmailOtpEcdsaFreshLoginExportStepUpIn
   relayUrl: 'https://relay.example',
   routePlan,
   publicFacts,
+  emailHashHex: 'email-hash',
   runtimePolicyScope,
-  authSubjectMode: 'wallet_session_subject',
+  providerIdentityMode: 'wallet_session_subject',
 };
 void freshExportWithWalletSessionSubject;
 
@@ -109,12 +111,13 @@ const freshExportWithoutRuntimeScope: EmailOtpEcdsaFreshLoginExportStepUpInput =
   relayUrl: 'https://relay.example',
   routePlan,
   publicFacts,
-  authSubjectMode: 'wallet_session_subject',
+  emailHashHex: 'email-hash',
+  providerIdentityMode: 'wallet_session_subject',
 };
 void freshExportWithoutRuntimeScope;
 
-// @ts-expect-error wallet-session subject branch rejects explicit authSubjectId.
-const freshExportWithMixedSubject: EmailOtpEcdsaFreshLoginExportStepUpInput = {
+// @ts-expect-error wallet-session subject branch rejects explicit provider identity.
+const freshExportWithMixedProviderIdentity: EmailOtpEcdsaFreshLoginExportStepUpInput = {
   mode: 'export_step_up',
   source: 'fresh_login',
   walletSession,
@@ -124,10 +127,11 @@ const freshExportWithMixedSubject: EmailOtpEcdsaFreshLoginExportStepUpInput = {
   relayUrl: 'https://relay.example',
   routePlan,
   publicFacts,
+  emailHashHex: 'email-hash',
   runtimePolicyScope,
-  authSubjectMode: 'wallet_session_subject',
-  authSubjectId: 'email-subject-1',
+  providerIdentityMode: 'wallet_session_subject',
+  providerUserId: 'email-subject-1',
 };
-void freshExportWithMixedSubject;
+void freshExportWithMixedProviderIdentity;
 
 export {};

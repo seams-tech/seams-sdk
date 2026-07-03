@@ -1,8 +1,10 @@
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EmailOtpEnrollmentResult } from '@/core/signingEngine/session/emailOtp/publicTypes';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
-  toEmailOtpAuthSubjectId,
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  type ThresholdEcdsaEmailOtpAuthContext,
+} from '@/core/signingEngine/session/identity/laneIdentity';
+import {
   toWalletSessionUserId,
 } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
 import type {
@@ -23,11 +25,7 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import {
-  resolveEmailOtpAuthLane,
-  type EmailOtpRoutePlan,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import { type EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   appSessionJwtFromEmailOtpAuthLane,
   appSessionSubjectFromEmailOtpAuthLane,
@@ -40,7 +38,6 @@ import {
 import { enrollEmailOtpWalletWithRoutePlan } from './walletEnrollment';
 import {
   buildEmailOtpEcdsaMintingSession,
-  buildFreshEmailOtpRoutePlan,
   routeAuthFromEmailOtpRoutePlan,
 } from './routePlan';
 import {
@@ -65,18 +62,19 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   relayUrl?: string;
   challengeId?: string;
   shamirPrimeB64u?: string;
-  appSessionJwt?: string;
-  routeAuth?: AppOrWalletSessionAuth;
+  appSessionJwt?: never;
+  routeAuth?: never;
   keyHandle?: string;
   participantIds?: number[];
-  sessionKind?: 'jwt';
-  routePlan?: EmailOtpRoutePlan;
+  sessionKind?: never;
+  routePlan: EmailOtpRoutePlan;
   ttlMs?: number;
   remainingUses?: number;
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   registrationAttemptId?: string;
+  emailHashHex: string;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
 
@@ -184,23 +182,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || ports.requireShamirPrimeB64u()).trim();
-  const sessionKind = args.sessionKind || 'jwt';
-  const routePlan =
-    args.routePlan ||
-    buildFreshEmailOtpRoutePlan({
-      freshRouteFamily: 'registration',
-      authLane:
-        resolveEmailOtpAuthLane({
-          routeAuth: args.routeAuth,
-          appSessionJwt: args.appSessionJwt,
-          sessionKind,
-          curve: 'ecdsa',
-          chainTarget,
-        }) ||
-        (() => {
-          throw new Error('Email OTP registration requires route auth');
-        })(),
-    });
+  const routePlan = args.routePlan;
   const mintingSession = buildEmailOtpEcdsaMintingSession({
     emailOtpAuthPolicy,
     routePlan,
@@ -209,9 +191,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const signingGrantId = mintingSession.signingGrantId;
   const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
   const runtimePolicyScope =
-    args.runtimePolicyScope ||
-    parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt) ||
-    parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
+    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
     throw new Error('Email OTP enrollment login requires the dedicated emailOtp worker');
@@ -220,19 +200,20 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   if (appSessionJwt) {
     ports.rememberAppSessionJwt({ walletSession: args.walletSession, appSessionJwt });
   }
-  const authSubjectId = appSessionSubjectFromEmailOtpAuthLane(routePlan.authLane);
-  const emailOtpContextAuthSubjectId = authSubjectId
-    ? toEmailOtpAuthSubjectId(authSubjectId)
-    : undefined;
-  const emailOtpAuthSubjectId =
-    emailOtpContextAuthSubjectId || toEmailOtpAuthSubjectId(args.walletSession.walletSessionUserId);
-  const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
-    policy: emailOtpAuthPolicy,
+  const emailOtpProviderUserId = requiredEmailOtpEcdsaEnrollmentString(
+    appSessionSubjectFromEmailOtpAuthLane(routePlan.authLane) ||
+      args.walletSession.walletSessionUserId,
+    'providerUserId',
+  );
+  const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+    policy: 'session',
+    walletId: args.walletSession.walletId,
+    emailHashHex: args.emailHashHex,
     retention: 'session',
     reason: 'login',
-    authMethod: SIGNER_AUTH_METHODS.emailOtp,
-    authSubjectId: emailOtpAuthSubjectId,
-  };
+    provider: 'google',
+    providerUserId: emailOtpProviderUserId,
+  });
   const configuredRemainingUses = args.remainingUses;
   const defaultRemainingUses = ports.configs.signing.sessionDefaults?.remainingUses;
   const requestedRemainingUses = Math.min(
@@ -277,7 +258,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const enrollment = await enrollEmailOtpWalletWithRoutePlan({
     relayUrl,
     walletId: String(args.walletSession.walletId),
-    userId: emailOtpAuthSubjectId,
+    userId: emailOtpProviderUserId,
     ...(args.challengeId ? { challengeId: args.challengeId } : {}),
     otpCode: args.otpCode,
     shamirPrimeB64u,
@@ -286,7 +267,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     googleEmailOtpRegistrationAttemptId: registrationInput.registrationAttemptId,
     ecdsaClientRootHandleBinding: {
       evmFamilySigningKeySlotId,
-      authSubjectId: emailOtpAuthSubjectId,
+      authSubjectId: emailOtpProviderUserId,
       operation: 'registration',
       chainTarget,
     },
@@ -298,7 +279,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     relayUrl,
     walletId: String(args.walletSession.walletId),
     walletSessionUserId,
-    userId: emailOtpAuthSubjectId,
+    userId: emailOtpProviderUserId,
     evmFamilySigningKeySlotId,
     clientRootShareHandle: enrollment.clientRootShareHandle,
     chainTarget,

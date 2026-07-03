@@ -1,5 +1,5 @@
 import { toAccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
 import {
   persistWarmSessionEd25519Capability,
   type PersistWarmSessionEd25519CapabilityArgs,
@@ -34,12 +34,15 @@ const commonArgs = {
   routerAbNormalSigning,
 } as const;
 
-const emailOtpAuthContext = {
-  policy: 'session',
+const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'session',
   retention: 'session',
   reason: 'sign',
-  authMethod: 'email_otp',
-} satisfies ThresholdEcdsaEmailOtpAuthContext;
+  provider: 'google',
+  providerUserId: 'google-subject-1',
+});
 
 const clientVerifyingShareB64u = parseEd25519ClientVerifyingShareB64u(
   'public-client-verifying-share',

@@ -2,51 +2,28 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { EmailOtpEcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
+import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
-  EmailOtpEcdsaLoginReconnectInput,
   EmailOtpEcdsaTransactionStepUpInput,
+  LoginEmailOtpEcdsaCapabilityForSigningArgs,
+  LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
 
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const authLane: EmailOtpAuthLane;
-declare const routeAuth: AppOrWalletSessionAuth;
-declare const record: ThresholdEcdsaSessionRecord;
+declare const committedLane: EmailOtpEcdsaCommittedLane;
+declare const routePlan: EmailOtpRoutePlan;
 
-const loginReconnect: EmailOtpEcdsaLoginReconnectInput = {
-  mode: 'login_reconnect',
-  walletSession,
-  chainTarget,
-  challengeId: 'challenge-1',
-  otpCode: '123456',
-  appSessionJwt: 'app-session-jwt',
-};
-void loginReconnect;
-
-const loginReconnectWithRegistrationAttempt: EmailOtpEcdsaLoginReconnectInput = {
-  mode: 'login_reconnect',
-  walletSession,
-  chainTarget,
-  challengeId: 'challenge-1',
-  otpCode: '123456',
-  appSessionJwt: 'app-session-jwt',
-  // @ts-expect-error login reconnect does not accept registration attempts.
-  registrationAttemptId: 'registration-attempt',
-};
-void loginReconnectWithRegistrationAttempt;
-
-const transactionStepUpWithAuthLane: EmailOtpEcdsaTransactionStepUpInput = {
+const transactionStepUpWithCommittedLane: EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up',
   walletSession,
   chainTarget,
   challengeId: 'challenge-1',
   otpCode: '123456',
-  authLane,
+  committedLane,
 };
-void transactionStepUpWithAuthLane;
+void transactionStepUpWithCommittedLane;
 
 const transactionStepUpWithRecordAuthLane: EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up',
@@ -54,8 +31,9 @@ const transactionStepUpWithRecordAuthLane: EmailOtpEcdsaTransactionStepUpInput =
   chainTarget,
   challengeId: 'challenge-1',
   otpCode: '123456',
-  record,
-  authLane,
+  committedLane,
+  // @ts-expect-error transaction step-up does not accept loose auth lanes.
+  authLane: { kind: 'cookie' },
 };
 void transactionStepUpWithRecordAuthLane;
 
@@ -65,19 +43,19 @@ const transactionStepUpWithRouteAuth: EmailOtpEcdsaTransactionStepUpInput = {
   chainTarget,
   challengeId: 'challenge-1',
   otpCode: '123456',
-  record,
-  routeAuth,
+  committedLane,
+  // @ts-expect-error transaction step-up does not accept loose route auth.
+  routeAuth: { kind: 'wallet_session', jwt: 'jwt' },
 };
 void transactionStepUpWithRouteAuth;
 
-// @ts-expect-error transaction step-up requires an auth lane or route auth.
+// @ts-expect-error transaction step-up requires a committed ECDSA lane.
 const transactionStepUpMissingAuth: EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up',
   walletSession,
   chainTarget,
   challengeId: 'challenge-1',
   otpCode: '123456',
-  record,
 };
 void transactionStepUpMissingAuth;
 
@@ -87,10 +65,167 @@ const transactionStepUpWithRegistrationAttempt: EmailOtpEcdsaTransactionStepUpIn
   chainTarget,
   challengeId: 'challenge-1',
   otpCode: '123456',
-  authLane,
+  committedLane,
   // @ts-expect-error transaction step-up does not accept registration attempts.
   registrationAttemptId: 'registration-attempt',
 };
 void transactionStepUpWithRegistrationAttempt;
+
+const signingCapabilityWithCommittedLane: LoginEmailOtpEcdsaCapabilityForSigningArgs = {
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+};
+void signingCapabilityWithCommittedLane;
+
+// @ts-expect-error signing capability refresh requires a committed ECDSA lane.
+const signingCapabilityWithoutCommittedLane: LoginEmailOtpEcdsaCapabilityForSigningArgs = {
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+};
+void signingCapabilityWithoutCommittedLane;
+
+const validCapabilityLoginWithDerivedProvider: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+  providerIdentity: { kind: 'derive_from_route_auth' },
+};
+void validCapabilityLoginWithDerivedProvider;
+
+const validCapabilityLoginWithExplicitProvider: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+  providerIdentity: {
+    kind: 'explicit_provider_user',
+    providerUserId: 'google-provider-user-1',
+  },
+};
+void validCapabilityLoginWithExplicitProvider;
+
+// @ts-expect-error ECDSA login requires a provider-identity branch.
+const invalidCapabilityLoginWithoutProvider: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+};
+void invalidCapabilityLoginWithoutProvider;
+
+const invalidCapabilityLoginWithAuthSubject: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+  providerIdentity: { kind: 'derive_from_route_auth' },
+  // @ts-expect-error authSubjectId is a worker boundary field, not a login authority input.
+  authSubjectId: 'legacy-auth-subject',
+};
+void invalidCapabilityLoginWithAuthSubject;
+
+// @ts-expect-error ECDSA login core requires a committed route plan.
+const invalidCapabilityLoginWithoutRoutePlan: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+  providerIdentity: { kind: 'derive_from_route_auth' },
+};
+void invalidCapabilityLoginWithoutRoutePlan;
+
+const invalidCapabilityLoginWithRawAppSession: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+  providerIdentity: { kind: 'derive_from_route_auth' },
+  // @ts-expect-error ECDSA login core must not accept raw app-session JWTs.
+  appSessionJwt: 'app-session-jwt',
+};
+void invalidCapabilityLoginWithRawAppSession;
+
+const invalidCapabilityLoginWithRawRouteAuth: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+  providerIdentity: { kind: 'derive_from_route_auth' },
+  // @ts-expect-error ECDSA login core must not accept raw route auth.
+  routeAuth: { kind: 'app_session', jwt: 'app-session-jwt' },
+};
+void invalidCapabilityLoginWithRawRouteAuth;
+
+const invalidCapabilityLoginWithSessionKind: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  ed25519ReconstructionMode: 'skip',
+  ed25519SessionReconstruction: {
+    kind: 'defer',
+    reason: 'not_needed_for_ecdsa',
+  },
+  providerIdentity: { kind: 'derive_from_route_auth' },
+  // @ts-expect-error ECDSA login core receives session transport through routePlan.
+  sessionKind: 'jwt',
+};
+void invalidCapabilityLoginWithSessionKind;
 
 export {};

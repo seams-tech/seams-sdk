@@ -7,6 +7,11 @@ import {
   type Ed25519SessionPolicyAuthority,
   type ThresholdRuntimePolicyScope,
 } from '../sessionPolicy';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import type { RouterAbEd25519NormalSigningState } from './routerAbNormalSigningState';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
@@ -43,6 +48,21 @@ export type ConnectEd25519SessionResult =
       ecdsaHssPasskeyPrfFirstB64u?: never;
     };
 
+function assertNeverWalletAuthFactorKind(kind: never): never {
+  throw new Error(`[threshold-ed25519] unsupported wallet auth factor kind: ${String(kind)}`);
+}
+
+function passkeyAuthorityFromEd25519SessionPolicyAuthority(
+  authority: Ed25519SessionPolicyAuthority,
+): PasskeyWalletAuthAuthority | null {
+  if (isPasskeyWalletAuthAuthority(authority.authority)) {
+    return authority.authority;
+  }
+  if (isEmailOtpWalletAuthAuthority(authority.authority)) return null;
+  authority.authority satisfies never;
+  return assertNeverWalletAuthFactorKind(authority.authority);
+}
+
 /**
  * Wallet-origin helper:
  * - build a threshold session policy (and digest)
@@ -78,9 +98,9 @@ export async function connectEd25519Session(args: {
   workerCtx?: WorkerOperationContext;
 }): Promise<ConnectEd25519SessionResult> {
   const sessionKind = 'jwt';
-  const passkeyRpId =
-    args.authority.kind === 'passkey_rp' ? String(args.authority.rpId || '').trim() : '';
-  if (args.authority.kind === 'passkey_rp' && !passkeyRpId) {
+  const passkeyAuthority = passkeyAuthorityFromEd25519SessionPolicyAuthority(args.authority);
+  const passkeyRpId = passkeyAuthority ? String(passkeyAuthority.verifier.rpId || '').trim() : '';
+  if (passkeyAuthority && !passkeyRpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
   const appSessionJwt =
@@ -105,7 +125,7 @@ export async function connectEd25519Session(args: {
 
   let auth: Ed25519WalletSessionMintAuthorization | undefined = args.auth;
   if (!auth) {
-    if (args.authority.kind !== 'passkey_rp') {
+    if (!passkeyAuthority) {
       return {
         ok: false,
         code: 'invalid_args',

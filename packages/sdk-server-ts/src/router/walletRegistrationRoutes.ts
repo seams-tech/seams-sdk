@@ -1,4 +1,15 @@
-import type { RouterApiAuthService } from './authServicePort';
+import type { RouterApiWalletRegistrationRouteService } from './authServicePort';
+import type {
+  EcdsaKeyFactsInventoryPolicy,
+  Ed25519SessionPolicy,
+  WebAuthnAuthenticationCredential,
+  EcdsaHssServerBootstrapResponse,
+  FundImplicitNearAccountRequest,
+  FundImplicitNearAccountResult,
+  ThresholdEd25519AuthorityScope,
+  ThresholdEd25519BootstrapSession,
+  WalletKeyFactsInventoryAuth
+} from '../core/types';
 import type {
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
@@ -6,9 +17,6 @@ import type {
   CreateAddSignerIntentResponse,
   CreateRegistrationIntentRequest,
   CreateRegistrationIntentResponse,
-  EcdsaKeyFactsInventoryPolicy,
-  Ed25519SessionPolicy,
-  WebAuthnAuthenticationCredential,
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
   WalletAddSignerHssRespondRequest,
@@ -21,12 +29,6 @@ import type {
   WalletRevokeAuthMethodResponse,
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
-  EcdsaHssServerBootstrapResponse,
-  FundImplicitNearAccountRequest,
-  FundImplicitNearAccountResult,
-  ThresholdEd25519AuthorityScope,
-  ThresholdEd25519BootstrapSession,
-  WalletKeyFactsInventoryAuth,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
   WalletRegistrationHssRespondRequest,
@@ -35,9 +37,15 @@ import type {
   WalletRegistrationPrepareGateContext,
   WalletRegistrationPrepareResponse,
   WalletRegistrationStartRequest,
-  WalletRegistrationStartResponse,
-} from '../core/types';
-import { registrationPreparationIdFromString } from '../core/types';
+  WalletRegistrationStartResponse
+} from '../core/registrationContracts';
+import {
+  parseWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  registrationPreparationIdFromString
+} from '../core/registrationContracts';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type { ThresholdEcdsaChainTarget } from '../core/thresholdEcdsaChainTarget';
@@ -49,6 +57,7 @@ import {
   parseAppSessionClaims,
   parseWalletRegistrationEcdsaClientBootstrap,
 } from '../core/ThresholdService/validation';
+import { findUnexpectedRouteKey } from './routeRequestValidation';
 import {
   buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
   resolveActiveRuntimePolicyScopeForEnvironment,
@@ -60,7 +69,7 @@ import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import { resolveRegistrationBootstrapApiCredentialAuth } from './routerApiCredentialAuth';
 import type { RouterApiKeyAuthAdapter, SessionAdapter } from './routerApi';
-import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
+import type { HeaderRecord, RouteResponse, RouteServices } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
@@ -105,7 +114,7 @@ import {
 } from '@shared/threshold/signingRootScope';
 
 type RouterApiWalletRegistrationServices = {
-  authService: RouterApiAuthService;
+  walletRegistration: RouterApiWalletRegistrationRouteService;
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
@@ -137,6 +146,20 @@ type RouterApiWalletRegistrationPrepareInput = Omit<
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
+
+function walletRegistrationRoutePolicyServices(
+  input: RouterApiWalletRegistrationInput,
+): RouteServices {
+  const service = input.services.walletRegistration;
+  return {
+    walletRegistration: service,
+    walletAuthMethods: service,
+    thresholdRuntime: service,
+    sessionVersions: service,
+    webAuthn: service,
+    nearFunding: service,
+  };
+}
 
 function parseFundImplicitNearAccountBody(
   body: unknown,
@@ -234,6 +257,7 @@ function requireWebAuthnRpId(
 type Ed25519SessionCarrier = {
   ok: true;
   walletId: string;
+  authority: WalletAuthAuthority;
   rpId?: string;
   ed25519?: {
     nearAccountId: string;
@@ -242,6 +266,19 @@ type Ed25519SessionCarrier = {
     session?: ThresholdEd25519BootstrapSession;
   };
 };
+
+type MaybeEd25519SessionCarrier =
+  | Extract<WalletRegistrationFinalizeResponse, { ok: true }>
+  | Extract<WalletAddSignerFinalizeResponse, { ok: true }>;
+
+function hasAttachableEd25519Session(
+  result: MaybeEd25519SessionCarrier,
+): result is MaybeEd25519SessionCarrier & Ed25519SessionCarrier {
+  if (!result.ed25519?.session) return false;
+  const record = result as { authority?: unknown };
+  const authority = parseWalletAuthAuthority(record.authority);
+  return Boolean(authority && authority.walletId === result.walletId);
+}
 
 const ED25519_HSS_RESPOND_FORBIDDEN_FIELDS = [
   'evaluatorOtStateB64u',
@@ -273,6 +310,11 @@ const ED25519_HSS_FINALIZE_FORBIDDEN_FIELDS = [
   'clientSecretB64u',
   'clientSecret32B64u',
   'seedOutputMessageB64u',
+] as const;
+
+const ED25519_HSS_FINALIZE_ALLOWED_FIELDS = [
+  'contextBindingB64u',
+  'stagedEvaluatorArtifactB64u',
 ] as const;
 
 const EMAIL_OTP_BACKUP_ACK_ALLOWED_FIELDS = [
@@ -418,7 +460,7 @@ async function attachEd25519WalletSessionJwt(
   const signed = await signRouterAbEd25519WalletSessionJwt({
     session: input.services.session,
     userId: String(result.walletId),
-    authorityScope: session.authorityScope,
+    authority: result.authority,
     relayerKeyId: ed25519.relayerKeyId,
     sessionInfo: {
       ...session,
@@ -448,7 +490,7 @@ async function attachEcdsaWalletSessionJwt(
   runtimePolicyScope?: RuntimePolicyScope,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
   if (!bootstrap) return null;
-  const threshold = input.services.authService.getThresholdSigningService();
+  const threshold = input.services.walletRegistration.getThresholdSigningService();
   if (!threshold) {
     return routeError(500, 'internal', 'Threshold signing is not configured on this server');
   }
@@ -1116,6 +1158,27 @@ async function parseWalletRegistrationStartBody(
   }
   const registrationPreparationId =
     typeof body.registrationPreparationId === 'string' ? body.registrationPreparationId.trim() : '';
+  if (registrationPreparationId) {
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'webauthn_registration') ||
+      Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof')
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'prepared wallet registration start does not accept authority proof fields',
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
+        registrationIntentDigestB64u: expectedDigest,
+        intent: normalizedIntent,
+        registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
+      },
+    };
+  }
   if (Object.prototype.hasOwnProperty.call(body, 'webauthn_registration')) {
     if (authMethod.kind !== 'passkey') {
       return {
@@ -1130,12 +1193,6 @@ async function parseWalletRegistrationStartBody(
         registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
         registrationIntentDigestB64u: expectedDigest,
         intent: normalizedIntent,
-        ...(registrationPreparationId
-          ? {
-              registrationPreparationId:
-                registrationPreparationIdFromString(registrationPreparationId),
-            }
-          : {}),
         authority: {
           kind: 'passkey',
           webauthnRegistration: body.webauthn_registration,
@@ -1165,12 +1222,6 @@ async function parseWalletRegistrationStartBody(
         registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
         registrationIntentDigestB64u: expectedDigest,
         intent: normalizedIntent,
-        ...(registrationPreparationId
-          ? {
-              registrationPreparationId:
-                registrationPreparationIdFromString(registrationPreparationId),
-            }
-          : {}),
         authority: {
           kind: 'email_otp',
           emailOtpRegistrationProof: proof,
@@ -1238,8 +1289,6 @@ async function parseWalletRegistrationPrepareBody(
     return { ok: false, code: 'invalid_body', message: 'registration intent digest mismatch' };
   }
   if (
-    Object.prototype.hasOwnProperty.call(body, 'webauthn_registration') ||
-    Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof') ||
     Object.prototype.hasOwnProperty.call(body, 'threshold_ed25519') ||
     Object.prototype.hasOwnProperty.call(body, 'threshold_ecdsa_prepare') ||
     Object.prototype.hasOwnProperty.call(body, 'auth') ||
@@ -1248,7 +1297,47 @@ async function parseWalletRegistrationPrepareBody(
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'registration prepare does not accept authority, HSS, or gate payload fields',
+      message: 'registration prepare does not accept HSS, legacy auth, or gate payload fields',
+    };
+  }
+  let authority: WalletRegistrationPrepareRequest['authority'];
+  if (Object.prototype.hasOwnProperty.call(body, 'webauthn_registration')) {
+    if (authMethod.kind !== 'passkey') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'webauthn_registration requires a passkey registration intent',
+      };
+    }
+    authority = {
+      kind: 'passkey',
+      webauthnRegistration: body.webauthn_registration,
+    };
+  } else if (Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof')) {
+    if (authMethod.kind !== 'email_otp') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpRegistrationProof requires an Email OTP registration intent',
+      };
+    }
+    const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
+    if (!proof) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpRegistrationProof is invalid',
+      };
+    }
+    authority = {
+      kind: 'email_otp',
+      emailOtpRegistrationProof: proof,
+    };
+  } else {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration prepare authority is required',
     };
   }
   const work = isPlainObject(body.work) ? body.work : null;
@@ -1267,6 +1356,7 @@ async function parseWalletRegistrationPrepareBody(
       registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
       registrationIntentDigestB64u: expectedDigest,
       intent: normalizedIntent,
+      authority,
       work: { kind: expectedKind },
     },
   };
@@ -1710,18 +1800,23 @@ function parseWalletRegistrationFinalizeRequest(
       'ed25519.evaluationResult.stagedEvaluatorArtifactB64u is required',
     );
     if (!stagedEvaluatorArtifactB64u.ok) return stagedEvaluatorArtifactB64u;
-    const serverEvalFinalizeOutputB64u = trimRequiredString(
-      evaluationResult,
-      'serverEvalFinalizeOutputB64u',
-      'ed25519.evaluationResult.serverEvalFinalizeOutputB64u is required',
-    );
-    if (!serverEvalFinalizeOutputB64u.ok) return serverEvalFinalizeOutputB64u;
     const forbiddenField = findOwnField(evaluationResult, ED25519_HSS_FINALIZE_FORBIDDEN_FIELDS);
     if (forbiddenField) {
       return {
         ok: false,
         code: 'invalid_body',
         message: `ed25519.evaluationResult.${forbiddenField} must stay outside the client-owned staged artifact`,
+      };
+    }
+    const unsupportedField = findUnexpectedRouteKey(
+      evaluationResult,
+      ED25519_HSS_FINALIZE_ALLOWED_FIELDS,
+    );
+    if (unsupportedField) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Unsupported ed25519.evaluationResult field: ${unsupportedField}`,
       };
     }
     const sessionKindRaw =
@@ -1741,7 +1836,6 @@ function parseWalletRegistrationFinalizeRequest(
       evaluationResult: {
         contextBindingB64u: contextBindingB64u.value,
         stagedEvaluatorArtifactB64u: stagedEvaluatorArtifactB64u.value,
-        serverEvalFinalizeOutputB64u: serverEvalFinalizeOutputB64u.value,
       },
       ...(sessionKind ? { sessionKind } : {}),
       ...(sessionPolicy ? { sessionPolicy } : {}),
@@ -2068,7 +2162,7 @@ export async function handleRouterApiWalletRegistrationIntent(
     logger: input.logger,
     request: { body: input.body, headers: input.headers },
     route: input.route,
-    services: { authService: input.services.authService },
+    services: walletRegistrationRoutePolicyServices(input),
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
@@ -2095,7 +2189,7 @@ export async function handleRouterApiWalletRegistrationIntent(
     projectId: principal.projectId,
     envId: principal.envId,
   });
-  const result = await input.services.authService.createRegistrationIntent({
+  const result = await input.services.walletRegistration.createRegistrationIntent({
     request: request.value,
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -2135,7 +2229,7 @@ export async function handleRouterApiWalletAddSignerIntent(
     logger: input.logger,
     request: { body: input.body, headers: input.headers },
     route: input.route,
-    services: { authService: input.services.authService },
+    services: walletRegistrationRoutePolicyServices(input),
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
@@ -2162,7 +2256,7 @@ export async function handleRouterApiWalletAddSignerIntent(
     projectId: principal.projectId,
     envId: principal.envId,
   });
-  const result = await input.services.authService.createAddSignerIntent({
+  const result = await input.services.walletRegistration.createAddSignerIntent({
     request: request.value,
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -2185,7 +2279,7 @@ export async function handleRouterApiWalletRegistrationStart(
   }
   const request = await parseWalletRegistrationStartBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.authService.startWalletRegistration(request.value);
+  const result = await input.services.walletRegistration.startWalletRegistration(request.value);
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
     : stripRegistrationRouteDiagnostics(result);
@@ -2200,7 +2294,7 @@ export async function handleRouterApiWalletRegistrationPrepare(
   }
   const request = await parseWalletRegistrationPrepareBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.authService.prepareWalletRegistration({
+  const result = await input.services.walletRegistration.prepareWalletRegistration({
     ...request.value,
     prepareGate: registrationPrepareGateContextFromRoute(input),
   });
@@ -2218,7 +2312,9 @@ export async function handleRouterApiWalletRegistrationHssRespond(
   }
   const request = parseWalletRegistrationHssRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.authService.respondWalletRegistrationHss(request.value);
+  const result = await input.services.walletRegistration.respondWalletRegistrationHss(
+    request.value,
+  );
   if (result.ok) {
     const signingError = await attachEcdsaWalletSessionJwt(
       input,
@@ -2242,7 +2338,7 @@ export async function handleRouterApiWalletRegistrationFinalize(
   const request = parseWalletRegistrationFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
   const finalizeStartedAtMs = Date.now();
-  const result = await input.services.authService.finalizeWalletRegistration(request.value);
+  const result = await input.services.walletRegistration.finalizeWalletRegistration(request.value);
   input.logger.info('[wallet-registration][finalize-route] auth service completed', {
     ok: Boolean(result.ok),
     code: result.ok ? undefined : result.code || 'internal',
@@ -2259,12 +2355,20 @@ export async function handleRouterApiWalletRegistrationFinalize(
         hasEd25519Session: Boolean(result.ed25519?.session),
       },
     );
-    const signingError = await attachEd25519WalletSessionJwt(input, result);
-    input.logger.info('[wallet-registration][finalize-route] Ed25519 wallet session jwt attached', {
-      ok: !signingError,
-      durationMs: Date.now() - jwtStartedAtMs,
-    });
-    if (signingError) return signingError;
+    if (result.ed25519?.session) {
+      if (!hasAttachableEd25519Session(result)) {
+        return routeError(500, 'internal', 'Ed25519 Wallet Session is missing wallet authority');
+      }
+      const signingError = await attachEd25519WalletSessionJwt(input, result);
+      input.logger.info(
+        '[wallet-registration][finalize-route] Ed25519 wallet session jwt attached',
+        {
+          ok: !signingError,
+          durationMs: Date.now() - jwtStartedAtMs,
+        },
+      );
+      if (signingError) return signingError;
+    }
   }
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
@@ -2297,7 +2401,7 @@ export async function handleRouterApiWalletAddSignerStart(
     if (!origin.ok) return origin.response;
     const parsedRpId = requireWebAuthnRpId(parsedBody.value.auth.rpId);
     if (!parsedRpId.ok) return parsedRpId.response;
-    const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
+    const verified = await input.services.walletRegistration.verifyWebAuthnAuthenticationLite({
       userId: walletId,
       rpId: parsedRpId.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
@@ -2327,7 +2431,7 @@ export async function handleRouterApiWalletAddSignerStart(
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
     }
-    const sessionVersion = await input.services.authService.validateAppSessionVersion({
+    const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,
       appSessionVersion: appSessionClaims.appSessionVersion,
     });
@@ -2335,7 +2439,7 @@ export async function handleRouterApiWalletAddSignerStart(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const result = await input.services.authService.startWalletAddSigner(parsedBody.value);
+  const result = await input.services.walletRegistration.startWalletAddSigner(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result);
 }
 
@@ -2347,7 +2451,7 @@ export async function handleRouterApiWalletAddSignerHssRespond(
   }
   const request = parseWalletAddSignerHssRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.authService.respondWalletAddSignerHss(request.value);
+  const result = await input.services.walletRegistration.respondWalletAddSignerHss(request.value);
   if (result.ok) {
     const signingError = await attachEcdsaWalletSessionJwt(
       input,
@@ -2367,8 +2471,11 @@ export async function handleRouterApiWalletAddSignerFinalize(
   }
   const request = parseWalletAddSignerFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.authService.finalizeWalletAddSigner(request.value);
-  if (result.ok) {
+  const result = await input.services.walletRegistration.finalizeWalletAddSigner(request.value);
+  if (result.ok && result.ed25519?.session) {
+    if (!hasAttachableEd25519Session(result)) {
+      return routeError(500, 'internal', 'Ed25519 Wallet Session is missing wallet authority');
+    }
     const signingError = await attachEd25519WalletSessionJwt(input, result);
     if (signingError) return signingError;
   }
@@ -2402,7 +2509,7 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
     logger: input.logger,
     request: { body: input.body, headers: input.headers },
     route: input.route,
-    services: { authService: input.services.authService },
+    services: walletRegistrationRoutePolicyServices(input),
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
@@ -2429,7 +2536,7 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
     projectId: principal.projectId,
     envId: principal.envId,
   });
-  const result = await input.services.authService.createAddAuthMethodIntent({
+  const result = await input.services.walletRegistration.createAddAuthMethodIntent({
     request: request.value,
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -2461,7 +2568,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
     if (!origin.ok) return origin.response;
     const parsedRpId = requireWebAuthnRpId(parsedBody.value.auth.rpId);
     if (!parsedRpId.ok) return parsedRpId.response;
-    const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
+    const verified = await input.services.walletRegistration.verifyWebAuthnAuthenticationLite({
       userId: walletId,
       rpId: parsedRpId.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
@@ -2491,7 +2598,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
     }
-    const sessionVersion = await input.services.authService.validateAppSessionVersion({
+    const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,
       appSessionVersion: appSessionClaims.appSessionVersion,
     });
@@ -2499,7 +2606,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const result = await input.services.authService.startWalletAddAuthMethod(parsedBody.value);
+  const result = await input.services.walletRegistration.startWalletAddAuthMethod(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result);
 }
 
@@ -2511,7 +2618,7 @@ export async function handleRouterApiWalletAddAuthMethodFinalize(
   }
   const request = parseWalletAddAuthMethodFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.authService.finalizeWalletAddAuthMethod(request.value);
+  const result = await input.services.walletRegistration.finalizeWalletAddAuthMethod(request.value);
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });
@@ -2532,7 +2639,7 @@ export async function handleRouterApiWalletRevokeAuthMethod(
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
-    const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
+    const verified = await input.services.walletRegistration.verifyWebAuthnAuthenticationLite({
       userId: walletId,
       rpId: parsedBody.value.auth.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
@@ -2562,7 +2669,7 @@ export async function handleRouterApiWalletRevokeAuthMethod(
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
     }
-    const sessionVersion = await input.services.authService.validateAppSessionVersion({
+    const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,
       appSessionVersion: appSessionClaims.appSessionVersion,
     });
@@ -2570,7 +2677,7 @@ export async function handleRouterApiWalletRevokeAuthMethod(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const result = await input.services.authService.revokeWalletAuthMethod(parsedBody.value);
+  const result = await input.services.walletRegistration.revokeWalletAuthMethod(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });
@@ -2593,7 +2700,7 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
     if (!origin.ok) return origin.response;
     const parsedRpId = requireWebAuthnRpId(parsedBody.value.rpId);
     if (!parsedRpId.ok) return parsedRpId.response;
-    const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
+    const verified = await input.services.walletRegistration.verifyWebAuthnAuthenticationLite({
       userId: walletId,
       rpId: parsedRpId.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
@@ -2623,7 +2730,7 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
     }
-    const sessionVersion = await input.services.authService.validateAppSessionVersion({
+    const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,
       appSessionVersion: appSessionClaims.appSessionVersion,
     });
@@ -2631,7 +2738,7 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const keyInventory = await input.services.authService.listWalletEcdsaKeyFactsInventory({
+  const keyInventory = await input.services.walletRegistration.listWalletEcdsaKeyFactsInventory({
     walletId,
     rpId: parsedBody.value.rpId,
     keyTargets: parsedBody.value.keyTargets,
@@ -2669,7 +2776,7 @@ export async function handleRouterApiWalletNearImplicitAccountFund(
     return routeError(403, 'forbidden', 'Wallet session does not match nearAccountId');
   }
 
-  const result = await input.services.authService.fundImplicitNearAccount(parsedBody.value);
+  const result = await input.services.walletRegistration.fundImplicitNearAccount(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });

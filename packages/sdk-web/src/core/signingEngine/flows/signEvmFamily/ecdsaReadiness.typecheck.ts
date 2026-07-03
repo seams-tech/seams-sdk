@@ -1,5 +1,5 @@
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '../../session/identity/laneIdentity';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../session/identity/laneIdentity';
 import type { ensureEvmFamilyThresholdEcdsaRecordReady } from './ecdsaReadiness';
 
 declare const readinessArgs: Parameters<typeof ensureEvmFamilyThresholdEcdsaRecordReady>[0];
@@ -17,12 +17,15 @@ const rawPasskeyReconnectArgs: Parameters<typeof ensureEvmFamilyThresholdEcdsaRe
 };
 void rawPasskeyReconnectArgs;
 
-const rawEmailOtpAuthContext = {
-  policy: 'session',
+const rawEmailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+walletId: 'wallet.testnet',
+emailHashHex: 'email-hash',
+policy: 'session',
   retention: 'session',
   reason: 'sign',
-  authMethod: 'email_otp',
-} satisfies ThresholdEcdsaEmailOtpAuthContext;
+  provider: 'google',
+  providerUserId: 'google-subject-1',
+});
 
 const rawEmailOtpReconnectArgs: Parameters<typeof ensureEvmFamilyThresholdEcdsaRecordReady>[0] = {
   ...readinessArgs,

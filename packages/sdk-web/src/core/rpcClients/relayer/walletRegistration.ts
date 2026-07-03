@@ -1000,7 +1000,7 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   walletKey: WalletRegistrationEcdsaWalletKey;
   authMethod:
     | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
-    | { kind: 'email_otp'; authSubjectId?: string };
+    | { kind: 'email_otp'; providerUserId: string };
 }): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const serverBootstrap = args.serverBootstrap;
   requireMatchingString({
@@ -1111,7 +1111,7 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     authMethod:
       args.authMethod.kind === 'email_otp'
         ? buildEcdsaRoleLocalEmailOtpAuthMethod({
-            authSubjectId: args.authMethod.authSubjectId,
+            authSubjectId: args.authMethod.providerUserId,
           })
         : buildEcdsaRoleLocalPasskeyAuthMethod({
             credentialIdB64u: args.authMethod.credentialIdB64u,
@@ -1221,7 +1221,7 @@ export async function prepareWalletRegistration(args: {
   registrationIntentDigestB64u: string;
   intent: RegistrationIntentV1;
   work: { kind: 'ed25519_hss' | 'ed25519_hss_and_ecdsa' };
-}): Promise<WalletRegistrationPrepareResponse> {
+} & WalletRegistrationStartAuthority): Promise<WalletRegistrationPrepareResponse> {
   const rawResponse = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/prepare',
@@ -1231,6 +1231,7 @@ export async function prepareWalletRegistration(args: {
       registrationIntentDigestB64u: args.registrationIntentDigestB64u,
       intent: args.intent,
       work: args.work,
+      ...walletRegistrationStartAuthorityBody(args),
     },
   });
   return parseWalletRegistrationPrepareResponse(rawResponse);
@@ -1286,9 +1287,27 @@ export async function startWalletRegistration(
     registrationIntentGrant: RegistrationIntentGrant;
     registrationIntentDigestB64u: string;
     intent: RegistrationIntentV1;
-    registrationPreparationId?: RegistrationPreparationId;
-  } & WalletRegistrationStartAuthority,
+  } & (
+    | {
+        registrationPreparationId: RegistrationPreparationId;
+        kind?: never;
+        webauthnRegistration?: never;
+        emailOtpRegistrationProof?: never;
+      }
+    | ({ registrationPreparationId?: never } & WalletRegistrationStartAuthority)
+  ),
 ): Promise<WalletRegistrationStartResponse> {
+  let authorityBody: Record<string, unknown> = {};
+  if (!args.registrationPreparationId) {
+    switch (args.kind) {
+      case 'passkey':
+        authorityBody = { webauthn_registration: args.webauthnRegistration };
+        break;
+      case 'email_otp':
+        authorityBody = { emailOtpRegistrationProof: args.emailOtpRegistrationProof };
+        break;
+    }
+  }
   const body = {
     registrationIntentGrant: args.registrationIntentGrant,
     registrationIntentDigestB64u: args.registrationIntentDigestB64u,
@@ -1296,7 +1315,7 @@ export async function startWalletRegistration(
     ...(args.registrationPreparationId
       ? { registrationPreparationId: args.registrationPreparationId }
       : {}),
-    ...walletRegistrationStartAuthorityBody(args),
+    ...authorityBody,
   };
   return await postJson<WalletRegistrationStartResponse>({
     relayerUrl: args.relayerUrl,

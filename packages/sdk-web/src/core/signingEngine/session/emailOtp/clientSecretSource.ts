@@ -22,7 +22,7 @@ export type EmailOtpEd25519RegistrationClientSecretSource = {
   kind: 'email_otp_registration_ed25519_recovery_code_secret_source';
   registrationAttemptId: string;
   walletId: string;
-  authSubjectId: string;
+  providerUserId: string;
   recoveryCodeSecret32B64u: string;
 };
 
@@ -37,7 +37,7 @@ function requireTrimmedString(value: unknown, label: string): string {
 export function buildEmailOtpEd25519RegistrationClientSecretSource(args: {
   registrationAttemptId: string;
   walletId: string;
-  authSubjectId: string;
+  providerUserId: string;
   thresholdEd25519RecoveryCodeSecret32B64u: string;
 }): EmailOtpEd25519RegistrationClientSecretSource {
   return {
@@ -47,7 +47,7 @@ export function buildEmailOtpEd25519RegistrationClientSecretSource(args: {
       'registrationAttemptId',
     ),
     walletId: requireTrimmedString(args.walletId, 'walletId'),
-    authSubjectId: requireTrimmedString(args.authSubjectId, 'authSubjectId'),
+    providerUserId: requireTrimmedString(args.providerUserId, 'providerUserId'),
     recoveryCodeSecret32B64u: requireTrimmedString(
       args.thresholdEd25519RecoveryCodeSecret32B64u,
       'thresholdEd25519RecoveryCodeSecret32B64u',
@@ -59,20 +59,20 @@ export const EMAIL_OTP_ED25519_RECOVERY_CODE_BINDING_DIGEST_KIND =
   'email_otp_ed25519_recovery_code_binding_v1' as const;
 
 export async function recoveryCodeBindingDigestForEmailOtpMaterial(args: {
-  authSubjectId: string;
+  providerUserId: string;
   rpId: string;
   nearAccountId: string;
 }): Promise<string> {
-  const authSubjectId = String(args.authSubjectId || '').trim();
+  const providerUserId = String(args.providerUserId || '').trim();
   const rpId = String(args.rpId || '').trim();
   const nearAccountId = String(args.nearAccountId || '').trim();
-  if (!authSubjectId || !rpId || !nearAccountId) {
+  if (!providerUserId || !rpId || !nearAccountId) {
     throw new Error('Email OTP threshold-ed25519 recovery-code binding is incomplete');
   }
   return base64UrlEncode(
     await sha256BytesUtf8(
       alphabetizeStringify({
-        authSubjectId,
+        authSubjectId: providerUserId,
         kind: EMAIL_OTP_ED25519_RECOVERY_CODE_BINDING_DIGEST_KIND,
         nearAccountId,
         rpId,
@@ -118,7 +118,7 @@ function decodeMaterialAuthorizationSecret32B64u(value: string, fieldName: strin
 
 export async function prepareRecoveryCodeSealAuthorizationForEmailOtp(args: {
   bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier;
-  authSubjectId: string;
+  providerUserId: string;
   recoveryCodeBindingDigest: string;
   recoveryCodeSecret32B64u: string;
   workerCtx: WorkerOperationContext;
@@ -131,7 +131,7 @@ export async function prepareRecoveryCodeSealAuthorizationForEmailOtp(args: {
     return await prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorizationNearSignerWasm({
       request: {
         bindingInput: args.bindingInput,
-        authSubjectId: args.authSubjectId,
+        authSubjectId: args.providerUserId,
         recoveryCodeBindingDigest: args.recoveryCodeBindingDigest,
         recoveryCodeSecret32,
         expiresAtMs: WORKER_DEFAULT_MATERIAL_AUTHORIZATION_EXPIRES_AT_MS,
@@ -145,7 +145,7 @@ export async function prepareRecoveryCodeSealAuthorizationForEmailOtp(args: {
 
 export async function prepareRecoveryCodeUnsealAuthorizationForEmailOtp(args: {
   materialBindingDigest: string;
-  authSubjectId: string;
+  providerUserId: string;
   recoveryCodeBindingDigest: string;
   recoveryCodeSecret32B64u: string;
   expiresAtMs: number;
@@ -160,7 +160,7 @@ export async function prepareRecoveryCodeUnsealAuthorizationForEmailOtp(args: {
       {
         request: {
           materialBindingDigest: String(args.materialBindingDigest || '').trim(),
-          authSubjectId: args.authSubjectId,
+          authSubjectId: args.providerUserId,
           recoveryCodeBindingDigest: args.recoveryCodeBindingDigest,
           recoveryCodeSecret32,
           expiresAtMs: args.expiresAtMs,

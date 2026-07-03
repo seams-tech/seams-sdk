@@ -3,7 +3,9 @@ import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
 import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { json } from '../http';
 
-export async function handleNearPublicKeys(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleNearPublicKeys(
+  ctx: CloudflareRouterApiContext,
+): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== '/near/public-keys') return null;
 
@@ -108,7 +110,10 @@ export async function handleNearPublicKeys(ctx: CloudflareRouterApiContext): Pro
         { status: 401 },
       );
     }
-    const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+    const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+      userId,
+      appSessionVersion,
+    });
     if (!validated.ok) {
       await maybeEmitWarmExpired({
         code: validated.code,
@@ -123,7 +128,7 @@ export async function handleNearPublicKeys(ctx: CloudflareRouterApiContext): Pro
       );
     }
 
-    const result = await ctx.service.listNearPublicKeysForUser({ userId });
+    const result = await ctx.service.nearFunding.listNearPublicKeysForUser({ userId });
     if (!result.ok) {
       const status =
         result.code === 'not_supported' ? 501 : result.code === 'invalid_args' ? 400 : 500;

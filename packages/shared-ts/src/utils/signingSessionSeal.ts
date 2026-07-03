@@ -111,19 +111,17 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
     })
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
       evmFamilySigningKeySlotId: string;
-      providerSubjectId?: string;
-      authSubjectId?: string;
+      providerSubjectId: string;
+      emailHashHex: string;
+      authSubjectId?: never;
       rpId?: never;
       credentialIdB64u?: never;
     });
 
-export type SealedSigningSessionEd25519RestoreMetadata = {
+type SealedSigningSessionEd25519RestoreMetadataBase = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   rpId: string;
-  credentialIdB64u?: string;
-  providerSubjectId?: string;
-  authSubjectId?: string;
   relayerKeyId: string;
   participantIds: number[];
   walletSessionJwt?: string;
@@ -141,6 +139,19 @@ export type SealedSigningSessionEd25519RestoreMetadata = {
   keyVersion?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
 };
+
+export type SealedSigningSessionEd25519RestoreMetadata =
+  | (SealedSigningSessionEd25519RestoreMetadataBase & {
+      credentialIdB64u: string;
+      providerSubjectId?: never;
+      authSubjectId?: never;
+    })
+  | (SealedSigningSessionEd25519RestoreMetadataBase & {
+      providerSubjectId: string;
+      emailHashHex: string;
+      credentialIdB64u?: never;
+      authSubjectId?: never;
+    });
 
 export type SealedSigningSessionRecord = {
   v: typeof SIGNING_SESSION_SEALED_RECORD_VERSION;

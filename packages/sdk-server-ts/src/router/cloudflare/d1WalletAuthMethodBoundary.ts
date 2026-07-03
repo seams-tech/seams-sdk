@@ -1,9 +1,5 @@
 import { errorMessage } from '@shared/utils/errors';
-import {
-  base64Decode,
-  base64UrlDecode,
-  base64UrlEncode,
-} from '@shared/utils/encoders';
+import { base64Decode, base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   type AddAuthMethodIntentV1,
@@ -19,36 +15,30 @@ import type {
   StoredWalletAddSignerCeremony,
 } from '../../core/RegistrationCeremonyStore';
 import type {
-  WalletRegistrationFinalizeAuthMethod,
-  WebAuthnAuthenticationCredential,
+  WebAuthnAuthenticationCredential
 } from '../../core/types';
+import type {
+  WalletAddAuthMethodStartRequest,
+  WalletAddSignerStartRequest,
+  WalletRegistrationFinalizeAuthMethod,
+  WalletRevokeAuthMethodRequest,
+  WalletRevokeAuthMethodResponse
+} from '../../core/registrationContracts';
 import type {
   WalletAuthMethodRecord,
   WalletAuthMethodStore,
 } from '../../core/d1WalletAuthMethodStore';
-import type { RouterApiAuthService } from '../authServicePort';
 import {
   addAuthMethodInputMatches,
   addSignerSelectionMatches,
   runtimePolicyScopeMatches,
 } from './d1RegistrationCeremonyRecords';
-import {
-  parseJsonObject,
-  toRecordValue,
-} from './d1RouterApiAuthBoundary';
+import { parseJsonObject, toRecordValue } from './d1RouterApiAuthBoundary';
 
-type StartWalletAddSignerInput = Parameters<
-  RouterApiAuthService['startWalletAddSigner']
->[0];
-type StartWalletAddAuthMethodInput = Parameters<
-  RouterApiAuthService['startWalletAddAuthMethod']
->[0];
-type RevokeWalletAuthMethodInput = Parameters<
-  RouterApiAuthService['revokeWalletAuthMethod']
->[0];
-type RevokeWalletAuthMethodResult = Awaited<
-  ReturnType<RouterApiAuthService['revokeWalletAuthMethod']>
->;
+type StartWalletAddSignerInput = WalletAddSignerStartRequest;
+type StartWalletAddAuthMethodInput = WalletAddAuthMethodStartRequest;
+type RevokeWalletAuthMethodInput = WalletRevokeAuthMethodRequest;
+type RevokeWalletAuthMethodResult = WalletRevokeAuthMethodResponse;
 
 export type D1RevokeWalletAuthMethodTarget =
   | {
@@ -293,9 +283,7 @@ export async function authorizeD1WalletAuthMethodRevoke(input: {
   readonly auth: D1RevokeWalletAuthMethodAuth;
 }): Promise<RevokeWalletAuthMethodResult | null> {
   if (input.auth.kind !== 'webauthn_assertion') return null;
-  const authorizationCredentialId = d1WebAuthnCredentialIdB64uFromCredential(
-    input.auth.credential,
-  );
+  const authorizationCredentialId = d1WebAuthnCredentialIdB64uFromCredential(input.auth.credential);
   if (!authorizationCredentialId.ok) return authorizationCredentialId;
   const authorizationMethod = await input.walletAuthMethodStore.getPasskey({
     rpId: input.auth.rpId,
@@ -469,10 +457,7 @@ export async function resolveD1AddAuthMethodExistingAuth(input: {
   };
 }
 
-export function decodeD1WebAuthnBase64UrlOrBase64(
-  input: string,
-  fieldName: string,
-): Uint8Array {
+export function decodeD1WebAuthnBase64UrlOrBase64(input: string, fieldName: string): Uint8Array {
   try {
     return base64UrlDecode(input);
   } catch {

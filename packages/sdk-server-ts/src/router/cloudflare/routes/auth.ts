@@ -140,7 +140,10 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
         ),
       };
     }
-    const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
+    const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
+      userId,
+      appSessionVersion,
+    });
     if (!validated.ok) {
       await maybeEmitWarmExpired({
         code: validated.code,
@@ -162,10 +165,11 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
     return { ok: true, userId, claims };
   }
 
-  async function requirePasskeyStepUp(
-    input: { userId: string; stepUp: AuthPasskeyStepUpRequest },
-  ): Promise<{ ok: true } | { ok: false; response: Response }> {
-    const result = await ctx.service.verifyWebAuthnLogin(input.stepUp);
+  async function requirePasskeyStepUp(input: {
+    userId: string;
+    stepUp: AuthPasskeyStepUpRequest;
+  }): Promise<{ ok: true } | { ok: false; response: Response }> {
+    const result = await ctx.service.webAuthn.verifyWebAuthnLogin(input.stepUp);
     if (!result.ok || !result.verified || !result.userId) {
       return {
         ok: false,
@@ -187,7 +191,7 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
   if (ctx.method === 'GET' && ctx.pathname === '/auth/identities') {
     const sess = await requireAppSession({ source: 'auth.identities' });
     if (!sess.ok) return sess.response;
-    const out = await ctx.service.listIdentities({ userId: sess.userId });
+    const out = await ctx.service.identity.listIdentities({ userId: sess.userId });
     return json(out, { status: out.ok ? 200 : out.code === 'internal' ? 500 : 400 });
   }
 
@@ -207,11 +211,11 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
     const stepUpRequest = command.request.stepUp;
     const stepUp = await requirePasskeyStepUp({ userId: sess.userId, stepUp: stepUpRequest });
     if (!stepUp.ok) return stepUp.response;
-    await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
+    await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
     switch (command.kind) {
       case 'link': {
-        const verified = await ctx.service.verifyGoogleLogin({
+        const verified = await ctx.service.identity.verifyGoogleLogin({
           idToken: command.request.idToken,
         });
         if (!verified.ok || !verified.verified || !verified.providerSubject) {
@@ -219,7 +223,7 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
         }
         const subject = verified.providerSubject;
 
-        const linked = await ctx.service.linkIdentity({
+        const linked = await ctx.service.identity.linkIdentity({
           userId: sess.userId,
           subject,
           allowMoveIfSoleIdentity: true,
@@ -227,7 +231,7 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
         if (!linked.ok) {
           return json(linked, { status: linked.code === 'internal' ? 500 : 400 });
         }
-        const identities = await ctx.service.listIdentities({ userId: sess.userId });
+        const identities = await ctx.service.identity.listIdentities({ userId: sess.userId });
         return json(
           {
             ok: true,
@@ -252,13 +256,15 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
         { status: 400 },
       );
     }
-    const out = await ctx.service.unlinkIdentity({ userId: sess.userId, subject });
+    const out = await ctx.service.identity.unlinkIdentity({ userId: sess.userId, subject });
     if (!out.ok) {
       return json(out, { status: out.code === 'internal' ? 500 : 400 });
     }
-    const identities = await ctx.service.listIdentities({ userId: sess.userId });
+    const identities = await ctx.service.identity.listIdentities({ userId: sess.userId });
 
-    const rotated = await ctx.service.rotateAppSessionVersion({ userId: sess.userId });
+    const rotated = await ctx.service.sessionVersions.rotateAppSessionVersion({
+      userId: sess.userId,
+    });
     if (!rotated.ok) {
       return json(
         { ok: false, code: rotated.code, message: rotated.message },
@@ -336,7 +342,7 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
     case 'passkey_options': {
       const parsed = parsePasskeyLoginOptionsRequest(await readJson(ctx.request));
       if (!parsed.ok) return json(parsed.body, { status: parsed.status });
-      const result = await ctx.service.createWebAuthnLoginOptions(parsed.request);
+      const result = await ctx.service.webAuthn.createWebAuthnLoginOptions(parsed.request);
       return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
     }
     case 'passkey_verify': {
@@ -345,7 +351,7 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
         origin,
       });
       if (!parsed.ok) return json(parsed.body, { status: parsed.status });
-      const result = await ctx.service.verifyWebAuthnLogin(parsed.request);
+      const result = await ctx.service.webAuthn.verifyWebAuthnLogin(parsed.request);
       if (!result.ok || !result.verified) {
         return json(result, { status: result.code === 'internal' ? 500 : 400 });
       }
@@ -353,13 +359,13 @@ export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Respo
       return json({ ok: true, verified: true }, { status: 200 });
     }
     case 'google_options': {
-      const publicConfig = ctx.service.getGoogleOidcPublicConfig();
+      const publicConfig = ctx.service.identity.getGoogleOidcPublicConfig();
       return json({ ok: true, ...publicConfig }, { status: 200 });
     }
     case 'google_verify': {
       const parsed = parseGoogleLoginVerifyRequest(await readJson(ctx.request));
       if (!parsed.ok) return json(parsed.body, { status: parsed.status });
-      const result = await ctx.service.verifyGoogleLogin(parsed.request);
+      const result = await ctx.service.identity.verifyGoogleLogin(parsed.request);
       if (!result.ok || !result.verified || !result.userId) {
         return json(result, { status: result.code === 'internal' ? 500 : 400 });
       }

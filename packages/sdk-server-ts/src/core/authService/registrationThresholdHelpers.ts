@@ -8,14 +8,15 @@ import type {
   EcdsaHssClientBootstrapRequest,
   EcdsaHssServerBootstrapResponse,
   ThresholdEd25519AuthorityScope,
-  ThresholdRuntimePolicyScope,
+  ThresholdRuntimePolicyScope
+} from '../types';
+import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
-  WalletRegistrationEcdsaWalletKey,
-} from '../types';
+  WalletRegistrationEcdsaWalletKey
+} from '../registrationContracts';
 import {
   parseThresholdEd25519AuthorityScope,
-  thresholdEd25519AuthorityScopesMatch,
 } from '../ThresholdService/validation';
 import type { WebAuthnCredentialBindingStore } from '../WebAuthnCredentialBindingStore';
 import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
@@ -246,57 +247,6 @@ export function toEcdsaHssClientBootstrapRequest(
       ? { runtimePolicyScope: clientBootstrap.runtimePolicyScope }
       : {}),
   };
-}
-
-export function validateThresholdEd25519SessionPolicyBindings(args: {
-  requestedSessionPolicy: Record<string, unknown>;
-  expectedWalletId: string;
-  expectedRelayerKeyId: string;
-  expectedNearAccountId: string;
-  expectedNearEd25519SigningKeyId: string;
-  expectedAuthorityScope: ThresholdEd25519AuthorityScope;
-}): string | null {
-  if (Object.prototype.hasOwnProperty.call(args.requestedSessionPolicy, 'rpId')) {
-    return 'threshold_ed25519.session_policy.rpId belongs in authorityScope';
-  }
-  const requestedPolicyWalletId = String(args.requestedSessionPolicy.walletId || '').trim();
-  if (requestedPolicyWalletId && requestedPolicyWalletId !== args.expectedWalletId) {
-    return 'threshold_ed25519.session_policy.walletId mismatch';
-  }
-  const requestedPolicyRelayerKeyId = String(args.requestedSessionPolicy.relayerKeyId || '').trim();
-  if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== args.expectedRelayerKeyId) {
-    return 'threshold_ed25519.session_policy.relayerKeyId mismatch';
-  }
-  const requestedPolicyNearAccountId = String(
-    args.requestedSessionPolicy.nearAccountId || '',
-  ).trim();
-  if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== args.expectedNearAccountId) {
-    return 'threshold_ed25519.session_policy.nearAccountId mismatch';
-  }
-  const requestedPolicyNearEd25519SigningKeyId = String(
-    args.requestedSessionPolicy.nearEd25519SigningKeyId || '',
-  ).trim();
-  if (
-    requestedPolicyNearEd25519SigningKeyId &&
-    requestedPolicyNearEd25519SigningKeyId !== args.expectedNearEd25519SigningKeyId
-  ) {
-    return 'threshold_ed25519.session_policy.nearEd25519SigningKeyId mismatch';
-  }
-  const requestedPolicyAuthorityScope = parseThresholdEd25519AuthorityScope(
-    args.requestedSessionPolicy.authorityScope,
-  );
-  if (!requestedPolicyAuthorityScope) {
-    return 'threshold_ed25519.session_policy.authorityScope is required';
-  }
-  if (
-    !thresholdEd25519AuthorityScopesMatch(
-      requestedPolicyAuthorityScope,
-      args.expectedAuthorityScope,
-    )
-  ) {
-    return 'threshold_ed25519.session_policy.authorityScope mismatch';
-  }
-  return null;
 }
 
 export function toThresholdEd25519BootstrapSession(session: {

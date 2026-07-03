@@ -8,6 +8,7 @@ use ed25519_hss::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 use ed25519_hss::server::ServerEvalOperation;
 use ed25519_hss::shared::{FExpandInput, ProtoError, ProtoResult};
+use ed25519_hss::wire::StagedEvaluatorArtifact;
 use serde::{Deserialize, Serialize};
 
 const REPORT_VERSION: &str = "prime_order_hss_registration_benchmark_v1";
@@ -171,12 +172,31 @@ struct PrimeOrderRegistrationBenchmarkSample {
     client_artifact_ns: u128,
     finalize_report_ns: u128,
     artifact_bytes: usize,
+    staged_evaluator_artifact_bytes: usize,
+    staged_evaluator_artifact_b64url_chars: usize,
+    staged_evaluator_artifact_field_sizes: StagedEvaluatorArtifactSizeBreakdown,
     client_request_bytes: usize,
     server_input_delivery_bytes: usize,
     client_output_bytes: usize,
     seed_output_bytes: usize,
     server_output_bytes: usize,
     hidden_eval_profile: DdhHiddenEvalStageProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct StagedEvaluatorArtifactSizeBreakdown {
+    backend_version: usize,
+    context_binding: usize,
+    bindings: usize,
+    projection_mode: usize,
+    output_projector_binding: usize,
+    client_output_value_kind: usize,
+    client_output_commitment: usize,
+    evaluator_witness: usize,
+    client_output: usize,
+    client_output_binding: usize,
+    seed_output: usize,
+    seed_output_binding: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -356,6 +376,9 @@ fn run_registration_sample(
             [0x5a; 32],
         )?;
     let client_artifact_ns = client_artifact_started.elapsed().as_nanos();
+    let staged_evaluator_artifact_bytes = serialize_for_size(&artifact, "staged artifact")?;
+    let staged_evaluator_artifact_field_sizes =
+        staged_evaluator_artifact_size_breakdown(&artifact)?;
 
     let finalize_started = Instant::now();
     let flow = session
@@ -390,6 +413,9 @@ fn run_registration_sample(
         client_artifact_ns,
         finalize_report_ns,
         artifact_bytes: session.artifact_bytes().len(),
+        staged_evaluator_artifact_b64url_chars: base64_url_len(&staged_evaluator_artifact_bytes),
+        staged_evaluator_artifact_bytes: staged_evaluator_artifact_bytes.len(),
+        staged_evaluator_artifact_field_sizes,
         client_request_bytes: client_request_message.bytes.len(),
         server_input_delivery_bytes: delivery.server_inputs.nonce.len()
             + delivery.server_inputs.ciphertext.len(),
@@ -398,6 +424,61 @@ fn run_registration_sample(
         server_output_bytes: report.output_delivery.server.bytes.len(),
         hidden_eval_profile,
     })
+}
+
+fn staged_evaluator_artifact_size_breakdown(
+    artifact: &StagedEvaluatorArtifact,
+) -> ProtoResult<StagedEvaluatorArtifactSizeBreakdown> {
+    Ok(StagedEvaluatorArtifactSizeBreakdown {
+        backend_version: serialize_for_size(&artifact.backend_version, "backend_version")?.len(),
+        context_binding: serialize_for_size(&artifact.context_binding, "context_binding")?.len(),
+        bindings: serialize_for_size(&artifact.bindings, "bindings")?.len(),
+        projection_mode: serialize_for_size(&artifact.projection_mode, "projection_mode")?.len(),
+        output_projector_binding: serialize_for_size(
+            &artifact.output_projector_binding,
+            "output_projector_binding",
+        )?
+        .len(),
+        client_output_value_kind: serialize_for_size(
+            &artifact.client_output_value_kind,
+            "client_output_value_kind",
+        )?
+        .len(),
+        client_output_commitment: serialize_for_size(
+            &artifact.client_output_commitment,
+            "client_output_commitment",
+        )?
+        .len(),
+        evaluator_witness: serialize_for_size(&artifact.evaluator_witness, "evaluator_witness")?
+            .len(),
+        client_output: serialize_for_size(&artifact.client_output, "client_output")?.len(),
+        client_output_binding: serialize_for_size(
+            &artifact.client_output_binding,
+            "client_output_binding",
+        )?
+        .len(),
+        seed_output: serialize_for_size(&artifact.seed_output, "seed_output")?.len(),
+        seed_output_binding: serialize_for_size(
+            &artifact.seed_output_binding,
+            "seed_output_binding",
+        )?
+        .len(),
+    })
+}
+
+fn serialize_for_size<T: serde::Serialize>(value: &T, label: &str) -> ProtoResult<Vec<u8>> {
+    bincode::serialize(value).map_err(|err| {
+        ProtoError::Decode(format!(
+            "failed to serialize {label} for benchmark sizing: {err}"
+        ))
+    })
+}
+
+fn base64_url_len(bytes: &[u8]) -> usize {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(bytes)
+        .len()
 }
 
 fn select_fixture(name: Option<&str>) -> FExpandFixture {

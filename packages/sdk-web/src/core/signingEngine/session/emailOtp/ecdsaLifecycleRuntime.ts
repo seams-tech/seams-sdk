@@ -1,12 +1,6 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletSessionRef,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
 import {
@@ -14,6 +8,7 @@ import {
   loginWithEmailOtpEcdsaCapabilityForSigning,
   type EmailOtpThresholdEcdsaLoginResult,
   type LoginEmailOtpEcdsaCapabilityArgs,
+  type LoginEmailOtpEcdsaCapabilityForSigningArgs,
 } from './ecdsaLogin';
 import {
   enrollAndLoginWithEmailOtpEcdsaCapability,
@@ -25,17 +20,6 @@ import type {
   ReconstructEmailOtpEd25519SessionArgs,
 } from './provisioning';
 
-export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
-  walletSession: WalletSessionRef;
-  subjectId?: never;
-  chainTarget: ThresholdEcdsaChainTarget;
-  challengeId: string;
-  otpCode: string;
-  record?: ThresholdEcdsaSessionRecord;
-  routeAuth?: AppOrWalletSessionAuth;
-  authLane?: EmailOtpAuthLane;
-};
-
 export class EmailOtpEcdsaLifecycleRuntime {
   constructor(
     private readonly ports: {
@@ -46,10 +30,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
         walletSession: WalletSessionRef;
         appSessionJwt?: string;
       }) => void;
-      resolveAppSessionJwt: (args: {
-        walletSession: WalletSessionRef;
-        relayUrl: string;
-      }) => Promise<string>;
       publicationPorts: () => EmailOtpEcdsaPublicationPorts;
       reconstructEd25519Session: (
         args: ReconstructEmailOtpEd25519SessionArgs,
@@ -62,9 +42,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
   ): Promise<EmailOtpThresholdEcdsaLoginResult> {
     return await loginWithEmailOtpEcdsaCapabilityForSigning(args, {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      resolveAppSessionJwt: (request) => this.ports.resolveAppSessionJwt(request),
-      loginWithEcdsaCapabilityInternal: (request) =>
-        this.loginWithEcdsaCapabilityInternal(request),
+      loginWithEcdsaCapabilityInternal: (request) => this.loginWithEcdsaCapabilityInternal(request),
     });
   }
 

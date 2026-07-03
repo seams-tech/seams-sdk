@@ -5,10 +5,13 @@ import { buildNearTransactionSigningLane } from '../operationState/lanes';
 import { SigningSessionIds } from '../operationState/types';
 import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
 import {
+  appSessionJwtFromEmailOtpAuthLane,
+  appSessionSubjectFromEmailOtpAuthLane,
   emailOtpRefreshIdentity,
   type EmailOtpRefreshIdentity,
   type EmailOtpSessionRefreshResult,
 } from './appSessionJwtCache';
+import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 
 const walletId = toWalletId('wallet.testnet');
 const nearAccountId = toAccountId('wallet.testnet');
@@ -36,6 +39,20 @@ const identity = emailOtpRefreshIdentity({
   laneIdentity,
 });
 void identity;
+
+declare const authLane: EmailOtpAuthLane;
+
+const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(authLane);
+void appSessionJwt;
+
+const appSessionSubject = appSessionSubjectFromEmailOtpAuthLane(authLane);
+void appSessionSubject;
+
+// @ts-expect-error app-session JWT projection requires a concrete Email OTP auth lane.
+appSessionJwtFromEmailOtpAuthLane(undefined);
+
+// @ts-expect-error app-session subject projection requires a concrete Email OTP auth lane.
+appSessionSubjectFromEmailOtpAuthLane(undefined);
 
 // @ts-expect-error Email OTP refresh identity requires exact lane identity.
 const missingLaneIdentity = emailOtpRefreshIdentity({

@@ -16,6 +16,7 @@ import {
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletNearImplicitAccountFund,
 } from '../../walletRegistrationRoutes';
+import { routerApiWalletRegistrationRouteService } from '../../authServicePort';
 import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
 import type { RouteResponse } from '../../routeExecutionContext';
 import {
@@ -85,7 +86,7 @@ export async function handleWalletRegistration(
     },
     route,
     services: {
-      authService: ctx.service,
+      walletRegistration: routerApiWalletRegistrationRouteService(ctx.service),
       apiKeyAuth: ctx.opts.apiKeyAuth,
       bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
       orgProjectEnv: ctx.opts.orgProjectEnv,

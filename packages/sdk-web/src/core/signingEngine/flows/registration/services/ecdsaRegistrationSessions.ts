@@ -6,7 +6,10 @@ import {
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  emailOtpAuthContextProviderUserId,
+  type ThresholdEcdsaEmailOtpAuthContext,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionStoreDeps,
@@ -91,7 +94,9 @@ export async function finalizeWalletRegistrationEcdsaSessions(
             args.auth.kind === 'email_otp'
               ? {
                   kind: 'email_otp',
-                  authSubjectId: args.auth.emailOtpAuthContext.authSubjectId,
+                  providerUserId: emailOtpAuthContextProviderUserId(
+                    args.auth.emailOtpAuthContext,
+                  ),
                 }
               : {
                   kind: 'passkey',

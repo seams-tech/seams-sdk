@@ -1,5 +1,5 @@
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import type { RouterApiAuthService } from './authServicePort';
+import type { RouterApiWalletUnlockService } from './authServicePort';
 import { parseWalletUnlockBackend } from './emailOtpRequestValidation';
 import {
   emailOtpFailureWebhookEventDescriptors,
@@ -27,7 +27,7 @@ export type EmitWalletUnlockEmailOtpWebhook = (input: {
 
 export async function handleWalletUnlockChallengeRoute(input: {
   body: unknown;
-  service: RouterApiAuthService;
+  service: RouterApiWalletUnlockService;
 }): Promise<WalletUnlockRouteResponse> {
   if (!input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {
     return {
@@ -69,7 +69,7 @@ export async function handleWalletUnlockChallengeRoute(input: {
 export async function handleWalletUnlockVerifyRoute(input: {
   body: unknown;
   origin?: string;
-  service: RouterApiAuthService;
+  service: RouterApiWalletUnlockService;
   emitRouterApiWebhook: EmitWalletUnlockRouterApiWebhook;
   emitEmailOtpWebhook: EmitWalletUnlockEmailOtpWebhook;
 }): Promise<WalletUnlockRouteResponse> {
@@ -99,10 +99,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
   const result =
     unlockBackend === 'passkey'
       ? await (async () => {
-          if (
-            !body.webauthn_authentication ||
-            typeof body.webauthn_authentication !== 'object'
-          ) {
+          if (!body.webauthn_authentication || typeof body.webauthn_authentication !== 'object') {
             return {
               ok: false,
               verified: false,

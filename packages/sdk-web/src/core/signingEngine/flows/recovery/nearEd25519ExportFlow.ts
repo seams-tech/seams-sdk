@@ -4,18 +4,17 @@ import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeName } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEd25519SessionRecord } from '../../session/persistence/records';
 import { getStoredThresholdEd25519SessionRecordForLane } from '../../session/persistence/records';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import {
-  toAuthorizingSigningGrantId,
-  type EmailOtpAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import { toAuthorizingSigningGrantId } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { walletSessionJwtFromPersistedEd25519Record } from '../../session/walletSessionAuthBoundary';
 import type {
+  Ed25519ExportLane,
+  ExportEd25519SeedWithAuthorizationArgs,
+  EmailOtpEd25519ExportSessionRecord,
   RequestEmailOtpChallengeArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
 import { walletSessionRefFromSession } from '../../interfaces/ecdsaChainTarget';
@@ -44,19 +43,9 @@ export type NearEd25519SingleKeyExportDeps = {
   theme?: ThemeName;
   emailOtpSessions: {
     requestExportChallenge: EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge'];
-    exportEd25519SeedWithAuthorization: (args: {
-      nearAccountId: AccountId;
-      challengeId: string;
-      otpCode: string;
-      record: ThresholdEd25519SessionRecord;
-      participantIds: number[];
-      thresholdSessionId: string;
-      walletSessionJwt: string;
-      relayerKeyId: string;
-      expectedPublicKey: string;
-      routeAuth?: AppOrWalletSessionAuth;
-      authLane?: EmailOtpAuthLane;
-    }) => Promise<{ publicKey: string; privateKey: string }>;
+    exportEd25519SeedWithAuthorization: (
+      args: ExportEd25519SeedWithAuthorizationArgs,
+    ) => Promise<{ publicKey: string; privateKey: string }>;
   };
   getSignerWorkerContext: () => WorkerOperationContext;
 };
@@ -113,6 +102,88 @@ function nonEmptyString(value: unknown): string {
 function positiveInteger(value: unknown): number {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function requireEmailOtpEd25519ExportRecord(
+  record: ThresholdEd25519SessionRecord,
+): EmailOtpEd25519ExportSessionRecord {
+  if (record.source !== SIGNER_AUTH_METHODS.emailOtp) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires Email OTP record');
+  }
+  const signingGrantId = nonEmptyString(record.signingGrantId);
+  if (!signingGrantId) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires signing grant identity');
+  }
+  const walletSessionJwt = nonEmptyString(record.walletSessionJwt);
+  if (!walletSessionJwt) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires wallet-session authority');
+  }
+  if (!record.runtimePolicyScope) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires runtime policy scope');
+  }
+  if (!record.emailOtpAuthContext) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires auth context');
+  }
+  return {
+    ...record,
+    source: 'email_otp',
+    signingGrantId,
+    walletSessionJwt,
+    runtimePolicyScope: record.runtimePolicyScope,
+    emailOtpAuthContext: record.emailOtpAuthContext,
+  };
+}
+
+function buildEd25519ExportLane(args: {
+  record: ThresholdEd25519SessionRecord;
+  walletSessionAuth: RouterAbEd25519ExportWalletSessionAuth;
+  expectedPublicKey: string;
+}): Ed25519ExportLane {
+  const record = requireEmailOtpEd25519ExportRecord(args.record);
+  const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
+  const expectedPublicKey = nonEmptyString(args.expectedPublicKey);
+  const relayerKeyId = nonEmptyString(record.relayerKeyId);
+  if (!thresholdSessionId) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires threshold session identity');
+  }
+  if (!expectedPublicKey) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires expected public key');
+  }
+  if (!relayerKeyId) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires relayer key identity');
+  }
+  if (
+    args.walletSessionAuth.thresholdSessionId !== thresholdSessionId ||
+    args.walletSessionAuth.signingGrantId !== record.signingGrantId ||
+    args.walletSessionAuth.walletSessionJwt !== record.walletSessionJwt
+  ) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP committed lane authority drifted');
+  }
+  if (args.walletSessionAuth.participantIds.length === 0) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires participant identity');
+  }
+  const authLane = {
+    kind: 'signing_session' as const,
+    jwt: args.walletSessionAuth.walletSessionJwt,
+    thresholdSessionId,
+    authorizingSigningGrantId: toAuthorizingSigningGrantId(record.signingGrantId),
+    curve: 'ed25519' as const,
+  };
+  return {
+    source: 'record_backed',
+    record,
+    authority: record.emailOtpAuthContext.authority,
+    authLane,
+    walletSessionAuthority: {
+      kind: 'wallet_session_authority',
+      walletSessionJwt: args.walletSessionAuth.walletSessionJwt,
+      thresholdSessionId,
+      signingGrantId: record.signingGrantId,
+    },
+    participantIds: [...args.walletSessionAuth.participantIds],
+    relayerKeyId,
+    expectedPublicKey,
+  };
 }
 
 export function resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(
@@ -429,33 +500,17 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
 
   try {
     if (sessionRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
-      const signingGrantId = String(sessionRecord.signingGrantId || '').trim();
-      if (!signingGrantId) {
-        throw new Error('Email OTP Ed25519 export requires signing grant identity');
-      }
-      const exportSigningSessionAuthLane = {
-        kind: 'signing_session' as const,
-        jwt: walletSessionJwt,
-        thresholdSessionId,
-        authorizingSigningGrantId: toAuthorizingSigningGrantId(
-          signingGrantId,
-        ),
-        curve: 'ed25519' as const,
-      };
+      const committedLane = buildEd25519ExportLane({
+        record: sessionRecord,
+        walletSessionAuth: exportWalletSessionAuth.value,
+        expectedPublicKey,
+      });
       const authorization = await requestEmailOtpKeyExportAuthorization(
         {
           touchConfirm: deps.touchConfirm,
           requestExportChallenge: (request) =>
             deps.emailOtpSessions.requestExportChallenge({
-              kind: 'near_account_challenge',
-              walletSession: walletSessionRefFromSession({
-                walletId: sessionRecord.walletId,
-                walletSessionUserId: sessionRecord.walletId,
-              }),
-	              nearAccountId,
-	              chain: 'near',
-              ...(request.routeAuth ? { routeAuth: request.routeAuth } : {}),
-              ...(request.authLane ? { authLane: request.authLane } : {}),
+              ...request,
             }),
         },
         {
@@ -468,7 +523,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
           chain: 'near',
           publicKey: expectedPublicKey,
           curve: 'ed25519',
-          authLane: exportSigningSessionAuthLane,
+          challengeAuthority: { kind: 'signing_session', authLane: committedLane.authLane },
         },
       );
       emitNearEd25519MaterialStarted({
@@ -493,13 +548,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
         nearAccountId,
         challengeId: authorization.challengeId,
         otpCode: authorization.otpCode,
-        record: sessionRecord,
-        participantIds,
-        thresholdSessionId,
-        walletSessionJwt,
-        relayerKeyId,
-        expectedPublicKey,
-        authLane: exportSigningSessionAuthLane,
+        committedLane,
       });
       emitNearEd25519MaterialSucceeded({
         flowId: args.flowId,

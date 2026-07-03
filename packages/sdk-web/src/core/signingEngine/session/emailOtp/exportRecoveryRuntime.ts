@@ -4,14 +4,15 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
+import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  EmailOtpAuthLane,
+  EmailOtpSigningSessionAuthLane,
+} from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { EcdsaExportLane } from '../../flows/recovery/ecdsaExportMaterial';
 import { appSessionJwtFromEmailOtpAuthLane } from './appSessionJwtCache';
 import {
   buildEmailOtpSigningSessionRoutePlan,
@@ -30,6 +31,10 @@ import type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
+import type {
+  EmailOtpEd25519CommittedSessionRecord,
+  RecordBackedEd25519CommittedLane,
+} from './ed25519CommittedLane';
 
 export type { EmailOtpEcdsaExportArtifact, EmailOtpEd25519ExportArtifact } from './exportRecovery';
 
@@ -41,39 +46,65 @@ export type RequestEmailOtpChallengeArgs =
       kind: 'wallet_session_challenge';
       walletSession: WalletSessionRef;
       chain: EmailOtpRouteChain;
-      routeAuth?: AppOrWalletSessionAuth;
-      authLane?: EmailOtpAuthLane;
+      authLane: EmailOtpSigningSessionAuthLane;
+      routeAuth?: never;
+    }
+  | {
+      kind: 'wallet_session_fresh_login_challenge';
+      walletSession: WalletSessionRef;
+      chain: EmailOtpEcdsaRouteChain;
+      authLane?: never;
+      routeAuth?: never;
     }
 	  | {
 	      kind: 'near_account_challenge';
 	      walletSession: WalletSessionRef;
 	      nearAccountId: AccountId;
-	      chain: EmailOtpRouteChain;
-	      routeAuth?: AppOrWalletSessionAuth;
-	      authLane?: EmailOtpAuthLane;
+	      chain: 'near';
+	      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
+	      routeAuth?: never;
 	    };
+
+export type EmailOtpEd25519ExportSessionRecord = EmailOtpEd25519CommittedSessionRecord & {
+  walletSessionJwt: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+};
+
+export type Ed25519ExportFacts = {
+  participantIds: number[];
+  relayerKeyId: string;
+  expectedPublicKey: string;
+};
+
+export type Ed25519ExportLane = RecordBackedEd25519CommittedLane<
+  EmailOtpEd25519ExportSessionRecord,
+  Ed25519ExportFacts
+>;
 
 export type ExportEd25519SeedWithAuthorizationArgs = {
   nearAccountId: AccountId;
   challengeId: string;
   otpCode: string;
-  record: ThresholdEd25519SessionRecord;
-  participantIds: number[];
-  thresholdSessionId: string;
-  walletSessionJwt: string;
-  relayerKeyId: string;
-  expectedPublicKey: string;
-  routeAuth?: AppOrWalletSessionAuth;
-  authLane?: EmailOtpAuthLane;
+  committedLane: Ed25519ExportLane;
+  record?: never;
+  participantIds?: never;
+  thresholdSessionId?: never;
+  walletSessionJwt?: never;
+  relayerKeyId?: never;
+  expectedPublicKey?: never;
+  routeAuth?: never;
+  authLane?: never;
 };
 
 export type ExportEcdsaKeyWithAuthorizationArgs = {
   walletSession: WalletSessionRef;
   challengeId: string;
   otpCode: string;
-  record: ThresholdEcdsaSessionRecord;
-  routeAuth?: AppOrWalletSessionAuth;
-  authLane?: EmailOtpAuthLane;
+  committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
+  record?: never;
+  routeAuth?: never;
+  authLane?: never;
 };
 
 export type ExportEcdsaKeyWithFreshEmailOtpLaneArgs = {
@@ -82,7 +113,8 @@ export type ExportEcdsaKeyWithFreshEmailOtpLaneArgs = {
   challengeId: string;
   otpCode: string;
   publicFacts: VerifiedEcdsaPublicFacts;
-  authSubjectId?: string;
+  providerUserId?: string;
+  emailHashHex: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 

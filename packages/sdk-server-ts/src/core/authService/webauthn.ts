@@ -33,7 +33,6 @@ import {
 import {
   parseThresholdEd25519RegistrationInput,
   toThresholdEd25519BootstrapSession,
-  validateThresholdEd25519SessionPolicyBindings,
   type ThresholdEd25519BootstrapSession,
 } from './registrationThresholdHelpers';
 import {
@@ -994,22 +993,6 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
           binding.runtimePolicyScope,
         ),
       });
-      const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
-        requestedSessionPolicy: resolvedSessionPolicy.sessionPolicy,
-        expectedWalletId: walletBinding.walletId,
-        expectedRelayerKeyId: relayerKeyId,
-        expectedNearAccountId: walletBinding.nearAccountId,
-        expectedNearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
-        expectedAuthorityScope: walletBindingAuthorityScope,
-      });
-      if (policyBindingError) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'invalid_body',
-          message: policyBindingError,
-        };
-      }
 
       const session = await thresholdService.mintEd25519SessionFromRegistration({
         walletId: walletBinding.walletId,

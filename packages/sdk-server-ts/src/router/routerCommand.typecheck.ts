@@ -6,7 +6,6 @@ import type {
   PasskeyLoginOptionsRequest,
 } from './authRequestValidation';
 import type { PrepareEmailRecoveryRequest } from './emailRecoveryRequestValidation';
-import type { RouterAbEcdsaHssKeyIdentitiesRequest } from './thresholdEcdsaRequestValidation';
 
 const passkeyOptions: PasskeyLoginOptionsRequest = {
   user_id: 'wallet-1',
@@ -78,20 +77,6 @@ const authUnlinkWithLegacySessionKind: AuthUnlinkIdentityRequest = {
   sessionKind: 'jwt',
 };
 void authUnlinkWithLegacySessionKind;
-
-const ecdsaKeyIdentities: RouterAbEcdsaHssKeyIdentitiesRequest = {
-  sessionKind: 'jwt',
-  keyTargets: [],
-};
-void ecdsaKeyIdentities;
-
-const ecdsaKeyIdentitiesWithLegacyField: RouterAbEcdsaHssKeyIdentitiesRequest = {
-  sessionKind: 'jwt',
-  keyTargets: [],
-  // @ts-expect-error Threshold ECDSA key identities accepts keyTargets only.
-  targets: [],
-};
-void ecdsaKeyIdentitiesWithLegacyField;
 
 function assertNeverAuthProviderAction(route: never): never {
   throw new Error(String((route as { kind?: unknown })?.kind || 'unknown'));

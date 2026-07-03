@@ -25,6 +25,7 @@ import { classifyRouterAbEcdsaHssPersistedSigningRecord } from '../routerAbSigni
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
+import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
 import {
   normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
@@ -893,10 +894,12 @@ export function statusFromClaim(args: {
   claim: WarmSessionPrfClaim | null;
 }): SigningSessionStatus {
   const emailOtpLane = args.lanes.find((lane) => lane.source === 'email_otp');
-  const emailOtpRetention =
+  const emailOtpAuthContext =
     emailOtpLane?.record.source === 'email_otp'
-      ? emailOtpLane.record.emailOtpAuthContext?.retention || null
+      ? emailOtpLane.record.emailOtpAuthContext
       : null;
+  const emailOtpRetention =
+    emailOtpAuthContext ? emailOtpAuthContextRetention(emailOtpAuthContext) : null;
   return toSigningSessionStatus({
     sessionId: args.signingGrantId,
     claim: args.claim,
@@ -910,10 +913,12 @@ export function statusFromConsumedLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
 }): SigningSessionStatus {
   const emailOtpLane = args.lanes.find((lane) => lane.source === 'email_otp');
-  const emailOtpRetention =
+  const emailOtpAuthContext =
     emailOtpLane?.record.source === 'email_otp'
-      ? emailOtpLane.record.emailOtpAuthContext?.retention || null
+      ? emailOtpLane.record.emailOtpAuthContext
       : null;
+  const emailOtpRetention =
+    emailOtpAuthContext ? emailOtpAuthContextRetention(emailOtpAuthContext) : null;
   return {
     sessionId: args.signingGrantId,
     status: 'exhausted',

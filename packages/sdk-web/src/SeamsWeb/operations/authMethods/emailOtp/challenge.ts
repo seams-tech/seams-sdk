@@ -155,6 +155,51 @@ export function readOptionalString(value: unknown): string | undefined {
   return toOptionalTrimmedNonEmptyString(value);
 }
 
+function readNonNegativeInteger(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return Math.floor(parsed);
+}
+
+export function parseEmailOtpDeviceEnrollmentRestoreResult(
+  value: unknown,
+): EmailOtpDeviceEnrollmentRestoreResult {
+  const response = requireObjectJson(value, 'Email OTP device enrollment restore result');
+  return {
+    walletId: readString(response.walletId, 'walletId'),
+    userId: readString(response.userId, 'userId'),
+    providerUserId: readString(response.authSubjectId, 'authSubjectId'),
+    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
+    enrollmentVersion: readString(response.enrollmentVersion, 'enrollmentVersion'),
+    enrollmentSealKeyVersion: readString(
+      response.enrollmentSealKeyVersion,
+      'enrollmentSealKeyVersion',
+    ),
+    recoveryKeyId: readString(response.recoveryKeyId, 'recoveryKeyId'),
+    activeRecoveryWrappedEnrollmentEscrowCount: readNonNegativeInteger(
+      response.activeRecoveryWrappedEnrollmentEscrowCount,
+      'activeRecoveryWrappedEnrollmentEscrowCount',
+    ),
+  };
+}
+
+export function parseEmailOtpDeviceEnrollmentRemoveResult(
+  value: unknown,
+): EmailOtpDeviceEnrollmentRemoveResult {
+  const response = requireObjectJson(value, 'Email OTP device enrollment remove result');
+  if (response.removed !== true) {
+    throw new Error('Email OTP device enrollment remove result must be removed');
+  }
+  return {
+    walletId: readString(response.walletId, 'walletId'),
+    providerUserId: readString(response.authSubjectId, 'authSubjectId'),
+    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
+    removed: true,
+  };
+}
+
 export function zeroizeBytes(bytes?: Uint8Array | null): void {
   if (!(bytes instanceof Uint8Array)) return;
   bytes.fill(0);
