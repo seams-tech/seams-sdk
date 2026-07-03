@@ -2097,6 +2097,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         if (!walletId || !recordMetadata.ecdsaRestore) {
           throw new Error('[SigningSessionSealedStore] missing ECDSA seal metadata');
         }
+        const persistedAtMs = Date.now();
         await this.registerSigningSession({
           thresholdSessionId,
           sealedSecretB64u: sealed.sealedSecretB64u,
@@ -2112,15 +2113,17 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           relayerUrl,
           keyVersion: sealed.keyVersion,
           shamirPrimeB64u,
+          issuedAtMs: persistedAtMs,
           expiresAtMs: sealed.expiresAtMs,
           remainingUses: sealed.remainingUses,
-          updatedAtMs: Date.now(),
+          updatedAtMs: persistedAtMs,
         });
       } else {
         const walletId = String(recordMetadata.walletId || '').trim();
         if (!walletId || !recordMetadata.ed25519Restore) {
           throw new Error('[SigningSessionSealedStore] missing Ed25519 seal metadata');
         }
+        const persistedAtMs = Date.now();
         await this.registerSigningSession({
           thresholdSessionId,
           sealedSecretB64u: sealed.sealedSecretB64u,
@@ -2142,9 +2145,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           relayerUrl,
           keyVersion: sealed.keyVersion,
           shamirPrimeB64u,
+          issuedAtMs: persistedAtMs,
           expiresAtMs: sealed.expiresAtMs,
           remainingUses: sealed.remainingUses,
-          updatedAtMs: Date.now(),
+          updatedAtMs: persistedAtMs,
         });
       }
       const persistedRecord = await readExactSealedSession(thresholdSessionId, purpose).catch(

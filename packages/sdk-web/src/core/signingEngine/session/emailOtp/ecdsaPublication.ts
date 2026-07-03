@@ -288,6 +288,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (!sealedSecretB64u || expiresAtMs <= 0 || remainingUses < 0) {
     throw new Error('Email OTP sealed refresh seal returned invalid persistence metadata');
   }
+  const persistedAtMs = Date.now();
 
   const sealedRecordBase = {
     thresholdSessionId: readyPersistenceInput.thresholdSessionId,
@@ -302,6 +303,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       ? { keyVersion: String(sealed.keyVersion || keyVersion).trim() }
       : {}),
     shamirPrimeB64u,
+    issuedAtMs: persistedAtMs,
     expiresAtMs,
     remainingUses,
   };
@@ -314,7 +316,6 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       `Email OTP sealed refresh chain target drifted from ${thresholdEcdsaChainTargetKey(readyPersistenceInput.chainTarget)} to ${thresholdEcdsaChainTargetKey(actualChainTarget)}`,
     );
   }
-  const updatedAtMs = Date.now();
   const keyHandle = String(keyRef.keyHandle || '').trim();
   if (!keyHandle) {
     throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
@@ -337,7 +338,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
       participantIds,
     },
-    updatedAtMs,
+    updatedAtMs: persistedAtMs,
   });
 
   const persisted = await ports

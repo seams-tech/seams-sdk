@@ -166,6 +166,7 @@ test.describe('signing session sealed store', () => {
             signingRootVersion: 'default',
             sealedSecretB64u: 'sealed-ed25519-secret',
             keyVersion: 'signing-session-seal-kek-test-r1',
+            issuedAtMs,
             expiresAtMs: issuedAtMs + 60_000,
             remainingUses: 3,
             updatedAtMs: issuedAtMs,
@@ -253,6 +254,7 @@ test.describe('signing session sealed store', () => {
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
             signingGrantId,
+            thresholdSessionIds: { ecdsa: thresholdSessionId },
             curve: 'ecdsa',
             authMethod: 'passkey',
             ecdsaRestore: ECDSA_RESTORE,
@@ -264,6 +266,7 @@ test.describe('signing session sealed store', () => {
             emailOtpSecretS: 'plaintext-s-must-not-persist',
             enrollmentEscrowB64u: 'enrollment-escrow-must-not-persist',
             keyVersion: 'signing-session-seal-kek-2026-02-r1',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 7,
             updatedAtMs: Date.now(),
@@ -382,6 +385,7 @@ test.describe('signing session sealed store', () => {
         const record = mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'router-ab-ecdsa-session',
           signingGrantId: 'router-ab-wallet-session',
+          thresholdSessionIds: { ecdsa: 'router-ab-ecdsa-session' },
           curve: 'ecdsa',
           authMethod: 'passkey',
           ecdsaRestore: {
@@ -393,6 +397,7 @@ test.describe('signing session sealed store', () => {
           relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-secret-b64u',
           keyVersion: 'signing-session-seal-kek-2026-02-r1',
+          issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           updatedAtMs: Date.now(),
@@ -499,6 +504,7 @@ test.describe('signing session sealed store', () => {
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'chain-only-session',
             signingGrantId: 'chain-only-wallet-session',
+            thresholdSessionIds: { ecdsa: 'chain-only-session' },
             curve: 'ecdsa',
             authMethod: 'email_otp',
             ecdsaRestore: {
@@ -510,6 +516,7 @@ test.describe('signing session sealed store', () => {
               participantIds: [1, 2],
             },
             sealedSecretB64u: 'sealed-chain-only',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 1,
             updatedAtMs: Date.now(),
@@ -557,6 +564,7 @@ test.describe('signing session sealed store', () => {
             keyVersion: 'signing-session-seal-kek-test-r1',
             shamirPrimeB64u: 'prime-b64u',
             sealedSecretB64u: 'sealed-email-otp-k',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
             updatedAtMs: Date.now(),
@@ -655,6 +663,7 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-passkey-session',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 5,
             updatedAtMs: Date.now(),
@@ -672,6 +681,7 @@ test.describe('signing session sealed store', () => {
             relayerUrl: 'https://relay.example',
             shamirPrimeB64u: 'prime-b64u',
             sealedSecretB64u: 'sealed-email-otp-session',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 4,
             updatedAtMs: Date.now(),
@@ -765,6 +775,7 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-passkey-prf-first',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 5,
             updatedAtMs: Date.now(),
@@ -791,6 +802,7 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         const walletId = 'passkey-ed25519-incomplete.testnet';
+        const persistedAtMs = Date.now() - 1_000;
         await mod.clearAllSealedSessions();
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
@@ -803,9 +815,10 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-complete-ed25519',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: persistedAtMs,
+            expiresAtMs: persistedAtMs + 60_000,
             remainingUses: 5,
-            updatedAtMs: Date.now() - 1_000,
+            updatedAtMs: persistedAtMs,
           })!,
         );
         const incompleteRestore = {
@@ -1073,6 +1086,7 @@ test.describe('signing session sealed store', () => {
             relayerUrl: 'https://relay.example',
             shamirPrimeB64u: 'prime-b64u',
             sealedSecretB64u: 'sealed-email-otp-ecdsa',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 4,
             updatedAtMs: Date.now(),
@@ -1089,6 +1103,7 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-email-otp-ed25519',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 4,
             updatedAtMs: Date.now(),
@@ -1105,6 +1120,7 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-passkey-ecdsa',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 4,
             updatedAtMs: Date.now(),
@@ -1122,6 +1138,7 @@ test.describe('signing session sealed store', () => {
             relayerUrl: 'https://relay.example',
             shamirPrimeB64u: 'prime-b64u',
             sealedSecretB64u: 'sealed-bob-email-otp-ecdsa',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 4,
             updatedAtMs: Date.now(),
@@ -1163,6 +1180,8 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
+        const oldPersistedAtMs = Date.now() - 1_000;
+        const newPersistedAtMs = Date.now();
 
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
@@ -1175,9 +1194,10 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'old-ed25519',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: oldPersistedAtMs,
+            expiresAtMs: oldPersistedAtMs + 60_000,
             remainingUses: 1,
-            updatedAtMs: Date.now() - 1_000,
+            updatedAtMs: oldPersistedAtMs,
           })!,
         );
         await mod.writeExactSealedSession(
@@ -1191,9 +1211,10 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'new-ed25519',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: newPersistedAtMs,
+            expiresAtMs: newPersistedAtMs + 60_000,
             remainingUses: 1,
-            updatedAtMs: Date.now(),
+            updatedAtMs: newPersistedAtMs,
           })!,
         );
 
@@ -1208,9 +1229,10 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'old-ecdsa',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: oldPersistedAtMs,
+            expiresAtMs: oldPersistedAtMs + 60_000,
             remainingUses: 1,
-            updatedAtMs: Date.now() - 1_000,
+            updatedAtMs: oldPersistedAtMs,
           })!,
         );
         await mod.writeExactSealedSession(
@@ -1224,9 +1246,10 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'new-ecdsa',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: newPersistedAtMs,
+            expiresAtMs: newPersistedAtMs + 60_000,
             remainingUses: 1,
-            updatedAtMs: Date.now(),
+            updatedAtMs: newPersistedAtMs,
           })!,
         );
 
@@ -1278,6 +1301,7 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-passkey-ed25519',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
             updatedAtMs: Date.now(),
@@ -1297,6 +1321,7 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-email-otp-ecdsa',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 4,
             updatedAtMs: Date.now(),
@@ -1341,12 +1366,14 @@ test.describe('signing session sealed store', () => {
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'sess-a',
             signingGrantId: 'wallet-sess-a',
+            thresholdSessionIds: { ecdsa: 'sess-a' },
             curve: 'ecdsa',
             authMethod: 'passkey',
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'a',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
             updatedAtMs: Date.now(),
@@ -1356,12 +1383,14 @@ test.describe('signing session sealed store', () => {
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'sess-b',
             signingGrantId: 'wallet-sess-b',
+            thresholdSessionIds: { ecdsa: 'sess-b' },
             curve: 'ecdsa',
             authMethod: 'passkey',
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'bob.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'b',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
             updatedAtMs: Date.now(),
@@ -1423,12 +1452,14 @@ test.describe('signing session sealed store', () => {
             mod.buildCurrentSealedSessionRecord({
               thresholdSessionId,
               signingGrantId: 'wallet-sess-host-mode',
+              thresholdSessionIds: { ecdsa: thresholdSessionId },
               curve: 'ecdsa',
               authMethod: 'passkey',
               ecdsaRestore: ECDSA_RESTORE,
               walletId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
               sealedSecretB64u: 'sealed-host',
+              issuedAtMs: Date.now(),
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 2,
               updatedAtMs: Date.now(),
@@ -1484,12 +1515,14 @@ test.describe('signing session sealed store', () => {
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'sess-disabled-mode',
             signingGrantId: 'wallet-sess-disabled-mode',
+            thresholdSessionIds: { ecdsa: 'sess-disabled-mode' },
             curve: 'ecdsa',
             authMethod: 'passkey',
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'disabled.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-disabled',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 1,
             updatedAtMs: Date.now(),
@@ -1528,12 +1561,14 @@ test.describe('signing session sealed store', () => {
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
             signingGrantId: 'wallet-sess-browser-restart',
+            thresholdSessionIds: { ecdsa: thresholdSessionId },
             curve: 'ecdsa',
             authMethod: 'passkey',
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'restart.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-restart',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
             updatedAtMs: Date.now(),
@@ -1583,12 +1618,14 @@ test.describe('signing session sealed store', () => {
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
             signingGrantId: 'wallet-session-lease',
+            thresholdSessionIds: { ecdsa: thresholdSessionId },
             curve: 'ecdsa',
             authMethod: 'passkey',
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'lease.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-lease',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
             updatedAtMs: Date.now(),
@@ -1688,6 +1725,7 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-transaction-k',
+            issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 7,
             updatedAtMs: Date.now(),
@@ -1782,7 +1820,8 @@ test.describe('signing session sealed store', () => {
             walletId: 'identity.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-identity-k',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: 12_345,
+            expiresAtMs: 72_345,
             remainingUses: 7,
             updatedAtMs: 12_345,
           })!,
@@ -1879,7 +1918,8 @@ test.describe('signing session sealed store', () => {
             },
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-split-ed25519',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: 33_333,
+            expiresAtMs: 93_333,
             remainingUses: 5,
             updatedAtMs: 33_333,
           })!,
@@ -1925,7 +1965,8 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-preserve-identity-k',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: 44_444,
+            expiresAtMs: 104_444,
             remainingUses: 1,
             updatedAtMs: 44_444,
           })!,
@@ -1964,7 +2005,8 @@ test.describe('signing session sealed store', () => {
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-preserve-identity-k-2',
-            expiresAtMs: Date.now() + 60_000,
+            issuedAtMs: 55_555,
+            expiresAtMs: 115_555,
             remainingUses: 1,
             updatedAtMs: 55_555,
           })!,

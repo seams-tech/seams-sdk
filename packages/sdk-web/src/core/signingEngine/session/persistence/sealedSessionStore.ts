@@ -224,10 +224,10 @@ type BuildCurrentSealedSessionRecordCommonInput = {
   signingGrantId: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
-  issuedAtMs?: number;
+  issuedAtMs: number;
   expiresAtMs: number;
   remainingUses: number;
-  updatedAtMs?: number;
+  updatedAtMs: number;
 };
 
 export type BuildCurrentEd25519SealedSessionRecordInput =
@@ -1410,8 +1410,8 @@ export function buildCurrentSealedSessionRecord(
   const sealedSecretB64u = normalizeOptionalNonEmptyString(args.sealedSecretB64u);
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
   const remainingUses = normalizeInteger(args.remainingUses);
-  const issuedAtMs = normalizeInteger(args.issuedAtMs ?? Date.now());
-  const updatedAtMs = normalizeInteger(args.updatedAtMs ?? Date.now());
+  const issuedAtMs = normalizeInteger(args.issuedAtMs);
+  const updatedAtMs = normalizeInteger(args.updatedAtMs);
   if (!thresholdSessionId || !signingGrantId || !sealedSecretB64u) return null;
   if (!thresholdSessionIds.ed25519 && !thresholdSessionIds.ecdsa) return null;
   if (issuedAtMs == null || issuedAtMs <= 0) return null;

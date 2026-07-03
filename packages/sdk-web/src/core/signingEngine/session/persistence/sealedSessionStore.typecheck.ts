@@ -57,10 +57,26 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
     // @ts-expect-error current Ed25519 sealed writes do not accept raw client-base material.
     xClientBaseB64u: 'raw-client-base',
   },
+  issuedAtMs: 1,
   expiresAtMs: 1,
   remainingUses: 1,
+  updatedAtMs: 1,
 };
 void invalidEd25519WriteInput;
+
+const invalidEd25519WriteWithoutIssuedAtMs = {
+  ...invalidEd25519WriteInput,
+  // @ts-expect-error current Ed25519 sealed writes require explicit issuedAtMs.
+  issuedAtMs: undefined,
+} satisfies BuildCurrentEd25519SealedSessionRecordInput;
+void invalidEd25519WriteWithoutIssuedAtMs;
+
+const invalidEd25519WriteWithoutUpdatedAtMs = {
+  ...invalidEd25519WriteInput,
+  // @ts-expect-error current Ed25519 sealed writes require explicit updatedAtMs.
+  updatedAtMs: undefined,
+} satisfies BuildCurrentEd25519SealedSessionRecordInput;
+void invalidEd25519WriteWithoutUpdatedAtMs;
 
 const invalidEd25519WriteWithoutThresholdSessionIds = {
   ...invalidEd25519WriteInput,
@@ -164,12 +180,28 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],
   },
+  issuedAtMs: 1,
   expiresAtMs: 1,
   remainingUses: 1,
+  updatedAtMs: 1,
   // @ts-expect-error ECDSA sealed writes derive subject from walletId at restore boundaries.
   subjectId: 'wallet-alice',
 };
 void invalidEcdsaWriteInput;
+
+const invalidEcdsaWriteWithoutIssuedAtMs = {
+  ...invalidEcdsaWriteInput,
+  // @ts-expect-error current ECDSA sealed writes require explicit issuedAtMs.
+  issuedAtMs: undefined,
+} satisfies BuildCurrentEcdsaSealedSessionRecordInput;
+void invalidEcdsaWriteWithoutIssuedAtMs;
+
+const invalidEcdsaWriteWithoutUpdatedAtMs = {
+  ...invalidEcdsaWriteInput,
+  // @ts-expect-error current ECDSA sealed writes require explicit updatedAtMs.
+  updatedAtMs: undefined,
+} satisfies BuildCurrentEcdsaSealedSessionRecordInput;
+void invalidEcdsaWriteWithoutUpdatedAtMs;
 
 const invalidEcdsaWriteWithoutThresholdSessionIds = {
   ...invalidEcdsaWriteInput,

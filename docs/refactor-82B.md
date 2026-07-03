@@ -1984,6 +1984,10 @@ Tracking:
   - Partial July 3 sealed-store write slice complete: current sealed-session
     write inputs now require canonical `thresholdSessionIds` instead of
     inferring session identity from the branch `thresholdSessionId`.
+  - Partial July 3 sealed-store lifecycle slice complete: current sealed-session
+    write inputs now require explicit `issuedAtMs` and `updatedAtMs`, and
+    `buildCurrentSealedSessionRecord` no longer invents lifecycle timestamps
+    inside core sealed-session construction.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.
