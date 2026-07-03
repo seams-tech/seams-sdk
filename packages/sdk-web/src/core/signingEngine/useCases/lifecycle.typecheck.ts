@@ -2,6 +2,7 @@ import type {
   ActivateSigningSessionTransition,
   EcdsaProvisioningTransition,
   ExportKeyArtifact,
+  ExportKeysAuthorization,
   ExportKeysResult,
   RegisterWalletAuth,
   RegisterWalletTransition,
@@ -236,6 +237,27 @@ const emailOtpEcdsaAuthWithEd25519Handle = {
 };
 // @ts-expect-error Email OTP ECDSA activation requires an ECDSA worker handle with chainTarget
 emailOtpEcdsaAuthWithEd25519Handle satisfies SigningSessionActivationEmailOtpEcdsaAuth;
+
+const emailOtpExportAuthorization = {
+  kind: 'email_otp_export_authorized',
+  walletId,
+  authSubjectId: emailOtpAuthSubjectId,
+  challengeId: emailOtpChallengeId,
+  scopes: [
+    { kind: 'ed25519_export_scope', curve: 'ed25519', chain: 'near' },
+    { kind: 'ecdsa_export_scope', curve: 'ecdsa', chainTarget },
+  ],
+  issuedAtMs: expiresAtMs,
+  expiresAtMs,
+} satisfies ExportKeysAuthorization;
+void emailOtpExportAuthorization;
+
+const emailOtpExportAuthorizationWithRp = {
+  ...emailOtpExportAuthorization,
+  rpId,
+};
+// @ts-expect-error Email OTP export authorization is challenge-bound, not RP-bound.
+emailOtpExportAuthorizationWithRp satisfies ExportKeysAuthorization;
 
 const ecdsaActivationMaterial = {
   kind: 'ecdsa_session',

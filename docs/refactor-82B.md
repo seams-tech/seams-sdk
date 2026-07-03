@@ -1801,6 +1801,10 @@ Tracking:
 - [x] Require Email OTP sealed ECDSA/Ed25519 restore metadata and fresh ECDSA
       export material to carry `emailHashHex`, sourced from the bound
       wallet-auth-method authority or durable sealed restore metadata.
+  - Partial July 3 export-grant slice complete: `ExportKeysAuthorization` now
+    keeps `rpId` only on the Passkey branch. Email OTP key export
+    authorization is wallet/challenge/scope bound, while Passkey export remains
+    wallet/RP scoped.
 
 July 3 review follow-ups (Decided Simplification 6):
 

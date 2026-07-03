@@ -856,13 +856,13 @@ export type ExportKeysAuthorization =
   | {
       kind: 'email_otp_export_authorized';
       walletId: WalletId;
-      rpId: RpId;
       authSubjectId: EmailOtpAuthSubjectId;
       challengeId: EmailOtpChallengeId;
       scopes: NonEmptyReadonlyArray<ExportAuthorizationScope>;
       issuedAtMs: UnixTimeMs;
       expiresAtMs: UnixTimeMs;
       credentialIdB64u?: never;
+      rpId?: never;
     };
 
 export type ExportKeyRequest =

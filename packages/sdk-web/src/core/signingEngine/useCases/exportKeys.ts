@@ -225,20 +225,30 @@ function scopeCoversRequest(
   });
 }
 
+function authorizationMatchesRequestIdentity(args: {
+  authorization: ExportKeysAuthorization;
+  input: ExportKeysInput;
+}): boolean {
+  if (String(args.authorization.walletId) !== String(args.input.walletId)) return false;
+  switch (args.authorization.kind) {
+    case 'passkey_export_authorized':
+      return String(args.authorization.rpId) === String(args.input.rpId);
+    case 'email_otp_export_authorized':
+      return true;
+  }
+}
+
 function validateAuthorization(args: {
   input: ExportKeysInput;
   nowMs: number;
 }): ExportKeysFailure | null {
   const { input, nowMs } = args;
   const authorization = input.authorization;
-  if (
-    String(authorization.walletId) !== String(input.walletId) ||
-    String(authorization.rpId) !== String(input.rpId)
-  ) {
+  if (!authorizationMatchesRequestIdentity({ authorization, input })) {
     return failure({
       code: 'authorization_failed',
       source: 'domain',
-      message: 'Export authorization does not match wallet and RP',
+      message: 'Export authorization does not match request identity',
       retryable: false,
     });
   }
@@ -332,7 +342,8 @@ function findMaterialForRequest(args: {
       if (
         !isReadyStateEnvelopeValid(lane) ||
         String(lane.readyRecord.publicFacts.walletId) !== String(args.input.walletId) ||
-        String(lane.readyRecord.publicFacts.evmFamilySigningKeySlotId) !== String(args.input.evmFamilySigningKeySlotId) ||
+        String(lane.readyRecord.publicFacts.evmFamilySigningKeySlotId) !==
+          String(args.input.evmFamilySigningKeySlotId) ||
         !thresholdEcdsaChainTargetsEqual(
           lane.readyRecord.publicFacts.chainTarget,
           request.chainTarget,

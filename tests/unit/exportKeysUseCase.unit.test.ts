@@ -32,6 +32,7 @@ import type {
   ThresholdSessionId,
   SigningGrantId,
 } from '@/core/signingEngine/session/operationState/types';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 function b64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
@@ -49,7 +50,9 @@ function asBrand<T>(value: unknown): T {
 
 const walletId = toWalletId('phase7-wallet');
 const rpId = toRpId('wallet.example');
-const walletKeyId = asBrand<ExportKeysInput['walletKeyId']>('wallet-key-phase7');
+const evmFamilySigningKeySlotId = asBrand<EvmFamilySigningKeySlotId>(
+  'wallet-key:evm-family:phase7-wallet:signing-root:v1',
+);
 const evmTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -71,12 +74,13 @@ const remainingUses = asBrand<WarmSessionRemainingUses>(8);
 function readyEcdsaLane(): EcdsaUseCaseReadyLane {
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     chainTarget: evmTarget,
     keyHandle: ecdsaKeyHandle,
     ecdsaThresholdKeyId: 'ecdsa-key',
     signingRootId: 'signing-root',
     signingRootVersion: 'v1',
+    applicationBindingDigestB64u: b64u(32, 6),
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],
@@ -103,7 +107,7 @@ function readyEcdsaLane(): EcdsaUseCaseReadyLane {
   return {
     kind: 'ecdsa_ready_lane_v1',
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     rpId,
     chainTarget: evmTarget,
     readyRecord,
@@ -143,12 +147,33 @@ function passkeyAuthorization(): ExportKeysAuthorization {
   };
 }
 
+function emailOtpAuthorization(): ExportKeysAuthorization {
+  return {
+    kind: 'email_otp_export_authorized',
+    walletId,
+    authSubjectId:
+      asBrand<
+        Extract<ExportKeysAuthorization, { kind: 'email_otp_export_authorized' }>['authSubjectId']
+      >('google:phase7-user'),
+    challengeId:
+      asBrand<
+        Extract<ExportKeysAuthorization, { kind: 'email_otp_export_authorized' }>['challengeId']
+      >('export-challenge-phase7'),
+    scopes: [
+      { kind: 'ed25519_export_scope', curve: 'ed25519', chain: 'near' },
+      { kind: 'ecdsa_export_scope', curve: 'ecdsa', chainTarget: evmTarget },
+    ],
+    issuedAtMs: asBrand<UnixTimeMs>(1_800_000_000_000),
+    expiresAtMs: asBrand<UnixTimeMs>(1_900_000_000_000),
+  };
+}
+
 function exportInput(
   authorization: ExportKeysAuthorization = passkeyAuthorization(),
 ): ExportKeysInput {
   return {
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     rpId,
     requestedKeys: [{ kind: 'near_ed25519' }, { kind: 'ecdsa_secp256k1', chainTarget: evmTarget }],
     authorization,
@@ -226,6 +251,54 @@ test('ExportKeysUseCase opens viewer only after all requested artifacts are buil
     'opening_viewer',
     'ready',
   ]);
+});
+
+test('ExportKeysUseCase accepts Email OTP export authorization without RP binding', async () => {
+  const ed25519 = readyEd25519Lane();
+  const ecdsa = readyEcdsaLane();
+  const deps: ExportKeysDeps = {
+    clock: { nowMs: () => 1_850_000_000_000 },
+    materialLoader: { load: async () => ({ ok: true, material: [ed25519, ecdsa] }) },
+    artifactBuilder: {
+      buildEd25519: async () => ({ ok: true, artifact: ed25519Artifact() }),
+      buildEcdsa: async () => ({ ok: true, artifact: ecdsaArtifact(ecdsa) }),
+    },
+    viewer: { open: async () => ({ ok: true, viewerSessionId: 'viewer-session' }) },
+  };
+
+  const result = await createExportKeysUseCase(deps).export(exportInput(emailOtpAuthorization()));
+
+  expect(result).toMatchObject({
+    ok: true,
+    viewerSessionId: 'viewer-session',
+  });
+});
+
+test('ExportKeysUseCase keeps passkey export authorization RP-bound', async () => {
+  let loadCalls = 0;
+  const mismatchedAuthorization: ExportKeysAuthorization = {
+    ...passkeyAuthorization(),
+    rpId: toRpId('other-wallet.example'),
+  };
+  const deps: ExportKeysDeps = {
+    clock: { nowMs: () => 1_850_000_000_000 },
+    materialLoader: {
+      load: async () => {
+        loadCalls += 1;
+        return { ok: true, material: [readyEd25519Lane(), readyEcdsaLane()] };
+      },
+    },
+    artifactBuilder: {
+      buildEd25519: async () => ({ ok: true, artifact: ed25519Artifact() }),
+      buildEcdsa: async () => ({ ok: true, artifact: ecdsaArtifact() }),
+    },
+    viewer: { open: async () => ({ ok: true, viewerSessionId: 'viewer-session' }) },
+  };
+
+  const result = await createExportKeysUseCase(deps).export(exportInput(mismatchedAuthorization));
+
+  expect(result).toMatchObject({ ok: false, code: 'authorization_failed' });
+  expect(loadCalls).toBe(0);
 });
 
 test('ExportKeysUseCase rejects expired export authorization before material loading', async () => {
