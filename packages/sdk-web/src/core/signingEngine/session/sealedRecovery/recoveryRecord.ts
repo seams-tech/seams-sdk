@@ -174,10 +174,11 @@ export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     authMethod: 'passkey';
     authority: PasskeyWalletAuthAuthority;
     evmFamilySigningKeySlotId: string;
-    rpId: string;
-    credentialIdB64u: string;
     clientVerifyingShareB64u: string;
+    rpId?: never;
+    credentialIdB64u?: never;
     providerSubjectId?: never;
+    emailHashHex?: never;
     authSubjectId?: never;
   };
 
@@ -186,12 +187,12 @@ export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     authMethod: 'email_otp';
     authority: EmailOtpWalletAuthAuthority;
     evmFamilySigningKeySlotId: string;
-    providerSubjectId: string;
-    emailHashHex: string;
     clientVerifyingShareB64u?: string;
     companionEd25519ThresholdSessionId?: string;
     companionEd25519Recovery?: EmailOtpEcdsaCompanionEd25519Recovery;
     credentialIdB64u?: never;
+    providerSubjectId?: never;
+    emailHashHex?: never;
     authSubjectId?: never;
     rpId?: never;
   };
@@ -201,10 +202,10 @@ export type EmailOtpEcdsaCompanionEd25519Recovery = Ed25519SealedRecoveryRecordB
     authMethod: 'email_otp';
     authority: EmailOtpWalletAuthAuthority;
     rpId: string;
-    providerSubjectId: string;
-    emailHashHex: string;
     routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
     credentialIdB64u?: never;
+    providerSubjectId?: never;
+    emailHashHex?: never;
     authSubjectId?: never;
   };
 
@@ -212,11 +213,12 @@ export type PasskeyEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase
   SealedRecoveryWalletSessionAuthCarrier & {
 	    authMethod: 'passkey';
 	    authority: PasskeyWalletAuthAuthority;
-	    rpId: string;
-	    credentialIdB64u: string;
 	    xClientBaseB64u?: never;
 	    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+	    rpId?: never;
+	    credentialIdB64u?: never;
 	    providerSubjectId?: never;
+	    emailHashHex?: never;
 	    authSubjectId?: never;
 	  };
 
@@ -225,11 +227,11 @@ export type EmailOtpEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBas
     authMethod: 'email_otp';
     authority: EmailOtpWalletAuthAuthority;
     rpId: string;
-    providerSubjectId: string;
-    emailHashHex: string;
     routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
     companionEcdsaRecovery?: EmailOtpEcdsaSealedRecoveryRecord;
     credentialIdB64u?: never;
+    providerSubjectId?: never;
+    emailHashHex?: never;
     authSubjectId?: never;
   };
 
@@ -710,8 +712,6 @@ export function normalizeSealedRecoveryRecord(
 	          nearEd25519SigningKeyId: companionNearEd25519SigningKeyId,
 	          ...companionEd25519WorkerMaterial,
 	          rpId: companionRpId,
-          providerSubjectId: companionProviderSubjectId,
-          emailHashHex: companionEmailHashHex,
           relayerKeyId: companionRelayerKeyId,
           participantIds: companionParticipantIds,
           signerSlot: companionSignerSlot,
@@ -748,8 +748,6 @@ export function normalizeSealedRecoveryRecord(
             chainTarget,
             authority: passkeyAuthority!,
             evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
-            rpId: passkeyRpId!,
-            credentialIdB64u: credentialIdB64u!,
             signingRootId: signingRootBinding.signingRootId,
             signingRootVersion: signingRootBinding.signingRootVersion,
             keyHandle,
@@ -784,8 +782,6 @@ export function normalizeSealedRecoveryRecord(
             chainTarget,
             authority: emailOtpAuthority!,
 	            evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
-            providerSubjectId: providerSubjectId!,
-            emailHashHex: emailHashHex!,
             signingRootId: signingRootBinding.signingRootId,
             signingRootVersion: signingRootBinding.signingRootVersion,
             keyHandle,
@@ -966,8 +962,6 @@ export function normalizeSealedRecoveryRecord(
         : {}),
       chainTarget: companionChainTarget,
       evmFamilySigningKeySlotId: normalizeNonEmptyString(ecdsaRestore.evmFamilySigningKeySlotId)!,
-      providerSubjectId: companionProviderSubjectId,
-      emailHashHex: companionEmailHashHex,
       signingRootId: companionSigningRootBinding.signingRootId,
       signingRootVersion: companionSigningRootBinding.signingRootVersion,
       keyHandle: normalizeNonEmptyString(ecdsaRestore.keyHandle)!,
@@ -1013,8 +1007,6 @@ export function normalizeSealedRecoveryRecord(
 		          nearAccountId,
 		          nearEd25519SigningKeyId,
 		          ...ed25519WorkerMaterial,
-		          rpId,
-          credentialIdB64u: credentialIdB64u!,
           relayerKeyId,
           participantIds,
           signerSlot,
@@ -1046,8 +1038,6 @@ export function normalizeSealedRecoveryRecord(
 		          nearEd25519SigningKeyId,
 		          ...ed25519WorkerMaterial,
 		          rpId,
-          providerSubjectId: providerSubjectId!,
-          emailHashHex: emailHashHex!,
           relayerKeyId,
           participantIds,
           signerSlot,

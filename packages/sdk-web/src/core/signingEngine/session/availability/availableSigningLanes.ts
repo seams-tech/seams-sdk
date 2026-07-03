@@ -729,18 +729,17 @@ function passkeyAuthFromResolvedEcdsaKey(
 function ecdsaRecoveryRecordAuthBinding(
   record: EmailOtpEcdsaSealedRecoveryRecord | PasskeyEcdsaSealedRecoveryRecord,
 ): SigningLaneAuthBinding | null {
-  const raw = record as typeof record & {
-    credentialIdB64u?: unknown;
-    providerSubjectId?: unknown;
-  };
   if (record.authMethod === 'passkey') {
-    const credentialIdB64u = String(raw.credentialIdB64u || '').trim();
-    return credentialIdB64u
-      ? { kind: 'passkey', rpId: toRpId(record.rpId), credentialIdB64u }
-      : null;
+    return {
+      kind: 'passkey',
+      rpId: toRpId(record.authority.verifier.rpId),
+      credentialIdB64u: record.authority.factor.credentialIdB64u,
+    };
   }
-  const providerSubjectId = String(raw.providerSubjectId || '').trim();
-  return providerSubjectId ? { kind: 'email_otp', providerSubjectId } : null;
+  return {
+    kind: 'email_otp',
+    providerSubjectId: record.authority.factor.providerUserId,
+  };
 }
 
 type EcdsaAvailableLaneIdentityBase = Pick<
@@ -1275,18 +1274,17 @@ function ed25519RecoveryRecordForDurableLane(
 function ed25519RecoveryRecordAuthBinding(
   record: Extract<SealedRecoveryRecord, { curve: 'ed25519' }> | EmailOtpEcdsaCompanionEd25519Recovery,
 ): SigningLaneAuthBinding | null {
-  const raw = record as typeof record & {
-    credentialIdB64u?: unknown;
-    providerSubjectId?: unknown;
-  };
   if (record.authMethod === 'passkey') {
-    const credentialIdB64u = String(raw.credentialIdB64u || '').trim();
-    return credentialIdB64u
-      ? { kind: 'passkey', rpId: toRpId(record.rpId), credentialIdB64u }
-      : null;
+    return {
+      kind: 'passkey',
+      rpId: toRpId(record.authority.verifier.rpId),
+      credentialIdB64u: record.authority.factor.credentialIdB64u,
+    };
   }
-  const providerSubjectId = String(raw.providerSubjectId || '').trim();
-  return providerSubjectId ? { kind: 'email_otp', providerSubjectId } : null;
+  return {
+    kind: 'email_otp',
+    providerSubjectId: record.authority.factor.providerUserId,
+  };
 }
 
 function recordToEd25519Lane(args: {

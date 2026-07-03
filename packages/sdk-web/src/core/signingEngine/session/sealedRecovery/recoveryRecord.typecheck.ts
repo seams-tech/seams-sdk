@@ -1,5 +1,7 @@
 import type {
+  EmailOtpEcdsaSealedRecoveryRecord,
   EmailOtpEd25519SealedRecoveryRecord,
+  PasskeyEd25519SealedRecoveryRecord,
   SealedRecoveryWalletSessionAuth,
 } from './recoveryRecord';
 import type {
@@ -8,6 +10,8 @@ import type {
 } from '@shared/utils/walletAuthAuthority';
 
 declare const currentRecord: EmailOtpEd25519SealedRecoveryRecord;
+declare const currentEcdsaRecord: EmailOtpEcdsaSealedRecoveryRecord;
+declare const currentPasskeyRecord: PasskeyEd25519SealedRecoveryRecord;
 declare const walletSessionAuth: SealedRecoveryWalletSessionAuth;
 declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 declare const passkeyAuthority: PasskeyWalletAuthAuthority;
@@ -59,3 +63,31 @@ const validRecoveryRecordWithClientVerifier = {
   clientVerifyingShareB64u: 'client-verifier',
 } satisfies EmailOtpEd25519SealedRecoveryRecord;
 void validRecoveryRecordWithClientVerifier;
+
+const invalidEmailOtpRecordWithProviderSubjectSibling = {
+  ...currentRecord,
+  // @ts-expect-error normalized sealed records derive provider subject from authority.factor.
+  providerSubjectId: 'google:alice',
+} satisfies EmailOtpEd25519SealedRecoveryRecord;
+void invalidEmailOtpRecordWithProviderSubjectSibling;
+
+const invalidEmailOtpEcdsaRecordWithEmailHashSibling = {
+  ...currentEcdsaRecord,
+  // @ts-expect-error normalized sealed records derive email hash from authority.verifier.
+  emailHashHex: 'email-hash',
+} satisfies EmailOtpEcdsaSealedRecoveryRecord;
+void invalidEmailOtpEcdsaRecordWithEmailHashSibling;
+
+const invalidPasskeyRecordWithCredentialSibling = {
+  ...currentPasskeyRecord,
+  // @ts-expect-error normalized sealed records derive credential id from authority.factor.
+  credentialIdB64u: 'credential-id',
+} satisfies PasskeyEd25519SealedRecoveryRecord;
+void invalidPasskeyRecordWithCredentialSibling;
+
+const invalidPasskeyRecordWithRpSibling = {
+  ...currentPasskeyRecord,
+  // @ts-expect-error normalized sealed records derive passkey rpId from authority.verifier.
+  rpId: 'wallet.example.test',
+} satisfies PasskeyEd25519SealedRecoveryRecord;
+void invalidPasskeyRecordWithRpSibling;

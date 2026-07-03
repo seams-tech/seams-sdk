@@ -1427,6 +1427,12 @@ July 3 review follow-ups (Decided Simplification 1):
     validate candidate/authority/lane agreement at the boundary, while
     committed-lane consumers read auth method from `authority.factor.kind` and
     selected identity from the committed lane itself.
+  - July 3 sealed-recovery authority slice complete: normalized sealed recovery
+    records no longer carry duplicate Passkey `rpId`/`credentialIdB64u` or
+    Email OTP `providerSubjectId`/`emailHashHex` siblings beside their bound
+    authority. Durable available-lane auth binding and sealed restore writers
+    now derive those facts from `record.authority`; raw persisted fields remain
+    accepted only in the sealed-record normalization boundary.
   - July 3 Ed25519 policy slice complete: SDK and server wallet-session
     `ThresholdEd25519SessionPolicy`/`Ed25519SessionPolicy` now serialize a
     bound `WalletAuthAuthority` as the single wallet-binding source; root
@@ -1924,6 +1930,10 @@ Tracking:
       types (top-level `subjectId`/`userId`/ECDSA signing-root fields are done;
       broader shared sealed-record optional-field cleanup remains — see
       journal).
+  - Partial July 3 sealed-recovery slice complete: accepted sealed recovery
+    records reject duplicated authority identity fields (`rpId`,
+    `credentialIdB64u`, `providerSubjectId`, `emailHashHex`) and expose the
+    bound authority as the only normalized source for those facts.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.
@@ -1951,6 +1961,10 @@ Tracking:
 - [x] Replace remaining flat Ed25519 material reads in sealed/session-record
       core consumers with branch-specific material state.
 - [ ] Keep IndexedDB compatibility parsing inside record readers only.
+  - Partial July 3 sealed-recovery slice complete: durable available-lane and
+    restore core code no longer cast normalized sealed records back to raw
+    auth-identity fields; those fields are read only while normalizing raw
+    sealed store metadata.
 - [x] Delete the stale sealed-session `authSubjectId` compatibility alias from
       Email OTP provider identity readers.
 - [ ] Delete remaining stale compatibility fields after readers are strict.

@@ -51,7 +51,10 @@ export function emailOtpEcdsaSigningSessionAuthorityFromSealedRecord(
   if (String(record.ecdsaThresholdKeyId || '').trim() !== String(signer.key.ecdsaThresholdKeyId)) {
     return null;
   }
-  if (String(record.providerSubjectId || '').trim() !== String(input.lane.auth.providerSubjectId)) {
+  if (
+    String(record.authority.factor.providerUserId || '').trim() !==
+    String(input.lane.auth.providerSubjectId)
+  ) {
     return null;
   }
   if (
