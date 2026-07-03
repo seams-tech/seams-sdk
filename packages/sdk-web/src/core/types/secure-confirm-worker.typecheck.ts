@@ -23,6 +23,23 @@ const validWarmSessionSealTransportWithEmailOtpAuthMethod = {
 } satisfies WarmSessionSealTransportInput;
 void validWarmSessionSealTransportWithEmailOtpAuthMethod;
 
+// @ts-expect-error Email OTP seal transports require explicit wallet-session authority.
+const invalidWarmSessionSealTransportEmailOtpWithoutWalletSessionJwt: WarmSessionSealTransportInput = {
+  curve: 'ed25519',
+  authMethod: 'email_otp',
+  relayerUrl: 'https://relay.example',
+};
+void invalidWarmSessionSealTransportEmailOtpWithoutWalletSessionJwt;
+
+// @ts-expect-error Email OTP ECDSA seal transports require explicit wallet-session authority.
+const invalidWarmSessionSealTransportEmailOtpEcdsaWithoutWalletSessionJwt: WarmSessionSealTransportInput = {
+  curve: 'ecdsa',
+  authMethod: 'email_otp',
+  chainTarget,
+  relayerUrl: 'https://relay.example',
+};
+void invalidWarmSessionSealTransportEmailOtpEcdsaWithoutWalletSessionJwt;
+
 const invalidWarmSessionSealTransportWithEmailOtpRestore = {
   curve: 'ed25519',
   authMethod: 'email_otp',

@@ -667,6 +667,32 @@ test.describe('Email OTP operation split guard', () => {
     expect(preparedSigning).not.toContain("(['email_otp', 'passkey'] as const)");
   });
 
+  test('Email OTP seal transport requires explicit wallet-session authority', () => {
+    const workerTypes = readRepoFile('packages/sdk-web/src/core/types/secure-confirm-worker.ts');
+    const uiConfirmManager = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts',
+    );
+    const restoreStart = uiConfirmManager.indexOf(
+      'private async restorePasskeySealedRecordForWallet',
+    );
+    const restoreBlock = uiConfirmManager.slice(
+      restoreStart,
+      uiConfirmManager.indexOf('putWarmSessionMaterial = async', restoreStart),
+    );
+
+    expect(workerTypes).toContain('type EmailOtpWarmSessionSealTransportCommon');
+    expect(workerTypes).toContain('walletSessionJwt: string');
+    expect(uiConfirmManager).toContain('function sealTransportWalletSessionAuthoritySource');
+    expect(uiConfirmManager).toContain("transport?.authMethod === 'email_otp'");
+    expect(uiConfirmManager).toContain("explicitTransport?.authMethod === 'email_otp'");
+    expect(uiConfirmManager).toContain('const requiresExplicitWalletSessionJwt =');
+    expect(uiConfirmManager).toContain('!requiresExplicitWalletSessionJwt');
+    expect(uiConfirmManager).toContain(
+      'if (requiresExplicitWalletSessionJwt && !explicitWalletSessionJwt)',
+    );
+    expect(restoreBlock).not.toContain("args.record.authMethod === 'email_otp'");
+  });
+
   test('EVM-family exhausted ECDSA lanes defer ready-material requirements until reauth', () => {
     const evmSigning = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',

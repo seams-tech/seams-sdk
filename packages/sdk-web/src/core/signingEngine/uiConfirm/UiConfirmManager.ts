@@ -143,6 +143,18 @@ type PersistedSealedRestoreAuthMetadata =
   | NonNullable<SigningSessionSealedStoreRecord['ecdsaRestore']>
   | CurrentEd25519RestoreMetadata;
 
+type SealTransportWalletSessionAuthoritySource =
+  | { kind: 'explicit_or_persisted_wallet_session' }
+  | { kind: 'explicit_wallet_session_only' };
+
+function sealTransportWalletSessionAuthoritySource(
+  transport: { authMethod?: SigningSessionSealAuthMethod } | null | undefined,
+): SealTransportWalletSessionAuthoritySource {
+  return transport?.authMethod === 'email_otp'
+    ? { kind: 'explicit_wallet_session_only' }
+    : { kind: 'explicit_or_persisted_wallet_session' };
+}
+
 function walletSessionJwtFromPersistedSessionAuthRecord(
   record: PersistedWalletSessionAuthRecord | null | undefined,
 ): string {
@@ -1098,7 +1110,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
   private async resolveSealTransportInput(
     thresholdSessionIdRaw: string,
-    explicitTransport?: {
+    explicitTransport: {
       curve?: 'ed25519' | 'ecdsa';
       authMethod?: SigningSessionSealAuthMethod;
       walletId?: string;
@@ -1109,7 +1121,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
       shamirPrimeB64u?: string;
     } | null,
-    sealedRecordInput?: CurrentSealedSessionRecord | null,
+    sealedRecordInput: CurrentSealedSessionRecord | null,
+    authoritySource: SealTransportWalletSessionAuthoritySource,
   ): Promise<WarmSessionSealTransportInput | null> {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
@@ -1143,18 +1156,28 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         '',
     ).trim();
     if (!relayerUrl) return null;
-    const walletSessionJwt = String(
-      explicitTransport?.walletSessionJwt ||
-        (curve === 'ed25519'
-          ? walletSessionJwtFromPersistedSealedRestore(sealedRecord?.ed25519Restore)
-          : '') ||
-        (curve === 'ecdsa'
-          ? walletSessionJwtFromPersistedSealedRestore(sealedRecord?.ecdsaRestore)
-          : '') ||
-        walletSessionJwtFromPersistedSessionAuthRecord(ed25519Record) ||
-        walletSessionJwtFromPersistedSessionAuthRecord(ecdsaRecord) ||
-        '',
-    ).trim();
+    const explicitWalletSessionJwt = String(explicitTransport?.walletSessionJwt || '').trim();
+    const requiresExplicitWalletSessionJwt =
+      explicitTransport?.authMethod === 'email_otp' ||
+      authoritySource.kind === 'explicit_wallet_session_only';
+    const persistedWalletSessionJwt =
+      !requiresExplicitWalletSessionJwt
+        ? String(
+            (curve === 'ed25519'
+              ? walletSessionJwtFromPersistedSealedRestore(sealedRecord?.ed25519Restore)
+              : '') ||
+              (curve === 'ecdsa'
+                ? walletSessionJwtFromPersistedSealedRestore(sealedRecord?.ecdsaRestore)
+                : '') ||
+              walletSessionJwtFromPersistedSessionAuthRecord(ed25519Record) ||
+              walletSessionJwtFromPersistedSessionAuthRecord(ecdsaRecord) ||
+              '',
+          ).trim()
+        : '';
+    const walletSessionJwt = explicitWalletSessionJwt || persistedWalletSessionJwt;
+    if (requiresExplicitWalletSessionJwt && !explicitWalletSessionJwt) {
+      return null;
+    }
     const signingGrantId = String(
       explicitTransport?.signingGrantId ||
         sealedRecord?.signingGrantId ||
@@ -1185,16 +1208,27 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (curve === 'ecdsa') {
       const chainTarget = explicitTransport?.chainTarget || ecdsaRecord?.chainTarget;
       if (!chainTarget) return null;
-      return {
+      const ecdsaBase = {
         curve,
-        ...(authMethod ? { authMethod } : {}),
         ...(walletId ? { walletId } : {}),
         chainTarget,
         relayerUrl,
         ...(signingGrantId ? { signingGrantId } : {}),
-        ...(walletSessionJwt ? { walletSessionJwt } : {}),
         ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+      };
+      if (authMethod === 'email_otp') {
+        if (!walletSessionJwt) return null;
+        return {
+          ...ecdsaBase,
+          authMethod: 'email_otp',
+          walletSessionJwt,
+        };
+      }
+      return {
+        ...ecdsaBase,
+        ...(authMethod === 'passkey' ? { authMethod } : {}),
+        ...(walletSessionJwt ? { walletSessionJwt } : {}),
       };
     }
     if (curve !== 'ed25519') return null;
@@ -1203,19 +1237,21 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ...(walletId ? { walletId } : {}),
       relayerUrl,
       ...(signingGrantId ? { signingGrantId } : {}),
-      ...(walletSessionJwt ? { walletSessionJwt } : {}),
       ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
       ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     } as const;
     if (authMethod === 'email_otp') {
+      if (!walletSessionJwt) return null;
       return {
         ...ed25519Base,
         authMethod: 'email_otp',
+        walletSessionJwt,
       };
     }
     return {
       ...ed25519Base,
       ...(authMethod === 'passkey' ? { authMethod } : {}),
+      ...(walletSessionJwt ? { walletSessionJwt } : {}),
     };
   }
 
@@ -1315,6 +1351,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const resolvedTransport = await this.resolveSealTransportInput(
       thresholdSessionId,
       transport || null,
+      null,
+      sealTransportWalletSessionAuthoritySource(transport),
     );
     if (!resolvedTransport) return null;
     const persisted = await this.persistSigningSessionSealForThresholdSession({
@@ -1409,6 +1447,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             shamirPrimeB64u: args.record.shamirPrimeB64u,
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
           },
+          null,
+          { kind: 'explicit_or_persisted_wallet_session' },
         );
         if (!transport) return null;
         const shamirPrimeB64u = String(
@@ -1770,7 +1810,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
     }
     const inferredTransport =
-      (await this.resolveSealTransportInput(thresholdSessionId, args?.transport || null)) || null;
+      (await this.resolveSealTransportInput(
+        thresholdSessionId,
+        args?.transport || null,
+        null,
+        sealTransportWalletSessionAuthoritySource(args?.transport),
+      )) || null;
     const curve = args?.transport?.curve || inferredTransport?.curve;
     if (!curve) {
       console.warn('[UiConfirm] cannot persist sealed refresh without passkey curve', {

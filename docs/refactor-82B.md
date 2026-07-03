@@ -1325,6 +1325,11 @@ Tracking:
     and route-auth projection helpers now require a concrete
     `EmailOtpAuthLane`; missing auth is rejected by type fixtures instead of
     being treated as an empty JWT or missing bearer route auth.
+  - Partial July 3 seal-transport slice complete: warm-session seal transports
+    now branch on auth method; Email OTP transport requires an explicit
+    `walletSessionJwt` at the type boundary, and `UiConfirmManager` refuses
+    persisted sealed/runtime record JWT fallback whenever the transport is
+    Email OTP. Passkey restore keeps the existing explicit-or-persisted path.
   - Partial July 3 ECDSA reconnect slice complete: reconnect material now
     carries verified ECDSA wallet-session auth from the boundary builder, and
     reconnect planning consumes that material instead of selecting a JWT from

@@ -16,9 +16,16 @@ type WarmSessionSealTransportCommon = {
   walletId?: string;
   relayerUrl: string;
   signingGrantId?: string;
-  walletSessionJwt?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   shamirPrimeB64u?: string;
+};
+
+type EmailOtpWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
+  walletSessionJwt: string;
+};
+
+type PasskeyWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
+  walletSessionJwt?: string;
 };
 
 export interface UiConfirmManagerConfig {
@@ -47,19 +54,25 @@ export type UserConfirmWorkerMessageType =
   | 'WARM_SESSION_REHYDRATE';
 
 export type WarmSessionSealTransportInput =
-  | (WarmSessionSealTransportCommon & {
+  | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ed25519';
       authMethod: 'email_otp';
       emailOtpRestore?: never;
     })
-  | (WarmSessionSealTransportCommon & {
+  | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ed25519';
       authMethod?: 'passkey';
       emailOtpRestore?: never;
     })
-  | (WarmSessionSealTransportCommon & {
+  | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
-      authMethod?: SigningSessionSealAuthMethod;
+      authMethod: 'email_otp';
+      chainTarget: ThresholdEcdsaChainTarget;
+      emailOtpRestore?: never;
+    })
+  | (PasskeyWarmSessionSealTransportCommon & {
+      curve: 'ecdsa';
+      authMethod?: 'passkey';
       chainTarget: ThresholdEcdsaChainTarget;
       emailOtpRestore?: never;
     });
