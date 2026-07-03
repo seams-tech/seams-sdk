@@ -407,6 +407,16 @@ export function toSigningSessionStatus(args: {
   };
 }
 
+function hasRecordOwnedEcdsaWalletSessionAuth(
+  auth: WarmSessionEcdsaAuthMaterial | null,
+): auth is Extract<WarmSessionEcdsaAuthMaterial, { state: 'ready' }> {
+  if (!auth || auth.state !== 'ready') return false;
+  return (
+    auth.walletSessionJwtSource === 'ecdsa_record' &&
+    Boolean(String(auth.walletSessionJwt || '').trim())
+  );
+}
+
 export function resolveEcdsaSealTransport(args: {
   record: WarmSessionEcdsaCapabilityState['record'];
   auth: WarmSessionEcdsaAuthMaterial | null;
@@ -414,6 +424,9 @@ export function resolveEcdsaSealTransport(args: {
   shamirPrimeB64u?: string;
 }): ThresholdSessionSealTransportAuthMaterial | null {
   if (!args.record) return null;
+  if (args.record.source === 'email_otp' && !hasRecordOwnedEcdsaWalletSessionAuth(args.auth)) {
+    return null;
+  }
   const relayerUrl = String(args.record.relayerUrl || '').trim();
   if (!relayerUrl) return null;
   const signingSessionSealKeyVersion =

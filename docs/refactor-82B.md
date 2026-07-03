@@ -1301,6 +1301,9 @@ Tracking:
   - Partial July 3 Router A/B ECDSA cleanup complete: the wallet-session auth
     resolver no longer treats warm capability records as an alternate authority
     source when a selected session record is stale.
+  - Partial July 3 ECDSA seal-transport hardening complete:
+    `resolveEcdsaSealTransport` now rejects Email OTP ECDSA records unless the
+    warm read model resolved record-owned Wallet Session JWT auth first.
 - [x] Delete exact lane candidate authority rebuilders.
   - Complete July 3 slice: Passkey ECDSA committed-lane authority is rebuilt
     from the selected session record's role-local auth method, not from the
@@ -1330,6 +1333,10 @@ Tracking:
     `walletSessionJwt` at the type boundary, and `UiConfirmManager` refuses
     persisted sealed/runtime record JWT fallback whenever the transport is
     Email OTP. Passkey restore keeps the existing explicit-or-persisted path.
+  - Partial July 3 seal-transport read-model slice complete: Email OTP ECDSA
+    seal transport resolution returns `null` when the selected warm record does
+    not carry record-owned Wallet Session JWT auth, so missing authority is
+    rejected before sealed-session application.
   - Partial July 3 ECDSA reconnect slice complete: reconnect material now
     carries verified ECDSA wallet-session auth from the boundary builder, and
     reconnect planning consumes that material instead of selecting a JWT from

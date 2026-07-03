@@ -117,6 +117,7 @@ function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_SHARE32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const FIXTURE_EMAIL_HASH_HEX = '11'.repeat(32);
 
 function hexAddressToBase64Url(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
@@ -333,6 +334,8 @@ export function seedEd25519WarmSessionRecord(
     (args.source === 'email_otp'
       ? buildEmailOtpAuthContextForWalletAuthMethod({
           policy: 'session',
+          walletId,
+          emailHashHex: FIXTURE_EMAIL_HASH_HEX,
           retention: 'session',
           reason: 'login',
           provider: 'email',
@@ -701,6 +704,8 @@ export function seedEcdsaWarmSessionRecord(
     (source === 'email_otp'
       ? buildEmailOtpAuthContextForWalletAuthMethod({
           policy: 'session',
+          walletId: args.nearAccountId,
+          emailHashHex: FIXTURE_EMAIL_HASH_HEX,
           retention: 'session',
           reason: 'login',
           provider: 'google',

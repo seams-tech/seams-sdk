@@ -371,6 +371,46 @@ test.describe('warmSessionReadModel', () => {
     });
   });
 
+  test('rejects Email OTP ECDSA seal transport without record-owned Wallet Session auth', () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'seal-email-otp-missing-auth.testnet',
+      chain: 'tempo',
+      source: 'email_otp',
+      signingSessionSeal: {
+        keyVersion: 'signing-session-seal-kek-2026-02-r1',
+        shamirPrimeB64u: 'AQAB',
+      },
+    });
+    const missingJwtRecord = {
+      ...ecdsaRecord,
+      walletSessionJwt: '',
+    };
+
+    expect(
+      resolveEcdsaSealTransport({
+        record: missingJwtRecord,
+        auth: resolveEcdsaAuthMaterial(missingJwtRecord),
+        signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
+          'signing-session-seal-kek-2026-02-r1',
+        ),
+        shamirPrimeB64u: 'AQAB',
+      }),
+    ).toBeNull();
+    expect(
+      resolveEcdsaSealTransport({
+        record: missingJwtRecord,
+        auth: null,
+        signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
+          'signing-session-seal-kek-2026-02-r1',
+        ),
+        shamirPrimeB64u: 'AQAB',
+      }),
+    ).toBeNull();
+  });
+
   test('maps unavailable claims into unavailable signing-session status', () => {
     expect(
       toSigningSessionStatus({
