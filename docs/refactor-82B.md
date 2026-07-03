@@ -1981,6 +1981,10 @@ Tracking:
 - [x] Delete the stale sealed-session `authSubjectId` compatibility alias from
       Email OTP provider identity readers.
 - [ ] Delete remaining stale compatibility fields after readers are strict.
+  - Partial July 3 wallet-auth-method slice complete: IndexedDB Email OTP
+    auth-method records no longer strip or accept a stale passkey `rpId`, and
+    row parsing no longer accepts the old `wallet_auth_method_id` that included
+    that `rpId`.
 
 ## Phase 8: Tests And Guards
 

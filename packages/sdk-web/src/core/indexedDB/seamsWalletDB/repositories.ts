@@ -718,16 +718,6 @@ function emailOtpAuthMethodRow(
   };
 }
 
-function migrateLegacyEmailOtpAuthMethodRecord(
-  record: LocalWalletAuthMethodRecord & { kind: 'email_otp' },
-): LocalWalletAuthMethodRecord & { kind: 'email_otp' } {
-  const { rpId: _legacyRpId, ...normalized } = record as LocalWalletAuthMethodRecord & {
-    kind: 'email_otp';
-    rpId?: string;
-  };
-  return normalized;
-}
-
 function walletAuthMethodRowFromBinding(
   record: LocalWalletAuthMethodRecord,
   signerSlot: number,
@@ -739,7 +729,7 @@ function walletAuthMethodRowFromBinding(
         authenticator: passkeyAuthenticatorFromBinding(record, signerSlot),
       });
     case 'email_otp':
-      return emailOtpAuthMethodRow(migrateLegacyEmailOtpAuthMethodRecord(record));
+      return emailOtpAuthMethodRow(record);
     default: {
       const _exhaustive: never = record;
       throw new Error(`[SeamsWalletDB] Unsupported auth-method row: ${String(_exhaustive)}`);
@@ -772,26 +762,14 @@ function parseWalletAuthMethodStorageRow(value: unknown): WalletAuthMethodRow | 
         authenticator: row.authenticator,
       });
     } else if (record.kind === 'email_otp') {
-      normalized = emailOtpAuthMethodRow(migrateLegacyEmailOtpAuthMethodRecord(record));
+      normalized = emailOtpAuthMethodRow(record);
     } else {
       return null;
     }
   } catch {
     return null;
   }
-  const legacyEmailOtpId =
-    normalized.kind === 'email_otp' && row.rp_id
-      ? [
-          normalized.wallet_id,
-          normalized.kind,
-          toTrimmedString(row.rp_id || ''),
-          normalized.auth_identifier_key,
-        ].join('\0')
-      : '';
-  if (
-    row.wallet_auth_method_id !== normalized.wallet_auth_method_id &&
-    row.wallet_auth_method_id !== legacyEmailOtpId
-  ) {
+  if (row.wallet_auth_method_id !== normalized.wallet_auth_method_id) {
     return null;
   }
   if (row.wallet_id !== normalized.wallet_id) return null;

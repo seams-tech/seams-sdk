@@ -667,8 +667,8 @@ test.describe('IndexedDB consolidation', () => {
         .then(() => false)
         .catch(() => true);
 
-      const sharedEmailIdentifierWrites = await Promise.all([
-        repositories.upsertWalletAuthMethod({
+      const emailOtpRpIdRejected = await repositories
+        .upsertWalletAuthMethod({
           version: 'wallet_auth_method_v1',
           kind: 'email_otp',
           status: 'active',
@@ -676,7 +676,22 @@ test.describe('IndexedDB consolidation', () => {
           walletId: 'wallet_email_a',
           rpId: 'local',
           emailHashHex: 'same-email-hash',
-          challengeId: 'challenge-a',
+          registrationAuthorityId: 'challenge-a',
+          createdAtMs: 5,
+          updatedAtMs: 6,
+        })
+        .then(() => false)
+        .catch(() => true);
+
+      const sharedEmailIdentifierWrites = await Promise.all([
+        repositories.upsertWalletAuthMethod({
+          version: 'wallet_auth_method_v1',
+          kind: 'email_otp',
+          status: 'active',
+          localStatus: 'synced',
+          walletId: 'wallet_email_a',
+          emailHashHex: 'same-email-hash',
+          registrationAuthorityId: 'challenge-a',
           createdAtMs: 5,
           updatedAtMs: 6,
         }),
@@ -686,9 +701,8 @@ test.describe('IndexedDB consolidation', () => {
           status: 'active',
           localStatus: 'synced',
           walletId: 'wallet_email_b',
-          rpId: 'local',
           emailHashHex: 'same-email-hash',
-          challengeId: 'challenge-b',
+          registrationAuthorityId: 'challenge-b',
           createdAtMs: 7,
           updatedAtMs: 8,
         }),
@@ -730,6 +744,7 @@ test.describe('IndexedDB consolidation', () => {
       });
       return {
         duplicateIdentifierRejected,
+        emailOtpRpIdRejected,
         sharedEmailIdentifierWriteCount: sharedEmailIdentifierWrites.length,
         ambiguousSharedEmailLookup: ambiguousSharedEmailLookup === null,
         lookupByOriginal: lookupByOriginal === null,
@@ -740,6 +755,7 @@ test.describe('IndexedDB consolidation', () => {
 
     expect(result).toEqual({
       duplicateIdentifierRejected: true,
+      emailOtpRpIdRejected: true,
       sharedEmailIdentifierWriteCount: 2,
       ambiguousSharedEmailLookup: true,
       lookupByOriginal: true,
