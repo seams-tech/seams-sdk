@@ -2082,6 +2082,10 @@ Tracking:
     recovery wallet-session auth now exposes `sessionKind` as literal `jwt`
     and `walletSessionJwt` as a required string, so core restore code cannot
     observe the boundary-only missing-JWT state.
+  - Partial July 3 sealed-recovery strictness slice complete: direct sealed
+    recovery normalization now rejects stale top-level `userId` the same way
+    the IndexedDB sealed-store reader rejects `subjectId`/`userId`, with
+    focused coverage in `sealedRecoveryRecord.strict.unit.test.ts`.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

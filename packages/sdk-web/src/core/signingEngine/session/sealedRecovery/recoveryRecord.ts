@@ -433,6 +433,12 @@ function hasRawSigningRootBinding(record: RawSigningSessionSealedStoreRecord): b
   );
 }
 
+function hasRawLegacySealedRecoveryIdentity(record: RawSigningSessionSealedStoreRecord): boolean {
+  return Boolean(
+    normalizeNonEmptyString(record.subjectId) || normalizeNonEmptyString(record.userId),
+  );
+}
+
 function resolveRuntimePolicyScope(args: {
   rawRuntimePolicyScope: unknown;
   rawWalletSessionJwt: unknown;
@@ -506,6 +512,9 @@ export function normalizeSealedRecoveryRecord(
   if (expiresAtMs <= 0 || updatedAtMs <= 0 || issuedAtMs <= 0) {
     return reject(raw, 'missing_restore_metadata');
   }
+  if (hasRawLegacySealedRecoveryIdentity(raw)) {
+    return reject(raw, 'invalid_identity');
+  }
   if (!options.allowExpired && expiresAtMs <= Date.now()) return reject(raw, 'expired');
   if (!options.allowExhausted && raw.authMethod !== 'passkey' && remainingUses <= 0) {
     return reject(raw, 'exhausted');
@@ -543,9 +552,6 @@ export function normalizeSealedRecoveryRecord(
     const passkeyClientVerifyingShareB64u =
       raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
     const sessionKind = normalizeSessionKind(restore?.sessionKind);
-    if (normalizeNonEmptyString(raw.subjectId)) {
-      return reject(raw, 'invalid_identity');
-    }
     if (hasRawSigningRootBinding(raw)) {
       return reject(raw, 'invalid_identity');
     }
