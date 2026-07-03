@@ -715,6 +715,12 @@ test.describe('Email OTP operation split guard', () => {
     expect(uiConfirmManager).toContain("explicitTransport?.authMethod === 'email_otp'");
     expect(uiConfirmManager).toContain('const requiresExplicitWalletSessionJwt =');
     expect(uiConfirmManager).toContain('!requiresExplicitWalletSessionJwt');
+    expect(uiConfirmManager).toContain('function persistedSealTransportWalletSessionJwt');
+    expect(uiConfirmManager).toContain("case 'ed25519':");
+    expect(uiConfirmManager).toContain("case 'ecdsa':");
+    expect(uiConfirmManager).not.toContain(
+      'walletSessionJwtFromPersistedSessionAuthRecord(ed25519Record) ||\n              walletSessionJwtFromPersistedSessionAuthRecord(ecdsaRecord)',
+    );
     expect(uiConfirmManager).toContain(
       'if (requiresExplicitWalletSessionJwt && !explicitWalletSessionJwt)',
     );

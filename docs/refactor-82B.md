@@ -1418,6 +1418,11 @@ Tracking:
     raw persisted warm-record JWT accessor. They resolve Wallet Session
     authority through the curve-specific Router A/B boundary parsers before
     exposing bearer auth to downstream signing/provisioning code.
+  - Partial July 3 seal-transport curve-local slice complete: passkey
+    persisted seal transport no longer probes both Ed25519 and ECDSA records
+    for a Wallet Session JWT. `UiConfirmManager` resolves persisted transport
+    auth through a curve-local helper, while Email OTP transport remains
+    explicit Wallet Session JWT only.
 - [x] Delete the Email OTP ECDSA wallet+chain session-record getter from the
       EVM-family dependency surface and browser assembly.
 - [x] Move Email OTP ECDSA export authority onto record-backed committed lanes.

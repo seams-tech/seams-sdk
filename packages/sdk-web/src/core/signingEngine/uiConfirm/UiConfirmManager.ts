@@ -167,6 +167,54 @@ function walletSessionJwtFromPersistedSealedRestore(
   return String(restore?.walletSessionJwt || '').trim();
 }
 
+function ed25519PersistedSealTransportWalletSessionJwt(args: {
+  sealedRecord: CurrentSealedSessionRecord | null | undefined;
+  ed25519Record: PersistedWalletSessionAuthRecord | null | undefined;
+}): string {
+  return String(
+    walletSessionJwtFromPersistedSealedRestore(args.sealedRecord?.ed25519Restore) ||
+      walletSessionJwtFromPersistedSessionAuthRecord(args.ed25519Record) ||
+      '',
+  ).trim();
+}
+
+function ecdsaPersistedSealTransportWalletSessionJwt(args: {
+  sealedRecord: CurrentSealedSessionRecord | null | undefined;
+  ecdsaRecord: PersistedWalletSessionAuthRecord | null | undefined;
+}): string {
+  return String(
+    walletSessionJwtFromPersistedSealedRestore(args.sealedRecord?.ecdsaRestore) ||
+      walletSessionJwtFromPersistedSessionAuthRecord(args.ecdsaRecord) ||
+      '',
+  ).trim();
+}
+
+function persistedSealTransportWalletSessionJwt(args: {
+  curve: 'ed25519' | 'ecdsa' | undefined;
+  sealedRecord: CurrentSealedSessionRecord | null | undefined;
+  ed25519Record: PersistedWalletSessionAuthRecord | null | undefined;
+  ecdsaRecord: PersistedWalletSessionAuthRecord | null | undefined;
+}): string {
+  switch (args.curve) {
+    case 'ed25519':
+      return ed25519PersistedSealTransportWalletSessionJwt({
+        sealedRecord: args.sealedRecord,
+        ed25519Record: args.ed25519Record,
+      });
+    case 'ecdsa':
+      return ecdsaPersistedSealTransportWalletSessionJwt({
+        sealedRecord: args.sealedRecord,
+        ecdsaRecord: args.ecdsaRecord,
+      });
+    case undefined:
+      return '';
+    default: {
+      const exhaustive: never = args.curve;
+      return exhaustive;
+    }
+  }
+}
+
 function persistedRestoreWalletSessionAuthFields(
   record: PersistedWalletSessionAuthRecord,
 ): {
@@ -1162,17 +1210,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       authoritySource.kind === 'explicit_wallet_session_only';
     const persistedWalletSessionJwt =
       !requiresExplicitWalletSessionJwt
-        ? String(
-            (curve === 'ed25519'
-              ? walletSessionJwtFromPersistedSealedRestore(sealedRecord?.ed25519Restore)
-              : '') ||
-              (curve === 'ecdsa'
-                ? walletSessionJwtFromPersistedSealedRestore(sealedRecord?.ecdsaRestore)
-                : '') ||
-              walletSessionJwtFromPersistedSessionAuthRecord(ed25519Record) ||
-              walletSessionJwtFromPersistedSessionAuthRecord(ecdsaRecord) ||
-              '',
-          ).trim()
+        ? persistedSealTransportWalletSessionJwt({
+            curve,
+            sealedRecord,
+            ed25519Record,
+            ecdsaRecord,
+          })
         : '';
     const walletSessionJwt = explicitWalletSessionJwt || persistedWalletSessionJwt;
     if (requiresExplicitWalletSessionJwt && !explicitWalletSessionJwt) {
