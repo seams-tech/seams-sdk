@@ -71,6 +71,7 @@ export type EmailOtpSealedRestoreOrchestratorPorts = {
     status: RestoredWarmSessionStatus,
   ) => Promise<void>;
   shouldLogDiagnostic: (key: string) => boolean;
+  requireRpId: (operation: string) => string;
 };
 
 const EMPTY_ACCOUNT_DISCOVERY_RESULT = {
@@ -601,6 +602,7 @@ export class EmailOtpSealedRestoreOrchestrator {
   }): Promise<RestoreSealedRecordResult> {
     return await restoreEmailOtpEd25519SealedRecordForAccount({
       ...args,
+      rpId: this.ports.requireRpId('Email OTP Ed25519 sealed restore'),
       getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
         this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
       readWarmSessionStatusFromWorker: (sessionId) =>

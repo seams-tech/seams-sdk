@@ -1954,6 +1954,10 @@ Tracking:
     records reject duplicated authority identity fields (`rpId`,
     `credentialIdB64u`, `providerSubjectId`, `emailHashHex`) and expose the
     bound authority as the only normalized source for those facts.
+  - Partial July 3 sealed-recovery slice complete: normalized Email OTP
+    Ed25519 and companion Ed25519 sealed records no longer carry passkey
+    `rpId` siblings; the configured RP is supplied only at the boundary that
+    still writes the current Ed25519 session-row shape.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

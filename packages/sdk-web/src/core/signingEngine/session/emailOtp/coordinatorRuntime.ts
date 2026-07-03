@@ -169,6 +169,7 @@ export class EmailOtpWalletSessionRuntime {
       recordSessionMaterialRestored: (sessionId, status) =>
         this.sealedRefreshPolicy.recordSessionMaterialRestored(sessionId, status),
       shouldLogDiagnostic: (key) => this.shouldLogSealedRefreshDiagnostic(key),
+      requireRpId: (operation) => this.runtimeConfig.requireRpId(operation),
     });
     this.warmSessionRuntime = new EmailOtpWarmSessionRuntime({
       workerClient: warmSessionWorkerClient,

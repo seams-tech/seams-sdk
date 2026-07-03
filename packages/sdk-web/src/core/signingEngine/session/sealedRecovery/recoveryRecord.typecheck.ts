@@ -78,6 +78,13 @@ const invalidEmailOtpEcdsaRecordWithEmailHashSibling = {
 } satisfies EmailOtpEcdsaSealedRecoveryRecord;
 void invalidEmailOtpEcdsaRecordWithEmailHashSibling;
 
+const invalidEmailOtpRecordWithRpSibling = {
+  ...currentRecord,
+  // @ts-expect-error normalized Email OTP sealed records do not carry passkey verifier RP IDs.
+  rpId: 'wallet.example.test',
+} satisfies EmailOtpEd25519SealedRecoveryRecord;
+void invalidEmailOtpRecordWithRpSibling;
+
 const invalidPasskeyRecordWithCredentialSibling = {
   ...currentPasskeyRecord,
   // @ts-expect-error normalized sealed records derive credential id from authority.factor.

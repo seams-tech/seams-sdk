@@ -73,7 +73,6 @@ export type EmailOtpEcdsaSealedRecoveryInput = EmailOtpEcdsaSealedRecoveryPorts 
 
 type EmailOtpCompanionEd25519Session = {
   nearAccountId: string;
-  rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
@@ -405,7 +404,6 @@ function resolveEmailOtpCompanionEd25519Session(args: {
         : null;
     return {
       nearAccountId: String(ed25519Record.nearAccountId),
-      rpId: ed25519Record.rpId,
       relayerUrl: ed25519Record.relayerUrl,
       relayerKeyId: ed25519Record.relayerKeyId,
       participantIds: [...ed25519Record.participantIds],
@@ -428,7 +426,6 @@ function resolveEmailOtpCompanionEd25519Session(args: {
   if (!companion) return null;
   return {
     nearAccountId: companion.nearAccountId,
-    rpId: companion.rpId,
     relayerUrl: companion.relayerUrl,
     relayerKeyId: companion.relayerKeyId,
     participantIds: [...companion.participantIds],

@@ -36,6 +36,7 @@ export type EmailOtpEd25519RestorePurpose = RestorePersistedEd25519SessionPurpos
 
 export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   walletId: string;
+  rpId: string;
   record: EmailOtpEd25519SealedRecoveryRecord;
   purpose: EmailOtpEd25519RestorePurpose;
 }): ThresholdEd25519SessionRecord | null {
@@ -55,13 +56,15 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   }
   const sealedSessionKeyVersion = String(args.record.keyVersion || '').trim();
   if (!sealedSessionKeyVersion) return null;
+  const rpId = String(args.rpId || '').trim();
+  if (!rpId) return null;
   const routerAbNormalSigning = args.record.routerAbNormalSigning;
   if (!routerAbNormalSigning) return null;
   return upsertStoredThresholdEd25519SessionRecord({
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
     nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
-    rpId: args.record.rpId,
+    rpId,
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
@@ -95,6 +98,7 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
 
 export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
   walletId: string;
+  rpId: string;
   record: EmailOtpEd25519SealedRecoveryRecord;
   purpose: EmailOtpEd25519RestorePurpose;
   getThresholdEcdsaSessionRecordByThresholdSessionId: (

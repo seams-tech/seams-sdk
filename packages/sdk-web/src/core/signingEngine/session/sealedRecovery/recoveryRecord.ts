@@ -201,7 +201,7 @@ export type EmailOtpEcdsaCompanionEd25519Recovery = Ed25519SealedRecoveryRecordB
   SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
     authority: EmailOtpWalletAuthAuthority;
-    rpId: string;
+    rpId?: never;
     routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
     credentialIdB64u?: never;
     providerSubjectId?: never;
@@ -226,7 +226,7 @@ export type EmailOtpEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBas
   SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
     authority: EmailOtpWalletAuthAuthority;
-    rpId: string;
+    rpId?: never;
     routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
     companionEcdsaRecovery?: EmailOtpEcdsaSealedRecoveryRecord;
     credentialIdB64u?: never;
@@ -538,8 +538,11 @@ export function normalizeSealedRecoveryRecord(
       runtimePolicyScope,
     });
     const relayerUrl = normalizeNonEmptyString(raw.relayerUrl);
-	    const companionRpIdHint = normalizeNonEmptyString(ed25519Restore?.rpId);
-	    const passkeyRpId = normalizeNonEmptyString(restore?.rpId) || companionRpIdHint;
+    const passkeyRpId =
+      raw.authMethod === 'passkey'
+        ? normalizeNonEmptyString(restore?.rpId) ||
+          normalizeNonEmptyString(ed25519Restore?.rpId)
+        : null;
     const evmFamilySigningKeySlotId = normalizeNonEmptyString(restore?.evmFamilySigningKeySlotId);
     const credentialIdB64u = normalizeNonEmptyString(restore?.credentialIdB64u);
     const providerSubjectId = normalizeNonEmptyString(restore?.providerSubjectId);
@@ -627,7 +630,6 @@ export function normalizeSealedRecoveryRecord(
       relayerUrl &&
       ed25519Restore
     ) {
-      const companionRpId = normalizeNonEmptyString(ed25519Restore.rpId);
       const companionProviderSubjectId = normalizeNonEmptyString(
         ed25519Restore.providerSubjectId,
       );
@@ -669,7 +671,6 @@ export function normalizeSealedRecoveryRecord(
             })
           : null;
       if (
-        companionRpId &&
         companionProviderSubjectId &&
         companionEmailHashHex &&
         companionNearAccountId &&
@@ -711,7 +712,6 @@ export function normalizeSealedRecoveryRecord(
 	          nearAccountId: companionNearAccountId,
 	          nearEd25519SigningKeyId: companionNearEd25519SigningKeyId,
 	          ...companionEd25519WorkerMaterial,
-	          rpId: companionRpId,
           relayerKeyId: companionRelayerKeyId,
           participantIds: companionParticipantIds,
           signerSlot: companionSignerSlot,
@@ -812,7 +812,8 @@ export function normalizeSealedRecoveryRecord(
   const nearAccountId = normalizeNonEmptyString(restore?.nearAccountId);
   const nearEd25519SigningKeyId = normalizeNonEmptyString(restore?.nearEd25519SigningKeyId);
   const relayerKeyId = normalizeNonEmptyString(restore?.relayerKeyId);
-  const rpId = normalizeNonEmptyString(restore?.rpId);
+  const passkeyRpId =
+    raw.authMethod === 'passkey' ? normalizeNonEmptyString(restore?.rpId) : null;
   const credentialIdB64u = normalizeNonEmptyString(restore?.credentialIdB64u);
   const providerSubjectId = normalizeNonEmptyString(restore?.providerSubjectId);
   const emailHashHex = normalizeNonEmptyString(restore?.emailHashHex);
@@ -836,7 +837,7 @@ export function normalizeSealedRecoveryRecord(
     !restore ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
-    !rpId ||
+    (raw.authMethod === 'passkey' && !passkeyRpId) ||
     (raw.authMethod === 'passkey' && !credentialIdB64u) ||
     (raw.authMethod === 'email_otp' && (!providerSubjectId || !emailHashHex)) ||
     !relayerUrl ||
@@ -863,7 +864,7 @@ export function normalizeSealedRecoveryRecord(
     raw.authMethod === 'passkey'
       ? buildPasskeyAuthorityForSealedRecord({
           walletId,
-          rpId: rpId!,
+          rpId: passkeyRpId!,
           credentialIdB64u: credentialIdB64u!,
         })
       : null;
@@ -1037,7 +1038,6 @@ export function normalizeSealedRecoveryRecord(
 		          nearAccountId,
 		          nearEd25519SigningKeyId,
 		          ...ed25519WorkerMaterial,
-		          rpId,
           relayerKeyId,
           participantIds,
           signerSlot,
