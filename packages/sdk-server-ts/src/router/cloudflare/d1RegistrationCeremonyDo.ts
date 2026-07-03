@@ -34,11 +34,17 @@ type CloudflareDoGetDelRequest = {
   readonly key: string;
 };
 
+type CloudflareDoDelRequest = {
+  readonly op: 'del';
+  readonly key: string;
+};
+
 type CloudflareRegistrationIntentDoRequest =
   | CloudflareDoSetRequest
   | CloudflareDoReserveReplayGuardRequest
   | CloudflareDoGetRequest
-  | CloudflareDoGetDelRequest;
+  | CloudflareDoGetDelRequest
+  | CloudflareDoDelRequest;
 
 export type RegistrationCeremonyDoConfig = {
   readonly namespace: CloudflareDurableObjectNamespaceLike;

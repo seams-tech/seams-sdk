@@ -223,6 +223,12 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     return ceremony;
   }
 
+  async deleteCeremony(registrationCeremonyId: string): Promise<boolean> {
+    const id = toOptionalTrimmedString(registrationCeremonyId);
+    if (!id) return false;
+    return await this.del('ceremony', id);
+  }
+
   async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
     await this.put({
       scope: 'finalize-replay',
@@ -404,6 +410,14 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       key: this.key(scope, id),
     });
     return response.ok ? response.value : null;
+  }
+
+  private async del(scope: RegistrationCeremonyIntentScope, id: string): Promise<boolean> {
+    const response = await callRegistrationCeremonyDo<boolean>(this.stub, {
+      op: 'del',
+      key: this.key(scope, id),
+    });
+    return response.ok && response.value === true;
   }
 
   private key(scope: RegistrationCeremonyIntentScope, id: string): string {

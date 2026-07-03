@@ -283,6 +283,7 @@ class RecordingDurableObjectStub implements CloudflareDurableObjectStubLike {
     if (op === 'set') return this.handleSet(request);
     if (op === 'get') return this.handleGet(request);
     if (op === 'getdel') return this.handleGetDel(request);
+    if (op === 'del') return this.handleDel(request);
     if (op === 'authReserveReplayGuard') return this.handleReserveReplayGuard(request);
     return recordingDurableObjectJson({
       ok: false,
@@ -310,6 +311,11 @@ class RecordingDurableObjectStub implements CloudflareDurableObjectStubLike {
     const value = this.values.get(key) ?? null;
     this.values.delete(key);
     return recordingDurableObjectJson({ ok: true, value });
+  }
+
+  private handleDel(request: Record<string, unknown>): Response {
+    const key = String(request.key || '').trim();
+    return recordingDurableObjectJson({ ok: true, value: this.values.delete(key) });
   }
 
   private handleReserveReplayGuard(request: Record<string, unknown>): Response {
@@ -370,6 +376,27 @@ function isRecordingDurableObjectReplayReservationRequest(
 
 function recordingDurableObjectRequestKey(request: Record<string, unknown>): string {
   return String(request.key || '').trim();
+}
+
+function recordingDurableObjectRequestOp(request: Record<string, unknown>): string {
+  return String(request.op || '').trim();
+}
+
+function countRecordingDurableObjectRequests(input: {
+  readonly requests: readonly Record<string, unknown>[];
+  readonly op: string;
+  readonly key: string;
+}): number {
+  let count = 0;
+  for (const request of input.requests) {
+    if (
+      recordingDurableObjectRequestOp(request) === input.op &&
+      recordingDurableObjectRequestKey(request) === input.key
+    ) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function recordingDurableObjectRequestsIncludeKey(
@@ -3642,6 +3669,21 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
     expect(
       durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
     ).toBeUndefined();
+    const ceremonyKey = `${prefix}ceremony:${started.registrationCeremonyId}`;
+    expect(
+      countRecordingDurableObjectRequests({
+        requests: durableObjects.stub.requests,
+        op: 'del',
+        key: ceremonyKey,
+      }),
+    ).toBe(1);
+    expect(
+      countRecordingDurableObjectRequests({
+        requests: durableObjects.stub.requests,
+        op: 'getdel',
+        key: ceremonyKey,
+      }),
+    ).toBe(0);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

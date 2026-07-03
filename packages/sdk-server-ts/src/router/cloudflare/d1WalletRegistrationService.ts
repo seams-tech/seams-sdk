@@ -1251,8 +1251,8 @@ export class CloudflareD1WalletRegistrationService {
           );
           if (!persisted.ok) return persisted;
         }
-        const consumed = await store.takeCeremony(ceremony.registrationCeremonyId);
-        if (!consumed) {
+        const deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
+        if (!deleted) {
           return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
         }
         const rpId = registrationIntentResponseRpId(ceremony.intent);
@@ -1379,26 +1379,9 @@ export class CloudflareD1WalletRegistrationService {
         if (!persisted.ok) return persisted;
       }
 
-      const consumed = await store.takeCeremony(ceremony.registrationCeremonyId);
-      if (!consumed) {
+      const deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
+      if (!deleted) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
-      }
-      if (consumed.signerState.kind !== 'signer_set_registration') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'signer-set registration state is required',
-        };
-      }
-      const consumedEcdsaState = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
-        consumed.signerState,
-      );
-      if (!consumedEcdsaState || consumedEcdsaState.kind !== 'evm_family_ecdsa_responded') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'ECDSA HSS response is required before finalize',
-        };
       }
       const response: Extract<WalletRegistrationFinalizeResponse, { ecdsa: object }> = {
         ok: true,

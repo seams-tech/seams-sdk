@@ -1006,8 +1006,8 @@ export class ThresholdStoreDurableObject {
     if (op === 'del') {
       const key = toKey((req as { key?: unknown }).key);
       if (!key) return json(err('invalid_body', 'Missing key'));
-      await this.state.storage.delete(key);
-      return json(ok(true));
+      const deleted = await this.state.storage.delete(key);
+      return json(ok(deleted));
     }
     if (op === 'delWithIdentityGuard') {
       const key = toKey((req as { key?: unknown }).key);
