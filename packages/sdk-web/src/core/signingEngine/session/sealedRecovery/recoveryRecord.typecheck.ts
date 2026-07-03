@@ -4,6 +4,10 @@ import type {
   PasskeyEd25519SealedRecoveryRecord,
   SealedRecoveryWalletSessionAuth,
 } from './recoveryRecord';
+import {
+  sealedRecoverySessionKind,
+  sealedRecoveryWalletSessionJwt,
+} from './recoveryRecord';
 import type {
   EmailOtpWalletAuthAuthority,
   PasskeyWalletAuthAuthority,
@@ -22,6 +26,14 @@ const validRecoveryRecordWithWalletSessionAuth = {
   authority: emailOtpAuthority,
 } satisfies EmailOtpEd25519SealedRecoveryRecord;
 void validRecoveryRecordWithWalletSessionAuth;
+
+const normalizedRecoverySessionKind: 'jwt' =
+  sealedRecoverySessionKind(walletSessionAuth);
+void normalizedRecoverySessionKind;
+
+const normalizedRecoveryWalletSessionJwt: string =
+  sealedRecoveryWalletSessionJwt(walletSessionAuth);
+void normalizedRecoveryWalletSessionJwt;
 
 const invalidRecoveryRecordWithWrongAuthority = {
   ...currentRecord,

@@ -2074,6 +2074,10 @@ Tracking:
     and `sessionKind: 'cookie'` rejects it. The SDK sealed-store boundary
     parser classifies raw partial states before they can become current
     records.
+  - Partial July 3 sealed-recovery helper cleanup complete: normalized sealed
+    recovery wallet-session auth now exposes `sessionKind` as literal `jwt`
+    and `walletSessionJwt` as a required string, so core restore code cannot
+    observe the boundary-only missing-JWT state.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

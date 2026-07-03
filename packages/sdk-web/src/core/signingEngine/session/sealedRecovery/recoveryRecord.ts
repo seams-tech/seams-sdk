@@ -158,11 +158,10 @@ type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
-export type SealedRecoveryWalletSessionAuth =
-  {
-    kind: 'wallet_session_jwt';
-    walletSessionJwt: string;
-  };
+export type SealedRecoveryWalletSessionAuth = {
+  kind: 'wallet_session_jwt';
+  walletSessionJwt: string;
+};
 
 type SealedRecoveryWalletSessionAuthCarrier = {
   walletSessionAuth: SealedRecoveryWalletSessionAuth;
@@ -344,15 +343,15 @@ function normalizeSessionKind(value: unknown): ThresholdSessionKind | null {
 }
 
 export function sealedRecoverySessionKind(
-  auth: SealedRecoveryWalletSessionAuth,
-): ThresholdSessionKind {
+  _auth: SealedRecoveryWalletSessionAuth,
+): 'jwt' {
   return 'jwt';
 }
 
 export function sealedRecoveryWalletSessionJwt(
   auth: SealedRecoveryWalletSessionAuth,
-): string | undefined {
-  return auth.kind === 'wallet_session_jwt' ? auth.walletSessionJwt : undefined;
+): string {
+  return auth.walletSessionJwt;
 }
 
 function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
