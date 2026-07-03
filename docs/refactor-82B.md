@@ -2063,6 +2063,11 @@ Tracking:
     `subjectId` / `userId` fields and ECDSA top-level signing-root siblings
     are rejected by shared type fixtures; raw legacy rows remain accepted only
     by sealed-store boundary parsing.
+  - Partial July 3 sealed-store current-type cleanup complete:
+    `CurrentSealedSessionRecord` and current sealed-record write inputs no
+    longer carry stale top-level `subjectId` / `userId` rejection fields.
+    The builder still rejects those raw extras at the boundary before
+    classifying or writing a current record.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

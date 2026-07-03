@@ -100,8 +100,6 @@ export type CurrentEd25519SealedSessionRecord = Omit<
   | 'curve'
   | 'thresholdSessionIds'
   | 'walletId'
-  | 'subjectId'
-  | 'userId'
   | 'relayerUrl'
   | 'ed25519Restore'
   | 'ecdsaRestore'
@@ -109,8 +107,6 @@ export type CurrentEd25519SealedSessionRecord = Omit<
   curve: 'ed25519';
   thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
   walletId: string;
-  subjectId?: never;
-  userId?: never;
   relayerUrl: string;
   ed25519Restore: CurrentEd25519RestoreMetadata;
   ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
@@ -122,8 +118,6 @@ export type CurrentEcdsaSealedSessionRecord = Omit<
   | 'thresholdSessionIds'
   | 'walletId'
   | 'relayerUrl'
-  | 'subjectId'
-  | 'userId'
   | 'signingRootId'
   | 'signingRootVersion'
   | 'ecdsaRestore'
@@ -132,8 +126,6 @@ export type CurrentEcdsaSealedSessionRecord = Omit<
   curve: 'ecdsa';
   thresholdSessionIds: EcdsaSealedRecordThresholdSessionIds;
   walletId: string;
-  subjectId?: never;
-  userId?: never;
   signingRootId?: never;
   signingRootVersion?: never;
   relayerUrl: string;
@@ -235,8 +227,6 @@ export type BuildCurrentEd25519SealedSessionRecordInput =
     curve: 'ed25519';
     thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
     walletId: string;
-    userId?: never;
-    subjectId?: never;
     signingRootId?: string;
     signingRootVersion?: string;
     relayerUrl: string;
@@ -248,11 +238,7 @@ export type BuildCurrentEcdsaSealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ecdsa';
     thresholdSessionIds: EcdsaSealedRecordThresholdSessionIds;
-    subjectId?: never;
     walletId: string;
-    userId?: never;
-    signingRootId?: never;
-    signingRootVersion?: never;
     relayerUrl: string;
     ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
     ed25519Restore?: CurrentEd25519RestoreMetadata;
@@ -896,6 +882,22 @@ export function parseExactResolvedSessionIdentity(
   return identity ? cloneResolvedIdentity(identity) : null;
 }
 
+function hasStaleSealedSessionWalletIdentityFields(value: unknown): boolean {
+  const obj = asRawSealedSessionRecord(value);
+  return Boolean(
+    normalizeOptionalNonEmptyString(obj?.subjectId) ||
+      normalizeOptionalNonEmptyString(obj?.userId),
+  );
+}
+
+function hasTopLevelSigningRootFields(value: unknown): boolean {
+  const obj = asRawSealedSessionRecord(value);
+  return Boolean(
+    normalizeOptionalNonEmptyString(obj?.signingRootId) ||
+      normalizeOptionalNonEmptyString(obj?.signingRootVersion),
+  );
+}
+
 function createDeleteResolvedIdentityCommand(args: {
   identity: ExactResolvedSessionIdentity;
   deleteReason: ResolvedIdentityDeleteReason;
@@ -1401,10 +1403,6 @@ export function buildCurrentSealedSessionRecord(
     thresholdSessionIds: args.thresholdSessionIds,
   });
   const signingGrantId = normalizeOptionalNonEmptyString(args.signingGrantId);
-  const subjectId = normalizeOptionalNonEmptyString(args.subjectId);
-  const userId = normalizeOptionalNonEmptyString(args.userId);
-  const signingRootId = normalizeOptionalNonEmptyString(args.signingRootId);
-  const signingRootVersion = normalizeOptionalNonEmptyString(args.signingRootVersion);
   const walletId = normalizeOptionalNonEmptyString(args.walletId);
   const sealedSecretB64u = normalizeOptionalNonEmptyString(args.sealedSecretB64u);
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
@@ -1419,15 +1417,17 @@ export function buildCurrentSealedSessionRecord(
   if (updatedAtMs == null || updatedAtMs <= 0) return null;
   const ecdsaRestore = normalizeEcdsaRestoreMetadata(args.ecdsaRestore);
   const ed25519Restore = normalizeCurrentEd25519RestoreMetadata(args.ed25519Restore);
+  if (hasStaleSealedSessionWalletIdentityFields(args)) return null;
   if (curve === 'ecdsa') {
     if (!ecdsaRestore?.chainTarget || !walletId) return null;
-    if (subjectId || userId || signingRootId || signingRootVersion) return null;
+    if (hasTopLevelSigningRootFields(args)) return null;
   }
-  if (curve === 'ed25519' && (subjectId || userId)) return null;
-  const signingRootIdForWrite =
-    curve === 'ed25519' ? signingRootId : undefined;
-  const signingRootVersionForWrite =
-    curve === 'ed25519' ? signingRootVersion : undefined;
+  let signingRootIdForWrite: string | undefined;
+  let signingRootVersionForWrite: string | undefined;
+  if (args.curve === 'ed25519') {
+    signingRootIdForWrite = normalizeOptionalNonEmptyString(args.signingRootId);
+    signingRootVersionForWrite = normalizeOptionalNonEmptyString(args.signingRootVersion);
+  }
 
   const classification = classifyRawSealedSessionRecord({
     v: SIGNING_SESSION_SEALED_RECORD_VERSION,
