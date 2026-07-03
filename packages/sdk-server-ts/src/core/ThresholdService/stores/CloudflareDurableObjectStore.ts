@@ -1179,7 +1179,7 @@ function durableEd25519HssEvaluationResultWire(
     throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
   }
   if (!evaluationResult.stagedEvaluatorArtifactBytes) {
-    throw new Error('durable Ed25519 HSS ceremony evaluationResult bytes are required');
+    throw new Error('durable Ed25519 HSS evaluationResult server finalize output is required');
   }
   return {
     stagedEvaluatorArtifactB64u: base64UrlEncode(evaluationResult.stagedEvaluatorArtifactBytes),

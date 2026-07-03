@@ -1886,8 +1886,15 @@ Tracking:
       Router A/B Ed25519 wallet-session JWT path; parse/build boundaries verify
       the bound authority and derive legacy Ed25519 `authorityScope` only for
       threshold-store/admission adapters.
-- [ ] Rename true Passkey-only routes as Passkey-only.
-- [ ] Delete obsolete AuthService/passkey-only route semantics.
+- [x] Rename true Passkey-only routes as Passkey-only.
+  - July 3 source audit complete: no active route/helper names still use
+    `passkey-only` as generic wallet-session authority terminology. Remaining
+    `passkey-only` literals are test fixture names and guard messages only.
+- [x] Delete obsolete AuthService/passkey-only route semantics.
+  - July 3 guard audit complete: generic Ed25519 registration no longer has
+    passkey-only RP-ID helper paths, and
+    `refactor82CloudflareD1Runtime.guard.unit.test.ts` rejects the old D1 and
+    AuthService-era `rpId` registration authority hooks.
 - [x] Delete the obsolete generic Router A/B ECDSA key-identities route; the
       inventory boundary is wallet-scoped
       `/wallets/:walletId/signers/ecdsa/key-facts/inventory`.
