@@ -11,7 +11,6 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toEmailOtpAuthSubjectId } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   generateSigningGrantId,
@@ -19,9 +18,7 @@ import {
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
-import {
-  WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-} from '@shared/utils/emailOtpDomain';
+import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/emailOtpDomain';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextEmailHashHex,
@@ -182,6 +179,21 @@ function requireEmailOtpEcdsaCompanionLaneForEd25519Signing(
     default:
       return assertNeverEmailOtpEcdsaCompanionSelection(selection);
   }
+}
+
+function emailOtpProviderUserIdForEd25519Login(args: {
+  routePlan: EmailOtpRoutePlan;
+  walletSession: WalletSessionRef;
+}): string {
+  const providerUserId = String(
+    appSessionSubjectFromEmailOtpAuthLane(args.routePlan.authLane) ||
+      args.walletSession.walletSessionUserId ||
+      '',
+  ).trim();
+  if (!providerUserId) {
+    throw new Error('Email OTP Ed25519 login requires providerUserId');
+  }
+  return providerUserId;
 }
 
 function routerAbNormalSigningStateFromConfigs(
@@ -369,10 +381,10 @@ export class EmailOtpEd25519Warmup {
       retention: 'session',
       reason: 'login',
       provider: 'google',
-      providerUserId: toEmailOtpAuthSubjectId(
-        appSessionSubjectFromEmailOtpAuthLane(routePlan.authLane) ||
-          args.walletSession.walletSessionUserId,
-      ),
+      providerUserId: emailOtpProviderUserIdForEd25519Login({
+        routePlan,
+        walletSession: args.walletSession,
+      }),
     });
     return await this.reconstructSession({
       kind: 'session_ed25519_reconstruction',

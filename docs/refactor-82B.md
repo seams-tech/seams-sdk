@@ -1809,6 +1809,10 @@ Tracking:
     `recoveryCodeBindingDigestForEmailOtpMaterial` now uses a v2 digest domain
     and `providerUserId` in its canonical input; stale `authSubjectId` remains
     only on worker wire commands.
+  - Partial July 3 Ed25519 warm-session provider identity slice complete:
+    Email OTP Ed25519 login now derives a trimmed `providerUserId` directly
+    from the committed route plan/session instead of branding it through the
+    stale `AuthSubjectId` helper.
 
 July 3 review follow-ups (Decided Simplification 6):
 
