@@ -19,10 +19,6 @@ import {
   SIGNER_SOURCES,
 } from '@shared/utils/signerDomain';
 import {
-  parseThresholdRuntimePolicyScopeFromJwt,
-  normalizeThresholdRuntimePolicyScope,
-} from '../../threshold/sessionPolicy';
-import {
   resolveThresholdSigningRootBindingFromRecord,
 } from '../identity/evmFamilyEcdsaIdentity';
 
@@ -119,9 +115,6 @@ function ecdsaBootstrapSignerActivation(args: {
       '[SigningEngine] threshold-ecdsa bootstrap did not provide role-local ready record',
     );
   }
-  const runtimePolicyScope =
-    normalizeThresholdRuntimePolicyScope(args.bootstrap.session.runtimePolicyScope) ||
-    parseThresholdRuntimePolicyScopeFromJwt(args.bootstrap.session.jwt || keyRef.walletSessionJwt);
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
     record: {
       signingRootId: ecdsaRoleLocalReadyRecord.publicFacts.signingRootId,

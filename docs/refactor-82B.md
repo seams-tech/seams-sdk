@@ -1340,6 +1340,10 @@ Tracking:
     auth branch to be `ready` and uses that resolved Wallet Session JWT
     directly. A persisted ECDSA record JWT can no longer backfill reusable
     bootstrap auth when warm capability auth is missing.
+  - Partial July 3 bootstrap persistence cleanup complete:
+    ECDSA signer-row persistence no longer reads the obsolete
+    `keyRef.walletSessionJwt` fallback while deriving signer identity from the
+    role-local ready record.
 - [x] Delete exact lane candidate authority rebuilders.
   - Complete July 3 slice: Passkey ECDSA committed-lane authority is rebuilt
     from the selected session record's role-local auth method, not from the
