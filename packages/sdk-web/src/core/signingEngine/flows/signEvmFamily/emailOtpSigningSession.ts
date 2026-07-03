@@ -34,7 +34,6 @@ import {
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import { emitEvmFamilySigningEvent } from './events';
 import {
-  resolveEmailOtpEcdsaAuthLaneFromRecord,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
@@ -49,7 +48,7 @@ import {
   type EmailOtpEd25519ReconstructionResult,
 } from '../../session/emailOtp/ecdsaLogin';
 import {
-  buildEmailOtpEcdsaSigningSessionAuthority,
+  resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord,
   type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import { emailOtpAuthContextEmailHashHex } from '../../session/identity/laneIdentity';
@@ -224,33 +223,21 @@ function resolveEmailOtpEcdsaSigningSessionAuth(
     chainTarget: args.chainTarget,
     source: 'email_otp',
   });
-  const authLaneResolution = resolveEmailOtpEcdsaAuthLaneFromRecord(record);
-  if (authLaneResolution.kind !== 'ready') {
+  const authorityResolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(record);
+  if (authorityResolution.kind !== 'ready') {
     throwEmailOtpSigningSessionAuthStateError({
       kind: 'auth_lane_missing',
       source: 'evm_signing_refresh',
       expectedCurve: 'ecdsa',
     });
   }
-  const authLane = authLaneResolution.authLane;
   const emailOtpAuthContext = thresholdEcdsaEmailOtpAuthContext(record);
   if (!emailOtpAuthContext) {
     throw new Error('Email OTP signing-session auth requires Email OTP auth context');
   }
-  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
-    authLane,
-    authority: emailOtpAuthContext.authority,
-  });
-  if (!authority) {
-    throwEmailOtpSigningSessionAuthStateError({
-      kind: 'auth_lane_missing',
-      source: 'evm_signing_refresh',
-      expectedCurve: 'ecdsa',
-    });
-  }
   return {
     record,
-    authority,
+    authority: authorityResolution.authority,
   };
 }
 

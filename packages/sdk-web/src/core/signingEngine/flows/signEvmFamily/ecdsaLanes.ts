@@ -24,10 +24,6 @@ import {
   thresholdEcdsaSessionRecordReadModel,
 } from '../../session/persistence/records';
 import {
-  toAuthorizingSigningGrantId,
-  type EmailOtpAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
-import {
   type ResolvedEcdsaSigningSessionIdentity,
   type ThresholdEcdsaSessionId,
   type SigningGrantId,
@@ -459,62 +455,6 @@ export function isEmailOtpThresholdEcdsaSigningContext(args: {
     record.source === SIGNER_AUTH_METHODS.emailOtp ||
     record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session'
   );
-}
-
-export type EmailOtpEcdsaAuthLaneResolution =
-  | {
-      kind: 'ready';
-      authLane: EmailOtpAuthLane;
-    }
-  | {
-      kind: 'record_missing';
-      authLane?: never;
-    }
-  | {
-      kind: 'not_email_otp_record';
-      source: ThresholdEcdsaSessionStoreSource;
-      authLane?: never;
-    }
-  | {
-      kind: 'wallet_session_auth_unavailable';
-      reason: 'cookie_session' | 'missing_wallet_session_jwt';
-      authLane?: never;
-    }
-  | {
-      kind: 'missing_session_identity';
-      authLane?: never;
-    };
-
-export function resolveEmailOtpEcdsaAuthLaneFromRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): EmailOtpEcdsaAuthLaneResolution {
-  if (!record) return { kind: 'record_missing' };
-  if (record.source !== SIGNER_AUTH_METHODS.emailOtp) {
-    return { kind: 'not_email_otp_record', source: record.source };
-  }
-  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  if (walletSessionAuth.kind !== 'ready') {
-    if (walletSessionAuth.reason === 'missing_session_identity') {
-      return { kind: 'missing_session_identity' };
-    }
-    return {
-      kind: 'wallet_session_auth_unavailable',
-      reason: walletSessionAuth.reason,
-    };
-  }
-  return {
-    kind: 'ready',
-    authLane: {
-      kind: 'signing_session',
-      jwt: walletSessionAuth.walletSessionJwt,
-      thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
-      authorizingSigningGrantId: toAuthorizingSigningGrantId(
-        walletSessionAuth.identity.signingGrantId,
-      ),
-      curve: 'ecdsa',
-      chainTarget: record.chainTarget,
-    },
-  };
 }
 
 function ecdsaMaterialSourceMatchesAuth(args: {

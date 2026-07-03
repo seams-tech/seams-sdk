@@ -209,7 +209,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(ecdsaSelection).not.toContain('tryGetEmailOtpThresholdEcdsaKeyRefForSigning');
     expect(ecdsaSelection).not.toContain('tryGetPasskeyThresholdEcdsaKeyRefForSigning');
     expect(ecdsaLanes).not.toContain('function emailOtpEcdsaAuthLaneFromRecord');
-    expect(ecdsaLanes).toContain('function resolveEmailOtpEcdsaAuthLaneFromRecord');
+    expect(ecdsaLanes).not.toContain('function resolveEmailOtpEcdsaAuthLaneFromRecord');
   });
 
   test('Email OTP ECDSA export route auth consumes committed lanes', () => {

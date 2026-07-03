@@ -30,7 +30,6 @@ import {
 } from './ecdsaMaterialState';
 import {
   findExactEcdsaSessionRecordForSelectedLane,
-  resolveEmailOtpEcdsaAuthLaneFromRecord,
   summarizeEvmFamilyEcdsaSessionRecord,
   logEvmFamilyEcdsaLaneDiagnostic,
   requireResolvedEvmFamilyEcdsaSigningLane,
@@ -46,7 +45,7 @@ import type {
   PasskeyEcdsaSessionStoreSource,
 } from '../../interfaces/operationDeps';
 import {
-  buildEmailOtpEcdsaSigningSessionAuthority,
+  resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord,
   type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import {
@@ -1204,24 +1203,12 @@ function requireEmailOtpSelectionAuthorityFromRecord(args: {
     });
     throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'authority_missing' });
   }
-  const resolved = resolveEmailOtpEcdsaAuthLaneFromRecord(args.record);
+  const resolved = resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(args.record);
   if (resolved.kind === 'ready') {
-    const laneAuthority = buildEmailOtpEcdsaSigningSessionAuthority({
-      authority: args.record.emailOtpAuthContext.authority,
-      authLane: resolved.authLane,
-    });
-    if (!laneAuthority) {
-      logEvmFamilyEcdsaLaneDiagnostic('Email OTP record-backed committed lane rejected for auth-lane shape', {
-        lane: summarizeEvmFamilyEcdsaLane(args.lane),
-        candidate: summarizeLaneCandidate(args.candidate),
-        record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
-      });
-      throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'authority_not_ecdsa_signing_session' });
-    }
     return {
       kind: 'record_backed',
       record: args.record,
-      laneAuthority,
+      laneAuthority: resolved.authority,
     };
   }
   logEvmFamilyEcdsaLaneDiagnostic('Email OTP record-backed committed lane rejected', {

@@ -57,6 +57,7 @@ const emailOtpAuth = {
   kind: 'email_otp',
   providerSubjectId: 'google:otp-refresh',
 } as const;
+const emailOtpEmailHashHex = '44'.repeat(32);
 
 function testEvmFamilySigningKeySlotId(walletId: unknown) {
   return deriveEvmFamilySigningKeySlotId({
@@ -185,7 +186,7 @@ function committedLaneForAuth(args: {
     walletId: args.lane.identity.signer.walletId,
     provider: 'google',
     providerUserId: emailOtpAuth.providerSubjectId,
-    emailHashHex: 'email-hash',
+    emailHashHex: emailOtpEmailHashHex,
   });
   return {
     source: 'record_backed',
@@ -454,7 +455,7 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
       chainTarget: sourceChainTarget,
       evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(walletId),
       providerSubjectId: emailOtpAuth.providerSubjectId,
-      emailHashHex: 'email-hash',
+      emailHashHex: emailOtpEmailHashHex,
       walletSessionJwt: thresholdEcdsaSessionJwt({
         thresholdSessionId,
         signingGrantId,
