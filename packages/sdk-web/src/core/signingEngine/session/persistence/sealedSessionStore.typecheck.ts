@@ -4,6 +4,7 @@ import type {
   CurrentEd25519SealedSessionRecord,
   CurrentEcdsaSealedSessionRecord,
   PublishResolvedIdentityInput,
+  UpdateExactSealedSessionPolicyInput,
 } from './sealedSessionStore';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type { SealedSigningSessionEd25519RestoreMetadata } from '@shared/utils/signingSessionSeal';
@@ -242,6 +243,17 @@ const invalidPublishResolvedIdentityWithoutUpdatedAtMs: PublishResolvedIdentityI
   thresholdSessionId: 'tsess-ed25519',
 };
 void invalidPublishResolvedIdentityWithoutUpdatedAtMs;
+
+// @ts-expect-error sealed-session policy updates require an explicit lifecycle timestamp.
+const invalidPolicyUpdateWithoutUpdatedAtMs: UpdateExactSealedSessionPolicyInput = {
+  thresholdSessionId: 'tsess-ed25519',
+  filter: {
+    authMethod: 'passkey',
+    curve: 'ed25519',
+  },
+  remainingUses: 1,
+};
+void invalidPolicyUpdateWithoutUpdatedAtMs;
 
 const invalidEmailOtpEcdsaRestoreWithoutProviderSubject = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },

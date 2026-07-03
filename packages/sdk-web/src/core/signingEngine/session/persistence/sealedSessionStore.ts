@@ -286,6 +286,14 @@ export type PublishResolvedIdentityInput = SealedStoreResolvedSigningSessionIden
 
 export type ExactResolvedSessionIdentity = SealedStoreResolvedSigningSessionIdentity;
 
+export type UpdateExactSealedSessionPolicyInput = {
+  thresholdSessionId: string;
+  filter: SigningSessionSealedRecordFilter;
+  expiresAtMs?: number;
+  remainingUses?: number;
+  updatedAtMs: number;
+};
+
 export type ResolvedIdentityDeleteReason =
   | 'durable_record_deleted'
   | 'invalid_persisted_record'
@@ -1819,13 +1827,9 @@ export async function writeExactSealedSession(record: CurrentSealedSessionRecord
   publishResolvedIdentityForSealedRecord(currentRecord);
 }
 
-export async function updateExactSealedSessionPolicy(args: {
-  thresholdSessionId: string;
-  filter: SigningSessionSealedRecordFilter;
-  expiresAtMs?: number;
-  remainingUses?: number;
-  updatedAtMs?: number;
-}): Promise<void> {
+export async function updateExactSealedSessionPolicy(
+  args: UpdateExactSealedSessionPolicyInput,
+): Promise<void> {
   const purpose = requireSealedRecordPurpose(args.filter, 'update policy');
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
@@ -1833,7 +1837,7 @@ export async function updateExactSealedSessionPolicy(args: {
   if (!existing) return;
   const expiresAtMs = normalizeInteger(args.expiresAtMs ?? existing.expiresAtMs);
   const remainingUses = normalizeInteger(args.remainingUses ?? existing.remainingUses);
-  const updatedAtMs = normalizeInteger(args.updatedAtMs ?? Date.now());
+  const updatedAtMs = normalizeInteger(args.updatedAtMs);
   if (expiresAtMs == null || expiresAtMs <= 0) return;
   if (remainingUses == null || remainingUses < 0) return;
   if (updatedAtMs == null || updatedAtMs <= 0) return;

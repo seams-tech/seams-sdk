@@ -1992,6 +1992,9 @@ Tracking:
     is now the exact resolved identity shape and requires explicit `updatedAtMs`
     from the caller; identity publication no longer defaults lifecycle time
     inside the sealed-session store.
+  - Partial July 3 sealed-policy slice complete: `updateExactSealedSessionPolicy`
+    now requires explicit `updatedAtMs`, so policy updates cannot synthesize
+    lifecycle time inside the sealed-session store.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.
