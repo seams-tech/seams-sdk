@@ -419,6 +419,15 @@ test.describe('Email OTP operation split guard', () => {
     const warmCapabilityReader = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts',
     );
+    const warmCapabilityReadModel = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts',
+    );
+    const warmCapabilityStatusReader = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts',
+    );
+    const warmEcdsaProvisionPlan = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts',
+    );
     const routerAbEd25519WalletSessionState = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts',
     );
@@ -466,6 +475,17 @@ test.describe('Email OTP operation split guard', () => {
       'function resolveEmailOtpEd25519SigningSessionAuthority',
     );
     expect(warmCapabilityReader).not.toContain('resolveEmailOtpSigningSessionAuthLane');
+    expect(warmCapabilityReadModel).toContain(
+      'parseRouterAbEd25519WalletSessionAuthorityFromRecord',
+    );
+    expect(warmCapabilityReadModel).toContain('resolveRouterAbEcdsaWalletSessionAuthFromRecord');
+    expect(warmCapabilityStatusReader).toContain(
+      'parseRouterAbEd25519WalletSessionAuthorityFromRecord',
+    );
+    expect(warmEcdsaProvisionPlan).toContain('resolveRouterAbEcdsaWalletSessionAuthFromRecord');
+    expect(warmCapabilityReadModel).not.toContain('walletSessionJwtFromPersistedWarmSessionRecord');
+    expect(warmCapabilityStatusReader).not.toContain('walletSessionJwtFromPersistedWarmSessionRecord');
+    expect(warmEcdsaProvisionPlan).not.toContain('walletSessionJwtFromPersistedWarmSessionRecord');
     expect(routerAbEd25519WalletSessionState).not.toContain('emailOtpEd25519AuthLaneFromRecord');
     expect(signNear).not.toContain('resolveRecordBackedEmailOtpEd25519SigningCommittedLane');
     expect(ed25519Warmup).not.toContain("kind: 'email_otp_ed25519_signing_committed_lane'");

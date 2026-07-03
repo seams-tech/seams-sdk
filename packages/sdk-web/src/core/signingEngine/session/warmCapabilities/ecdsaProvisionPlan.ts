@@ -24,7 +24,7 @@ import {
   type ThresholdEcdsaSessionId,
   type SigningGrantId,
 } from '../operationState/types';
-import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './routerAbEcdsaWalletSessionAuth';
 
 export type EcdsaSessionIdentity = {
   thresholdSessionId: ThresholdEcdsaSessionId;
@@ -351,7 +351,10 @@ export function buildEcdsaReconnectMaterial(args: {
   if (sessionKind !== 'jwt') {
     throw new Error('[SigningEngine][ecdsa] Router A/B ECDSA reconnect requires Wallet Session JWT auth');
   }
-  const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(args.record);
+  const walletSessionAuthority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(args.record);
+  if (walletSessionAuthority.kind !== 'ready') {
+    throw new Error('[SigningEngine][ecdsa] Router A/B ECDSA reconnect requires Wallet Session JWT auth');
+  }
   const relayerKeyId = requireNonEmptyString(
     args.record.relayerKeyId || keyRef.backendBinding?.relayerKeyId,
     'relayerKeyId',
@@ -362,7 +365,7 @@ export function buildEcdsaReconnectMaterial(args: {
     walletSessionAuth: verifyEcdsaWalletSessionAuth({
       identity,
       signingKeyContext,
-      walletSessionJwt,
+      walletSessionJwt: walletSessionAuthority.walletSessionJwt,
       relayerKeyId,
     }),
   };

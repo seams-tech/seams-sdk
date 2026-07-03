@@ -43,7 +43,6 @@ import type {
   ExactEcdsaSigningLaneIdentity,
   ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-import { persistedWarmSessionRecordRequiresWalletSessionJwt } from './walletSessionAuthBoundary';
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
@@ -131,7 +130,7 @@ export type WarmSessionEcdsaAuthMaterialWithoutToken = {
   record: ThresholdEcdsaSessionRecord;
   walletSessionJwt?: never;
   walletSessionJwtSource: 'none';
-  unavailableReason: 'cookie_session' | 'missing_wallet_session_jwt';
+  unavailableReason: 'cookie_session' | 'missing_session_identity' | 'missing_wallet_session_jwt';
 };
 
 export type WarmSessionEcdsaAuthMaterial =
@@ -433,10 +432,6 @@ function assertCapabilityStateInvariant(args: {
     );
   }
 
-  const requiresWalletSessionJwt = persistedWarmSessionRecordRequiresWalletSessionJwt({
-    capability: capability.capability,
-    record,
-  });
   const hasWalletSessionJwt = Boolean(String(auth?.walletSessionJwt || '').trim());
   const emailOtpSingleUseConsumed =
     record.source === 'email_otp' &&
@@ -444,7 +439,7 @@ function assertCapabilityStateInvariant(args: {
     emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use' &&
     Number(emailOtpAuthContextConsumedAtMs(emailOtpAuthContext)) > 0;
   const expectedState = (() => {
-    if (!auth || (requiresWalletSessionJwt && !hasWalletSessionJwt)) return 'auth_missing';
+    if (!auth || !hasWalletSessionJwt) return 'auth_missing';
     if (emailOtpSingleUseConsumed) return 'prf_missing';
     if (capability.capability === 'ed25519') {
       const persistedState = classifyRouterAbEd25519PersistedSigningRecord(capability.record);

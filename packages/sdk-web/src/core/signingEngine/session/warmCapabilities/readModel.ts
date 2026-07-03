@@ -20,10 +20,7 @@ import type {
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
 } from './types';
-import {
-  persistedWarmSessionRecordRequiresWalletSessionJwt,
-  walletSessionJwtFromPersistedWarmSessionRecord,
-} from './walletSessionAuthBoundary';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './routerAbEcdsaWalletSessionAuth';
 import {
   emailOtpAuthContextConsumedAtMs,
   emailOtpAuthContextRetention,
@@ -31,6 +28,7 @@ import {
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
+  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
 } from '../routerAbSigningWalletSession';
 
 export type WarmSessionReadPortsInput =
@@ -203,12 +201,12 @@ export function resolveEd25519AuthMaterial(
   record: WarmSessionEd25519CapabilityState['record'],
 ): WarmSessionEd25519AuthMaterial | null {
   if (!record) return null;
-  const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
-  if (walletSessionJwt) {
+  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+  if (authority.ok) {
     return {
       capability: 'ed25519',
       record,
-      walletSessionJwt,
+      walletSessionJwt: authority.value.auth.walletSessionJwt,
       walletSessionJwtSource: 'ed25519_record',
     };
   }
@@ -223,22 +221,13 @@ export function resolveEcdsaAuthMaterial(
   record: WarmSessionEcdsaCapabilityState['record'],
 ): WarmSessionEcdsaAuthMaterial | null {
   if (!record) return null;
-  if (record.thresholdSessionKind !== 'jwt') {
-    return {
-      capability: 'ecdsa',
-      state: 'unavailable',
-      record,
-      walletSessionJwtSource: 'none',
-      unavailableReason: 'cookie_session',
-    };
-  }
-  const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
-  if (walletSessionJwt) {
+  const authority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
+  if (authority.kind === 'ready') {
     return {
       capability: 'ecdsa',
       state: 'ready',
       record,
-      walletSessionJwt,
+      walletSessionJwt: authority.walletSessionJwt,
       walletSessionJwtSource: 'ecdsa_record',
     };
   }
@@ -247,7 +236,7 @@ export function resolveEcdsaAuthMaterial(
     state: 'unavailable',
     record,
     walletSessionJwtSource: 'none',
-    unavailableReason: 'missing_wallet_session_jwt',
+    unavailableReason: authority.reason,
   };
 }
 
@@ -306,11 +295,7 @@ export function deriveEcdsaCapabilityState(args: {
   prfClaim: WarmSessionPrfClaim | null;
 }): WarmSessionEcdsaCapabilityState['state'] {
   if (!args.record) return 'missing';
-  const requiresWalletSessionJwt = persistedWarmSessionRecordRequiresWalletSessionJwt({
-    capability: 'ecdsa',
-    record: args.record,
-  });
-  if (requiresWalletSessionJwt && (!args.auth || args.auth.state === 'unavailable')) {
+  if (!args.auth || args.auth.state === 'unavailable') {
     return 'auth_missing';
   }
   const ecdsaEmailOtpAuthContext =

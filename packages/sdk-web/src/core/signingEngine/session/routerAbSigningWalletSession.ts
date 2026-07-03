@@ -822,6 +822,9 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   if (!signingRoot.ok) return signingRoot;
   const runtimePolicyScope = sessionRecord.runtimePolicyScope;
   if (!runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
+  if (!sessionRecord.routerAbNormalSigning) {
+    return { ok: false, reason: 'missing_router_ab_state' };
+  }
   if (!isThresholdEd25519MaterialReadyRecord(sessionRecord)) {
     return { ok: false, reason: 'missing_material_handle' };
   }

@@ -1325,6 +1325,11 @@ Tracking:
   - Partial July 3 warm authority resolver cleanup complete: warm Email OTP
     Ed25519/ECDSA signing-session authority resolvers now extract JWTs only
     through record-owned auth guards instead of optional auth projections.
+  - Partial July 3 warm Wallet Session parser slice complete: warm capability
+    read/status/provisioning code now consumes
+    `parseRouterAbEd25519WalletSessionAuthorityFromRecord` and
+    `resolveRouterAbEcdsaWalletSessionAuthFromRecord`; the raw
+    `warmCapabilities/walletSessionAuthBoundary.ts` JWT helper is deleted.
 - [x] Delete exact lane candidate authority rebuilders.
   - Complete July 3 slice: Passkey ECDSA committed-lane authority is rebuilt
     from the selected session record's role-local auth method, not from the
@@ -1408,6 +1413,11 @@ Tracking:
     `walletSessionAuthBoundary.ts`; parsed Router A/B wallet-session authority
     validates the JWT claims against the selected Ed25519 record before any
     signer, funding, export, or recovery path receives the bearer token.
+  - Partial July 3 warm capability Wallet Session parser slice complete: warm
+    Ed25519/ECDSA capability readers and reconnect planning no longer use a
+    raw persisted warm-record JWT accessor. They resolve Wallet Session
+    authority through the curve-specific Router A/B boundary parsers before
+    exposing bearer auth to downstream signing/provisioning code.
 - [x] Delete the Email OTP ECDSA wallet+chain session-record getter from the
       EVM-family dependency surface and browser assembly.
 - [x] Move Email OTP ECDSA export authority onto record-backed committed lanes.

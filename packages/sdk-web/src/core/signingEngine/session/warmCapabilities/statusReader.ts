@@ -45,11 +45,11 @@ import {
   toWarmSessionClaimFromStatusResult,
   type WarmSessionReadPortsInput,
 } from './readModel';
-import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
 import { buildEcdsaSessionIdentity, tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   classifyRouterAbEcdsaHssPersistedSigningRecord,
+  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
 } from '../routerAbSigningWalletSession';
 import type {
   ThresholdWarmSessionStatusReader,
@@ -435,8 +435,8 @@ export function createWarmSessionStatusReader(
     if (!record) return null;
     const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
     if (!normalizedThresholdSessionId) return null;
-    const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
-    if (!walletSessionJwt) {
+    const walletSessionAuthority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+    if (!walletSessionAuthority.ok) {
       return {
         sessionId: normalizedThresholdSessionId,
         status: 'unavailable',
