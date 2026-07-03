@@ -1988,6 +1988,10 @@ Tracking:
     write inputs now require explicit `issuedAtMs` and `updatedAtMs`, and
     `buildCurrentSealedSessionRecord` no longer invents lifecycle timestamps
     inside core sealed-session construction.
+  - Partial July 3 resolved-identity slice complete: `PublishResolvedIdentityInput`
+    is now the exact resolved identity shape and requires explicit `updatedAtMs`
+    from the caller; identity publication no longer defaults lifecycle time
+    inside the sealed-session store.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

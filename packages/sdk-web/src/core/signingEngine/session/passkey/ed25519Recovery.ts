@@ -390,6 +390,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
 
   const publishRecord = (policy: { expiresAtMs: number; remainingUses: number }): void => {
     const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
+    const updatedAtMs = Date.now();
     upsertStoredThresholdEd25519SessionRecord({
       walletId: args.record.walletId,
       nearAccountId: args.record.nearAccountId,
@@ -410,7 +411,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
       ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
       expiresAtMs: policy.expiresAtMs,
       remainingUses: policy.remainingUses,
-      updatedAtMs: Date.now(),
+      updatedAtMs,
       source: 'login',
     });
     publishResolvedIdentity({
@@ -420,6 +421,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
       chain: 'near',
       signingGrantId,
       thresholdSessionId,
+      updatedAtMs,
     });
   };
 

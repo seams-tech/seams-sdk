@@ -3,6 +3,7 @@ import type {
   BuildCurrentEcdsaSealedSessionRecordInput,
   CurrentEd25519SealedSessionRecord,
   CurrentEcdsaSealedSessionRecord,
+  PublishResolvedIdentityInput,
 } from './sealedSessionStore';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type { SealedSigningSessionEd25519RestoreMetadata } from '@shared/utils/signingSessionSeal';
@@ -230,6 +231,17 @@ const invalidEcdsaWriteSigningRootVersionInput: BuildCurrentEcdsaSealedSessionRe
   signingRootVersion: 'root-version-ecdsa',
 };
 void invalidEcdsaWriteSigningRootVersionInput;
+
+// @ts-expect-error resolved runtime identity publication requires an explicit lifecycle timestamp.
+const invalidPublishResolvedIdentityWithoutUpdatedAtMs: PublishResolvedIdentityInput = {
+  walletId: 'wallet.testnet',
+  authMethod: 'passkey',
+  curve: 'ed25519',
+  chain: 'near',
+  signingGrantId: 'wsess-ed25519',
+  thresholdSessionId: 'tsess-ed25519',
+};
+void invalidPublishResolvedIdentityWithoutUpdatedAtMs;
 
 const invalidEmailOtpEcdsaRestoreWithoutProviderSubject = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },

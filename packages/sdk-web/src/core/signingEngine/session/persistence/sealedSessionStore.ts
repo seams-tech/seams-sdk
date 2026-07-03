@@ -282,16 +282,7 @@ export type SealedStoreResolvedSigningSessionIdentity =
       updatedAtMs: number;
     };
 
-export type PublishResolvedIdentityInput =
-  | (Omit<
-      Extract<SealedStoreResolvedSigningSessionIdentity, { curve: 'ed25519' }>,
-      'updatedAtMs'
-    > & {
-      updatedAtMs?: number;
-    })
-  | (Omit<Extract<SealedStoreResolvedSigningSessionIdentity, { curve: 'ecdsa' }>, 'updatedAtMs'> & {
-      updatedAtMs?: number;
-    });
+export type PublishResolvedIdentityInput = SealedStoreResolvedSigningSessionIdentity;
 
 export type ExactResolvedSessionIdentity = SealedStoreResolvedSigningSessionIdentity;
 
@@ -828,7 +819,7 @@ function normalizeResolvedIdentity(
   const curve = normalizeCurve(value.curve);
   const signingGrantId = normalizeOptionalNonEmptyString(value.signingGrantId);
   const thresholdSessionId = normalizeOptionalNonEmptyString(value.thresholdSessionId);
-  const updatedAtMs = normalizeInteger(value.updatedAtMs ?? Date.now());
+  const updatedAtMs = normalizeInteger(value.updatedAtMs);
   if (
     !walletId ||
     !authMethod ||

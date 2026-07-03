@@ -1340,6 +1340,7 @@ function publishNearEd25519RuntimeIdentityForRecord(
     chain: 'near',
     signingGrantId,
     thresholdSessionId,
+    updatedAtMs: record.updatedAtMs,
   });
 }
 

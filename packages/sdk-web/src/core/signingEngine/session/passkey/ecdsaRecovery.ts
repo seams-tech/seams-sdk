@@ -139,6 +139,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     if (!ecdsaRoleLocalReadyRecord) {
       throw new Error('passkey ECDSA restore requires existing role-local ready record');
     }
+    const updatedAtMs = Date.now();
 
     upsertRestoredThresholdEcdsaSessionRecord({
       walletId: toWalletId(args.walletId),
@@ -170,7 +171,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
         : {}),
       expiresAtMs: policy.expiresAtMs,
       remainingUses: policy.remainingUses,
-      updatedAtMs: Date.now(),
+      updatedAtMs,
       source: 'login',
     });
     publishResolvedIdentity({
@@ -180,6 +181,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       chainTarget: args.purpose.chainTarget,
       signingGrantId,
       thresholdSessionId,
+      updatedAtMs,
     });
   };
 

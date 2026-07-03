@@ -627,6 +627,7 @@ export function persistWarmSessionEd25519Capability(
     chain: 'near',
     signingGrantId,
     thresholdSessionId: sessionId,
+    updatedAtMs: record.updatedAtMs,
   });
   return record;
 }

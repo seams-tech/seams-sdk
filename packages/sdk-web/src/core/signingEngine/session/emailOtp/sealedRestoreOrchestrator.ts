@@ -283,6 +283,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       const chainTarget = sealedRecord.chainTarget;
       const walletId = String(sealedRecord.walletId || '').trim();
       if (walletId && chainTarget) {
+        const restoredAtMs = Date.now();
         publishResolvedIdentity({
           walletId,
           authMethod: 'email_otp',
@@ -290,6 +291,7 @@ export class EmailOtpSealedRestoreOrchestrator {
           chainTarget,
           signingGrantId: sealedRecord.signingGrantId,
           thresholdSessionId,
+          updatedAtMs: restoredAtMs,
         });
       }
       await this.ports.recordSessionMaterialRestored(thresholdSessionId, result);
