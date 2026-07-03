@@ -1303,9 +1303,6 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
     signingGrantId: record.signingGrantId,
-    ...(record.walletSessionJwt
-      ? { walletSessionJwt: record.walletSessionJwt }
-      : {}),
     ...(record.thresholdEcdsaPublicKeyB64u
       ? { thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u }
       : {}),

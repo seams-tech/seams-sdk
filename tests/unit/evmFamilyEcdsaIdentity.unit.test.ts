@@ -719,6 +719,7 @@ test.describe('EVM-family ECDSA identity', () => {
     const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({ record });
 
     expect(keyRef.backendBinding?.materialKind).toBe('role_local_ready_state_blob');
+    expect(keyRef.walletSessionJwt).toBeUndefined();
     if (keyRef.backendBinding?.materialKind !== 'role_local_ready_state_blob') {
       throw new Error('expected ready-state blob backend binding');
     }

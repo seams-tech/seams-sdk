@@ -1294,6 +1294,11 @@ Tracking:
     Remaining record-boundary consumers call
     `resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord`, which returns the
     bound authority atomically or a typed rejection.
+  - Partial July 3 ECDSA key-ref authority cleanup complete:
+    `buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord` no longer copies a
+    persisted `record.walletSessionJwt` into the key ref. Ready signer sessions
+    now receive Wallet Session bearer auth from the committed lane or the
+    explicit signing-wallet-session authority path only.
 - [ ] Delete durable sealed records as authority inputs.
   - Partial July 3 slice complete: sealed Email OTP ECDSA recovery metadata is
     normalized at the sealed-session boundary into
@@ -1406,6 +1411,9 @@ Tracking:
   - Partial July 3 runtime-record ECDSA authority slice complete: EVM-family
     selection and public signing-session refresh no longer pass a naked
     `EmailOtpAuthLane` rebuilt from a runtime ECDSA record.
+  - Partial July 3 ECDSA key-ref authority cleanup complete: runtime ECDSA
+    session records can still build key/material refs, but those refs no longer
+    carry a duplicate Wallet Session JWT authority field.
   - Partial July 3 Ed25519 login route-plan slice complete: core Email OTP
     Ed25519 fresh login now follows the same rule. Raw unlock auth is accepted
     only by the `emailOtpPublic` facade and converted into `EmailOtpRoutePlan`
