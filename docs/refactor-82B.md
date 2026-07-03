@@ -1351,6 +1351,10 @@ Tracking:
     warm-session seal transport. Email OTP transport requires an explicit
     wallet-session JWT at the boundary; Passkey transport falls back to cookie
     auth without reading persisted JWT siblings.
+  - Partial July 3 sealed metadata authority slice complete: passkey sealed
+    restore metadata construction now derives JWT restore auth through the
+    Ed25519/ECDSA record-owned Wallet Session authority parsers instead of
+    reading raw `walletSessionJwt` siblings directly from runtime records.
   - Partial July 3 Ed25519 export-boundary slice complete: Email OTP Ed25519
     export no longer treats `record.walletSessionJwt` as a second authority
     fact inside the committed export lane after the wallet-session authority

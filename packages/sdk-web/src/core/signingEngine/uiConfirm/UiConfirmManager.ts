@@ -54,8 +54,11 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   thresholdEcdsaRecordRpId,
+  type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
+import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '../session/routerAbSigningWalletSession';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   emailOtpAuthContextEmailHashHex,
   emailOtpAuthContextProviderUserId,
@@ -135,31 +138,28 @@ function roundUiConfirmDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
-type PersistedWalletSessionAuthRecord = {
-  thresholdSessionKind: 'jwt' | 'cookie';
-  walletSessionJwt?: string;
-};
-
-function walletSessionJwtFromPersistedSessionAuthRecord(
-  record: PersistedWalletSessionAuthRecord | null | undefined,
-): string {
-  return String(record?.walletSessionJwt || '').trim();
+function ed25519RestoreWalletSessionAuthFields(
+  record: ThresholdEd25519SessionRecord,
+): SealedSigningSessionWalletSessionAuth | null {
+  if (record.thresholdSessionKind === 'jwt') {
+    const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+    return authority.ok
+      ? { sessionKind: 'jwt', walletSessionJwt: authority.value.auth.walletSessionJwt }
+      : null;
+  }
+  return record.thresholdSessionKind === 'cookie' ? { sessionKind: 'cookie' } : null;
 }
 
-function persistedRestoreWalletSessionAuthFields(
-  record: PersistedWalletSessionAuthRecord,
+function ecdsaRestoreWalletSessionAuthFields(
+  record: ThresholdEcdsaSessionRecord,
 ): SealedSigningSessionWalletSessionAuth | null {
-  const walletSessionJwt = walletSessionJwtFromPersistedSessionAuthRecord(record);
-  switch (record.thresholdSessionKind) {
-    case 'jwt':
-      return walletSessionJwt ? { sessionKind: 'jwt', walletSessionJwt } : null;
-    case 'cookie':
-      return walletSessionJwt ? null : { sessionKind: 'cookie' };
-    default: {
-      const exhaustive: never = record.thresholdSessionKind;
-      return exhaustive;
-    }
+  if (record.thresholdSessionKind === 'jwt') {
+    const authority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
+    return authority.kind === 'ready'
+      ? { sessionKind: 'jwt', walletSessionJwt: authority.walletSessionJwt }
+      : null;
   }
+  return record.thresholdSessionKind === 'cookie' ? { sessionKind: 'cookie' } : null;
 }
 
 type PasskeySealedRecordAccountMetadata = {
@@ -304,7 +304,7 @@ function currentEd25519RestoreMetadataFromMaterialRecord(
   const signerSlot = positiveInteger(record.signerSlot);
   const routerAbNormalSigning = record.routerAbNormalSigning;
   const authBranch = currentEd25519RestoreAuthBranchFromMaterialRecord(record);
-  const walletSessionAuth = persistedRestoreWalletSessionAuthFields(record);
+  const walletSessionAuth = ed25519RestoreWalletSessionAuthFields(record);
   if (
     !rpId ||
     !nearAccountId ||
@@ -1255,7 +1255,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       .trim()
       .toLowerCase();
     const ecdsaWalletSessionAuth = ecdsaRecord
-      ? persistedRestoreWalletSessionAuthFields(ecdsaRecord)
+      ? ecdsaRestoreWalletSessionAuthFields(ecdsaRecord)
       : null;
     const ecdsaRestore =
       ecdsaRecord &&
