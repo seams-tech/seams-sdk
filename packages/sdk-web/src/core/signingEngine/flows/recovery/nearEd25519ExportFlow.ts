@@ -114,10 +114,6 @@ function requireEmailOtpEd25519ExportRecord(
   if (!signingGrantId) {
     throw new Error('[SigningEngine][ed25519-export] Email OTP export requires signing grant identity');
   }
-  const walletSessionJwt = nonEmptyString(record.walletSessionJwt);
-  if (!walletSessionJwt) {
-    throw new Error('[SigningEngine][ed25519-export] Email OTP export requires wallet-session authority');
-  }
   if (!record.runtimePolicyScope) {
     throw new Error('[SigningEngine][ed25519-export] Email OTP export requires runtime policy scope');
   }
@@ -128,7 +124,6 @@ function requireEmailOtpEd25519ExportRecord(
     ...record,
     source: 'email_otp',
     signingGrantId,
-    walletSessionJwt,
     runtimePolicyScope: record.runtimePolicyScope,
     emailOtpAuthContext: record.emailOtpAuthContext,
   };
@@ -154,8 +149,7 @@ function buildEd25519ExportLane(args: {
   }
   if (
     args.walletSessionAuth.thresholdSessionId !== thresholdSessionId ||
-    args.walletSessionAuth.signingGrantId !== record.signingGrantId ||
-    args.walletSessionAuth.walletSessionJwt !== record.walletSessionJwt
+    args.walletSessionAuth.signingGrantId !== record.signingGrantId
   ) {
     throw new Error('[SigningEngine][ed25519-export] Email OTP committed lane authority drifted');
   }

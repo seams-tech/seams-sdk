@@ -66,7 +66,6 @@ export type RequestEmailOtpChallengeArgs =
 	    };
 
 export type EmailOtpEd25519ExportSessionRecord = EmailOtpEd25519CommittedSessionRecord & {
-  walletSessionJwt: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };

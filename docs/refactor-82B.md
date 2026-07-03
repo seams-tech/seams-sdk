@@ -1254,6 +1254,10 @@ Tracking:
     transaction challenge surfaces require branch-specific
     `EmailOtpSigningSessionAuthLane` and no longer accept loose root
     `routeAuth` / optional `authLane` inputs.
+  - Partial July 3 Ed25519 export-boundary slice complete: the Email OTP
+    Ed25519 export committed lane no longer requires or compares a
+    `record.walletSessionJwt` after wallet-session authority has been resolved;
+    worker export uses `committedLane.walletSessionAuthority`.
   - Partial July 3 NEAR step-up slice complete: `signNear` builds
     `Ed25519SigningLane` from `EmailOtpEd25519SigningSessionAuthority` and the
     persisted record, with authority/session drift rejected at the builder
@@ -1313,6 +1317,10 @@ Tracking:
     transaction signing boundary now uses the prepared Email OTP committed lane
     as its wallet-session authority source, so a refreshed or stale persisted
     record cannot silently replace the authority selected for step-up.
+  - Partial July 3 Ed25519 export-boundary slice complete: Email OTP Ed25519
+    export no longer treats `record.walletSessionJwt` as a second authority
+    fact inside the committed export lane after the wallet-session authority
+    resolver has built the lane.
   - Partial July 3 auth-projection slice complete: Email OTP app-session JWT
     and route-auth projection helpers now require a concrete
     `EmailOtpAuthLane`; missing auth is rejected by type fixtures instead of

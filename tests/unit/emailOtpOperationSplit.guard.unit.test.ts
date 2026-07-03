@@ -377,6 +377,10 @@ test.describe('Email OTP operation split guard', () => {
     expect(ed25519ExportArgs).not.toContain('authLane?: EmailOtpAuthLane');
     expect(nearExportFlow).toContain('function buildEd25519ExportLane');
     expect(nearExportFlow).toContain('const committedLane = buildEd25519ExportLane');
+    expect(nearExportFlow).not.toContain('const walletSessionJwt = nonEmptyString(record.walletSessionJwt)');
+    expect(nearExportFlow).not.toContain(
+      'args.walletSessionAuth.walletSessionJwt !== record.walletSessionJwt',
+    );
     expect(nearExportFlow).toContain('committedLane,');
     expect(nearExportFlow).not.toContain('exportSigningSessionAuthLane');
     expect(ed25519ExportFunction).toContain('const record = args.committedLane.record');
