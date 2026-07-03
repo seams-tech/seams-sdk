@@ -74,7 +74,6 @@ export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
   userId?: unknown;
   authMethod?: unknown;
   curve?: unknown;
-  thresholdSessionId?: unknown;
   signingGrantId?: unknown;
   thresholdSessionIds?: RawThresholdSessionIds | unknown;
   sealedSecretB64u?: unknown;
@@ -333,25 +332,11 @@ function normalizeThresholdSessionIds(
   record: RawSigningSessionSealedStoreRecord,
 ): RawThresholdSessionIds {
   const current = normalizeRawObject<RawThresholdSessionIds>(record.thresholdSessionIds) || {};
-  if (normalizeNonEmptyString(current.ed25519) || normalizeNonEmptyString(current.ecdsa)) {
-    return current;
-  }
-  const legacyThresholdSessionId = normalizeNonEmptyString(record.thresholdSessionId);
-  if (!legacyThresholdSessionId) return {};
-  if (record.curve === 'ed25519') return { ed25519: legacyThresholdSessionId };
-  if (record.curve === 'ecdsa') return { ecdsa: legacyThresholdSessionId };
-  return {};
-}
-
-function legacySigningGrantFieldName(): string {
-  return ['wallet', 'SigningSessionId'].join('');
+  return current;
 }
 
 function normalizeSigningGrantId(record: RawSigningSessionSealedStoreRecord): string | null {
-  return (
-    normalizeNonEmptyString(record.signingGrantId) ||
-    normalizeNonEmptyString(record[legacySigningGrantFieldName()])
-  );
+  return normalizeNonEmptyString(record.signingGrantId);
 }
 
 function normalizeSessionKind(value: unknown): ThresholdSessionKind | null {

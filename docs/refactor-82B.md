@@ -1996,6 +1996,10 @@ Tracking:
     auth-method records no longer strip or accept a stale passkey `rpId`, and
     row parsing no longer accepts the old `wallet_auth_method_id` that included
     that `rpId`.
+  - Partial July 3 sealed-record id slice complete: sealed recovery parsing no
+    longer accepts legacy `thresholdSessionId` or `walletSigningSessionId`
+    aliases; accepted sealed records must carry canonical `thresholdSessionIds`
+    and `signingGrantId`.
 
 ## Phase 8: Tests And Guards
 

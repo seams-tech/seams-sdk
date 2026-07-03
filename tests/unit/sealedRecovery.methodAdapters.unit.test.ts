@@ -63,10 +63,6 @@ function compressedPublicKeyB64u(prefix: 2 | 3, fill: number): string {
   return base64UrlEncode(bytes);
 }
 
-function legacySigningGrantFieldName(): string {
-  return ['wallet', 'SigningSessionId'].join('');
-}
-
 function makeEmailOtpEcdsaSealedRecord(
   overrides?: Partial<SigningSessionSealedStoreRecord>,
 ): EmailOtpEcdsaSealedRecoveryRecord {
@@ -260,7 +256,7 @@ test.describe('sealed recovery method adapters', () => {
     clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
   });
 
-  test('normalizes legacy sealed-recovery id fields at the storage boundary', () => {
+  test('rejects sealed recovery records without canonical session ids', () => {
     const now = Date.now();
     const normalized = normalizeSealedRecoveryRecord({
       v: 1,
@@ -269,8 +265,7 @@ test.describe('sealed recovery method adapters', () => {
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
       storeKey: 'email_otp:ecdsa:tempo:legacy-threshold-session',
-      [legacySigningGrantFieldName()]: 'legacy-signing-grant',
-      thresholdSessionId: 'legacy-threshold-session',
+      signingGrantId: 'signing-grant',
       sealedSecretB64u: 'sealed-secret',
       curve: 'ecdsa',
       walletId: 'alice.testnet',
@@ -297,24 +292,13 @@ test.describe('sealed recovery method adapters', () => {
       updatedAtMs: now,
     });
 
-    expect(normalized.kind).toBe('accepted');
-    if (normalized.kind !== 'accepted') return;
-    expect(normalized.record.signingGrantId).toBe('legacy-signing-grant');
-    expect(normalized.record.thresholdSessionId).toBe('legacy-threshold-session');
-    expect(normalized.record.authority).toMatchObject({
-      walletId: 'alice.testnet',
-      factor: {
-        kind: 'email_otp',
-        provider: 'google',
-        providerUserId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
-      },
-      verifier: {
-        kind: 'email_otp_wallet_auth_method',
-        emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
+    expect(normalized).toMatchObject({
+      kind: 'rejected',
+      rejection: {
+        kind: 'rejected_sealed_recovery_record',
+        reason: 'missing_identity',
       },
     });
-    expect(legacySigningGrantFieldName() in normalized.record).toBe(false);
-    expect('thresholdSessionIds' in normalized.record).toBe(false);
   });
 
   test('rejects ECDSA sealed recovery records with subjectId', () => {
