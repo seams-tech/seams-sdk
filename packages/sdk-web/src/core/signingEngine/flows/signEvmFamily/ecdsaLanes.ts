@@ -516,13 +516,6 @@ export function resolveEmailOtpEcdsaAuthLaneFromRecord(
   };
 }
 
-export function emailOtpEcdsaAuthLaneFromRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): EmailOtpAuthLane | undefined {
-  const resolution = resolveEmailOtpEcdsaAuthLaneFromRecord(record);
-  return resolution.kind === 'ready' ? resolution.authLane : undefined;
-}
-
 function ecdsaMaterialSourceMatchesAuth(args: {
   authMethod: EvmFamilyEcdsaAuthMethod;
   source: ThresholdEcdsaSessionStoreSource;

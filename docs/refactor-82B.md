@@ -1261,6 +1261,13 @@ Tracking:
     lane through signing and port assembly; only the final Email OTP session
     adapter extracts `committedLane.authLane`. The old
     `emailOtpEd25519AuthLaneFromRecord` fallback is deleted.
+  - Partial July 3 Email OTP ECDSA signing-session slice complete: the public
+    transaction challenge/refresh boundary now resolves a full
+    `EmailOtpEcdsaSigningSessionAuthority` (`authLane` + bound authority) from
+    the exact session record before core challenge/refresh logic runs, instead
+    of passing a naked record-derived auth lane forward. The old
+    `emailOtpEcdsaAuthLaneFromRecord` convenience wrapper is deleted; boundary
+    code must consume the structured resolution result.
 - [ ] Delete durable sealed records as authority inputs.
   - Partial July 3 slice complete: sealed Email OTP ECDSA recovery metadata is
     normalized at the sealed-session boundary into

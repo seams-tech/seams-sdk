@@ -34,7 +34,7 @@ import {
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import { emitEvmFamilySigningEvent } from './events';
 import {
-  emailOtpEcdsaAuthLaneFromRecord,
+  resolveEmailOtpEcdsaAuthLaneFromRecord,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
@@ -48,6 +48,10 @@ import {
   type EmailOtpEcdsaProviderIdentity,
   type EmailOtpEd25519ReconstructionResult,
 } from '../../session/emailOtp/ecdsaLogin';
+import {
+  buildEmailOtpEcdsaSigningSessionAuthority,
+  type EmailOtpEcdsaSigningSessionAuthority,
+} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import { emailOtpAuthContextEmailHashHex } from '../../session/identity/laneIdentity';
 import type { EmailOtpEcdsaCommittedLane } from './ecdsaSelection';
 
@@ -213,15 +217,31 @@ function resolveEmailOtpEcdsaSigningSessionAuth(
   },
 ): {
   record: NonNullable<ReturnType<typeof getThresholdEcdsaSessionRecordForWalletTarget>>;
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+  authority: EmailOtpEcdsaSigningSessionAuthority;
 } {
   const record = getThresholdEcdsaSessionRecordForWalletTarget(deps.ecdsaSessions, {
     walletId: args.walletId,
     chainTarget: args.chainTarget,
     source: 'email_otp',
   });
-  const authLane = emailOtpEcdsaAuthLaneFromRecord(record);
-  if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ecdsa') {
+  const authLaneResolution = resolveEmailOtpEcdsaAuthLaneFromRecord(record);
+  if (authLaneResolution.kind !== 'ready') {
+    throwEmailOtpSigningSessionAuthStateError({
+      kind: 'auth_lane_missing',
+      source: 'evm_signing_refresh',
+      expectedCurve: 'ecdsa',
+    });
+  }
+  const authLane = authLaneResolution.authLane;
+  const emailOtpAuthContext = thresholdEcdsaEmailOtpAuthContext(record);
+  if (!emailOtpAuthContext) {
+    throw new Error('Email OTP signing-session auth requires Email OTP auth context');
+  }
+  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
+    authLane,
+    authority: emailOtpAuthContext.authority,
+  });
+  if (!authority) {
     throwEmailOtpSigningSessionAuthStateError({
       kind: 'auth_lane_missing',
       source: 'evm_signing_refresh',
@@ -230,7 +250,7 @@ function resolveEmailOtpEcdsaSigningSessionAuth(
   }
   return {
     record,
-    authLane,
+    authority,
   };
 }
 
@@ -241,7 +261,7 @@ export async function requestEmailOtpSigningSessionChallenge(
     chainTarget: ThresholdEcdsaChainTarget;
   },
 ): Promise<{ challengeId: string; emailHint?: string }> {
-  const { authLane } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
+  const { authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
@@ -249,7 +269,7 @@ export async function requestEmailOtpSigningSessionChallenge(
     kind: 'wallet_session_challenge',
     walletSession: args.walletSession,
     chain: args.chainTarget.kind,
-    authLane,
+    authLane: authority.authLane,
   });
 }
 
@@ -269,13 +289,13 @@ export async function refreshEmailOtpSigningSession(
   warmCapability: WarmSessionEcdsaCapabilityState;
   ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
 }> {
-  const { record, authLane } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
+  const { record, authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
   const routePlan = buildEmailOtpRoutePlan({
     routeFamily: 'signing_session',
-    authLane,
+    authLane: authority.authLane,
     operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
   });
   const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });

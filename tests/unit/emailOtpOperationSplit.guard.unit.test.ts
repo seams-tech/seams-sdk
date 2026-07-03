@@ -192,6 +192,9 @@ test.describe('Email OTP operation split guard', () => {
     const ecdsaSelection = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
     );
+    const ecdsaLanes = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
+    );
     const preparedSigning = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
@@ -205,6 +208,8 @@ test.describe('Email OTP operation split guard', () => {
     expect(ecdsaSelection).not.toContain('findExactEcdsaKeyRefForSelectedLane');
     expect(ecdsaSelection).not.toContain('tryGetEmailOtpThresholdEcdsaKeyRefForSigning');
     expect(ecdsaSelection).not.toContain('tryGetPasskeyThresholdEcdsaKeyRefForSigning');
+    expect(ecdsaLanes).not.toContain('function emailOtpEcdsaAuthLaneFromRecord');
+    expect(ecdsaLanes).toContain('function resolveEmailOtpEcdsaAuthLaneFromRecord');
   });
 
   test('Email OTP ECDSA export route auth consumes committed lanes', () => {
