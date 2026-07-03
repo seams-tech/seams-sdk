@@ -847,6 +847,17 @@ function parseD1Base64Url(raw: unknown): string {
   }
 }
 
+function parseD1PresentBase64Url(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  try {
+    base64UrlDecode(value);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 function parseD1ThresholdEd25519ParticipantIds(raw: unknown): number[] | null {
   if (!Array.isArray(raw) || raw.length < 2) return null;
   const participantIds: number[] = [];
@@ -893,8 +904,8 @@ function parseD1ThresholdEd25519HssRespondedServerSession(
   const prepared = parseD1ThresholdEd25519HssPreparedServerSession(raw);
   const record = toRecordValue(raw);
   if (!prepared || !record) return null;
-  const serverEvalStateB64u = parseD1Base64Url(record.serverEvalStateB64u);
-  if (!serverEvalStateB64u) return null;
+  const serverEvalStateB64u = parseD1PresentBase64Url(record.serverEvalStateB64u);
+  if (serverEvalStateB64u === null) return null;
   return {
     ...prepared,
     serverEvalStateB64u,

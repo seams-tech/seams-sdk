@@ -131,7 +131,7 @@ function testEd25519RespondedServerState() {
     context: prepared.context,
     preparedServerSession: {
       ...prepared.preparedServerSession,
-      serverEvalStateB64u: 'BQ',
+      serverEvalStateB64u: '',
     },
   };
 }

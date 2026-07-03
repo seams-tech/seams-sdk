@@ -1253,6 +1253,20 @@ function decodeThresholdEd25519HssBase64UrlField(
   }
 }
 
+function decodeThresholdEd25519HssPresentBase64UrlField(
+  raw: unknown,
+  fieldName: string,
+): ParseResult<Uint8Array> {
+  if (typeof raw !== 'string') {
+    return { ok: false, code: 'invalid_body', message: `${fieldName} is required` };
+  }
+  try {
+    return { ok: true, value: base64UrlDecode(raw.trim()) };
+  } catch {
+    return { ok: false, code: 'invalid_body', message: `${fieldName} must be valid base64url` };
+  }
+}
+
 function parseThresholdEd25519HssPersistedPreparedServerSession(
   raw: unknown,
 ): ParseResult<ThresholdEd25519HssStoredPreparedServerSession> {
@@ -1301,7 +1315,7 @@ function parseThresholdEd25519HssPersistedRespondedServerSession(
       message: 'serverState.preparedServerSession is required',
     };
   }
-  const serverEvalStateBytes = decodeThresholdEd25519HssBase64UrlField(
+  const serverEvalStateBytes = decodeThresholdEd25519HssPresentBase64UrlField(
     raw.serverEvalStateB64u,
     'serverState.preparedServerSession.serverEvalStateB64u',
   );
@@ -1434,8 +1448,7 @@ function isThresholdEd25519HssStoredRespondedServerSession(
 ): preparedServerSession is ThresholdEd25519HssStoredRespondedServerSession {
   return (
     'serverEvalStateBytes' in preparedServerSession &&
-    preparedServerSession.serverEvalStateBytes instanceof Uint8Array &&
-    preparedServerSession.serverEvalStateBytes.byteLength > 0
+    preparedServerSession.serverEvalStateBytes instanceof Uint8Array
   );
 }
 

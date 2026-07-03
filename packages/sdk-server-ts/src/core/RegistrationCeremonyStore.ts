@@ -1356,12 +1356,23 @@ function parseStoredThresholdEd25519HssRespondedServerSession(
 ): ThresholdEd25519HssPersistedRespondedServerSession | null {
   const prepared = parseStoredThresholdEd25519HssPreparedServerSession(value);
   if (!prepared || !isRecord(value)) return null;
-  const serverEvalStateB64u = parseStoredBase64Url(value.serverEvalStateB64u);
-  if (!serverEvalStateB64u) return null;
+  const serverEvalStateB64u = parseStoredPresentBase64Url(value.serverEvalStateB64u);
+  if (serverEvalStateB64u === null) return null;
   return {
     ...prepared,
     serverEvalStateB64u,
   };
+}
+
+function parseStoredPresentBase64Url(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const parsed = value.trim();
+  try {
+    base64UrlDecode(parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function parseStoredThresholdEd25519HssServerInputs(

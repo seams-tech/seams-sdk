@@ -1092,11 +1092,12 @@ function parseDurableEd25519HssPreparedServerSession(
   if (!evaluatorDriverStateB64u || !garblerDriverStateB64u) {
     throw new Error('durable Ed25519 HSS preparedServerSession is incomplete');
   }
-  const serverEvalStateB64u = toOptionalTrimmedString(raw.serverEvalStateB64u);
+  const serverEvalStateB64u =
+    typeof raw.serverEvalStateB64u === 'string' ? raw.serverEvalStateB64u.trim() : null;
   return {
     evaluatorDriverStateBytes: base64UrlDecode(evaluatorDriverStateB64u),
     garblerDriverStateBytes: base64UrlDecode(garblerDriverStateB64u),
-    ...(serverEvalStateB64u
+    ...(serverEvalStateB64u !== null
       ? { serverEvalStateBytes: base64UrlDecode(serverEvalStateB64u) }
       : {}),
   };
@@ -1140,8 +1141,7 @@ function isDurableEd25519HssRespondedServerSession(
 ): preparedServerSession is ThresholdEd25519HssStoredRespondedServerSession {
   return (
     'serverEvalStateBytes' in preparedServerSession &&
-    preparedServerSession.serverEvalStateBytes instanceof Uint8Array &&
-    preparedServerSession.serverEvalStateBytes.byteLength > 0
+    preparedServerSession.serverEvalStateBytes instanceof Uint8Array
   );
 }
 

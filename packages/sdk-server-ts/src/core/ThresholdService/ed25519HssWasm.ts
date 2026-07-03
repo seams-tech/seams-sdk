@@ -113,6 +113,20 @@ type ThresholdEd25519HssServerCeremonyTimings = {
   encodeArtifactMs: number;
 };
 
+function decodePresentThresholdEd25519HssBase64Url(
+  value: unknown,
+  fieldName: string,
+): Uint8Array {
+  if (typeof value !== 'string') {
+    throw new Error(`[threshold-ed25519-hss] ${fieldName} is required`);
+  }
+  try {
+    return base64UrlDecode(value.trim());
+  } catch {
+    throw new Error(`[threshold-ed25519-hss] ${fieldName} must be valid base64url`);
+  }
+}
+
 type ThresholdEd25519HssServerInputDeliveryTimings = {
   decodeMessagesMs: number;
   materializeSessionMs: number;
@@ -798,7 +812,10 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
   return {
     engine: 'wasm',
     serverInputDelivery,
-    serverEvalStateBytes: base64UrlDecode(String(result.serverEvalStateB64u || '').trim()),
+    serverEvalStateBytes: decodePresentThresholdEd25519HssBase64Url(
+      result.serverEvalStateB64u,
+      'serverEvalStateB64u',
+    ),
     timings: result.timings
       ? {
           decodeMessagesMs: Number(result.timings.decodeMessagesMs || 0),
