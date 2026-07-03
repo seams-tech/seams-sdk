@@ -2056,6 +2056,13 @@ Tracking:
     `signingSessionRestoreCoordinator.unit.test.ts` now proves stale Ed25519
     `authSubjectId` aliases and ECDSA top-level signing-root siblings are
     rejected at the sealed-record boundary before restore is attempted.
+  - Partial July 3 shared sealed-record type strictness complete:
+    `SealedSigningSessionRecord` is now a curve-discriminated current record
+    shape with required `walletId`, `relayerUrl`, curve-local
+    `thresholdSessionIds`, and curve-local restore metadata. Stale
+    `subjectId` / `userId` fields and ECDSA top-level signing-root siblings
+    are rejected by shared type fixtures; raw legacy rows remain accepted only
+    by sealed-store boundary parsing.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.
@@ -2200,6 +2207,9 @@ Tracking:
       material-state data.
 - [x] Add focused sealed parser coverage proving stale Ed25519 `authSubjectId`
       and ECDSA top-level signing-root aliases are rejected before restore.
+- [x] Add shared sealed-record type fixtures rejecting stale `subjectId`,
+      `userId`, ECDSA top-level signing-root siblings, missing wallet identity,
+      and missing curve-local restore metadata.
 - [ ] Add runtime coverage for Passkey registration, unlock, sign, and export.
 - [ ] Add runtime coverage for Google SSO Email OTP registration, unlock, sign,
       and export.

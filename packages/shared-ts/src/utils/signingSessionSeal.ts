@@ -153,7 +153,7 @@ export type SealedSigningSessionEd25519RestoreMetadata =
       authSubjectId?: never;
     });
 
-export type SealedSigningSessionRecord = {
+type SealedSigningSessionRecordBase = {
   v: typeof SIGNING_SESSION_SEALED_RECORD_VERSION;
   alg: typeof SIGNING_SESSION_SEAL_ALG;
   storageScope: typeof SIGNING_SESSION_SEAL_STORAGE_SCOPE;
@@ -161,27 +161,40 @@ export type SealedSigningSessionRecord = {
   secretKind: typeof SIGNING_SESSION_SECRET_KIND;
   storeKey: string;
   signingGrantId: string;
-  thresholdSessionIds: {
-    ed25519?: string;
-    ecdsa?: string;
-  };
   sealedSecretB64u: string;
-  curve: SigningSessionSealCurve;
-  subjectId?: string;
-  walletId?: string;
-  userId?: string;
-  signingRootId?: string;
-  signingRootVersion?: string;
-  relayerUrl?: string;
+  walletId: string;
+  relayerUrl: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
-  ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
-  ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
   issuedAtMs: number;
   expiresAtMs: number;
   remainingUses: number;
   updatedAtMs: number;
 };
+
+export type SealedSigningSessionRecord =
+  | (SealedSigningSessionRecordBase & {
+      curve: 'ed25519';
+      thresholdSessionIds: {
+        ed25519: string;
+        ecdsa?: string;
+      };
+      signingRootId?: string;
+      signingRootVersion?: string;
+      ed25519Restore: SealedSigningSessionEd25519RestoreMetadata;
+      ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
+    })
+  | (SealedSigningSessionRecordBase & {
+      curve: 'ecdsa';
+      thresholdSessionIds: {
+        ed25519?: string;
+        ecdsa: string;
+      };
+      signingRootId?: never;
+      signingRootVersion?: never;
+      ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
+      ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
+    });
 
 export type EmailOtpSigningSessionSecretInfoInput = {
   walletId: string;
