@@ -742,8 +742,8 @@ function buildPasskeyEcdsaWalletSessionAuthorityFromRecord(args: {
   if (walletSessionAuth.kind === 'ready') {
     return buildEcdsaCommittedLaneWalletSessionAuthority({
       walletSessionJwt: walletSessionAuth.walletSessionJwt,
-      thresholdSessionId: args.record.thresholdSessionId,
-      signingGrantId: args.record.signingGrantId,
+      thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
+      signingGrantId: walletSessionAuth.identity.signingGrantId,
     });
   }
   if (walletSessionAuth.reason === 'cookie_session') {

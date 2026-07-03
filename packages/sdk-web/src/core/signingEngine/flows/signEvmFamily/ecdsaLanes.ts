@@ -492,24 +492,25 @@ export function resolveEmailOtpEcdsaAuthLaneFromRecord(
   if (record.source !== SIGNER_AUTH_METHODS.emailOtp) {
     return { kind: 'not_email_otp_record', source: record.source };
   }
-  const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
-  const walletSessionAuth = record ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(record) : null;
-  if (walletSessionAuth?.kind !== 'ready') {
+  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
+  if (walletSessionAuth.kind !== 'ready') {
+    if (walletSessionAuth.reason === 'missing_session_identity') {
+      return { kind: 'missing_session_identity' };
+    }
     return {
       kind: 'wallet_session_auth_unavailable',
-      reason: walletSessionAuth?.reason || 'missing_wallet_session_jwt',
+      reason: walletSessionAuth.reason,
     };
-  }
-  if (!identity) {
-    return { kind: 'missing_session_identity' };
   }
   return {
     kind: 'ready',
     authLane: {
       kind: 'signing_session',
       jwt: walletSessionAuth.walletSessionJwt,
-      thresholdSessionId: identity.thresholdSessionId,
-      authorizingSigningGrantId: toAuthorizingSigningGrantId(identity.signingGrantId),
+      thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
+      authorizingSigningGrantId: toAuthorizingSigningGrantId(
+        walletSessionAuth.identity.signingGrantId,
+      ),
       curve: 'ecdsa',
       chainTarget: record.chainTarget,
     },

@@ -89,6 +89,7 @@ export type RouterAbEcdsaHssSigningWalletSession = {
 export type RouterAbSigningWalletSessionParseFailureReason =
   | 'missing_record'
   | 'cookie_session'
+  | 'missing_session_identity'
   | 'missing_wallet_session_jwt'
   | 'missing_signing_grant_id'
   | 'missing_threshold_session_id'
@@ -464,6 +465,12 @@ function serializeEd25519WorkerMaterialValidationKey(
   return alphabetizeStringify(key);
 }
 
+function assertNeverRouterAbParseFailureReason(
+  reason: never,
+): Ed25519WorkerMaterialRuntimeValidationFailureReason {
+  throw new Error(`Unhandled router-ab signing wallet-session parse failure: ${String(reason)}`);
+}
+
 function ed25519WorkerMaterialValidationFailureFromParseReason(
   reason: RouterAbSigningWalletSessionParseFailureReason,
 ): Ed25519WorkerMaterialRuntimeValidationFailureReason {
@@ -486,6 +493,7 @@ function ed25519WorkerMaterialValidationFailureFromParseReason(
       return 'expired';
     case 'missing_record':
     case 'cookie_session':
+    case 'missing_session_identity':
     case 'missing_wallet_session_jwt':
     case 'wallet_binding_mismatch':
     case 'missing_signing_grant_id':
@@ -493,6 +501,7 @@ function ed25519WorkerMaterialValidationFailureFromParseReason(
     case 'missing_runtime_policy_scope':
       return 'credential_mismatch';
   }
+  return assertNeverRouterAbParseFailureReason(reason);
 }
 
 export function resolveRouterAbEd25519WorkerMaterialRuntimeValidation(
@@ -814,12 +823,7 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   }
   const auth = buildWalletSessionJwtAuth(resolvedAuth.walletSessionJwt);
   if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
-  const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
-  if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
-  const signingGrantId = nonEmptyString(record.signingGrantId);
-  if (!signingGrantId) {
-    return { ok: false, reason: 'missing_signing_grant_id' };
-  }
+  const { thresholdSessionId, signingGrantId } = resolvedAuth.identity;
   if (!record.runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
   if (!record.routerAbEcdsaHssNormalSigning) {
     return { ok: false, reason: 'missing_router_ab_state' };

@@ -1324,6 +1324,12 @@ Tracking:
     It no longer probes the warm capability store, stale records without a JWT
     fail as `missing_wallet_session_jwt`, and type fixtures reject
     `source: 'warm_capability'`.
+  - Partial July 3 Router A/B ECDSA authority-identity slice complete:
+    `resolveRouterAbEcdsaWalletSessionAuthFromRecord` now returns an atomic
+    `RouterAbEcdsaWalletSessionAuthority` carrying the wallet-session JWT and
+    exact `EcdsaSessionIdentity`. Passkey committed-lane authority, Email OTP
+    auth-lane resolution, and Router A/B ECDSA HSS session parsing consume that
+    identity instead of recombining JWT authority with sibling record fields.
   - Partial July 3 Ed25519 login route-plan slice complete: core Email OTP
     Ed25519 fresh login now follows the same rule. Raw unlock auth is accepted
     only by the `emailOtpPublic` facade and converted into `EmailOtpRoutePlan`
