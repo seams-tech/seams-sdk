@@ -164,15 +164,22 @@ export function authLaneAppSessionJwt(lane: EmailOtpAuthLane): string {
   return lane.kind === 'app_session' ? lane.jwt : '';
 }
 
+export function requireEmailOtpAuthLane(
+  lane: EmailOtpAuthLane | undefined,
+  context: string,
+): EmailOtpAuthLane {
+  if (!lane) {
+    throw new Error(`Email OTP ${context} requires an auth lane`);
+  }
+  return lane;
+}
+
 export function buildEmailOtpRoutePlan(args: {
   routeFamily: EmailOtpRouteFamily;
-  authLane?: EmailOtpAuthLane;
+  authLane: EmailOtpAuthLane;
   operation?: WalletEmailOtpOperation;
 }): EmailOtpRoutePlan {
-  const authLane = args.authLane;
-  if (!authLane) {
-    throw new Error(`Email OTP ${args.routeFamily} route requires an auth lane`);
-  }
+  const authLane = requireEmailOtpAuthLane(args.authLane, `${args.routeFamily} route`);
   if (args.routeFamily === 'signing_session' && authLane.kind !== 'signing_session') {
     throw new Error('Email OTP signing-session routes require signing-session auth');
   }
@@ -251,6 +258,7 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
       chainTarget: input.authLane?.chainTarget,
     });
   }
+  if (!authLane) return undefined;
   return buildEmailOtpRoutePlan({
     routeFamily: routeFamily as EmailOtpRouteFamily,
     authLane,

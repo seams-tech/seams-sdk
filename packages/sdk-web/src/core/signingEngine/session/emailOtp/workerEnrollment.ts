@@ -14,6 +14,7 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   buildEmailOtpRoutePlan,
+  requireEmailOtpAuthLane,
   resolveEmailOtpAuthLane,
   type EmailOtpRouteFamily,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
@@ -104,10 +105,13 @@ function buildWorkerEmailOtpRoutePlan(args: {
   const appSessionJwt = readOptionalString(args.appSessionJwt);
   return buildEmailOtpRoutePlan({
     routeFamily: args.routeFamily,
-    authLane: resolveEmailOtpAuthLane({
-      sessionKind: appSessionJwt ? 'jwt' : 'cookie',
-      ...(appSessionJwt ? { appSessionJwt } : {}),
-    }),
+    authLane: requireEmailOtpAuthLane(
+      resolveEmailOtpAuthLane({
+        sessionKind: appSessionJwt ? 'jwt' : 'cookie',
+        ...(appSessionJwt ? { appSessionJwt } : {}),
+      }),
+      'worker route plan',
+    ),
   });
 }
 

@@ -1355,6 +1355,10 @@ Tracking:
     restore metadata construction now derives JWT restore auth through the
     Ed25519/ECDSA record-owned Wallet Session authority parsers instead of
     reading raw `walletSessionJwt` siblings directly from runtime records.
+  - Partial July 3 route-plan boundary slice complete:
+    `buildEmailOtpRoutePlan` now requires a concrete `EmailOtpAuthLane` at the
+    type boundary, and app/cookie callers must resolve the lane before route
+    plan construction.
   - Partial July 3 Ed25519 export-boundary slice complete: Email OTP Ed25519
     export no longer treats `record.walletSessionJwt` as a second authority
     fact inside the committed export lane after the wallet-session authority

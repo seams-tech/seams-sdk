@@ -1,4 +1,4 @@
-import { authLaneAppSessionJwt, authLaneToRouteAuth } from './authLane';
+import { authLaneAppSessionJwt, authLaneToRouteAuth, buildEmailOtpRoutePlan } from './authLane';
 import type { EmailOtpAuthLane } from './authLane';
 
 declare const authLane: EmailOtpAuthLane;
@@ -14,5 +14,8 @@ authLaneToRouteAuth(undefined);
 
 // @ts-expect-error app-session JWT projection requires a concrete Email OTP auth lane.
 authLaneAppSessionJwt(undefined);
+
+// @ts-expect-error route planning requires a concrete Email OTP auth lane.
+buildEmailOtpRoutePlan({ routeFamily: 'login' });
 
 export {};
