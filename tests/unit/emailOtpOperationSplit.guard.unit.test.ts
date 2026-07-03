@@ -470,6 +470,8 @@ test.describe('Email OTP operation split guard', () => {
     expect(ed25519Warmup).not.toContain('RecordBackedEmailOtpEd25519SigningCommittedLane');
     expect(signNear).toContain('committedLane: Ed25519SigningLane');
     expect(signNear).toContain('walletSessionJwtForPreparedNearExecution');
+    expect(signNear).toContain('trustedBudgetStatusAuthFromEd25519WalletSessionState');
+    expect(signNear).not.toContain('trustedBudgetStatusAuthFromEd25519Record');
     expect(signNear).toContain('committedLane,');
     expect(signNear).not.toContain('walletSessionJwtFromPersistedEd25519Record(thresholdSessionRecord)');
     expect(signNear).not.toContain('authLane: committedLane.authLane');

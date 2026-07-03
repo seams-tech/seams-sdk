@@ -1269,6 +1269,10 @@ Tracking:
     transaction execution reads the Wallet Session bearer JWT from
     `Ed25519SigningLane.walletSessionAuthority`, not from the persisted
     Ed25519 session record.
+  - Partial July 3 NEAR budget-status slice complete: NEAR pre-confirm
+    budget-status auth now consumes `ResolvedRouterAbEd25519WalletSessionState`
+    from the Router A/B Ed25519 wallet-session boundary instead of rebuilding
+    Wallet Session JWT auth directly from the persisted Ed25519 record.
   - Partial July 3 Email OTP ECDSA signing-session slice complete: the public
     transaction challenge/refresh boundary now resolves a full
     `EmailOtpEcdsaSigningSessionAuthority` (`authLane` + bound authority) from

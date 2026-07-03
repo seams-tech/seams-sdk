@@ -575,12 +575,12 @@ function resolveEd25519PasskeyStorageSource(
   return source && source !== 'email_otp' ? source : 'login';
 }
 
-function trustedBudgetStatusAuthFromEd25519Record(
-  record: ThresholdEd25519SessionRecord,
+function trustedBudgetStatusAuthFromEd25519WalletSessionState(
+  state: ResolvedRouterAbEd25519WalletSessionState,
 ): SigningSessionBudgetStatusAuth | null {
-  const relayerUrl = String(record.relayerUrl || '').trim();
-  const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-  const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(record);
+  const relayerUrl = String(state.relayerUrl || '').trim();
+  const thresholdSessionId = String(state.thresholdSessionId || '').trim();
+  const walletSessionJwt = String(state.signingWalletSession.auth.walletSessionJwt || '').trim();
   if (!relayerUrl || !thresholdSessionId || !walletSessionJwt) return null;
   return {
     relayerUrl,
@@ -1505,7 +1505,11 @@ async function prepareNearEd25519TransactionOperation(args: {
   );
   const transactionOperation = prepareTransactionOperationFromReadiness(transactionReadinessState);
   const identity = requireResolvedNearEd25519SigningLane(lane);
-  const trustedStatusAuth = trustedBudgetStatusAuthFromEd25519Record(recordForLifecycle);
+  const walletSessionStateForBudget =
+    resolveRouterAbEd25519WalletSessionStateFromRecord(recordForLifecycle);
+  const trustedStatusAuth = walletSessionStateForBudget
+    ? trustedBudgetStatusAuthFromEd25519WalletSessionState(walletSessionStateForBudget)
+    : null;
   const readinessInput = {
     readiness: readiness.readiness,
     expiresAtMs: readiness.expiresAtMs,
