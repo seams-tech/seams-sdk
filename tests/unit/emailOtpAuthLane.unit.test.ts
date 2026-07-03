@@ -34,7 +34,7 @@ test.describe('Email OTP auth lane route planning', () => {
     expect(emailOtpRoutePath(registration, 'challenge')).toBe(
       '/wallet/email-otp/registration/challenge',
     );
-    expect(authLaneToRouteAuth(authLane)).toEqual({
+    expect(authLaneToRouteAuth(login.authLane)).toEqual({
       kind: 'app_session',
       jwt: 'app-session-jwt',
     });
@@ -49,7 +49,7 @@ test.describe('Email OTP auth lane route planning', () => {
     });
 
     expect(plan.authLane).toEqual({ kind: 'cookie' });
-    expect(authLaneToRouteAuth(authLane)).toBeUndefined();
+    expect(authLaneToRouteAuth(plan.authLane)).toBeUndefined();
     expect(emailOtpRoutePath(plan, 'verify')).toBe('/wallet/email-otp/login/verify');
     expect(emailOtpRoutePath(plan, 'verifyAndUnseal')).toBe(
       '/wallet/email-otp/login/verify-and-unseal',
@@ -77,7 +77,7 @@ test.describe('Email OTP auth lane route planning', () => {
     expect(emailOtpRoutePath(plan, 'challenge')).toBe(
       '/wallet/email-otp/signing-session/challenge',
     );
-    expect(authLaneToRouteAuth(authLane)).toEqual({
+    expect(authLaneToRouteAuth(plan.authLane)).toEqual({
       kind: 'wallet_session',
       jwt: 'threshold-session-jwt',
     });

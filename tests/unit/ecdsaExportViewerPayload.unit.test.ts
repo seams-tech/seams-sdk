@@ -157,13 +157,14 @@ test.describe('threshold ECDSA export viewer payload', () => {
         chain: 'evm',
         publicKey: '0x02abcdef',
         curve: 'ecdsa',
+        challengeAuthority: { kind: 'fresh_login' },
       },
     );
 
     expect(authorization.walletSessionUserId).toBe('frost-vermillion-k7p9m2');
     expect(authorization.challengeId).toBe('email-otp-export-1');
     expect(authorization.otpCode).toBe('123456');
-    expect(capturedChallengeKind).toBe('wallet_session_challenge');
+    expect(capturedChallengeKind).toBe('wallet_session_fresh_login_challenge');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
     expect(capturedPayloadWalletId).toBe('frost-vermillion-k7p9m2');
   });

@@ -12,6 +12,7 @@ import {
   resolvePasskeyEcdsaBootstrapPersistenceSource,
   type EcdsaBootstrapRequest,
 } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import { shouldEnsurePasskeyEcdsaSealAfterProvision } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import { toEmailOtpAuthSubjectId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
@@ -89,12 +90,13 @@ test.describe('ECDSA bootstrap warm persistence branches', () => {
       sessionKind: 'jwt',
       sessionIdentity,
       emailOtpWorkerSessionHandle: emailOtpWorkerSessionHandle(),
-      emailOtpAuthContext: {
+      emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
         policy: 'session',
         retention: 'session',
         reason: 'sign',
-        authMethod: 'email_otp',
-      },
+        provider: 'google',
+        providerUserId: 'google:alice',
+      }),
     } satisfies EcdsaBootstrapRequest;
 
     expect(shouldEnsurePasskeyEcdsaSealAfterProvision(request)).toBe(false);

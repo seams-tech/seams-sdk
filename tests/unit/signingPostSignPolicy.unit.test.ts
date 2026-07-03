@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   applyEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed,
@@ -38,6 +39,39 @@ const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_CONTEXT_BINDING_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const POST_SIGN_PASSKEY_CREDENTIAL_ID = 'post-sign-passkey-credential';
+const SIGNING_ROOT_ID = 'signing-root';
+const SIGNING_ROOT_VERSION = 'v1';
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: WALLET_ID,
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+});
+
+function emailOtpPostSignAuthContext(args: {
+  retention?: 'session' | 'single_use';
+  consumedAtMs?: number;
+}) {
+  if (args.retention === 'session') {
+    return buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: 'session',
+      reason: 'sign',
+      retention: 'session',
+      provider: 'email',
+      providerUserId: String(WALLET_ID),
+    });
+  }
+  if (args.consumedAtMs) {
+    return buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: 'per_operation',      provider: 'email',
+      providerUserId: String(WALLET_ID),
+      consumedAtMs: args.consumedAtMs,
+    });
+  }
+  return buildEmailOtpAuthContextForWalletAuthMethod({
+    policy: 'per_operation',    provider: 'email',
+    providerUserId: String(WALLET_ID),
+  });
+}
 
 function roleLocalReadyRecordForPostSign(args: {
   chainTarget: ThresholdEcdsaChainTarget;
@@ -54,12 +88,12 @@ function roleLocalReadyRecordForPostSign(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: WALLET_ID,
-      walletKeyId: 'wallet-key-post-sign',
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       chainTarget: args.chainTarget,
       keyHandle,
       ecdsaThresholdKeyId: 'ecdsa-key-1',
-      signingRootId: 'signing-root',
-      signingRootVersion: 'v1',
+      signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       applicationBindingDigestB64u: VALID_CONTEXT_BINDING_B64U,
       clientParticipantId: 1,
       relayerParticipantId: 2,
@@ -91,13 +125,13 @@ function ecdsaRecord(args: {
   const chainTarget = args.chainTarget || EVM_CHAIN_TARGET;
   const common = {
     walletId: WALLET_ID,
-    walletKeyId: requireWalletKeyId('wallet-key-post-sign'),
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-post-sign'),
     ecdsaThresholdKeyId: 'ecdsa-key-1',
-    signingRootId: 'signing-root',
-    signingRootVersion: 'v1',
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
     ecdsaRoleLocalReadyRecord: roleLocalReadyRecordForPostSign({ chainTarget, source }),
@@ -119,14 +153,10 @@ function ecdsaRecord(args: {
   return {
     ...common,
     source: 'email_otp',
-    emailOtpAuthContext: {
-      authMethod: 'email_otp',
-      authSubjectId: String(WALLET_ID),
-      policy: 'per_operation',
-      reason: 'sign',
-      retention: args.retention || 'single_use',
-      ...(args.consumedAtMs ? { consumedAtMs: args.consumedAtMs } : {}),
-    },
+    emailOtpAuthContext: emailOtpPostSignAuthContext({
+      retention: args.retention,
+      consumedAtMs: args.consumedAtMs,
+    }),
   };
 }
 

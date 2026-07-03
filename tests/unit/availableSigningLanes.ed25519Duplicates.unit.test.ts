@@ -31,6 +31,8 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp',
   providerSubjectId: 'google:ed25519-duplicates',
 } as const;
+const ED25519_MATERIAL_BINDING_DIGEST = 'material-binding-ed25519';
+const ED25519_MATERIAL_KEY_ID = 'material-key-ed25519';
 
 function concreteEd25519AuthKinds(lanes: AvailableEd25519SigningLane[]): string[] {
   const authKinds: string[] = [];
@@ -67,16 +69,20 @@ function sealedEd25519Record(args: {
       rpId: 'wallet.example.localhost',
       ...(args.authMethod === 'passkey'
         ? { credentialIdB64u: PASSKEY_AUTH.credentialIdB64u }
-        : { providerSubjectId: EMAIL_OTP_AUTH.providerSubjectId }),
+        : {
+            providerSubjectId: EMAIL_OTP_AUTH.providerSubjectId,
+            emailHashHex: 'email-hash-ed25519-duplicates',
+          }),
       relayerKeyId: 'relayer-key',
       participantIds: [1, 2],
       sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ed25519',
       clientVerifyingShareB64u: 'client-verifying-share-ed25519',
-      ed25519WorkerMaterialBindingDigest: 'material-binding-ed25519',
+      ed25519WorkerMaterialBindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
       sealedWorkerMaterialRef: 'sealed-worker-material-ed25519',
+      sealedWorkerMaterialB64u: 'sealed-worker-material-blob-ed25519',
       materialFormatVersion: 'ed25519_worker_material_v1',
-      materialKeyId: 'material-key-ed25519',
+      materialKeyId: ED25519_MATERIAL_KEY_ID,
       materialCreatedAtMs: issuedAtMs,
       signerSlot: 1,
       routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
@@ -171,6 +177,13 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
+          material: {
+            kind: 'loaded_worker_material',
+            identity: {
+              bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
+              materialKeyId: ED25519_MATERIAL_KEY_ID,
+            },
+          },
         },
       ],
       warmStatusAdvisories: new Map([
@@ -195,13 +208,23 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       signingGrantId: 'wsess-1',
       thresholdSessionId: 'tsess-1',
       remainingUses: 1,
-      materialKeyId: 'material-key-ed25519',
-      ed25519WorkerMaterialBindingDigest: 'material-binding-ed25519',
+      material: {
+        kind: 'loaded_worker_material',
+        identity: {
+          bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
+          materialKeyId: ED25519_MATERIAL_KEY_ID,
+        },
+      },
     });
     expect(availableLanes.lanes.ed25519.near).toMatchObject({
       source: 'runtime_session_record',
-      materialKeyId: 'material-key-ed25519',
-      ed25519WorkerMaterialBindingDigest: 'material-binding-ed25519',
+      material: {
+        kind: 'loaded_worker_material',
+        identity: {
+          bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
+          materialKeyId: ED25519_MATERIAL_KEY_ID,
+        },
+      },
     });
   });
 
@@ -295,6 +318,13 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
+          material: {
+            kind: 'loaded_worker_material',
+            identity: {
+              bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
+              materialKeyId: ED25519_MATERIAL_KEY_ID,
+            },
+          },
         },
         {
           auth: EMAIL_OTP_AUTH,
@@ -307,6 +337,13 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
+          material: {
+            kind: 'loaded_worker_material',
+            identity: {
+              bindingDigest: ED25519_MATERIAL_BINDING_DIGEST,
+              materialKeyId: ED25519_MATERIAL_KEY_ID,
+            },
+          },
         },
       ],
       warmStatusAdvisories: new Map([

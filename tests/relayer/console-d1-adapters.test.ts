@@ -3088,7 +3088,7 @@ function buildD1EmailOtpRegistrationAttemptRecord(input: {
     ],
     selectedCandidateId: 'candidate-primary',
     appSessionVersion: input.appSessionVersion,
-    authProvider: 'google_oidc',
+    authProvider: 'google',
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce: 'wallet-id-nonce-d1',
     collisionCounter: 0,

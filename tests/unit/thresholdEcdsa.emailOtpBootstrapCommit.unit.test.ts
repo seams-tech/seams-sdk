@@ -5,6 +5,7 @@ import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerL
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { commitEvmFamilyThresholdEcdsaSessions } from '@/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
 import {
   createThresholdEcdsaBootstrapFixture,
@@ -103,16 +104,16 @@ test.describe('Email OTP ECDSA bootstrap commit', () => {
       },
       {
         walletId: toWalletId('email-otp-ecdsa-ready.testnet'),
-        primaryChain: bootstrap.thresholdEcdsaKeyRef.chainTarget,
+        chainTarget: bootstrap.thresholdEcdsaKeyRef.chainTarget,
         bootstrap,
         source: 'email_otp',
-        emailOtpAuthContext: {
+        emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
           policy: 'session',
           retention: 'session',
           reason: 'sign',
-          authMethod: 'email_otp',
-          authSubjectId: 'google:email-otp-ecdsa-ready',
-        },
+          provider: 'google',
+          providerUserId: 'google:email-otp-ecdsa-ready',
+        }),
       },
     );
 

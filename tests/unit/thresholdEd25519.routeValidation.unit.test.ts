@@ -69,7 +69,7 @@ test('threshold-ed25519 session route rejects body-owned ECDSA session claims', 
   }
 });
 
-test('threshold-ed25519 HSS finalize requires server finalize output', () => {
+test('threshold-ed25519 HSS finalize accepts trimmed evaluation result', () => {
   const parsed = parseThresholdEd25519HssFinalizeWithSessionRouteRequest({
     ceremonyHandle: 'ceremony-1',
     evaluationResult: {
@@ -78,12 +78,31 @@ test('threshold-ed25519 HSS finalize requires server finalize output', () => {
     },
   });
 
+  expect(parsed.ok).toBe(true);
+  if (parsed.ok) {
+    expect(parsed.request.evaluationResult).toEqual({
+      contextBindingB64u: 'context-binding',
+      stagedEvaluatorArtifactB64u: 'staged-artifact',
+    });
+  }
+});
+
+test('threshold-ed25519 HSS finalize rejects client-sent server finalize output', () => {
+  const parsed = parseThresholdEd25519HssFinalizeWithSessionRouteRequest({
+    ceremonyHandle: 'ceremony-1',
+    evaluationResult: {
+      contextBindingB64u: 'context-binding',
+      stagedEvaluatorArtifactB64u: 'staged-artifact',
+      serverEvalFinalizeOutputB64u: 'server-finalize-output',
+    },
+  });
+
   expect(parsed.ok).toBe(false);
   if (!parsed.ok) {
     expect(parsed.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'serverEvalFinalizeOutputB64u is required',
+      message: 'Unsupported threshold-ed25519 evaluationResult field: serverEvalFinalizeOutputB64u',
     });
   }
 });

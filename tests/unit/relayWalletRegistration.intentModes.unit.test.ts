@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { AuthService } from '@server/core/AuthService';
 import { createInMemoryConsoleOrgProjectEnvService } from '@server/console/orgProjectEnv';
 import { handleRouterApiWalletRegistrationIntent } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
+import type { RouterApiWalletRegistrationRouteService } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
@@ -11,17 +11,28 @@ import type { RouterApiKeyAuthAdapter } from '../../packages/sdk-server-ts/src/r
 import {
   implicitNearAccountProvisioning,
   parseServerAllocatedWalletId,
+  registrationIntentGrantFromString,
+  requireServerAllocatedWalletId,
   sponsoredNamedNearAccountProvisioning,
   type RegistrationSignerSetSelection,
+  type WalletId,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseNamedNearAccountId } from '../../packages/shared-ts/src/utils/near';
-import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const ORG_ID = 'org_registration_intent_modes';
 const PROJECT_ID = 'project_registration_intent_modes';
 const ENV_ID = 'dev';
 const ENVIRONMENT_ID = `${PROJECT_ID}:${ENV_ID}`;
 const SIGNING_ROOT_VERSION = 'root_v1';
+const TEST_SERVER_ALLOCATED_WALLET_ID = requireServerAllocatedWalletId('frost-fjord-rgcmpa');
+const TEST_REGISTRATION_INTENT_GRANT = registrationIntentGrantFromString(
+  'rig_registration_intent_modes',
+);
+
+type CreateRegistrationIntentForRoute =
+  RouterApiWalletRegistrationRouteService['createRegistrationIntent'];
+type CreateRegistrationIntentForRouteInput = Parameters<CreateRegistrationIntentForRoute>[0];
+type CreateRegistrationIntentForRouteResult = Awaited<ReturnType<CreateRegistrationIntentForRoute>>;
 
 function namedProvisioning(accountId: string) {
   const parsed = parseNamedNearAccountId(accountId);
@@ -134,16 +145,110 @@ function route(id: string): RouteDefinition {
   return found;
 }
 
-function makeService(): AuthService {
-  return new AuthService({
-    relayerAccount: 'relayer.testnet',
-    relayerPrivateKey: 'ed25519:dummy',
-    nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
-    networkId: DEFAULT_TEST_CONFIG.nearNetwork,
-    accountInitialBalance: '1',
-    createAccountAndRegisterGas: '1',
-    logger: null,
-  });
+function getNoThresholdSigningService(): null {
+  return null;
+}
+
+async function unsupportedWalletRegistrationRouteMethod(_input: unknown): Promise<never> {
+  throw new Error('wallet registration route fake received an unsupported method call');
+}
+
+function signerSelectionUsesImplicitNearAccount(
+  selection: RegistrationSignerSetSelection,
+): boolean {
+  for (const signer of selection.signers) {
+    if (
+      signer.kind === 'near_ed25519' &&
+      signer.accountProvisioning.kind === 'implicit_account'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveWalletIdForRegistrationIntent(
+  input: CreateRegistrationIntentForRouteInput,
+):
+  | { ok: true; walletId: WalletId }
+  | { ok: false; code: 'invalid_body'; message: string } {
+  if (input.request.wallet.kind === 'server_allocated') {
+    return { ok: true, walletId: TEST_SERVER_ALLOCATED_WALLET_ID };
+  }
+  const walletId = input.request.wallet.walletId;
+  if (signerSelectionUsesImplicitNearAccount(input.request.signerSelection)) {
+    const parsed = parseServerAllocatedWalletId(walletId);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'implicit account registration requires a generated readable walletId',
+      };
+    }
+  }
+  return { ok: true, walletId };
+}
+
+async function createRegistrationIntentForTest(
+  input: CreateRegistrationIntentForRouteInput,
+): Promise<CreateRegistrationIntentForRouteResult> {
+  const wallet = resolveWalletIdForRegistrationIntent(input);
+  if (!wallet.ok) {
+    return {
+      ok: false,
+      code: wallet.code,
+      message: wallet.message,
+    };
+  }
+  const intent = input.runtimePolicyScope
+    ? {
+        version: 'registration_intent_v1' as const,
+        walletId: wallet.walletId,
+        authMethod: input.request.authMethod,
+        signerSelection: input.request.signerSelection,
+        runtimePolicyScope: input.runtimePolicyScope,
+        nonceB64u: 'nonce',
+      }
+    : {
+        version: 'registration_intent_v1' as const,
+        walletId: wallet.walletId,
+        authMethod: input.request.authMethod,
+        signerSelection: input.request.signerSelection,
+        nonceB64u: 'nonce',
+      };
+  return {
+    ok: true,
+    intent,
+    registrationIntentDigestB64u: 'digest',
+    registrationIntentGrant: TEST_REGISTRATION_INTENT_GRANT,
+    expiresAtMs: 1,
+  };
+}
+
+function makeWalletRegistrationService(input?: {
+  readonly createRegistrationIntent?: CreateRegistrationIntentForRoute;
+}): RouterApiWalletRegistrationRouteService {
+  return {
+    getThresholdSigningService: getNoThresholdSigningService,
+    createRegistrationIntent:
+      input?.createRegistrationIntent ?? createRegistrationIntentForTest,
+    prepareWalletRegistration: unsupportedWalletRegistrationRouteMethod,
+    startWalletRegistration: unsupportedWalletRegistrationRouteMethod,
+    respondWalletRegistrationHss: unsupportedWalletRegistrationRouteMethod,
+    finalizeWalletRegistration: unsupportedWalletRegistrationRouteMethod,
+    createAddAuthMethodIntent: unsupportedWalletRegistrationRouteMethod,
+    createAddSignerIntent: unsupportedWalletRegistrationRouteMethod,
+    finalizeWalletAddAuthMethod: unsupportedWalletRegistrationRouteMethod,
+    finalizeWalletAddSigner: unsupportedWalletRegistrationRouteMethod,
+    respondWalletAddSignerHss: unsupportedWalletRegistrationRouteMethod,
+    revokeWalletAuthMethod: unsupportedWalletRegistrationRouteMethod,
+    startWalletAddAuthMethod: unsupportedWalletRegistrationRouteMethod,
+    startWalletAddSigner: unsupportedWalletRegistrationRouteMethod,
+    validateAppSessionVersion: unsupportedWalletRegistrationRouteMethod,
+    verifyWebAuthnAuthenticationLite: unsupportedWalletRegistrationRouteMethod,
+    fundImplicitNearAccount: unsupportedWalletRegistrationRouteMethod,
+    listWalletEcdsaKeyFactsInventory: unsupportedWalletRegistrationRouteMethod,
+  };
 }
 
 function makeApiKeyAuth(): RouterApiKeyAuthAdapter {
@@ -209,7 +314,7 @@ test.describe('wallet registration intent relayer signer sets', () => {
       origin: 'wallet.example.test',
       route: route('wallet_registration_intent'),
       services: {
-        authService: makeService(),
+        walletRegistration: makeWalletRegistrationService(),
         apiKeyAuth: {
           authenticate: async () => {
             authCalled = true;
@@ -254,34 +359,16 @@ test.describe('wallet registration intent relayer signer sets', () => {
       origin: 'https://wallet.example.test/',
       route: route('wallet_registration_intent'),
       services: {
-        authService: {
-          createRegistrationIntent: async (request: unknown) => {
+        walletRegistration: makeWalletRegistrationService({
+          createRegistrationIntent: async (request) => {
             capturedRequest = request;
-            return {
-              ok: true,
-              intent: {
-                version: 'registration_intent_v1',
-                walletId: 'wallet_route_context',
-                authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
-                signerSelection: signerSetCases[0].signerSelection,
-                runtimePolicyScope: {
-                  orgId: ORG_ID,
-                  projectId: PROJECT_ID,
-                  envId: ENV_ID,
-                  signingRootVersion: SIGNING_ROOT_VERSION,
-                },
-                nonceB64u: 'nonce',
-              },
-              registrationIntentDigestB64u: 'digest',
-              registrationIntentGrant: 'rig_context',
-              expiresAtMs: 1,
-            };
+            return createRegistrationIntentForTest(request);
           },
-        },
+        }),
         apiKeyAuth: makeApiKeyAuth(),
         orgProjectEnv: await makeOrgProjectEnv(),
       },
-    } as unknown as Parameters<typeof handleRouterApiWalletRegistrationIntent>[0]);
+    });
 
     expect(route('wallet_registration_intent').metering).toEqual({ kind: 'none' });
     expect(response.status).toBe(200);
@@ -320,7 +407,7 @@ test.describe('wallet registration intent relayer signer sets', () => {
         origin: 'https://wallet.example.test',
         route: route('wallet_registration_intent'),
         services: {
-          authService: makeService(),
+          walletRegistration: makeWalletRegistrationService(),
           apiKeyAuth: makeApiKeyAuth(),
           orgProjectEnv: await makeOrgProjectEnv(),
         },
@@ -370,7 +457,7 @@ test.describe('wallet registration intent relayer signer sets', () => {
       origin: 'https://wallet.example.test',
       route: route('wallet_registration_intent'),
       services: {
-        authService: makeService(),
+        walletRegistration: makeWalletRegistrationService(),
         apiKeyAuth: makeApiKeyAuth(),
         orgProjectEnv: await makeOrgProjectEnv(),
       },
@@ -421,7 +508,7 @@ test.describe('wallet registration intent relayer signer sets', () => {
       origin: 'https://wallet.example.test',
       route: route('wallet_registration_intent'),
       services: {
-        authService: makeService(),
+        walletRegistration: makeWalletRegistrationService(),
         apiKeyAuth: makeApiKeyAuth(),
         orgProjectEnv: await makeOrgProjectEnv(),
       },
@@ -480,7 +567,7 @@ test.describe('wallet registration intent relayer signer sets', () => {
       origin: 'https://wallet.example.test',
       route: route('wallet_registration_intent'),
       services: {
-        authService: makeService(),
+        walletRegistration: makeWalletRegistrationService(),
         apiKeyAuth: makeApiKeyAuth(),
         orgProjectEnv: await makeOrgProjectEnv(),
       },
@@ -525,7 +612,7 @@ test.describe('wallet registration intent relayer signer sets', () => {
       origin: 'https://wallet.example.test',
       route: route('wallet_registration_intent'),
       services: {
-        authService: makeService(),
+        walletRegistration: makeWalletRegistrationService(),
         apiKeyAuth: makeApiKeyAuth(),
         orgProjectEnv: await makeOrgProjectEnv(),
       },

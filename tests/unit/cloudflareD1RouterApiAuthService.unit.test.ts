@@ -6,16 +6,19 @@ import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse,
-  WalletRegistrationEcdsaClientBootstrap,
-  WalletRegistrationEcdsaPreparePayload,
+  EcdsaHssServerBootstrapResponse
 } from '../../packages/sdk-server-ts/src/core/types';
+import type {
+  WalletRegistrationEcdsaClientBootstrap,
+  WalletRegistrationEcdsaPreparePayload
+} from '../../packages/sdk-server-ts/src/core/registrationContracts';
 import type { ThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import { buildD1ThresholdEd25519RegistrationSessionPolicy } from '../../packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
@@ -69,6 +72,42 @@ const TEST_COMBINED_NEAR_ACCOUNT_ID =
   '0000000000000000000000000000000000000000000000000000000000000001';
 const TEST_ED25519_APPLICATION_BINDING_DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
+function googleEmailOtpD1RegistrationAttemptBoundaryFixture(input: {
+  readonly authProvider: string;
+}): Record<string, unknown> {
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: 'google-email-otp-boundary-attempt',
+    providerSubject: 'google:boundary-user',
+    email: 'boundary@example.test',
+    walletId: 'wallet-google-email-otp-boundary',
+    offerId: 'google-email-otp-boundary-offer',
+    offerCandidates: [
+      {
+        candidateId: 'google-email-otp-boundary-candidate',
+        walletId: 'wallet-google-email-otp-boundary',
+        collisionCounter: 0,
+      },
+    ],
+    selectedCandidateId: 'google-email-otp-boundary-candidate',
+    appSessionVersion: 'app-session-google-email-otp-boundary',
+    authProvider: input.authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: 'google-email-otp-boundary-nonce',
+    collisionCounter: 0,
+    state: 'started',
+    createdAtMs: 1_800_000_000_000,
+    updatedAtMs: 1_800_000_000_100,
+    expiresAtMs: 1_800_000_060_000,
+    runtimePolicyScope: {
+      orgId: 'org-google-email-otp-boundary',
+      projectId: 'project-google-email-otp-boundary',
+      envId: 'env-google-email-otp-boundary',
+      signingRootVersion: 'root-google-email-otp-boundary',
+    },
+  };
+}
+
 function testEd25519PreparedServerState() {
   return {
     context: {
@@ -82,6 +121,17 @@ function testEd25519PreparedServerState() {
     serverInputs: {
       yRelayerB64u: 'Aw',
       tauRelayerB64u: 'BA',
+    },
+  };
+}
+
+function testEd25519RespondedServerState() {
+  const prepared = testEd25519PreparedServerState();
+  return {
+    context: prepared.context,
+    preparedServerSession: {
+      ...prepared.preparedServerSession,
+      serverEvalStateB64u: 'BQ',
     },
   };
 }
@@ -318,6 +368,53 @@ function recordingDurableObjectRequestsIncludeKey(
   return false;
 }
 
+function walletRegistrationDoKey(input: {
+  readonly prefix: string;
+  readonly scope: 'intent' | 'preparation' | 'ceremony';
+  readonly id: string;
+}): string {
+  return `${input.prefix}:wallet-registration:${input.scope}:${input.id}`;
+}
+
+function requireRecordingDurableObjectRecord(input: {
+  readonly durableObjects: RecordingDurableObjectNamespace;
+  readonly key: string;
+}): Record<string, unknown> {
+  const record = input.durableObjects.stub.values.get(input.key);
+  if (!isSqliteJsonRow(record)) throw new Error(`Missing Durable Object record ${input.key}`);
+  return record;
+}
+
+function replaceRecordingDurableObjectRecord(input: {
+  readonly durableObjects: RecordingDurableObjectNamespace;
+  readonly key: string;
+  readonly record: Record<string, unknown>;
+}): void {
+  input.durableObjects.stub.values.set(input.key, input.record);
+}
+
+function recordingDurableObjectKeysWithPrefix(input: {
+  readonly durableObjects: RecordingDurableObjectNamespace;
+  readonly prefix: string;
+}): string[] {
+  const matches: string[] = [];
+  for (const key of input.durableObjects.stub.values.keys()) {
+    if (key.startsWith(input.prefix)) matches.push(key);
+  }
+  return matches;
+}
+
+function requireNestedRecordingDurableObjectRecord(input: {
+  readonly record: Record<string, unknown>;
+  readonly field: string;
+}): Record<string, unknown> {
+  const nested = input.record[input.field];
+  if (!isSqliteJsonRow(nested)) {
+    throw new Error(`Durable Object record field ${input.field} is missing`);
+  }
+  return nested;
+}
+
 function testEcdsaClientBootstrap(
   prepare: WalletRegistrationEcdsaPreparePayload['prepare'],
 ): WalletRegistrationEcdsaClientBootstrap {
@@ -400,6 +497,7 @@ async function testEd25519RespondForRegistration() {
     ok: true as const,
     contextBindingB64u: 'ed25519-context-binding',
     serverInputDeliveryB64u: 'ed25519-server-input-delivery',
+    serverState: testEd25519RespondedServerState(),
   };
 }
 
@@ -584,6 +682,27 @@ async function createWebAuthnAssertion(input: {
 
 function jsonBase64Url(input: Record<string, unknown>): string {
   return base64UrlEncode(utf8Bytes(JSON.stringify(input)));
+}
+
+function fakeWebAuthnRegistrationCredential(input: {
+  readonly challengeB64u: string;
+  readonly origin: string;
+  readonly type?: string;
+}): Record<string, unknown> {
+  return {
+    id: 'fake-registration-credential',
+    rawId: 'fake-registration-credential',
+    type: 'public-key',
+    response: {
+      clientDataJSON: jsonBase64Url({
+        type: input.type || 'webauthn.create',
+        challenge: input.challengeB64u,
+        origin: input.origin,
+        crossOrigin: false,
+      }),
+    },
+    clientExtensionResults: {},
+  };
 }
 
 function encodePositiveBigIntB64u(value: bigint): string {
@@ -1771,29 +1890,29 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
 
-    await expect(service.listIdentities({ userId: scope.userId })).resolves.toEqual({
+    await expect(service.identity.listIdentities({ userId: scope.userId })).resolves.toEqual({
       ok: true,
       subjects: ['google:alice'],
     });
     await expect(
-      service.linkIdentity({ userId: 'wallet-b', subject: 'google:alice' }),
+      service.identity.linkIdentity({ userId: 'wallet-b', subject: 'google:alice' }),
     ).resolves.toMatchObject({ ok: false, code: 'already_linked' });
     await expect(
-      service.linkIdentity({ userId: scope.userId, subject: 'google:carol' }),
+      service.identity.linkIdentity({ userId: scope.userId, subject: 'google:carol' }),
     ).resolves.toEqual({ ok: true });
-    await expect(service.listIdentities({ userId: scope.userId })).resolves.toEqual({
+    await expect(service.identity.listIdentities({ userId: scope.userId })).resolves.toEqual({
       ok: true,
       subjects: ['google:alice', 'google:carol'],
     });
     await expect(
-      service.unlinkIdentity({ userId: scope.userId, subject: 'google:alice' }),
+      service.identity.unlinkIdentity({ userId: scope.userId, subject: 'google:alice' }),
     ).resolves.toEqual({ ok: true });
-    await expect(service.listIdentities({ userId: scope.userId })).resolves.toEqual({
+    await expect(service.identity.listIdentities({ userId: scope.userId })).resolves.toEqual({
       ok: true,
       subjects: ['google:carol'],
     });
     await expect(
-      service.unlinkIdentity({ userId: scope.userId, subject: 'google:carol' }),
+      service.identity.unlinkIdentity({ userId: scope.userId, subject: 'google:carol' }),
     ).resolves.toMatchObject({ ok: false, code: 'cannot_unlink_last_identity' });
     await insertIdentity({
       database,
@@ -1802,13 +1921,13 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       subject: 'google:solo',
     });
     await expect(
-      service.linkIdentity({
+      service.identity.linkIdentity({
         userId: scope.userId,
         subject: 'google:solo',
         allowMoveIfSoleIdentity: true,
       }),
     ).resolves.toEqual({ ok: true, movedFromUserId: 'wallet-solo' });
-    await expect(service.listIdentities({ userId: 'wallet-solo' })).resolves.toEqual({
+    await expect(service.identity.listIdentities({ userId: 'wallet-solo' })).resolves.toEqual({
       ok: true,
       subjects: [],
     });
@@ -1825,14 +1944,14 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       subject: 'google:many-b',
     });
     await expect(
-      service.linkIdentity({
+      service.identity.linkIdentity({
         userId: scope.userId,
         subject: 'google:many-a',
         allowMoveIfSoleIdentity: true,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'already_linked' });
     await expect(
-      service.resolveOidcWalletId({
+      service.identity.resolveOidcWalletId({
         providerSubject: 'oidc:linked',
         runtimePolicyScope: {
           orgId: scope.orgId,
@@ -1842,7 +1961,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         },
       }),
     ).resolves.toBe('linked.testnet');
-    const derivedOidcWalletId = await service.resolveOidcWalletId({
+    const derivedOidcWalletId = await service.identity.resolveOidcWalletId({
       providerSubject: 'oidc:new-user',
       email: 'new-user@example.test',
       runtimePolicyScope: {
@@ -1854,7 +1973,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     expect(derivedOidcWalletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relay\.local$/);
     await expect(
-      service.readEmailOtpEnrollment({
+      service.emailOtp.readEmailOtpEnrollment({
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
       }),
@@ -1868,21 +1987,21 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       },
     });
     await expect(
-      service.readActiveEmailOtpEnrollment({
+      service.emailOtp.readActiveEmailOtpEnrollment({
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
         providerUserId: 'google:other-user',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'provider_identity_mismatch' });
     await expect(
-      service.readActiveEmailOtpEnrollment({
+      service.emailOtp.readActiveEmailOtpEnrollment({
         walletId: 'email-wallet.testnet',
         orgId: 'org-b',
         providerUserId: 'google:email-user',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'tenant_scope_mismatch' });
     await expect(
-      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
     ).resolves.toEqual({
       ok: true,
       required: false,
@@ -1890,21 +2009,21 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await insertEmailOtpAuthState({ database, ...scope });
     await expect(
-      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
     ).resolves.toEqual({
       ok: true,
       required: true,
       walletId: 'email-wallet.testnet',
       lastEmailOtpLoginAtMs: 800,
     });
-    const strongAuth = await service.markEmailOtpStrongAuthSatisfied({
+    const strongAuth = await service.emailOtp.markEmailOtpStrongAuthSatisfied({
       walletId: 'email-wallet.testnet',
     });
     expect(strongAuth.ok).toBe(true);
     if (!strongAuth.ok) throw new Error(strongAuth.message);
     expect(strongAuth.lastStrongAuthAtMs).toBeGreaterThanOrEqual(800);
     await expect(
-      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
     ).resolves.toMatchObject({
       ok: true,
       required: false,
@@ -1913,7 +2032,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       lastStrongAuthAtMs: strongAuth.lastStrongAuthAtMs,
     });
     await expect(
-      service.getEmailOtpRecoveryCodeStatus({
+      service.emailOtp.getEmailOtpRecoveryCodeStatus({
         userId: 'google:not-enrolled',
         walletId: 'missing-email-wallet.testnet',
         orgId: scope.orgId,
@@ -1932,7 +2051,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       issuedAtMs: null,
     });
     await expect(
-      service.getEmailOtpRecoveryCodeStatus({
+      service.emailOtp.getEmailOtpRecoveryCodeStatus({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -1951,7 +2070,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       issuedAtMs: 880,
     });
     await expect(
-      service.consumeEmailOtpGrant({
+      service.emailOtp.consumeEmailOtpGrant({
         loginGrant: 'grant-valid',
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
@@ -1966,7 +2085,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       otpChannel: 'email_otp',
     });
     await expect(
-      service.consumeEmailOtpGrant({
+      service.emailOtp.consumeEmailOtpGrant({
         loginGrant: 'grant-valid',
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
@@ -1977,7 +2096,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       }),
     ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
     await expect(
-      service.consumeEmailOtpGrant({
+      service.emailOtp.consumeEmailOtpGrant({
         loginGrant: 'grant-mismatch',
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
@@ -1986,9 +2105,13 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         sessionHash: 'session-hash-a',
         appSessionVersion: 'wrong-session',
       }),
-    ).resolves.toMatchObject({ ok: false, code: 'recovery_grant_binding_mismatch' });
+    ).resolves.toEqual({
+      ok: true,
+      challengeId: 'challenge-grant-mismatch',
+      otpChannel: 'email_otp',
+    });
     await expect(
-      service.consumeEmailOtpGrant({
+      service.emailOtp.consumeEmailOtpGrant({
         loginGrant: 'grant-mismatch',
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
@@ -1998,26 +2121,26 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         appSessionVersion: 'grant-session-v2',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
-    const session = await service.getOrCreateAppSessionVersion({ userId: scope.userId });
+    const session = await service.sessionVersions.getOrCreateAppSessionVersion({ userId: scope.userId });
     expect(session.ok).toBe(true);
     if (!session.ok) throw new Error(session.message);
     await expect(
-      service.validateAppSessionVersion({
+      service.sessionVersions.validateAppSessionVersion({
         userId: scope.userId,
         appSessionVersion: session.appSessionVersion,
       }),
     ).resolves.toEqual({ ok: true });
-    const rotated = await service.rotateAppSessionVersion({ userId: scope.userId });
+    const rotated = await service.sessionVersions.rotateAppSessionVersion({ userId: scope.userId });
     expect(rotated.ok).toBe(true);
     if (!rotated.ok) throw new Error(rotated.message);
     await expect(
-      service.validateAppSessionVersion({
+      service.sessionVersions.validateAppSessionVersion({
         userId: scope.userId,
         appSessionVersion: session.appSessionVersion,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'invalid_session_version' });
     await expect(
-      service.listWebAuthnAuthenticatorsForUser({ userId: scope.userId, rpId: 'example.com' }),
+      service.webAuthn.listWebAuthnAuthenticatorsForUser({ userId: scope.userId, rpId: 'example.com' }),
     ).resolves.toMatchObject({
       ok: true,
       authenticators: [
@@ -2038,7 +2161,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
       signerSlot: 4,
     });
-    const loginOptions = await service.createWebAuthnLoginOptions({
+    const loginOptions = await service.webAuthn.createWebAuthnLoginOptions({
       userId: scope.userId,
       rpId: 'example.com',
       ttlMs: 60_000,
@@ -2078,7 +2201,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       counter: 1,
     });
     await expect(
-      service.verifyWebAuthnLogin({
+      service.webAuthn.verifyWebAuthnLogin({
         challengeId: loginChallengeId,
         webauthn_authentication: loginAssertion,
         expected_origin: 'https://example.com',
@@ -2098,13 +2221,13 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       }),
     ).resolves.toMatchObject({ counter: 1 });
     await expect(
-      service.createWebAuthnLoginOptions({ userId: 'bad user', rpId: 'example.com' }),
+      service.webAuthn.createWebAuthnLoginOptions({ userId: 'bad user', rpId: 'example.com' }),
     ).resolves.toMatchObject({
       ok: false,
       code: 'invalid_body',
       message: 'Invalid userId',
     });
-    const syncOptions = await service.createWebAuthnSyncAccountOptions({
+    const syncOptions = await service.webAuthn.createWebAuthnSyncAccountOptions({
       rp_id: 'example.com',
       account_id: scope.userId,
       ttl_ms: 60_000,
@@ -2150,7 +2273,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       counter: 2,
     });
     await expect(
-      service.verifyWebAuthnSyncAccount({
+      service.webAuthn.verifyWebAuthnSyncAccount({
         challengeId: syncChallengeId,
         webauthn_authentication: syncAssertion,
         expected_origin: 'https://example.com',
@@ -2177,7 +2300,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       }),
     ).resolves.toMatchObject({ counter: 2 });
     await expect(
-      service.createWebAuthnSyncAccountOptions({
+      service.webAuthn.createWebAuthnSyncAccountOptions({
         account_id: scope.userId,
       }),
     ).resolves.toMatchObject({
@@ -2185,7 +2308,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       code: 'invalid_body',
       message: 'Missing rp_id',
     });
-    await expect(service.listNearPublicKeysForUser({ userId: scope.userId })).resolves.toEqual({
+    await expect(service.nearFunding.listNearPublicKeysForUser({ userId: scope.userId })).resolves.toEqual({
       ok: true,
       keys: [
         {
@@ -2203,7 +2326,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       ],
     });
     await expect(
-      service.listThresholdEcdsaKeyIdentityTargetsForUser({
+      service.thresholdRuntime.listThresholdEcdsaKeyIdentityTargetsForUser({
         userId: scope.userId,
         rpId: 'example.com',
         keyTargets: [
@@ -2224,7 +2347,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       },
     });
     await expect(
-      service.listWalletEcdsaKeyFactsInventory({
+      service.thresholdRuntime.listWalletEcdsaKeyFactsInventory({
         walletId: scope.userId,
         rpId: 'example.com',
         keyTargets: [
@@ -2244,12 +2367,12 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         rejected: { threshold_service_missing: 1 },
       },
     });
-    expect(service.getConfiguredRelayerAccount()).toBe('relay.local');
-    await expect(service.getRelayerAccount()).resolves.toEqual({
+    expect(service.router.getConfiguredRelayerAccount()).toBe('relay.local');
+    await expect(service.router.getRelayerAccount()).resolves.toEqual({
       accountId: 'relay.local',
       publicKey: 'relay-public-key',
     });
-    expect(service.getGoogleOidcPublicConfig()).toEqual({
+    expect(service.identity.getGoogleOidcPublicConfig()).toEqual({
       configured: true,
       clientId: 'google-client',
     });
@@ -2309,7 +2432,7 @@ test('Cloudflare D1 Router API auth service revokes wallet auth methods through 
     });
 
     await expect(
-      service.revokeWalletAuthMethod({
+      service.walletAuthMethods.revokeWalletAuthMethod({
         walletId: walletIdValue,
         target: { kind: 'email_otp', email },
         auth: {
@@ -2345,7 +2468,7 @@ test('Cloudflare D1 Router API auth service revokes wallet auth methods through 
     });
 
     await expect(
-      service.revokeWalletAuthMethod({
+      service.walletAuthMethods.revokeWalletAuthMethod({
         walletId: walletIdValue,
         target: { kind: 'passkey', rpId: rpIdValue, credentialIdB64u: 'credential-a' },
         auth: {
@@ -2393,7 +2516,7 @@ test('Cloudflare D1 Router API auth service wires threshold signing from Durable
       relayerAccount: 'relay.local',
       relayerPublicKey: 'relay-public-key',
     });
-    expect(withoutThreshold.getThresholdSigningService()).toBeNull();
+    expect(withoutThreshold.thresholdRuntime.getThresholdSigningService()).toBeNull();
 
     const withThreshold = createCloudflareD1RouterApiAuthService({
       database,
@@ -2410,9 +2533,9 @@ test('Cloudflare D1 Router API auth service wires threshold signing from Durable
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
       },
     });
-    const threshold = withThreshold.getThresholdSigningService();
+    const threshold = withThreshold.thresholdRuntime.getThresholdSigningService();
     expect(threshold).not.toBeNull();
-    expect(withThreshold.getThresholdSigningService()).toBe(threshold);
+    expect(withThreshold.thresholdRuntime.getThresholdSigningService()).toBe(threshold);
     expect(threshold?.getRouterAbNormalSigningWorkerId()).toBe('test-threshold-signing-worker');
   } finally {
     cleanupTemporaryD1Database(tempDir);
@@ -2445,7 +2568,7 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
     });
 
     const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
-    const registration = await service.createRegistrationIntent({
+    const registration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -2514,7 +2637,7 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
       registration.intent.signerSelection,
     );
 
-    const addSigner = await service.createAddSignerIntent({
+    const addSigner = await service.walletAuthMethods.createAddSignerIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -2533,7 +2656,7 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
     expect(addSigner.ok).toBe(true);
     if (!addSigner.ok) throw new Error(addSigner.message);
 
-    const addAuthMethod = await service.createAddAuthMethodIntent({
+    const addAuthMethod = await service.walletAuthMethods.createAddAuthMethodIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -2567,7 +2690,7 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
     );
 
     const providedWalletId = walletIdFromString('frost-fjord-rgcmpa');
-    const providedRegistration = await service.createRegistrationIntent({
+    const providedRegistration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -2631,6 +2754,349 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
   }
 });
 
+test('Cloudflare D1 Router API auth service rejects passkey registration challenge and origin mismatches before signer state', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      thresholdSigningService: {
+        async ecdsaHssRoleLocalBootstrap() {
+          throw new Error('threshold bootstrap must not run after passkey authority rejection');
+        },
+      } as unknown as ThresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example.com',
+      request: {
+        wallet: { kind: 'server_allocated' },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: testEvmFamilyRegistrationSignerSet(),
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+
+    await expect(
+      service.walletRegistration.startWalletRegistration({
+        registrationIntentGrant: registration.registrationIntentGrant,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        intent: registration.intent,
+        authority: {
+          kind: 'passkey',
+          webauthnRegistration: fakeWebAuthnRegistrationCredential({
+            challengeB64u: 'wrong-registration-challenge',
+            origin: 'https://app.example.com',
+          }),
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'challenge_mismatch',
+      message: 'Registration challenge mismatch',
+    });
+
+    await expect(
+      service.walletRegistration.startWalletRegistration({
+        registrationIntentGrant: registration.registrationIntentGrant,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        intent: registration.intent,
+        authority: {
+          kind: 'passkey',
+          webauthnRegistration: fakeWebAuthnRegistrationCredential({
+            challengeB64u: registration.registrationIntentDigestB64u,
+            origin: 'https://attacker.example.net',
+          }),
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_origin',
+      message: 'WebAuthn origin is not within rpId',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service rejects stored registration intent wallet mismatch before HSS preparation', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      thresholdSigningService: {
+        ed25519Hss: {
+          async prepareForRegistration() {
+            throw new Error('Ed25519 HSS prepare must not run after intent wallet mismatch');
+          },
+        },
+      } as unknown as ThresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example.com',
+      request: {
+        wallet: { kind: 'server_allocated' },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+
+    const intentKey = walletRegistrationDoKey({
+      prefix: 'intent-test',
+      scope: 'intent',
+      id: registration.registrationIntentGrant,
+    });
+    const intentRecord = requireRecordingDurableObjectRecord({ durableObjects, key: intentKey });
+    const storedIntent = requireNestedRecordingDurableObjectRecord({
+      record: intentRecord,
+      field: 'intent',
+    });
+    replaceRecordingDurableObjectRecord({
+      durableObjects,
+      key: intentKey,
+      record: {
+        ...intentRecord,
+        intent: {
+          ...storedIntent,
+          walletId: walletIdFromString('stored-intent-mismatch.testnet'),
+        },
+      },
+    });
+
+    await expect(
+      service.walletRegistration.prepareWalletRegistration({
+        registrationIntentGrant: registration.registrationIntentGrant,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        intent: registration.intent,
+        authority: {
+          kind: 'passkey',
+          webauthnRegistration: fakeWebAuthnRegistrationCredential({
+            challengeB64u: registration.registrationIntentDigestB64u,
+            origin: 'https://app.example.com',
+          }),
+        },
+        prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+        work: { kind: 'ed25519_hss' },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration intent walletId mismatch',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service rejects stored registration preparation wallet mismatch before ceremony start', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const email = 'owner@example.test';
+    const providerSubject = 'google:registration-user';
+    const appSessionVersion = 'registration-session-v1';
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'dev_d1_outbox',
+      thresholdSigningService: testCombinedRegistrationThresholdSigningService,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        wallet: { kind: 'server_allocated' },
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          email,
+          otpCode: 'intent-otp-placeholder',
+          appSessionJwt: 'intent-session-placeholder',
+        },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'near_ed25519',
+              accountProvisioning: implicitNearAccountProvisioning(),
+              signerSlot: 1,
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          ],
+        },
+      },
+    });
+    expect(registration.ok).toBe(true);
+    if (!registration.ok) throw new Error(registration.message);
+
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+      orgId: scope.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: registration.registrationIntentDigestB64u,
+      appSessionVersion,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: registration.intent.walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) throw new Error(outbox.message);
+    const authority = {
+      kind: 'email_otp' as const,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1' as const,
+        proofKind: 'otp_challenge' as const,
+        providerSubject,
+        email,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: outbox.otpCode,
+        otpChannel: 'email_otp' as const,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        appSessionVersion,
+      },
+    };
+
+    const prepared = await service.walletRegistration.prepareWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority,
+      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+      work: { kind: 'ed25519_hss' },
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.message);
+
+    const preparationKey = walletRegistrationDoKey({
+      prefix: 'intent-test',
+      scope: 'preparation',
+      id: prepared.registrationPreparationId,
+    });
+    const preparationRecord = requireRecordingDurableObjectRecord({
+      durableObjects,
+      key: preparationKey,
+    });
+    const preparationAuthority = requireNestedRecordingDurableObjectRecord({
+      record: preparationRecord,
+      field: 'authority',
+    });
+    replaceRecordingDurableObjectRecord({
+      durableObjects,
+      key: preparationKey,
+      record: {
+        ...preparationRecord,
+        authority: {
+          ...preparationAuthority,
+          walletId: walletIdFromString('registration-preparation-mismatch.testnet'),
+        },
+      },
+    });
+
+    await expect(
+      service.walletRegistration.startWalletRegistration({
+        registrationIntentGrant: registration.registrationIntentGrant,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        registrationPreparationId: prepared.registrationPreparationId,
+        intent: registration.intent,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'scope_mismatch',
+      message: 'registration preparation walletId mismatch',
+    });
+    expect(
+      recordingDurableObjectKeysWithPrefix({
+        durableObjects,
+        prefix: 'intent-test:wallet-registration:ceremony:',
+      }),
+    ).toEqual([]);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('Cloudflare D1 Router API auth service starts ECDSA wallet registration ceremonies through Durable Objects', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -2661,7 +3127,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
       },
     });
 
-    const registration = await service.createRegistrationIntent({
+    const registration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -2682,7 +3148,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
     if (!registration.ok) throw new Error(registration.message);
     expect(Object.prototype.hasOwnProperty.call(registration.intent, 'rpId')).toBe(false);
 
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
       walletId: registration.intent.walletId,
       orgId: scope.orgId,
@@ -2693,7 +3159,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: providerSubject,
       walletId: registration.intent.walletId,
@@ -2701,7 +3167,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
     expect(outbox.ok).toBe(true);
     if (!outbox.ok) throw new Error(outbox.message);
 
-    const started = await service.startWalletRegistration({
+    const started = await service.walletRegistration.startWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
       intent: registration.intent,
@@ -2747,6 +3213,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
     );
     expect(started.ecdsa?.prepare.ecdsaThresholdKeyId).toMatch(/^ehss-/);
     expect(started.ecdsa?.prepare.relayerKeyId).toMatch(/^ehss-relayer-/);
+    if (!started.ecdsa) throw new Error('Expected ECDSA registration start payload');
 
     const prefix = 'intent-test:wallet-registration:';
     expect(
@@ -2783,8 +3250,45 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
       },
     });
 
+    const ceremonyKey = walletRegistrationDoKey({
+      prefix: 'intent-test',
+      scope: 'ceremony',
+      id: started.registrationCeremonyId,
+    });
+    const ceremonyRecord = requireRecordingDurableObjectRecord({
+      durableObjects,
+      key: ceremonyKey,
+    });
+    const ceremonyAuthority = requireNestedRecordingDurableObjectRecord({
+      record: ceremonyRecord,
+      field: 'authority',
+    });
+    replaceRecordingDurableObjectRecord({
+      durableObjects,
+      key: ceremonyKey,
+      record: {
+        ...ceremonyRecord,
+        authority: {
+          ...ceremonyAuthority,
+          walletId: walletIdFromString('registration-ceremony-mismatch.testnet'),
+        },
+      },
+    });
     await expect(
-      service.startWalletRegistration({
+      service.walletRegistration.respondWalletRegistrationHss({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          clientBootstrap: testEcdsaClientBootstrap(started.ecdsa.prepare),
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'scope_mismatch',
+      message: 'registration ceremony walletId mismatch',
+    });
+
+    await expect(
+      service.walletRegistration.startWalletRegistration({
         registrationIntentGrant: registration.registrationIntentGrant,
         registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
         intent: registration.intent,
@@ -2842,7 +3346,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
       },
     });
 
-    const registration = await service.createRegistrationIntent({
+    const registration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -2862,21 +3366,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
     expect(registration.ok).toBe(true);
     if (!registration.ok) throw new Error(registration.message);
 
-    const prepared = await service.prepareWalletRegistration({
-      registrationIntentGrant: registration.registrationIntentGrant,
-      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-      intent: registration.intent,
-      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
-      work: { kind: 'ed25519_hss_and_ecdsa' },
-    });
-    expect(prepared.ok).toBe(true);
-    if (!prepared.ok) throw new Error(prepared.message);
-    expect(prepared.ed25519).toMatchObject({
-      ceremonyHandle: 'ed25519-ceremony-handle',
-      clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
-    });
-
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
       walletId: registration.intent.walletId,
       orgId: scope.orgId,
@@ -2887,33 +3377,48 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: providerSubject,
       walletId: registration.intent.walletId,
     });
     expect(outbox.ok).toBe(true);
     if (!outbox.ok) throw new Error(outbox.message);
+    const authority = {
+      kind: 'email_otp' as const,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1' as const,
+        proofKind: 'otp_challenge' as const,
+        providerSubject,
+        email,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: outbox.otpCode,
+        otpChannel: 'email_otp' as const,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        appSessionVersion,
+      },
+    };
 
-    const started = await service.startWalletRegistration({
+    const prepared = await service.walletRegistration.prepareWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority,
+      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+      work: { kind: 'ed25519_hss_and_ecdsa' },
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.message);
+    expect(prepared.ed25519).toMatchObject({
+      ceremonyHandle: 'ed25519-ceremony-handle',
+      clientOtOfferMessageB64u: 'ed25519-client-ot-offer',
+    });
+
+    const started = await service.walletRegistration.startWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
       registrationPreparationId: prepared.registrationPreparationId,
       intent: registration.intent,
-      authority: {
-        kind: 'email_otp',
-        emailOtpRegistrationProof: {
-          version: 'email_otp_registration_proof_v1',
-          proofKind: 'otp_challenge',
-          providerSubject,
-          email,
-          challengeId: challenge.challenge.challengeId,
-          otpCode: outbox.otpCode,
-          otpChannel: 'email_otp',
-          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-          appSessionVersion,
-        },
-      },
     });
     expect(started.ok).toBe(true);
     if (!started.ok) throw new Error(started.message);
@@ -2960,7 +3465,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
 
     if (!started.ecdsa) throw new Error('Expected ECDSA registration start payload');
     const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
-    const responded = await service.respondWalletRegistrationHss({
+    const responded = await service.walletRegistration.respondWalletRegistrationHss({
       registrationCeremonyId: started.registrationCeremonyId,
       ed25519: {
         clientRequest: {
@@ -3026,14 +3531,13 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
       issuedAtMs: recoveryCodesIssuedAtMs,
     });
 
-    const finalized = await service.finalizeWalletRegistration({
+    const finalized = await service.walletRegistration.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       idempotencyKey: 'combined-registration-finalize-replay-a',
       ed25519: {
         evaluationResult: {
           contextBindingB64u: 'ed25519-context-binding',
           stagedEvaluatorArtifactB64u: 'ed25519-staged-evaluator-artifact',
-          serverEvalFinalizeOutputB64u: 'ed25519-server-finalize-output',
         },
       },
       ecdsa: {
@@ -3162,6 +3666,7 @@ test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only 
             ok: true as const,
             contextBindingB64u: 'ed25519-only-context-binding',
             serverInputDeliveryB64u: 'ed25519-only-server-input-delivery',
+            serverState: testEd25519RespondedServerState(),
           };
         },
       },
@@ -3182,7 +3687,7 @@ test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only 
       },
     });
 
-    const registration = await service.createRegistrationIntent({
+    const registration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -3225,17 +3730,7 @@ test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only 
       ],
     });
 
-    const prepared = await service.prepareWalletRegistration({
-      registrationIntentGrant: registration.registrationIntentGrant,
-      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-      intent: registration.intent,
-      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
-      work: { kind: 'ed25519_hss' },
-    });
-    expect(prepared.ok).toBe(true);
-    if (!prepared.ok) throw new Error(prepared.message);
-
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
       walletId: registration.intent.walletId,
       orgId: scope.orgId,
@@ -3246,33 +3741,44 @@ test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only 
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: providerSubject,
       walletId: registration.intent.walletId,
     });
     expect(outbox.ok).toBe(true);
     if (!outbox.ok) throw new Error(outbox.message);
+    const authority = {
+      kind: 'email_otp' as const,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1' as const,
+        proofKind: 'otp_challenge' as const,
+        providerSubject,
+        email,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: outbox.otpCode,
+        otpChannel: 'email_otp' as const,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        appSessionVersion,
+      },
+    };
 
-    const started = await service.startWalletRegistration({
+    const prepared = await service.walletRegistration.prepareWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority,
+      prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
+      work: { kind: 'ed25519_hss' },
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.message);
+
+    const started = await service.walletRegistration.startWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
       registrationPreparationId: prepared.registrationPreparationId,
       intent: registration.intent,
-      authority: {
-        kind: 'email_otp',
-        emailOtpRegistrationProof: {
-          version: 'email_otp_registration_proof_v1',
-          proofKind: 'otp_challenge',
-          providerSubject,
-          email,
-          challengeId: challenge.challenge.challengeId,
-          otpCode: outbox.otpCode,
-          otpChannel: 'email_otp',
-          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-          appSessionVersion,
-        },
-      },
     });
     expect(started.ok).toBe(true);
     if (!started.ok) throw new Error(started.message);
@@ -3298,7 +3804,7 @@ test('Cloudflare D1 Router API auth service starts and responds to Ed25519-only 
       },
     });
 
-    const responded = await service.respondWalletRegistrationHss({
+    const responded = await service.walletRegistration.respondWalletRegistrationHss({
       registrationCeremonyId: started.registrationCeremonyId,
       ed25519: {
         clientRequest: {
@@ -3374,7 +3880,7 @@ test('Cloudflare D1 Router API auth service responds to ECDSA wallet registratio
       },
     });
 
-    const registration = await service.createRegistrationIntent({
+    const registration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -3393,7 +3899,7 @@ test('Cloudflare D1 Router API auth service responds to ECDSA wallet registratio
     });
     if (!registration.ok) throw new Error(registration.message);
 
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
       walletId: registration.intent.walletId,
       orgId: scope.orgId,
@@ -3403,14 +3909,14 @@ test('Cloudflare D1 Router API auth service responds to ECDSA wallet registratio
       appSessionVersion,
     });
     if (!challenge.ok) throw new Error(challenge.message);
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: providerSubject,
       walletId: registration.intent.walletId,
     });
     if (!outbox.ok) throw new Error(outbox.message);
 
-    const started = await service.startWalletRegistration({
+    const started = await service.walletRegistration.startWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
       intent: registration.intent,
@@ -3433,7 +3939,7 @@ test('Cloudflare D1 Router API auth service responds to ECDSA wallet registratio
     if (!started.ecdsa) throw new Error('Expected ECDSA registration start payload');
 
     const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
-    const responded = await service.respondWalletRegistrationHss({
+    const responded = await service.walletRegistration.respondWalletRegistrationHss({
       registrationCeremonyId: started.registrationCeremonyId,
       ecdsa: {
         clientBootstrap,
@@ -3478,7 +3984,7 @@ test('Cloudflare D1 Router API auth service responds to ECDSA wallet registratio
     });
 
     await expect(
-      service.respondWalletRegistrationHss({
+      service.walletRegistration.respondWalletRegistrationHss({
         registrationCeremonyId: started.registrationCeremonyId,
         ecdsa: {
           clientBootstrap,
@@ -3532,7 +4038,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
       },
     });
 
-    const registration = await service.createRegistrationIntent({
+    const registration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -3551,7 +4057,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
     });
     if (!registration.ok) throw new Error(registration.message);
 
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
       walletId: registration.intent.walletId,
       orgId: scope.orgId,
@@ -3561,14 +4067,14 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
       appSessionVersion,
     });
     if (!challenge.ok) throw new Error(challenge.message);
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: providerSubject,
       walletId: registration.intent.walletId,
     });
     if (!outbox.ok) throw new Error(outbox.message);
 
-    const started = await service.startWalletRegistration({
+    const started = await service.walletRegistration.startWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
       intent: registration.intent,
@@ -3591,7 +4097,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
     if (!started.ecdsa) throw new Error('Expected ECDSA registration start payload');
 
     const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
-    const responded = await service.respondWalletRegistrationHss({
+    const responded = await service.walletRegistration.respondWalletRegistrationHss({
       registrationCeremonyId: started.registrationCeremonyId,
       ecdsa: {
         clientBootstrap,
@@ -3600,7 +4106,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
     if (!responded.ok) throw new Error(responded.message);
 
     await expect(
-      service.finalizeWalletRegistration({
+      service.walletRegistration.finalizeWalletRegistration({
         registrationCeremonyId: started.registrationCeremonyId,
         ecdsa: {
           expectedKeyHandles: ['wrong-key-handle'],
@@ -3612,7 +4118,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
     });
 
     await expect(
-      service.finalizeWalletRegistration({
+      service.walletRegistration.finalizeWalletRegistration({
         registrationCeremonyId: started.registrationCeremonyId,
         ecdsa: {
           expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
@@ -3641,7 +4147,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
       issuedAtMs: recoveryCodesIssuedAtMs,
     });
 
-    const finalized = await service.finalizeWalletRegistration({
+    const finalized = await service.walletRegistration.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       idempotencyKey: 'registration-finalize-replay-a',
       ecdsa: {
@@ -3719,7 +4225,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
       registrationAuthorityId: challenge.challenge.challengeId,
     });
     await expect(
-      service.readEmailOtpEnrollment({
+      service.emailOtp.readEmailOtpEnrollment({
         walletId: registration.intent.walletId,
         orgId: scope.orgId,
       }),
@@ -3771,7 +4277,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
       durableObjects.stub.values.get(`${prefix}ceremony:${started.registrationCeremonyId}`),
     ).toBeUndefined();
     await expect(
-      service.finalizeWalletRegistration({
+      service.walletRegistration.finalizeWalletRegistration({
         registrationCeremonyId: started.registrationCeremonyId,
         idempotencyKey: 'registration-finalize-replay-a',
         ecdsa: {
@@ -3790,7 +4296,7 @@ test('Cloudflare D1 Router API auth service finalizes ECDSA wallet registration 
       },
     });
     await expect(
-      service.finalizeWalletRegistration({
+      service.walletRegistration.finalizeWalletRegistration({
         registrationCeremonyId: started.registrationCeremonyId,
         ecdsa: {
           expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
@@ -3853,7 +4359,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
       },
     });
-    const intent = await service.createAddAuthMethodIntent({
+    const intent = await service.walletAuthMethods.createAddAuthMethodIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -3868,7 +4374,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
     const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
 
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
       walletId,
       orgId: scope.orgId,
@@ -3879,7 +4385,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: providerSubject,
       walletId,
@@ -3887,7 +4393,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     expect(outbox.ok).toBe(true);
     if (!outbox.ok) throw new Error(outbox.message);
 
-    const started = await service.startWalletAddAuthMethod({
+    const started = await service.walletAuthMethods.startWalletAddAuthMethod({
       walletId,
       addAuthMethodIntentGrant: intent.addAuthMethodIntentGrant,
       addAuthMethodIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
@@ -3941,7 +4447,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       },
     });
 
-    const finalized = await service.finalizeWalletAddAuthMethod({
+    const finalized = await service.walletAuthMethods.finalizeWalletAddAuthMethod({
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
     });
     expect(finalized).toEqual({
@@ -3972,7 +4478,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       registrationAuthorityId: challenge.challenge.challengeId,
     });
     await expect(
-      service.finalizeWalletAddAuthMethod({
+      service.walletAuthMethods.finalizeWalletAddAuthMethod({
         addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
       }),
     ).resolves.toMatchObject({
@@ -4012,7 +4518,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
       },
     });
 
-    const intent = await service.createAddSignerIntent({
+    const intent = await service.walletAuthMethods.createAddSignerIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -4033,7 +4539,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
     expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
     const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
 
-    const started = await service.startWalletAddSigner({
+    const started = await service.walletAuthMethods.startWalletAddSigner({
       walletId,
       addSignerIntentGrant: intent.addSignerIntentGrant,
       addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
@@ -4099,7 +4605,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
     });
 
     await expect(
-      service.startWalletAddSigner({
+      service.walletAuthMethods.startWalletAddSigner({
         walletId,
         addSignerIntentGrant: intent.addSignerIntentGrant,
         addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
@@ -4163,7 +4669,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
       },
     });
 
-    const intent = await service.createAddSignerIntent({
+    const intent = await service.walletAuthMethods.createAddSignerIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -4182,7 +4688,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     if (!intent.ok) throw new Error(intent.message);
     const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
 
-    const started = await service.startWalletAddSigner({
+    const started = await service.walletAuthMethods.startWalletAddSigner({
       walletId,
       addSignerIntentGrant: intent.addSignerIntentGrant,
       addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
@@ -4202,7 +4708,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     if (!started.ecdsa) throw new Error('Expected ECDSA add-signer start payload');
 
     const clientBootstrap = testEcdsaClientBootstrap(started.ecdsa.prepare);
-    const responded = await service.respondWalletAddSignerHss({
+    const responded = await service.walletAuthMethods.respondWalletAddSignerHss({
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
         clientBootstrap,
@@ -4241,7 +4747,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     });
 
     await expect(
-      service.respondWalletAddSignerHss({
+      service.walletAuthMethods.respondWalletAddSignerHss({
         addSignerCeremonyId: started.addSignerCeremonyId,
         ecdsa: {
           clientBootstrap,
@@ -4253,7 +4759,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     });
 
     await expect(
-      service.finalizeWalletAddSigner({
+      service.walletAuthMethods.finalizeWalletAddSigner({
         addSignerCeremonyId: started.addSignerCeremonyId,
         ecdsa: {
           expectedKeyHandles: ['wrong-key-handle'],
@@ -4264,7 +4770,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
       code: 'key_handle_mismatch',
     });
 
-    const finalized = await service.finalizeWalletAddSigner({
+    const finalized = await service.walletAuthMethods.finalizeWalletAddSigner({
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
         expectedKeyHandles: ['unexpected-key-handle', 'test-add-signer-ecdsa-key-handle'],
@@ -4316,7 +4822,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     ).toBeUndefined();
 
     await expect(
-      service.finalizeWalletAddSigner({
+      service.walletAuthMethods.finalizeWalletAddSigner({
         addSignerCeremonyId: started.addSignerCeremonyId,
         ecdsa: {
           expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
@@ -4366,7 +4872,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       },
     });
 
-    const verified = await service.verifyGoogleLogin({ idToken });
+    const verified = await service.identity.verifyGoogleLogin({ idToken });
     expect(verified).toMatchObject({
       ok: true,
       verified: true,
@@ -4377,7 +4883,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       emailVerified: true,
       hostedDomain: 'example.test',
     });
-    await expect(service.listIdentities({ userId: 'google:subject-123' })).resolves.toEqual({
+    await expect(service.identity.listIdentities({ userId: 'google:subject-123' })).resolves.toEqual({
       ok: true,
       subjects: ['google:subject-123'],
     });
@@ -4391,7 +4897,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       exp: nowSec + 300,
     });
     const tampered = `${parts[0]}.${tamperedPayloadB64u}.${parts[2]}`;
-    await expect(service.verifyGoogleLogin({ idToken: tampered })).resolves.toMatchObject({
+    await expect(service.identity.verifyGoogleLogin({ idToken: tampered })).resolves.toMatchObject({
       ok: false,
       verified: false,
       code: 'invalid_signature',
@@ -4464,7 +4970,7 @@ test('Cloudflare D1 Router API auth service verifies generic OIDC exchange token
       },
     });
 
-    await expect(service.verifyOidcJwtExchange({ token })).resolves.toMatchObject({
+    await expect(service.identity.verifyOidcJwtExchange({ token })).resolves.toMatchObject({
       ok: true,
       verified: true,
       userId: 'linked-oidc-wallet.testnet',
@@ -4477,7 +4983,7 @@ test('Cloudflare D1 Router API auth service verifies generic OIDC exchange token
       given_name: 'OIDC',
       family_name: 'User',
     });
-    await expect(service.listIdentities({ userId: 'linked-oidc-wallet.testnet' })).resolves.toEqual(
+    await expect(service.identity.listIdentities({ userId: 'linked-oidc-wallet.testnet' })).resolves.toEqual(
       {
         ok: true,
         subjects: [providerSubject],
@@ -4493,7 +4999,7 @@ test('Cloudflare D1 Router API auth service verifies generic OIDC exchange token
       exp: nowSec + 300,
     });
     const tampered = `${parts[0]}.${tamperedPayloadB64u}.${parts[2]}`;
-    await expect(service.verifyOidcJwtExchange({ token: tampered })).resolves.toMatchObject({
+    await expect(service.identity.verifyOidcJwtExchange({ token: tampered })).resolves.toMatchObject({
       ok: false,
       verified: false,
       code: 'invalid_signature',
@@ -4525,7 +5031,7 @@ test('Cloudflare D1 Router API auth service applies and removes Email OTP server
     const plaintextSecretB64u = encodePositiveBigIntB64u(19n);
     const clientWrappedCiphertext = addEmailOtpClientSeal(plaintextSecretB64u);
 
-    const applied = await service.applyEmailOtpServerSeal({
+    const applied = await service.emailOtp.applyEmailOtpServerSeal({
       wrappedCiphertext: clientWrappedCiphertext,
     });
     expect(applied).toMatchObject({
@@ -4538,7 +5044,7 @@ test('Cloudflare D1 Router API auth service applies and removes Email OTP server
       addEmailOtpServerSeal(plaintextSecretB64u),
     );
 
-    const removed = await service.removeEmailOtpServerSeal({
+    const removed = await service.emailOtp.removeEmailOtpServerSeal({
       wrappedCiphertext: applied.ciphertext,
     });
     expect(removed).toMatchObject({
@@ -4566,7 +5072,7 @@ test('Cloudflare D1 Router API auth service fails closed when Email OTP server s
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
     await expect(
-      service.applyEmailOtpServerSeal({
+      service.emailOtp.applyEmailOtpServerSeal({
         wrappedCiphertext: addEmailOtpClientSeal(encodePositiveBigIntB64u(23n)),
       }),
     ).resolves.toMatchObject({
@@ -4576,6 +5082,18 @@ test('Cloudflare D1 Router API auth service fails closed when Email OTP server s
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
+});
+
+test('Cloudflare D1 Google Email OTP registration attempt parser rejects legacy auth providers', () => {
+  const canonical = parseGoogleEmailOtpRegistrationAttemptRecord(
+    googleEmailOtpD1RegistrationAttemptBoundaryFixture({ authProvider: 'google' }),
+  );
+  expect(canonical).toMatchObject({ authProvider: 'google' });
+
+  const legacy = parseGoogleEmailOtpRegistrationAttemptRecord(
+    googleEmailOtpD1RegistrationAttemptBoundaryFixture({ authProvider: 'google_oidc' }),
+  );
+  expect(legacy).toBeNull();
 });
 
 test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google Email OTP registration attempts', async () => {
@@ -4603,13 +5121,13 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
       relayerAccount: 'relay.local',
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
-    const appSession = await service.getOrCreateAppSessionVersion({
+    const appSession = await service.sessionVersions.getOrCreateAppSessionVersion({
       userId: 'google:register-user',
     });
     expect(appSession.ok).toBe(true);
     if (!appSession.ok) throw new Error(appSession.message);
 
-    const rateLimit = await service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+    const rateLimit = await service.identity.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
       providerSubject: 'google:register-user',
       email: 'Alice@Example.Test',
       accountMode: 'register',
@@ -4619,7 +5137,7 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
     });
     expect(rateLimit).toEqual({ ok: true });
 
-    const first = await service.resolveGoogleEmailOtpSession({
+    const first = await service.identity.resolveGoogleEmailOtpSession({
       providerSubject: 'google:register-user',
       email: 'Alice@Example.Test',
       accountMode: 'register',
@@ -4634,7 +5152,7 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
     expect(first.offer.candidates).toHaveLength(5);
     expect(first.offer.selectedCandidateId).toBe(first.offer.candidates[0].candidateId);
 
-    const reused = await service.resolveGoogleEmailOtpSession({
+    const reused = await service.identity.resolveGoogleEmailOtpSession({
       providerSubject: 'google:register-user',
       email: 'alice@example.test',
       accountMode: 'register',
@@ -4661,9 +5179,10 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
     const stored = registrationAttemptRecordFromRow(rowsAfterReuse[0]);
     expect(stored.providerSubject).toBe('google:register-user');
     expect(stored.walletId).toBe(first.walletId);
+    expect(stored.authProvider).toBe('google');
     expect(stored.runtimePolicyScope).toEqual(runtimePolicyScope);
 
-    const restarted = await service.resolveGoogleEmailOtpSession({
+    const restarted = await service.identity.resolveGoogleEmailOtpSession({
       providerSubject: 'google:register-user',
       email: 'alice@example.test',
       accountMode: 'register',
@@ -4687,12 +5206,12 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
     expect(states).toEqual(['abandoned', 'started']);
 
     await expect(
-      service.linkIdentity({
+      service.identity.linkIdentity({
         userId: first.walletId,
         subject: 'wallet:google:register-user',
       }),
     ).resolves.toEqual({ ok: true });
-    const cleaned = await service.cleanupGoogleEmailOtpDevRegistrationState({
+    const cleaned = await service.emailOtp.cleanupGoogleEmailOtpDevRegistrationState({
       providerSubject: 'google:register-user',
       walletId: first.walletId,
       orgId: scope.orgId,
@@ -4705,7 +5224,7 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
       linkedWalletId: first.walletId,
       orphanedWalletMappingRemoved: true,
     });
-    await expect(service.listIdentities({ userId: first.walletId })).resolves.toEqual({
+    await expect(service.identity.listIdentities({ userId: first.walletId })).resolves.toEqual({
       ok: true,
       subjects: [],
     });
@@ -4771,11 +5290,13 @@ test('Cloudflare D1 Router API auth service starts Google Email OTP wallet regis
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
       },
     });
-    const appSession = await service.getOrCreateAppSessionVersion({ userId: providerSubject });
+    const appSession = await service.sessionVersions.getOrCreateAppSessionVersion({
+      userId: providerSubject,
+    });
     expect(appSession.ok).toBe(true);
     if (!appSession.ok) throw new Error(appSession.message);
 
-    const resolved = await service.resolveGoogleEmailOtpSession({
+    const resolved = await service.identity.resolveGoogleEmailOtpSession({
       providerSubject,
       email,
       accountMode: 'register',
@@ -4789,7 +5310,7 @@ test('Cloudflare D1 Router API auth service starts Google Email OTP wallet regis
     expect(selected).toBeTruthy();
     if (!selected) return;
 
-    const registration = await service.createRegistrationIntent({
+    const registration = await service.walletRegistration.createRegistrationIntent({
       orgId: scope.orgId,
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
@@ -4822,35 +5343,37 @@ test('Cloudflare D1 Router API auth service starts Google Email OTP wallet regis
     if (!registration.ok) throw new Error(registration.message);
     expect(registration.ok).toBe(true);
 
-    const prepared = await service.prepareWalletRegistration({
+    const authority = {
+      kind: 'email_otp' as const,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1' as const,
+        proofKind: 'google_sso_registration' as const,
+        providerSubject,
+        email,
+        googleEmailOtpRegistrationAttemptId: resolved.registrationAttemptId,
+        googleEmailOtpRegistrationOfferId: resolved.offer.offerId,
+        googleEmailOtpRegistrationCandidateId: selected.candidateId,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        appSessionVersion: appSession.appSessionVersion,
+      },
+    };
+
+    const prepared = await service.walletRegistration.prepareWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
       intent: registration.intent,
+      authority,
       prepareGate: { kind: 'source_unavailable', reason: 'direct_service_call' },
       work: { kind: 'ed25519_hss' },
     });
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) throw new Error(prepared.message);
 
-    const started = await service.startWalletRegistration({
+    const started = await service.walletRegistration.startWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
       registrationPreparationId: prepared.registrationPreparationId,
       intent: registration.intent,
-      authority: {
-        kind: 'email_otp',
-        emailOtpRegistrationProof: {
-          version: 'email_otp_registration_proof_v1',
-          proofKind: 'google_sso_registration',
-          providerSubject,
-          email,
-          googleEmailOtpRegistrationAttemptId: resolved.registrationAttemptId,
-          googleEmailOtpRegistrationOfferId: resolved.offer.offerId,
-          googleEmailOtpRegistrationCandidateId: selected.candidateId,
-          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
-          appSessionVersion: appSession.appSessionVersion,
-        },
-      },
     });
     expect(started.ok).toBe(true);
     if (!started.ok) throw new Error(started.message);
@@ -4889,7 +5412,7 @@ test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registr
       emailOtpGoogleRegistrationAttemptRateLimitWindowMs: 60_000,
     });
 
-    const first = await service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+    const first = await service.identity.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
       providerSubject: 'google:rate-user',
       email: 'rate@example.test',
       accountMode: 'register',
@@ -4899,7 +5422,7 @@ test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registr
     });
     expect(first).toEqual({ ok: true });
 
-    const second = await service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+    const second = await service.identity.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
       providerSubject: 'google:rate-user',
       email: 'rate@example.test',
       accountMode: 'register',
@@ -4954,13 +5477,13 @@ test('Cloudflare D1 Router API auth service rotates Email OTP recovery keys afte
       envId: scope.envId,
       emailOtpGrantTtlMs: 60_000,
     });
-    const freshAuth = await service.markEmailOtpStrongAuthSatisfied({
+    const freshAuth = await service.emailOtp.markEmailOtpStrongAuthSatisfied({
       walletId: 'email-wallet.testnet',
     });
     expect(freshAuth.ok).toBe(true);
     if (!freshAuth.ok) throw new Error(freshAuth.message);
 
-    const rotated = await service.rotateEmailOtpRecoveryKeys({
+    const rotated = await service.emailOtp.rotateEmailOtpRecoveryKeys({
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -4982,7 +5505,7 @@ test('Cloudflare D1 Router API auth service rotates Email OTP recovery keys afte
     const counts = await readRecoveryEscrowStatusCounts({ database, ...scope });
     expect(counts).toEqual({ active: 10, consumed: 1, revoked: 1 });
     await expect(
-      service.getEmailOtpRecoveryCodeStatus({
+      service.emailOtp.getEmailOtpRecoveryCodeStatus({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5030,7 +5553,7 @@ test('Cloudflare D1 Router API auth service rejects stale Email OTP recovery-key
       emailOtpGrantTtlMs: 60_000,
     });
     await expect(
-      service.rotateEmailOtpRecoveryKeys({
+      service.emailOtp.rotateEmailOtpRecoveryKeys({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5076,7 +5599,7 @@ test('Cloudflare D1 Router API auth service rejects invalid Email OTP recovery-k
       envId: scope.envId,
       emailOtpGrantTtlMs: 60_000,
     });
-    const freshAuth = await service.markEmailOtpStrongAuthSatisfied({
+    const freshAuth = await service.emailOtp.markEmailOtpStrongAuthSatisfied({
       walletId: 'email-wallet.testnet',
     });
     expect(freshAuth.ok).toBe(true);
@@ -5089,7 +5612,7 @@ test('Cloudflare D1 Router API auth service rejects invalid Email OTP recovery-k
       aadHashB64u: duplicateInputs[0].aadHashB64u,
     };
     await expect(
-      service.rotateEmailOtpRecoveryKeys({
+      service.emailOtp.rotateEmailOtpRecoveryKeys({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5105,7 +5628,7 @@ test('Cloudflare D1 Router API auth service rejects invalid Email OTP recovery-k
       aadHashB64u: base64UrlEncode(new Uint8Array(32).fill(250)),
     };
     await expect(
-      service.rotateEmailOtpRecoveryKeys({
+      service.emailOtp.rotateEmailOtpRecoveryKeys({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5147,7 +5670,7 @@ test('Cloudflare D1 Router API auth service tracks recovery sessions and executi
       envId: scope.envId,
     });
 
-    const initial = await service.getRecoverySession({ sessionId: 'recovery-session-a' });
+    const initial = await service.recovery.getRecoverySession({ sessionId: 'recovery-session-a' });
     expect(initial.ok).toBe(true);
     if (!initial.ok) throw new Error(initial.message);
     expect(initial.record).toMatchObject({
@@ -5157,7 +5680,7 @@ test('Cloudflare D1 Router API auth service tracks recovery sessions and executi
       metadata: { source: 'fixture' },
     });
 
-    const updated = await service.updateRecoverySessionStatus({
+    const updated = await service.recovery.updateRecoverySessionStatus({
       sessionId: 'recovery-session-a',
       status: 'verified',
       metadataPatch: {
@@ -5173,7 +5696,7 @@ test('Cloudflare D1 Router API auth service tracks recovery sessions and executi
     });
     expect(updated.record.updatedAtMs).toBeGreaterThanOrEqual(updated.record.createdAtMs);
 
-    const pending = await service.recordRecoveryExecution({
+    const pending = await service.recovery.recordRecoveryExecution({
       sessionId: 'recovery-session-a',
       chainIdKey: 'NEAR:TESTNET',
       accountAddress: 'alice.testnet',
@@ -5195,7 +5718,7 @@ test('Cloudflare D1 Router API auth service tracks recovery sessions and executi
       status: 'pending',
     });
 
-    const submitted = await service.recordRecoveryExecution({
+    const submitted = await service.recovery.recordRecoveryExecution({
       sessionId: 'recovery-session-a',
       chainIdKey: 'near:testnet',
       accountAddress: 'alice.testnet',
@@ -5242,7 +5765,7 @@ test('Cloudflare D1 Router API auth service tracks recovery sessions and executi
     });
 
     await expect(
-      service.recordRecoveryExecution({
+      service.recovery.recordRecoveryExecution({
         sessionId: 'missing-session',
         chainIdKey: 'near:testnet',
         accountAddress: 'alice.testnet',
@@ -5277,7 +5800,7 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
       emailOtpMaxAttempts: 2,
     });
 
-    const challenge = await service.createEmailOtpChallenge({
+    const challenge = await service.emailOtp.createEmailOtpChallenge({
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -5294,7 +5817,7 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
       emailHint: 'a***e@e***e.test',
     });
 
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
@@ -5304,7 +5827,7 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
     expect(outbox.otpCode).toMatch(/^[0-9]{6}$/);
 
     await expect(
-      service.verifyEmailOtpChallenge({
+      service.emailOtp.verifyEmailOtpChallenge({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5317,7 +5840,7 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
       }),
     ).resolves.toMatchObject({ ok: false, code: 'invalid_otp', attemptsRemaining: 1 });
 
-    const verified = await service.verifyEmailOtpChallenge({
+    const verified = await service.emailOtp.verifyEmailOtpChallenge({
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -5334,14 +5857,14 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
     expect(verified.loginGrant).toMatch(/^[A-Za-z0-9_-]+$/);
 
     await expect(
-      service.readEmailOtpOutboxEntry({
+      service.emailOtp.readEmailOtpOutboxEntry({
         challengeId: challenge.challenge.challengeId,
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'not_found' });
     await expect(
-      service.verifyEmailOtpChallenge({
+      service.emailOtp.verifyEmailOtpChallenge({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5355,7 +5878,7 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
     ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
 
     await expect(
-      service.consumeEmailOtpGrant({
+      service.emailOtp.consumeEmailOtpGrant({
         loginGrant: verified.loginGrant,
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
@@ -5370,7 +5893,7 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
       otpChannel: 'email_otp',
     });
     await expect(
-      service.consumeEmailOtpGrant({
+      service.emailOtp.consumeEmailOtpGrant({
         loginGrant: verified.loginGrant,
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
@@ -5405,7 +5928,7 @@ test('Cloudflare D1 Router API auth service issues registration Email OTP challe
       emailOtpDeliveryMode: 'dev_d1_outbox',
     });
 
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: 'google:registration-user',
       walletId: 'registration-wallet.testnet',
       orgId: scope.orgId,
@@ -5424,6 +5947,7 @@ test('Cloudflare D1 Router API auth service issues registration Email OTP challe
       operation: 'registration',
     });
     expect(challenge.delivery).toEqual({
+      status: 'sent',
       mode: 'dev_d1_outbox',
       emailHint: 'r***r@e***e.test',
     });
@@ -5461,7 +5985,7 @@ test('Cloudflare D1 Router API auth service issues registration Email OTP challe
       operation: 'registration',
     });
 
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: 'google:registration-user',
       walletId: 'registration-wallet.testnet',
@@ -5508,7 +6032,7 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
       emailOtpDeliveryMode: 'dev_d1_outbox',
     });
 
-    const challenge = await service.createEmailOtpEnrollmentChallenge({
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
       walletId,
       orgId: scope.orgId,
@@ -5519,7 +6043,7 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: providerSubject,
       walletId,
@@ -5540,7 +6064,7 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
       signingRootVersion: 'root-v1',
     });
 
-    const verified = await service.verifyEmailOtpEnrollment({
+    const verified = await service.emailOtp.verifyEmailOtpEnrollment({
       providerSubject,
       walletId,
       orgId: scope.orgId,
@@ -5568,7 +6092,7 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
     });
 
     await expect(
-      service.readEmailOtpEnrollment({
+      service.emailOtp.readEmailOtpEnrollment({
         walletId,
         orgId: scope.orgId,
       }),
@@ -5595,14 +6119,14 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
       }),
     ).resolves.toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
     await expect(
-      service.readEmailOtpOutboxEntry({
+      service.emailOtp.readEmailOtpOutboxEntry({
         challengeId: challenge.challenge.challengeId,
         userId: providerSubject,
         walletId,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'not_found' });
     await expect(
-      service.verifyEmailOtpEnrollment({
+      service.emailOtp.verifyEmailOtpEnrollment({
         providerSubject,
         walletId,
         orgId: scope.orgId,
@@ -5648,7 +6172,7 @@ test('Cloudflare D1 Router API auth service delivers Email OTP through configure
       emailOtpProduction: true,
     });
 
-    const challenge = await service.createEmailOtpChallenge({
+    const challenge = await service.emailOtp.createEmailOtpChallenge({
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -5680,7 +6204,7 @@ test('Cloudflare D1 Router API auth service delivers Email OTP through configure
     expect(provider.calls[0]?.otpCode).toMatch(/^[0-9]{6}$/);
 
     await expect(
-      service.readEmailOtpOutboxEntry({
+      service.emailOtp.readEmailOtpOutboxEntry({
         challengeId: challenge.challenge.challengeId,
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
@@ -5714,7 +6238,7 @@ test('Cloudflare D1 Router API auth service fails closed when Email OTP provider
     });
 
     await expect(
-      service.createEmailOtpChallenge({
+      service.emailOtp.createEmailOtpChallenge({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5784,7 +6308,7 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
       emailOtpRecoveryKeyAttemptRateLimitWindowMs: 60_000,
     });
 
-    const challenge = await service.createEmailOtpDeviceRecoveryChallenge({
+    const challenge = await service.emailOtp.createEmailOtpDeviceRecoveryChallenge({
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -5802,7 +6326,7 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
       operation: 'wallet_unlock',
     });
 
-    const outbox = await service.readEmailOtpOutboxEntry({
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
@@ -5811,7 +6335,7 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
     if (!outbox.ok) throw new Error(outbox.message);
 
     await expect(
-      service.verifyEmailOtpChallenge({
+      service.emailOtp.verifyEmailOtpChallenge({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -5824,7 +6348,7 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
       }),
     ).resolves.toMatchObject({ ok: false, code: 'challenge_purpose_mismatch' });
 
-    const verified = await service.verifyEmailOtpDeviceRecoveryChallenge({
+    const verified = await service.emailOtp.verifyEmailOtpDeviceRecoveryChallenge({
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -5878,13 +6402,11 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
       .first<SqliteJsonRow>();
     expect(grantRow?.action).toBe('wallet_email_otp_device_recovery');
 
-    const failureReport = await service.recordEmailOtpRecoveryKeyAttemptFailure({
+    const failureReport = await service.emailOtp.recordEmailOtpRecoveryKeyAttemptFailure({
       recoveryConsumeGrant: verified.recoveryConsumeGrant,
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
-      sessionHash: 'session-hash-a',
-      appSessionVersion: 'session-v1',
       clientIp: '203.0.113.42',
     });
     expect(failureReport.ok).toBe(true);
@@ -5893,25 +6415,21 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
     expect(failureReport.recordedAtMs).toBeGreaterThan(0);
 
     await expect(
-      service.recordEmailOtpRecoveryKeyAttemptFailure({
+      service.emailOtp.recordEmailOtpRecoveryKeyAttemptFailure({
         recoveryConsumeGrant: verified.recoveryConsumeGrant,
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'session-v1',
         clientIp: '203.0.113.42',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'rate_limited' });
 
-    const consumed = await service.consumeEmailOtpRecoveryKey({
+    const consumed = await service.emailOtp.consumeEmailOtpRecoveryKey({
       recoveryConsumeGrant: verified.recoveryConsumeGrant,
       userId: 'google:email-user',
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
       recoveryKeyId: 'recovery-active',
-      sessionHash: 'session-hash-a',
-      appSessionVersion: 'session-v1',
     });
     expect(consumed.ok).toBe(true);
     if (!consumed.ok) throw new Error(consumed.message);
@@ -5946,14 +6464,12 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
     expect(consumedEscrowRow?.recovery_key_status).toBe('consumed');
 
     await expect(
-      service.consumeEmailOtpRecoveryKey({
+      service.emailOtp.consumeEmailOtpRecoveryKey({
         recoveryConsumeGrant: verified.recoveryConsumeGrant,
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
         recoveryKeyId: 'recovery-active',
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'session-v1',
       }),
     ).resolves.toMatchObject({
       ok: false,
@@ -5961,7 +6477,7 @@ test('Cloudflare D1 Router API auth service issues and verifies device recovery 
     });
 
     await expect(
-      service.verifyEmailOtpDeviceRecoveryChallenge({
+      service.emailOtp.verifyEmailOtpDeviceRecoveryChallenge({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -6001,7 +6517,7 @@ test('Cloudflare D1 Router API auth service enforces Email OTP challenge rate li
     });
 
     await expect(
-      service.createEmailOtpChallenge({
+      service.emailOtp.createEmailOtpChallenge({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -6012,7 +6528,7 @@ test('Cloudflare D1 Router API auth service enforces Email OTP challenge rate li
       }),
     ).resolves.toMatchObject({ ok: true });
     await expect(
-      service.createEmailOtpChallenge({
+      service.emailOtp.createEmailOtpChallenge({
         userId: 'google:email-user',
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
@@ -6055,7 +6571,7 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       envId: scope.envId,
     });
 
-    const challenge = await service.createEmailOtpUnlockChallenge({
+    const challenge = await service.walletUnlock.createEmailOtpUnlockChallenge({
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
     });
@@ -6067,7 +6583,7 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       base64UrlDecode(challenge.challengeB64u),
       privateKey32,
     );
-    const verified = await service.verifyEmailOtpUnlockProof({
+    const verified = await service.walletUnlock.verifyEmailOtpUnlockProof({
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
       challengeId: challenge.challengeId,
@@ -6085,7 +6601,7 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
     });
 
     await expect(
-      service.verifyEmailOtpUnlockProof({
+      service.walletUnlock.verifyEmailOtpUnlockProof({
         walletId: 'email-wallet.testnet',
         orgId: scope.orgId,
         challengeId: challenge.challengeId,
@@ -6096,7 +6612,7 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       }),
     ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
     await expect(
-      service.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
     ).resolves.toMatchObject({
       ok: true,
       required: true,

@@ -653,8 +653,6 @@ test.describe('UserConfirm worker router', () => {
           signingGrantId: 'wallet-session-rehydrate',
           curve: 'ecdsa',
           authMethod: 'passkey',
-          signingRootId: 'sr-test:dev',
-          signingRootVersion: 'default',
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -1542,8 +1540,6 @@ test.describe('UserConfirm worker router', () => {
           signingGrantId: 'wallet-session-single-flight-remove',
           curve: 'ecdsa',
           authMethod: 'passkey',
-          signingRootId: 'sr-test:dev',
-          signingRootVersion: 'default',
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -1723,8 +1719,6 @@ test.describe('UserConfirm worker router', () => {
           signingGrantId: 'wallet-session-cross-manager-remove',
           curve: 'ecdsa',
           authMethod: 'passkey',
-          signingRootId: 'sr-test:dev',
-          signingRootVersion: 'default',
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -1899,8 +1893,6 @@ test.describe('UserConfirm worker router', () => {
           signingGrantId: 'wallet-session-no-rehydrate',
           curve: 'ecdsa',
           authMethod: 'passkey',
-          signingRootId: 'sr-test:dev',
-          signingRootVersion: 'default',
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -2110,8 +2102,6 @@ test.describe('UserConfirm worker router', () => {
           signingGrantId: 'wallet-session-expired',
           curve: 'ecdsa',
           authMethod: 'passkey',
-          signingRootId: 'sr-test:dev',
-          signingRootVersion: 'default',
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },

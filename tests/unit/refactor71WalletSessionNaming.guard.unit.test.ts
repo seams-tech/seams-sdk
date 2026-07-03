@@ -132,8 +132,6 @@ const classifiedSessionIdPublicSurfaceFiles: Record<string, SessionIdSurfaceClas
     'keep_ui_or_operation_session',
   'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/walletAuthModeResolver.ts':
-    'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/threshold/crypto/webauthn.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts':

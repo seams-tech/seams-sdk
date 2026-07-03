@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
 import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import type { SealedRecoveryRecord } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import {
@@ -40,7 +42,28 @@ const TEST_ECDSA_CHAIN_TARGETS = {
 const TEST_ECDSA_CHAIN_TARGET_LIST = [TEST_ECDSA_CHAIN_TARGETS.tempo, TEST_ECDSA_CHAIN_TARGETS.evm];
 const TEST_ED25519_MATERIAL_BINDING_DIGEST = 'ed25519-worker-material-binding-digest-restore';
 const TEST_ED25519_MATERIAL_KEY_ID = 'ed25519-worker-material-key-restore';
+const TEST_EMAIL_OTP_EMAIL_HASH_HEX = 'email-hash-restore';
+const TEST_ED25519_SEALED_MATERIAL = {
+  clientVerifyingShareB64u: 'ed25519-client-verifying-share-restore',
+  ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
+  sealedWorkerMaterialRef: 'ed25519-sealed-worker-material-ref-restore',
+  materialFormatVersion: 'ed25519_worker_material_v1',
+  materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
+  materialCreatedAtMs: 1_700_000_000_000,
+} as const;
 const TEST_ECDSA_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('key-handle-restore');
+const TEST_ECDSA_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org-restore',
+  projectId: 'root',
+  envId: 'restore',
+  signingRootVersion: 'v1',
+} as const;
+const TEST_ECDSA_SIGNING_ROOT_ID = deriveSigningRootId(TEST_ECDSA_RUNTIME_POLICY_SCOPE);
+const TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: 'restore.testnet',
+  signingRootId: TEST_ECDSA_SIGNING_ROOT_ID,
+  signingRootVersion: 'v1',
+});
 
 function ecdsaRestoreInput(
   args: Partial<Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>> = {},
@@ -52,9 +75,9 @@ function ecdsaRestoreInput(
   const wallet = walletIdFromString(args.walletId || 'restore.testnet');
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: wallet,
-    walletKeyId: 'wallet-key-restore',
+    evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: 'ecdsa-key-restore',
-    signingRootId: 'root-restore',
+    signingRootId: TEST_ECDSA_SIGNING_ROOT_ID,
     signingRootVersion: 'v1',
     participantIds: [1, 2],
     thresholdOwnerAddress: toThresholdOwnerAddress(`0x${'33'.repeat(20)}`),
@@ -158,9 +181,11 @@ function makeSealedRecord(args: {
 	  const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
 	  const ecdsaRestore =
 	    authMethod === 'passkey'
-	      ? {
-	          chainTarget,
-	          rpId: 'example.com',
+		      ? {
+		          chainTarget,
+            evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+            runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
+		          rpId: 'example.com',
 	          credentialIdB64u: 'credential-restore',
 	          sessionKind: 'jwt' as const,
 	          walletSessionJwt: 'jwt-restore',
@@ -173,9 +198,11 @@ function makeSealedRecord(args: {
 	          participantIds: [1, 2],
 	        }
 	      : {
-	          chainTarget,
-	          walletKeyId: 'wallet-key-restore',
-	          providerSubjectId: 'google:restore',
+		          chainTarget,
+            evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+            runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
+		          providerSubjectId: 'google:restore',
+          emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
 	          sessionKind: 'jwt' as const,
 	          walletSessionJwt: 'jwt-restore',
 	          keyHandle: 'key-handle-restore',
@@ -200,12 +227,9 @@ function makeSealedRecord(args: {
     sealedSecretB64u: 'sealed-secret',
     curve,
     walletId: 'restore.testnet',
-    userId: 'restore.testnet',
     relayerUrl: 'https://relay.example',
     ...(curve === 'ecdsa'
       ? {
-	          signingRootId: 'root-restore',
-	          signingRootVersion: 'v1',
 	          keyVersion: 'signing-session-seal-kek-test-r1',
 	          shamirPrimeB64u: 'prime-b64u',
 	          ecdsaRestore,
@@ -215,13 +239,16 @@ function makeSealedRecord(args: {
 	            nearAccountId: 'restore.testnet',
 	            nearEd25519SigningKeyId: 'restore.testnet',
 	            rpId: 'example.com',
-	            providerSubjectId: 'google:restore',
-		            credentialIdB64u: 'credential-restore',
-	            relayerKeyId: 'relayer-key-restore',
-	            participantIds: [1, 2],
-	            ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
-	            materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
-	            sessionKind: 'jwt' as const,
+            ...(authMethod === 'passkey'
+              ? { credentialIdB64u: 'credential-restore' }
+              : {
+                  providerSubjectId: 'google:restore',
+                  emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
+                }),
+		            relayerKeyId: 'relayer-key-restore',
+		            participantIds: [1, 2],
+		            ...TEST_ED25519_SEALED_MATERIAL,
+		            sessionKind: 'jwt' as const,
             walletSessionJwt: 'jwt-restore',
             signerSlot: 1,
           },
@@ -244,17 +271,16 @@ function makeEd25519RecordWithEcdsaCompanion(args: {
       thresholdSessionId: args.thresholdSessionId,
       signingGrantId: args.signingGrantId,
     }),
-    subjectId: 'restore.testnet',
-    signingRootId: 'root-restore',
-    signingRootVersion: 'v1',
     thresholdSessionIds: {
       ecdsa: args.ecdsaThresholdSessionId,
       ed25519: args.thresholdSessionId,
     },
 	    ecdsaRestore: {
 	      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-	      walletKeyId: 'wallet-key-restore',
+      evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+      runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
 	      providerSubjectId: 'google:restore',
+      emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
 	      sessionKind: 'jwt',
       walletSessionJwt: 'jwt-restore',
       keyHandle: 'key-handle-restore',
@@ -288,12 +314,12 @@ function makeEcdsaRecordWithEd25519Companion(args: {
 	      nearAccountId: 'restore.testnet',
 	      nearEd25519SigningKeyId: 'restore.testnet',
 	      rpId: 'example.com',
-	      providerSubjectId: 'google:restore',
-	      relayerKeyId: 'relayer-key-restore',
-	      participantIds: [1, 2],
-	      ed25519WorkerMaterialBindingDigest: TEST_ED25519_MATERIAL_BINDING_DIGEST,
-	      materialKeyId: TEST_ED25519_MATERIAL_KEY_ID,
-	      sessionKind: 'jwt',
+		      providerSubjectId: 'google:restore',
+      emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
+		      relayerKeyId: 'relayer-key-restore',
+		      participantIds: [1, 2],
+		      ...TEST_ED25519_SEALED_MATERIAL,
+		      sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ed25519-companion',
       signerSlot: 1,
       runtimePolicyScope: {

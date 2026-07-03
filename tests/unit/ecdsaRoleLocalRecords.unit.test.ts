@@ -9,6 +9,7 @@ import {
   upsertStoredThresholdEcdsaSessionRecord,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -60,12 +61,12 @@ const passkeyCredentialIdB64u = 'passkey-credential-id';
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ehss-key');
 const signingRootId = toEcdsaHssSigningRootId('root');
 const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
-const walletKeyId = deriveEvmFamilySigningKeySlotId({
+const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId,
   signingRootVersion,
 });
-const otherWalletKeyId = deriveEvmFamilySigningKeySlotId({
+const otherEvmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId: otherWalletId,
   signingRootId,
   signingRootVersion,
@@ -86,13 +87,13 @@ const emailOtpAuthMethod = buildEcdsaRoleLocalEmailOtpAuthMethod({
 });
 
 function emailOtpSessionAuthContext(): Record<string, unknown> {
-  return {
+  return buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'session',
-    retention: 'session',
     reason: 'login',
-    authMethod: 'email_otp',
-    authSubjectId: emailOtpAuthSubjectId,
-  };
+    retention: 'session',
+    provider: 'google',
+    providerUserId: emailOtpAuthSubjectId,
+  });
 }
 
 function loadInput(
@@ -100,7 +101,7 @@ function loadInput(
 ): LoadEcdsaRoleLocalReadyRecordInput {
   return {
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     chainTarget,
     keyHandle,
     ecdsaThresholdKeyId,
@@ -135,7 +136,7 @@ function legacyRoleLocalState(): Record<string, unknown> {
 function publicFacts() {
   return buildEcdsaRoleLocalPublicFacts({
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     chainTarget,
     keyHandle,
     ecdsaThresholdKeyId,
@@ -171,7 +172,7 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
   const source = String(overrides.source || 'registration');
   return {
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     chainTarget,
     relayerUrl: 'https://relayer.example',
     keyHandle,
@@ -224,7 +225,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
       rpId,
     });
     expect(ready.publicFacts.walletId).toBe(walletId);
-    expect(ready.publicFacts.walletKeyId).toBe(walletKeyId);
+    expect(ready.publicFacts.evmFamilySigningKeySlotId).toBe(evmFamilySigningKeySlotId);
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
     expect(ready.publicFacts.hssClientSharePublicKey33B64u).toBe(hssClientSharePublicKey33B64u);
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
@@ -243,7 +244,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(() =>
       parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
         rawSessionRecord({
-          authMetadata: { walletKeyId },
+          authMetadata: { evmFamilySigningKeySlotId },
         }),
       ),
     ).toThrow(/deleted authMetadata/);
@@ -254,7 +255,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
       ...readyRecord(),
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         ...publicFacts(),
-        walletKeyId: otherWalletKeyId,
+        evmFamilySigningKeySlotId: otherEvmFamilySigningKeySlotId,
       }),
     });
 
@@ -264,7 +265,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
           ecdsaRoleLocalReadyRecord: mismatchedReadyRecord,
         }),
       ),
-    ).toThrow(/walletKeyId mismatch/);
+    ).toThrow(/evmFamilySigningKeySlotId mismatch/);
   });
 
   test('restored passkey ECDSA records are written to the active session index', () => {
@@ -465,13 +466,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
       record: rawSessionRecord({
         source: 'email_otp',
-        emailOtpAuthContext: {
-          policy: 'session',
-          retention: 'session',
-          reason: 'login',
-          authMethod: 'email_otp',
-          authSubjectId: emailOtpAuthSubjectId,
-        },
+        emailOtpAuthContext: emailOtpSessionAuthContext(),
         clientAdditiveShareHandle: {
           kind: 'email_otp_worker_session',
           sessionId: 'email-otp-session',
@@ -494,13 +489,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
       record: rawSessionRecord({
         source: 'email_otp',
-        emailOtpAuthContext: {
-          policy: 'session',
-          retention: 'session',
-          reason: 'login',
-          authMethod: 'email_otp',
-          authSubjectId: emailOtpAuthSubjectId,
-        },
+        emailOtpAuthContext: emailOtpSessionAuthContext(),
       }),
       nowMs: 1,
     });
@@ -571,7 +560,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(malformed).toMatchObject({ ok: true, value: { kind: 'malformed' } });
     const cleanup = await runtime.storage.cleanupMalformedEcdsaRoleLocalRecord({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       chainTarget,
       keyHandle,
       ecdsaThresholdKeyId,
@@ -600,7 +589,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
       },
       publicFacts: {
         walletId,
-        walletKeyId,
+        evmFamilySigningKeySlotId,
         chainTarget,
         keyHandle,
         ecdsaThresholdKeyId,

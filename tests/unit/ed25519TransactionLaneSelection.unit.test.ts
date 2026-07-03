@@ -5,6 +5,7 @@ import {
   ed25519AvailableLaneIdentityKey,
   type AvailableEd25519SigningLane,
   type AvailableSigningLanes,
+  type Ed25519AvailableWorkerMaterialState,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   listNearEd25519TransactionReadyLanes,
@@ -13,6 +14,10 @@ import {
 } from '@/core/signingEngine/session/identity/selectLane';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 const walletId = toWalletId('cedar-zenith-pghgtw');
 const nearAccountId = toAccountId('cedar-zenith-pghgtw.testnet');
@@ -24,6 +29,26 @@ const auth = {
   rpId: toRpId('localhost'),
   credentialIdB64u: 'credential-ed25519-transaction-selection',
 } as const;
+
+function ed25519Material(input: {
+  source: 'runtime_session_record' | 'durable_sealed_record';
+  state: 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
+  includeMaterial: boolean;
+}): Ed25519AvailableWorkerMaterialState {
+  if (!input.includeMaterial) return { kind: 'material_pending' };
+  return {
+    kind:
+      input.source === 'runtime_session_record' && input.state === 'ready'
+        ? 'loaded_worker_material'
+        : 'sealed_worker_material',
+    identity: {
+      bindingDigest: parseEd25519WorkerMaterialBindingDigest(
+        'ed25519-material-binding-digest',
+      ),
+      materialKeyId: parseEd25519WorkerMaterialKeyId('ed25519-material-key-id'),
+    },
+  };
+}
 
 function ed25519Lane(input: {
   source: 'runtime_session_record' | 'durable_sealed_record';
@@ -45,12 +70,7 @@ function ed25519Lane(input: {
     remainingUses: 3,
     expiresAtMs: Date.now() + 60_000,
     updatedAtMs: Date.now(),
-    ...(input.includeMaterial
-      ? {
-          ed25519WorkerMaterialBindingDigest: 'ed25519-material-binding-digest',
-          materialKeyId: 'ed25519-material-key-id',
-        }
-      : {}),
+    material: ed25519Material(input),
   };
 }
 

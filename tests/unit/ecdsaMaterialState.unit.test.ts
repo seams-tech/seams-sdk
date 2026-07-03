@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
@@ -13,6 +13,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
 import {
@@ -59,7 +60,11 @@ const STATE_BLOB_B64U = base64UrlEncode(new Uint8Array(64).fill(9));
 const OWNER_ADDRESS = `0x${'aa'.repeat(20)}`;
 const SIGNING_ROOT_ID = 'project:env';
 const SIGNING_ROOT_VERSION = 'v1';
-const WALLET_KEY_ID = requireWalletKeyId('wallet-key-material-state');
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: 'alice.testnet',
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+});
 const PASSKEY_CREDENTIAL_ID = 'credential-material-state';
 const PASSKEY_AUTH = {
   kind: 'passkey',
@@ -131,7 +136,7 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
-      wallet_key_id: WALLET_KEY_ID,
+      wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       wallet_id: 'alice.testnet',
       ecdsa_threshold_key_id: 'ecdsa-key-1',
       signing_root_id: SIGNING_ROOT_ID,
@@ -166,7 +171,7 @@ function makeCandidate(): EcdsaLaneCandidate {
     walletId,
     key: buildEvmFamilyEcdsaKeyIdentity({
       walletId,
-      walletKeyId: WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: SIGNING_ROOT_VERSION,
@@ -225,7 +230,7 @@ function makeRoleLocalReadyRecord() {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId('alice.testnet'),
-      walletKeyId: WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
       ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -259,7 +264,7 @@ function makeEmailOtpRoleLocalReadyRecord() {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId('alice.testnet'),
-      walletKeyId: WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
       ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -316,7 +321,7 @@ function makeRecord(
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     ...overrides,
   };
 }
@@ -354,14 +359,14 @@ function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'e
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    walletKeyId: WALLET_KEY_ID,
-    emailOtpAuthContext: {
-      authMethod: 'email_otp',
-      policy: 'per_operation',
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+    emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: 'session',
       reason: 'sign',
       retention: 'session',
-      authSubjectId: 'email:alice',
-    },
+      provider: 'email',
+      providerUserId: 'email:alice',
+    }),
   };
 }
 

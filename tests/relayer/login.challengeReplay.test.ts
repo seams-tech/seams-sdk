@@ -1,33 +1,54 @@
 import { test, expect } from '@playwright/test';
-import { AuthService } from '@server/core/AuthService';
 import { createRouterApiRouter } from '@server/router/express-adaptor';
-import { fetchJson, startExpressRouter } from './helpers';
-import { DEFAULT_TEST_CONFIG } from '../setup/config';
+import { fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
+
+function makePasskeyReplayService() {
+  const activeChallengeIds = new Set<string>();
+  let challengeCounter = 0;
+
+  return makeFakeAuthService({
+    createWebAuthnLoginOptions: async () => {
+      challengeCounter += 1;
+      const challengeId = `challenge-replay-${challengeCounter}`;
+      activeChallengeIds.add(challengeId);
+      return {
+        ok: true,
+        challengeId,
+        challengeB64u: 'challenge-b64u',
+        expiresAtMs: Date.now() + 60_000,
+      };
+    },
+    verifyWebAuthnLogin: async (request) => {
+      const challengeId = String(
+        (request as { challengeId?: unknown; challenge_id?: unknown }).challengeId ||
+          (request as { challengeId?: unknown; challenge_id?: unknown }).challenge_id ||
+          '',
+      );
+      if (!activeChallengeIds.delete(challengeId)) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_expired_or_invalid',
+          message: 'Challenge expired or invalid',
+        };
+      }
+      return {
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
+      };
+    },
+    verifyWebAuthnAuthenticationLite: async () => ({
+      success: true,
+      verified: true,
+    }),
+  });
+}
 
 test.describe('relayer login challenge replay', () => {
   test('POST /auth/passkey/verify: replayed challengeId is rejected', async () => {
-    const service = new AuthService({
-      relayerAccount: 'relayer.testnet',
-      relayerPrivateKey: 'ed25519:dummy',
-      nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
-      networkId: DEFAULT_TEST_CONFIG.nearNetwork,
-      accountInitialBalance: '1',
-      createAccountAndRegisterGas: '1',
-      logger: null,
-    });
-
-    // Keep the test focused on challenge replay protection (store.consume).
-    (
-      service as unknown as {
-        verifyWebAuthnAuthenticationLite: (
-          req: unknown,
-        ) => Promise<{ success: boolean; verified: boolean }>;
-      }
-    ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({
-      success: true,
-      verified: true,
-    });
-
+    const service = makePasskeyReplayService();
     const router = createRouterApiRouter(service, {});
     const srv = await startExpressRouter(router);
 

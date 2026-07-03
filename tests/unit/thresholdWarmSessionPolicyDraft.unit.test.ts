@@ -4,6 +4,13 @@ import {
   createThresholdWarmSessionPolicyDraft,
   type ThresholdWarmSessionContext,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+
+function testWebAuthnRpId(value: string) {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 function warmSessionContext(): ThresholdWarmSessionContext {
   return {
@@ -63,7 +70,7 @@ test.describe('threshold warm-session policy draft', () => {
     if (!policy) throw new Error('expected warm-session policy');
 
     const envelope = buildThresholdWarmSessionRequestEnvelope({
-      authority: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
+      authorityScope: { kind: 'passkey_rp', rpId: testWebAuthnRpId('wallet.example.test') },
       nearAccountId: 'alice.testnet',
       requestedPolicy: policy,
     });
@@ -85,14 +92,10 @@ test.describe('threshold warm-session policy draft', () => {
 
     const authorityScope = {
       kind: 'email_otp',
-      proofKind: 'google_sso_registration',
       email: 'alice@example.test',
-      googleEmailOtpRegistrationAttemptId: 'attempt-1',
-      googleEmailOtpRegistrationOfferId: 'offer-1',
-      googleEmailOtpRegistrationCandidateId: 'candidate-1',
     } as const;
     const envelope = buildThresholdWarmSessionRequestEnvelope({
-      authority: { kind: 'exact_authority_scope', authorityScope },
+      authorityScope,
       requestedPolicy: policy,
     });
 

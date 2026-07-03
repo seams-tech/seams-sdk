@@ -10,7 +10,6 @@ import {
   ROUTER_AB_ED25519_HSS_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH } from '@shared/utils/routerAbEcdsaHss';
 import {
   callCf,
   fetchJson,
@@ -228,73 +227,6 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
       ok: false,
       code: 'invalid_body',
       message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
-    });
-  });
-
-  test('express: Router A/B ECDSA key identities rejects cookie mode before session parsing', async () => {
-    const service = makeFakeAuthService({
-      listThresholdEcdsaKeyIdentityTargetsForUser: async () => {
-        throw new Error('cookie-mode ECDSA key identities must not reach lookup');
-      },
-    } as any);
-    const router = createRouterApiRouter(service, {
-      session: makeSessionAdapter({
-        parse: async () => {
-          throw new Error('cookie-mode ECDSA key identities must not parse route auth');
-        },
-      }),
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer router-ab-wallet-session',
-        },
-        body: JSON.stringify({ sessionKind: 'cookie', keyTargets: [] }),
-      });
-
-      expect(res.status).toBe(400);
-      expect(res.json).toMatchObject({
-        ok: false,
-        code: 'invalid_body',
-        message: 'Router A/B ECDSA-HSS key identities requires sessionKind=jwt',
-      });
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('cloudflare: Router A/B ECDSA key identities rejects cookie mode before session parsing', async () => {
-    const service = makeFakeAuthService({
-      listThresholdEcdsaKeyIdentityTargetsForUser: async () => {
-        throw new Error('cookie-mode ECDSA key identities must not reach lookup');
-      },
-    } as any);
-    const { threshold } = makeThresholdAdapter({
-      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-    });
-    const handler = createCloudflareRouter(service, {
-      threshold: threshold as any,
-      session: makeSessionAdapter({
-        parse: async () => {
-          throw new Error('cookie-mode ECDSA key identities must not parse route auth');
-        },
-      }),
-    });
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH,
-      headers: { Authorization: 'Bearer router-ab-wallet-session' },
-      body: { sessionKind: 'cookie', keyTargets: [] },
-    });
-
-    expect(res.status).toBe(400);
-    expect(res.json).toMatchObject({
-      ok: false,
-      code: 'invalid_body',
-      message: 'Router A/B ECDSA-HSS key identities requires sessionKind=jwt',
     });
   });
 

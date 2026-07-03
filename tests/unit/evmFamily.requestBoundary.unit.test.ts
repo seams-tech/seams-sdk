@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { evmFamilySigningTargetFromExplicitTarget } from '@/core/signingEngine/flows/signEvmFamily/types';
 import {
   buildEcdsaLaneBudgetStatusCheck,
@@ -32,7 +33,6 @@ import {
 } from '@/core/signingEngine/session/persistence/records';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const WALLET_KEY_ID = 'wallet-key-request-boundary';
 const budgetChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -47,7 +47,11 @@ function authenticatedEcdsaBudgetCheck(args: {
 }): AuthenticatedEcdsaLaneBudgetStatusCheck {
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.walletId,
-    walletKeyId: WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: args.walletId,
+      signingRootId: 'project:dev',
+      signingRootVersion: 'default',
+    }),
     ecdsaThresholdKeyId: 'ecdsa-budget-key',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
@@ -177,6 +181,19 @@ test.describe('EVM-family request boundaries', () => {
     const keyRefRefreshCall = signEvmFamily.slice(keyRefRefreshStart, keyRefRefreshStart + 400);
     expect(keyRefRefreshCall).toContain('chain: requestChain');
     expect(keyRefRefreshCall).not.toContain('chain: args.request.chain');
+  });
+
+  test('committed Email OTP ECDSA selection does not probe session records by wallet and chain', () => {
+    const ecdsaSelection = fs.readFileSync(
+      path.join(
+        repoRoot,
+        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
+      ),
+      'utf8',
+    );
+
+    expect(ecdsaSelection).not.toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
+    expect(ecdsaSelection).not.toContain('tryGetEmailOtpThresholdEcdsaSessionRecordForAuthority');
   });
 });
 

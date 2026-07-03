@@ -1,10 +1,15 @@
 import { test, expect } from '@playwright/test';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { createEcdsaWalletSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import {
   createThresholdEcdsaSigningStores,
   type RouterAbEcdsaHssPoolFillSessionRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
-import { CloudflareDurableObjectThresholdEd25519HssCeremonyStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore';
+import {
+  CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner,
+  CloudflareDurableObjectThresholdEd25519HssCeremonyStore,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -132,7 +137,7 @@ function makeCloudflareDoPresignSessionRecord(input: {
   return {
     expiresAtMs: nowMs + 60_000,
     walletId: 'wallet-do-1',
-    walletKeyId: 'wallet-key-do-1',
+    evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-do-1:signing-root-do-1:root-v1',
     relayerKeyId: input.relayerKeyId,
     presignPoolKey: `keyHandle:${input.relayerKeyId}`,
     poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
@@ -147,6 +152,23 @@ function makeCloudflareDoPresignSessionRecord(input: {
     signingRootVersion: 'root-v1',
     walletKeyVersion: 'wallet-key-version-1',
     derivationVersion: 1,
+  };
+}
+
+function randomSecpSecretKey32(): Uint8Array {
+  const utils = (secp256k1 as unknown as { utils?: { randomSecretKey?: () => Uint8Array } }).utils;
+  if (utils?.randomSecretKey) return utils.randomSecretKey();
+  throw new Error('secp256k1 random secret key generator is unavailable');
+}
+
+function makeEcdsaHssPoolFillLiveSessionMaterial(): {
+  relayerThresholdShare32B64u: string;
+  groupPublicKey33B64u: string;
+} {
+  const relayerShare32 = randomSecpSecretKey32();
+  return {
+    relayerThresholdShare32B64u: base64UrlEncode(relayerShare32),
+    groupPublicKey33B64u: base64UrlEncode(secp256k1.getPublicKey(relayerShare32, true)),
   };
 }
 
@@ -175,10 +197,10 @@ test.describe('threshold-ed25519 HSS durable ceremony store', () => {
       preparedServerSession: {
         evaluatorDriverStateBytes: new Uint8Array([1, 2, 3]),
         garblerDriverStateBytes: new Uint8Array([4, 5, 6]),
+        serverEvalStateBytes: new Uint8Array([10, 11, 12]),
       },
       evaluationResult: {
         stagedEvaluatorArtifactBytes: new Uint8Array([7, 8, 9]),
-        serverEvalFinalizeOutputBytes: new Uint8Array([10, 11, 12]),
       },
     });
 
@@ -193,9 +215,11 @@ test.describe('threshold-ed25519 HSS durable ceremony store', () => {
     expect(Array.from(restored?.evaluationResult?.stagedEvaluatorArtifactBytes ?? [])).toEqual([
       7, 8, 9,
     ]);
-    expect(Array.from(restored?.evaluationResult?.serverEvalFinalizeOutputBytes ?? [])).toEqual([
-      10, 11, 12,
-    ]);
+    const restoredServerEvalStateBytes =
+      restored && 'serverEvalStateBytes' in restored.preparedServerSession
+        ? restored.preparedServerSession.serverEvalStateBytes
+        : undefined;
+    expect(Array.from(restoredServerEvalStateBytes ?? [])).toEqual([10, 11, 12]);
     await expect(restartedStore.get('ceremony-1')).resolves.toBeNull();
   });
 });
@@ -432,6 +456,46 @@ test.describe('threshold-ecdsa durable presign stores', () => {
       const got = await poolFillSessionStore.getSession('psess-do-1');
       expect(got?.version).toBe(2);
       expect(got?.stage).toBe('triples_done');
+    });
+
+    test('pool-fill live session owner shares WASM state across fresh owner instances', async () => {
+      const namespace = createMemoryDurableObjectNamespace();
+      const objectName = randPrefix('threshold-ecdsa:do-live-pool-fill');
+      const firstOwner = new CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner({
+        namespace,
+        objectName,
+      });
+      const freshOwner = new CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner({
+        namespace,
+        objectName,
+      });
+      const presignSessionId = 'psess-do-live-1';
+      const record = makeCloudflareDoPresignSessionRecord({
+        relayerKeyId: 'rk-do-live',
+        version: 1,
+        stage: 'triples',
+      });
+      const material = makeEcdsaHssPoolFillLiveSessionMaterial();
+
+      const created = await firstOwner.createSession({
+        presignSessionId,
+        record,
+        participantIds: [...record.participantIds],
+        relayerParticipantId: record.relayerParticipantId,
+        relayerThresholdShare32B64u: material.relayerThresholdShare32B64u,
+        groupPublicKey33B64u: material.groupPublicKey33B64u,
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) throw new Error(created.message);
+
+      const stepped = await freshOwner.stepSession({
+        presignSessionId,
+        record: created.value.record,
+        requestedStage: 'triples',
+        outgoingMessagesB64u: [],
+        thresholdExpiresAtMs: created.value.record.expiresAtMs,
+      });
+      expect(stepped.ok).toBe(true);
     });
   });
 

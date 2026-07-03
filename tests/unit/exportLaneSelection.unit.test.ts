@@ -40,6 +40,10 @@ import {
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -336,8 +340,17 @@ function ed25519Lane(
     state: 'restorable',
     signingGrantId: 'wallet-ed25519-session-1',
     thresholdSessionId: 'threshold-ed25519-session-1',
-    ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding-digest-test',
-    materialKeyId: 'ed25519-worker-material-key-test',
+    material: {
+      kind: laneOverrides.state === 'ready' ? 'loaded_worker_material' : 'sealed_worker_material',
+      identity: {
+        bindingDigest: parseEd25519WorkerMaterialBindingDigest(
+          'ed25519-worker-material-binding-digest-test',
+        ),
+        materialKeyId: parseEd25519WorkerMaterialKeyId(
+          'ed25519-worker-material-key-test',
+        ),
+      },
+    },
     remainingUses: 1,
     expiresAtMs: 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,

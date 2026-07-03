@@ -3,6 +3,7 @@ import http from 'node:http';
 import { createHash } from 'node:crypto';
 import expressImport from 'express';
 import type { AuthService } from '@server/core/AuthService';
+import type { RouterApiServiceBag } from '@server/router/authServicePort';
 import type { SessionAdapter } from '@server/router/express-adaptor';
 import type { CfEnv, CfExecutionContext } from '@server/router/cloudflare-adaptor';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -285,13 +286,43 @@ export function makeSessionAdapter(overrides: Partial<SessionAdapter> = {}): Ses
 
 export function makeFakeAuthService(
   overrides: Partial<{
+    getConfiguredRelayerAccount: RouterApiServiceBag['router']['getConfiguredRelayerAccount'];
     getRelayerAccount: AuthService['getRelayerAccount'];
+    createRegistrationIntent: RouterApiServiceBag['walletRegistration']['createRegistrationIntent'];
+    prepareWalletRegistration: RouterApiServiceBag['walletRegistration']['prepareWalletRegistration'];
+    startWalletRegistration: RouterApiServiceBag['walletRegistration']['startWalletRegistration'];
+    respondWalletRegistrationHss: RouterApiServiceBag['walletRegistration']['respondWalletRegistrationHss'];
+    finalizeWalletRegistration: RouterApiServiceBag['walletRegistration']['finalizeWalletRegistration'];
+    createAddAuthMethodIntent: RouterApiServiceBag['walletAuthMethods']['createAddAuthMethodIntent'];
+    createAddSignerIntent: RouterApiServiceBag['walletAuthMethods']['createAddSignerIntent'];
+    finalizeWalletAddAuthMethod: RouterApiServiceBag['walletAuthMethods']['finalizeWalletAddAuthMethod'];
+    finalizeWalletAddSigner: RouterApiServiceBag['walletAuthMethods']['finalizeWalletAddSigner'];
+    respondWalletAddSignerHss: RouterApiServiceBag['walletAuthMethods']['respondWalletAddSignerHss'];
+    revokeWalletAuthMethod: RouterApiServiceBag['walletAuthMethods']['revokeWalletAuthMethod'];
+    startWalletAddAuthMethod: RouterApiServiceBag['walletAuthMethods']['startWalletAddAuthMethod'];
+    startWalletAddSigner: RouterApiServiceBag['walletAuthMethods']['startWalletAddSigner'];
     createWebAuthnLoginOptions: AuthService['createWebAuthnLoginOptions'];
     verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
+    verifyWebAuthnAuthenticationLite: RouterApiServiceBag['webAuthn']['verifyWebAuthnAuthenticationLite'];
+    listWebAuthnAuthenticatorsForUser: RouterApiServiceBag['webAuthn']['listWebAuthnAuthenticatorsForUser'];
     createEmailOtpUnlockChallenge: AuthService['createEmailOtpUnlockChallenge'];
     verifyEmailOtpUnlockProof: AuthService['verifyEmailOtpUnlockProof'];
+    applyEmailOtpServerSeal: RouterApiServiceBag['emailOtp']['applyEmailOtpServerSeal'];
     createEmailOtpChallenge: AuthService['createEmailOtpChallenge'];
+    createEmailOtpDeviceRecoveryChallenge: RouterApiServiceBag['emailOtp']['createEmailOtpDeviceRecoveryChallenge'];
+    createEmailOtpEnrollmentChallenge: RouterApiServiceBag['emailOtp']['createEmailOtpEnrollmentChallenge'];
+    consumeEmailOtpGrant: RouterApiServiceBag['emailOtp']['consumeEmailOtpGrant'];
+    consumeEmailOtpRecoveryKey: RouterApiServiceBag['emailOtp']['consumeEmailOtpRecoveryKey'];
+    getEmailOtpRecoveryCodeStatus: RouterApiServiceBag['emailOtp']['getEmailOtpRecoveryCodeStatus'];
+    isEmailOtpStrongAuthRequired: RouterApiServiceBag['emailOtp']['isEmailOtpStrongAuthRequired'];
+    readActiveEmailOtpEnrollment: RouterApiServiceBag['emailOtp']['readActiveEmailOtpEnrollment'];
+    recordEmailOtpRecoveryKeyAttemptFailure: RouterApiServiceBag['emailOtp']['recordEmailOtpRecoveryKeyAttemptFailure'];
+    removeEmailOtpServerSeal: RouterApiServiceBag['emailOtp']['removeEmailOtpServerSeal'];
+    rotateEmailOtpRecoveryKeys: RouterApiServiceBag['emailOtp']['rotateEmailOtpRecoveryKeys'];
+    validateGoogleEmailOtpRegistrationCandidateWallet: RouterApiServiceBag['emailOtp']['validateGoogleEmailOtpRegistrationCandidateWallet'];
     verifyEmailOtpChallenge: AuthService['verifyEmailOtpChallenge'];
+    verifyEmailOtpDeviceRecoveryChallenge: RouterApiServiceBag['emailOtp']['verifyEmailOtpDeviceRecoveryChallenge'];
+    verifyEmailOtpEnrollment: RouterApiServiceBag['emailOtp']['verifyEmailOtpEnrollment'];
     readEmailOtpEnrollment: AuthService['readEmailOtpEnrollment'];
     readEmailOtpOutboxEntry: AuthService['readEmailOtpOutboxEntry'];
     createWebAuthnSyncAccountOptions: AuthService['createWebAuthnSyncAccountOptions'];
@@ -309,6 +340,7 @@ export function makeFakeAuthService(
     failGoogleEmailOtpRegistrationAttempt: AuthService['failGoogleEmailOtpRegistrationAttempt'];
     cleanupGoogleEmailOtpDevRegistrationState: AuthService['cleanupGoogleEmailOtpDevRegistrationState'];
     isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
+    getGoogleOidcPublicConfig: RouterApiServiceBag['identity']['getGoogleOidcPublicConfig'];
     verifyGoogleLogin: AuthService['verifyGoogleLogin'];
     markEmailOtpStrongAuthSatisfied: AuthService['markEmailOtpStrongAuthSatisfied'];
     checkAccountExists: AuthService['checkAccountExists'];
@@ -322,17 +354,65 @@ export function makeFakeAuthService(
     listRecoveryExecutions: AuthService['listRecoveryExecutions'];
     listRecoveryExecutionsByStatus: AuthService['listRecoveryExecutionsByStatus'];
     recordNearPublicKeyMetadata: AuthService['recordNearPublicKeyMetadata'];
+    fundImplicitNearAccount: RouterApiServiceBag['nearFunding']['fundImplicitNearAccount'];
+    listNearPublicKeysForUser: RouterApiServiceBag['nearFunding']['listNearPublicKeysForUser'];
     listIdentities: AuthService['listIdentities'];
     linkIdentity: AuthService['linkIdentity'];
     unlinkIdentity: AuthService['unlinkIdentity'];
     getThresholdSigningService: AuthService['getThresholdSigningService'];
+    ecdsaHssRoleLocalBootstrap: RouterApiServiceBag['thresholdRuntime']['ecdsaHssRoleLocalBootstrap'];
+    ecdsaHssRoleLocalExportShare: RouterApiServiceBag['thresholdRuntime']['ecdsaHssRoleLocalExportShare'];
+    listThresholdEcdsaKeyIdentityTargetsForUser: RouterApiServiceBag['thresholdRuntime']['listThresholdEcdsaKeyIdentityTargetsForUser'];
+    listWalletEcdsaKeyFactsInventory: RouterApiServiceBag['thresholdRuntime']['listWalletEcdsaKeyFactsInventory'];
+    verifyEcdsaHssRoleLocalClientRootProofForExistingKey: RouterApiServiceBag['thresholdRuntime']['verifyEcdsaHssRoleLocalClientRootProofForExistingKey'];
     emailRecovery: unknown;
   }> = {},
-): AuthService {
+): AuthService & RouterApiServiceBag {
   const service = {
+    getConfiguredRelayerAccount:
+      overrides.getConfiguredRelayerAccount || (() => 'w3a-relayer.testnet'),
     getRelayerAccount:
       overrides.getRelayerAccount ||
       (async () => ({ accountId: 'w3a-relayer.testnet', publicKey: 'ed25519:test' })),
+    createRegistrationIntent:
+      overrides.createRegistrationIntent ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    prepareWalletRegistration:
+      overrides.prepareWalletRegistration ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    startWalletRegistration:
+      overrides.startWalletRegistration ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    respondWalletRegistrationHss:
+      overrides.respondWalletRegistrationHss ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    finalizeWalletRegistration:
+      overrides.finalizeWalletRegistration ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    createAddAuthMethodIntent:
+      overrides.createAddAuthMethodIntent ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    createAddSignerIntent:
+      overrides.createAddSignerIntent ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    finalizeWalletAddAuthMethod:
+      overrides.finalizeWalletAddAuthMethod ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    finalizeWalletAddSigner:
+      overrides.finalizeWalletAddSigner ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    respondWalletAddSignerHss:
+      overrides.respondWalletAddSignerHss ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    revokeWalletAuthMethod:
+      overrides.revokeWalletAuthMethod ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    startWalletAddAuthMethod:
+      overrides.startWalletAddAuthMethod ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    startWalletAddSigner:
+      overrides.startWalletAddSigner ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     createWebAuthnLoginOptions:
       overrides.createWebAuthnLoginOptions ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
@@ -343,6 +423,20 @@ export function makeFakeAuthService(
         verified: false,
         code: 'not_implemented',
         message: 'not implemented',
+      })),
+    verifyWebAuthnAuthenticationLite:
+      overrides.verifyWebAuthnAuthenticationLite ||
+      (async () => ({
+        success: false,
+        verified: false,
+        code: 'not_implemented',
+        message: 'not implemented',
+      })),
+    listWebAuthnAuthenticatorsForUser:
+      overrides.listWebAuthnAuthenticatorsForUser ||
+      (async () => ({
+        ok: true,
+        authenticators: [],
       })),
     createEmailOtpUnlockChallenge:
       overrides.createEmailOtpUnlockChallenge ||
@@ -358,8 +452,58 @@ export function makeFakeAuthService(
     createEmailOtpChallenge:
       overrides.createEmailOtpChallenge ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    createEmailOtpDeviceRecoveryChallenge:
+      overrides.createEmailOtpDeviceRecoveryChallenge ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    createEmailOtpEnrollmentChallenge:
+      overrides.createEmailOtpEnrollmentChallenge ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    applyEmailOtpServerSeal:
+      overrides.applyEmailOtpServerSeal ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    consumeEmailOtpGrant:
+      overrides.consumeEmailOtpGrant ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    consumeEmailOtpRecoveryKey:
+      overrides.consumeEmailOtpRecoveryKey ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    getEmailOtpRecoveryCodeStatus:
+      overrides.getEmailOtpRecoveryCodeStatus ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    isEmailOtpStrongAuthRequired:
+      overrides.isEmailOtpStrongAuthRequired ||
+      (async (request) => ({
+        ok: true,
+        required: false,
+        walletId: String(
+          (request as { walletId?: unknown }).walletId || 'g-fake-oidc-wallet.testnet',
+        ),
+      })),
+    recordEmailOtpRecoveryKeyAttemptFailure:
+      overrides.recordEmailOtpRecoveryKeyAttemptFailure ||
+      (async (request) => ({
+        ok: true,
+        walletId: String(
+          (request as { walletId?: unknown }).walletId || 'g-fake-oidc-wallet.testnet',
+        ),
+        recordedAtMs: Date.now(),
+      })),
+    removeEmailOtpServerSeal:
+      overrides.removeEmailOtpServerSeal ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    rotateEmailOtpRecoveryKeys:
+      overrides.rotateEmailOtpRecoveryKeys ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    validateGoogleEmailOtpRegistrationCandidateWallet:
+      overrides.validateGoogleEmailOtpRegistrationCandidateWallet || (async () => ({ ok: true })),
     verifyEmailOtpChallenge:
       overrides.verifyEmailOtpChallenge ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    verifyEmailOtpDeviceRecoveryChallenge:
+      overrides.verifyEmailOtpDeviceRecoveryChallenge ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    verifyEmailOtpEnrollment:
+      overrides.verifyEmailOtpEnrollment ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     consumeGoogleEmailOtpRegistrationAttemptRateLimit:
       overrides.consumeGoogleEmailOtpRegistrationAttemptRateLimit || (async () => ({ ok: true })),
@@ -422,6 +566,32 @@ export function makeFakeAuthService(
           updatedAtMs: 0,
         },
       })),
+    readActiveEmailOtpEnrollment:
+      overrides.readActiveEmailOtpEnrollment ||
+      (async (request) => ({
+        ok: true,
+        enrollment: {
+          walletId: String(
+            (request as { walletId?: unknown }).walletId || 'g-fake-oidc-wallet.testnet',
+          ),
+          providerUserId: String(
+            (request as { providerUserId?: unknown }).providerUserId || 'user.testnet',
+          ),
+          orgId: 'org_fake',
+          verifiedEmail: 'user@example.com',
+          enrollmentId: 'email-otp-device-enrollment-v1:g-fake-oidc-wallet.testnet:user.testnet',
+          enrollmentVersion: '1',
+          enrollmentSealKeyVersion: 'test-email-otp-key-v1',
+          signingRootId: 'email_otp_default_signing_root',
+          signingRootVersion: 'default',
+          recoveryWrappedEnrollmentEscrowCount: 10,
+          clientUnlockPublicKeyB64u: 'test-unlock-public-key',
+          unlockKeyVersion: 'test-unlock-key-v1',
+          thresholdEcdsaClientVerifyingShareB64u: 'test-ecdsa-client-verifying-share',
+          createdAtMs: 0,
+          updatedAtMs: 0,
+        },
+      })),
     readEmailOtpOutboxEntry:
       overrides.readEmailOtpOutboxEntry ||
       (async () => ({ ok: false, code: 'not_found', message: 'not found' })),
@@ -456,6 +626,11 @@ export function makeFakeAuthService(
     resolveOidcWalletId:
       overrides.resolveOidcWalletId || (async () => 'g-fake-oidc-wallet.testnet'),
     isGoogleOidcConfigured: overrides.isGoogleOidcConfigured || (() => false),
+    getGoogleOidcPublicConfig:
+      overrides.getGoogleOidcPublicConfig ||
+      (() => ({
+        configured: false,
+      })),
     verifyGoogleLogin:
       overrides.verifyGoogleLogin ||
       (async () => ({
@@ -489,6 +664,15 @@ export function makeFakeAuthService(
       overrides.listRecoveryExecutionsByStatus || (async () => ({ ok: true, records: [] })),
     recordNearPublicKeyMetadata:
       overrides.recordNearPublicKeyMetadata || (async () => ({ ok: true })),
+    fundImplicitNearAccount:
+      overrides.fundImplicitNearAccount ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    listNearPublicKeysForUser:
+      overrides.listNearPublicKeysForUser ||
+      (async () => ({
+        ok: true,
+        keys: [],
+      })),
     listIdentities: overrides.listIdentities || (async () => ({ ok: true, subjects: [] })),
     linkIdentity:
       overrides.linkIdentity ||
@@ -497,7 +681,143 @@ export function makeFakeAuthService(
       overrides.unlinkIdentity ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     getThresholdSigningService: overrides.getThresholdSigningService || (() => null),
+    ecdsaHssRoleLocalBootstrap:
+      overrides.ecdsaHssRoleLocalBootstrap ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    ecdsaHssRoleLocalExportShare:
+      overrides.ecdsaHssRoleLocalExportShare ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    listThresholdEcdsaKeyIdentityTargetsForUser:
+      overrides.listThresholdEcdsaKeyIdentityTargetsForUser ||
+      (async (request) => ({
+        records: [],
+        diagnostics: {
+          userId: String((request as { userId?: unknown }).userId || 'g-fake-oidc-wallet.testnet'),
+          inputCount: Array.isArray((request as { keyTargets?: unknown }).keyTargets)
+            ? (request as { keyTargets: unknown[] }).keyTargets.length
+            : 0,
+          returnedCount: 0,
+          thresholdServicePresent: false,
+          rejected: {},
+        },
+      })),
+    listWalletEcdsaKeyFactsInventory:
+      overrides.listWalletEcdsaKeyFactsInventory ||
+      (async (request) => ({
+        records: [],
+        diagnostics: {
+          userId: String(
+            (request as { walletId?: unknown }).walletId || 'g-fake-oidc-wallet.testnet',
+          ),
+          inputCount: Array.isArray((request as { keyTargets?: unknown }).keyTargets)
+            ? (request as { keyTargets: unknown[] }).keyTargets.length
+            : 0,
+          returnedCount: 0,
+          thresholdServicePresent: false,
+          rejected: {},
+        },
+      })),
+    verifyEcdsaHssRoleLocalClientRootProofForExistingKey:
+      overrides.verifyEcdsaHssRoleLocalClientRootProofForExistingKey ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     emailRecovery: overrides.emailRecovery ?? null,
   };
-  return service as unknown as AuthService;
+  return Object.assign(service, {
+    walletRegistration: {
+      createRegistrationIntent: service.createRegistrationIntent,
+      prepareWalletRegistration: service.prepareWalletRegistration,
+      startWalletRegistration: service.startWalletRegistration,
+      respondWalletRegistrationHss: service.respondWalletRegistrationHss,
+      finalizeWalletRegistration: service.finalizeWalletRegistration,
+    },
+    walletAuthMethods: {
+      createAddAuthMethodIntent: service.createAddAuthMethodIntent,
+      createAddSignerIntent: service.createAddSignerIntent,
+      finalizeWalletAddAuthMethod: service.finalizeWalletAddAuthMethod,
+      finalizeWalletAddSigner: service.finalizeWalletAddSigner,
+      respondWalletAddSignerHss: service.respondWalletAddSignerHss,
+      revokeWalletAuthMethod: service.revokeWalletAuthMethod,
+      startWalletAddAuthMethod: service.startWalletAddAuthMethod,
+      startWalletAddSigner: service.startWalletAddSigner,
+    },
+    walletUnlock: {
+      createEmailOtpUnlockChallenge: service.createEmailOtpUnlockChallenge,
+      createWebAuthnLoginOptions: service.createWebAuthnLoginOptions,
+      markEmailOtpStrongAuthSatisfied: service.markEmailOtpStrongAuthSatisfied,
+      verifyEmailOtpUnlockProof: service.verifyEmailOtpUnlockProof,
+      verifyWebAuthnLogin: service.verifyWebAuthnLogin,
+    },
+    emailOtp: {
+      applyEmailOtpServerSeal: service.applyEmailOtpServerSeal,
+      cleanupGoogleEmailOtpDevRegistrationState: service.cleanupGoogleEmailOtpDevRegistrationState,
+      consumeEmailOtpGrant: service.consumeEmailOtpGrant,
+      consumeEmailOtpRecoveryKey: service.consumeEmailOtpRecoveryKey,
+      createEmailOtpChallenge: service.createEmailOtpChallenge,
+      createEmailOtpDeviceRecoveryChallenge: service.createEmailOtpDeviceRecoveryChallenge,
+      createEmailOtpEnrollmentChallenge: service.createEmailOtpEnrollmentChallenge,
+      getEmailOtpRecoveryCodeStatus: service.getEmailOtpRecoveryCodeStatus,
+      isEmailOtpStrongAuthRequired: service.isEmailOtpStrongAuthRequired,
+      markEmailOtpStrongAuthSatisfied: service.markEmailOtpStrongAuthSatisfied,
+      readActiveEmailOtpEnrollment: service.readActiveEmailOtpEnrollment,
+      readEmailOtpEnrollment: service.readEmailOtpEnrollment,
+      readEmailOtpOutboxEntry: service.readEmailOtpOutboxEntry,
+      recordEmailOtpRecoveryKeyAttemptFailure: service.recordEmailOtpRecoveryKeyAttemptFailure,
+      removeEmailOtpServerSeal: service.removeEmailOtpServerSeal,
+      rotateEmailOtpRecoveryKeys: service.rotateEmailOtpRecoveryKeys,
+      validateGoogleEmailOtpRegistrationCandidateWallet:
+        service.validateGoogleEmailOtpRegistrationCandidateWallet,
+      verifyEmailOtpChallenge: service.verifyEmailOtpChallenge,
+      verifyEmailOtpDeviceRecoveryChallenge: service.verifyEmailOtpDeviceRecoveryChallenge,
+      verifyEmailOtpEnrollment: service.verifyEmailOtpEnrollment,
+      verifyGoogleLogin: service.verifyGoogleLogin,
+    },
+    webAuthn: {
+      createWebAuthnLoginOptions: service.createWebAuthnLoginOptions,
+      createWebAuthnSyncAccountOptions: service.createWebAuthnSyncAccountOptions,
+      listWebAuthnAuthenticatorsForUser: service.listWebAuthnAuthenticatorsForUser,
+      verifyWebAuthnAuthenticationLite: service.verifyWebAuthnAuthenticationLite,
+      verifyWebAuthnLogin: service.verifyWebAuthnLogin,
+      verifyWebAuthnSyncAccount: service.verifyWebAuthnSyncAccount,
+    },
+    identity: {
+      consumeGoogleEmailOtpRegistrationAttemptRateLimit:
+        service.consumeGoogleEmailOtpRegistrationAttemptRateLimit,
+      getGoogleOidcPublicConfig: service.getGoogleOidcPublicConfig,
+      linkIdentity: service.linkIdentity,
+      listIdentities: service.listIdentities,
+      resolveGoogleEmailOtpSession: service.resolveGoogleEmailOtpSession,
+      resolveOidcWalletId: service.resolveOidcWalletId,
+      unlinkIdentity: service.unlinkIdentity,
+      verifyGoogleLogin: service.verifyGoogleLogin,
+      verifyOidcJwtExchange: service.verifyOidcJwtExchange,
+    },
+    sessionVersions: {
+      getOrCreateAppSessionVersion: service.getOrCreateAppSessionVersion,
+      rotateAppSessionVersion: service.rotateAppSessionVersion,
+      validateAppSessionVersion: service.validateAppSessionVersion,
+    },
+    thresholdRuntime: {
+      ecdsaHssRoleLocalBootstrap: service.ecdsaHssRoleLocalBootstrap,
+      ecdsaHssRoleLocalExportShare: service.ecdsaHssRoleLocalExportShare,
+      getThresholdSigningService: service.getThresholdSigningService,
+      listThresholdEcdsaKeyIdentityTargetsForUser:
+        service.listThresholdEcdsaKeyIdentityTargetsForUser,
+      listWalletEcdsaKeyFactsInventory: service.listWalletEcdsaKeyFactsInventory,
+      verifyEcdsaHssRoleLocalClientRootProofForExistingKey:
+        service.verifyEcdsaHssRoleLocalClientRootProofForExistingKey,
+    },
+    nearFunding: {
+      fundImplicitNearAccount: service.fundImplicitNearAccount,
+      listNearPublicKeysForUser: service.listNearPublicKeysForUser,
+    },
+    recovery: {
+      getRecoverySession: service.getRecoverySession,
+      recordRecoveryExecution: service.recordRecoveryExecution,
+      updateRecoverySessionStatus: service.updateRecoverySessionStatus,
+    },
+    router: {
+      getConfiguredRelayerAccount: service.getConfiguredRelayerAccount,
+      getRelayerAccount: service.getRelayerAccount,
+    },
+  }) as unknown as AuthService & RouterApiServiceBag;
 }

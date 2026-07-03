@@ -55,21 +55,21 @@ function makeRegistrationBody(): Record<string, unknown> {
 }
 
 function makeRouterApiService() {
-  const service = makeFakeAuthService();
-  (service as any).createRegistrationIntent = async (input: Record<string, any>) => ({
-    ok: true,
-    intent: {
-      version: 'registration_intent_v1',
-      walletId: input.request.wallet.walletId,
-      authMethod: input.request.authMethod,
-      signerSelection: input.request.signerSelection,
-      nonceB64u: 'nonce-test',
-    },
-    registrationIntentDigestB64u: 'digest-test',
-    registrationIntentGrant: 'rig_test',
-    expiresAtMs: Date.now() + 60_000,
+  return makeFakeAuthService({
+    createRegistrationIntent: async (input: Record<string, any>) => ({
+      ok: true,
+      intent: {
+        version: 'registration_intent_v1',
+        walletId: input.request.wallet.walletId,
+        authMethod: input.request.authMethod,
+        signerSelection: input.request.signerSelection,
+        nonceB64u: 'nonce-test',
+      },
+      registrationIntentDigestB64u: 'digest-test',
+      registrationIntentGrant: 'rig_test',
+      expiresAtMs: Date.now() + 60_000,
+    }),
   });
-  return service;
 }
 
 function makeWallet(overrides: Partial<ConsoleWallet> = {}): ConsoleWallet {

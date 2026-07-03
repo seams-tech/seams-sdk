@@ -55,7 +55,11 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
-import { selectedEcdsaLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
+import {
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  emailOtpAuthContextProviderUserId,
+  selectedEcdsaLane,
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -366,13 +370,13 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
 function makeEmailOtpRecord(input: EmailOtpRecordFixtureInput = {}): EmailOtpEcdsaSessionRecord {
   const keyHandleForRecord = input.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-email-otp');
   const chainTarget = input.chainTarget ?? EVM_TARGET;
-  const emailOtpAuthContext = {
+  const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+    policy: 'session',
     retention: 'session',
     reason: 'login',
-    policy: 'session',
-    authMethod: 'email_otp',
-    authSubjectId: 'google:alice',
-  } as const;
+    provider: 'google',
+    providerUserId: 'google:alice',
+  });
   const base = makeRecord({
     keyHandle: keyHandleForRecord,
     chainTarget,
@@ -397,7 +401,7 @@ function makeEmailOtpRecord(input: EmailOtpRecordFixtureInput = {}): EmailOtpEcd
       signingRootVersion: base.signingRootVersion,
       ethereumAddress: base.ethereumAddress,
       authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
-        authSubjectId: emailOtpAuthContext.authSubjectId,
+        authSubjectId: emailOtpAuthContextProviderUserId(emailOtpAuthContext),
       }),
     }),
   };
@@ -484,7 +488,7 @@ test.describe('EVM-family ECDSA identity', () => {
     });
     const keyRefKey = buildEvmFamilyEcdsaKeyIdentityFromKeyRef({
       keyRef: makeKeyRef({ participantIds: [1, 2] }),
-      walletKeyId: WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: WALLET_KEY_ID,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
@@ -730,7 +734,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -777,7 +781,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'email_otp',
         source: 'email_otp',
@@ -803,7 +807,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -833,7 +837,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'email_otp',
         source: 'email_otp',
@@ -851,7 +855,7 @@ test.describe('EVM-family ECDSA identity', () => {
       buildReadySecp256k1SigningMaterialFromRecord({
         record,
         requestLabel: 'evm',
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
       }),
     ).rejects.toThrow(/not runtime-validated: worker_material_unvalidated/);
   });
@@ -1024,7 +1028,7 @@ test.describe('EVM-family ECDSA identity', () => {
       }),
       expected: {
         walletId: WALLET_ID,
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -1055,7 +1059,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(() =>
       buildEvmFamilyEcdsaKeyIdentityFromKeyRef({
         keyRef: makeKeyRef({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         trustedOwnerAddress: OWNER_ADDRESS,
       }),
@@ -1067,7 +1071,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record: makeRecord({ remainingUses: 0 }),
       expected: {
         walletId: WALLET_ID,
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -1090,7 +1094,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        walletKeyId: WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -1117,7 +1121,7 @@ test.describe('EVM-family ECDSA identity', () => {
       }),
     );
 
-    expect(String(readModel.key.walletKeyId)).toBe(WALLET_KEY_ID);
+    expect(String(readModel.key.evmFamilySigningKeySlotId)).toBe(WALLET_KEY_ID);
     expect('rpId' in readModel.key).toBe(false);
     expect(readModel.key.keyScope).toBe('evm-family');
     expect(readModel.key.participantIds.map(Number)).toEqual([1, 2]);
@@ -1148,7 +1152,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(lane?.key.participantIds.map(Number)).toEqual([1, 2]);
     expect(lane?.lane.key).toBe(lane?.key);
     expect(lane?.lane.thresholdSessionId).toBe('threshold-session-1');
-    expect(String(lane?.key.walletKeyId)).toBe(WALLET_KEY_ID);
+    expect(String(lane?.key.evmFamilySigningKeySlotId)).toBe(WALLET_KEY_ID);
     expect('rpId' in (lane?.key || {})).toBe(false);
   });
 
@@ -1389,10 +1393,10 @@ test.describe('EVM-family ECDSA identity', () => {
       ),
     ).not.toThrow();
     const keys = listThresholdEcdsaRuntimeLanesForWallet(deps, WALLET_ID).map((lane) =>
-      String(lane.key.walletKeyId),
+      String(lane.key.evmFamilySigningKeySlotId),
     );
     const otherKeys = listThresholdEcdsaRuntimeLanesForWallet(deps, OTHER_WALLET_ID).map((lane) =>
-      String(lane.key.walletKeyId),
+      String(lane.key.evmFamilySigningKeySlotId),
     );
     expect(new Set(keys).size).toBe(1);
     expect(new Set(otherKeys).size).toBe(1);

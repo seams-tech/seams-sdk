@@ -13,7 +13,6 @@ test.describe('signer domain guard', () => {
   test('wallet auth and signer metadata domains are imported from shared domain constants', () => {
     const guardedFiles = [
       'packages/sdk-web/src/core/types/seams.ts',
-      'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/walletAuthModeResolver.ts',
       'packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts',
       'packages/sdk-web/src/core/indexedDB/accountSignerLifecycle.ts',
     ];

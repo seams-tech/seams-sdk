@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import type { SigningRootKekProvider } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootKekProvider';
 import type {
   CloudflareDurableObjectNamespaceLike,
@@ -6,9 +7,15 @@ import type {
 } from '../../packages/sdk-server-ts/src/core/types';
 import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
+  buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
+  signRouterAbEcdsaHssWalletSessionJwt,
+} from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
+import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { createHmacSessionAdapter } from '../../packages/sdk-server-ts/src/router/cloudflare/d1StagingSession';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import type {
   D1DatabaseLike,
@@ -17,7 +24,26 @@ import type {
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import localD1DevWorker from '../../packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import { parseEcdsaHssClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type { SponsoredEvmCallExecutorConfig } from '../../packages/sdk-server-ts/src/sponsorship/evmExecutorTypes';
+import {
+  computeEcdsaHssRoleLocalRelayerKeyId,
+  computeEcdsaHssRoleLocalThresholdKeyId,
+} from '../../packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap';
+import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
+import {
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
+  type RouterAbEcdsaHssNormalSigningScopeV1,
+} from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import {
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  type RouterAbPublicKeysetV2,
+} from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
+import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
+import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -27,6 +53,23 @@ import {
 
 type LocalD1WorkflowEnv = Parameters<typeof localD1DevWorker.fetch>[1];
 type JsonRecord = Record<string, unknown>;
+
+const LOCAL_D1_WORKFLOW_NAMESPACE = 'seams-local-workflow-smoke';
+const LOCAL_D1_WORKFLOW_ORG_ID = 'org-local-workflow';
+const LOCAL_D1_WORKFLOW_PROJECT_ID = 'project-local-workflow';
+const LOCAL_D1_WORKFLOW_ENV_ID = 'env-local-workflow';
+const LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION = 'root-v1';
+const LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID = `${LOCAL_D1_WORKFLOW_PROJECT_ID}:${LOCAL_D1_WORKFLOW_ENV_ID}`;
+const LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID = 'signing-worker.local';
+const LOCAL_POOL_FILL_SESSION_SECRET = 'local-pool-fill-session-secret-for-d1-do-smoke';
+const LOCAL_POOL_FILL_SESSION_ISSUER = 'local-pool-fill-issuer';
+const LOCAL_POOL_FILL_SESSION_AUDIENCE = 'local-pool-fill-audience';
+const HSS_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+  import.meta.url,
+);
+
+let hssClientSignerWasmInitialized = false;
 
 class FakeD1PreparedStatement implements D1PreparedStatementLike {
   constructor(private readonly query: string) {}
@@ -158,8 +201,7 @@ function createSponsoredEvmCallExecutorConfig(): SponsoredEvmCallExecutorConfig 
 function createLocalSponsoredEvmExecutorsJson(): string {
   return JSON.stringify({
     '42431': {
-      sponsorPrivateKeyHex:
-        '0x1111111111111111111111111111111111111111111111111111111111111111',
+      sponsorPrivateKeyHex: '0x1111111111111111111111111111111111111111111111111111111111111111',
       rpcUrl: 'https://rpc.example.test',
     },
   });
@@ -216,7 +258,7 @@ function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
     curve: 'ed25519',
     phase: 'prepare',
     walletId: 'alice.testnet',
-    rpId: 'example.localhost',
+    authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
     requestId: 'request-1',
@@ -357,6 +399,264 @@ function stringField(record: JsonRecord, key: string): string {
 
 function isJsonRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function ensureHssClientSignerWasm(): void {
+  if (hssClientSignerWasmInitialized) return;
+  initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
+  hssClientSignerWasmInitialized = true;
+}
+
+function rootShare32B64u(byte: number): string {
+  const bytes = Buffer.alloc(32, 0);
+  bytes[31] = byte;
+  return bytes.toString('base64url');
+}
+
+function createLocalPoolFillWorkflowEnv(input: {
+  readonly consoleDatabase: D1DatabaseLike;
+  readonly signerDatabase: D1DatabaseLike;
+}): LocalD1WorkflowEnv {
+  return {
+    ...createLocalD1WorkflowEnv(input),
+    RELAY_SESSION_HMAC_SECRET: LOCAL_POOL_FILL_SESSION_SECRET,
+    RELAY_SESSION_ISSUER: LOCAL_POOL_FILL_SESSION_ISSUER,
+    RELAY_SESSION_AUDIENCE: LOCAL_POOL_FILL_SESSION_AUDIENCE,
+  };
+}
+
+function createLocalPoolFillRouterAbPublicKeyset(): RouterAbPublicKeysetV2 {
+  return parseRouterAbPublicKeysetV2({
+    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+    signer_envelope_hpke: {
+      current: {
+        deriver_a: {
+          role: 'signer_a',
+          key_epoch: 'epoch-1',
+          public_key: `x25519:${'11'.repeat(32)}`,
+        },
+        deriver_b: {
+          role: 'signer_b',
+          key_epoch: 'epoch-1',
+          public_key: `x25519:${'22'.repeat(32)}`,
+        },
+      },
+    },
+    signer_peer_verifying_keys: {
+      deriver_a: {
+        role: 'signer_a',
+        verifying_key_hex: '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
+      },
+      deriver_b: {
+        role: 'signer_b',
+        verifying_key_hex: '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
+      },
+    },
+    signing_worker_server_output_hpke: {
+      key_epoch: 'epoch-1',
+      public_key: `x25519:${'33'.repeat(32)}`,
+    },
+  });
+}
+
+function createLocalPoolFillAuthService(input: {
+  readonly env: LocalD1WorkflowEnv;
+  readonly signerDatabase: D1DatabaseLike;
+}) {
+  return createCloudflareD1RouterApiAuthService({
+    database: input.signerDatabase,
+    namespace: LOCAL_D1_WORKFLOW_NAMESPACE,
+    orgId: LOCAL_D1_WORKFLOW_ORG_ID,
+    projectId: LOCAL_D1_WORKFLOW_PROJECT_ID,
+    envId: LOCAL_D1_WORKFLOW_ENV_ID,
+    relayerAccount: 'local-pool-fill-relayer.testnet',
+    relayerPublicKey: 'local-pool-fill-relayer-public-key',
+    thresholdStore: {
+      kind: 'cloudflare-do',
+      namespace: input.env.THRESHOLD_STORE,
+      THRESHOLD_PREFIX: LOCAL_D1_WORKFLOW_NAMESPACE,
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
+      signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests(),
+    },
+  });
+}
+
+async function bootstrapLocalPoolFillEcdsaSession(input: {
+  readonly env: LocalD1WorkflowEnv;
+  readonly signerDatabase: D1DatabaseLike;
+}): Promise<{
+  readonly jwt: string;
+  readonly keyHandle: string;
+  readonly scope: RouterAbEcdsaHssNormalSigningScopeV1;
+}> {
+  ensureHssClientSignerWasm();
+  const walletId = 'local-pool-fill-wallet';
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId,
+    signingRootId: LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID,
+    signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
+  });
+  const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+    walletId,
+    evmFamilySigningKeySlotId,
+    signingRootId: LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID,
+    signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
+  });
+  const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+    walletId,
+    evmFamilySigningKeySlotId,
+  });
+  const preparedClient = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
+    context: {
+      walletId,
+      ecdsaThresholdKeyId,
+      signingRootId: LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID,
+      signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
+    },
+    clientRootShare32B64u: rootShare32B64u(71),
+  });
+  const bootstrapRequest = parseEcdsaHssClientBootstrapRequest({
+    formatVersion: 'ecdsa-hss-role-local',
+    walletId,
+    evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId,
+    signingRootId: LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID,
+    signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
+    keyScope: 'evm-family',
+    relayerKeyId,
+    hssClientSharePublicKey33B64u: preparedClient.hssClientSharePublicKey33B64u,
+    clientShareRetryCounter: preparedClient.clientShareRetryCounter,
+    contextBinding32B64u: preparedClient.contextBinding32B64u,
+    requestId: 'local-pool-fill-bootstrap-request',
+    sessionId: 'tehss-local-pool-fill',
+    signingGrantId: 'wss-local-pool-fill',
+    ttlMs: 60_000,
+    remainingUses: 3,
+    participantIds: [1, 2],
+  });
+  if (!bootstrapRequest) {
+    throw new Error('Local ECDSA-HSS pool-fill bootstrap request did not parse');
+  }
+
+  const service = createLocalPoolFillAuthService(input);
+  const threshold = service.thresholdRuntime.getThresholdSigningService();
+  if (!threshold) {
+    throw new Error('Local ECDSA-HSS pool-fill threshold service is not configured');
+  }
+  const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(bootstrapRequest);
+  expect(bootstrap, JSON.stringify(bootstrap)).toMatchObject({ ok: true });
+  if (!bootstrap.ok) throw new Error(bootstrap.message);
+
+  const normalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+    bootstrap: bootstrap.value,
+    routerAbPublicKeyset: createLocalPoolFillRouterAbPublicKeyset(),
+    signingWorkerId: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
+  });
+  expect(normalSigning, JSON.stringify(normalSigning)).toMatchObject({ ok: true });
+  if (!normalSigning.ok) throw new Error(normalSigning.message);
+
+  const session = createHmacSessionAdapter({
+    secret: LOCAL_POOL_FILL_SESSION_SECRET,
+    issuer: LOCAL_POOL_FILL_SESSION_ISSUER,
+    audience: LOCAL_POOL_FILL_SESSION_AUDIENCE,
+  });
+  const signed = await signRouterAbEcdsaHssWalletSessionJwt({
+    session,
+    userId: walletId,
+    evmFamilySigningKeySlotId,
+    relayerKeyId,
+    sessionInfo: {
+      sessionKind: 'jwt',
+      thresholdSessionId: bootstrap.value.thresholdSessionId,
+      signingGrantId: bootstrap.value.signingGrantId,
+      expiresAtMs: bootstrap.value.expiresAtMs,
+      participantIds: bootstrap.value.participantIds,
+      runtimePolicyScope: {
+        orgId: LOCAL_D1_WORKFLOW_ORG_ID,
+        projectId: LOCAL_D1_WORKFLOW_PROJECT_ID,
+        envId: LOCAL_D1_WORKFLOW_ENV_ID,
+        signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
+      },
+      keyHandle: bootstrap.value.keyHandle,
+      stableKeyContext: {
+        walletId,
+        evmFamilySigningKeySlotId,
+        keyScope: 'evm-family',
+        ecdsaThresholdKeyId,
+        signingRootId: LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID,
+        signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
+        applicationBindingDigestB64u: bootstrap.value.applicationBindingDigestB64u,
+        contextBinding32B64u: bootstrap.value.contextBinding32B64u,
+      },
+      publicIdentity: bootstrap.value.publicIdentity,
+      activationEpoch: bootstrap.value.thresholdSessionId,
+      signingWorkerId: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
+      routerAbEcdsaHssNormalSigning: normalSigning.state,
+    },
+    fallbackParticipantIds: bootstrap.value.participantIds,
+    requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
+    invalidPayloadErrorMessage: 'invalid local ECDSA-HSS pool-fill Wallet Session payload',
+  });
+  expect(signed, JSON.stringify(signed)).toMatchObject({ ok: true });
+  if (!signed.ok) throw new Error(signed.message);
+
+  return {
+    jwt: signed.jwt,
+    keyHandle: bootstrap.value.keyHandle,
+    scope: normalSigning.state.scope,
+  };
+}
+
+async function runLocalPoolFillRouteSmoke(input: {
+  readonly env: LocalD1WorkflowEnv;
+  readonly jwt: string;
+  readonly keyHandle: string;
+  readonly scope: RouterAbEcdsaHssNormalSigningScopeV1;
+  readonly requestTag: string;
+}): Promise<void> {
+  const authHeaders = { authorization: `Bearer ${input.jwt}` };
+  const initResponse = await callLocalWorkflowWorker(input.env, {
+    method: 'POST',
+    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+    headers: authHeaders,
+    body: {
+      sessionKind: 'jwt',
+      keyHandle: input.keyHandle,
+      count: 1,
+      requestTag: input.requestTag,
+      poolFill: {
+        kind: 'router_ab_ecdsa_hss_signing_worker_pool',
+        scope: input.scope,
+        expiresAtMs: Date.now() + 30_000,
+      },
+    },
+  });
+  const initBody = await readJsonRecord(initResponse);
+  expect(initResponse.status, JSON.stringify(initBody)).toBe(200);
+  expect(booleanField(initBody, 'ok'), JSON.stringify(initBody)).toBe(true);
+  expect(['triples', 'triples_done']).toContain(stringField(initBody, 'stage'));
+  const presignSessionId = stringField(initBody, 'presignSessionId');
+
+  const freshHandlerEnv = {
+    ...input.env,
+    THRESHOLD_STORE: input.env.THRESHOLD_STORE,
+  };
+  const stepResponse = await callLocalWorkflowWorker(freshHandlerEnv, {
+    method: 'POST',
+    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
+    headers: authHeaders,
+    body: {
+      sessionKind: 'jwt',
+      presignSessionId,
+      stage: 'triples',
+      outgoingMessagesB64u: [],
+      requestTag: input.requestTag,
+    },
+  });
+  const stepBody = await readJsonRecord(stepResponse);
+  expect(stepResponse.status, JSON.stringify(stepBody)).toBe(200);
+  expect(booleanField(stepBody, 'ok'), JSON.stringify(stepBody)).toBe(true);
+  expect(['triples', 'triples_done', 'presign', 'done']).toContain(stringField(stepBody, 'stage'));
 }
 
 test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into relay options', async () => {
@@ -589,7 +889,7 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
       },
       body: JSON.stringify({
         environmentId: 'project_local:local',
-        rpId: 'localhost',
+        authority: { kind: 'passkey_rp', rpId: 'localhost' },
         flow: 'registration_v1',
       }),
     }),
@@ -702,9 +1002,9 @@ test('local D1 Worker runs a representative signer smoke through relay prefix', 
   await expect(response.json()).resolves.toMatchObject({
     ok: true,
   });
-  expect(
-    database.queries.some((query) => query.includes('INSERT INTO webauthn_challenges')),
-  ).toBe(true);
+  expect(database.queries.some((query) => query.includes('INSERT INTO webauthn_challenges'))).toBe(
+    true,
+  );
 });
 
 test('local D1 Worker serves console routes through D1 console services', async () => {
@@ -917,12 +1217,7 @@ test('local D1 publishable key creation publishes Tempo sponsorship runtime snap
             AND chain_id = ?
             AND status = 'active'`,
       )
-      .bind(
-        'seams-local-workflow-smoke',
-        environmentId,
-        stringField(policy, 'policyId'),
-        42_431,
-      )
+      .bind('seams-local-workflow-smoke', environmentId, stringField(policy, 'policyId'), 42_431)
       .first<{ pricing_version?: string }>();
     expect(pricingRow?.pricing_version).toBe(
       `tempo-testnet-static-v1:${stringField(policy, 'policyId')}`,
@@ -1067,6 +1362,43 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
       missingBillingDebitCount: 0,
       amountMismatchCount: 0,
       unexpectedBillingDebitCount: 0,
+    });
+  } finally {
+    cleanupTemporaryD1Database(consoleTemp.tempDir);
+    cleanupTemporaryD1Database(signerTemp.tempDir);
+  }
+});
+
+test('local D1 Worker advances ECDSA-HSS pool-fill routes through D1 and Durable Objects', async () => {
+  test.setTimeout(90_000);
+  const consoleTemp = createTemporaryD1Database();
+  const signerTemp = createTemporaryD1Database();
+
+  try {
+    await applyD1MigrationFiles(consoleTemp.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(signerTemp.database, listD1MigrationFiles('d1-signer'));
+    const env = createLocalPoolFillWorkflowEnv({
+      consoleDatabase: consoleTemp.database,
+      signerDatabase: signerTemp.database,
+    });
+    const committed = await bootstrapLocalPoolFillEcdsaSession({
+      env,
+      signerDatabase: signerTemp.database,
+    });
+
+    await runLocalPoolFillRouteSmoke({
+      env,
+      jwt: committed.jwt,
+      keyHandle: committed.keyHandle,
+      scope: committed.scope,
+      requestTag: 'tempo-testnet-local-pool-fill-smoke',
+    });
+    await runLocalPoolFillRouteSmoke({
+      env,
+      jwt: committed.jwt,
+      keyHandle: committed.keyHandle,
+      scope: committed.scope,
+      requestTag: 'arc-testnet-local-pool-fill-smoke',
     });
   } finally {
     cleanupTemporaryD1Database(consoleTemp.tempDir);

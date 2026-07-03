@@ -5,6 +5,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { readPersistedAvailableSigningLanesForTargets } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { selectTransactionLane } from '@/core/signingEngine/session/identity/selectLane';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   type ThresholdEd25519SessionUpsertInput,
@@ -136,13 +137,15 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       walletSessionJwt: testEd25519WalletSessionJwt({ thresholdSessionId, signingGrantId }),
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 2,
-      emailOtpAuthContext: {
+      emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
         policy: 'session',
+        walletId: WALLET_ID,
+        emailHashHex: 'email-hash-ed25519-lane',
         retention: 'session',
         reason: 'login',
-        authMethod: 'email_otp',
-        authSubjectId: 'email-otp-subject-ed25519-lane',
-      },
+        provider: 'google',
+        providerUserId: 'email-otp-subject-ed25519-lane',
+      }),
       updatedAtMs: Date.now(),
       source: 'email_otp',
     });
@@ -177,6 +180,13 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       signingGrantId,
       thresholdSessionId,
       remainingUses: 2,
+      material: {
+        kind: 'sealed_worker_material',
+        identity: {
+          materialKeyId: 'material-key-email-otp-ed25519',
+          bindingDigest: 'ed25519-worker-material-binding',
+        },
+      },
     });
   });
 
@@ -226,8 +236,13 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       signingGrantId,
       thresholdSessionId,
       remainingUses: 3,
-      materialKeyId: 'material-key-ed25519-login',
-      ed25519WorkerMaterialBindingDigest: 'ed25519-login-worker-material-binding',
+      material: {
+        kind: 'loaded_worker_material',
+        identity: {
+          materialKeyId: 'material-key-ed25519-login',
+          bindingDigest: 'ed25519-login-worker-material-binding',
+        },
+      },
     });
   });
 
@@ -279,8 +294,13 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       source: 'runtime_session_record',
       signingGrantId,
       thresholdSessionId,
-      materialKeyId: 'material-key-ed25519-login',
-      ed25519WorkerMaterialBindingDigest: 'ed25519-login-worker-material-binding',
+      material: {
+        kind: 'loaded_worker_material',
+        identity: {
+          materialKeyId: 'material-key-ed25519-login',
+          bindingDigest: 'ed25519-login-worker-material-binding',
+        },
+      },
     });
     expect(selected).toMatchObject({
       ok: true,
@@ -356,8 +376,13 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       signingGrantId,
       thresholdSessionId,
       remainingUses: 3,
-      materialKeyId: 'material-key-ed25519-login',
-      ed25519WorkerMaterialBindingDigest: 'ed25519-login-worker-material-binding',
+      material: {
+        kind: 'loaded_worker_material',
+        identity: {
+          materialKeyId: 'material-key-ed25519-login',
+          bindingDigest: 'ed25519-login-worker-material-binding',
+        },
+      },
     });
     expect(selected).toMatchObject({
       ok: true,
@@ -395,13 +420,15 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       walletSessionJwt: testEd25519WalletSessionJwt({ thresholdSessionId, signingGrantId }),
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 3,
-      emailOtpAuthContext: {
+      emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
         policy: 'session',
+        walletId: WALLET_ID,
+        emailHashHex: 'email-hash-ed25519-lane',
         retention: 'session',
         reason: 'login',
-        authMethod: 'email_otp',
-        authSubjectId: 'email-otp-subject-ed25519-lane',
-      },
+        provider: 'google',
+        providerUserId: 'email-otp-subject-ed25519-lane',
+      }),
       updatedAtMs: Date.now(),
       source: 'email_otp',
     });

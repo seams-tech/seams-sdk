@@ -85,6 +85,19 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             signingWorkerId: 'signing-worker-a',
           },
         };
+        const emailOtpAuthority = {
+          walletId: nearAccountId,
+          factor: {
+            kind: 'email_otp',
+            provider: 'google',
+            providerUserId: 'auth-subject',
+          },
+          verifier: {
+            kind: 'email_otp_wallet_auth_method',
+            emailHashHex: 'email-hash-router-ab-ed25519',
+          },
+          bindingId: `email_otp:${nearAccountId}:email-hash-router-ab-ed25519`,
+        };
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
@@ -106,9 +119,9 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             updatedAtMs: 2,
             emailOtpAuthContext: {
               policy: 'per_operation',
-              retention: 'single_use',
-              reason: 'sign',
               authMethod: 'email_otp',
+              authority: emailOtpAuthority,
+              use: { kind: 'single_use_pending' },
             },
             source: 'email_otp',
           });
@@ -121,9 +134,9 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             updatedAtMs: 3,
             emailOtpAuthContext: {
               policy: 'per_operation',
-              retention: 'single_use',
-              reason: 'sign',
               authMethod: 'email_otp',
+              authority: emailOtpAuthority,
+              use: { kind: 'single_use_pending' },
             },
             source: 'email_otp',
           });
@@ -807,6 +820,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 	              nearAccountId: 'alice.testnet',
 	              nearEd25519SigningKeyId: 'alice.testnet',
 	              rpId: 'example.localhost',
+              credentialIdB64u: 'credential-router-ab-ed25519',
               relayerKeyId: 'rk-1',
               participantIds: [1, 2],
               walletSessionJwt: ed25519WalletSessionJwt,
@@ -1568,7 +1582,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const clientVerifyingShareB64u = 'client-verifying-share';
         const recoveryCodeBindingDigest =
           await clientSecretSourceMod.recoveryCodeBindingDigestForEmailOtpMaterial({
-            authSubjectId: 'auth-subject',
+            providerUserId: 'auth-subject',
             rpId: 'example.localhost',
             nearAccountId: 'alice.testnet',
           });
@@ -1625,9 +1639,20 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             emailOtpAuthContext: {
               authMethod: 'email_otp',
               policy: 'per_operation',
-              retention: 'single_use',
-              reason: 'sign',
-              authSubjectId: 'auth-subject',
+              authority: {
+                walletId: 'alice.testnet',
+                factor: {
+                  kind: 'email_otp',
+                  provider: 'google',
+                  providerUserId: 'auth-subject',
+                },
+                verifier: {
+                  kind: 'email_otp_wallet_auth_method',
+                  emailHashHex: 'email-hash-router-ab-ed25519',
+                },
+                bindingId: 'email_otp:alice.testnet:email-hash-router-ab-ed25519',
+              },
+              use: { kind: 'single_use_pending' },
             },
             source: 'email_otp',
           });
@@ -2518,9 +2543,21 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           source: 'email_otp',
           emailOtpAuthContext: {
             policy: 'session',
-            retention: 'session',
-            reason: 'login',
             authMethod: 'email_otp',
+            authority: {
+              walletId: `${thresholdSessionId}.testnet`,
+              factor: {
+                kind: 'email_otp',
+                provider: 'google',
+                providerUserId: 'auth-subject',
+              },
+              verifier: {
+                kind: 'email_otp_wallet_auth_method',
+                emailHashHex: 'email-hash-router-ab-ed25519',
+              },
+              bindingId: `email_otp:${thresholdSessionId}.testnet:email-hash-router-ab-ed25519`,
+            },
+            use: { kind: 'session', reason: 'login' },
           },
           routerAbNormalSigning: {
             kind: 'router_ab_ed25519_normal_signing_v1',
@@ -2596,6 +2633,20 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
                 retention: 'session',
                 reason: 'sign',
                 authMethod: 'email_otp',
+                authority: {
+                  walletId: 'invalid-email-otp-retention.testnet',
+                  factor: {
+                    kind: 'email_otp',
+                    provider: 'google',
+                    providerUserId: 'auth-subject',
+                  },
+                  verifier: {
+                    kind: 'email_otp_wallet_auth_method',
+                    emailHashHex: 'email-hash-router-ab-ed25519',
+                  },
+                  bindingId:
+                    'email_otp:invalid-email-otp-retention.testnet:email-hash-router-ab-ed25519',
+                },
               },
             },
           },

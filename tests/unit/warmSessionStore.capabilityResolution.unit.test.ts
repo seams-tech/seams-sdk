@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   toExactEcdsaSigningLaneIdentity,
 } from '@/core/signingEngine/session/persistence/records';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
@@ -11,6 +12,29 @@ import {
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
 } from './helpers/warmSessionStore.fixtures';
+
+function emailOtpSessionContext(providerUserId: string) {
+  return buildEmailOtpAuthContextForWalletAuthMethod({
+    policy: 'session',
+    walletId: providerUserId,
+    emailHashHex: `email-hash-${providerUserId}`,
+    retention: 'session',
+    reason: 'login',
+    provider: 'email',
+    providerUserId,
+  });
+}
+
+function emailOtpSingleUseSignContext(providerUserId: string) {
+  return buildEmailOtpAuthContextForWalletAuthMethod({
+    policy: 'per_operation',
+    walletId: providerUserId,
+    emailHashHex: `email-hash-${providerUserId}`,
+    retention: 'single_use',
+    provider: 'email',
+    providerUserId,
+  });
+}
 
 test.describe('WarmSessionStore capability resolution', () => {
   test('resolves Ed25519 auth material from the canonical Ed25519 record', async () => {
@@ -103,13 +127,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       nearAccountId: 'email-otp-auth-state.testnet',
       chain: 'evm',
       source: 'email_otp',
-      emailOtpAuthContext: {
-        policy: 'per_operation',
-        retention: 'single_use',
-        reason: 'login',
-        authMethod: 'email_otp',
-        authSubjectId: 'email-otp-auth-state.testnet',
-      },
+      emailOtpAuthContext: emailOtpSingleUseSignContext('email-otp-auth-state.testnet'),
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'email-otp-auth-state.testnet',
         chain: 'evm',
@@ -131,13 +149,9 @@ test.describe('WarmSessionStore capability resolution', () => {
       remainingUses: evmRecord.remainingUses,
       expiresAtMs: evmRecord.expiresAtMs,
     });
-    expect(warmSession.capabilities.ecdsa.evm.emailOtpAuthContext).toEqual({
-      policy: 'per_operation',
-      retention: 'single_use',
-      reason: 'login',
-      authMethod: 'email_otp',
-      authSubjectId: 'email-otp-auth-state.testnet',
-    });
+    expect(warmSession.capabilities.ecdsa.evm.emailOtpAuthContext).toEqual(
+      emailOtpSingleUseSignContext('email-otp-auth-state.testnet'),
+    );
   });
 
   test('keeps exhausted Email OTP ECDSA records available for OTP reauth', async () => {
@@ -148,13 +162,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       nearAccountId: 'email-otp-exhausted-reauth.testnet',
       chain: 'evm',
       source: 'email_otp',
-      emailOtpAuthContext: {
-        policy: 'session',
-        retention: 'session',
-        reason: 'login',
-        authMethod: 'email_otp',
-        authSubjectId: 'email-otp-exhausted-reauth.testnet',
-      },
+      emailOtpAuthContext: emailOtpSessionContext('email-otp-exhausted-reauth.testnet'),
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'email-otp-exhausted-reauth.testnet',
         chain: 'evm',
@@ -175,13 +183,9 @@ test.describe('WarmSessionStore capability resolution', () => {
     const capability = warmSession.capabilities.ecdsa.evm;
 
     expect(capability.record?.thresholdSessionId).toBe(evmRecord.thresholdSessionId);
-    expect(capability.emailOtpAuthContext).toEqual({
-      policy: 'session',
-      retention: 'session',
-      reason: 'login',
-      authMethod: 'email_otp',
-      authSubjectId: 'email-otp-exhausted-reauth.testnet',
-    });
+    expect(capability.emailOtpAuthContext).toEqual(
+      emailOtpSessionContext('email-otp-exhausted-reauth.testnet'),
+    );
     expect(
       store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
     ).toMatchObject({
@@ -189,15 +193,18 @@ test.describe('WarmSessionStore capability resolution', () => {
       walletSessionJwt: expect.any(String),
     });
     expect(
-      store.resolveEmailOtpSigningSessionAuthLane({
+      store.resolveEmailOtpEcdsaSigningSessionAuthority({
         lane: toExactEcdsaSigningLaneIdentity(evmRecord),
       }),
     ).toMatchObject({
-      kind: 'signing_session',
-      jwt: evmRecord.walletSessionJwt,
-      thresholdSessionId: evmRecord.thresholdSessionId,
-      curve: 'ecdsa',
-      chainTarget: evmRecord.chainTarget,
+      authLane: {
+        kind: 'signing_session',
+        jwt: evmRecord.walletSessionJwt,
+        thresholdSessionId: evmRecord.thresholdSessionId,
+        curve: 'ecdsa',
+        chainTarget: evmRecord.chainTarget,
+      },
+      authority: evmRecord.emailOtpAuthContext?.authority,
     });
   });
 

@@ -3,6 +3,7 @@ import {
   parseAppSessionClaims,
   parseRouterAbEcdsaHssWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '@server/core/ThresholdService/validation';
 import {
   buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
@@ -40,6 +41,15 @@ import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+
+const passkeyAuthority = buildPasskeyWalletAuthAuthority({
+  walletId: 'alice.testnet',
+  rpId: 'example.localhost',
+  credentialIdB64u: 'credential-id',
+});
+const evmFamilySigningKeySlotId =
+  'wallet-key:evm-family:alice.testnet:signing-root:default';
 
 function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2') {
   const claims = {
@@ -51,14 +61,19 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
     relayerKeyId: 'relayer-key-1',
-    rpId: 'example.localhost',
     thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
     participantIds: [1, 2],
   };
-  if (kind !== 'threshold_ecdsa_session_v2') return claims;
+  if (kind !== 'threshold_ecdsa_session_v2') {
+    return {
+      ...claims,
+      authority: passkeyAuthority,
+      authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(passkeyAuthority),
+    };
+  }
   return {
     ...claims,
-    walletKeyId: 'wallet-key-alice',
+    evmFamilySigningKeySlotId,
     keyScope: 'evm-family',
     keyHandle: 'ehss-key-test',
   };
@@ -94,7 +109,7 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
   return {
     stableKeyContext: {
       walletId: 'alice.testnet',
-      walletKeyId: 'wallet-key-alice',
+      evmFamilySigningKeySlotId,
       keyScope: 'evm-family',
       ecdsaThresholdKeyId: 'ehss-key-id',
       signingRootId: 'signing-root',
@@ -166,7 +181,7 @@ function routerAbEcdsaBootstrap(): EcdsaHssServerBootstrapResponse {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: 'alice.testnet',
-    walletKeyId: 'wallet-key-alice',
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: issuer.stableKeyContext.ecdsaThresholdKeyId,
     relayerKeyId: 'ecdsa-relayer-key-1',
     applicationBindingDigestB64u: issuer.stableKeyContext.applicationBindingDigestB64u,
@@ -363,7 +378,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEd25519WalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        rpId: 'example.localhost',
+        authority: passkeyAuthority,
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
@@ -386,7 +401,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEd25519WalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        rpId: 'example.localhost',
+        authority: passkeyAuthority,
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
@@ -418,7 +433,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEcdsaHssWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        walletKeyId: ecdsaBootstrap.walletKeyId,
+        evmFamilySigningKeySlotId: ecdsaBootstrap.evmFamilySigningKeySlotId,
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',
@@ -469,7 +484,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEcdsaHssWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        walletKeyId: 'wallet-key-alice-testnet',
+        evmFamilySigningKeySlotId: 'wallet-key-alice-testnet',
         relayerKeyId: 'ecdsa-relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
@@ -507,7 +522,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEcdsaHssWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        walletKeyId: ecdsaBootstrap.walletKeyId,
+        evmFamilySigningKeySlotId: ecdsaBootstrap.evmFamilySigningKeySlotId,
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: issuerBindingOnlySessionInfo,
         requireJwtErrorMessage: 'jwt required',

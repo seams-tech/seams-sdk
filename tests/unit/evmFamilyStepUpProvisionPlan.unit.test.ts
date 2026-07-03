@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
@@ -68,7 +68,12 @@ const TEST_WEBAUTHN_CREDENTIAL = {
 } satisfies WebAuthnAuthenticationCredential;
 const THRESHOLD_OWNER_ADDRESS = `0x${'11'.repeat(20)}` as const;
 const TEST_PASSKEY_CREDENTIAL_ID_B64U = TEST_WEBAUTHN_CREDENTIAL.rawId;
-const WALLET_KEY_ID = requireWalletKeyId('wallet-key-step-up-provision');
+const WALLET_ID = toWalletId('alice.testnet');
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: WALLET_ID,
+  signingRootId: 'project:env',
+  signingRootVersion: 'default',
+});
 const PASSKEY_AUTH = {
   kind: 'passkey',
   rpId: toRpId('example.localhost'),
@@ -97,7 +102,7 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
   record: Pick<
     ThresholdEcdsaSessionRecord,
     | 'walletId'
-    | 'walletKeyId'
+    | 'evmFamilySigningKeySlotId'
     | 'ecdsaThresholdKeyId'
     | 'signingRootId'
     | 'signingRootVersion'
@@ -110,7 +115,7 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
-      wallet_key_id: WALLET_KEY_ID,
+      wallet_key_id: String(args.record.evmFamilySigningKeySlotId),
       wallet_id: String(args.record.walletId),
       ecdsa_threshold_key_id: String(args.record.ecdsaThresholdKeyId),
       signing_root_id: String(args.record.signingRootId),
@@ -141,8 +146,8 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
 function makeRecord(): ThresholdEcdsaSessionRecord {
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-step-up');
   const record: ThresholdEcdsaSessionRecord = {
-    walletId: toWalletId('alice.testnet'),
-    walletKeyId: WALLET_KEY_ID,
+    walletId: WALLET_ID,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
     keyHandle,
@@ -160,8 +165,8 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
         stateBlobB64u: VALID_ECDSA_SHARE32_B64U,
       },
       publicFacts: buildEcdsaRoleLocalPublicFacts({
-        walletId: toWalletId('alice.testnet'),
-        walletKeyId: WALLET_KEY_ID,
+        walletId: WALLET_ID,
+        evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
         chainTarget: CHAIN_TARGET,
         keyHandle,
         ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -239,7 +244,7 @@ function makeReadyMaterial(args: {
     record: args.record,
     expected: {
       walletId: args.record.walletId,
-      walletKeyId: WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       chainTarget: CHAIN_TARGET,
       authMethod: args.authMethod,
       source: args.source,
@@ -437,7 +442,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
             }),
 	            keygen: {
 	              ok: true,
-	              walletKeyId: refreshedRecord.walletKeyId,
+	              evmFamilySigningKeySlotId: refreshedRecord.evmFamilySigningKeySlotId,
 	              chainId: CHAIN_TARGET.chainId,
 	            },
             session: {

@@ -9,7 +9,7 @@ import {
   buildEmailOtpEcdsaReadyPersistInput,
   emailOtpEcdsaPublicationChainTargets,
 } from '@/core/signingEngine/session/emailOtp/ecdsaPublication';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 
 const tempoTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
@@ -22,21 +22,19 @@ const evmTarget = thresholdEcdsaChainTargetFromChainFamily({
   networkSlug: 'arc-testnet',
 });
 
-const sessionLoginAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
+const sessionLoginAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
   policy: 'session',
   retention: 'session',
   reason: 'login',
-  authMethod: 'email_otp',
-  authSubjectId: 'wallet.testnet',
-};
+  provider: 'google',
+  providerUserId: 'wallet.testnet',
+});
 
-const singleUseSignAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
+const singleUseSignAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
   policy: 'per_operation',
-  retention: 'single_use',
-  reason: 'sign',
-  authMethod: 'email_otp',
-  authSubjectId: 'wallet.testnet',
-};
+    provider: 'google',
+  providerUserId: 'wallet.testnet',
+});
 
 const configs = buildConfigsFromEnv({
   chains: [
@@ -75,7 +73,7 @@ test.describe('Email OTP ECDSA publication targets', () => {
       targetKeys(
         emailOtpEcdsaPublicationChainTargets({
           configs,
-          primaryChain: tempoTarget,
+          chainTarget: tempoTarget,
           emailOtpAuthContext: sessionLoginAuthContext,
         }),
       ),
@@ -87,7 +85,7 @@ test.describe('Email OTP ECDSA publication targets', () => {
       targetKeys(
         emailOtpEcdsaPublicationChainTargets({
           configs,
-          primaryChain: evmTarget,
+          chainTarget: evmTarget,
           emailOtpAuthContext: singleUseSignAuthContext,
         }),
       ),
@@ -98,7 +96,7 @@ test.describe('Email OTP ECDSA publication targets', () => {
     expect(
       buildEmailOtpEcdsaReadyPersistInput({
         walletId: toWalletId('wallet.testnet'),
-        primaryChain: tempoTarget,
+        chainTarget: tempoTarget,
         signingGrantId: 'signing-grant-1',
         thresholdSessionId: 'threshold-ecdsa-session-1',
         emailOtpAuthContext: sessionLoginAuthContext,

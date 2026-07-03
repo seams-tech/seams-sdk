@@ -269,9 +269,12 @@ test('Refactor 74 Phase 9 uses typed restore and companion attachment outcomes',
   expect(companionSessions).toContain("kind: 'not_required'");
   expect(companionSessions).toContain("kind: 'signing_grant_exact'");
   expect(companionSessions).toContain("kind: 'latest_wallet_record'");
-  expect(companionSessions).toContain("kind: 'exact_match'");
-  expect(companionSessions).toContain("kind: 'duplicate_records'");
+  expect(companionSessions).toContain("kind: 'single_companion_lane'");
+  expect(companionSessions).toContain("kind: 'chain_distinct_companion_lanes'");
+  expect(companionSessions).toContain("kind: 'duplicate_chain_lanes'");
   expect(companionSessions).toContain("kind: 'display_only_fallback'");
+  expect(companionSessions).not.toContain("kind: 'exact_match'");
+  expect(companionSessions).not.toContain("kind: 'duplicate_records'");
   expect(companionSessions).not.toContain('walletScopedRecords.length ? walletScopedRecords : records');
   expect(companionSessions).not.toContain(
     'records.filter((record) => record.signingGrantId === signingGrantId)[0] || null',

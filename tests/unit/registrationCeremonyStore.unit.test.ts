@@ -11,9 +11,11 @@ import {
   type StoredWalletRegistrationCeremony,
 } from '@server/core/RegistrationCeremonyStore';
 import {
-  registrationPreparationIdFromString,
-  type CloudflareDurableObjectNamespaceLike,
+  type CloudflareDurableObjectNamespaceLike
 } from '@server/core/types';
+import {
+  registrationPreparationIdFromString
+} from '@server/core/registrationContracts';
 import {
   nearEd25519SigningKeyIdFromWalletId,
   registrationEd25519AuthorityScope,
@@ -25,6 +27,7 @@ import {
   type RegistrationIntentV1,
   type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
@@ -190,6 +193,18 @@ function makeIntent(expiresAtMs = Date.now() + 60_000): StoredRegistrationIntent
   };
 }
 
+function makePasskeyRegistrationAuthority() {
+  return {
+    kind: 'passkey',
+    walletId: INTENT.walletId,
+    rpId: RP_ID,
+    credentialIdB64u: 'credential',
+    credentialPublicKeyB64u: 'public-key',
+    counter: 0,
+    registrationIntentDigestB64u: 'digest',
+  } as const;
+}
+
 function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrationCeremony {
   return {
     registrationCeremonyId: 'wrc_registration_store_test',
@@ -197,15 +212,7 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
     digestB64u: 'digest',
     orgId: 'org_registration_store',
     expiresAtMs,
-    authority: {
-      kind: 'passkey',
-      walletId: INTENT.walletId,
-      rpId: RP_ID,
-      credentialIdB64u: 'credential',
-      credentialPublicKeyB64u: 'public-key',
-      counter: 0,
-      registrationIntentDigestB64u: 'digest',
-    },
+    authority: makePasskeyRegistrationAuthority(),
     signerState: {
       kind: 'ed25519_prepared',
       ceremonyHandle: 'ceremony-handle',
@@ -231,6 +238,7 @@ function makePreparationBase(
     registrationIntentGrant,
     registrationIntentDigestB64u: 'digest',
     intent: INTENT,
+    authority: makePasskeyRegistrationAuthority(),
     orgId: 'org_registration_store',
     expectedOrigin: 'https://wallet.example.test',
     signingRootId: 'project:dev',
@@ -398,6 +406,12 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
       ok: true,
       walletId: INTENT.walletId,
       rpId: RP_ID,
+      authority: buildPasskeyWalletAuthAuthority({
+        walletId: INTENT.walletId,
+        rpId: RP_ID,
+        credentialIdB64u: 'credential-id',
+      }),
+      authorityScope: { kind: 'passkey_rp', rpId: RP_ID },
       authMethod: {
         kind: 'passkey',
         credentialIdB64u: 'credential-id',
@@ -520,6 +534,12 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
         ok: true,
         walletId: INTENT.walletId,
         rpId: RP_ID,
+        authority: buildPasskeyWalletAuthAuthority({
+          walletId: INTENT.walletId,
+          rpId: RP_ID,
+          credentialIdB64u: 'credential-id',
+        }),
+        authorityScope: { kind: 'passkey_rp', rpId: RP_ID },
         authMethod: {
           kind: 'passkey',
           credentialIdB64u: 'credential-id',

@@ -417,7 +417,7 @@ test('Refactor 80 auth identity mutation routes parse request bodies at the boun
   }
 });
 
-test('Refactor 80 threshold ECDSA key-identity route parses body at the boundary', () => {
+test('Refactor 80 threshold ECDSA key-identity inventory has one wallet boundary', () => {
   const parserSource = readRepoSource(
     'packages/sdk-server-ts/src/router/thresholdEcdsaRequestValidation.ts',
   );
@@ -427,30 +427,21 @@ test('Refactor 80 threshold ECDSA key-identity route parses body at the boundary
   const cloudflareSource = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
   );
-  const expressRoute = sourceRange(
-    expressSource,
-    'router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH',
-    '  router.post(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH',
-  );
-  const cloudflareRoute = sourceRange(
-    cloudflareSource,
-    'if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH)',
-    '  if (pathname === ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH)',
+  const routeDefinitionSource = readRepoSource('packages/sdk-server-ts/src/router/routeDefinitions.ts');
+  const walletRegistrationSource = readRepoSource(
+    'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
   );
 
-  expect(parserSource).toContain('export function parseRouterAbEcdsaHssKeyIdentitiesRequest');
-  expect(parserSource).toContain('Unsupported threshold-ecdsa key-identities field');
-  expect(parserSource).toContain("const KEY_IDENTITIES_KEYS = ['sessionKind', 'keyTargets']");
-  expect(parserSource).not.toContain('targets');
-
-  for (const source of [expressRoute, cloudflareRoute]) {
-    expect(source).toContain('parseRouterAbEcdsaHssKeyIdentitiesRequest');
-    expect(source).toContain('parsed.request.keyTargets');
-    expect(source).not.toContain('bodyRecord');
-    expect(source).not.toContain('Array.isArray(bodyRecord.keyTargets)');
-    expect(source).not.toContain('body as Record<string, unknown>');
+  for (const source of [parserSource, expressSource, cloudflareSource, routeDefinitionSource]) {
+    expect(source).not.toContain('ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH');
+    expect(source).not.toContain('parseRouterAbEcdsaHssKeyIdentitiesRequest');
+    expect(source).not.toContain('RouterAbEcdsaHssKeyIdentitiesRequest');
+    expect(source).not.toContain('Unsupported threshold-ecdsa key-identities field');
+    expect(source).not.toContain('router_ab_ecdsa_hss_key_identities');
   }
 
+  expect(walletRegistrationSource).toContain('handleRouterApiWalletEcdsaKeyFactsInventory');
+  expect(walletRegistrationSource).toContain("permission: 'ecdsa_key_facts_inventory'");
   expect(expressSource).toContain('thresholdEcdsaRouteDiagnosticMetadata');
   expect(expressSource).not.toContain("typeof (body as { walletId?: unknown }).walletId");
   expect(expressSource).not.toContain("typeof (body as { clientDeviceId?: unknown }).clientDeviceId");
@@ -544,6 +535,9 @@ test('Refactor 80 threshold and session exchange routes parse commands before se
   expect(thresholdService).not.toContain('request.webauthn_authentication');
   expect(thresholdService).not.toContain('parseAppSessionClaims(request');
   expect(thresholdService).not.toContain('parseRouterAbEcdsaHssWalletSessionClaims(request');
+  expect(thresholdService).not.toContain('ThresholdEd25519SessionWalletAuthProof');
+  expect(thresholdService).not.toContain('resolveThresholdEd25519SessionWalletAuthProof');
+  expect(thresholdService).not.toContain('walletAuthProof');
 
   for (const source of [expressEd25519, cloudflareEd25519]) {
     expect(source).toContain('parseThresholdEd25519SessionRouteRequest');

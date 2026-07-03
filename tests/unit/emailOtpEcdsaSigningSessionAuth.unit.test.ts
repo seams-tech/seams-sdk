@@ -12,11 +12,15 @@ import {
 } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { createEmailOtpEcdsaTransactionSigningBridge } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
-import { requireResolvedEvmFamilyEcdsaSigningLane } from '@/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
+import {
+  requireResolvedEvmFamilyEcdsaSigningLane,
+  type ResolvedEvmFamilyEcdsaSigningLane,
+} from '@/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
+import type { EmailOtpEcdsaCommittedLane } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import { buildCurrentSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
-import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '@/core/signingEngine/session/emailOtp/exportRecovery';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
@@ -31,6 +35,9 @@ import {
   exactSigningLaneIdentityKey,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { ReauthAnchorIdentity } from '@/core/signingEngine/session/operationState/transactionState';
+import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
+import type { EcdsaLaneCandidate } from '@/core/signingEngine/session/identity/laneIdentity';
+import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 
 const sourceChainTarget = {
   kind: 'evm' as const,
@@ -89,7 +96,9 @@ function thresholdEcdsaSessionJwt(args: {
 }
 
 function reauthAnchorForLane(
-  lane: ReturnType<typeof buildEvmTransactionSigningLane> | ReturnType<typeof buildTempoTransactionSigningLane>,
+  lane:
+    | ReturnType<typeof buildEvmTransactionSigningLane>
+    | ReturnType<typeof buildTempoTransactionSigningLane>,
 ): ReauthAnchorIdentity {
   const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
   const laneIdentityKey = exactSigningLaneIdentityKey(laneIdentity);
@@ -97,10 +106,10 @@ function reauthAnchorForLane(
     kind: 'reauth_anchor_identity',
     laneIdentity,
     laneIdentityKey,
-      sourceState: {
-        kind: 'reauth_anchor_source_state',
-        availabilitySource: 'runtime_session_record',
-        storeSource: 'email_otp',
+    sourceState: {
+      kind: 'reauth_anchor_source_state',
+      availabilitySource: 'runtime_session_record',
+      storeSource: 'email_otp',
       retention: 'single_use',
       remainingUses: 0,
       expiry: { kind: 'known', expiresAtMs: 1 },
@@ -143,6 +152,69 @@ function emptyEmailOtpEcdsaSigningBootstrapResult(): EmailOtpEcdsaSigningBootstr
       prfClaim: null,
       state: 'missing',
     },
+  };
+}
+
+function candidateForResolvedEcdsaLane(
+  lane: ResolvedEvmFamilyEcdsaSigningLane,
+): EcdsaLaneCandidate {
+  return {
+    kind: 'lane_candidate',
+    auth: lane.auth,
+    curve: 'ecdsa',
+    chain: lane.chain,
+    walletId: lane.identity.signer.walletId,
+    key: lane.key,
+    keyHandle: lane.keyHandle,
+    chainTarget: lane.chainTarget,
+    signingGrantId: String(lane.signingGrantId),
+    thresholdSessionId: String(lane.thresholdSessionId),
+    state: 'exhausted',
+    remainingUses: 0,
+    expiresAtMs: null,
+    updatedAtMs: null,
+    source: 'durable_sealed_record',
+  };
+}
+
+function committedLaneForAuth(args: {
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }>;
+}): EmailOtpEcdsaCommittedLane {
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: args.lane.identity.signer.walletId,
+    provider: 'google',
+    providerUserId: emailOtpAuth.providerSubjectId,
+    emailHashHex: 'email-hash',
+  });
+  return {
+    source: 'record_backed',
+    lane: args.lane,
+    candidate: candidateForResolvedEcdsaLane(args.lane),
+    authority,
+    authLane: args.authLane,
+    walletSessionAuthority: {
+      kind: 'wallet_session_authority',
+      walletSessionJwt: args.authLane.jwt,
+      thresholdSessionId: args.authLane.thresholdSessionId,
+      signingGrantId: String(args.authLane.authorizingSigningGrantId),
+    },
+    material: {
+      kind: 'public_identity_unavailable',
+      authMethod: 'email_otp',
+      source: 'email_otp',
+      chainTarget: args.lane.chainTarget,
+      identity: buildEcdsaSessionIdentity({
+        thresholdSessionId: args.authLane.thresholdSessionId,
+        signingGrantId: String(args.authLane.authorizingSigningGrantId),
+      }),
+      hasRecord: false,
+    },
+    record: {
+      source: 'email_otp',
+      chainTarget: args.lane.chainTarget,
+    } as ThresholdEcdsaSessionRecord,
+    durableRestore: 'record_restore_metadata',
   };
 }
 
@@ -193,13 +265,19 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
     signingGrantId,
     thresholdSessionId,
   });
+  const anchorResolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
+    lane: anchorLane,
+    chain: 'evm',
+    context: 'Email OTP bridge anchor authority test',
+  });
+  const committedLane = committedLaneForAuth({ lane: anchorResolvedLane, authLane });
   const bridge = createEmailOtpEcdsaTransactionSigningBridge({
     walletId: ecdsaWalletId,
     walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
     chain: 'tempo',
     chainTarget: tempoChainTarget,
     selectedLane: resolvedSelectedLane,
-    signingSessionRecord: null,
+    committedLane,
     reauthSource: {
       kind: 'reauth_anchor',
       anchor: reauthAnchorForLane(anchorLane),
@@ -209,20 +287,12 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
       challengeCalls.push(receivedAuthLane);
       return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
     },
-    resolveEmailOtpSigningSessionAuthLane: ({ lane }) => {
-      expect(lane.signer.walletId).toBe(ecdsaWalletId);
-      expect(lane.thresholdSessionId).toBe(thresholdSessionId);
-      expect(lane.signer.chainTarget).toEqual(sourceChainTarget);
-      expect(lane.auth).toEqual(emailOtpAuth);
-      return authLane;
-    },
     loginWithEmailOtpEcdsaCapabilityForSigning: async ({
-      authLane: receivedAuthLane,
+      committedLane: receivedCommittedLane,
       chainTarget,
     }) => {
-      if (!receivedAuthLane) throw new Error('missing login auth lane');
       expect(chainTarget).toEqual(sourceChainTarget);
-      loginCalls.push(receivedAuthLane);
+      loginCalls.push(receivedCommittedLane.authLane);
       return emptyEmailOtpEcdsaSigningBootstrapResult();
     },
   });
@@ -269,24 +339,21 @@ test('Email OTP ECDSA bridge uses selected reauth authority lane directly', asyn
     chain: 'tempo',
     context: 'Email OTP bridge direct authority test',
   });
+  const committedLane = committedLaneForAuth({ lane: selectedLane, authLane });
   const bridge = createEmailOtpEcdsaTransactionSigningBridge({
     walletId: ecdsaWalletId,
     walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
     chain: 'tempo',
     chainTarget: tempoChainTarget,
     selectedLane,
-    signingSessionRecord: null,
+    committedLane,
     reauthSource: {
       kind: 'reauth_anchor',
       anchor: reauthAnchorForLane(selectedLane),
     },
-    reauthAuthLane: authLane,
     requestEmailOtpTransactionSigningChallenge: async ({ authLane: receivedAuthLane }) => {
       expect(receivedAuthLane).toBe(authLane);
       return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
-    },
-    resolveEmailOtpSigningSessionAuthLane: () => {
-      throw new Error('stale anchor resolver should not run');
     },
   });
 
@@ -296,12 +363,20 @@ test('Email OTP ECDSA bridge uses selected reauth authority lane directly', asyn
   });
 });
 
-test('Email OTP ECDSA reauth anchor requires signing-session authority', async () => {
+test('EVM-family signing deps preserve one-use Email OTP step-up budget', async () => {
+  const forwardedRemainingUses: unknown[] = [];
   const walletId = toAccountId('otp-refresh.testnet');
   const ecdsaWalletId = toWalletId(walletId);
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-sealed-ecdsa');
-  const signingGrantId = SigningSessionIds.signingGrant('wsess-sealed-wallet');
-  let challengeCalls = 0;
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-budget-ecdsa');
+  const signingGrantId = SigningSessionIds.signingGrant('wsess-budget-wallet');
+  const authLane = {
+    kind: 'signing_session' as const,
+    jwt: 'budget-threshold-session-jwt',
+    thresholdSessionId,
+    authorizingSigningGrantId: toAuthorizingSigningGrantId(signingGrantId),
+    curve: 'ecdsa' as const,
+    chainTarget: sourceChainTarget,
+  };
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
     evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(ecdsaWalletId),
@@ -311,51 +386,19 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
     participantIds: [1, 2],
     thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
   });
-  const anchorLane = buildEvmTransactionSigningLane({
-    key,
-    keyHandle: 'key-handle-email-otp',
-    walletId: ecdsaWalletId,
-    auth: emailOtpAuth,
-    chainTarget: sourceChainTarget,
-    signingGrantId,
-    thresholdSessionId,
-  });
-  const bridge = createEmailOtpEcdsaTransactionSigningBridge({
-    walletId,
-    walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
-    chain: 'tempo',
-    chainTarget: tempoChainTarget,
-    selectedLane: requireResolvedEvmFamilyEcdsaSigningLane({
-      lane: buildTempoTransactionSigningLane({
-        key,
-        keyHandle: 'key-handle-email-otp',
-        walletId: ecdsaWalletId,
-        auth: emailOtpAuth,
-        chainTarget: tempoChainTarget,
-        signingGrantId,
-        thresholdSessionId,
-      }),
-      chain: 'tempo',
-      context: 'Email OTP bridge mismatched wallet test',
+  const lane = requireResolvedEvmFamilyEcdsaSigningLane({
+    lane: buildEvmTransactionSigningLane({
+      key,
+      keyHandle: 'key-handle-email-otp',
+      walletId: ecdsaWalletId,
+      auth: emailOtpAuth,
+      chainTarget: sourceChainTarget,
+      signingGrantId,
+      thresholdSessionId,
     }),
-    signingSessionRecord: null,
-    reauthSource: {
-      kind: 'reauth_anchor',
-      anchor: reauthAnchorForLane(anchorLane),
-    },
-    requestEmailOtpTransactionSigningChallenge: async () => {
-      challengeCalls += 1;
-      return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
-    },
-    resolveEmailOtpSigningSessionAuthLane: () => null,
+    chain: 'evm',
+    context: 'Email OTP ECDSA budget forwarding test',
   });
-
-  await expect(bridge.challenge()).rejects.toThrow(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
-  expect(challengeCalls).toBe(0);
-});
-
-test('EVM-family signing deps preserve one-use Email OTP step-up budget', async () => {
-  const forwardedRemainingUses: unknown[] = [];
   const deps = createEvmFamilySigningDeps({
     createArgs: {
       seamsWebConfigs: { network: { chains: [] }, signing: {} },
@@ -380,12 +423,13 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
 
   await deps.loginWithEmailOtpEcdsaCapabilityForSigning?.({
     walletSession: {
-      walletId: toWalletId(toAccountId('otp-refresh.testnet')),
-      walletSessionUserId: toAccountId('otp-refresh.testnet'),
+      walletId: ecdsaWalletId,
+      walletSessionUserId: walletId,
     },
     chainTarget: sourceChainTarget,
     challengeId: 'challenge-1',
     otpCode: '123456',
+    committedLane: committedLaneForAuth({ lane, authLane }),
     remainingUses: 1,
   });
 
@@ -410,6 +454,7 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
       chainTarget: sourceChainTarget,
       evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(walletId),
       providerSubjectId: emailOtpAuth.providerSubjectId,
+      emailHashHex: 'email-hash',
       walletSessionJwt: thresholdEcdsaSessionJwt({
         thresholdSessionId,
         signingGrantId,

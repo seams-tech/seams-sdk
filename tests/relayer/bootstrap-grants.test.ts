@@ -63,28 +63,58 @@ async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
   const relayBody = makeWalletRegistrationIntentBody(overrides);
   const signerSelection = relayBody.signerSelection as { signers?: Array<Record<string, unknown>> };
   const nearSigner = signerSelection.signers?.find(isNearEd25519Signer);
-  const accountProvisioning = nearSigner?.accountProvisioning as Record<string, unknown> | undefined;
-  const rpId =
-    typeof relayBody.authMethod.rpId === 'string' ? relayBody.authMethod.rpId.trim() : '';
+  const accountProvisioning = nearSigner?.accountProvisioning as
+    | Record<string, unknown>
+    | undefined;
+  const authority = bootstrapGrantAuthorityFromRegistrationAuthMethod(
+    relayBody.authMethod as Record<string, unknown>,
+  );
   const clientContext = {
     sdk: 'web',
     sdkVersion: '0.0.0-test',
   };
   const newAccountId = String(accountProvisioning?.requestedAccountId || '');
-  if (rpId) {
+  if (newAccountId) {
     return {
       environmentId,
       flow: 'registration_v1',
       newAccountId,
-      rpId,
+      authority,
       clientContext,
     };
   }
   return {
     environmentId,
     flow: 'registration_v1',
-    newAccountId,
+    authority,
     clientContext,
+  };
+}
+
+function bootstrapGrantAuthorityFromRegistrationAuthMethod(authMethod: Record<string, unknown>) {
+  if (authMethod.kind !== 'passkey') {
+    return { kind: 'wallet_auth' };
+  }
+  const rpId = String(authMethod.rpId || '').trim();
+  if (!rpId) {
+    throw new Error('Passkey bootstrap grant test body requires rpId');
+  }
+  return {
+    kind: 'passkey_rp',
+    rpId,
+  };
+}
+
+function makeStaleRootRpIdGrantBody() {
+  return {
+    environmentId,
+    flow: 'registration_v1',
+    newAccountId: 'alice.w3a-relayer.testnet',
+    rpId: 'app.example.com',
+    clientContext: {
+      sdk: 'web',
+      sdkVersion: '0.0.0-test',
+    },
   };
 }
 
@@ -129,21 +159,21 @@ function makeWalletRegistrationIntentBody(overrides?: Partial<Record<string, unk
 }
 
 function makeRouterApiService() {
-  const service = makeFakeAuthService();
-  (service as any).createRegistrationIntent = async (input: Record<string, any>) => ({
-    ok: true,
-    intent: {
-      version: 'registration_intent_v1',
-      walletId: input.request.wallet.walletId,
-      authMethod: input.request.authMethod,
-      signerSelection: input.request.signerSelection,
-      nonceB64u: 'nonce-test',
-    },
-    registrationIntentDigestB64u: 'digest-test',
-    registrationIntentGrant: 'rig_test',
-    expiresAtMs: Date.now() + 60_000,
+  return makeFakeAuthService({
+    createRegistrationIntent: async (input: Record<string, any>) => ({
+      ok: true,
+      intent: {
+        version: 'registration_intent_v1',
+        walletId: input.request.wallet.walletId,
+        authMethod: input.request.authMethod,
+        signerSelection: input.request.signerSelection,
+        nonceB64u: 'nonce-test',
+      },
+      registrationIntentDigestB64u: 'digest-test',
+      registrationIntentGrant: 'rig_test',
+      expiresAtMs: Date.now() + 60_000,
+    }),
   });
-  return service;
 }
 
 test.describe('managed bootstrap grants', () => {
@@ -206,12 +236,43 @@ test.describe('managed bootstrap grants', () => {
       });
       expect(res.status, res.text).toBe(200);
       expect(res.json?.ok).toBe(true);
-      expect(String(res.json?.grant && (res.json.grant as Record<string, unknown>).token || '')).toContain(
-        'tbt_v1_',
-      );
+      expect(
+        String((res.json?.grant && (res.json.grant as Record<string, unknown>).token) || ''),
+      ).toContain('tbt_v1_');
       expect((res.json?.grant as Record<string, unknown>)?.envId).toBe('prod');
       expect((res.json?.grant as Record<string, unknown>)?.origin).toBe(allowedOrigin);
       expect((res.json?.grant as Record<string, unknown>)?.mode).toBe('free');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('express rejects stale root RP ID bootstrap grant bodies', async () => {
+    const orgProjectEnv = await seedEnvironment();
+    const { apiKeys, secret } = await createPublishableKey({});
+    const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
+    const router = createRouterApiRouter(makeRouterApiService(), {
+      bootstrapGrantBroker: createRouterApiBootstrapGrantBroker({
+        apiKeys,
+        tokenStore: bootstrapTokens,
+        orgProjectEnv,
+      }),
+      bootstrapTokenStore: bootstrapTokens,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/v1/registration/bootstrap-grants`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          Origin: allowedOrigin,
+        },
+        body: JSON.stringify(makeStaleRootRpIdGrantBody()),
+      });
+      expect(res.status, res.text).toBe(400);
+      expect(res.json?.code).toBe('invalid_body');
+      expect(res.json?.message).toContain('Root field rpId is not valid');
     } finally {
       await srv.close();
     }
@@ -416,6 +477,7 @@ test.describe('managed bootstrap grants', () => {
         authMethod: relayBody.authMethod,
       });
       expect(grantBody).not.toHaveProperty('rpId');
+      expect(grantBody.authority).toEqual({ kind: 'wallet_auth' });
 
       const issued = await fetchJson(`${srv.baseUrl}/v1/registration/bootstrap-grants`, {
         method: 'POST',

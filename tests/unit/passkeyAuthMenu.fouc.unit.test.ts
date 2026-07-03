@@ -8,6 +8,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 
 const IMPORT_PATHS = {
   provider: '/sdk/esm/react/context/SeamsWebProvider.js',
+  contextIndex: '/sdk/esm/react/context/index.js',
+  seamsManagerSingleton: '/sdk/esm/react/context/seamsManagerSingleton.js',
   reactIndex: '/sdk/esm/react/index.js',
   passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/public.js',
   passkeyAuthMenuClient: '/sdk/esm/react/components/PasskeyAuthMenu/client.js',
@@ -1716,6 +1718,160 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__pamPasskeyRegisterKinds))
       .toEqual(['implicit_wallet']);
+  });
+
+  test('Passkey implicit registration reroll disposes stale activation surface', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-passkey-register-activation-reroll-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const contextMod: any = await import(paths.contextIndex);
+        const singletonMod: any = await import(paths.seamsManagerSingleton);
+        const menuMod: any = await import(paths.passkeyAuthMenuClient);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
+        const useSeams = contextMod.useSeams;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenuClient || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        type LifecycleEvent = {
+          event: 'init' | 'create' | 'mount' | 'dispose' | 'subscribe' | 'unsubscribe';
+          walletId: string;
+        };
+        const lifecycle: LifecycleEvent[] = [];
+        (window as any).__pamActivationSurfaceLifecycle = lifecycle;
+        (window as any).__pamActivationSurfacePatchInstalled = false;
+
+        function installActivationSurfacePatch(seams: any): void {
+          if ((window as any).__pamActivationSurfacePatchInstalled) return;
+          (window as any).__pamActivationSurfacePatchInstalled = true;
+          seams.initWalletIframe = async (walletId?: string) => {
+            lifecycle.push({ event: 'init', walletId: String(walletId || '') });
+          };
+          seams.isWalletIframeReady = () => true;
+          seams.onWalletIframeReady = () => () => undefined;
+          seams.onWalletIframeLoginStatusChanged = () => () => undefined;
+          seams.onWalletIframePreferencesChanged = () => () => undefined;
+          seams.preferences.getCurrentWalletId = () => '';
+          seams.registration.createPasskeyRegistrationActivationSurface = (args: {
+            wallet: { walletId: string };
+          }) => {
+            const walletId = String(args.wallet.walletId || '');
+            lifecycle.push({ event: 'create', walletId });
+            return {
+              kind: 'wallet_iframe_registration_activation_surface_v1',
+              mount: (target: HTMLElement) => {
+                lifecycle.push({ event: 'mount', walletId });
+                target.setAttribute('data-activation-wallet-id', walletId);
+              },
+              dispose: () => {
+                lifecycle.push({ event: 'dispose', walletId });
+              },
+              state: () => ({ kind: 'idle' }),
+              onStateChange: () => {
+                lifecycle.push({ event: 'subscribe', walletId });
+                return () => {
+                  lifecycle.push({ event: 'unsubscribe', walletId });
+                };
+              },
+            };
+          };
+        }
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://router-api.localhost' },
+          iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
+        };
+
+        function Harness() {
+          useSeams();
+          const rawSeams = singletonMod.getOrCreateSeamsManager(config, {});
+          installActivationSurfacePatch(rawSeams);
+          return React.createElement(PasskeyAuthMenu, {
+            defaultMode: AuthMenuMode.Register,
+          });
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Provider, { config }, React.createElement(Harness)));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-passkey-register-activation-reroll-mount');
+    const activationButton = mount.locator('.seams-passkey-registration-btn');
+    await activationButton.waitFor({ state: 'attached' });
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(
+            () =>
+              ((window as any).__pamActivationSurfaceLifecycle || []).filter(
+                (entry: { event: string }) => entry.event === 'mount',
+              ).length,
+          ),
+      )
+      .toBe(1);
+    const initialWalletId = await activationButton.getAttribute('data-activation-wallet-id');
+    if (initialWalletId === null) throw new Error('activation wallet ID was not mounted');
+    expect(initialWalletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{6}$/);
+
+    await mount.getByRole('button', { name: 'Generate another wallet name' }).click();
+
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(() => {
+            const lifecycle = ((window as any).__pamActivationSurfaceLifecycle || []) as Array<{
+              event: string;
+              walletId: string;
+            }>;
+            return {
+              mountCount: lifecycle.filter((entry) => entry.event === 'mount').length,
+              disposeCount: lifecycle.filter((entry) => entry.event === 'dispose').length,
+              unsubscribeCount: lifecycle.filter((entry) => entry.event === 'unsubscribe').length,
+            };
+          }),
+      )
+      .toEqual({
+        mountCount: 2,
+        disposeCount: 1,
+        unsubscribeCount: 1,
+      });
+    const lifecycleResult = await page.evaluate(() => {
+      const lifecycle = ((window as any).__pamActivationSurfaceLifecycle || []) as Array<{
+        event: string;
+        walletId: string;
+      }>;
+      return {
+        mountWalletIds: lifecycle
+          .filter((entry) => entry.event === 'mount')
+          .map((entry) => entry.walletId),
+        disposeWalletIds: lifecycle
+          .filter((entry) => entry.event === 'dispose')
+          .map((entry) => entry.walletId),
+        unsubscribeWalletIds: lifecycle
+          .filter((entry) => entry.event === 'unsubscribe')
+          .map((entry) => entry.walletId),
+      };
+    });
+    expect(lifecycleResult.mountWalletIds[0]).toBe(initialWalletId);
+    expect(lifecycleResult.mountWalletIds[1]).not.toBe(initialWalletId);
+    expect(lifecycleResult.disposeWalletIds).toEqual([initialWalletId]);
+    expect(lifecycleResult.unsubscribeWalletIds).toEqual([initialWalletId]);
   });
 
   test('Passkey sponsored named registration keeps username input required', async ({ page }) => {

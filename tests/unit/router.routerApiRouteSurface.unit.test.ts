@@ -316,7 +316,6 @@ test.describe('Router API route surface wiring', () => {
 
     expect(ids.has('router_api_healthz')).toBe(false);
     expect(ids.has('router_api_readyz')).toBe(false);
-    expect(ids.has('wallet_registration_prepare')).toBe(false);
     expect(ids.has('signed_delegate')).toBe(false);
     expect(ids.has('sponsored_evm_call')).toBe(false);
     expect(ids.has('signing_session_seal_apply_server_seal')).toBe(false);

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
@@ -28,6 +28,7 @@ import {
   buildNearTransactionSigningLane,
   readSigningCapabilityRecord,
 } from '@/core/signingEngine/session/operationState/lanes';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
@@ -57,9 +58,13 @@ const ecdsaChainTarget: ThresholdEcdsaChainTarget = {
   networkSlug: 'tempo-strict',
 };
 const ecdsaThresholdKeyId = 'ecdsa-strict-threshold-key';
-const ecdsaWalletKeyId = requireWalletKeyId('wallet-key-strict-ecdsa');
 const ecdsaSigningRootId = 'proj_strict:dev';
 const ecdsaSigningRootVersion = '1';
+const ecdsaWalletKeyId = deriveEvmFamilySigningKeySlotId({
+  walletId: ecdsaWalletId,
+  signingRootId: ecdsaSigningRootId,
+  signingRootVersion: ecdsaSigningRootVersion,
+});
 const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-strict-threshold-key');
 const ecdsaOwnerAddress = `0x${'42'.repeat(20)}`;
 const ecdsaClientPublicKeyB64u = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -121,6 +126,12 @@ function makeEd25519Record(
     ed25519WorkerMaterialHandle: 'hss-material-handle-strict',
     ed25519WorkerMaterialBindingDigest: 'sha256:strict-material-binding',
     clientVerifyingShareB64u: 'strict-client-verifier',
+    sealedWorkerMaterialRef: 'sealed-worker-material-ref-strict',
+    sealedWorkerMaterialB64u: 'sealed-worker-material-b64u-strict',
+    materialFormatVersion: 'ed25519-worker-material-v1',
+    materialKeyId: 'strict-material-key',
+    materialCreatedAtMs: 1_900_000_000_000,
+    materialState: 'material_ready',
     signerSlot: 1,
     keyVersion: 'threshold-ed25519-hss-v1',
     routerAbNormalSigning: {
@@ -157,7 +168,7 @@ function ecdsaOwnerAddress20B64u(): string {
 function makeEcdsaKey() {
   return buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
-    walletKeyId: ecdsaWalletKeyId,
+    evmFamilySigningKeySlotId: ecdsaWalletKeyId,
     ecdsaThresholdKeyId,
     signingRootId: ecdsaSigningRootId,
     signingRootVersion: ecdsaSigningRootVersion,
@@ -222,7 +233,7 @@ function makeEcdsaRoleLocalReadyRecord() {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: ecdsaWalletId,
-      walletKeyId: ecdsaWalletKeyId,
+      evmFamilySigningKeySlotId: ecdsaWalletKeyId,
       chainTarget: ecdsaChainTarget,
       keyHandle: ecdsaKeyHandle,
       ecdsaThresholdKeyId,
@@ -249,7 +260,7 @@ function makeEcdsaRecord(
 ): ThresholdEcdsaSessionRecord {
   return {
     walletId: ecdsaWalletId,
-    walletKeyId: ecdsaWalletKeyId,
+    evmFamilySigningKeySlotId: ecdsaWalletKeyId,
     chainTarget: ecdsaChainTarget,
     relayerUrl: 'https://router.example.test',
     keyHandle: ecdsaKeyHandle,
@@ -283,13 +294,13 @@ function makeEcdsaRecord(
     ethereumAddress: ecdsaOwnerAddress,
     updatedAtMs: 1_900_000_000_000,
     source: 'email_otp',
-    emailOtpAuthContext: {
+    emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
       policy: 'session',
-      authMethod: 'email_otp',
       retention: 'session',
       reason: 'login',
-      authSubjectId: 'strict-email-otp-auth-subject',
-    },
+      provider: 'google',
+      providerUserId: 'strict-email-otp-auth-subject',
+    }),
     ...overrides,
   };
 }
@@ -304,14 +315,15 @@ test.describe('selected signing capability strict persisted records', () => {
     const lane = makeLane();
     const record = makeEd25519Record();
     delete record.ed25519WorkerMaterialHandle;
+    record.materialState = 'restore_available';
     expect(resolveRouterAbEd25519WorkerMaterialRuntimeValidation(record)).toMatchObject({
       ok: false,
       reason: 'worker_material_missing',
       parseReason: 'missing_material_handle',
     });
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'auth_ready_material_pending',
-      reason: 'missing_material_handle',
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
       record,
     });
 
@@ -326,7 +338,7 @@ test.describe('selected signing capability strict persisted records', () => {
       ok: false,
       code: 'record_mismatch',
       message:
-        'Selected Ed25519 session record is not Router A/B signable: missing_material_handle',
+        'Selected Ed25519 session record is not Router A/B signable: loaded_material_missing',
     });
   });
 
@@ -334,9 +346,9 @@ test.describe('selected signing capability strict persisted records', () => {
     const lane = makeLane();
     const record = makeEd25519Record();
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'material_hint_unvalidated',
+      kind: 'restore_available',
       record,
-      reason: 'worker_material_unvalidated',
+      reason: 'loaded_material_missing',
     });
     expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
@@ -374,8 +386,8 @@ test.describe('selected signing capability strict persisted records', () => {
     clearRouterAbEd25519WorkerMaterialRuntimeValidation();
 
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'material_hint_unvalidated',
-      reason: 'worker_material_unvalidated',
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
       record,
     });
   });
@@ -397,8 +409,8 @@ test.describe('selected signing capability strict persisted records', () => {
     expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
 
     expect(classifyRouterAbEd25519PersistedSigningRecord(refreshedRecord)).toMatchObject({
-      kind: 'material_hint_unvalidated',
-      reason: 'worker_material_unvalidated',
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
       record: refreshedRecord,
     });
   });
@@ -411,8 +423,8 @@ test.describe('selected signing capability strict persisted records', () => {
     expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
 
     expect(classifyRouterAbEd25519PersistedSigningRecord(staleHandleRecord)).toMatchObject({
-      kind: 'material_hint_unvalidated',
-      reason: 'worker_material_unvalidated',
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
       record: staleHandleRecord,
     });
   });

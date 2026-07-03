@@ -558,6 +558,8 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     });
 
     expect(result.recoveryKeyId).toBe('recovery-key-1');
+    expect(result.providerUserId).toBe('google:alice');
+    expect('authSubjectId' in result).toBe(false);
     expect(result.activeRecoveryWrappedEnrollmentEscrowCount).toBe(9);
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]).toMatchObject({
@@ -602,10 +604,11 @@ test.describe('SeamsWeb Email OTP runtime', () => {
 
     expect(result).toMatchObject({
       walletId: 'alice.testnet',
-      authSubjectId: 'google:alice',
+      providerUserId: 'google:alice',
       enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
       removed: true,
     });
+    expect('authSubjectId' in result).toBe(false);
     expect(workerCalls).toEqual([
       {
         kind: 'emailOtp',

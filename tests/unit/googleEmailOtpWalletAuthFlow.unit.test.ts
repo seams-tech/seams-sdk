@@ -9,8 +9,8 @@ import { buildEmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey'
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   normalizeRegistrationSignerPlan,
-  registrationEd25519AuthorityScope,
   registrationProvisioningScopeKey,
+  type RegistrationAuthMethodInput,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 
@@ -173,6 +173,23 @@ function accountProvisioningScopeKeyFromRegistrationArgs(
   return fallbackWalletId;
 }
 
+function registrationPreAuthAuthorityScopeKey(authMethod: RegistrationAuthMethodInput): string {
+  switch (authMethod.kind) {
+    case 'passkey':
+      return JSON.stringify({ kind: 'passkey', rpId: authMethod.rpId });
+    case 'email_otp':
+      return JSON.stringify({
+        kind: 'email_otp_pre_auth',
+        proofKind: authMethod.proofKind,
+        email: authMethod.email.toLowerCase(),
+      });
+    default: {
+      const exhaustive: never = authMethod;
+      return exhaustive;
+    }
+  }
+}
+
 function makeStartedPrecompute(
   args: Parameters<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']>[0],
 ): ReturnType<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']> {
@@ -189,7 +206,7 @@ function makeStartedPrecompute(
           args.wallet.kind === 'provided'
             ? `provided:${String(args.wallet.walletId)}`
             : 'server_allocated',
-        authorityScopeKey: JSON.stringify(registrationEd25519AuthorityScope(args.authMethod)),
+        authorityScopeKey: registrationPreAuthAuthorityScopeKey(args.authMethod),
         signerSetScopeKey: signerSetScopeKeyFromRegistrationArgs(args),
         accountProvisioningScopeKey: accountProvisioningScopeKeyFromRegistrationArgs(
           args,

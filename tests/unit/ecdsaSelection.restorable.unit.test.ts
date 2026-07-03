@@ -7,6 +7,8 @@ import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveEvmFamilyEcdsaSigningSelection } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import {
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  emailOtpAuthContextRetention,
   laneCandidateAuthMethod,
   type EcdsaLaneCandidate,
 } from '@/core/signingEngine/session/identity/laneIdentity';
@@ -37,6 +39,7 @@ import {
   clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
   markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
@@ -74,6 +77,7 @@ const passkeyAuth = {
   rpId,
   credentialIdB64u: passkeyCredentialIdB64u,
 } as const;
+const emailOtpEmailHashHex = 'email-hash-restorable';
 const emailOtpAuth = {
   kind: 'email_otp',
   providerSubjectId: 'google:restorable',
@@ -267,12 +271,30 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
       getActiveWalletSignerForChainTarget: async () => null,
       listActiveWalletSigners: async () => [],
     } as EvmFamilyEcdsaSigningSelectionDeps['walletSignerStore'],
-    getEmailOtpThresholdEcdsaSessionRecordForSigning: missing,
     getPasskeyThresholdEcdsaSessionRecordForSigning: missing,
     listThresholdEcdsaSessionRecordsForSigning: () => [],
     listThresholdEcdsaKeyRefsForSigning: () => [],
     getThresholdEcdsaSessionRecordByKey: () => null,
-    resolveEmailOtpSigningSessionAuthLane: () => null,
+    resolveEmailOtpEcdsaSigningSessionAuthority: ({ lane }) => ({
+      authLane: {
+        kind: 'signing_session',
+        jwt: makeWalletSessionJwt({
+          thresholdSessionId: lane.thresholdSessionId,
+          signingGrantId: lane.signingGrantId,
+        }),
+        thresholdSessionId: lane.thresholdSessionId,
+        authorizingSigningGrantId: toAuthorizingSigningGrantId(lane.signingGrantId),
+        curve: 'ecdsa',
+        chainTarget: lane.signer.chainTarget,
+      },
+      authority: buildEmailOtpWalletAuthAuthority({
+        walletId: lane.signer.walletId,
+        provider: 'google',
+        providerUserId:
+          lane.auth.kind === 'email_otp' ? lane.auth.providerSubjectId : 'google:invalid',
+        emailHashHex: emailOtpEmailHashHex,
+      }),
+    }),
   };
 }
 
@@ -370,21 +392,34 @@ function emailOtpRecordForChainTarget(
   input: EcdsaLaneCandidate,
   materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
   options: {
-    retention?: EmailOtpEcdsaSessionRecord['emailOtpAuthContext']['retention'];
+    retention?: 'session' | 'single_use';
     remainingUses?: EmailOtpEcdsaSessionRecord['remainingUses'];
   } = {},
 ): EmailOtpEcdsaSessionRecord {
   const workerOwnedRecord = recordForChainTarget(input, materialChainTarget);
+  const emailOtpAuthContext =
+    options.retention === 'single_use'
+      ? buildEmailOtpAuthContextForWalletAuthMethod({
+          policy: 'per_operation',
+          walletId,
+          emailHashHex: emailOtpEmailHashHex,
+          retention: 'single_use',
+          provider: 'google',
+          providerUserId: emailOtpAuth.providerSubjectId,
+        })
+      : buildEmailOtpAuthContextForWalletAuthMethod({
+          policy: 'session',
+          walletId,
+          emailHashHex: emailOtpEmailHashHex,
+          retention: options.retention ?? 'session',
+          reason: 'login',
+          provider: 'google',
+          providerUserId: emailOtpAuth.providerSubjectId,
+        });
   return markRuntimeValidated({
     ...workerOwnedRecord,
     source: 'email_otp',
-    emailOtpAuthContext: {
-      policy: options.retention === 'single_use' ? 'per_operation' : 'session',
-      retention: options.retention ?? 'session',
-      reason: 'login',
-      authMethod: 'email_otp',
-      authSubjectId: emailOtpAuth.providerSubjectId,
-    },
+    emailOtpAuthContext,
     clientAdditiveShareHandle: {
       kind: 'email_otp_worker_session',
       sessionId: 'email-otp-worker-session',
@@ -416,21 +451,32 @@ test.describe('ECDSA restorable lane selection', () => {
     clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
   });
 
-  test('routes restorable passkey lanes without hot material through reauth', async () => {
+  test('routes restorable passkey lanes without hot material through committed-lane reauth', async () => {
+    const restorableCandidate = candidate('restorable');
+    const restorableRecord = recordForChainTarget(restorableCandidate, chainTarget);
+    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
-      deps: selectionDeps(),
+      deps: {
+        ...selectionDeps(),
+        getThresholdEcdsaSessionRecordByKey: () => restorableRecord,
+      },
       walletId,
       chain: 'evm',
       chainTarget,
       senderSignatureAlgorithm: 'webauthnP256',
       authMethod: 'passkey',
-      laneCandidate: candidate('restorable'),
+      laneCandidate: restorableCandidate,
     });
 
     expect(selection.kind).toBe('reauth_required');
     expect(selection.kind === 'reauth_required' ? selection.reason : '').toBe(
       'missing_hot_material',
     );
+    if (selection.kind !== 'reauth_required') return;
+    expect(selection.committedLane).toMatchObject({
+      record: restorableRecord,
+    });
+    expect(selection.committedLane.candidate.auth.kind).toBe('passkey');
   });
 
   test('keeps ready lanes strict when exact material is missing', async () => {
@@ -524,7 +570,6 @@ test.describe('ECDSA restorable lane selection', () => {
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,
-      getEmailOtpThresholdEcdsaSessionRecordForSigning: () => emailOtpRecord,
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -560,7 +605,6 @@ test.describe('ECDSA restorable lane selection', () => {
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,
-      getEmailOtpThresholdEcdsaSessionRecordForSigning: () => emailOtpRecord,
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -578,24 +622,16 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.authMethod).toBe('email_otp');
     expect(selection.material.record.source).toBe('email_otp');
     if (selection.material.record.source !== 'email_otp') return;
-    expect(selection.material.record.emailOtpAuthContext.retention).toBe('single_use');
+    expect(emailOtpAuthContextRetention(selection.material.record.emailOtpAuthContext)).toBe(
+      'single_use',
+    );
     expect(selection.material.record.remainingUses).toBe(1);
   });
 
-  test('uses Email OTP source material for direct EVM lanes when exact lookup is unavailable', async () => {
+  test('rejects Email OTP source material for direct EVM lanes when exact lookup is unavailable', async () => {
     const input = emailOtpCandidate('ready');
-    const emailOtpRecord = emailOtpRecordForChainTarget(input, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
-      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
-        if (
-          requestedChainTarget.kind === chainTarget.kind &&
-          requestedChainTarget.chainId === chainTarget.chainId
-        ) {
-          return emailOtpRecord;
-        }
-        throw new Error('missing Email OTP EVM record');
-      },
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -608,31 +644,20 @@ test.describe('ECDSA restorable lane selection', () => {
       laneCandidate: input,
     });
 
-    expect(selection.kind).toBe('ready');
-    if (selection.kind !== 'ready') return;
+    expect(selection.kind).toBe('missing_material');
+    if (selection.kind !== 'missing_material') return;
     expect(selection.authMethod).toBe('email_otp');
-    expect(selection.lane.chainTarget).toEqual(chainTarget);
-    expect(selection.material.record).toBe(emailOtpRecord);
-    expect(selection.material.sharedKeyState.signerMaterial).toEqual({
-      kind: 'worker_handle',
-      workerSessionId: 'email-otp-worker-session',
+    expect(selection.material).toMatchObject({
+      kind: 'public_identity_unavailable',
+      authMethod: 'email_otp',
+      chainTarget,
     });
   });
 
-  test('uses Email OTP source material for shared Tempo ECDSA lanes', async () => {
+  test('routes shared Tempo Email OTP lanes through reauth when source material is only discoverable by loose lookup', async () => {
     const input = emailOtpSharedTempoCandidate();
-    const emailOtpRecord = emailOtpRecordForChainTarget(input, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
-      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
-        if (
-          requestedChainTarget.kind === chainTarget.kind &&
-          requestedChainTarget.chainId === chainTarget.chainId
-        ) {
-          return emailOtpRecord;
-        }
-        throw new Error('missing Email OTP source record');
-      },
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -646,40 +671,23 @@ test.describe('ECDSA restorable lane selection', () => {
       reauthAnchor: reauthAnchorForCandidate(input),
     });
 
-    expect(selection.kind).toBe('ready');
-    if (selection.kind !== 'ready') return;
+    expect(selection.kind).toBe('reauth_required');
+    if (selection.kind !== 'reauth_required') return;
     expect(selection.authMethod).toBe('email_otp');
+    expect(selection.reason).toBe('missing_hot_material');
     expect(selection.lane.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.chainTarget).toEqual(tempoChainTarget);
-    expect(selection.material.record.chainTarget).toEqual(chainTarget);
-    expect(selection.material.sharedKeyState).toMatchObject({
-      kind: 'ready_to_sign',
-      sourceChainTarget: chainTarget,
-      signerMaterial: {
-        kind: 'source_chain_material',
-        sourceChainTarget: chainTarget,
-      },
-    });
+    expect(selection.material.kind).not.toBe('ready_to_sign');
     expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
   });
 
-  test('uses Email OTP source material for shared EVM lanes even when exact target has public identity only', async () => {
+  test('rejects shared EVM Email OTP source material when exact target has public identity only', async () => {
     const input = emailOtpSharedEvmCandidateFromTempo();
-    const tempoSourceRecord = emailOtpRecordForChainTarget(input, tempoChainTarget);
     const { clientAdditiveShareHandle: _workerShare, ...arcPublicOnlyRecord } =
       emailOtpRecordForChainTarget(input, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => arcPublicOnlyRecord,
-      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
-        if (
-          requestedChainTarget.kind === tempoChainTarget.kind &&
-          requestedChainTarget.chainId === tempoChainTarget.chainId
-        ) {
-          return tempoSourceRecord;
-        }
-        throw new Error('missing Email OTP source record');
-      },
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -692,24 +700,14 @@ test.describe('ECDSA restorable lane selection', () => {
       laneCandidate: input,
     });
 
-    expect(selection.kind).toBe('ready');
-    if (selection.kind !== 'ready') return;
+    expect(selection.kind).toBe('missing_material');
+    if (selection.kind !== 'missing_material') return;
     expect(selection.authMethod).toBe('email_otp');
-    expect(selection.lane.chainTarget).toEqual(chainTarget);
     expect(selection.material.chainTarget).toEqual(chainTarget);
-    expect(selection.material.record.chainTarget).toEqual(tempoChainTarget);
-    expect(selection.material.sharedKeyState).toMatchObject({
-      kind: 'ready_to_sign',
-      sourceChainTarget: tempoChainTarget,
-      signerMaterial: {
-        kind: 'source_chain_material',
-        sourceChainTarget: tempoChainTarget,
-      },
-    });
+    expect(selection.material.kind).not.toBe('ready_to_sign');
     expect(selection.diagnostics.exactCandidateMaterial).toMatchObject({
-      present: true,
-      kind: 'ready_to_sign',
-      signerMaterialPresent: true,
+      present: false,
+      kind: 'public_identity_unavailable',
       chainTarget,
     });
   });
@@ -723,7 +721,10 @@ test.describe('ECDSA restorable lane selection', () => {
 
     await expect(
       resolveEvmFamilyEcdsaSigningSelection({
-        deps: selectionDeps(),
+        deps: {
+          ...selectionDeps(),
+          resolveEmailOtpEcdsaSigningSessionAuthority: () => null,
+        },
         walletId,
         chain: 'tempo',
         chainTarget: tempoChainTarget,
@@ -732,7 +733,7 @@ test.describe('ECDSA restorable lane selection', () => {
         laneCandidate: input,
         reauthAnchor: reauthAnchorForCandidate(input),
       }),
-    ).rejects.toThrow('Email OTP signing-session authority is unavailable');
+    ).rejects.toThrow('Email OTP ECDSA committed lane is missing wallet-session authority');
   });
 
   test('uses durable Email OTP signing-session authority when runtime record is unavailable', async () => {
@@ -751,14 +752,23 @@ test.describe('ECDSA restorable lane selection', () => {
     };
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
-      resolveEmailOtpSigningSessionAuthLane: ({ lane, chain }) => {
+      resolveEmailOtpEcdsaSigningSessionAuthority: ({ lane, chain }) => {
         expect(chain).toBe('evm');
         expect(lane.thresholdSessionId).toBe(
           SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
         );
         expect(lane.signingGrantId).toBe(SigningSessionIds.signingGrant(input.signingGrantId));
         expect(lane.signer.chainTarget).toEqual(chainTarget);
-        return durableAuthLane;
+        return {
+          authLane: durableAuthLane,
+          authority: buildEmailOtpWalletAuthAuthority({
+            walletId: lane.signer.walletId,
+            provider: 'google',
+            providerUserId:
+              lane.auth.kind === 'email_otp' ? lane.auth.providerSubjectId : 'google:invalid',
+            emailHashHex: emailOtpEmailHashHex,
+          }),
+        };
       },
     };
 
@@ -776,34 +786,23 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.kind).toBe('reauth_required');
     if (selection.kind !== 'reauth_required') return;
     expect(selection.authMethod).toBe('email_otp');
-    expect(selection.reauthAuthority).toEqual({
-      kind: 'email_otp_signing_session',
-      authLane: durableAuthLane,
+    expect(selection.committedLane.authLane).toBe(durableAuthLane);
+    expect(selection.committedLane.walletSessionAuthority).toMatchObject({
+      kind: 'wallet_session_authority',
+      walletSessionJwt: durableAuthLane.jwt,
+      thresholdSessionId: durableAuthLane.thresholdSessionId,
+      signingGrantId: String(durableAuthLane.authorizingSigningGrantId),
     });
   });
 
-  test('keeps exhausted shared Tempo Email OTP lanes backed by registration material available for reauth signing', async () => {
+  test('keeps exhausted shared Tempo Email OTP lanes on reauth when source material is only discoverable by loose lookup', async () => {
     const input: EcdsaLaneCandidate = {
       ...emailOtpSharedTempoCandidate(),
       state: 'exhausted',
       remainingUses: 0,
     };
-    const { clientAdditiveShareHandle: _clientAdditiveShareHandle, ...emailOtpRecordRaw } = {
-      ...emailOtpRecordForChainTarget(input, chainTarget),
-      remainingUses: 1,
-    };
-    const emailOtpRecord = markRuntimeValidated(emailOtpRecordRaw);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
-      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
-        if (
-          requestedChainTarget.kind === chainTarget.kind &&
-          requestedChainTarget.chainId === chainTarget.chainId
-        ) {
-          return emailOtpRecord;
-        }
-        throw new Error('missing Email OTP source record');
-      },
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -822,25 +821,21 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.authMethod).toBe('email_otp');
     expect(selection.reason).toBe('exhausted');
     expect(selection.material).toMatchObject({
-      kind: 'ready_to_sign',
+      kind: 'public_identity_unavailable',
       authMethod: 'email_otp',
     });
     expect(selection.diagnostics.exactCandidateMaterial).toMatchObject({
-      present: true,
-      kind: 'ready_to_sign',
-      hasRecord: true,
-      publicIdentityPresent: true,
-      signerMaterialPresent: true,
+      present: false,
+      kind: 'public_identity_unavailable',
+      publicIdentityPresent: false,
     });
-    expect(selection.reauthAuthority).toEqual({
-      kind: 'email_otp_signing_session',
-      authLane: expect.objectContaining({
+    expect(selection.committedLane.authLane).toEqual(
+      expect.objectContaining({
         kind: 'signing_session',
-        jwt: emailOtpRecord.walletSessionJwt,
         thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-restorable'),
         curve: 'ecdsa',
         chainTarget,
       }),
-    });
+    );
   });
 });

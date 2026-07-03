@@ -174,6 +174,48 @@ test.describe('threshold ed25519 persisted records', () => {
         commitmentsById: {
           '1': { hiding: 'h1', binding: 'b1' },
         },
+        signingShare: { kind: 'key_store' },
+        relayerNoncesB64u: 'nonces',
+        participantIds: [1, 2],
+      },
+      expiresAtMs: 456_789,
+    });
+
+    expect(
+      parseCurrentThresholdEd25519StoreSessionRow({
+        kind: 'signing',
+        recordJson: {
+          expiresAtMs: 456_789,
+          mpcSessionId: 'mpc-session',
+          relayerKeyId: 'relayer-key',
+          signingDigestB64u: 'digest',
+          userId: 'alice.testnet',
+          authorityScope,
+          commitmentsById: {
+            '1': { hiding: 'h1', binding: 'b1' },
+          },
+          relayerSigningShareB64u: 'signing-share',
+          relayerNoncesB64u: 'nonces',
+          participantIds: [1, 2],
+        },
+        expiresAtMs: 456_789,
+      }),
+    ).toEqual({
+      kind: 'signing',
+      record: {
+        expiresAtMs: 456_789,
+        mpcSessionId: 'mpc-session',
+        relayerKeyId: 'relayer-key',
+        signingDigestB64u: 'digest',
+        userId: 'alice.testnet',
+        authorityScope,
+        commitmentsById: {
+          '1': { hiding: 'h1', binding: 'b1' },
+        },
+        signingShare: {
+          kind: 'embedded_cosigner_share',
+          relayerSigningShareB64u: 'signing-share',
+        },
         relayerNoncesB64u: 'nonces',
         participantIds: [1, 2],
       },

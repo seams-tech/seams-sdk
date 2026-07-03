@@ -67,21 +67,22 @@ function writeRecord(args: {
   materialHandle?: string;
   sealedWorkerMaterial?: boolean;
 }): ThresholdEd25519SessionRecord {
+  const hasMaterial = Boolean(args.materialHandle || args.sealedWorkerMaterial);
   const record = upsertStoredThresholdEd25519SessionRecord({
     ...BASE_RECORD,
     participantIds: [...BASE_RECORD.participantIds],
-    clientVerifyingShareB64u: 'client-verifier-auth-plan',
     ...(args.materialHandle ? { ed25519WorkerMaterialHandle: args.materialHandle } : {}),
-    ed25519WorkerMaterialBindingDigest: 'material-binding-auth-plan',
-    ...(args.sealedWorkerMaterial
+    ...(hasMaterial
       ? {
+          clientVerifyingShareB64u: 'client-verifier-auth-plan',
+          ed25519WorkerMaterialBindingDigest: 'material-binding-auth-plan',
           sealedWorkerMaterialRef: 'sealed-ref-auth-plan',
           sealedWorkerMaterialB64u: 'sealed-blob-auth-plan',
           materialFormatVersion: 'ed25519_sealed_worker_material_v1',
           materialKeyId: 'material-key-auth-plan',
+          materialCreatedAtMs: 1_800_000_000_000,
         }
       : {}),
-    materialCreatedAtMs: 1_800_000_000_000,
     keyVersion: 'threshold-ed25519-hss-v1',
   });
   if (!record) throw new Error('expected Ed25519 record');
@@ -97,7 +98,8 @@ function coordinatorFor(record: ThresholdEd25519SessionRecord): WarmSessionCapab
     resolveEcdsaRecordByThresholdSessionId: () => null,
     resolveEd25519AuthByThresholdSessionId: () => null,
     resolveEcdsaAuthByThresholdSessionId: () => null,
-    resolveEmailOtpSigningSessionAuthLane: () => null,
+    resolveEmailOtpEd25519SigningSessionAuthority: () => null,
+    resolveEmailOtpEcdsaSigningSessionAuthority: () => null,
     getEd25519CapabilityByThresholdSessionId: async () => null,
     getEcdsaCapabilityByThresholdSessionId: async () => null,
     getEcdsaCapabilityForLane: async () => null,

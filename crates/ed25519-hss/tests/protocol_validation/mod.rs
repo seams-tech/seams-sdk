@@ -1,5 +1,7 @@
 use ed25519_hss::fixtures::committed_fixture_corpus;
-use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
+use ed25519_hss::protocol::{prepare_prime_order_succinct_hss, PreparedSession};
+use ed25519_hss::server::ServerEvalState;
+use ed25519_hss::wire::{OutputProjectionMode, StagedEvaluatorArtifact};
 
 use crate::support::{
     build_client_owned_staged_evaluator_artifact,
@@ -7,6 +9,29 @@ use crate::support::{
     decode_runtime_client_output_message, decode_transport_message,
     encode_runtime_client_output_message, encode_transport_message, first_fixture, TransportKind,
 };
+
+struct FinalizeArtifactFixture {
+    session: PreparedSession,
+    artifact: StagedEvaluatorArtifact,
+    server_eval_state: ServerEvalState,
+}
+
+fn finalize_artifact_fixture() -> FinalizeArtifactFixture {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let (artifact, server_eval_state) =
+        build_client_owned_staged_evaluator_artifact_with_server_eval_state(
+            &session,
+            &fixture.input,
+        )
+        .expect("staged evaluator artifact");
+    FinalizeArtifactFixture {
+        session,
+        artifact,
+        server_eval_state,
+    }
+}
 
 #[test]
 fn prime_order_succinct_hss_rejects_server_assist_init_from_different_request_same_context() {
@@ -478,6 +503,26 @@ fn prime_order_succinct_hss_rejects_output_projection_request_with_tampered_proj
 
 #[test]
 fn prime_order_succinct_hss_rejects_server_finalize_artifact_that_does_not_match_finalize_state() {
+    let mut fixture = finalize_artifact_fixture();
+    fixture.artifact.bindings.server_input_commitment[0] ^= 0x01;
+    let runtime = fixture.session.shared_runtime();
+
+    let err = fixture
+        .session
+        .prepare_server_finalize_from_staged_evaluator_artifact(
+            &runtime,
+            &fixture.server_eval_state,
+            &fixture.artifact,
+        )
+        .expect_err("tampered artifact must fail finalize-state binding");
+    assert!(
+        err.to_string().contains("server input commitment"),
+        "unexpected finalize-state mismatch error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_server_finalize_with_non_finalized_server_eval_state() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -488,38 +533,123 @@ fn prime_order_succinct_hss_rejects_server_finalize_artifact_that_does_not_match
     let garbler_ot_state = session
         .prepare_garbler_ot_state()
         .expect("prepare garbler ot state");
-    let (client_request_message, evaluator_ot_state) = session
+    let (client_request_message, _evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client ot request from offer");
-    let flow = session
-        .prepare_server_assist_flow_to_output_projection(
+    let (_server_assist_init_message, server_eval_state) = session
+        .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            &evaluator_ot_state,
             fixture.input.y_server,
             fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
-        .expect("prepare staged flow to output projection");
+        .expect("prepare server assist init");
     let artifact = build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
         .expect("client-owned staged evaluator artifact");
 
     let err = session
         .prepare_server_finalize_from_staged_evaluator_artifact(
             &runtime,
-            &flow.final_server_eval_state,
+            &server_eval_state,
             &artifact,
         )
-        .expect_err("tampered artifact must fail finalize-state binding");
+        .expect_err("non-finalized server eval state must fail finalize");
     assert!(
-        err.to_string().contains("finalize state")
-            || err.to_string().contains("evaluation digest")
-            || err.to_string().contains("server input commitment"),
-        "unexpected finalize-state mismatch error: {err}"
+        err.to_string().contains("finalized server eval state"),
+        "unexpected non-finalized server eval state error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_artifact_with_tampered_context_binding() {
+    let mut fixture = finalize_artifact_fixture();
+    fixture.artifact.context_binding[0] ^= 0x01;
+    let runtime = fixture.session.shared_runtime();
+    let garbler_session = fixture.session.garbler_session();
+    let finalize_state = fixture
+        .server_eval_state
+        .finalize_state()
+        .expect("finalized server state");
+
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &fixture.artifact,
+            &finalize_state.output,
+        )
+        .expect_err("tampered artifact context binding must fail");
+    assert!(
+        err.to_string().contains("context binding"),
+        "unexpected artifact-context error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_artifact_with_tampered_run_binding() {
+    let mut fixture = finalize_artifact_fixture();
+    fixture.artifact.bindings.run_binding[0] ^= 0x01;
+    let runtime = fixture.session.shared_runtime();
+
+    let err = fixture
+        .session
+        .prepare_server_finalize_from_staged_evaluator_artifact(
+            &runtime,
+            &fixture.server_eval_state,
+            &fixture.artifact,
+        )
+        .expect_err("tampered artifact run binding must fail");
+    assert!(
+        err.to_string().contains("run binding"),
+        "unexpected run-binding error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_artifact_with_tampered_evaluation_digest() {
+    let mut fixture = finalize_artifact_fixture();
+    fixture.artifact.bindings.evaluation_digest[0] ^= 0x01;
+    let runtime = fixture.session.shared_runtime();
+
+    let err = fixture
+        .session
+        .prepare_server_finalize_from_staged_evaluator_artifact(
+            &runtime,
+            &fixture.server_eval_state,
+            &fixture.artifact,
+        )
+        .expect_err("tampered artifact evaluation digest must fail");
+    assert!(
+        err.to_string().contains("evaluation digest"),
+        "unexpected evaluation-digest error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_artifact_with_tampered_projection_mode() {
+    let mut fixture = finalize_artifact_fixture();
+    fixture.artifact.projection_mode = OutputProjectionMode::trusted_server_projection();
+    let runtime = fixture.session.shared_runtime();
+    let garbler_session = fixture.session.garbler_session();
+    let finalize_state = fixture
+        .server_eval_state
+        .finalize_state()
+        .expect("finalized server state");
+
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &fixture.artifact,
+            &finalize_state.output,
+        )
+        .expect_err("tampered artifact projection mode must fail");
+    assert!(
+        err.to_string().contains("projection mode"),
+        "unexpected artifact-projection error: {err}"
     );
 }
 
@@ -540,7 +670,7 @@ fn prime_order_succinct_hss_rejects_tampered_server_output_in_evaluation_result(
         .finalize_state()
         .expect("finalized server state");
     let mut server_output = finalize_state.output.clone();
-    server_output.x_server_base_left.commitment[0] ^= 0x01;
+    server_output.x_server_base_left.words[0].share_word ^= 0x01;
 
     let err = runtime
         .finalize_report_from_staged_evaluator_artifact(
@@ -550,7 +680,7 @@ fn prime_order_succinct_hss_rejects_tampered_server_output_in_evaluation_result(
         )
         .expect_err("tampered server output must fail");
     assert!(
-        err.to_string().contains("server output"),
+        err.to_string().contains("server output") || err.to_string().contains("transport word"),
         "unexpected tampered-server-output error: {err}"
     );
 }
@@ -584,6 +714,54 @@ fn prime_order_succinct_hss_rejects_tampered_client_output_in_evaluation_result(
     assert!(
         err.to_string().contains("client output binding"),
         "unexpected tampered-client-output error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_tampered_client_output_binding_in_evaluation_result() {
+    let mut fixture = finalize_artifact_fixture();
+    fixture.artifact.client_output_binding[0] ^= 0x01;
+    let runtime = fixture.session.shared_runtime();
+    let garbler_session = fixture.session.garbler_session();
+    let finalize_state = fixture
+        .server_eval_state
+        .finalize_state()
+        .expect("finalized server state");
+
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &fixture.artifact,
+            &finalize_state.output,
+        )
+        .expect_err("tampered client output binding must fail");
+    assert!(
+        err.to_string().contains("client output binding"),
+        "unexpected tampered-client-output-binding error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_tampered_seed_output_binding_in_evaluation_result() {
+    let mut fixture = finalize_artifact_fixture();
+    fixture.artifact.seed_output_binding[0] ^= 0x01;
+    let runtime = fixture.session.shared_runtime();
+    let garbler_session = fixture.session.garbler_session();
+    let finalize_state = fixture
+        .server_eval_state
+        .finalize_state()
+        .expect("finalized server state");
+
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &fixture.artifact,
+            &finalize_state.output,
+        )
+        .expect_err("tampered seed output binding must fail");
+    assert!(
+        err.to_string().contains("seed output binding"),
+        "unexpected tampered-seed-output-binding error: {err}"
     );
 }
 

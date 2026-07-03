@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
 import { claimPasskeyEcdsaPrfFirst } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery';
 import { restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery';
 import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
@@ -12,6 +14,7 @@ import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import {
   clearAllThresholdEcdsaSessionRecords,
   upsertRestoredThresholdEcdsaSessionRecord,
@@ -23,8 +26,32 @@ const TEMPO_CHAIN_TARGET = {
   chainId: 42431,
   networkSlug: 'tempo-testnet',
 };
-const EMAIL_OTP_WALLET_KEY_ID = 'wallet-key-alice';
+const EMAIL_OTP_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org-test',
+  projectId: 'root',
+  envId: 'email-otp',
+  signingRootVersion: 'v1',
+} as const;
+const PASSKEY_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org-test',
+  projectId: 'root',
+  envId: 'passkey',
+  signingRootVersion: 'v1',
+} as const;
+const EMAIL_OTP_SIGNING_ROOT_ID = deriveSigningRootId(EMAIL_OTP_RUNTIME_POLICY_SCOPE);
+const PASSKEY_SIGNING_ROOT_ID = deriveSigningRootId(PASSKEY_RUNTIME_POLICY_SCOPE);
+const EMAIL_OTP_WALLET_KEY_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: 'alice.testnet',
+  signingRootId: EMAIL_OTP_SIGNING_ROOT_ID,
+  signingRootVersion: 'v1',
+});
+const PASSKEY_WALLET_KEY_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: 'alice.testnet',
+  signingRootId: PASSKEY_SIGNING_ROOT_ID,
+  signingRootVersion: 'v1',
+});
 const EMAIL_OTP_PROVIDER_SUBJECT_ID = 'google:alice';
+const EMAIL_OTP_EMAIL_HASH_HEX = 'email-hash-alice';
 
 function bytesB64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
@@ -59,16 +86,15 @@ function makeEmailOtpEcdsaSealedRecord(
     sealedSecretB64u: 'sealed-secret',
     curve: 'ecdsa',
     walletId: 'alice.testnet',
-    userId: 'alice.testnet',
-    signingRootId: 'root-1',
-    signingRootVersion: 'v1',
     relayerUrl: 'https://relay.example',
     shamirPrimeB64u: 'prime-b64u',
     keyVersion: 'signing-session-seal-kek-test-r1',
     ecdsaRestore: {
       chainTarget: TEMPO_CHAIN_TARGET,
-      walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
+      evmFamilySigningKeySlotId: EMAIL_OTP_WALLET_KEY_ID,
+      runtimePolicyScope: EMAIL_OTP_RUNTIME_POLICY_SCOPE,
       providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+      emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
       sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ecdsa',
       keyHandle: 'key-handle-ecdsa',
@@ -81,8 +107,10 @@ function makeEmailOtpEcdsaSealedRecord(
     },
 	    ed25519Restore: {
 	      nearAccountId: 'alice.testnet',
-	      nearEd25519SigningKeyId: 'alice.testnet',
-	      rpId: 'example.com',
+      nearEd25519SigningKeyId: 'alice.testnet',
+      rpId: 'example.com',
+      providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+      emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
       relayerKeyId: 'relayer-key-ed25519',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -113,13 +141,14 @@ function makeEmailOtpEcdsaCurrentRecord(
   return {
     source: 'email_otp',
     walletId: 'alice.testnet',
-    walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
+    evmFamilySigningKeySlotId: EMAIL_OTP_WALLET_KEY_ID,
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle: 'key-handle-ecdsa',
     ecdsaThresholdKeyId: 'ecdsa-key',
-    signingRootId: 'root-1',
+    signingRootId: EMAIL_OTP_SIGNING_ROOT_ID,
     signingRootVersion: 'v1',
+    runtimePolicyScope: EMAIL_OTP_RUNTIME_POLICY_SCOPE,
     relayerKeyId: 'relayer-key',
     clientVerifyingShareB64u: 'client-verifying-share',
     ecdsaRoleLocalReadyRecord: {} as never,
@@ -134,12 +163,15 @@ function makeEmailOtpEcdsaCurrentRecord(
     remainingUses: 3,
     ethereumAddress: `0x${'33'.repeat(20)}`,
     updatedAtMs: now,
-    emailOtpAuthContext: {
+    emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
       policy: 'session',
+      walletId: 'alice.testnet',
+      emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
       retention: 'session',
       reason: 'login',
-      authMethod: 'email_otp',
-    },
+      provider: 'google',
+      providerUserId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+    }),
     ...overrides,
   } as never;
 }
@@ -161,11 +193,11 @@ function makePasskeyEcdsaCurrentRecord(
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: 'alice.testnet',
-      walletKeyId: 'wallet-key-passkey',
+      evmFamilySigningKeySlotId: PASSKEY_WALLET_KEY_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       keyHandle: 'key-handle-passkey-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-passkey-key',
-      signingRootId: 'root-passkey-1',
+      signingRootId: PASSKEY_SIGNING_ROOT_ID,
       signingRootVersion: 'v1',
       clientParticipantId: 1,
       relayerParticipantId: 2,
@@ -185,12 +217,12 @@ function makePasskeyEcdsaCurrentRecord(
   return {
     source: 'login',
     walletId: 'alice.testnet',
-    walletKeyId: 'wallet-key-passkey',
+    evmFamilySigningKeySlotId: PASSKEY_WALLET_KEY_ID,
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle: 'key-handle-passkey-ecdsa',
     ecdsaThresholdKeyId: 'ecdsa-passkey-key',
-    signingRootId: 'root-passkey-1',
+    signingRootId: PASSKEY_SIGNING_ROOT_ID,
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-passkey',
     clientVerifyingShareB64u: hssClientSharePublicKey33B64u,
@@ -242,14 +274,13 @@ test.describe('sealed recovery method adapters', () => {
       sealedSecretB64u: 'sealed-secret',
       curve: 'ecdsa',
       walletId: 'alice.testnet',
-      userId: 'alice.testnet',
-      signingRootId: 'root-1',
-      signingRootVersion: 'v1',
       relayerUrl: 'https://relay.example',
       ecdsaRestore: {
         chainTarget: TEMPO_CHAIN_TARGET,
-        walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: EMAIL_OTP_WALLET_KEY_ID,
+        runtimePolicyScope: EMAIL_OTP_RUNTIME_POLICY_SCOPE,
         providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+        emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
         sessionKind: 'jwt',
         walletSessionJwt: 'jwt-ecdsa',
         keyHandle: 'key-handle-ecdsa',
@@ -270,6 +301,18 @@ test.describe('sealed recovery method adapters', () => {
     if (normalized.kind !== 'accepted') return;
     expect(normalized.record.signingGrantId).toBe('legacy-signing-grant');
     expect(normalized.record.thresholdSessionId).toBe('legacy-threshold-session');
+    expect(normalized.record.authority).toMatchObject({
+      walletId: 'alice.testnet',
+      factor: {
+        kind: 'email_otp',
+        provider: 'google',
+        providerUserId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+      },
+      verifier: {
+        kind: 'email_otp_wallet_auth_method',
+        emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
+      },
+    });
     expect(legacySigningGrantFieldName() in normalized.record).toBe(false);
     expect('thresholdSessionIds' in normalized.record).toBe(false);
   });
@@ -290,15 +333,14 @@ test.describe('sealed recovery method adapters', () => {
       sealedSecretB64u: 'sealed-secret',
       curve: 'ecdsa',
       walletId: 'alice.testnet',
-      userId: 'alice.testnet',
       subjectId: 'alice.testnet',
-      signingRootId: 'root-1',
-      signingRootVersion: 'v1',
       relayerUrl: 'https://relay.example',
       ecdsaRestore: {
         chainTarget: TEMPO_CHAIN_TARGET,
-        walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
+        evmFamilySigningKeySlotId: EMAIL_OTP_WALLET_KEY_ID,
+        runtimePolicyScope: EMAIL_OTP_RUNTIME_POLICY_SCOPE,
         providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+        emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
         sessionKind: 'jwt',
         walletSessionJwt: 'jwt-ecdsa',
         keyHandle: 'key-handle-ecdsa',
@@ -320,6 +362,104 @@ test.describe('sealed recovery method adapters', () => {
       rejection: {
         kind: 'rejected_sealed_recovery_record',
         reason: 'invalid_identity',
+      },
+    });
+  });
+
+  test('rejects ECDSA sealed recovery records with raw signing-root binding', () => {
+    const now = Date.now();
+    const normalized = normalizeSealedRecoveryRecord({
+      v: 1,
+      alg: 'shamir3pass-v1',
+      storageScope: 'iframe_origin_indexeddb',
+      authMethod: 'email_otp',
+      secretKind: 'signing_session_secret32',
+      storeKey: 'email_otp:ecdsa:tempo:tsess-ecdsa',
+      signingGrantId: 'wsess-ecdsa',
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa',
+      },
+      sealedSecretB64u: 'sealed-secret',
+      curve: 'ecdsa',
+      walletId: 'alice.testnet',
+      signingRootId: EMAIL_OTP_SIGNING_ROOT_ID,
+      signingRootVersion: 'v1',
+      relayerUrl: 'https://relay.example',
+      ecdsaRestore: {
+        chainTarget: TEMPO_CHAIN_TARGET,
+        evmFamilySigningKeySlotId: EMAIL_OTP_WALLET_KEY_ID,
+        runtimePolicyScope: EMAIL_OTP_RUNTIME_POLICY_SCOPE,
+        providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+        emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
+        sessionKind: 'jwt',
+        walletSessionJwt: 'jwt-ecdsa',
+        keyHandle: 'key-handle-ecdsa',
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
+        relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'client-verifying-share',
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+        participantIds: [1, 2],
+      },
+      issuedAtMs: now - 1_000,
+      expiresAtMs: now + 60_000,
+      remainingUses: 3,
+      updatedAtMs: now,
+    });
+
+    expect(normalized).toMatchObject({
+      kind: 'rejected',
+      rejection: {
+        kind: 'rejected_sealed_recovery_record',
+        reason: 'invalid_identity',
+      },
+    });
+  });
+
+  test('rejects Email OTP sealed recovery records without providerSubjectId', () => {
+    const now = Date.now();
+    const normalized = normalizeSealedRecoveryRecord({
+      v: 1,
+      alg: 'shamir3pass-v1',
+      storageScope: 'iframe_origin_indexeddb',
+      authMethod: 'email_otp',
+      secretKind: 'signing_session_secret32',
+      storeKey: 'email_otp:ecdsa:tempo:tsess-ecdsa',
+      signingGrantId: 'wsess-ecdsa',
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa',
+      },
+      sealedSecretB64u: 'sealed-secret',
+      curve: 'ecdsa',
+      walletId: 'alice.testnet',
+      relayerUrl: 'https://relay.example',
+      ecdsaRestore: {
+        chainTarget: TEMPO_CHAIN_TARGET,
+        evmFamilySigningKeySlotId: EMAIL_OTP_WALLET_KEY_ID,
+        runtimePolicyScope: EMAIL_OTP_RUNTIME_POLICY_SCOPE,
+        authSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+        emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
+        sessionKind: 'jwt',
+        walletSessionJwt: 'jwt-ecdsa',
+        keyHandle: 'key-handle-ecdsa',
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
+        relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'client-verifying-share',
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+        participantIds: [1, 2],
+      },
+      issuedAtMs: now - 1_000,
+      expiresAtMs: now + 60_000,
+      remainingUses: 3,
+      updatedAtMs: now,
+    });
+
+    expect(normalized).toMatchObject({
+      kind: 'rejected',
+      rejection: {
+        kind: 'rejected_sealed_recovery_record',
+        reason: 'missing_restore_metadata',
       },
     });
   });
@@ -348,6 +488,7 @@ test.describe('sealed recovery method adapters', () => {
 	        nearAccountId: 'alice.testnet',
 	        nearEd25519SigningKeyId: 'alice.testnet',
 	        rpId: 'example.com',
+        credentialIdB64u: 'passkey-credential-ed25519',
         relayerKeyId: 'relayer-key-ed25519',
         participantIds: [1, 2],
         sessionKind: 'jwt',
@@ -446,13 +587,16 @@ test.describe('sealed recovery method adapters', () => {
           walletSessionJwt: 'jwt-ecdsa',
           signingSessionSealShamirPrimeB64u: 'prime-b64u',
           chainTarget: TEMPO_CHAIN_TARGET,
-          emailOtpAuthContext: {
+          emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
             policy: 'session',
+            walletId: 'alice.testnet',
+            emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
             retention: 'session',
             reason: 'login',
-            authMethod: 'email_otp',
-          },
-          signingRootId: 'root-1',
+            provider: 'google',
+            providerUserId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+          }),
+          signingRootId: EMAIL_OTP_SIGNING_ROOT_ID,
           signingRootVersion: 'v1',
           ecdsaThresholdKeyId: 'ecdsa-key',
           relayerKeyId: 'relayer-key',
@@ -635,8 +779,10 @@ test.describe('sealed recovery method adapters', () => {
       keyVersion: 'signing-session-seal-kek-test-r1',
 	      ed25519Restore: {
 	        nearAccountId: 'alice.testnet',
-	        nearEd25519SigningKeyId: 'alice.testnet',
-	        rpId: 'example.com',
+        nearEd25519SigningKeyId: 'alice.testnet',
+        rpId: 'example.com',
+        providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+        emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
         relayerKeyId: 'relayer-key-ed25519',
         participantIds: [1, 2],
         sessionKind: 'jwt',

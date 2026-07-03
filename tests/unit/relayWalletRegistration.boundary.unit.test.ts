@@ -44,6 +44,7 @@ import {
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/encoders';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
+import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -158,6 +159,7 @@ function inputFor(
     },
     route: route(routeId),
     services: {
+      walletRegistration: authService,
       authService,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
       ...(session ? { session } : {}),
@@ -192,6 +194,7 @@ function ecdsaInventoryInputFor(args: {
     pathParams: { walletId: args.walletId || 'wallet_alice' },
     route: route('wallet_ecdsa_key_facts_inventory'),
     services: {
+      walletRegistration: args.authService,
       authService: args.authService,
       session: args.session,
     },
@@ -227,6 +230,7 @@ function addSignerInputFor(args: {
     pathParams: { walletId: args.walletId || 'wallet_alice' },
     route: route(args.routeId),
     services: {
+      walletRegistration: args.authService,
       authService: args.authService,
       session: args.session || {},
       apiKeyAuth: args.apiKeyAuth,
@@ -266,6 +270,7 @@ function addAuthMethodInputFor(args: {
     pathParams: { walletId: args.walletId || 'wallet_alice' },
     route: route(args.routeId),
     services: {
+      walletRegistration: args.authService,
       authService: args.authService,
       session: args.session || {},
       apiKeyAuth: args.apiKeyAuth,
@@ -695,6 +700,73 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
+  test('registration start rejects mismatched intent digest before service dispatch', async () => {
+    const intent = registrationIntent();
+    let called = false;
+    const response = await handleRouterApiWalletRegistrationStart(
+      inputFor(
+        'wallet_registration_start',
+        {
+          registrationIntentGrant: 'rig_1',
+          registrationIntentDigestB64u: 'wrong-registration-intent-digest',
+          intent,
+          webauthn_registration: {
+            response: { clientDataJSON: 'client-data' },
+          },
+        },
+        {
+          startWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration intent digest mismatch',
+    });
+  });
+
+  test('registration prepare rejects invalid passkey rpId before service dispatch', async () => {
+    const intent = {
+      ...registrationIntent(),
+      authMethod: { kind: 'passkey', rpId: 'bad rp id' },
+    };
+    let called = false;
+    const response = await handleRouterApiWalletRegistrationPrepare(
+      registrationPrepareInputFor(
+        {
+          registrationIntentGrant: 'rig_1',
+          registrationIntentDigestB64u: 'digest',
+          intent,
+          webauthn_registration: {
+            response: { clientDataJSON: 'client-data' },
+          },
+          work: { kind: 'ed25519_hss' },
+        },
+        {
+          prepareWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration authMethod is invalid',
+    });
+  });
+
   test('registration prepare forwards normalized Ed25519 work before service dispatch', async () => {
     const intent = registrationIntent('email_otp');
     const digest = await computeRegistrationIntentDigestB64u(intent);
@@ -705,6 +777,17 @@ test.describe('wallet registration route boundaries', () => {
           registrationIntentGrant: 'rig_1',
           registrationIntentDigestB64u: digest,
           intent,
+          emailOtpRegistrationProof: {
+            version: 'email_otp_registration_proof_v1',
+            proofKind: 'otp_challenge',
+            providerSubject: 'google:alice',
+            email: 'Alice@Example.test',
+            challengeId: 'challenge-1',
+            otpCode: '123456',
+            otpChannel: 'email_otp',
+            registrationIntentDigestB64u: digest,
+            appSessionVersion: 'v1',
+          },
           work: { kind: 'ed25519_hss' },
         },
         {
@@ -741,11 +824,19 @@ test.describe('wallet registration route boundaries', () => {
         authMethod: { kind: 'email_otp', email: 'alice@example.test' },
         signerSelection: { kind: 'signer_set' },
       },
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          email: 'alice@example.test',
+          providerSubject: 'google:alice',
+          challengeId: 'challenge-1',
+        },
+      },
       work: { kind: 'ed25519_hss' },
     });
   });
 
-  test('registration prepare rejects authority and HSS payload fields before service dispatch', async () => {
+  test('registration prepare rejects HSS, legacy auth, and gate payload fields before service dispatch', async () => {
     const intent = registrationIntent();
     const digest = await computeRegistrationIntentDigestB64u(intent);
     let called = false;
@@ -756,11 +847,11 @@ test.describe('wallet registration route boundaries', () => {
           registrationIntentDigestB64u: digest,
           intent,
           work: { kind: 'ed25519_hss' },
-          webauthn_registration: {
-            response: { clientDataJSON: 'client-data' },
-          },
           threshold_ed25519: {
             clientRequest: { clientRequestMessageB64u: 'client-request' },
+          },
+          auth: {
+            kind: 'legacy',
           },
           prepareGate: {
             kind: 'source_ip',
@@ -781,7 +872,7 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'registration prepare does not accept authority, HSS, or gate payload fields',
+      message: 'registration prepare does not accept HSS, legacy auth, or gate payload fields',
     });
   });
 
@@ -880,7 +971,6 @@ test.describe('wallet registration route boundaries', () => {
               evaluationResult: {
                 contextBindingB64u: 'context',
                 stagedEvaluatorArtifactB64u: 'artifact',
-                serverEvalFinalizeOutputB64u: 'server-finalize-output',
                 [forbiddenField]: 'client-owned',
               },
             },
@@ -904,7 +994,7 @@ test.describe('wallet registration route boundaries', () => {
     });
   }
 
-  test('finalize rejects Ed25519 HSS evaluation result without server finalize output', async () => {
+  test('finalize rejects legacy Ed25519 HSS server output payload fields', async () => {
     let called = false;
     const response = await handleRouterApiWalletRegistrationFinalize(
       inputFor(
@@ -915,6 +1005,7 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
+              server_output_payload: 'legacy-server-output',
             },
           },
         },
@@ -932,7 +1023,40 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'ed25519.evaluationResult.serverEvalFinalizeOutputB64u is required',
+      message: 'Unsupported ed25519.evaluationResult field: server_output_payload',
+    });
+  });
+
+  test('finalize rejects Ed25519 HSS client-sent server finalize output', async () => {
+    let called = false;
+    const response = await handleRouterApiWalletRegistrationFinalize(
+      inputFor(
+        'wallet_registration_finalize',
+        {
+          registrationCeremonyId: 'wrc_123',
+          ed25519: {
+            evaluationResult: {
+              contextBindingB64u: 'context',
+              stagedEvaluatorArtifactB64u: 'artifact',
+              serverEvalFinalizeOutputB64u: 'server-finalize-output',
+            },
+          },
+        },
+        {
+          finalizeWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'Unsupported ed25519.evaluationResult field: serverEvalFinalizeOutputB64u',
     });
   });
 
@@ -1086,7 +1210,6 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
-              serverEvalFinalizeOutputB64u: 'server-finalize-output',
             },
             sessionPolicy: {
               version: 'threshold_session_v1',
@@ -1100,6 +1223,12 @@ test.describe('wallet registration route boundaries', () => {
             ok: true,
             walletId: 'wallet_alice',
             rpId: 'wallet.example.test',
+            authority: buildPasskeyWalletAuthAuthority({
+              walletId: 'wallet_alice',
+              rpId: 'wallet.example.test',
+              credentialIdB64u: 'credential-id',
+            }),
+            authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
             accountProvisioning: namedProvisioning('alice.testnet'),
             resolvedAccount: {
               kind: 'sponsored_named_account',
@@ -1122,6 +1251,7 @@ test.describe('wallet registration route boundaries', () => {
                 nearEd25519SigningKeyId: 'wallet_alice',
                 thresholdSessionId: 'ed-session-1',
                 signingGrantId: 'ed-wallet-session-1',
+                authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
                 expiresAtMs: Date.now() + 300_000,
                 participantIds: [1, 2],
                 remainingUses: 1,
@@ -1162,7 +1292,6 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
-              serverEvalFinalizeOutputB64u: 'server-finalize-output',
             },
             sessionPolicy: {
               version: 'threshold_session_v1',
@@ -1176,6 +1305,12 @@ test.describe('wallet registration route boundaries', () => {
             ok: true,
             walletId,
             rpId: 'wallet.example.test',
+            authority: buildPasskeyWalletAuthAuthority({
+              walletId,
+              rpId: 'wallet.example.test',
+              credentialIdB64u: 'credential-id',
+            }),
+            authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
             accountProvisioning: implicitNearAccountProvisioning(),
             resolvedAccount: {
               kind: 'implicit_account',
@@ -1197,6 +1332,7 @@ test.describe('wallet registration route boundaries', () => {
                 nearEd25519SigningKeyId: walletId,
                 thresholdSessionId: 'ed-session-1',
                 signingGrantId: 'ed-wallet-session-1',
+                authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
                 expiresAtMs: Date.now() + 300_000,
                 participantIds: [1, 2],
                 remainingUses: 1,

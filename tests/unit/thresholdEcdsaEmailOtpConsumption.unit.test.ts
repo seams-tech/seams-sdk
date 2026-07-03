@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { requireWalletKeyId } from '@shared/signing-lanes';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
   type EvmEip155ChainTarget,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import {
   clearAllThresholdEcdsaSessionRecords,
   consumeSingleUseEmailOtpEcdsaLane,
@@ -46,6 +47,13 @@ const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_STATE_BLOB_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
+const SIGNING_ROOT_ID = 'signing-root';
+const SIGNING_ROOT_VERSION = 'v1';
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: WALLET_ID,
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+});
 
 function createStore(nowRef: { value: number } | number): ThresholdEcdsaSessionStoreDeps {
   return {
@@ -71,13 +79,13 @@ function ecdsaEmailOtpRecord(args: {
   const chainTarget = args.chainTarget || EVM_TARGET;
   return {
     walletId: WALLET_ID,
-    walletKeyId: requireWalletKeyId('wallet-key-email-otp-consumption'),
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle,
     ecdsaThresholdKeyId,
-    signingRootId: 'signing-root',
-    signingRootVersion: 'v1',
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'client-verifying-share',
     ecdsaRoleLocalReadyRecord: buildEcdsaRoleLocalReadyRecord({
@@ -90,12 +98,12 @@ function ecdsaEmailOtpRecord(args: {
       },
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: WALLET_ID,
-        walletKeyId: 'wallet-key-email-otp-consumption',
+        evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
         chainTarget,
         keyHandle,
         ecdsaThresholdKeyId,
-        signingRootId: 'signing-root',
-        signingRootVersion: 'v1',
+        signingRootId: SIGNING_ROOT_ID,
+        signingRootVersion: SIGNING_ROOT_VERSION,
         applicationBindingDigestB64u: VALID_STATE_BLOB_B64U,
         clientParticipantId: 1,
         relayerParticipantId: 2,
@@ -127,13 +135,10 @@ function ecdsaEmailOtpRecord(args: {
     ethereumAddress: OWNER_ADDRESS,
     updatedAtMs: args.updatedAtMs,
     source: 'email_otp',
-    emailOtpAuthContext: {
-      authMethod: 'email_otp',
-      authSubjectId: 'google:alice',
-      policy: 'per_operation',
-      reason: 'sign',
-      retention: 'single_use',
-    },
+    emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: 'per_operation',      provider: 'google',
+      providerUserId: 'google:alice',
+    }),
   };
 }
 
@@ -159,16 +164,37 @@ function withSigningRootVersion(
   record: ThresholdEcdsaSessionRecord,
   signingRootVersion: string,
 ): ThresholdEcdsaSessionRecord {
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: record.walletId,
+    signingRootId: record.signingRootId,
+    signingRootVersion,
+  });
+  const publicFacts = record.ecdsaRoleLocalReadyRecord.publicFacts;
   const readyRecord = buildEcdsaRoleLocalReadyRecord({
     stateBlob: record.ecdsaRoleLocalReadyRecord.stateBlob,
     publicFacts: buildEcdsaRoleLocalPublicFacts({
-      ...record.ecdsaRoleLocalReadyRecord.publicFacts,
+      walletId: publicFacts.walletId,
+      evmFamilySigningKeySlotId,
+      chainTarget: publicFacts.chainTarget,
+      keyHandle: publicFacts.keyHandle,
+      ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
+      signingRootId: publicFacts.signingRootId,
       signingRootVersion,
+      applicationBindingDigestB64u: publicFacts.applicationBindingDigestB64u,
+      clientParticipantId: publicFacts.clientParticipantId,
+      relayerParticipantId: publicFacts.relayerParticipantId,
+      participantIds: publicFacts.participantIds,
+      contextBinding32B64u: publicFacts.contextBinding32B64u,
+      hssClientSharePublicKey33B64u: publicFacts.hssClientSharePublicKey33B64u,
+      relayerPublicKey33B64u: publicFacts.relayerPublicKey33B64u,
+      groupPublicKey33B64u: publicFacts.groupPublicKey33B64u,
+      ethereumAddress: publicFacts.ethereumAddress,
     }),
     authMethod: record.ecdsaRoleLocalReadyRecord.authMethod,
   });
   return {
     ...record,
+    evmFamilySigningKeySlotId,
     signingRootVersion,
     ecdsaRoleLocalReadyRecord: readyRecord,
   };
@@ -223,7 +249,10 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
       throw new Error('expected consumed Email OTP ECDSA record');
     }
     expect(recordsBySession.get('threshold-session-a')?.remainingUses).toBe(0);
-    expect(consumedRecord.emailOtpAuthContext.consumedAtMs).toBe(1_800_000_001_000);
+    expect(consumedRecord.emailOtpAuthContext.use).toEqual({
+      kind: 'single_use_consumed',
+      consumedAtMs: 1_800_000_001_000,
+    });
     expect(recordsBySession.get('threshold-session-a')?.updatedAtMs).toBe(1_800_000_001_000);
     expect(recordsBySession.get('threshold-session-b')?.remainingUses).toBe(1);
     expect(recordsBySession.get('threshold-session-b')?.updatedAtMs).toBe(1_800_000_000_000);

@@ -15,6 +15,8 @@ const SUBJECT_ID = walletIdFromWalletProfile({ walletId: WALLET_ID });
 const RP_ID = 'wallet.example.test';
 const OWNER_ADDRESS = `0x${'ab'.repeat(20)}`;
 const THRESHOLD_ECDSA_PUBLIC_KEY_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
+const EVM_FAMILY_SIGNING_KEY_SLOT_ID =
+  'wallet-key:evm-family:alice.testnet:project_inventory_parser%3Adev:root_v1';
 const EVM_TARGET = {
   kind: 'evm',
   namespace: 'eip155',
@@ -28,6 +30,7 @@ function inventoryRecord(overrides: Record<string, unknown> = {}): Record<string
     subjectId: SUBJECT_ID,
     rpId: RP_ID,
     ecdsaThresholdKeyId: 'ehss-inventory',
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     signingRootId: 'project_inventory_parser:dev',
     signingRootVersion: 'root_v1',
     participantIds: [1, 2],
@@ -63,6 +66,7 @@ function profileSigner(metadataOverrides: Record<string, unknown> = {}): Account
         rpId: RP_ID,
         keyScope: 'evm-family',
         ecdsaThresholdKeyId: 'ehss-inventory',
+        evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
         signingRootId: 'project_inventory_parser:dev',
         signingRootVersion: 'root_v1',
         participantIds: [1, 2],

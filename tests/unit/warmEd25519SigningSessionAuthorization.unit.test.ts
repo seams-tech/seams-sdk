@@ -82,6 +82,8 @@ test.describe('warm Ed25519 signing session authorization', () => {
       value: {
         kind: 'warm_ed25519_signing_session_authorized',
         materialState: 'material_pending',
+        persistedMaterialState: 'auth_ready_material_pending',
+        materialPendingReason: 'worker_material_missing',
         signingGrantId: 'signing-grant-1',
         signingWorkerId: 'signing-worker-a',
         prfClaim: {
@@ -117,11 +119,41 @@ test.describe('warm Ed25519 signing session authorization', () => {
       ok: true,
       value: {
         materialState: 'material_ready',
+        persistedMaterialState: 'material_ready',
       },
     });
     expect(result.ok && 'ed25519WorkerMaterialHandle' in result.value).toBe(false);
     expect(result.ok && 'clientVerifyingShareB64u' in result.value).toBe(false);
     expect(result.ok && 'xClientBaseB64u' in result.value).toBe(false);
+  });
+
+  test('keeps restorable material distinct from missing worker material', () => {
+    const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record: ed25519Record({
+        materialState: 'restore_available',
+        clientVerifyingShareB64u: 'client-verifier',
+        ed25519WorkerMaterialBindingDigest: 'binding-digest',
+        sealedWorkerMaterialRef: 'sealed-material-ref',
+        materialFormatVersion: 'ed25519_worker_material_v1',
+        materialKeyId: 'material-key-id',
+        materialCreatedAtMs: 1_800_000_000_000,
+      }),
+      walletId: WALLET_ID,
+      nearAccountId: ACCOUNT_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+      authMethod: 'passkey',
+      signingSessionStatus: activeStatus(),
+      nowMs: 1_800_000_000_000,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        materialState: 'material_pending',
+        persistedMaterialState: 'restore_available',
+        materialPendingReason: 'restore_available',
+      },
+    });
   });
 
   test('rejects missing Wallet Session JWT before unlock succeeds', () => {

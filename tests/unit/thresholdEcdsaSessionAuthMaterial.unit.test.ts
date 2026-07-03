@@ -6,6 +6,8 @@ const IMPORT_PATHS = {
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
   warmSessionCapabilityReader:
     '/sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
+  routerAbEcdsaWalletSessionAuth:
+    '/sdk/esm/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth.js',
   ecdsaRoleLocalRecords:
     '/sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
 } as const;
@@ -22,6 +24,9 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
       async ({ paths }) => {
         const storeMod = await import(paths.thresholdSessionStore);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
+        const routerAbEcdsaWalletSessionAuthMod = await import(
+          paths.routerAbEcdsaWalletSessionAuth
+        );
         const ecdsaRoleLocalMod = await import(paths.ecdsaRoleLocalRecords);
         const deps = {
           recordsByLane: new Map<string, unknown>(),
@@ -43,6 +48,11 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           const signingGrantId = `wallet-${args.thresholdSessionId}`;
           const ecdsaThresholdKeyId = `ek-${args.walletId}`;
           const keyHandle = `key-handle-${args.thresholdSessionId}`;
+          const signingRootId = 'proj-a:env-a';
+          const signingRootVersion = 'default';
+          const evmFamilySigningKeySlotId = `wallet-key:evm-family:${encodeURIComponent(
+            args.walletId,
+          )}:${encodeURIComponent(signingRootId)}:${encodeURIComponent(signingRootVersion)}`;
           const ecdsaRoleLocalReadyRecord = ecdsaRoleLocalMod.buildEcdsaRoleLocalReadyRecord({
             stateBlob: {
               kind: 'ecdsa_role_local_state_blob_v1',
@@ -53,15 +63,16 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
             },
             publicFacts: ecdsaRoleLocalMod.buildEcdsaRoleLocalPublicFacts({
               walletId: args.walletId,
-              walletKeyId: `wallet-key-${args.walletId}`,
+              evmFamilySigningKeySlotId,
               chainTarget,
               keyHandle,
               ecdsaThresholdKeyId,
-              signingRootId: 'proj-a:env-a',
-              signingRootVersion: 'default',
+              signingRootId,
+              signingRootVersion,
               clientParticipantId: 1,
               relayerParticipantId: 2,
               participantIds: [1, 2],
+              applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
               contextBinding32B64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               hssClientSharePublicKey33B64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               relayerPublicKey33B64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -73,15 +84,16 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
               rpId: 'example.localhost',
             }),
           });
-          storeMod.upsertStoredThresholdEcdsaSessionRecord(deps, {
+          storeMod.upsertRestoredThresholdEcdsaSessionRecord({
             walletId: args.walletId,
+            evmFamilySigningKeySlotId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             chainTarget,
             keyHandle,
             ecdsaThresholdKeyId,
-            signingRootId: 'proj-a:env-a',
-            signingRootVersion: 'default',
+            signingRootId,
+            signingRootVersion,
             relayerKeyId: `rk-${args.thresholdSessionId}`,
             clientVerifyingShareB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             ecdsaRoleLocalReadyRecord,
@@ -104,58 +116,32 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         storeMod.clearAllThresholdEcdsaSessionRecords(deps);
 
-        storeMod.upsertStoredThresholdEd25519SessionRecord({
-          nearAccountId: 'fallback.testnet',
-          rpId: 'example.localhost',
-          relayerUrl: 'https://relay.example',
-          relayerKeyId: 'rk-ed25519',
-          participantIds: [1, 2],
-          thresholdSessionKind: 'jwt',
-          thresholdSessionId: 'sess-ed25519',
-          signingGrantId: 'wallet-sess-ed25519',
-          walletSessionJwt: 'jwt-ed25519-fallback',
-          expiresAtMs: now + 120_000,
-          remainingUses: 7,
-          source: 'login',
-        });
-
         upsertEcdsaRecord({
           walletId: 'primary.testnet',
           thresholdSessionId: 'sess-ecdsa-jwt',
           thresholdSessionKind: 'jwt',
           walletSessionJwt: 'jwt-ecdsa-primary',
         });
-        upsertEcdsaRecord({
-          walletId: 'fallback.testnet',
-          thresholdSessionId: 'sess-ecdsa-cookie',
-          thresholdSessionKind: 'cookie',
-        });
-        upsertEcdsaRecord({
-          walletId: 'nofallback.testnet',
-          thresholdSessionId: 'sess-ecdsa-cookie-no-fallback',
-          thresholdSessionKind: 'cookie',
-        });
 
         const capabilityReader = capabilityReaderMod.createWarmSessionCapabilityReader();
         const resolvedPrimary =
           capabilityReader.resolveEcdsaAuthByThresholdSessionId('sess-ecdsa-jwt');
-        const resolvedFallback =
-          capabilityReader.resolveEcdsaAuthByThresholdSessionId('sess-ecdsa-cookie');
-        const resolvedNoFallback =
-          capabilityReader.resolveEcdsaAuthByThresholdSessionId(
-            'sess-ecdsa-cookie-no-fallback',
-          );
         const resolvedMissing =
           capabilityReader.resolveEcdsaAuthByThresholdSessionId('sess-missing');
-        const transportFromEcdsa =
-          capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
-            thresholdSessionId: 'sess-ecdsa-jwt',
-            chainTarget: {
-              kind: 'tempo',
-              chainId: 42431,
-              networkSlug: 'tempo-42431',
-            },
-          });
+        const persistedRecord = storeMod.getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+          'sess-ecdsa-jwt',
+        );
+        const staleRecordWithoutJwt = persistedRecord
+          ? {
+              ...persistedRecord,
+              walletSessionJwt: undefined,
+            }
+          : null;
+        const staleRecordResolution = staleRecordWithoutJwt
+          ? routerAbEcdsaWalletSessionAuthMod.resolveRouterAbEcdsaWalletSessionAuthFromRecord(
+              staleRecordWithoutJwt,
+            )
+          : null;
 
         return {
           primary: resolvedPrimary
@@ -164,27 +150,8 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
                 jwt: resolvedPrimary.walletSessionJwt || null,
               }
             : null,
-          fallback: resolvedFallback
-            ? {
-                source: resolvedFallback.walletSessionJwtSource,
-                jwt: resolvedFallback.walletSessionJwt || null,
-              }
-            : null,
-          noFallback: resolvedNoFallback
-            ? {
-                source: resolvedNoFallback.walletSessionJwtSource,
-                jwt: resolvedNoFallback.walletSessionJwt || null,
-              }
-            : null,
           missing: resolvedMissing,
-          transportFromEcdsa: transportFromEcdsa
-            ? {
-                curve: transportFromEcdsa.curve,
-                relayerUrl: transportFromEcdsa.relayerUrl,
-                source: transportFromEcdsa.walletSessionJwtSource,
-                jwt: transportFromEcdsa.walletSessionJwt || null,
-              }
-            : null,
+          staleRecordResolution,
         };
       },
       { paths: IMPORT_PATHS },
@@ -194,20 +161,10 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
       source: 'ecdsa_record',
       jwt: 'jwt-ecdsa-primary',
     });
-    expect(result.fallback).toEqual({
-      source: 'none',
-      jwt: null,
-    });
-    expect(result.noFallback).toEqual({
-      source: 'none',
-      jwt: null,
-    });
     expect(result.missing).toBeNull();
-    expect(result.transportFromEcdsa).toEqual({
-      curve: 'ecdsa',
-      relayerUrl: 'https://relay.example',
-      source: 'ecdsa',
-      jwt: 'jwt-ecdsa-primary',
+    expect(result.staleRecordResolution).toEqual({
+      kind: 'unavailable',
+      reason: 'missing_wallet_session_jwt',
     });
   });
 });

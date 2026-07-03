@@ -600,6 +600,106 @@ test.describe('budget coordinator reserved success handling', () => {
     ).rejects.toThrow('[SigningSessionBudget] signing grant budget is exhausted');
   });
 
+  test('keeps concurrent EVM-family reservations distinct by operation fingerprint', async () => {
+    const reservationEvents: SigningSessionBudgetTraceEvent[] = [];
+    const statusSyncCalls: Parameters<SigningSessionBudgetStatusSync>[0][] = [];
+    const coordinator = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'tempo-wallet-session-concurrent-evm',
+          status: 'active',
+          projectionVersion: 'projection-evm-1',
+          remainingUses: 2,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async syncSuccessfulSpendStatus(args) {
+        statusSyncCalls.push(args);
+        return {
+          sessionId: args.signingGrantId,
+          status: 'active',
+          projectionVersion: `projection-evm-${statusSyncCalls.length + 1}`,
+          remainingUses: 2 - statusSyncCalls.length,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      onTrace(event) {
+        reservationEvents.push(event);
+      },
+    });
+    const firstSpend = makeTempoSpend({
+      operationId: 'tempo-concurrent-evm-1',
+      operationFingerprint: 'tempo-concurrent-evm-fingerprint-1',
+      signingGrantId: 'tempo-wallet-session-concurrent-evm',
+      thresholdSessionId: 'tempo-threshold-session-concurrent-evm',
+    });
+    const secondSpend = makeTempoSpend({
+      operationId: 'tempo-concurrent-evm-2',
+      operationFingerprint: 'tempo-concurrent-evm-fingerprint-2',
+      signingGrantId: 'tempo-wallet-session-concurrent-evm',
+      thresholdSessionId: 'tempo-threshold-session-concurrent-evm',
+    });
+
+    const [firstReservation, secondReservation] = await Promise.all([
+      coordinator.reserve({
+        spend: firstSpend,
+        expectedBudgetProjectionVersion: 'projection-evm-1',
+      }),
+      coordinator.reserve({
+        spend: secondSpend,
+        expectedBudgetProjectionVersion: 'projection-evm-1',
+      }),
+    ]);
+
+    expect(firstReservation).toMatchObject({
+      kind: 'reserved',
+      operationId: firstSpend.operationId,
+    });
+    expect(secondReservation).toMatchObject({
+      kind: 'reserved',
+      operationId: secondSpend.operationId,
+    });
+    await expect(
+      coordinator.recordSuccess(
+        withSuccessCommand({
+          kind: 'reserved_success',
+          spend: firstSpend,
+          expectedBudgetProjectionVersion: 'projection-evm-1',
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: 'finalized' });
+    await expect(
+      coordinator.recordSuccess(
+        withSuccessCommand({
+          kind: 'reserved_success',
+          spend: secondSpend,
+          expectedBudgetProjectionVersion: 'projection-evm-1',
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: 'finalized' });
+    await expect(
+      coordinator.reserve({
+        spend: {
+          ...firstSpend,
+          operationFingerprint: secondSpend.operationFingerprint,
+        },
+        expectedBudgetProjectionVersion: 'projection-evm-1',
+      }),
+    ).resolves.toMatchObject({ kind: 'reservation_identity_mismatch' });
+    expect(statusSyncCalls.map((call) => call.signingGrantId)).toEqual([
+      firstSpend.lane.signingGrantId,
+      secondSpend.lane.signingGrantId,
+    ]);
+    const succeededReservations = reservationEvents.filter(
+      (event) => event.event === 'wallet_signing_budget_reservation_succeeded',
+    );
+    expect(succeededReservations).toHaveLength(2);
+    expect(succeededReservations.map((event) => event.operationId)).toEqual([
+      firstSpend.operationId,
+      secondSpend.operationId,
+    ]);
+  });
+
   test('admits while committed server budget remains despite server in-flight reservations', async () => {
     const coordinator = new BudgetCoordinator({
       async readStatus() {

@@ -26,6 +26,10 @@ import {
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 const WALLET_ID = 'runtime-postconditions.testnet';
 const ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -90,8 +94,17 @@ function ed25519Lane(
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
     source: options.source ?? 'runtime_session_record',
-    ed25519WorkerMaterialBindingDigest: `binding-digest-${suffix}`,
-    materialKeyId: `material-key-${suffix}`,
+    material: {
+      kind:
+        (options.source ?? 'runtime_session_record') === 'runtime_session_record' &&
+        (options.state ?? 'ready') === 'ready'
+          ? 'loaded_worker_material'
+          : 'sealed_worker_material',
+      identity: {
+        bindingDigest: parseEd25519WorkerMaterialBindingDigest(`binding-digest-${suffix}`),
+        materialKeyId: parseEd25519WorkerMaterialKeyId(`material-key-${suffix}`),
+      },
+    },
   };
 }
 
@@ -253,7 +266,7 @@ test.describe('wallet runtime postconditions', () => {
     const lanes = availableLanes('missing-material-key');
     const ed25519 = lanes.lanes.ed25519.near;
     if (ed25519.state !== 'missing') {
-      delete ed25519.materialKeyId;
+      ed25519.material = { kind: 'material_pending' };
       lanes.candidates.ed25519.near = [ed25519];
     }
 

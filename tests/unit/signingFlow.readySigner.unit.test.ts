@@ -210,7 +210,7 @@ function makeThresholdKeyRef(
 }
 
 test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
-  test('uses admitted ready signer material before key-ref fallback', async () => {
+  test('reserves committed budget before first admitted ECDSA step-up signature', async () => {
     const key = buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: SUBJECT_ID,
       evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
@@ -282,6 +282,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
     let signCalls = 0;
     let reserveBudgetCalls = 0;
     let finalizedSignature: SignatureBytes | null = null;
+    const callOrder: string[] = [];
     const readyEngine: Signer<SignRequest, KeyRef, SignatureBytes> & ReadySecp256k1Signer = {
       algorithm: 'secp256k1',
       sign: async () => {
@@ -293,9 +294,10 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
         material: ReadySecp256k1SigningMaterial,
       ): Promise<SignatureBytes> => {
         signReadyCalls += 1;
+        callOrder.push('sign_ready');
         expect(req.algorithm).toBe('secp256k1');
         expect(material.signerSession).toBe(signerSession);
-        expect(material.singleUseEmailOtpSession).toBe(false);
+        expect(material.singleUseEmailOtpSession).toBe(true);
         return signature;
       },
     };
@@ -371,15 +373,18 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
           },
           operation,
           signerSession,
-          singleUseEmailOtpSession: false,
+          singleUseEmailOtpSession: true,
           runtime: {},
         },
         reserveSigningGrantBudget: async (reservation) => {
           reserveBudgetCalls += 1;
+          callOrder.push('reserve_budget_started');
           expect(reservation.operation).toBe(operation);
           expect(reservation.signerSession).toBe(signerSession);
           expect(reservation.signerSession.session.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
           expect(reservation.signerSession.session.signingGrantId).toBe(WALLET_SIGNING_SESSION_ID);
+          await Promise.resolve();
+          callOrder.push('reserve_budget_completed');
           return null;
         },
       },
@@ -390,6 +395,11 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
     expect(reserveBudgetCalls).toBe(1);
     expect(signReadyCalls).toBe(1);
     expect(signCalls).toBe(0);
+    expect(callOrder).toEqual([
+      'reserve_budget_started',
+      'reserve_budget_completed',
+      'sign_ready',
+    ]);
   });
 
 });

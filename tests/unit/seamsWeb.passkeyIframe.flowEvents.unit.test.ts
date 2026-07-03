@@ -74,6 +74,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
 
       if (data.type === 'PM_REGISTER_WALLET') {
         const signerSelection = data.payload && data.payload.signerSelection;
+        const wallet = data.payload && data.payload.wallet;
         [
           eventBase(requestId, 'registration', 'registration.started', 1, 'started', 'Starting registration'),
           eventBase(requestId, 'registration', 'registration.auth.passkey.create.started', 4, 'waiting_for_user', 'Create your passkey', {
@@ -102,6 +103,8 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
           signerKinds: Array.isArray(signerSelection && signerSelection.signers)
             ? signerSelection.signers.map((signer) => signer.kind)
             : [],
+          walletKind: wallet && wallet.kind,
+          walletIdFromPayload: wallet && wallet.walletId ? wallet.walletId : null,
         });
         return;
       }
@@ -203,6 +206,8 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           registrationSuccess: (registration as any).success,
           registrationSignerSetKind: (registration as any).signerSelectionKind,
           registrationSignerKinds: (registration as any).signerKinds,
+          registrationWalletKind: (registration as any).walletKind,
+          registrationWalletIdFromPayload: (registration as any).walletIdFromPayload,
           unlockSuccess: (unlock as any).success,
           registrationEventPhases: registrationEvents.map((event) => event.phase),
           registrationEventSteps: registrationEvents.map((event) => event.step),
@@ -225,6 +230,8 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
       registrationSuccess: true,
       registrationSignerSetKind: 'signer_set',
       registrationSignerKinds: ['near_ed25519', 'evm_family_ecdsa'],
+      registrationWalletKind: 'server_allocated',
+      registrationWalletIdFromPayload: null,
       unlockSuccess: true,
       registrationEventPhases: [
         'registration.started',
@@ -284,6 +291,97 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         null,
         null,
       ],
+    });
+  });
+
+  test('activation surface initializes and requires the wallet-scoped iframe router', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/SeamsWeb/index.js');
+        const { SeamsWeb } = mod as any;
+        const pm = new SeamsWeb({
+          relayer: { url: 'https://relay.example' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+        const walletId = 'frost-orchid-k7p9m2';
+        const calls: {
+          initWalletIds: string[];
+          requireRouterWalletIds: string[];
+          routerWalletIds: string[];
+          mountWalletIds: string[];
+          disposeWalletIds: string[];
+        } = {
+          initWalletIds: [],
+          requireRouterWalletIds: [],
+          routerWalletIds: [],
+          mountWalletIds: [],
+          disposeWalletIds: [],
+        };
+        const fakeInnerSurface = {
+          kind: 'wallet_iframe_registration_activation_surface_v1',
+          mount: (target: HTMLElement) => {
+            calls.mountWalletIds.push(walletId);
+            target.setAttribute('data-mounted-wallet-id', walletId);
+          },
+          dispose: () => {
+            calls.disposeWalletIds.push(walletId);
+          },
+          state: () => ({ kind: 'idle' }),
+          onStateChange: () => () => undefined,
+        };
+        (pm as any).initWalletIframe = async (nextWalletId?: string) => {
+          calls.initWalletIds.push(String(nextWalletId || ''));
+        };
+        (pm as any).walletIframe = {
+          shouldUseWalletIframe: () => true,
+          requireRouter: async (nextWalletId?: string) => {
+            calls.requireRouterWalletIds.push(String(nextWalletId || ''));
+            return {
+              createPasskeyRegistrationActivationSurface: (args: {
+                wallet: { walletId: string };
+              }) => {
+                calls.routerWalletIds.push(String(args.wallet.walletId || ''));
+                return fakeInnerSurface;
+              },
+            };
+          },
+        };
+        const surface = pm.registration.createPasskeyRegistrationActivationSurface({
+          wallet: { kind: 'provided', walletId },
+          presentation: {
+            kind: 'outline_overlay',
+            label: 'Create with Passkey',
+            busyLabel: 'Creating passkey...',
+            accessibleLabel: 'Create passkey account',
+          },
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+        const target = document.createElement('div');
+        document.body.appendChild(target);
+        surface.mount(target);
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+        surface.dispose();
+        return {
+          ...calls,
+          mountedWalletId: target.getAttribute('data-mounted-wallet-id'),
+        };
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    expect(result).toEqual({
+      initWalletIds: ['frost-orchid-k7p9m2'],
+      requireRouterWalletIds: ['frost-orchid-k7p9m2'],
+      routerWalletIds: ['frost-orchid-k7p9m2'],
+      mountWalletIds: ['frost-orchid-k7p9m2'],
+      disposeWalletIds: ['frost-orchid-k7p9m2'],
+      mountedWalletId: 'frost-orchid-k7p9m2',
     });
   });
 });

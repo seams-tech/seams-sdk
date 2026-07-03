@@ -40,6 +40,9 @@ const observabilityDocPaths = [
 const authServicePath = 'packages/sdk-server-ts/src/core/AuthService.ts';
 const walletRegistrationRoutesPath =
   'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts';
+const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/routeDefinitions.ts';
+const routeExecutionContextPath =
+  'packages/sdk-server-ts/src/router/routeExecutionContext.ts';
 const d1RegistrationIntentServicePath =
   'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts';
 const d1RegistrationCeremonyRecordsPath =
@@ -588,6 +591,12 @@ const cloudflareD1WalletAddSignerServicePath =
   'packages/sdk-server-ts/src/router/cloudflare/d1WalletAddSignerService.ts';
 const cloudflareD1RouterApiAuthServicePath =
   'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts';
+const cloudflareD1EmailOtpRecoveryServicePath =
+  'packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts';
+const authServiceEmailOtpGrantPath =
+  'packages/sdk-server-ts/src/core/authService/emailOtpGrant.ts';
+const authServiceEmailOtpRecoveryKeysPath =
+  'packages/sdk-server-ts/src/core/authService/emailOtpRecoveryKeys.ts';
 const oldCloudflareD1RelayStagingWorkerPath =
   'packages/sdk-server-ts/src/router/cloudflare/d1RelayStagingWorker.ts';
 const oldRelayApiKeysTestPath = 'tests/relayer/relay-api-keys.test.ts';
@@ -962,6 +971,10 @@ const forbiddenRouterApiAuthServiceCouplingPatterns = [
     pattern: /\bCloudflareRouterApiAuthService\b/,
     message: 'uses the old Cloudflare-specific Router API port name',
   },
+  {
+    pattern: /\bRouterApiMethod(?:Input|Result|Handler)\b/,
+    message: 'reintroduces generic Router API method helper aliases',
+  },
 ] as const;
 
 const forbiddenRouterApiAuthServiceMountPatterns = [
@@ -972,6 +985,40 @@ const forbiddenRouterApiAuthServiceMountPatterns = [
   {
     pattern: /\bcreateCloudflareRouter\s*\(\s*authService\b/,
     message: 'mounts Cloudflare Router API routes with an AuthService variable',
+  },
+] as const;
+
+const deletedAuthServiceRouterApiHarnessPaths = [
+  'tests/relayer/email-otp.routes.test.ts',
+  'tests/relayer/email-otp.bootstrap-integration.test.ts',
+  'tests/relayer/threshold-ecdsa.signature-harness.test.ts',
+] as const;
+
+const allowedAuthServiceConstructorPaths = new Set([
+  'apps/web-server/src/index.ts',
+  'tests/relayer/email-otp.authservice.test.ts',
+  'tests/relayer/email-otp.shamir3pass.test.ts',
+  'tests/relayer/oidc-exchange.authservice.test.ts',
+  'tests/unit/authService.hostedAccountPrivacy.unit.test.ts',
+]);
+
+const forbiddenD1RouterApiAuthFacadePatterns = [
+  {
+    pattern: /\bCloudflareD1RouterApiAuthMetadataService\b/,
+    message: 'revives the deleted monolithic D1 Router API auth implementation class',
+  },
+  {
+    pattern: /\bclass\s+CloudflareD1RouterApiAuth\b/,
+    message: 'implements the D1 Router API service bag through a monolithic class',
+  },
+  {
+    pattern: /\bRouterApiMethod(?:Input|Result)\b/,
+    message: 'uses generic Router API method aliases instead of concrete route/domain types',
+  },
+  {
+    pattern:
+      /^\s*async\s+(?:createRegistrationIntent|startWalletRegistration|prepareWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|startWalletAddSigner|respondWalletAddSignerHss|finalizeWalletAddSigner|createAddAuthMethodIntent|startWalletAddAuthMethod|finalizeWalletAddAuthMethod|createEmailOtpChallenge|verifyEmailOtpChallenge|createWebAuthnLoginOptions|verifyWebAuthnLogin)\s*\(/m,
+    message: 'implements route-family methods as flat async facade methods',
   },
 ] as const;
 
@@ -1970,6 +2017,140 @@ function routerApiAuthServiceMountViolations(): string[] {
   return violations.sort();
 }
 
+function routerApiRouteServiceMetadataViolations(): string[] {
+  const violations: string[] = [];
+  const routeDefinitions = readSource(routeDefinitionsPath);
+  const routeExecutionContext = readSource(routeExecutionContextPath);
+  const forbiddenServiceKeys = [
+    {
+      key: 'authService',
+      message: 'uses monolithic AuthService as a route service key',
+    },
+    {
+      key: 'threshold',
+      message: 'uses stale threshold route service key instead of thresholdRuntime',
+    },
+  ] as const;
+
+  for (const { key, message } of forbiddenServiceKeys) {
+    const exactString = new RegExp(`['"]${key}['"]`);
+    if (exactString.test(routeDefinitions)) {
+      violations.push(`${routeDefinitionsPath}: ${message}`);
+    }
+    if (exactString.test(routeExecutionContext)) {
+      violations.push(`${routeExecutionContextPath}: ${message}`);
+    }
+  }
+  return violations.sort();
+}
+
+function authServiceRouterApiHarnessViolations(): string[] {
+  const violations: string[] = [];
+  for (const relativePath of deletedAuthServiceRouterApiHarnessPaths) {
+    if (fs.existsSync(toAbsolutePath(relativePath))) {
+      violations.push(`${relativePath}: obsolete AuthService-backed Router API route harness exists`);
+    }
+  }
+  const scannedRoots = [
+    'apps',
+    'packages/sdk-server-ts/src',
+    'tests/relayer',
+    'tests/unit',
+  ] as const;
+  for (const root of scannedRoots) {
+    for (const relativePath of listTypeScriptLikeFiles(root)) {
+      const source = readSource(relativePath);
+      if (!/\bnew\s+AuthService\s*\(/.test(source)) continue;
+      if (!allowedAuthServiceConstructorPaths.has(relativePath)) {
+        violations.push(`${relativePath}: constructs AuthService outside an explicitly non-Router owner`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function d1RouterApiAuthServiceFacadeViolations(): string[] {
+  const source = readSource(cloudflareD1RouterApiAuthServicePath);
+  const violations: string[] = [];
+  for (const { pattern, message } of forbiddenD1RouterApiAuthFacadePatterns) {
+    if (pattern.test(source)) violations.push(`${cloudflareD1RouterApiAuthServicePath}: ${message}`);
+  }
+  return violations.sort();
+}
+
+function d1EmailOtpRecoveryGrantBindingViolations(): string[] {
+  const source = readSource(cloudflareD1EmailOtpRecoveryServicePath);
+  const functionMatch = source.match(
+    /function emailOtpRecoveryGrantBindingMismatch\([\s\S]*?\n}\n/,
+  );
+  if (!functionMatch) {
+    return [
+      `${cloudflareD1EmailOtpRecoveryServicePath}: missing Email OTP recovery grant binding parser`,
+    ];
+  }
+  const bindingFunction = functionMatch[0];
+  const violations: string[] = [];
+  for (const token of ['sessionHash', 'appSessionVersion'] as const) {
+    if (bindingFunction.includes(token)) {
+      violations.push(
+        `${cloudflareD1EmailOtpRecoveryServicePath}: recovery grant binding reads ${token}`,
+      );
+    }
+  }
+  for (const token of [
+    'record.userId !== input.userId',
+    'record.walletId !== input.walletId',
+    'record.otpChannel !== EMAIL_OTP_CHANNEL',
+    'record.orgId !== input.orgId',
+  ] as const) {
+    if (!bindingFunction.includes(token)) {
+      violations.push(
+        `${cloudflareD1EmailOtpRecoveryServicePath}: recovery grant binding missing ${token}`,
+      );
+    }
+  }
+  if (source.includes('Recovery grant is not valid for the current app session')) {
+    violations.push(
+      `${cloudflareD1EmailOtpRecoveryServicePath}: uses obsolete app-session recovery grant error`,
+    );
+  }
+  return violations.sort();
+}
+
+function authServiceEmailOtpGrantBindingViolations(): string[] {
+  const checkedFunctions = [
+    {
+      path: authServiceEmailOtpGrantPath,
+      name: 'consumeEmailOtpGrantWithStore',
+      match: /export async function consumeEmailOtpGrantWithStore\([\s\S]*?\n}\n/,
+    },
+    {
+      path: authServiceEmailOtpRecoveryKeysPath,
+      name: 'recoveryGrantBindingMatches',
+      match: /function recoveryGrantBindingMatches\([\s\S]*?\n}\n/,
+    },
+  ] as const;
+  const violations: string[] = [];
+  for (const checkedFunction of checkedFunctions) {
+    const source = readSource(checkedFunction.path);
+    const functionMatch = source.match(checkedFunction.match);
+    if (!functionMatch) {
+      violations.push(`${checkedFunction.path}: missing ${checkedFunction.name}`);
+      continue;
+    }
+    const functionSource = functionMatch[0];
+    for (const token of ['sessionHash', 'appSessionVersion'] as const) {
+      if (functionSource.includes(token)) {
+        violations.push(`${checkedFunction.path}: ${checkedFunction.name} reads ${token}`);
+      }
+    }
+    if (source.includes('Recovery grant is not valid for the current app session')) {
+      violations.push(`${checkedFunction.path}: uses obsolete app-session recovery grant error`);
+    }
+  }
+  return violations.sort();
+}
+
 function authServiceRouterApiLifecycleMethodViolations(): string[] {
   const source = readSource(authServicePath);
   const violations: string[] = [];
@@ -2481,6 +2662,31 @@ test('Router API service ports stay backend-neutral and explicit', () => {
 
 test('Router API routes are not mounted with AuthService', () => {
   const violations = routerApiAuthServiceMountViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Router API route metadata uses explicit facade service keys', () => {
+  const violations = routerApiRouteServiceMetadataViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('AuthService-backed Router API route harnesses stay deleted', () => {
+  const violations = authServiceRouterApiHarnessViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 Router API service factory does not revive a flat AuthService-shaped facade', () => {
+  const violations = d1RouterApiAuthServiceFacadeViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('D1 Email OTP recovery grants bind to stable authority fields', () => {
+  const violations = d1EmailOtpRecoveryGrantBindingViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('AuthService Email OTP grants bind to stable authority fields', () => {
+  const violations = authServiceEmailOtpGrantBindingViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });
 

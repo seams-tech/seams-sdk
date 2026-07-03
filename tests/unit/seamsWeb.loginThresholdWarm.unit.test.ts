@@ -1898,7 +1898,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
-      if (url === 'https://relay.example/router-ab/ecdsa-hss/key-identities') {
+      if (url.includes('/wallets/') && url.includes('/signers/ecdsa/key-facts/inventory')) {
         inventoryRequests.push(url);
       }
       return new Response(JSON.stringify({ ok: false, message: 'unexpected route' }), {
@@ -2146,7 +2146,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     const connectAuthKinds: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === 'https://relay.example/router-ab/ecdsa-hss/key-identities') {
+      if (url.includes('/wallets/') && url.includes('/signers/ecdsa/key-facts/inventory')) {
         inventoryRequests.push(url);
       }
       return new Response(JSON.stringify({ ok: false, message: 'unexpected route' }), {
