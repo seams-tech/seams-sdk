@@ -13,11 +13,13 @@ import {
   seedEcdsaWarmSessionRecord,
 } from './helpers/warmSessionStore.fixtures';
 
+const FIXTURE_EMAIL_HASH_HEX = '22'.repeat(32);
+
 function emailOtpSessionContext(providerUserId: string) {
   return buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'session',
     walletId: providerUserId,
-    emailHashHex: `email-hash-${providerUserId}`,
+    emailHashHex: FIXTURE_EMAIL_HASH_HEX,
     retention: 'session',
     reason: 'login',
     provider: 'email',
@@ -29,7 +31,7 @@ function emailOtpSingleUseSignContext(providerUserId: string) {
   return buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'per_operation',
     walletId: providerUserId,
-    emailHashHex: `email-hash-${providerUserId}`,
+    emailHashHex: FIXTURE_EMAIL_HASH_HEX,
     retention: 'single_use',
     provider: 'email',
     providerUserId,
@@ -206,6 +208,42 @@ test.describe('WarmSessionStore capability resolution', () => {
       },
       authority: evmRecord.emailOtpAuthContext?.authority,
     });
+  });
+
+  test('does not resolve Email OTP ECDSA signing authority when Wallet Session JWT is missing', () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'email-otp-missing-jwt-authority.testnet',
+      chain: 'evm',
+      source: 'email_otp',
+      emailOtpAuthContext: emailOtpSessionContext('email-otp-missing-jwt-authority.testnet'),
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'email-otp-missing-jwt-authority.testnet',
+        chain: 'evm',
+        ecdsaThresholdKeyId: 'ek-email-otp-missing-jwt',
+        sessionId: 'ecdsa-email-otp-missing-jwt-session',
+        walletSessionJwt: 'jwt:ecdsa-email-otp-missing-jwt-session',
+        roleLocalAuthMethod: 'email_otp',
+        emailOtpAuthSubjectId: 'email-otp-missing-jwt-authority.testnet',
+      }),
+    });
+    const lane = toExactEcdsaSigningLaneIdentity(evmRecord);
+    evmRecord.walletSessionJwt = '';
+
+    const store = createWarmSessionTestServices();
+
+    expect(store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId)).toMatchObject({
+      capability: 'ecdsa',
+      state: 'unavailable',
+      walletSessionJwtSource: 'none',
+    });
+    expect(
+      store.resolveEmailOtpEcdsaSigningSessionAuthority({
+        lane,
+      }),
+    ).toBeNull();
   });
 
   test('bootstrap request resolution only inherits session auth from a warm primary ECDSA capability', async () => {

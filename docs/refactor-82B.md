@@ -1304,6 +1304,9 @@ Tracking:
   - Partial July 3 ECDSA seal-transport hardening complete:
     `resolveEcdsaSealTransport` now rejects Email OTP ECDSA records unless the
     warm read model resolved record-owned Wallet Session JWT auth first.
+  - Partial July 3 warm authority resolver cleanup complete: warm Email OTP
+    Ed25519/ECDSA signing-session authority resolvers now extract JWTs only
+    through record-owned auth guards instead of optional auth projections.
 - [x] Delete exact lane candidate authority rebuilders.
   - Complete July 3 slice: Passkey ECDSA committed-lane authority is rebuilt
     from the selected session record's role-local auth method, not from the
@@ -1358,6 +1361,9 @@ Tracking:
     exact `EcdsaSessionIdentity`. Passkey committed-lane authority, Email OTP
     auth-lane resolution, and Router A/B ECDSA HSS session parsing consume that
     identity instead of recombining JWT authority with sibling record fields.
+  - Partial July 3 warm authority missing-JWT slice complete: a matching warm
+    Email OTP ECDSA lane with no record-owned Wallet Session JWT no longer
+    resolves to signing-session authority.
   - Partial July 3 Ed25519 login route-plan slice complete: core Email OTP
     Ed25519 fresh login now follows the same rule. Raw unlock auth is accepted
     only by the `emailOtpPublic` facade and converted into `EmailOtpRoutePlan`
