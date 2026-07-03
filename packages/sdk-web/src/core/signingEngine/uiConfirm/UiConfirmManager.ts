@@ -140,80 +140,10 @@ type PersistedWalletSessionAuthRecord = {
   walletSessionJwt?: string;
 };
 
-type PersistedSealedRestoreAuthMetadata =
-  | NonNullable<SigningSessionSealedStoreRecord['ecdsaRestore']>
-  | CurrentEd25519RestoreMetadata;
-
-type SealTransportWalletSessionAuthoritySource =
-  | { kind: 'explicit_or_persisted_wallet_session' }
-  | { kind: 'explicit_wallet_session_only' };
-
-function sealTransportWalletSessionAuthoritySource(
-  transport: { authMethod?: SigningSessionSealAuthMethod } | null | undefined,
-): SealTransportWalletSessionAuthoritySource {
-  return transport?.authMethod === 'email_otp'
-    ? { kind: 'explicit_wallet_session_only' }
-    : { kind: 'explicit_or_persisted_wallet_session' };
-}
-
 function walletSessionJwtFromPersistedSessionAuthRecord(
   record: PersistedWalletSessionAuthRecord | null | undefined,
 ): string {
   return String(record?.walletSessionJwt || '').trim();
-}
-
-function walletSessionJwtFromPersistedSealedRestore(
-  restore: PersistedSealedRestoreAuthMetadata | null | undefined,
-): string {
-  return String(restore?.walletSessionJwt || '').trim();
-}
-
-function ed25519PersistedSealTransportWalletSessionJwt(args: {
-  sealedRecord: CurrentSealedSessionRecord | null | undefined;
-  ed25519Record: PersistedWalletSessionAuthRecord | null | undefined;
-}): string {
-  return String(
-    walletSessionJwtFromPersistedSealedRestore(args.sealedRecord?.ed25519Restore) ||
-      walletSessionJwtFromPersistedSessionAuthRecord(args.ed25519Record) ||
-      '',
-  ).trim();
-}
-
-function ecdsaPersistedSealTransportWalletSessionJwt(args: {
-  sealedRecord: CurrentSealedSessionRecord | null | undefined;
-  ecdsaRecord: PersistedWalletSessionAuthRecord | null | undefined;
-}): string {
-  return String(
-    walletSessionJwtFromPersistedSealedRestore(args.sealedRecord?.ecdsaRestore) ||
-      walletSessionJwtFromPersistedSessionAuthRecord(args.ecdsaRecord) ||
-      '',
-  ).trim();
-}
-
-function persistedSealTransportWalletSessionJwt(args: {
-  curve: 'ed25519' | 'ecdsa' | undefined;
-  sealedRecord: CurrentSealedSessionRecord | null | undefined;
-  ed25519Record: PersistedWalletSessionAuthRecord | null | undefined;
-  ecdsaRecord: PersistedWalletSessionAuthRecord | null | undefined;
-}): string {
-  switch (args.curve) {
-    case 'ed25519':
-      return ed25519PersistedSealTransportWalletSessionJwt({
-        sealedRecord: args.sealedRecord,
-        ed25519Record: args.ed25519Record,
-      });
-    case 'ecdsa':
-      return ecdsaPersistedSealTransportWalletSessionJwt({
-        sealedRecord: args.sealedRecord,
-        ecdsaRecord: args.ecdsaRecord,
-      });
-    case undefined:
-      return '';
-    default: {
-      const exhaustive: never = args.curve;
-      return exhaustive;
-    }
-  }
 }
 
 function persistedRestoreWalletSessionAuthFields(
@@ -1182,7 +1112,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       shamirPrimeB64u?: string;
     } | null,
     sealedRecordInput: CurrentSealedSessionRecord | null,
-    authoritySource: SealTransportWalletSessionAuthoritySource,
   ): Promise<WarmSessionSealTransportInput | null> {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
@@ -1217,20 +1146,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     ).trim();
     if (!relayerUrl) return null;
     const explicitWalletSessionJwt = String(explicitTransport?.walletSessionJwt || '').trim();
-    const requiresExplicitWalletSessionJwt =
-      explicitTransport?.authMethod === 'email_otp' ||
-      authoritySource.kind === 'explicit_wallet_session_only';
-    const persistedWalletSessionJwt =
-      !requiresExplicitWalletSessionJwt
-        ? persistedSealTransportWalletSessionJwt({
-            curve,
-            sealedRecord,
-            ed25519Record,
-            ecdsaRecord,
-          })
-        : '';
-    const walletSessionJwt = explicitWalletSessionJwt || persistedWalletSessionJwt;
-    if (requiresExplicitWalletSessionJwt && !explicitWalletSessionJwt) {
+    const walletSessionJwt = explicitWalletSessionJwt;
+    if (authMethod === 'email_otp' && !explicitWalletSessionJwt) {
       return null;
     }
     const signingGrantId = String(
@@ -1413,7 +1330,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       thresholdSessionId,
       transport || null,
       null,
-      sealTransportWalletSessionAuthoritySource(transport),
     );
     if (!resolvedTransport) return null;
     const persisted = await this.persistSigningSessionSealForThresholdSession({
@@ -1509,7 +1425,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
           },
           null,
-          { kind: 'explicit_or_persisted_wallet_session' },
         );
         if (!transport) return null;
         const shamirPrimeB64u = String(
@@ -1876,7 +1791,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         thresholdSessionId,
         args?.transport || null,
         null,
-        sealTransportWalletSessionAuthoritySource(args?.transport),
       )) || null;
     const curve = args?.transport?.curve || inferredTransport?.curve;
     if (!curve) {

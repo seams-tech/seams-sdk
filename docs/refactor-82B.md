@@ -1346,6 +1346,11 @@ Tracking:
     transaction signing boundary now uses the prepared Email OTP committed lane
     as its wallet-session authority source, so a refreshed or stale persisted
     record cannot silently replace the authority selected for step-up.
+  - Partial July 3 seal-transport slice complete: `UiConfirmManager` no longer
+    probes sealed/session records for fallback Wallet Session JWTs when building
+    warm-session seal transport. Email OTP transport requires an explicit
+    wallet-session JWT at the boundary; Passkey transport falls back to cookie
+    auth without reading persisted JWT siblings.
   - Partial July 3 Ed25519 export-boundary slice complete: Email OTP Ed25519
     export no longer treats `record.walletSessionJwt` as a second authority
     fact inside the committed export lane after the wallet-session authority

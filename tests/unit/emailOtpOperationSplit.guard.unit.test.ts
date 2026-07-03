@@ -710,19 +710,17 @@ test.describe('Email OTP operation split guard', () => {
 
     expect(workerTypes).toContain('type EmailOtpWarmSessionSealTransportCommon');
     expect(workerTypes).toContain('walletSessionJwt: string');
-    expect(uiConfirmManager).toContain('function sealTransportWalletSessionAuthoritySource');
-    expect(uiConfirmManager).toContain("transport?.authMethod === 'email_otp'");
-    expect(uiConfirmManager).toContain("explicitTransport?.authMethod === 'email_otp'");
-    expect(uiConfirmManager).toContain('const requiresExplicitWalletSessionJwt =');
-    expect(uiConfirmManager).toContain('!requiresExplicitWalletSessionJwt');
-    expect(uiConfirmManager).toContain('function persistedSealTransportWalletSessionJwt');
-    expect(uiConfirmManager).toContain("case 'ed25519':");
-    expect(uiConfirmManager).toContain("case 'ecdsa':");
+    expect(uiConfirmManager).toContain('const walletSessionJwt = explicitWalletSessionJwt;');
+    expect(uiConfirmManager).not.toContain('function sealTransportWalletSessionAuthoritySource');
+    expect(uiConfirmManager).not.toContain('const requiresExplicitWalletSessionJwt =');
+    expect(uiConfirmManager).not.toContain('!requiresExplicitWalletSessionJwt');
+    expect(uiConfirmManager).not.toContain('function persistedSealTransportWalletSessionJwt');
+    expect(uiConfirmManager).not.toContain('walletSessionJwtFromPersistedSealedRestore');
     expect(uiConfirmManager).not.toContain(
       'walletSessionJwtFromPersistedSessionAuthRecord(ed25519Record) ||\n              walletSessionJwtFromPersistedSessionAuthRecord(ecdsaRecord)',
     );
     expect(uiConfirmManager).toContain(
-      'if (requiresExplicitWalletSessionJwt && !explicitWalletSessionJwt)',
+      "if (authMethod === 'email_otp' && !explicitWalletSessionJwt)",
     );
     expect(restoreBlock).not.toContain("args.record.authMethod === 'email_otp'");
   });
