@@ -285,13 +285,6 @@ function assertSelectionMatchesLaneCandidate(args: {
     throw new Error('[SigningEngine][ecdsa] committed lane did not match selected lane');
   }
   if (
-    args.selection.committedLane.candidate.thresholdSessionId !==
-      args.candidate.thresholdSessionId ||
-    args.selection.committedLane.candidate.signingGrantId !== args.candidate.signingGrantId
-  ) {
-    throw new Error('[SigningEngine][ecdsa] committed lane candidate did not match selected candidate');
-  }
-  if (
     !materialIdentityMatchesResolvedLane({
       state: args.selection.committedLane.material,
       lane: args.selection.lane,

@@ -476,7 +476,7 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.committedLane).toMatchObject({
       record: restorableRecord,
     });
-    expect(selection.committedLane.candidate.auth.kind).toBe('passkey');
+    expect(selection.committedLane.authority.factor.kind).toBe('passkey');
   });
 
   test('keeps ready lanes strict when exact material is missing', async () => {

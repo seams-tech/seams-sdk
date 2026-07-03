@@ -16,7 +16,6 @@ import type {
   EmailOtpAuthLane,
   EmailOtpSigningSessionAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { EcdsaLaneCandidate } from '../../session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
   EmailOtpFactorIdentity,
@@ -29,7 +28,6 @@ declare const reauthAnchor: ReauthAnchorIdentity;
 declare const diagnostics: EcdsaSelectionDiagnostics;
 declare const emailOtpAuthLane: EmailOtpAuthLane;
 declare const emailOtpEcdsaAuthLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-declare const laneCandidate: EcdsaLaneCandidate;
 declare const emailOtpRecord: ThresholdEcdsaSessionRecord;
 declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 declare const emailOtpFactor: EmailOtpFactorIdentity;
@@ -54,7 +52,6 @@ const missingHotEmailOtpMaterial: ReauthRequiredEvmFamilyEcdsaSigningSelection['
 const committedEmailOtpLane: EmailOtpEcdsaCommittedLane = {
   source: 'record_backed',
   lane: reauthLane,
-  candidate: laneCandidate,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
   walletSessionAuthority: {
@@ -78,7 +75,6 @@ void emailOtpLaneAsPasskeyLane;
 const resolverBackedCommittedEmailOtpLane: EmailOtpEcdsaCommittedLane = {
   source: 'resolver_backed',
   lane: reauthLane,
-  candidate: laneCandidate,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
   walletSessionAuthority: {
@@ -96,7 +92,6 @@ void resolverBackedCommittedEmailOtpLane;
 const resolverBackedLaneWithRecord: EmailOtpEcdsaCommittedLane = {
   source: 'resolver_backed',
   lane: reauthLane,
-  candidate: laneCandidate,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
   walletSessionAuthority: {
@@ -114,7 +109,6 @@ void resolverBackedLaneWithRecord;
 const resolverBackedLaneWithPureFactor: EmailOtpEcdsaCommittedLane = {
   source: 'resolver_backed',
   lane: reauthLane,
-  candidate: laneCandidate,
   // @ts-expect-error resolver-backed Email OTP ECDSA lanes require wallet-bound authority.
   authority: emailOtpFactor,
   authLane: emailOtpEcdsaAuthLane,
@@ -132,7 +126,6 @@ void resolverBackedLaneWithPureFactor;
 const resolverBackedLaneWithAppSessionAuth: EmailOtpEcdsaCommittedLane = {
   source: 'resolver_backed',
   lane: reauthLane,
-  candidate: laneCandidate,
   authority: emailOtpAuthority,
   // @ts-expect-error resolver-backed Email OTP ECDSA lanes require ECDSA signing-session auth.
   authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
@@ -196,7 +189,6 @@ void missingHotMaterialSelection;
 const committedEmailOtpLaneWithoutBoundAuthority: EmailOtpEcdsaCommittedLane = {
   source: 'record_backed',
   lane: missingHotMaterialSelection.lane,
-  candidate: laneCandidate,
   authLane: emailOtpEcdsaAuthLane,
   material: missingHotMaterialSelection.material,
   record: emailOtpRecord,
@@ -207,7 +199,6 @@ void committedEmailOtpLaneWithoutBoundAuthority;
 const committedEmailOtpLaneWithPureFactor: EmailOtpEcdsaCommittedLane = {
   source: 'record_backed',
   lane: missingHotMaterialSelection.lane,
-  candidate: laneCandidate,
   // @ts-expect-error post-finalize ECDSA committed lanes require wallet-bound authority, not pure factor identity.
   authority: emailOtpFactor,
   authLane: emailOtpEcdsaAuthLane,
@@ -226,7 +217,6 @@ void committedEmailOtpLaneWithPureFactor;
 const committedEmailOtpLaneWithAppSessionAuth: EmailOtpEcdsaCommittedLane = {
   source: 'record_backed',
   lane: missingHotMaterialSelection.lane,
-  candidate: laneCandidate,
   authority: emailOtpAuthority,
   // @ts-expect-error committed Email OTP ECDSA lanes require ECDSA signing-session auth.
   authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
@@ -242,11 +232,29 @@ const committedEmailOtpLaneWithAppSessionAuth: EmailOtpEcdsaCommittedLane = {
 };
 void committedEmailOtpLaneWithAppSessionAuth;
 
+const committedEmailOtpLaneWithCandidateCopy: EmailOtpEcdsaCommittedLane = {
+  source: 'record_backed',
+  lane: missingHotMaterialSelection.lane,
+  authority: emailOtpAuthority,
+  authLane: emailOtpEcdsaAuthLane,
+  walletSessionAuthority: {
+    kind: 'wallet_session_authority',
+    walletSessionJwt: 'wallet-session-jwt',
+    thresholdSessionId: 'threshold-session-1',
+    signingGrantId: 'signing-grant-1',
+  },
+  material: missingHotMaterialSelection.material,
+  record: emailOtpRecord,
+  durableRestore: 'record_restore_metadata',
+  // @ts-expect-error committed ECDSA lanes do not carry a duplicate candidate identity.
+  candidate: {},
+};
+void committedEmailOtpLaneWithCandidateCopy;
+
 const committedEmailOtpLaneFromDurableExactAuthOnly: EmailOtpEcdsaCommittedLane = {
   // @ts-expect-error durable exact auth-lane-only state cannot form a committed Email OTP lane.
   source: 'durable_exact_lane',
   lane: missingHotMaterialSelection.lane,
-  candidate: laneCandidate,
   authority: emailOtpAuthority,
   authLane: emailOtpEcdsaAuthLane,
   walletSessionAuthority: {

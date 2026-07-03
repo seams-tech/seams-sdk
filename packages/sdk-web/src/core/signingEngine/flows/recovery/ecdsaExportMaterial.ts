@@ -134,7 +134,7 @@ export type ReadyEcdsaExportLane<A extends WalletAuthAuthority = WalletAuthAutho
 function isReadyPasskeyEcdsaExportLane(
   lane: ReadyEcdsaExportLane,
 ): lane is ReadyEcdsaExportLane<PasskeyWalletAuthAuthority> {
-  return lane.candidate.auth.kind === 'passkey';
+  return lane.authority.factor.kind === 'passkey';
 }
 
 type ReadyEcdsaExportMaterialBoundary = {

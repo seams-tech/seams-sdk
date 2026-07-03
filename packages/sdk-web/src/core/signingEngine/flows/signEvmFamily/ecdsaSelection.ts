@@ -538,13 +538,6 @@ type EcdsaCommittedLaneWalletSessionAuthorityFor<
     ? EcdsaCommittedLaneWalletSessionAuthority
     : never;
 
-type EcdsaCommittedLaneCandidateFor<A extends WalletAuthAuthority> =
-  A extends PasskeyWalletAuthAuthority
-    ? PasskeyEcdsaLaneCandidate
-    : A extends EmailOtpWalletAuthAuthority
-      ? EcdsaLaneCandidate
-      : never;
-
 type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
   A extends EmailOtpWalletAuthAuthority
     ? {
@@ -581,7 +574,6 @@ export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthori
   A extends WalletAuthAuthority
     ? {
         lane: ResolvedEvmFamilyEcdsaSigningLane;
-        candidate: EcdsaCommittedLaneCandidateFor<A>;
         authority: A;
         walletSessionAuthority: EcdsaCommittedLaneWalletSessionAuthorityFor<A>;
         material: EcdsaMaterialState;
@@ -621,7 +613,6 @@ function readyEmailOtpEcdsaCommittedLane(args: {
 }): ReadyEmailOtpEcdsaCommittedLane {
   const common = {
     lane: args.committedLane.lane,
-    candidate: args.committedLane.candidate,
     authLane: args.committedLane.authLane,
     walletSessionAuthority: args.committedLane.walletSessionAuthority,
     material: args.material,
@@ -651,7 +642,6 @@ function readyPasskeyEcdsaCommittedLane(args: {
   return {
     source: args.committedLane.source,
     lane: args.committedLane.lane,
-    candidate: args.committedLane.candidate,
     authority: args.committedLane.authority,
     record: args.committedLane.record,
     walletSessionAuthority: args.committedLane.walletSessionAuthority,
@@ -785,7 +775,6 @@ function commitPasskeyEcdsaLaneForSelection(args: {
   return {
     source: args.selected.source,
     lane: args.lane,
-    candidate,
     authority,
     record: args.selected.record,
     walletSessionAuthority: buildPasskeyEcdsaWalletSessionAuthorityFromRecord({
@@ -814,7 +803,6 @@ export function commitPasskeyEcdsaLaneFromRecordForMaterial(args: {
   return {
     source: passkeySessionStoreSourceFromExactSource(args.source || args.record.source),
     lane: args.lane,
-    candidate: passkeyCandidate,
     authority,
     record: args.record,
     walletSessionAuthority: buildPasskeyEcdsaWalletSessionAuthorityFromRecord({
@@ -1189,7 +1177,6 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
   });
   const common = {
     lane: args.lane,
-    candidate: args.candidate,
     authority,
     authLane,
     walletSessionAuthority: buildEmailOtpEcdsaWalletSessionAuthority({ authLane }),

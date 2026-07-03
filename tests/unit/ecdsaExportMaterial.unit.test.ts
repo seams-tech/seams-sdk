@@ -409,7 +409,7 @@ test.describe('ECDSA export material', () => {
     expect('keyRef' in material).toBe(false);
     expect('readyMaterial' in material).toBe(false);
     expect('record' in material).toBe(false);
-    expect(material.committedLane.candidate.auth.kind).toBe('passkey');
+    expect(material.committedLane.authority.factor.kind).toBe('passkey');
     expect(material.committedLane.source).toBe(record.source);
     expect(material.committedLane.record).toBe(record);
     expect(material.committedLane.authLane).toBeUndefined();
@@ -437,7 +437,7 @@ test.describe('ECDSA export material', () => {
     if (material.authMethod !== 'email_otp') {
       throw new Error(`expected Email OTP export material, got ${material.authMethod}`);
     }
-    expect(material.committedLane.candidate.auth.kind).toBe('email_otp');
+    expect(material.committedLane.authority.factor.kind).toBe('email_otp');
     expect(material.committedLane.source).toBe('record_backed');
     expect(material.committedLane.record).toBe(record);
     expect(material.committedLane.authLane.kind).toBe('signing_session');

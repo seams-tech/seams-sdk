@@ -1418,9 +1418,15 @@ July 3 review follow-ups (Decided Simplification 1):
     authoritative and narrowing pre-commit candidate identity.
   - Partial July 3 validation slice complete: ECDSA committed-lane builders now
     reject mismatches between `committedLane.authority.walletId`,
-    `committedLane.lane.key.walletId`, and `committedLane.candidate.walletId`.
-    Source guards keep the assertion in place until the duplicated wallet facts
-    are deleted.
+    `committedLane.lane.key.walletId`, and the selected candidate `walletId`
+    before the candidate is discarded at the builder boundary. Source guards
+    keep the assertion in place until the remaining duplicated wallet facts are
+    deleted.
+  - July 3 ECDSA candidate-copy slice complete: committed ECDSA lanes no
+    longer carry the selected lane candidate as a stored field. Builders still
+    validate candidate/authority/lane agreement at the boundary, while
+    committed-lane consumers read auth method from `authority.factor.kind` and
+    selected identity from the committed lane itself.
   - July 3 Ed25519 policy slice complete: SDK and server wallet-session
     `ThresholdEd25519SessionPolicy`/`Ed25519SessionPolicy` now serialize a
     bound `WalletAuthAuthority` as the single wallet-binding source; root
