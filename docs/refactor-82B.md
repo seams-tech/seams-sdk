@@ -2270,8 +2270,15 @@ Tracking:
       and export.
 - [ ] Add runtime coverage for direct Email OTP challenge registration, unlock,
       sign, and export.
-- [ ] Delete tests that preserve obsolete AuthService/passkey-only behavior
+- [x] Delete tests that preserve obsolete AuthService/passkey-only behavior
       (obsolete Router API relayer harnesses are deleted; see journal).
+      Focused guard evidence on July 3:
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+      ./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
+      "AuthService-backed Router API route harnesses stay deleted"
+      --reporter=line` passes. Current `passkey-only` source hits are
+      canonical account-auth fixtures or guard messages, not obsolete behavior
+      fixtures.
 
 ## Phase 9: Cleanup And Line Count Closure
 
