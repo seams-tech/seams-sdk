@@ -1335,6 +1335,11 @@ Tracking:
     `parseRouterAbEd25519WalletSessionAuthorityFromRecord` and
     `resolveRouterAbEcdsaWalletSessionAuthFromRecord`; the raw
     `warmCapabilities/walletSessionAuthBoundary.ts` JWT helper is deleted.
+  - Partial July 3 reusable ECDSA bootstrap slice complete:
+    `buildReusableEcdsaBootstrapResult` now requires the warm ECDSA capability
+    auth branch to be `ready` and uses that resolved Wallet Session JWT
+    directly. A persisted ECDSA record JWT can no longer backfill reusable
+    bootstrap auth when warm capability auth is missing.
 - [x] Delete exact lane candidate authority rebuilders.
   - Complete July 3 slice: Passkey ECDSA committed-lane authority is rebuilt
     from the selected session record's role-local auth method, not from the

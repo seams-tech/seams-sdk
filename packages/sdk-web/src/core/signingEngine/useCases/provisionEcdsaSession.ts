@@ -1316,6 +1316,9 @@ export function buildReusableEcdsaBootstrapResult(args: {
   const auth = args.capability.auth;
   const prfClaim = args.capability.prfClaim;
   if (!record || !auth || !prfClaim || prfClaim.state !== 'warm') return null;
+  if (auth.state !== 'ready') return null;
+  const walletSessionJwt = String(auth.walletSessionJwt || '').trim();
+  if (!walletSessionJwt) return null;
 
   const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
   const relayerKeyId = String(record.relayerKeyId || '').trim();
@@ -1348,7 +1351,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
       thresholdSessionKind: record.thresholdSessionKind,
       thresholdSessionId: identity.thresholdSessionId,
       signingGrantId: identity.signingGrantId,
-      walletSessionJwt: String(auth.walletSessionJwt || keyRef.walletSessionJwt || '').trim(),
+      walletSessionJwt,
     },
 	    keygen: {
 	      ok: true,
@@ -1366,9 +1369,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ok: true,
       thresholdSessionId: identity.thresholdSessionId,
       signingGrantId: identity.signingGrantId,
-      ...(String(auth.walletSessionJwt || '').trim()
-        ? { jwt: String(auth.walletSessionJwt || '').trim() }
-        : {}),
+      jwt: walletSessionJwt,
       expiresAtMs: Math.max(0, Math.floor(Number(prfClaim.expiresAtMs) || 0)),
       remainingUses: Math.max(0, Math.floor(Number(prfClaim.remainingUses) || 0)),
       clientVerifyingShareB64u,

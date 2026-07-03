@@ -8,7 +8,10 @@ import {
   toOptionalNonEmptyString,
 } from '@/core/signingEngine/useCases/provisionEcdsaSession';
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
-import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
+import type {
+  WarmSessionEcdsaCapabilityState,
+  WarmSessionEnvelope,
+} from '@/core/signingEngine/session/warmCapabilities/types';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
@@ -183,18 +186,36 @@ test.describe('warmSessionEcdsaProvisioning', () => {
         source: 'login',
       }),
     ).toMatchObject({
-	      thresholdEcdsaKeyRef: {
-	        ecdsaThresholdKeyId: 'ek-evm',
-	        thresholdSessionId: 'evm-session',
-	        walletSessionJwt: record.walletSessionJwt,
-	      },
+      thresholdEcdsaKeyRef: {
+        ecdsaThresholdKeyId: 'ek-evm',
+        thresholdSessionId: 'evm-session',
+        walletSessionJwt: record.walletSessionJwt,
+      },
       session: {
         ok: true,
-        sessionId: 'evm-session',
+        thresholdSessionId: 'evm-session',
         signingGrantId: 'wsess-evm-session',
         jwt: record.walletSessionJwt,
       },
     });
+  });
+
+  test('does not reuse persisted record JWT when warm capability auth is missing', () => {
+    const envelope = createEnvelope();
+    const record = envelope.capabilities.ecdsa.evm.record!;
+    const authMissingCapability = {
+      ...envelope.capabilities.ecdsa.evm,
+      auth: null,
+      state: 'auth_missing',
+    } satisfies WarmSessionEcdsaCapabilityState;
+
+    expect(
+      buildReusableEcdsaBootstrapResult({
+        record,
+        capability: authMissingCapability,
+        source: 'login',
+      }),
+    ).toBeNull();
   });
 
   test('returns primary and secondary ECDSA capabilities in chain order', () => {
