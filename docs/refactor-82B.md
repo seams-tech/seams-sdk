@@ -1805,6 +1805,10 @@ Tracking:
     keeps `rpId` only on the Passkey branch. Email OTP key export
     authorization is wallet/challenge/scope bound, while Passkey export remains
     wallet/RP scoped.
+  - Partial July 3 Ed25519 recovery-code digest slice complete:
+    `recoveryCodeBindingDigestForEmailOtpMaterial` now uses a v2 digest domain
+    and `providerUserId` in its canonical input; stale `authSubjectId` remains
+    only on worker wire commands.
 
 July 3 review follow-ups (Decided Simplification 6):
 

@@ -56,7 +56,7 @@ export function buildEmailOtpEd25519RegistrationClientSecretSource(args: {
 }
 
 export const EMAIL_OTP_ED25519_RECOVERY_CODE_BINDING_DIGEST_KIND =
-  'email_otp_ed25519_recovery_code_binding_v1' as const;
+  'email_otp_ed25519_recovery_code_binding_v2' as const;
 
 export async function recoveryCodeBindingDigestForEmailOtpMaterial(args: {
   providerUserId: string;
@@ -72,9 +72,9 @@ export async function recoveryCodeBindingDigestForEmailOtpMaterial(args: {
   return base64UrlEncode(
     await sha256BytesUtf8(
       alphabetizeStringify({
-        authSubjectId: providerUserId,
         kind: EMAIL_OTP_ED25519_RECOVERY_CODE_BINDING_DIGEST_KIND,
         nearAccountId,
+        providerUserId,
         rpId,
       }),
     ),
@@ -88,8 +88,9 @@ export async function deriveThresholdEd25519HssClientInputsFromEmailOtpRecoveryC
   recoveryCodeSecret32B64u: string;
   workerCtx: WorkerOperationContext;
 }): ReturnType<typeof deriveThresholdEd25519HssClientInputsWasm> {
-  const applicationBindingDigestB64u =
-    await computeSdkEd25519HssApplicationBindingDigestB64u(args.hssBindingFacts);
+  const applicationBindingDigestB64u = await computeSdkEd25519HssApplicationBindingDigestB64u(
+    args.hssBindingFacts,
+  );
   return await deriveThresholdEd25519HssClientInputsWasm({
     sessionId: args.sessionId,
     applicationBindingDigestB64u,
