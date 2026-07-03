@@ -38,6 +38,7 @@ void invalidCurrentEd25519UserRecord;
 
 const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
   thresholdSessionId: 'tsess-ed25519',
+  thresholdSessionIds: { ed25519: 'tsess-ed25519' },
   sealedSecretB64u: 'sealed-secret',
   curve: 'ed25519',
   authMethod: 'passkey',
@@ -60,6 +61,13 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
   remainingUses: 1,
 };
 void invalidEd25519WriteInput;
+
+const invalidEd25519WriteWithoutThresholdSessionIds = {
+  ...invalidEd25519WriteInput,
+  // @ts-expect-error sealed Ed25519 writes require canonical thresholdSessionIds.
+  thresholdSessionIds: undefined,
+} satisfies BuildCurrentEd25519SealedSessionRecordInput;
+void invalidEd25519WriteWithoutThresholdSessionIds;
 
 const invalidEd25519WriteUserInput: BuildCurrentEd25519SealedSessionRecordInput = {
   ...invalidEd25519WriteInput,
@@ -138,6 +146,7 @@ void invalidCurrentEcdsaSigningRootVersionRecord;
 
 const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   thresholdSessionId: 'tsess-ecdsa',
+  thresholdSessionIds: { ecdsa: 'tsess-ecdsa' },
   sealedSecretB64u: 'sealed-secret',
   curve: 'ecdsa',
   authMethod: 'passkey',
@@ -161,6 +170,13 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   subjectId: 'wallet-alice',
 };
 void invalidEcdsaWriteInput;
+
+const invalidEcdsaWriteWithoutThresholdSessionIds = {
+  ...invalidEcdsaWriteInput,
+  // @ts-expect-error sealed ECDSA writes require canonical thresholdSessionIds.
+  thresholdSessionIds: undefined,
+} satisfies BuildCurrentEcdsaSealedSessionRecordInput;
+void invalidEcdsaWriteWithoutThresholdSessionIds;
 
 const invalidEcdsaWriteUserInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   ...invalidEcdsaWriteInput,

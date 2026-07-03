@@ -1958,6 +1958,9 @@ Tracking:
     Ed25519 and companion Ed25519 sealed records no longer carry passkey
     `rpId` siblings; the configured RP is supplied only at the boundary that
     still writes the current Ed25519 session-row shape.
+  - Partial July 3 sealed-store write slice complete: current sealed-session
+    write inputs now require canonical `thresholdSessionIds` instead of
+    inferring session identity from the branch `thresholdSessionId`.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

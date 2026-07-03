@@ -233,7 +233,7 @@ type BuildCurrentSealedSessionRecordCommonInput = {
 export type BuildCurrentEd25519SealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ed25519';
-    thresholdSessionIds?: Ed25519SealedRecordThresholdSessionIds;
+    thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
     walletId: string;
     userId?: never;
     subjectId?: never;
@@ -247,7 +247,7 @@ export type BuildCurrentEd25519SealedSessionRecordInput =
 export type BuildCurrentEcdsaSealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ecdsa';
-    thresholdSessionIds?: EcdsaSealedRecordThresholdSessionIds;
+    thresholdSessionIds: EcdsaSealedRecordThresholdSessionIds;
     subjectId?: never;
     walletId: string;
     userId?: never;
@@ -1395,6 +1395,7 @@ export function buildCurrentSealedSessionRecord(
   const curve = normalizeCurve(args.curve);
   const authMethod =
     args.authMethod === 'passkey' || args.authMethod === 'email_otp' ? args.authMethod : undefined;
+  if (!curve || !authMethod) return null;
   const thresholdSessionIds = thresholdSessionIdsForWrite({
     thresholdSessionId,
     curve,
@@ -1412,7 +1413,6 @@ export function buildCurrentSealedSessionRecord(
   const issuedAtMs = normalizeInteger(args.issuedAtMs ?? Date.now());
   const updatedAtMs = normalizeInteger(args.updatedAtMs ?? Date.now());
   if (!thresholdSessionId || !signingGrantId || !sealedSecretB64u) return null;
-  if (!curve || !authMethod) return null;
   if (!thresholdSessionIds.ed25519 && !thresholdSessionIds.ecdsa) return null;
   if (issuedAtMs == null || issuedAtMs <= 0) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
@@ -1519,18 +1519,18 @@ function makeSigningSessionRestoreLease(args: {
 
 function thresholdSessionIdsForWrite(args: {
   thresholdSessionId: string;
-  curve?: 'ed25519' | 'ecdsa';
-  thresholdSessionIds?: {
+  curve: 'ed25519' | 'ecdsa';
+  thresholdSessionIds: {
     ed25519?: string;
     ecdsa?: string;
   };
 }): { ed25519?: string; ecdsa?: string } {
   const explicit = normalizeThresholdSessionIds(args.thresholdSessionIds);
-  if (explicit.ed25519 || explicit.ecdsa) return explicit;
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return {};
-  const curve = normalizeCurve(args.curve) || 'ecdsa';
-  return curve === 'ed25519' ? { ed25519: thresholdSessionId } : { ecdsa: thresholdSessionId };
+  if (args.curve === 'ed25519' && explicit.ed25519 === thresholdSessionId) return explicit;
+  if (args.curve === 'ecdsa' && explicit.ecdsa === thresholdSessionId) return explicit;
+  return {};
 }
 
 function recordMatchesFilter(
