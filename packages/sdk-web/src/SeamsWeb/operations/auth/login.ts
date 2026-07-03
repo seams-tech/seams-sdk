@@ -2093,9 +2093,7 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
   }
   const runtimePolicyScope =
     bootstrap.session.runtimePolicyScope ||
-    parseThresholdRuntimePolicyScopeFromJwt(
-      String(bootstrap.session.jwt || keyRef.walletSessionJwt || '').trim(),
-    );
+    parseThresholdRuntimePolicyScopeFromJwt(String(bootstrap.session.jwt || '').trim());
   if (!runtimePolicyScope) {
     throw new Error('[login] threshold ECDSA bootstrap requires runtimePolicyScope');
   }
@@ -2821,9 +2819,7 @@ async function primeThresholdLoginWarmSigners(args: {
           });
           const runtimePolicyScope =
             input.bootstrap.session.runtimePolicyScope ||
-            parseThresholdRuntimePolicyScopeFromJwt(
-              String(input.bootstrap.session.jwt || keyRef.walletSessionJwt || '').trim(),
-            );
+            parseThresholdRuntimePolicyScopeFromJwt(String(input.bootstrap.session.jwt || '').trim());
           activeCanonicalEcdsaContext = mergeCanonicalThresholdEcdsaWarmSessionContexts(
             activeCanonicalEcdsaContext,
             {

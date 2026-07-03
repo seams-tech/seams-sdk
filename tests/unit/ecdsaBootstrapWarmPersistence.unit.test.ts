@@ -92,6 +92,8 @@ test.describe('ECDSA bootstrap warm persistence branches', () => {
       emailOtpWorkerSessionHandle: emailOtpWorkerSessionHandle(),
       emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
         policy: 'session',
+        walletId,
+        emailHashHex: 'email-hash-alice',
         retention: 'session',
         reason: 'sign',
         provider: 'google',

@@ -185,9 +185,10 @@ async function hydratePasskeyRegistrationSession(args: {
       args.bootstrap.thresholdEcdsaKeyRef.signingGrantId ||
       '',
   ).trim();
-  const walletSessionJwt = String(
-    args.bootstrap.session.jwt || args.bootstrap.thresholdEcdsaKeyRef.walletSessionJwt || '',
-  ).trim();
+  const walletSessionJwt = String(args.bootstrap.session.jwt || '').trim();
+  if (!walletSessionJwt) {
+    throw new Error('Passkey ECDSA registration persistence requires Wallet Session JWT');
+  }
   const transport: WarmSessionSealTransportInput = {
     curve: 'ecdsa',
     walletId: String(args.walletId),
@@ -197,9 +198,7 @@ async function hydratePasskeyRegistrationSession(args: {
   if (signingGrantId) {
     transport.signingGrantId = signingGrantId;
   }
-  if (walletSessionJwt) {
-    transport.walletSessionJwt = walletSessionJwt;
-  }
+  transport.walletSessionJwt = walletSessionJwt;
   if (args.signingSessionSeal.signingSessionSealKeyVersion) {
     transport.signingSessionSealKeyVersion =
       args.signingSessionSeal.signingSessionSealKeyVersion;

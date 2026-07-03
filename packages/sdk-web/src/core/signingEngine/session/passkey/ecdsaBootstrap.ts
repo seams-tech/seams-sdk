@@ -608,9 +608,7 @@ export async function bootstrapEcdsaSessionValue(
     activationDeps,
     toActivateEcdsaSessionRequest(normalizedRequest, relayerUrl),
   );
-  const walletSessionJwt = String(
-    activation.session.jwt || activation.thresholdEcdsaKeyRef.walletSessionJwt || '',
-  ).trim();
+  const walletSessionJwt = String(activation.session.jwt || '').trim();
   const transport = {
     curve: 'ecdsa' as const,
     walletId: String(walletId),

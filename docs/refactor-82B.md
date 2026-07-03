@@ -1299,6 +1299,11 @@ Tracking:
     persisted `record.walletSessionJwt` into the key ref. Ready signer sessions
     now receive Wallet Session bearer auth from the committed lane or the
     explicit signing-wallet-session authority path only.
+  - Partial July 3 bootstrap-as-authority cleanup complete:
+    ECDSA activation now rejects bootstrap responses without `session.jwt` and
+    no longer mirrors that JWT onto `thresholdEcdsaKeyRef`. Passkey bootstrap,
+    login runtime-scope parsing, and registration sealing consume the session
+    authority field directly instead of falling back to key-ref authority.
 - [ ] Delete durable sealed records as authority inputs.
   - Partial July 3 slice complete: sealed Email OTP ECDSA recovery metadata is
     normalized at the sealed-session boundary into
@@ -1423,6 +1428,11 @@ Tracking:
   - Partial July 3 ECDSA key-ref authority cleanup complete: runtime ECDSA
     session records can still build key/material refs, but those refs no longer
     carry a duplicate Wallet Session JWT authority field.
+  - Partial July 3 ECDSA bootstrap JWT fallback cleanup complete: clean
+    bootstrap consumers now read Wallet Session JWT authority from
+    `bootstrap.session.jwt`; `thresholdEcdsaKeyRef.walletSessionJwt` is no
+    longer a fallback authority source in activation, Passkey bootstrap, login,
+    or registration sealing.
   - Partial July 3 Ed25519 login route-plan slice complete: core Email OTP
     Ed25519 fresh login now follows the same rule. Raw unlock auth is accepted
     only by the `emailOtpPublic` facade and converted into `EmailOtpRoutePlan`

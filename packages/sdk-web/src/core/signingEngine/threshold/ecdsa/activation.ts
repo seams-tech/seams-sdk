@@ -737,6 +737,10 @@ export async function activateEcdsaSession(
   if (!signingGrantId) {
     throw new Error('threshold-ecdsa bootstrap returned empty signingGrantId');
   }
+  const walletSessionJwt = String(bootstrap.jwt || '').trim();
+  if (!walletSessionJwt) {
+    throw new Error('threshold-ecdsa bootstrap returned empty Wallet Session JWT');
+  }
   const expiresAtMs = Number(bootstrap.expiresAtMs);
   if (!Number.isFinite(expiresAtMs)) {
     throw new Error('threshold-ecdsa bootstrap returned invalid expiresAtMs');
@@ -847,7 +851,7 @@ export async function activateEcdsaSession(
       expiresAtMs,
       remainingUses,
     }),
-    jwt: bootstrap.jwt,
+    jwt: walletSessionJwt,
     clientVerifyingShareB64u,
   };
 
@@ -882,9 +886,6 @@ export async function activateEcdsaSession(
     thresholdSessionId: sessionId,
     signingGrantId,
     routerAbEcdsaHssNormalSigning,
-    ...(typeof session.jwt === 'string' && session.jwt.trim()
-      ? { walletSessionJwt: session.jwt.trim() }
-      : {}),
   };
 
   const activationResultBase = {
