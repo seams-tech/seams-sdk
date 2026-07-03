@@ -1002,6 +1002,7 @@ function parseThresholdEd25519SessionRequest(
     };
   }
   if (
+    !authority ||
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
@@ -3487,7 +3488,6 @@ export class ThresholdSigningService {
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
-        authority,
         authorityScope,
         relayerKeyId,
         keyVersion,

@@ -29,6 +29,7 @@ import {
   parseServerAllocatedWalletId,
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   EMAIL_OTP_RECOVERY_KEY_COUNT,
   EMAIL_OTP_RECOVERY_WRAP_ALG,
@@ -174,12 +175,18 @@ function requireParsedDomainId<T>(result: { ok: true; value: T } | { ok: false }
   return result.value;
 }
 
-test('D1 Ed25519 registration session policy keeps passkey RP ID in authority scope', () => {
+test('D1 Ed25519 registration session policy requires bound passkey authority', () => {
   const rpId = requireParsedDomainId(parseWebAuthnRpId('localhost'));
+  const walletId = 'jade-orchid-2caqh9';
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId,
+    rpId,
+    credentialIdB64u: 'cred-d1-passkey',
+  });
   const built = buildD1ThresholdEd25519RegistrationSessionPolicy({
     requestedSessionPolicy: {
       version: 'threshold_session_v1',
-      authorityScope: { kind: 'passkey_rp', rpId: 'localhost' },
+      authority,
       thresholdSessionId: 'tsess-d1-passkey',
       signingGrantId: 'wss-d1-passkey',
       participantIds: [1, 2],
@@ -190,40 +197,47 @@ test('D1 Ed25519 registration session policy keeps passkey RP ID in authority sc
         signingWorkerId: 'local-signing-worker',
       },
     },
-    walletId: 'jade-orchid-2caqh9',
+    walletId,
     nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: 'near-ed25519-signing-key-id',
     relayerKeyId: 'ed25519:relayer',
-    expectedAuthorityScope: { kind: 'passkey_rp', rpId },
+    authority,
   });
   expect(built.ok).toBe(true);
   if (!built.ok) throw new Error(built.message);
-  expect(built.value.authorityScope).toEqual({ kind: 'passkey_rp', rpId });
+  expect(built.value.authority).toEqual(authority);
   expect(Object.prototype.hasOwnProperty.call(built.value, 'rpId')).toBe(false);
+  expect(Object.prototype.hasOwnProperty.call(built.value, 'authorityScope')).toBe(false);
 });
 
 test('D1 Ed25519 registration session policy rejects root passkey RP ID', () => {
   const rpId = requireParsedDomainId(parseWebAuthnRpId('localhost'));
+  const walletId = 'jade-orchid-2caqh9';
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId,
+    rpId,
+    credentialIdB64u: 'cred-d1-passkey',
+  });
   const built = buildD1ThresholdEd25519RegistrationSessionPolicy({
     requestedSessionPolicy: {
       version: 'threshold_session_v1',
-      authorityScope: { kind: 'passkey_rp', rpId: 'localhost' },
+      authority,
       rpId: 'localhost',
       thresholdSessionId: 'tsess-d1-passkey',
       signingGrantId: 'wss-d1-passkey',
       ttlMs: 600_000,
       remainingUses: 3,
     },
-    walletId: 'jade-orchid-2caqh9',
+    walletId,
     nearAccountId: TEST_COMBINED_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: 'near-ed25519-signing-key-id',
     relayerKeyId: 'ed25519:relayer',
-    expectedAuthorityScope: { kind: 'passkey_rp', rpId },
+    authority,
   });
   expect(built).toMatchObject({
     ok: false,
     code: 'invalid_body',
-    message: 'threshold_ed25519.session_policy.rpId belongs in authorityScope',
+    message: 'threshold_ed25519.session_policy.rpId belongs in authority',
   });
 });
 
