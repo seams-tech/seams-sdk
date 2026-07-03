@@ -8,9 +8,11 @@ import type {
 } from './sealedSessionStore';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type { SealedSigningSessionEd25519RestoreMetadata } from '@shared/utils/signingSessionSeal';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 
 declare const currentEd25519Record: CurrentEd25519SealedSessionRecord;
 declare const currentEcdsaRecord: CurrentEcdsaSealedSessionRecord;
+declare const routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 void currentEd25519Record;
 void currentEcdsaRecord;
 
@@ -181,6 +183,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],
+    routerAbEcdsaHssNormalSigning,
   },
   issuedAtMs: 1,
   expiresAtMs: 1,

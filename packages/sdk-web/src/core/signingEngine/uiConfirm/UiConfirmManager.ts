@@ -788,6 +788,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return this.context;
   }
 
+  private async loadEcdsaRoleLocalReadyRecord(
+    input: Parameters<UiConfirmContext['loadEcdsaRoleLocalReadyRecord']>[0],
+  ): ReturnType<UiConfirmContext['loadEcdsaRoleLocalReadyRecord']> {
+    return await this.context.loadEcdsaRoleLocalReadyRecord(input);
+  }
+
   private isSealedRefreshModeEnabled(): boolean {
     return this.config.signingSessionPersistenceMode === 'sealed_refresh_v1';
   }
@@ -1338,6 +1344,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaRecord &&
       ecdsaRecord.chainTarget &&
       ecdsaWalletSessionAuth &&
+      ecdsaRecord.routerAbEcdsaHssNormalSigning &&
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
         ? {
             chainTarget: ecdsaRecord.chainTarget,
@@ -1357,6 +1364,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             ...(ecdsaRecord.runtimePolicyScope
               ? { runtimePolicyScope: ecdsaRecord.runtimePolicyScope }
               : {}),
+            routerAbEcdsaHssNormalSigning: ecdsaRecord.routerAbEcdsaHssNormalSigning,
           }
         : undefined;
     const ed25519MaterialMissingFields = ed25519Record
@@ -1550,6 +1558,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
                 }
                 return parsed;
               },
+              loadEcdsaRoleLocalReadyRecord: this.loadEcdsaRoleLocalReadyRecord.bind(this),
               updatePersistedPolicy: async (policy) =>
                 await updateExactSealedSessionPolicy({
                   thresholdSessionId,

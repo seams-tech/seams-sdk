@@ -2094,6 +2094,10 @@ Tracking:
     recovery normalization now rejects stale top-level `userId` the same way
     the IndexedDB sealed-store reader rejects `subjectId`/`userId`, with
     focused coverage in `sealedRecoveryRecord.strict.unit.test.ts`.
+  - Partial July 3 ECDSA sealed normal-signing slice complete: ECDSA sealed
+    restore metadata now requires `routerAbEcdsaHssNormalSigning`, and Email
+    OTP publication/UI-confirm restore paths propagate that Router A/B state
+    into sealed records with type fixtures updated.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

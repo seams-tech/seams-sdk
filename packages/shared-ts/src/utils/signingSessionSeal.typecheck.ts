@@ -3,6 +3,9 @@ import type {
   SealedSigningSessionEd25519RestoreMetadata,
   SealedSigningSessionRecord,
 } from './signingSessionSeal';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from './routerAbEcdsaHss';
+
+declare const routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 
 const validEcdsaSealedSessionRecord = {
   v: 1,
@@ -35,6 +38,7 @@ const validEcdsaSealedSessionRecord = {
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2],
+    routerAbEcdsaHssNormalSigning,
   },
   issuedAtMs: 1,
   expiresAtMs: 2,

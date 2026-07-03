@@ -48,6 +48,7 @@ import type { WarmSessionMaterialWriter } from '../session/passkey/warmSessionMa
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { DeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';
 import type { VolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
+import type { DurableRecordStore } from '@/core/platform';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -69,6 +70,7 @@ export interface UiConfirmContext {
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
+  loadEcdsaRoleLocalReadyRecord: DurableRecordStore['loadEcdsaRoleLocalReadyRecord'];
 }
 
 export type WarmSessionStatusResult =

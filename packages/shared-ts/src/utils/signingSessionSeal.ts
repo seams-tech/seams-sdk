@@ -1,3 +1,5 @@
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from './routerAbEcdsaHss';
+
 export const SIGNING_SESSION_SEALED_RECORD_VERSION = 1 as const;
 export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
 export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
@@ -107,6 +109,7 @@ type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSe
   thresholdEcdsaPublicKeyB64u?: string;
   participantIds: number[];
   runtimePolicyScope?: unknown;
+  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 };
 
 export type SealedSigningSessionEcdsaRestoreMetadata =

@@ -233,6 +233,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   ).trim();
   const thresholdEcdsaPublicKeyB64u = String(keyRef.thresholdEcdsaPublicKeyB64u || '').trim();
   const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
+  const routerAbEcdsaHssNormalSigning = keyRef.routerAbEcdsaHssNormalSigning;
   const participantIds = Array.isArray(keyRef.participantIds)
     ? keyRef.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -247,6 +248,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     !ethereumAddress ||
     !clientVerifyingShareB64u ||
     !relayerKeyId ||
+    !routerAbEcdsaHssNormalSigning ||
     !participantIds.length ||
     !walletSessionJwt
   ) {
@@ -337,6 +339,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       clientVerifyingShareB64u,
       ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
       participantIds,
+      routerAbEcdsaHssNormalSigning,
     },
     updatedAtMs: persistedAtMs,
   });
