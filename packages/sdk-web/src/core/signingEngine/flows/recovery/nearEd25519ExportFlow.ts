@@ -10,7 +10,10 @@ import { getStoredThresholdEd25519SessionRecordForLane } from '../../session/per
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { toAuthorizingSigningGrantId } from '../../stepUpConfirmation/otpPrompt/authLane';
-import { walletSessionJwtFromPersistedEd25519Record } from '../../session/walletSessionAuthBoundary';
+import {
+  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
+  type RouterAbEd25519WalletSessionAuthorityFailureReason,
+} from '../../session/routerAbSigningWalletSession';
 import type {
   Ed25519ExportLane,
   ExportEd25519SeedWithAuthorizationArgs,
@@ -79,11 +82,7 @@ export type RouterAbEd25519ExportWalletSessionAuth = {
 };
 
 export type RouterAbEd25519ExportWalletSessionAuthFailureReason =
-  | 'missing_record'
-  | 'cookie_session'
-  | 'missing_wallet_session_jwt'
-  | 'missing_threshold_session_id'
-  | 'missing_signing_grant_id'
+  | RouterAbEd25519WalletSessionAuthorityFailureReason
   | 'missing_relayer_url'
   | 'missing_relayer_key_id'
   | 'missing_participant_ids'
@@ -184,13 +183,10 @@ export function resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): RouterAbEd25519ExportWalletSessionAuthResult {
   if (!record) return { ok: false, reason: 'missing_record' };
-  if (record.thresholdSessionKind !== 'jwt') return { ok: false, reason: 'cookie_session' };
-  const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(record);
-  if (!walletSessionJwt) return { ok: false, reason: 'missing_wallet_session_jwt' };
-  const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
-  if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
-  const signingGrantId = nonEmptyString(record.signingGrantId);
-  if (!signingGrantId) return { ok: false, reason: 'missing_signing_grant_id' };
+  const walletSessionAuthority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+  if (!walletSessionAuthority.ok) return walletSessionAuthority;
+  const walletSessionJwt = walletSessionAuthority.value.auth.walletSessionJwt;
+  const { thresholdSessionId, signingGrantId } = walletSessionAuthority.value;
   const relayerUrl = nonEmptyString(record.relayerUrl);
   if (!relayerUrl) return { ok: false, reason: 'missing_relayer_url' };
   const relayerKeyId = nonEmptyString(record.relayerKeyId);

@@ -1273,6 +1273,12 @@ Tracking:
     budget-status auth now consumes `ResolvedRouterAbEd25519WalletSessionState`
     from the Router A/B Ed25519 wallet-session boundary instead of rebuilding
     Wallet Session JWT auth directly from the persisted Ed25519 record.
+  - Partial July 3 Ed25519 Wallet Session authority slice complete:
+    public NEAR funding, NEAR transaction execution, Email OTP ECDSA recovery
+    companion lookup, and Ed25519 export now consume
+    `parseRouterAbEd25519WalletSessionAuthorityFromRecord` instead of the
+    deleted `walletSessionJwtFromPersistedEd25519Record` /
+    `walletSessionAuthFromPersistedEd25519Record` helpers.
   - Partial July 3 Email OTP ECDSA signing-session slice complete: the public
     transaction challenge/refresh boundary now resolves a full
     `EmailOtpEcdsaSigningSessionAuthority` (`authLane` + bound authority) from
@@ -1397,6 +1403,11 @@ Tracking:
     `contextBindingB64u` and `stagedEvaluatorArtifactB64u`; responded server
     sessions carry server eval state through persisted and durable storage
     before finalization.
+  - Partial July 3 Ed25519 Wallet Session parser slice complete: the remaining
+    SDK Ed25519 callers no longer read Wallet Session JWTs through
+    `walletSessionAuthBoundary.ts`; parsed Router A/B wallet-session authority
+    validates the JWT claims against the selected Ed25519 record before any
+    signer, funding, export, or recovery path receives the bearer token.
 - [x] Delete the Email OTP ECDSA wallet+chain session-record getter from the
       EVM-family dependency surface and browser assembly.
 - [x] Move Email OTP ECDSA export authority onto record-backed committed lanes.

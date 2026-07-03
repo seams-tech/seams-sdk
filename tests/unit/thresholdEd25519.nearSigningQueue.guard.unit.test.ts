@@ -86,6 +86,10 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
 
     expect(nearSigning).toContain('hasRouterAbEd25519SigningAuth(args.record)');
     expect(walletSessionCredential).toContain('record.routerAbNormalSigning');
+    expect(walletSessionCredential).toContain(
+      'parseRouterAbEd25519WalletSessionAuthorityFromRecord(record)',
+    );
+    expect(walletSessionCredential).not.toContain('walletSessionJwtFromPersistedEd25519Record');
     expect(nearSigning).not.toContain('new SigningSessionCoordinator()');
     expect(nearSigning).toContain("emitSigningPlannerDecisionTrace('near', event)");
     expect(nearSigning).not.toContain('readExactSealedSession');

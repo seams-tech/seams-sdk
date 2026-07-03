@@ -17,7 +17,6 @@ import type {
   NearEd25519PersistableSigningMaterial,
   NearResolvedEd25519SigningSessionState,
 } from '@/core/signingEngine/interfaces/near';
-import { walletSessionAuthFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
@@ -67,8 +66,6 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
   const thresholdSessionId = String(record.thresholdSessionId || '').trim();
   const signingGrantId = String(record.signingGrantId || '').trim();
   if (!thresholdSessionId || !signingGrantId) return null;
-  const walletSessionAuth = walletSessionAuthFromPersistedEd25519Record(record);
-  if (!walletSessionAuth) return null;
   const recordCandidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
   if (!recordCandidate) return null;
   const emailOtpAuthContext =
@@ -141,7 +138,7 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
   };
   return {
     ...common,
-    walletSessionAuth,
+    walletSessionAuth: args.signingWalletSession.auth,
   };
 }
 

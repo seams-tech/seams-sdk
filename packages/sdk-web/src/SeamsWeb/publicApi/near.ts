@@ -28,7 +28,7 @@ import { registerWallet as registerWalletWithUnifiedCeremony } from '@/SeamsWeb/
 import { resolveNearCommandSubject } from '@/SeamsWeb/operations/near/commandSubject';
 import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
 import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
-import { walletSessionJwtFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
+import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { NearAccountRef, WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function relayerUrlFromConfigs(configs: SeamsConfigsReadonly): string {
@@ -45,11 +45,11 @@ function requireNearPublicKey(value: unknown): string {
 
 function requireCurrentEd25519WalletSessionJwt(walletSession: WalletSessionRef): string {
   const record = getStoredThresholdEd25519SessionRecordForWallet(walletSession.walletId);
-  const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(record);
-  if (!walletSessionJwt) {
+  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+  if (!authority.ok) {
     throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
   }
-  return walletSessionJwt;
+  return authority.value.auth.walletSessionJwt;
 }
 
 async function fundImplicitNearAccountFromCurrentSession(args: {

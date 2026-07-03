@@ -377,7 +377,9 @@ test.describe('Email OTP operation split guard', () => {
     expect(ed25519ExportArgs).not.toContain('authLane?: EmailOtpAuthLane');
     expect(nearExportFlow).toContain('function buildEd25519ExportLane');
     expect(nearExportFlow).toContain('const committedLane = buildEd25519ExportLane');
+    expect(nearExportFlow).toContain('parseRouterAbEd25519WalletSessionAuthorityFromRecord');
     expect(nearExportFlow).not.toContain('const walletSessionJwt = nonEmptyString(record.walletSessionJwt)');
+    expect(nearExportFlow).not.toContain('walletSessionJwtFromPersistedEd25519Record');
     expect(nearExportFlow).not.toContain(
       'args.walletSessionAuth.walletSessionJwt !== record.walletSessionJwt',
     );
@@ -474,6 +476,10 @@ test.describe('Email OTP operation split guard', () => {
     expect(signNear).not.toContain('trustedBudgetStatusAuthFromEd25519Record');
     expect(signNear).toContain('committedLane,');
     expect(signNear).not.toContain('walletSessionJwtFromPersistedEd25519Record(thresholdSessionRecord)');
+    expect(signNear).not.toContain('walletSessionJwtFromPersistedEd25519Record');
+    expect(routerAbEd25519WalletSessionState).not.toContain(
+      'walletSessionAuthFromPersistedEd25519Record',
+    );
     expect(signNear).not.toContain('authLane: committedLane.authLane');
     expect(nearPort).toContain('committedLane,');
     expect(nearPort).not.toContain('authLane: committedLane.authLane');

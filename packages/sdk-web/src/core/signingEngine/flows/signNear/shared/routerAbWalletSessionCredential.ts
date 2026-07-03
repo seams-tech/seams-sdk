@@ -3,10 +3,12 @@ import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAc
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
-import { walletSessionJwtFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
 import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
 import type { RouterAbEd25519SigningMaterialRef } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
-import { parseRouterAbEd25519WalletSessionIdentityClaims } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
+  parseRouterAbEd25519WalletSessionIdentityClaims,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 export type RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1';
@@ -48,10 +50,8 @@ function requireFutureEpochMs(value: unknown, label: string): number {
 }
 
 export function hasRouterAbEd25519SigningAuth(record: ThresholdEd25519SessionRecord): boolean {
-  return (
-    Boolean(record.routerAbNormalSigning) &&
-    Boolean(walletSessionJwtFromPersistedEd25519Record(record))
-  );
+  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+  return Boolean(record.routerAbNormalSigning) && authority.ok;
 }
 
 export function requireRouterAbEd25519NormalSigningReadyState(args: {

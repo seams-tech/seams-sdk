@@ -24,7 +24,7 @@ import {
   type EmailOtpEcdsaSealedRecoveryRecord,
   type SealedRecoveryWalletSessionAuth,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
-import { walletSessionAuthFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
+import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { requestRehydrateEmailOtpEcdsaWarmSessionMaterial } from './workerRequests';
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
@@ -394,8 +394,9 @@ function resolveEmailOtpCompanionEd25519Session(args: {
       ? args.ed25519Record
       : null;
   if (ed25519Record) {
-    const walletSessionAuth = walletSessionAuthFromPersistedEd25519Record(ed25519Record);
-    if (!walletSessionAuth) return null;
+    const walletSessionAuthority =
+      parseRouterAbEd25519WalletSessionAuthorityFromRecord(ed25519Record);
+    if (!walletSessionAuthority.ok) return null;
     const emailOtpAuthContext = ed25519Record.emailOtpAuthContext;
     if (!emailOtpAuthContext) return null;
     const matchingSealedCompanion =
@@ -415,7 +416,7 @@ function resolveEmailOtpCompanionEd25519Session(args: {
         : matchingSealedCompanion?.routerAbNormalSigning
           ? { routerAbNormalSigning: matchingSealedCompanion.routerAbNormalSigning }
           : {}),
-      walletSessionAuth,
+      walletSessionAuth: walletSessionAuthority.value.auth,
       thresholdSessionId: ed25519Record.thresholdSessionId,
       signingGrantId: args.signingGrantId,
       emailOtpAuthContext,

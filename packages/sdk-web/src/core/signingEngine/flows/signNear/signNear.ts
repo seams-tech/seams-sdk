@@ -103,6 +103,7 @@ import {
 } from '../../session/emailOtp/ed25519Warmup';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
+  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
   routerAbEd25519WorkerMaterialIdentityFromPersistedState,
 } from '../../session/routerAbSigningWalletSession';
 import {
@@ -110,7 +111,6 @@ import {
   throwEd25519MaterialRestoreRequired,
 } from './shared/ed25519MaterialRestore';
 import { hasRouterAbEd25519SigningAuth } from './shared/routerAbWalletSessionCredential';
-import { walletSessionJwtFromPersistedEd25519Record } from '../../session/walletSessionAuthBoundary';
 import {
   receiveTransactionIntent,
   recordAvailableSigningLanesRead,
@@ -933,7 +933,8 @@ function walletSessionJwtForPreparedNearExecution(args: {
       args.emailOtpSigning?.committedLane.walletSessionAuthority.walletSessionJwt || '',
     ).trim();
   }
-  return walletSessionJwtFromPersistedEd25519Record(record);
+  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+  return authority.ok ? authority.value.auth.walletSessionJwt : '';
 }
 
 function resolvePreparedSigningRequestSessionId(args: {
