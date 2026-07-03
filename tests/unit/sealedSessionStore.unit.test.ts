@@ -35,7 +35,6 @@ const EMAIL_OTP_ECDSA_RESTORE = {
   relayerKeyId: ECDSA_RESTORE.relayerKeyId,
   thresholdEcdsaPublicKeyB64u: ECDSA_RESTORE.thresholdEcdsaPublicKeyB64u,
   participantIds: ECDSA_RESTORE.participantIds,
-  walletSessionJwt: 'threshold-session-jwt',
 } as const;
 
 const ED25519_RESTORE_BASE = {
@@ -1004,6 +1003,99 @@ test.describe('signing session sealed store', () => {
           ecdsaRestore: ECDSA_RESTORE,
           relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-passkey-user',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 5,
+          updatedAtMs: Date.now(),
+        };
+
+        return {
+          classification: mod.classifyRawSealedSessionRecord(rawRecord),
+          built: mod.buildCurrentSealedSessionRecord(rawRecord),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.classification).toMatchObject({
+      kind: 'delete_required',
+      reason: 'invalid_identity',
+    });
+    expect(result.built).toBeNull();
+  });
+
+  test('rejects JWT sealed restore metadata without wallet-session authority', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        const { walletSessionJwt: _walletSessionJwt, ...restoreWithoutJwt } = (
+          globalThis as any
+        ).EMAIL_OTP_ECDSA_RESTORE;
+        const rawRecord = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          authMethod: 'email_otp',
+          secretKind: 'signing_session_secret32',
+          storeKey: 'email-otp-ecdsa-missing-jwt-wallet-session:email_otp:ecdsa:tempo:42431',
+          signingGrantId: 'email-otp-ecdsa-missing-jwt-wallet-session',
+          thresholdSessionIds: { ecdsa: 'email-otp-ecdsa-missing-jwt-session' },
+          curve: 'ecdsa',
+          walletId: 'email-otp-ecdsa-missing-jwt.testnet',
+          ecdsaRestore: {
+            ...restoreWithoutJwt,
+            sessionKind: 'jwt',
+          },
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-email-otp-ecdsa-missing-jwt',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 5,
+          updatedAtMs: Date.now(),
+        };
+
+        return {
+          classification: mod.classifyRawSealedSessionRecord(rawRecord),
+          built: mod.buildCurrentSealedSessionRecord(rawRecord),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.classification).toMatchObject({
+      kind: 'delete_required',
+      reason: 'missing_wallet_session_jwt',
+    });
+    expect(result.built).toBeNull();
+  });
+
+  test('rejects cookie sealed restore metadata that carries wallet-session authority', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        const rawRecord = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          authMethod: 'passkey',
+          secretKind: 'signing_session_secret32',
+          storeKey: 'passkey-ed25519-cookie-jwt-wallet-session:passkey:ed25519',
+          signingGrantId: 'passkey-ed25519-cookie-jwt-wallet-session',
+          thresholdSessionIds: { ed25519: 'passkey-ed25519-cookie-jwt-session' },
+          curve: 'ed25519',
+          walletId: 'passkey-ed25519-cookie-jwt.testnet',
+          ed25519Restore: {
+            ...(globalThis as any).PASSKEY_ED25519_RESTORE,
+            walletSessionJwt: 'wallet-session-jwt',
+          },
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-passkey-ed25519-cookie-jwt',
+          signingRootId: 'sr-test:dev',
+          signingRootVersion: 'default',
           issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 5,

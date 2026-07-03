@@ -38,6 +38,16 @@ export const EMAIL_OTP_HKDF_SALTS = {
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 export type SigningSessionSealCurve = 'ed25519' | 'ecdsa';
 
+export type SealedSigningSessionWalletSessionAuth =
+  | {
+      sessionKind: 'jwt';
+      walletSessionJwt: string;
+    }
+  | {
+      sessionKind: 'cookie';
+      walletSessionJwt?: never;
+    };
+
 export type RouterAbEd25519NormalSigningState = {
   kind: typeof ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND;
   signingWorkerId: string;
@@ -87,10 +97,8 @@ export type SealedSigningSessionEcdsaChainTarget =
       networkSlug: string;
     };
 
-type SealedSigningSessionEcdsaRestoreMetadataBase = {
+type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
   chainTarget: SealedSigningSessionEcdsaChainTarget;
-  walletSessionJwt?: string;
-  sessionKind: 'jwt' | 'cookie';
   keyHandle: string;
   ecdsaThresholdKeyId?: string;
   ethereumAddress: string;
@@ -118,14 +126,12 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
       credentialIdB64u?: never;
     });
 
-type SealedSigningSessionEd25519RestoreMetadataBase = {
+type SealedSigningSessionEd25519RestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   rpId: string;
   relayerKeyId: string;
   participantIds: number[];
-  walletSessionJwt?: string;
-  sessionKind: 'jwt' | 'cookie';
   runtimePolicyScope?: unknown;
   clientVerifyingShareB64u?: string;
   ed25519WorkerMaterialHandle?: string;

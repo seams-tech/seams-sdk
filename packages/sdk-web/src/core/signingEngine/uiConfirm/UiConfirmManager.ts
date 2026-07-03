@@ -118,6 +118,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
 } from '../session/identity/laneIdentity';
+import type { SealedSigningSessionWalletSessionAuth } from '@shared/utils/signingSessionSeal';
 
 type PendingWorkerRequest = {
   id: string;
@@ -217,15 +218,18 @@ function persistedSealTransportWalletSessionJwt(args: {
 
 function persistedRestoreWalletSessionAuthFields(
   record: PersistedWalletSessionAuthRecord,
-): {
-  walletSessionJwt?: string;
-  sessionKind: 'jwt' | 'cookie';
-} {
+): SealedSigningSessionWalletSessionAuth | null {
   const walletSessionJwt = walletSessionJwtFromPersistedSessionAuthRecord(record);
-  return {
-    ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
-    sessionKind: record.thresholdSessionKind,
-  };
+  switch (record.thresholdSessionKind) {
+    case 'jwt':
+      return walletSessionJwt ? { sessionKind: 'jwt', walletSessionJwt } : null;
+    case 'cookie':
+      return walletSessionJwt ? null : { sessionKind: 'cookie' };
+    default: {
+      const exhaustive: never = record.thresholdSessionKind;
+      return exhaustive;
+    }
+  }
 }
 
 type PasskeySealedRecordAccountMetadata = {
@@ -370,6 +374,7 @@ function currentEd25519RestoreMetadataFromMaterialRecord(
   const signerSlot = positiveInteger(record.signerSlot);
   const routerAbNormalSigning = record.routerAbNormalSigning;
   const authBranch = currentEd25519RestoreAuthBranchFromMaterialRecord(record);
+  const walletSessionAuth = persistedRestoreWalletSessionAuthFields(record);
   if (
     !rpId ||
     !nearAccountId ||
@@ -384,7 +389,8 @@ function currentEd25519RestoreMetadataFromMaterialRecord(
     !materialCreatedAtMs ||
     !signerSlot ||
     !routerAbNormalSigning ||
-    !authBranch
+    !authBranch ||
+    !walletSessionAuth
   ) {
     return undefined;
   }
@@ -394,7 +400,7 @@ function currentEd25519RestoreMetadataFromMaterialRecord(
     nearEd25519SigningKeyId,
     relayerKeyId,
     participantIds: record.participantIds,
-    ...persistedRestoreWalletSessionAuthFields(record),
+    ...walletSessionAuth,
     signerSlot,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     clientVerifyingShareB64u,
@@ -1325,16 +1331,20 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
       .trim()
       .toLowerCase();
+    const ecdsaWalletSessionAuth = ecdsaRecord
+      ? persistedRestoreWalletSessionAuthFields(ecdsaRecord)
+      : null;
     const ecdsaRestore =
       ecdsaRecord &&
       ecdsaRecord.chainTarget &&
+      ecdsaWalletSessionAuth &&
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
         ? {
             chainTarget: ecdsaRecord.chainTarget,
             evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
             rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
             credentialIdB64u: ecdsaPasskeyCredentialId,
-            ...persistedRestoreWalletSessionAuthFields(ecdsaRecord),
+            ...ecdsaWalletSessionAuth,
             keyHandle: ecdsaRecord.keyHandle,
             ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
             ethereumAddress,

@@ -2068,6 +2068,12 @@ Tracking:
     longer carry stale top-level `subjectId` / `userId` rejection fields.
     The builder still rejects those raw extras at the boundary before
     classifying or writing a current record.
+  - Partial July 3 sealed restore auth cleanup complete: shared sealed
+    restore metadata now represents Wallet Session authority as a
+    discriminated union, so `sessionKind: 'jwt'` requires `walletSessionJwt`
+    and `sessionKind: 'cookie'` rejects it. The SDK sealed-store boundary
+    parser classifies raw partial states before they can become current
+    records.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.

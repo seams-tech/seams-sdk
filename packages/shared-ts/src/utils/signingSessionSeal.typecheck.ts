@@ -1,4 +1,8 @@
-import type { SealedSigningSessionRecord } from './signingSessionSeal';
+import type {
+  SealedSigningSessionEcdsaRestoreMetadata,
+  SealedSigningSessionEd25519RestoreMetadata,
+  SealedSigningSessionRecord,
+} from './signingSessionSeal';
 
 const validEcdsaSealedSessionRecord = {
   v: 1,
@@ -94,6 +98,21 @@ const invalidEcdsaSealedSessionRecordWithSigningRoot = {
 } satisfies SealedSigningSessionRecord;
 void invalidEcdsaSealedSessionRecordWithSigningRoot;
 
+const { walletSessionJwt: _ecdsaRestoreJwt, ...ecdsaRestoreMissingJwt } =
+  validEcdsaSealedSessionRecord.ecdsaRestore;
+// @ts-expect-error JWT sealed restore auth requires walletSessionJwt.
+const invalidEcdsaRestoreMissingJwt: SealedSigningSessionEcdsaRestoreMetadata =
+  ecdsaRestoreMissingJwt;
+void invalidEcdsaRestoreMissingJwt;
+
+// @ts-expect-error cookie sealed restore auth rejects walletSessionJwt.
+const invalidEcdsaRestoreCookieWithJwt: SealedSigningSessionEcdsaRestoreMetadata = {
+  ...validEcdsaSealedSessionRecord.ecdsaRestore,
+  sessionKind: 'cookie',
+  walletSessionJwt: 'wallet-session-jwt',
+};
+void invalidEcdsaRestoreCookieWithJwt;
+
 const { walletId: _ecdsaWalletId, ...ecdsaSealedSessionRecordWithoutWallet } =
   validEcdsaSealedSessionRecord;
 // @ts-expect-error typed sealed records require wallet identity.
@@ -121,3 +140,17 @@ const { ed25519Restore: _ed25519Restore, ...ed25519SealedSessionRecordWithoutRes
 const invalidEd25519SealedSessionRecordWithoutRestore: SealedSigningSessionRecord =
   ed25519SealedSessionRecordWithoutRestore;
 void invalidEd25519SealedSessionRecordWithoutRestore;
+
+// @ts-expect-error JWT sealed restore auth requires walletSessionJwt.
+const invalidEd25519RestoreMissingJwt: SealedSigningSessionEd25519RestoreMetadata = {
+  ...validEd25519SealedSessionRecord.ed25519Restore,
+  sessionKind: 'jwt',
+};
+void invalidEd25519RestoreMissingJwt;
+
+// @ts-expect-error cookie sealed restore auth rejects walletSessionJwt.
+const invalidEd25519RestoreCookieWithJwt: SealedSigningSessionEd25519RestoreMetadata = {
+  ...validEd25519SealedSessionRecord.ed25519Restore,
+  walletSessionJwt: 'wallet-session-jwt',
+};
+void invalidEd25519RestoreCookieWithJwt;

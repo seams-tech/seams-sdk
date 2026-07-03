@@ -16,6 +16,7 @@ import {
   type SealedSigningSessionEcdsaRestoreMetadata,
   type SealedSigningSessionEd25519RestoreMetadata,
   type SealedSigningSessionRecord,
+  type SealedSigningSessionWalletSessionAuth,
 } from '@shared/utils/signingSessionSeal';
 import {
   thresholdEcdsaChainTargetFromRequest,
@@ -405,6 +406,31 @@ function normalizeEthereumAddress(value: unknown): `0x${string}` | undefined {
   return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : undefined;
 }
 
+function normalizeSealedRestoreWalletSessionAuth(
+  value: Record<string, unknown>,
+): SealedSigningSessionWalletSessionAuth | undefined {
+  const sessionKindRaw = String(value.sessionKind || '').trim();
+  const walletSessionJwt = normalizeOptionalNonEmptyString(value.walletSessionJwt);
+  switch (sessionKindRaw) {
+    case 'jwt':
+      return walletSessionJwt ? { sessionKind: 'jwt', walletSessionJwt } : undefined;
+    case 'cookie':
+      return walletSessionJwt ? undefined : { sessionKind: 'cookie' };
+    default:
+      return undefined;
+  }
+}
+
+function rawSealedRestoreWalletSessionAuthRejection(
+  value: Record<string, unknown>,
+): SealedSessionRecordClassificationReason | null {
+  const sessionKindRaw = String(value.sessionKind || '').trim();
+  const walletSessionJwt = normalizeOptionalNonEmptyString(value.walletSessionJwt);
+  if (sessionKindRaw === 'jwt' && !walletSessionJwt) return 'missing_wallet_session_jwt';
+  if (sessionKindRaw === 'cookie' && walletSessionJwt) return 'invalid_identity';
+  return null;
+}
+
 function resolveSealedRecordCurve(args: {
   curve?: 'ed25519' | 'ecdsa';
   thresholdSessionIds: { ed25519?: string; ecdsa?: string };
@@ -433,9 +459,7 @@ function normalizeEcdsaRestoreMetadata(
   } catch {
     chainTarget = null;
   }
-  const sessionKindRaw = String(obj.sessionKind || '').trim();
-  const sessionKind =
-    sessionKindRaw === 'cookie' || sessionKindRaw === 'jwt' ? sessionKindRaw : undefined;
+  const walletSessionAuth = normalizeSealedRestoreWalletSessionAuth(obj);
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
   const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
@@ -455,7 +479,7 @@ function normalizeEcdsaRestoreMetadata(
     : [];
   if (
     !chainTarget ||
-    !sessionKind ||
+    !walletSessionAuth ||
     !keyHandle ||
     !ethereumAddress ||
     !relayerKeyId ||
@@ -474,13 +498,11 @@ function normalizeEcdsaRestoreMetadata(
           } as const)
         : null;
   if (!authBranch) return undefined;
-  const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
   return {
     chainTarget,
     ...authBranch,
-    ...(walletSessionJwt ? { walletSessionJwt } : {}),
-    sessionKind,
+    ...walletSessionAuth,
     keyHandle,
     ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
     ethereumAddress,
@@ -510,9 +532,7 @@ function normalizeCurrentEd25519RestoreMetadata(
   const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
   const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
-  const sessionKindRaw = String(obj.sessionKind || '').trim();
-  const sessionKind =
-    sessionKindRaw === 'cookie' || sessionKindRaw === 'jwt' ? sessionKindRaw : undefined;
+  const walletSessionAuth = normalizeSealedRestoreWalletSessionAuth(obj);
   const participantIds = Array.isArray(obj.participantIds)
     ? obj.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -541,7 +561,7 @@ function normalizeCurrentEd25519RestoreMetadata(
     !nearEd25519SigningKeyId ||
     !rpId ||
     !relayerKeyId ||
-    !sessionKind ||
+    !walletSessionAuth ||
     !participantIds.length ||
     !clientVerifyingShareB64u ||
     !ed25519WorkerMaterialBindingDigest ||
@@ -558,7 +578,6 @@ function normalizeCurrentEd25519RestoreMetadata(
   ) {
     return undefined;
   }
-  const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   return {
     nearAccountId,
     nearEd25519SigningKeyId,
@@ -566,8 +585,7 @@ function normalizeCurrentEd25519RestoreMetadata(
     ...authBranch,
     relayerKeyId,
     participantIds,
-    ...(walletSessionJwt ? { walletSessionJwt } : {}),
-    sessionKind,
+    ...walletSessionAuth,
     ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? { runtimePolicyScope: obj.runtimePolicyScope }
       : {}),
@@ -1188,6 +1206,11 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     if (!normalizeParticipantIds(ecdsaRestoreObj.participantIds).length) {
       return classifyNonCurrentRecord('delete_required', obj, 'missing_participant_ids');
     }
+    const ecdsaRestoreAuthRejection =
+      rawSealedRestoreWalletSessionAuthRejection(ecdsaRestoreObj);
+    if (ecdsaRestoreAuthRejection) {
+      return classifyNonCurrentRecord('delete_required', obj, ecdsaRestoreAuthRejection);
+    }
     if (!ecdsaRestore) {
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
     }
@@ -1257,6 +1280,11 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   }
   if (!normalizeParticipantIds(ed25519RestoreObj.participantIds).length) {
     return classifyNonCurrentRecord('delete_required', obj, 'missing_participant_ids');
+  }
+  const ed25519RestoreAuthRejection =
+    rawSealedRestoreWalletSessionAuthRejection(ed25519RestoreObj);
+  if (ed25519RestoreAuthRejection) {
+    return classifyNonCurrentRecord('delete_required', obj, ed25519RestoreAuthRejection);
   }
   if (!ed25519Restore) {
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
