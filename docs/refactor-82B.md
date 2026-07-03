@@ -1687,8 +1687,8 @@ July 3 review follow-ups (Decided Simplification 4, gated on 87 F2):
 
 ## Phase 3: Registration Authority Resolution
 
-Status: mostly implemented; AuthService-era deletion and the resolution
-discriminant cleanup remain. Notes: [journal](./refactor-82B-journal.md#phase-3-registration-authority-july-3-2026).
+Status: implemented for the authority-resolution cleanup tracked in 82B. Notes:
+[journal](./refactor-82B-journal.md#phase-3-registration-authority-july-3-2026).
 
 Do:
 
@@ -1721,8 +1721,15 @@ Tracking:
       boundary; the only pre-proof cache key is the separate
       `email_otp_pre_auth` selector.
 - [x] Persist stable Email OTP provider subject identity for later sessions.
-- [ ] Delete AuthService-era registration authority branches (delete
-      candidates listed below).
+- [x] Delete AuthService-era registration authority branches (delete
+      candidates listed below). Focused guard evidence on July 3:
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+      ./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
+      "Cloudflare D1 runtime does not revive legacy registration
+      modes|AuthService wallet registration does not revive legacy
+      registration modes|AuthService-backed Router API route harnesses stay
+      deleted|D1 Router API service factory does not revive a flat
+      AuthService-shaped facade" --reporter=line` passes.
 - [x] Delete the AuthService-era Ed25519 registration session-policy authority
       validator duplicate; remaining AuthService-era modules listed below still
       need deletion or public-facade ownership review.
