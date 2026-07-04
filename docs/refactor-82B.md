@@ -12,9 +12,11 @@ Status: implementation complete for Phases 1-9. Phase 10 runtime validation is
 in progress; Passkey registration/unlock/sign/export browser contracts pass
 locally. Runtime validation opened Phase 10A for canonical lane inventory and
 selection cleanup, then Phase 10B for extracting the shared typed
-canonicalization kernel across ECDSA and Ed25519. Deployment and
-CI/intended-behavior gating are deferred to Phase 11 until manual runtime
-testing is complete.
+canonicalization kernel across ECDSA and Ed25519. The Phase 10B review split
+write-side retirement into Phase 10C: fact writes and current-session commits
+are different lifecycle transitions, and only commits retire predecessors.
+Deployment and CI/intended-behavior gating are deferred to Phase 11 until
+manual runtime testing is complete.
 
 Parent plan: [Cloudflare D1 Migration Plan](./refactor-82-cloudflare-D1-migration.md)
 
