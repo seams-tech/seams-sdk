@@ -1,4 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import type { RuntimePorts } from '@/core/platform';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
@@ -21,6 +22,7 @@ export function createBrowserWarmSessionPublicDeps(args: {
   touchIdPrompt: TouchIdPrompt;
   touchConfirm: UiConfirmRuntimeBridgePort;
   warmSigning: WarmSigningPorts;
+  runtimePorts: RuntimePorts;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   enginePorts: Pick<
@@ -43,6 +45,8 @@ export function createBrowserWarmSessionPublicDeps(args: {
       thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
       ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
       walletSessionActivationDeps: args.enginePorts.walletSessionActivationDeps,
+      persistEcdsaRoleLocalReadyRecord:
+        args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
     }),
     warmCapabilitiesPublicDeps: createWarmCapabilitiesPublicDeps({
       seamsWebConfigs: args.seamsWebConfigs,

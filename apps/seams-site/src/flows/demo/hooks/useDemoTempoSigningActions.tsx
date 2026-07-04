@@ -51,7 +51,7 @@ function requireTempoSponsorshipRouteUrl(frontendConfig: TempoSigningFrontendCon
 }
 
 function requireTempoManagedRegistration(frontendConfig: TempoSigningFrontendConfig): {
-  readonly environmentId: string;
+  readonly projectEnvironmentId: string;
   readonly publishableKey: string;
 } {
   const managedRegistration = frontendConfig.managedRegistration;
@@ -59,7 +59,7 @@ function requireTempoManagedRegistration(frontendConfig: TempoSigningFrontendCon
     throw new Error('Tempo sponsorship requires managed registration config');
   }
   return {
-    environmentId: managedRegistration.environmentId,
+    projectEnvironmentId: managedRegistration.projectEnvironmentId,
     publishableKey: managedRegistration.publishableKey,
   };
 }
@@ -175,10 +175,10 @@ async function requestSponsoredTempoDrip(input: {
     headers: {
       authorization: `Bearer ${managedRegistration.publishableKey}`,
       'content-type': 'application/json',
-      'x-seams-environment-id': managedRegistration.environmentId,
+      'x-seams-environment-id': managedRegistration.projectEnvironmentId,
     },
     body: JSON.stringify({
-      environmentId: managedRegistration.environmentId,
+      environmentId: managedRegistration.projectEnvironmentId,
       walletId: input.walletId,
       walletAddress: input.thresholdOwnerAddress,
       chainId: request.tx.chainId,

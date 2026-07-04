@@ -816,7 +816,8 @@ Required validation for each candidate:
 - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml`
 - `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --manifest-path wasm/hss_client_signer/Cargo.toml --target wasm32-unknown-unknown`
 - `pnpm -C sdk type-check`
-- `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang pnpm benchmark:registration-flow:smoke`
+- real-topology registration latency benchmark once the post-Refactor 88
+  replacement exists
 
 Benchmark comparison:
 

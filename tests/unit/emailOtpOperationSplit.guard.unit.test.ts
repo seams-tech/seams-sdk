@@ -610,6 +610,12 @@ test.describe('Email OTP operation split guard', () => {
     const ecdsaSelection = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
     );
+    const ecdsaIdentity = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+    );
+    const sessionRecords = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
+    );
     const preparedSigning = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
@@ -680,6 +686,11 @@ test.describe('Email OTP operation split guard', () => {
     expect(budgetAuthSource).toContain('args.selection.committedLane.walletSessionAuthority');
     expect(budgetAuthSource).not.toContain(
       'signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt',
+    );
+    expect(ecdsaIdentity).not.toContain('walletSessionAuthInputFromPersistedThresholdSession');
+    expect(sessionRecords).toContain('resolveRouterAbEcdsaWalletSessionAuthFromRecord(record)');
+    expect(sessionRecords).not.toContain(
+      'keyRef.walletSessionJwt || args.bootstrap.session.jwt',
     );
   });
 

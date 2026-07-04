@@ -181,7 +181,7 @@ export interface SigningSessionSealConfig {
  *     registrationBootstrapUrl?: string;
  *   } | {
  *     mode: 'managed';
- *     environmentId: string;
+ *     projectEnvironmentId: string;
  *     publishableKey: string;
  *     paymentMode?: 'disabled' | 'quota_then_x402' | 'always_x402';
  *   };
@@ -314,7 +314,7 @@ export interface SeamsConfigsInput {
  *         }
  *       | {
  *           mode: 'managed';
- *           environmentId: string;
+ *           projectEnvironmentId: string;
  *           publishableKey: string;
  *           paymentMode: 'disabled' | 'quota_then_x402' | 'always_x402';
  *         };
@@ -759,7 +759,7 @@ export type SeamsRegistrationConfigInput =
     }
   | {
       mode: 'managed';
-      environmentId: string;
+      projectEnvironmentId: string;
       publishableKey: string;
       paymentMode?: SeamsRegistrationPaymentMode;
       nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
@@ -812,7 +812,7 @@ export type SeamsRegistrationConfig =
     }
   | {
       mode: 'managed';
-      environmentId: string;
+      projectEnvironmentId: string;
       publishableKey: string;
       paymentMode: SeamsRegistrationPaymentMode;
       nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;

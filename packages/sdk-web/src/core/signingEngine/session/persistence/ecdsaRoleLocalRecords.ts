@@ -614,6 +614,24 @@ export function ecdsaRoleLocalReadyRecordStorageKey(
   ].join(':');
 }
 
+export function ecdsaRoleLocalReadyRecordStorageKeyFacts(
+  record: EcdsaRoleLocalReadyRecord,
+): LoadEcdsaRoleLocalReadyRecordInput {
+  const parsed = parseEcdsaRoleLocalReadyRecord(record);
+  const facts = parsed.publicFacts;
+  return {
+    walletId: facts.walletId,
+    evmFamilySigningKeySlotId: facts.evmFamilySigningKeySlotId,
+    chainTarget: facts.chainTarget,
+    keyHandle: facts.keyHandle,
+    ecdsaThresholdKeyId: facts.ecdsaThresholdKeyId,
+    signingRootId: facts.signingRootId,
+    signingRootVersion: facts.signingRootVersion,
+    participantIds: facts.participantIds,
+    authMethod: parsed.authMethod,
+  };
+}
+
 function ecdsaRoleLocalAuthMethodStorageKeyPart(authMethod: EcdsaRoleLocalAuthMethod): string {
   switch (authMethod.kind) {
     case 'passkey':

@@ -5,8 +5,10 @@ import net from 'node:net';
 import { isAbsolute, join, relative } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+dotenv.config({ path: join(repoRoot, '.env.intended.local') });
 const workerBinary = join(
   repoRoot,
   'crates',

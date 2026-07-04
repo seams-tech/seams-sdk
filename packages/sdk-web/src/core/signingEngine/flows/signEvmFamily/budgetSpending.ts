@@ -1,6 +1,7 @@
 import { createSigningSessionBudgetFinalizer } from '../../session/budget/budgetFinalizer';
 import type {
   BudgetFinalizationSpend,
+  SigningBudgetFinalizationResult,
   SigningSessionBudgetReserveResult,
   SigningSessionBudgetStatusAuth,
   WalletBudgetSpend,
@@ -105,9 +106,9 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilySigningGrantBu
 
 export async function recordSuccessfulEvmFamilySigningGrantSpend(
   args: EvmFamilySigningGrantBudgetArgs,
-): Promise<void> {
+): Promise<SigningBudgetFinalizationResult | null> {
   const result = createEvmFamilyTransactionBudgetFinalizer(args);
-  await result.finalizer.recordSuccess();
+  return await result.finalizer.recordSuccess();
 }
 
 export async function reserveEvmFamilySigningGrantBudget(

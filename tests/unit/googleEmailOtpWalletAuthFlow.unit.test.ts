@@ -60,6 +60,26 @@ function testConfigs(): GoogleEmailOtpWalletAuthDeps['configs'] {
   } as unknown as GoogleEmailOtpWalletAuthDeps['configs'];
 }
 
+function testConfigsWithConfiguredEcdsaChains(): GoogleEmailOtpWalletAuthDeps['configs'] {
+  return {
+    ...testConfigs(),
+    network: {
+      chains: [
+        {
+          network: 'tempo-testnet',
+          chainId: TEMPO_TARGET.chainId,
+          rpcUrl: 'https://tempo.example',
+        },
+        {
+          network: EVM_TARGET.networkSlug,
+          chainId: EVM_TARGET.chainId,
+          rpcUrl: 'https://evm.example',
+        },
+      ],
+    },
+  } as unknown as GoogleEmailOtpWalletAuthDeps['configs'];
+}
+
 function loggedInSession(walletId: string) {
   return {
     login: {
@@ -814,6 +834,31 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(submitted.ok).toBe(true);
     expect(calls.find((call) => call.type === 'loginWithEmailOtpEd25519Capability')).toBeTruthy();
     expect(calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability')).toBeFalsy();
+  });
+
+  test('login path restores configured ECDSA targets independently from registration provisioning defaults', async () => {
+    const { deps, calls } = makeDeps({
+      configs: testConfigsWithConfiguredEcdsaChains(),
+    });
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
+    const submitted = await started.value.submit({ otpCode: '123456' });
+
+    expect(submitted.ok).toBe(true);
+    const loginCall = calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability');
+    expect(loginCall?.args).toMatchObject({
+      chainTarget: TEMPO_TARGET,
+      publicationChainTargets: [TEMPO_TARGET, EVM_TARGET],
+      challengeId: 'login-challenge-1',
+      otpCode: '123456',
+    });
+    expect(calls.find((call) => call.type === 'loginWithEmailOtpEd25519Capability')).toBeFalsy();
   });
 
   test('login path accepts exchange-reused login challenge without requesting another OTP', async () => {

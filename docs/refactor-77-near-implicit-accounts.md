@@ -729,9 +729,11 @@ Acceptance:
       account binding.
 - [x] Add integration or e2e tests where sponsored named registration returns a
       named account ID and transaction hash.
-- [ ] Update registration benchmark harness with separate implicit and sponsored
-      scenarios.
-- [ ] Record before/after numbers in `docs/benchmarks/registration-flow.md`.
+- [ ] Define replacement registration latency evidence for implicit and
+      sponsored scenarios on the real intended-behaviour topology. The old
+      `benchmark:registration-flow` runner was retired by Refactor 88 because
+      it depended on a deleted managed-registration mock harness.
+- [ ] Record before/after numbers in a replacement benchmark report.
 
 Acceptance:
 
@@ -968,7 +970,8 @@ registration persistence, wallet session scope, and signing readiness.
 
 ## Review: Completion Pass, 2026-06-25
 
-Status: Phase 1-8 implementation is complete; benchmark capture remains open.
+Status: Phase 1-8 implementation is complete; benchmark capture remains open
+pending the post-Refactor 88 real-topology benchmark replacement.
 
 - [x] Public/server registration exposes implicit and sponsored named account
   provisioning branches.

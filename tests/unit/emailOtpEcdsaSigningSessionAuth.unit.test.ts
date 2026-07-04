@@ -219,7 +219,7 @@ function committedLaneForAuth(args: {
   };
 }
 
-test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is missing', async () => {
+test('Email OTP ECDSA bridge uses source authority while refreshing the selected target', async () => {
   const walletId = toAccountId('otp-refresh.testnet');
   const ecdsaWalletId = toWalletId(walletId);
   const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-sealed-ecdsa');
@@ -292,7 +292,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
       committedLane: receivedCommittedLane,
       chainTarget,
     }) => {
-      expect(chainTarget).toEqual(sourceChainTarget);
+      expect(chainTarget).toEqual(tempoChainTarget);
       loginCalls.push(receivedCommittedLane.authLane);
       return emptyEmailOtpEcdsaSigningBootstrapResult();
     },
@@ -453,6 +453,7 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     relayerUrl: 'https://relay.example.test',
     ecdsaRestore: {
       chainTarget: sourceChainTarget,
+      source: 'email_otp',
       evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(walletId),
       providerSubjectId: emailOtpAuth.providerSubjectId,
       emailHashHex: emailOtpEmailHashHex,

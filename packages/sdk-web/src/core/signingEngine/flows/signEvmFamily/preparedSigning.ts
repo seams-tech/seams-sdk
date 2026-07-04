@@ -1,4 +1,5 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   EcdsaLaneCandidate,
   SelectedEcdsaLane,
@@ -80,8 +81,10 @@ import {
 import {
   ecdsaCommittedLaneAuthMethod,
   resolveEvmFamilyEcdsaSigningSelection,
+  resolvedEvmFamilyEcdsaSigningLaneFromCandidate,
   type EvmFamilyEcdsaSigningSelectionResult,
   type EvmFamilyEcdsaSigningSelectionDeps,
+  type PasskeyEcdsaCommittedLane,
   type ReadyEvmFamilyEcdsaSigningSelection,
   type ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
@@ -234,6 +237,24 @@ function summarizeEcdsaLaneCandidate(
   };
 }
 
+export function resolveEvmFamilyEcdsaRestoreMaterialLane(args: {
+  laneCandidate: EcdsaLaneCandidate;
+  transactionLane: SelectedEcdsaLane;
+}): SelectedEcdsaLane {
+  switch (args.laneCandidate.source) {
+    case 'evm_family_shared_key':
+      return resolvedEvmFamilyEcdsaSigningLaneFromCandidate({
+        ...args.laneCandidate,
+        chain: args.laneCandidate.sourceChainTarget.kind,
+        chainTarget: args.laneCandidate.sourceChainTarget,
+      });
+    case 'durable_sealed_record':
+    case 'runtime_session_record':
+    case 'unknown':
+      return args.transactionLane;
+  }
+}
+
 function assertSelectionMatchesLaneCandidate(args: {
   candidate: EcdsaLaneCandidate;
   selection: ReadyEvmFamilyEcdsaSigningSelection;
@@ -321,7 +342,7 @@ function readinessFromSelection(
     case 'reauth_required': {
       const committedAuthMethod = ecdsaCommittedLaneAuthMethod(selection.committedLane);
       if (
-        committedAuthMethod === 'passkey' &&
+        isPasskeyReauthRequiredSelection(selection) &&
         selection.reason === 'missing_hot_material' &&
         selection.material.kind === 'reauth_required' &&
         selection.material.reason === 'missing_inline_share'
@@ -334,6 +355,22 @@ function readinessFromSelection(
           0,
           Math.floor(Number(selection.material.record.remainingUses) || 0),
         );
+        const trustedBudgetStatusAuth = trustedBudgetStatusAuthFromPasskeyCommittedLane(
+          selection.committedLane,
+        );
+        if (trustedBudgetStatusAuth.kind === 'trusted_budget_status_auth') {
+          return {
+            readiness: {
+              status: 'ready',
+              thresholdSessionId: selection.lane.thresholdSessionId,
+              expiresAtMs,
+              remainingUses,
+            },
+            expiresAtMs,
+            remainingUses,
+            trustedBudgetStatusAuth,
+          };
+        }
         return {
           readiness: {
             status: 'ready',
@@ -343,9 +380,7 @@ function readinessFromSelection(
           },
           expiresAtMs,
           remainingUses,
-          trustedBudgetStatusAuth: {
-            kind: 'no_trusted_budget_status_auth',
-          },
+          trustedBudgetStatusAuth,
         };
       }
       const status =
@@ -447,6 +482,47 @@ function budgetStatusAuthFromReadyEcdsaMaterial(args: {
     thresholdSessionId,
     walletSessionJwt,
   };
+}
+
+function trustedBudgetStatusAuthFromPasskeyCommittedLane(
+  committedLane: PasskeyEcdsaCommittedLane,
+): EvmFamilyPlannerReadiness['trustedBudgetStatusAuth'] {
+  const authority = committedLane.walletSessionAuthority;
+  if (authority.kind !== 'wallet_session_authority') {
+    return { kind: 'no_trusted_budget_status_auth' };
+  }
+  const relayerUrl = String(committedLane.record.relayerUrl || '').trim();
+  const thresholdSessionId = String(authority.thresholdSessionId || '').trim();
+  const signingGrantId = String(authority.signingGrantId || '').trim();
+  const walletSessionJwt = String(authority.walletSessionJwt || '').trim();
+  if (!relayerUrl || !thresholdSessionId || !signingGrantId || !walletSessionJwt) {
+    return { kind: 'no_trusted_budget_status_auth' };
+  }
+  if (
+    String(committedLane.record.thresholdSessionId) !== thresholdSessionId ||
+    String(committedLane.record.signingGrantId) !== signingGrantId
+  ) {
+    throw new Error(
+      '[SigningSessionBudget] committed passkey ECDSA lane budget authority does not match record',
+    );
+  }
+  return {
+    kind: 'trusted_budget_status_auth',
+    auth: {
+      relayerUrl,
+      thresholdSessionId,
+      walletSessionJwt,
+    },
+  };
+}
+
+function isPasskeyReauthRequiredSelection(
+  selection: ReauthRequiredEvmFamilyEcdsaSigningSelection,
+): selection is Extract<
+  ReauthRequiredEvmFamilyEcdsaSigningSelection,
+  { authMethod: 'passkey' }
+> {
+  return selection.authMethod === SIGNER_AUTH_METHODS.passkey;
 }
 
 function assertPreparedMaterialBindingMatchesOperation(args: {
@@ -725,8 +801,12 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
           };
           try {
-            const transactionLaneSigner = requireEvmFamilyEcdsaSigner(
-              transactionLane.identity,
+            const restoreMaterialLane = resolveEvmFamilyEcdsaRestoreMaterialLane({
+              laneCandidate,
+              transactionLane,
+            });
+            const restoreMaterialLaneSigner = requireEvmFamilyEcdsaSigner(
+              restoreMaterialLane.identity,
               'EVM-family restore material identity',
             );
             const result = await args.deps.restorePersistedSessionForSigning({
@@ -739,8 +819,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               reason: 'transaction',
               materialRestoreIdentity: {
                 kind: 'ecdsa_role_local_restore',
-                lane: exactEcdsaSigningLaneIdentityFromSelectedLane(transactionLane),
-                ecdsaThresholdKeyId: transactionLaneSigner.key.ecdsaThresholdKeyId,
+                lane: exactEcdsaSigningLaneIdentityFromSelectedLane(restoreMaterialLane),
+                ecdsaThresholdKeyId: restoreMaterialLaneSigner.key.ecdsaThresholdKeyId,
               },
             });
             restoreResults[authMethod] = result;

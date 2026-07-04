@@ -101,7 +101,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             ...common,
             thresholdSessionId: 'old-passkey-session',
             signingGrantId: 'old-passkey-wallet-session',
@@ -110,7 +110,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             updatedAtMs: 1,
             source: 'login',
           });
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             ...common,
             thresholdSessionId: 'old-otp-session',
             signingGrantId: 'old-otp-wallet-session',
@@ -125,7 +125,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             },
             source: 'email_otp',
           });
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             ...common,
             thresholdSessionId: 'fresh-otp-session',
             signingGrantId: 'fresh-otp-wallet-session',
@@ -260,7 +260,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const storeMod = await import(paths.thresholdSessionStore);
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
-        storeMod.upsertStoredThresholdEd25519SessionRecord({
+        storeMod.upsertThresholdEd25519SessionFact({
           nearAccountId: 'alice.testnet',
           walletId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
@@ -386,7 +386,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const storeMod = await import(paths.thresholdSessionStore);
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
-        storeMod.upsertStoredThresholdEd25519SessionRecord({
+        storeMod.upsertThresholdEd25519SessionFact({
           nearAccountId,
           walletId,
           nearEd25519SigningKeyId,
@@ -517,7 +517,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
             nearEd25519SigningKeyId: 'alice.testnet',
@@ -745,7 +745,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           schemaVersion: 1,
         });
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
             nearEd25519SigningKeyId: 'alice.testnet',
@@ -796,6 +796,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
                 chainId: 42431,
                 networkSlug: 'tempo-testnet',
               },
+              source: 'login',
               rpId: 'example.localhost',
               credentialIdB64u: 'credential-ecdsa-login',
               evmFamilySigningKeySlotId:
@@ -1052,7 +1053,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
             nearEd25519SigningKeyId: 'alice.testnet',
@@ -1244,7 +1245,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
             nearEd25519SigningKeyId: 'alice.testnet',
@@ -1412,7 +1413,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
             nearEd25519SigningKeyId: 'alice.testnet',
@@ -1600,7 +1601,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
             nearEd25519SigningKeyId: 'alice.testnet',
@@ -1747,7 +1748,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           let errorMessage = '';
           try {
-            storeMod.upsertStoredThresholdEd25519SessionRecord({
+            storeMod.upsertThresholdEd25519SessionFact({
               nearAccountId: 'alice.testnet',
               walletId: 'alice.testnet',
               nearEd25519SigningKeyId: 'alice.testnet',
@@ -1826,7 +1827,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           let errorMessage = '';
           try {
-            storeMod.upsertStoredThresholdEd25519SessionRecord({
+            storeMod.upsertThresholdEd25519SessionFact({
               nearAccountId: 'alice.testnet',
               walletId: 'alice.testnet',
               nearEd25519SigningKeyId: 'alice.testnet',
@@ -1913,7 +1914,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         storeMod.clearAllThresholdEcdsaSessionRecords(ecdsaStoreDeps);
 
-        storeMod.upsertStoredThresholdEd25519SessionRecord({
+        storeMod.upsertThresholdEd25519SessionFact({
           nearAccountId: 'alice.testnet',
           walletId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
@@ -2134,7 +2135,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const nearAccountId = 'alice.testnet';
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId,
             walletId: nearAccountId,
             nearEd25519SigningKeyId: nearAccountId,
@@ -2235,7 +2236,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           )}.fixture`;
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId,
             walletId: nearAccountId,
             nearEd25519SigningKeyId: nearAccountId,
@@ -2356,6 +2357,124 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     });
   });
 
+  test('material persistence replaces stale Ed25519 lane keys for the same threshold session', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+        const nearAccountId = 'alice.testnet';
+        storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        try {
+          storeMod.upsertThresholdEd25519SessionFact({
+            nearAccountId,
+            walletId: nearAccountId,
+            nearEd25519SigningKeyId: nearAccountId,
+            signerSlot: 1,
+            rpId: 'example.localhost',
+            passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
+            relayerUrl: 'https://relay.example',
+            relayerKeyId: 'rk-ed25519',
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId: 'slot-shift-threshold-session',
+            signingGrantId: 'slot-shift-wallet-session',
+            walletSessionJwt: 'jwt-slot-shift',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: 'signing-worker-ed25519',
+            },
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+            source: 'login',
+          });
+
+          const before = storeMod
+            .listStoredThresholdEd25519SessionLaneRecordsForWallet(nearAccountId)
+            .map(
+              (record: { thresholdSessionId: string; signerSlot: number; materialState: string }) => ({
+                thresholdSessionId: record.thresholdSessionId,
+                signerSlot: record.signerSlot,
+                materialState: record.materialState,
+              }),
+            );
+          const persisted = storeMod.persistStoredThresholdEd25519SessionMaterialHandle({
+            thresholdSessionId: 'slot-shift-threshold-session',
+            ed25519WorkerMaterialHandle:
+              'ed25519-worker-material:slot-shift-threshold-session:new-binding',
+            materialKeyId: 'material-key-slot-shift',
+            ed25519WorkerMaterialBindingDigest: 'slot-shift-binding',
+            clientVerifyingShareB64u: 'slot-shift-client-verifying-share',
+            sealedWorkerMaterialRef: 'slot-shift-sealed-worker-material-ref',
+            sealedWorkerMaterialB64u: 'slot-shift-sealed-worker-material-blob',
+            materialFormatVersion: 'ed25519_worker_material_v1',
+            materialCreatedAtMs: 1_700_000_000_000,
+            signerSlot: 2,
+            keyVersion: 'threshold-ed25519-hss-v1',
+          });
+          const after = storeMod
+            .listStoredThresholdEd25519SessionLaneRecordsForWallet(nearAccountId)
+            .map(
+              (record: { thresholdSessionId: string; signerSlot: number; materialState: string }) => ({
+                thresholdSessionId: record.thresholdSessionId,
+                signerSlot: record.signerSlot,
+                materialState: record.materialState,
+              }),
+            );
+          const oldLane = storeMod.getStoredThresholdEd25519SessionRecordForLane({
+            walletId: nearAccountId,
+            nearAccountId,
+            nearEd25519SigningKeyId: nearAccountId,
+            authMethod: 'passkey',
+            signingGrantId: 'slot-shift-wallet-session',
+            thresholdSessionId: 'slot-shift-threshold-session',
+            signerSlot: 1,
+          });
+          const newLane = storeMod.getStoredThresholdEd25519SessionRecordForLane({
+            walletId: nearAccountId,
+            nearAccountId,
+            nearEd25519SigningKeyId: nearAccountId,
+            authMethod: 'passkey',
+            signingGrantId: 'slot-shift-wallet-session',
+            thresholdSessionId: 'slot-shift-threshold-session',
+            signerSlot: 2,
+          });
+          return {
+            before,
+            after,
+            persistedSignerSlot: persisted?.signerSlot ?? null,
+            oldLanePresent: Boolean(oldLane),
+            newLanePresent: Boolean(newLane),
+          };
+        } finally {
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      before: [
+        {
+          thresholdSessionId: 'slot-shift-threshold-session',
+          signerSlot: 1,
+          materialState: 'auth_ready_material_pending',
+        },
+      ],
+      after: [
+        {
+          thresholdSessionId: 'slot-shift-threshold-session',
+          signerSlot: 2,
+          materialState: 'material_ready',
+        },
+      ],
+      persistedSignerSlot: 2,
+      oldLanePresent: false,
+      newLanePresent: true,
+    });
+  });
+
   test('prunes stale Ed25519 raw-material records from the active store', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
@@ -2363,7 +2482,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const nearAccountId = 'alice.testnet';
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          const upserted = storeMod.upsertStoredThresholdEd25519SessionRecord({
+          const upserted = storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId,
             walletId: nearAccountId,
             nearEd25519SigningKeyId: nearAccountId,
@@ -2457,7 +2576,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         const attempts: string[] = [];
         try {
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             ...baseRecord,
             runtimePolicyScope: {
               orgId: 'org-a',
@@ -2689,7 +2808,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             materialKeyId: 'cookie-material-key',
             materialCreatedAtMs: 1_700_000_000_000,
           };
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             ...cookieRecordInput,
           });
           const cookieRecord =

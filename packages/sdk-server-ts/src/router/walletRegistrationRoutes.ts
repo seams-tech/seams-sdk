@@ -315,6 +315,7 @@ const ED25519_HSS_FINALIZE_FORBIDDEN_FIELDS = [
 const ED25519_HSS_FINALIZE_ALLOWED_FIELDS = [
   'contextBindingB64u',
   'stagedEvaluatorArtifactB64u',
+  'addStageRequestMessageB64u',
 ] as const;
 
 const EMAIL_OTP_BACKUP_ACK_ALLOWED_FIELDS = [
@@ -1800,6 +1801,12 @@ function parseWalletRegistrationFinalizeRequest(
       'ed25519.evaluationResult.stagedEvaluatorArtifactB64u is required',
     );
     if (!stagedEvaluatorArtifactB64u.ok) return stagedEvaluatorArtifactB64u;
+    const addStageRequestMessageB64u = trimRequiredString(
+      evaluationResult,
+      'addStageRequestMessageB64u',
+      'ed25519.evaluationResult.addStageRequestMessageB64u is required',
+    );
+    if (!addStageRequestMessageB64u.ok) return addStageRequestMessageB64u;
     const forbiddenField = findOwnField(evaluationResult, ED25519_HSS_FINALIZE_FORBIDDEN_FIELDS);
     if (forbiddenField) {
       return {
@@ -1836,6 +1843,7 @@ function parseWalletRegistrationFinalizeRequest(
       evaluationResult: {
         contextBindingB64u: contextBindingB64u.value,
         stagedEvaluatorArtifactB64u: stagedEvaluatorArtifactB64u.value,
+        addStageRequestMessageB64u: addStageRequestMessageB64u.value,
       },
       ...(sessionKind ? { sessionKind } : {}),
       ...(sessionPolicy ? { sessionPolicy } : {}),

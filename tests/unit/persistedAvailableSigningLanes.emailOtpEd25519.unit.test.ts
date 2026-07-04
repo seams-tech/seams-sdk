@@ -9,7 +9,7 @@ import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngin
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   type ThresholdEd25519SessionUpsertInput,
-  upsertStoredThresholdEd25519SessionRecord,
+  upsertThresholdEd25519SessionFact,
 } from '@/core/signingEngine/session/persistence/records';
 import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
@@ -108,7 +108,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     let emailOtpStatusReads = 0;
 
     clearAllStoredThresholdEd25519SessionRecords();
-    upsertStoredThresholdEd25519SessionRecord({
+    upsertThresholdEd25519SessionFact({
       walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: WALLET_ID,
@@ -197,7 +197,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     let passkeyStatusReads = 0;
 
     clearAllStoredThresholdEd25519SessionRecords();
-    const record = upsertStoredThresholdEd25519SessionRecord(
+    const record = upsertThresholdEd25519SessionFact(
       runtimeValidatedPasskeyEd25519RecordInput({ thresholdSessionId, signingGrantId, nowMs }),
     );
     expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
@@ -252,7 +252,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     const nowMs = Date.now();
 
     clearAllStoredThresholdEd25519SessionRecords();
-    const record = upsertStoredThresholdEd25519SessionRecord(
+    const record = upsertThresholdEd25519SessionFact(
       runtimeValidatedPasskeyEd25519RecordInput({ thresholdSessionId, signingGrantId, nowMs }),
     );
     expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
@@ -324,7 +324,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     let budgetStatusReads = 0;
 
     clearAllStoredThresholdEd25519SessionRecords();
-    const record = upsertStoredThresholdEd25519SessionRecord(
+    const record = upsertThresholdEd25519SessionFact(
       runtimeValidatedPasskeyEd25519RecordInput({ thresholdSessionId, signingGrantId, nowMs }),
     );
     expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
@@ -398,7 +398,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     let emailOtpStatusReads = 0;
 
     clearAllStoredThresholdEd25519SessionRecords();
-    upsertStoredThresholdEd25519SessionRecord({
+    upsertThresholdEd25519SessionFact({
       walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: WALLET_ID,

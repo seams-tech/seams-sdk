@@ -37,6 +37,7 @@ import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBoo
 import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
+import type { DurableRecordStore } from '@/core/platform';
 
 export type EcdsaRoleLocalReadyRecordStorePorts = {
   recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
@@ -125,6 +126,7 @@ export function createPasskeyPublicDeps(args: {
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   walletSessionActivationDeps: WalletSessionActivationDeps;
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
 }): PasskeyPublicDeps {
   return {
     getWarmSession: (walletId) =>
@@ -148,6 +150,7 @@ export function createPasskeyPublicDeps(args: {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.walletSessionActivationDeps,
           touchConfirm: args.touchConfirm,
+          persistEcdsaRoleLocalReadyRecord: args.persistEcdsaRoleLocalReadyRecord,
           ecdsaSessions: args.warmSigning.ecdsaSessions,
           capabilityReader: args.warmSigning.capabilityReader,
         },

@@ -919,8 +919,8 @@ export class WalletIframeRouter {
     // these adapter functions, and the router delegates to OverlayController.
     this.progressBus = new OnEventsProgressBus(
       {
-        show: () => this.showFrameForActivation(),
-        hide: () => this.hideFrameForActivation(),
+        show: this.showFrameForActivation.bind(this),
+        hide: this.hideFrameAfterProgressDemandCleared.bind(this),
       },
       defaultOverlayIntentResolver,
       this.debug
@@ -2878,6 +2878,12 @@ export class WalletIframeRouter {
     if (!this.overlayState.controller.getState().visible) return;
     if (this.progressBus.wantsVisible()) return;
     this.overlayState.controller.hide();
+  }
+
+  private hideFrameAfterProgressDemandCleared(): void {
+    if (this.progressBus.wantsVisible()) return;
+    this.overlayState.forceFullscreen = false;
+    this.overlayState.controller.forceHide();
   }
 
   private releaseOverlayLockAndHideWhenIdle(): void {

@@ -172,6 +172,14 @@ function requireEmailOtpEcdsaCompanionLaneForEd25519Signing(
       );
     case 'not_found':
       throw new Error('Email OTP Ed25519 signing requires an exact concrete ECDSA bootstrap lane');
+    case 'ambiguous_material':
+      throw new Error(
+        `[EmailOtpSession] Email OTP Ed25519 signing ECDSA bootstrap lane is ambiguous: count=${selection.count}`,
+      );
+    case 'conflicting_key_material':
+      throw new Error(
+        `[EmailOtpSession] Email OTP Ed25519 signing ECDSA bootstrap lane has conflicting key material: field=${selection.field}, count=${selection.count}`,
+      );
     case 'display_only_fallback':
       throw new Error(
         'Email OTP Ed25519 signing cannot use display-only ECDSA bootstrap lane fallback',
@@ -432,9 +440,9 @@ export class EmailOtpEd25519Warmup {
     }
     const ecdsaCompanionLane = requireEmailOtpEcdsaCompanionLaneForEd25519Signing(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-        kind: 'signing_grant_exact',
+        kind: 'current_wallet_authority',
         walletId,
-        signingGrantId,
+        authority: args.committedLane.authority,
         listThresholdEcdsaSessionRecordsForWallet:
           this.ports.listThresholdEcdsaSessionRecordsForWallet,
       }),

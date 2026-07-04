@@ -4,7 +4,7 @@ Date created: July 1, 2026
 
 Status: planning.
 
-Parent plan: [Refactor 87 Modular Auth And Capability](./refactor-87-modular-auth-capabilities-plan.md)
+Parent plan: [Refactor 90 Modular Auth And Capability](./refactor-90-modular-auth-capabilities-plan.md)
 
 ## Goal
 
@@ -12,7 +12,7 @@ Minimize browser IndexedDB so it becomes a local cache and local secret-material
 store, not the durable source of truth for wallet, auth, signer, recovery,
 policy, budget, or capability identity.
 
-This supports the Refactor 87 direction where MPC signing is one capability of
+This supports the Refactor 90 direction where MPC signing is one capability of
 Seams Auth rather than the root account model. Cross-platform clients should be
 able to use the same server-side auth and capability records without recreating
 browser-specific IndexedDB state.

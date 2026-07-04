@@ -15,7 +15,7 @@ export type SessionExchangeRouteCommand =
       provider: string;
       accountMode?: 'register' | 'login';
       restartRegistrationOffer: boolean;
-      runtimeEnvironmentId?: string;
+      projectEnvironmentId?: string;
     }
   | {
       kind: 'passkey_assertion';
@@ -23,7 +23,7 @@ export type SessionExchangeRouteCommand =
       challengeId: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
       expectedOrigin?: string;
-      runtimeEnvironmentId?: string;
+      projectEnvironmentId?: string;
     };
 
 export type SessionExchangeRouteParseResult =
@@ -43,7 +43,7 @@ const SESSION_EXCHANGE_KEYS = [
   'sessionKind',
   'session_kind',
   'exchange',
-  'runtimeEnvironmentId',
+  'projectEnvironmentId',
 ] as const;
 const OIDC_EXCHANGE_KEYS = ['type', 'token', 'provider', 'account_mode', 'accountMode'] as const;
 const PASSKEY_EXCHANGE_KEYS = [
@@ -86,7 +86,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
       sessionKind,
     );
   }
-  const runtimeEnvironmentId = toOptionalTrimmedString(body.runtimeEnvironmentId) || undefined;
+  const projectEnvironmentId = toOptionalTrimmedString(body.projectEnvironmentId) || undefined;
   if (exchangeType === 'oidc_jwt') {
     const unsupportedExchangeKey = findUnexpectedRouteKey(exchange, OIDC_EXCHANGE_KEYS);
     if (unsupportedExchangeKey) {
@@ -122,7 +122,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
         provider,
         ...(accountMode ? { accountMode } : {}),
         restartRegistrationOffer: accountMode === 'register',
-        ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+        ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
       },
     };
   }
@@ -158,7 +158,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
       challengeId,
       webauthnAuthentication,
       ...(expectedOrigin ? { expectedOrigin } : {}),
-      ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+      ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
     },
   };
 }

@@ -185,7 +185,7 @@ test('Refactor 74 Phase 9 keeps ECDSA threshold-session lookup exact or fail-clo
   const exportedLookup = sourceRangeBetween(
     recordsSource,
     'export function getThresholdEcdsaSessionRecordByThresholdSessionId',
-    'export function upsertStoredThresholdEd25519SessionRecord',
+    'export function upsertThresholdEd25519SessionFact',
   );
 
   expect(inMemoryLookup).toContain('selectUniqueThresholdEcdsaRecordByThresholdSessionId({');
@@ -267,7 +267,7 @@ test('Refactor 74 Phase 9 uses typed restore and companion attachment outcomes',
   expect(companionSessions).toContain('export type EmailOtpCompanionSessionAttachResult =');
   expect(companionSessions).toContain("kind: 'missing_required_material'");
   expect(companionSessions).toContain("kind: 'not_required'");
-  expect(companionSessions).toContain("kind: 'signing_grant_exact'");
+  expect(companionSessions).toContain("kind: 'current_wallet_authority'");
   expect(companionSessions).toContain("kind: 'latest_wallet_record'");
   expect(companionSessions).toContain("kind: 'single_companion_lane'");
   expect(companionSessions).toContain("kind: 'chain_distinct_companion_lanes'");
@@ -285,7 +285,7 @@ test('Refactor 74 Phase 9 uses typed restore and companion attachment outcomes',
   expect(emailOtpProvisioning).toContain("case 'not_required':");
   expect(emailOtpProvisioning).toContain("case 'missing_required_material':");
   expect(emailOtpProvisioning).toContain("case 'failed':");
-  expect(companionTypecheck).toContain('Exact companion selection requires signingGrantId');
+  expect(companionTypecheck).toContain('Current companion selection requires wallet-bound authority');
 });
 
 test('Refactor 74 Phase 9 keeps exact signing out of account-scoped restore discovery', () => {

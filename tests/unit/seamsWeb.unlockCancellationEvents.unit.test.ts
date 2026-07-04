@@ -12,7 +12,7 @@ import {
   clearStoredThresholdEd25519SessionRecordForLaneKey,
   getStoredThresholdEd25519SessionRecordForAccount,
   thresholdEd25519SessionRecordKeyFromRecord,
-  upsertStoredThresholdEd25519SessionRecord,
+  upsertThresholdEd25519SessionFact,
 } from '@/core/signingEngine/session/persistence/records';
 
 const UNLOCK_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
@@ -20,7 +20,7 @@ const UNLOCK_WALLET_ID = 'frost-unlock-k7p9m2';
 const UNLOCK_NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-unlock-k7p9m2';
 
 function seedUnlockPasskeyWalletBinding(): void {
-  upsertStoredThresholdEd25519SessionRecord({
+  upsertThresholdEd25519SessionFact({
     walletId: UNLOCK_WALLET_ID,
     nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,

@@ -12,7 +12,7 @@ import {
   clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,
   persistStoredThresholdEd25519SessionMaterialHandle,
-  upsertStoredThresholdEcdsaSessionRecord,
+  upsertThresholdEcdsaSessionFact,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 import {
@@ -91,7 +91,7 @@ function rewritePersistedEcdsaSigningGrantForSplitBudgetTest(store: {
   const records = Array.from(store.recordsByLane.values());
   clearAllThresholdEcdsaSessionRecords(store as any);
   for (const record of records) {
-    upsertStoredThresholdEcdsaSessionRecord(store as any, {
+    upsertThresholdEcdsaSessionFact(store as any, {
       ...(record as Record<string, unknown>),
       signingGrantId: 'wallet-session-ed25519',
     });
@@ -700,6 +700,7 @@ function createContext(captures: Record<string, unknown>): any {
         return {
           contextBindingB64u: 'context-binding',
           stagedEvaluatorArtifactB64u: 'staged-artifact',
+          addStageRequestMessageB64u: 'add-stage-request',
         };
       },
       finalizeWalletEd25519SignerRegistration: async (input: Record<string, unknown>) => {
@@ -1568,6 +1569,7 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
         evaluationResult: {
           contextBindingB64u: 'context-binding',
           stagedEvaluatorArtifactB64u: 'staged-artifact',
+          addStageRequestMessageB64u: 'add-stage-request',
         },
         sessionKind: 'jwt',
       },
@@ -2117,6 +2119,7 @@ test('addWalletSigner orchestrates later Ed25519 from an ECDSA wallet', async ()
         evaluationResult: {
           contextBindingB64u: 'context-binding',
           stagedEvaluatorArtifactB64u: 'staged-artifact',
+          addStageRequestMessageB64u: 'add-stage-request',
         },
         sessionKind: 'jwt',
       },

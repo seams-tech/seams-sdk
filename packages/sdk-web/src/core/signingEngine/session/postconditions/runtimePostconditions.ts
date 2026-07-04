@@ -28,9 +28,11 @@ export type RuntimeLaneMaterial =
   | { kind: 'runtime_session_record'; sourceChainTarget?: never }
   | { kind: 'evm_family_shared_key'; sourceChainTarget: ThresholdEcdsaChainTarget };
 
-export type ReadyRuntimeLane =
+export type RuntimePostconditionLaneState = 'ready' | 'restorable';
+
+export type UsableRuntimeLane =
   | {
-      state: 'ready';
+      state: RuntimePostconditionLaneState;
       authMethod: RuntimePostconditionAuthMethod;
       target: { curve: 'ed25519'; chainTarget?: never };
       signingGrantId: string;
@@ -40,7 +42,7 @@ export type ReadyRuntimeLane =
       material: RuntimeLaneMaterial;
     }
   | {
-      state: 'ready';
+      state: RuntimePostconditionLaneState;
       authMethod: RuntimePostconditionAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
       signingGrantId: string;
@@ -53,8 +55,8 @@ export type ReadyRuntimeLane =
 export type WalletRuntimeInventory = {
   walletId: string;
   authMethod: RuntimePostconditionAuthMethod;
-  ed25519?: ReadyRuntimeLane;
-  ecdsaByTarget: ReadonlyMap<string, ReadyRuntimeLane>;
+  ed25519?: UsableRuntimeLane;
+  ecdsaByTarget: ReadonlyMap<string, UsableRuntimeLane>;
 };
 
 export type WalletRuntimePostconditionFailureCode =
@@ -99,6 +101,20 @@ function positiveInteger(value: unknown): number | null {
 function futureEpochMs(value: unknown, nowMs: number): number | null {
   const normalized = Math.floor(Number(value));
   return Number.isFinite(normalized) && normalized > nowMs ? normalized : null;
+}
+
+function laneRemainingUses(value: {
+  remainingUses?: number;
+  policyHint?: { remainingUses?: number };
+}): number | null {
+  return positiveInteger(value.remainingUses ?? value.policyHint?.remainingUses);
+}
+
+function laneExpiresAtMs(
+  value: { expiresAtMs?: number; policyHint?: { expiresAtMs?: number } },
+  nowMs: number,
+): number | null {
+  return futureEpochMs(value.expiresAtMs ?? value.policyHint?.expiresAtMs, nowMs);
 }
 
 function ecdsaMaterialForLane(lane: ConcreteAvailableEcdsaSigningLane): RuntimeLaneMaterial | null {
@@ -166,7 +182,7 @@ function readReadyEd25519Lane(args: {
   lanes: AvailableSigningLanes;
   authMethod: RuntimePostconditionAuthMethod;
   nowMs: number;
-}): ReadyRuntimeLane | WalletRuntimePostconditionFailureCode {
+}): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const candidates = args.lanes.candidates.ed25519.near;
   const readyCandidates = listNearEd25519TransactionReadyLanes(candidates);
   const authReadyCandidates = transactionReadyEd25519CandidatesForAuth({
@@ -196,8 +212,8 @@ function readReadyEd25519Lane(args: {
     return 'ed25519_lane_missing';
   }
   const availableLane = lane.availableLane;
-  const remainingSignatureUses = positiveInteger(availableLane.remainingUses);
-  const expiresAtMs = futureEpochMs(availableLane.expiresAtMs, args.nowMs);
+  const remainingSignatureUses = laneRemainingUses(availableLane);
+  const expiresAtMs = laneExpiresAtMs(availableLane, args.nowMs);
   if (
     !availableLane.signingGrantId ||
     !availableLane.thresholdSessionId ||
@@ -209,7 +225,7 @@ function readReadyEd25519Lane(args: {
   const material = ed25519MaterialForTransactionReadyLane(lane);
   if (!material) return 'lane_material_missing';
   return {
-    state: 'ready',
+    state: availableLane.state === 'restorable' ? 'restorable' : 'ready',
     authMethod: args.authMethod,
     target: { curve: 'ed25519' },
     signingGrantId: availableLane.signingGrantId,
@@ -225,23 +241,23 @@ function readEcdsaUseCaseReadyLane(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   authMethod: RuntimePostconditionAuthMethod;
   nowMs: number;
-}): ReadyRuntimeLane | WalletRuntimePostconditionFailureCode {
+}): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
   const lane = args.lanes.ecdsa.lanesByTarget[targetKey];
   if (!lane || lane.state === 'missing') return 'ecdsa_lane_missing';
   if (availableEcdsaSigningLaneAuthMethod(lane) !== args.authMethod) {
     return 'auth_method_route_mismatch';
   }
-  if (lane.state !== 'ready') return 'ecdsa_lane_missing';
-  const remainingSignatureUses = positiveInteger(lane.remainingUses);
-  const expiresAtMs = futureEpochMs(lane.expiresAtMs, args.nowMs);
+  if (lane.state !== 'ready' && lane.state !== 'restorable') return 'ecdsa_lane_missing';
+  const remainingSignatureUses = laneRemainingUses(lane);
+  const expiresAtMs = laneExpiresAtMs(lane, args.nowMs);
   if (!lane.signingGrantId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
   const material = ecdsaMaterialForLane(lane);
   if (!material) return 'lane_material_missing';
   return {
-    state: 'ready',
+    state: lane.state,
     authMethod: args.authMethod,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
     signingGrantId: lane.signingGrantId,
@@ -269,8 +285,8 @@ export async function readWalletRuntimePostconditions(args: {
     authMethod: args.authMethod,
   });
   const nowMs = args.nowMs ?? Date.now();
-  let ed25519: ReadyRuntimeLane | undefined;
-  const ecdsaByTarget = new Map<string, ReadyRuntimeLane>();
+  let ed25519: UsableRuntimeLane | undefined;
+  const ecdsaByTarget = new Map<string, UsableRuntimeLane>();
   for (const target of args.requiredTargets) {
     if (target.curve === 'ed25519') {
       const readyLane = readReadyEd25519Lane({
@@ -330,7 +346,7 @@ export async function readWalletRuntimePostconditions(args: {
   };
 }
 
-function laneMaterialShape(lane: ReadyRuntimeLane): string {
+function laneMaterialShape(lane: UsableRuntimeLane): string {
   if (lane.material.kind === 'evm_family_shared_key') {
     return `${lane.material.kind}:${thresholdEcdsaChainTargetKey(lane.material.sourceChainTarget)}`;
   }
@@ -338,8 +354,8 @@ function laneMaterialShape(lane: ReadyRuntimeLane): string {
 }
 
 function compareReadyLaneShape(args: {
-  left: ReadyRuntimeLane | undefined;
-  right: ReadyRuntimeLane | undefined;
+  left: UsableRuntimeLane | undefined;
+  right: UsableRuntimeLane | undefined;
   label: string;
 }): WalletRuntimePostconditionResult | null {
   if (!args.left && !args.right) return null;

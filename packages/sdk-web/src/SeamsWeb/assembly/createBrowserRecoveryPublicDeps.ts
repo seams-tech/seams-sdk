@@ -8,6 +8,10 @@ import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/port
 import {
   createRecoveryPublicDeps,
 } from '@/core/signingEngine/assembly/ports/recovery';
+import { provisionThresholdEd25519Session } from '@/core/signingEngine/session/passkey/ed25519SessionProvision';
+import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
+import type { RuntimePorts } from '@/core/platform';
+import type { WalletSessionActivationDeps } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type {
   RecoveryPublicDeps,
 } from '@/core/signingEngine/flows/recovery/public';
@@ -15,12 +19,16 @@ import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetS
 
 export function createBrowserRecoveryPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
+  runtimePorts: RuntimePorts;
   touchIdPrompt: TouchIdPrompt;
   signerWorkerManager: SignerWorkerManager;
+  credentialStore: SigningEngineStorePorts['recoveryAndDeviceLinking']['credentialStore'];
   keyMaterialStore: SigningEngineStorePorts['recoveryAndDeviceLinking']['keyMaterialStore'];
   warmSigning: WarmSigningPorts;
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
+  thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
+  getWalletSessionActivationDeps: () => WalletSessionActivationDeps;
   getTheme: () => ThemeName;
 }): RecoveryPublicDeps {
   return createRecoveryPublicDeps({
@@ -39,6 +47,32 @@ export function createBrowserRecoveryPublicDeps(args: {
     touchConfirm: args.touchConfirm,
     emailOtpSessions: args.emailOtpSessions,
     keyMaterialStore: args.keyMaterialStore,
+    provisionThresholdEd25519Session: (provisionArgs) =>
+      provisionThresholdEd25519Session(
+        {
+          credentialStore: args.credentialStore,
+          touchIdPrompt: args.touchIdPrompt,
+          touchConfirm: args.touchConfirm,
+          defaultRelayerUrl: args.seamsWebConfigs.network.relayer?.url || '',
+          getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
+        },
+        provisionArgs,
+      ),
+    provisionThresholdEcdsaSession: (provisionArgs) =>
+      provisionThresholdEcdsaSessionOperation(
+        {
+          queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
+          activationDeps: args.getWalletSessionActivationDeps(),
+          touchConfirm: args.touchConfirm,
+          persistEcdsaRoleLocalReadyRecord:
+            args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
+          resolveSealTransport: ({ lane }) =>
+            args.warmSigning.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+              lane,
+            }),
+        },
+        provisionArgs,
+      ),
     warmSessionPolicy: {
       getWarmSession: (walletId) => args.warmSigning.capabilityReader.getWarmSession(walletId),
       resolveExactEcdsaRecord: (recordArgs) =>

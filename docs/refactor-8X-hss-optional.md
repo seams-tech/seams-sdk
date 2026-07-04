@@ -295,14 +295,17 @@ Tasks:
 - [ ] bind the profile into registration intent and relay ceremony state
 - [ ] reject profile mismatch across `/wallets/register/start`,
       `/wallets/register/hss/respond`, and `/wallets/register/finalize`
-- [ ] keep existing benchmark scenarios on the HSS profile
+- [ ] define replacement registration latency evidence on the real
+      intended-behaviour topology; the old `benchmark:registration-flow`
+      runner was retired by Refactor 88 with its managed-registration mock
+      harness
 - [ ] update diagnostics to include sanitized profile kind
 
 Validation:
 
 - `pnpm -C sdk type-check`
 - focused registration orchestration tests
-- `pnpm benchmark:registration-flow:smoke`
+- replacement real-topology registration latency benchmark once available
 
 ## Phase 3: Local Device Profile
 

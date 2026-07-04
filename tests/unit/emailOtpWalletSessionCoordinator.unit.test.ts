@@ -18,7 +18,7 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   thresholdEcdsaLaneCandidateFromSessionRecord,
   type ThresholdEcdsaSessionRecord,
-  upsertStoredThresholdEcdsaSessionRecord,
+  upsertThresholdEcdsaSessionFact,
 } from '@/core/signingEngine/session/persistence/records';
 import {
   buildCurrentSealedSessionRecord,
@@ -431,6 +431,13 @@ function makeEmailOtpEcdsaRecordForSelection(args: {
   };
 }
 
+function emailOtpAuthorityFromEcdsaRecord(record: ThresholdEcdsaSessionRecord) {
+  if (record.source !== 'email_otp' || !record.emailOtpAuthContext) {
+    throw new Error('Email OTP ECDSA fixture requires Email OTP auth context');
+  }
+  return record.emailOtpAuthContext.authority;
+}
+
 function appSessionJwt(expSeconds = Math.floor(Date.now() / 1000) + 3600): string {
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: 'app_session_v1',
@@ -575,7 +582,7 @@ function buildEcdsaSealedRecordFixture(
         walletId: toWalletId(walletId),
         signingRootId,
         signingRootVersion: args.signingRootVersion || 'root-v1',
-    }),
+      }),
     providerSubjectId: args.ecdsaRestore?.providerSubjectId || 'google:subject',
     emailHashHex: args.ecdsaRestore?.emailHashHex || 'email-hash',
     walletSessionJwt:
@@ -1250,27 +1257,56 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     expect(workerCalls).toHaveLength(0);
   });
 
-  test('Email OTP ECDSA companion selection fails closed on signing-grant mismatch', () => {
+  test('Email OTP ECDSA companion selection chooses current authority after signing-grant rotation', () => {
+    const nowMs = Date.now();
     const records: ThresholdEcdsaSessionRecord[] = [
-      makeEmailOtpEcdsaRecordForSelection({
-        thresholdSessionId: 'ecdsa-session',
-        signingGrantId: 'different-wallet-session',
-        keyHandle: 'key-handle-ecdsa',
-        ecdsaThresholdKeyId: 'ecdsa-key',
-        relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'verifying-share',
-        updatedAtMs: Date.now(),
-      }),
+      {
+        ...makeEmailOtpEcdsaRecordForSelection({
+          thresholdSessionId: 'ecdsa-session-old',
+          signingGrantId: 'ed25519-stale-wallet-session',
+          keyHandle: 'key-handle-ecdsa',
+          ecdsaThresholdKeyId: 'ecdsa-key',
+          relayerKeyId: 'relayer-key',
+          clientVerifyingShareB64u: 'verifying-share',
+          updatedAtMs: nowMs,
+        }),
+        expiresAtMs: nowMs + 60_000,
+      },
+      {
+        ...makeEmailOtpEcdsaRecordForSelection({
+          thresholdSessionId: 'ecdsa-session-current',
+          signingGrantId: 'current-ecdsa-wallet-session',
+          keyHandle: 'key-handle-ecdsa',
+          ecdsaThresholdKeyId: 'ecdsa-key',
+          relayerKeyId: 'relayer-key',
+          clientVerifyingShareB64u: 'verifying-share',
+          updatedAtMs: nowMs + 1,
+        }),
+        expiresAtMs: nowMs + 120_000,
+      },
     ];
 
     expect(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-        kind: 'signing_grant_exact',
+        kind: 'current_wallet_authority',
         walletId: TEST_SUBJECT_ID,
-        signingGrantId: 'expected-wallet-session',
+        authority: emailOtpAuthorityFromEcdsaRecord(records[0]),
         listThresholdEcdsaSessionRecordsForWallet: () => records,
       }),
-    ).toMatchObject({ kind: 'not_found' });
+    ).toMatchObject({
+      kind: 'ready',
+      companion: {
+        kind: 'single_companion_lane',
+        lane: {
+          committedLane: {
+            record: {
+              thresholdSessionId: 'ecdsa-session-current',
+              signingGrantId: 'current-ecdsa-wallet-session',
+            },
+          },
+        },
+      },
+    });
 
     expect(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
@@ -1283,7 +1319,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       lane: {
         committedLane: {
           record: {
-            thresholdSessionId: 'ecdsa-session',
+            thresholdSessionId: 'ecdsa-session-current',
           },
         },
       },
@@ -1305,9 +1341,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     expect(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-        kind: 'signing_grant_exact',
+        kind: 'current_wallet_authority',
         walletId: TEST_SUBJECT_ID,
-        signingGrantId: 'wallet-session-ed25519',
+        authority: emailOtpAuthorityFromEcdsaRecord(records[0]),
         listThresholdEcdsaSessionRecordsForWallet: () => records,
       }),
     ).toMatchObject({
@@ -1352,15 +1388,15 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     expect(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-        kind: 'signing_grant_exact',
+        kind: 'current_wallet_authority',
         walletId: TEST_SUBJECT_ID,
-        signingGrantId: 'wallet-session-ed25519',
+        authority: emailOtpAuthorityFromEcdsaRecord(records[0]),
         listThresholdEcdsaSessionRecordsForWallet: () => records,
       }),
     ).toMatchObject({ kind: 'not_found' });
   });
 
-  test('Email OTP ECDSA companion selection rejects same-chain exact signing-grant duplicates', () => {
+  test('Email OTP ECDSA companion selection rejects multiple same-chain authority key groups', () => {
     const records: ThresholdEcdsaSessionRecord[] = [
       makeEmailOtpEcdsaRecordForSelection({
         thresholdSessionId: 'ecdsa-session-a',
@@ -1384,14 +1420,59 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     expect(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-        kind: 'signing_grant_exact',
+        kind: 'current_wallet_authority',
         walletId: TEST_SUBJECT_ID,
-        signingGrantId: 'wallet-session-ed25519',
+        authority: emailOtpAuthorityFromEcdsaRecord(records[0]),
         listThresholdEcdsaSessionRecordsForWallet: () => records,
       }),
     ).toMatchObject({
-      kind: 'duplicate_chain_lanes',
+      kind: 'ambiguous_material',
       count: 2,
+    });
+  });
+
+  test('Email OTP ECDSA companion selection canonicalizes same-chain records for one authority key', () => {
+    const nowMs = Date.now();
+    const records: ThresholdEcdsaSessionRecord[] = [
+      makeEmailOtpEcdsaRecordForSelection({
+        thresholdSessionId: 'ecdsa-session-old',
+        signingGrantId: 'wallet-session-ed25519',
+        keyHandle: 'key-handle-ecdsa-shared',
+        ecdsaThresholdKeyId: 'ecdsa-key-shared',
+        relayerKeyId: 'relayer-key-shared',
+        clientVerifyingShareB64u: 'verifying-share-shared',
+        updatedAtMs: nowMs,
+      }),
+      makeEmailOtpEcdsaRecordForSelection({
+        thresholdSessionId: 'ecdsa-session-current',
+        signingGrantId: 'wallet-session-ed25519',
+        keyHandle: 'key-handle-ecdsa-shared',
+        ecdsaThresholdKeyId: 'ecdsa-key-shared',
+        relayerKeyId: 'relayer-key-shared',
+        clientVerifyingShareB64u: 'verifying-share-shared',
+        updatedAtMs: nowMs + 1,
+      }),
+    ];
+
+    expect(
+      selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
+        kind: 'current_wallet_authority',
+        walletId: TEST_SUBJECT_ID,
+        authority: emailOtpAuthorityFromEcdsaRecord(records[0]),
+        listThresholdEcdsaSessionRecordsForWallet: () => records,
+      }),
+    ).toMatchObject({
+      kind: 'ready',
+      companion: {
+        kind: 'single_companion_lane',
+        lane: {
+          committedLane: {
+            record: {
+              thresholdSessionId: 'ecdsa-session-current',
+            },
+          },
+        },
+      },
     });
   });
 
@@ -1425,9 +1506,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     expect(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-        kind: 'signing_grant_exact',
+        kind: 'current_wallet_authority',
         walletId: TEST_SUBJECT_ID,
-        signingGrantId: 'wallet-session-ed25519',
+        authority: emailOtpAuthorityFromEcdsaRecord(records[0]),
         listThresholdEcdsaSessionRecordsForWallet: () => records,
       }),
     ).toMatchObject({
@@ -1471,9 +1552,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     expect(
       selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-        kind: 'signing_grant_exact',
+        kind: 'current_wallet_authority',
         walletId: TEST_SUBJECT_ID,
-        signingGrantId: 'wallet-session-ed25519',
+        authority: emailOtpAuthorityFromEcdsaRecord(records[0]),
         listThresholdEcdsaSessionRecordsForWallet: () => records,
       }),
     ).toMatchObject({
@@ -1555,6 +1636,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       emailOtpAuthContext: emailOtpAuthContextFixture({
         policy: 'per_operation',
         retention: 'single_use',
+        providerUserId: 'google:subject',
       }),
       source: 'email_otp' as const,
     };
@@ -3351,6 +3433,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         shamirPrimeB64u: 'prime-b64u',
         ecdsaRestore: {
           chainTarget: ecdsaRecord.chainTarget,
+          source: 'email_otp',
           rpId: 'example.com',
           walletSessionJwt: thresholdEcdsaSessionJwt({
             walletId: 'alice.testnet',

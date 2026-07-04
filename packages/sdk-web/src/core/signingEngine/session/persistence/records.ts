@@ -20,6 +20,7 @@ import type {
 import {
   buildEmailOtpAuthContext,
   emailOtpAuthContextConsumedAtMs,
+  emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
   emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
@@ -70,13 +71,14 @@ import {
   resolveThresholdSigningRootBindingFromRecord,
   toEvmFamilyEcdsaKeyHandle,
   toRpId,
-  walletSessionAuthInputFromPersistedThresholdSession,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
   type EvmFamilyEcdsaSessionLane,
   type ResolvedEvmFamilyEcdsaKey,
   type VerifiedEcdsaPublicFacts,
+  type BuildEcdsaWalletSessionTransportAuthInput,
 } from '../identity/evmFamilyEcdsaIdentity';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
 import {
   buildEvmFamilyEcdsaSignerBinding,
@@ -118,6 +120,16 @@ import {
 } from '@shared/signing-lanes';
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
+
+export type CurrentSessionCommitTransition = 'registration' | 'wallet_unlock' | 'step_up';
+
+type CurrentSessionRetirementDiagnostic = {
+  kind: 'retired_null_generation_legacy_fact';
+  thresholdSessionId: string;
+};
+
+declare const operationUsableThresholdEcdsaSessionRecord: unique symbol;
+declare const operationUsableThresholdEd25519SessionRecord: unique symbol;
 
 type ThresholdEcdsaSessionRecordCore = {
   walletId: WalletId;
@@ -187,6 +199,28 @@ export type NormalizedThresholdEcdsaSessionRecord =
   | EmailOtpEcdsaSessionRecord;
 
 export type ThresholdEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecord;
+
+export type OperationUsableThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecord & {
+  readonly [operationUsableThresholdEcdsaSessionRecord]: true;
+};
+
+export type ThresholdEcdsaSessionCommitResult =
+  | {
+      kind: 'committed_current';
+      current: OperationUsableThresholdEcdsaSessionRecord;
+      retired: readonly ThresholdEcdsaSessionRecord[];
+      diagnostics: readonly CurrentSessionRetirementDiagnostic[];
+    }
+  | {
+      kind: 'same_generation_distinct_session';
+      incoming: OperationUsableThresholdEcdsaSessionRecord;
+      existing: OperationUsableThresholdEcdsaSessionRecord;
+    }
+  | {
+      kind: 'stale_commit_ignored';
+      incoming: OperationUsableThresholdEcdsaSessionRecord;
+      current: OperationUsableThresholdEcdsaSessionRecord;
+    };
 
 export function thresholdEcdsaEmailOtpAuthContext(
   record: ThresholdEcdsaSessionRecord | null | undefined,
@@ -412,6 +446,33 @@ export type ThresholdEd25519SessionRecord =
   | ThresholdEd25519RestoreAvailableSessionRecord
   | ThresholdEd25519MaterialReadySessionRecord;
 
+export type OperationUsableThresholdEd25519SessionRecord = (
+  | ThresholdEd25519RestoreAvailableSessionRecord
+  | ThresholdEd25519MaterialReadySessionRecord
+) & {
+  signingGrantId: string;
+  walletSessionJwt: string;
+  readonly [operationUsableThresholdEd25519SessionRecord]: true;
+};
+
+export type ThresholdEd25519SessionCommitResult =
+  | {
+      kind: 'committed_current';
+      current: OperationUsableThresholdEd25519SessionRecord;
+      retired: readonly ThresholdEd25519SessionRecord[];
+      diagnostics: readonly CurrentSessionRetirementDiagnostic[];
+    }
+  | {
+      kind: 'same_generation_distinct_session';
+      incoming: OperationUsableThresholdEd25519SessionRecord;
+      existing: OperationUsableThresholdEd25519SessionRecord;
+    }
+  | {
+      kind: 'stale_commit_ignored';
+      incoming: OperationUsableThresholdEd25519SessionRecord;
+      current: OperationUsableThresholdEd25519SessionRecord;
+    };
+
 export function isThresholdEd25519MaterialPendingRecord(
   record: ThresholdEd25519SessionRecord,
 ): record is ThresholdEd25519MaterialPendingSessionRecord {
@@ -620,6 +681,21 @@ function thresholdEcdsaResolvedKeyFromRecord(
   }
 }
 
+function thresholdEcdsaWalletSessionAuthInputFromRecord(
+  record: ThresholdEcdsaSessionRecord,
+): BuildEcdsaWalletSessionTransportAuthInput {
+  const authority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
+  if (authority.kind !== 'ready') {
+    throw new Error(
+      `[threshold-ecdsa] persisted session record is missing Wallet Session authority: ${authority.reason}`,
+    );
+  }
+  return {
+    kind: 'wallet_session_jwt',
+    walletSessionJwt: authority.walletSessionJwt,
+  };
+}
+
 export function thresholdEcdsaSessionRecordReadModel(
   record: ThresholdEcdsaSessionRecord,
 ): ThresholdEcdsaSessionRecordReadModel {
@@ -634,10 +710,7 @@ export function thresholdEcdsaSessionRecordReadModel(
     source: record.source,
     thresholdSessionId: record.thresholdSessionId,
     signingGrantId: record.signingGrantId,
-    walletSessionAuth: walletSessionAuthInputFromPersistedThresholdSession({
-      thresholdSessionKind: record.thresholdSessionKind,
-      walletSessionJwt: record.walletSessionJwt,
-    }),
+    walletSessionAuth: thresholdEcdsaWalletSessionAuthInputFromRecord(record),
     remainingUses: record.remainingUses,
     expiresAtMs: record.expiresAtMs,
   });
@@ -1922,32 +1995,110 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   };
 }
 
-function rememberInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRecord): void {
+function forgetStaleInMemoryThresholdEd25519LaneForSession(args: {
+  thresholdSessionId: string;
+  currentLaneKey: string | null;
+}): void {
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return;
+  const currentLaneKey = String(args.currentLaneKey || '').trim();
+  const indexedLaneKey = String(
+    inMemoryEd25519LaneBySessionId.get(thresholdSessionId) || '',
+  ).trim();
+  if (!indexedLaneKey || indexedLaneKey === currentLaneKey) return;
+  const indexedLaneRecord = inMemoryEd25519RecordsByLane.get(indexedLaneKey) || null;
+  if (
+    indexedLaneRecord &&
+    String(indexedLaneRecord.thresholdSessionId || '').trim() === thresholdSessionId
+  ) {
+    inMemoryEd25519RecordsByLane.delete(indexedLaneKey);
+  }
+  inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
+}
+
+type Ed25519DefaultRecordPolicy = 'prefer_incoming' | 'prefer_current_generation';
+
+function thresholdSessionRecordGeneration(record: {
+  updatedAtMs?: number | null;
+  expiresAtMs?: number | null;
+}): number | null {
+  const updatedAtGeneration = Math.floor(Number(record.updatedAtMs) || 0);
+  if (Number.isFinite(updatedAtGeneration) && updatedAtGeneration > 0) {
+    return updatedAtGeneration;
+  }
+  const generation = Math.floor(Number(record.expiresAtMs) || 0);
+  return Number.isFinite(generation) && generation > 0 ? generation : null;
+}
+
+function shouldReplaceDefaultThresholdSessionRecord(args: {
+  existing:
+    | { thresholdSessionId?: string; updatedAtMs?: number | null; expiresAtMs?: number | null }
+    | null
+    | undefined;
+  incoming: { thresholdSessionId?: string; updatedAtMs?: number | null; expiresAtMs?: number | null };
+  policy: Ed25519DefaultRecordPolicy;
+}): boolean {
+  if (args.policy === 'prefer_incoming') return true;
+  const existing = args.existing;
+  if (!existing) return true;
+  const existingSessionId = String(existing.thresholdSessionId || '').trim();
+  const incomingSessionId = String(args.incoming.thresholdSessionId || '').trim();
+  if (existingSessionId && existingSessionId === incomingSessionId) return true;
+  const existingGeneration = thresholdSessionRecordGeneration(existing);
+  const incomingGeneration = thresholdSessionRecordGeneration(args.incoming);
+  if (!existingGeneration && incomingGeneration) return true;
+  if (existingGeneration && incomingGeneration) return incomingGeneration > existingGeneration;
+  return !existingGeneration && !incomingGeneration;
+}
+
+function rememberInMemoryThresholdEd25519Record(
+  record: ThresholdEd25519SessionRecord,
+  defaultPolicy: Ed25519DefaultRecordPolicy = 'prefer_incoming',
+): void {
   const accountKey = String(record.nearAccountId || '').trim();
   const walletKey = String(record.walletId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || '').trim();
   if (!accountKey || !walletKey || !thresholdSessionId) return;
-
-  const previous = inMemoryEd25519RecordsByAccount.get(accountKey);
-  const previousSessionId = String(previous?.thresholdSessionId || '').trim();
-  if (previousSessionId && previousSessionId !== thresholdSessionId) {
-    inMemoryEd25519AccountBySessionId.delete(previousSessionId);
-  }
-  const previousWallet = inMemoryEd25519RecordsByWallet.get(walletKey);
-  const previousWalletSessionId = String(previousWallet?.thresholdSessionId || '').trim();
-  if (previousWalletSessionId && previousWalletSessionId !== thresholdSessionId) {
-    inMemoryEd25519WalletBySessionId.delete(previousWalletSessionId);
-  }
+  const laneKey = getThresholdEd25519SessionLaneKeyForRecord(record);
+  forgetStaleInMemoryThresholdEd25519LaneForSession({
+    thresholdSessionId,
+    currentLaneKey: laneKey,
+  });
 
   // The account index tracks the default lane; the lane/session indexes retain
   // exact in-flight sessions so concurrent step-up operations cannot displace
   // each other's planned material.
-  inMemoryEd25519RecordsByAccount.set(accountKey, record);
-  inMemoryEd25519AccountBySessionId.set(thresholdSessionId, accountKey);
-  inMemoryEd25519RecordsByWallet.set(walletKey, record);
-  inMemoryEd25519WalletBySessionId.set(thresholdSessionId, walletKey);
+  const previous = inMemoryEd25519RecordsByAccount.get(accountKey);
+  if (
+    shouldReplaceDefaultThresholdSessionRecord({
+      existing: previous,
+      incoming: record,
+      policy: defaultPolicy,
+    })
+  ) {
+    const previousSessionId = String(previous?.thresholdSessionId || '').trim();
+    if (previousSessionId && previousSessionId !== thresholdSessionId) {
+      inMemoryEd25519AccountBySessionId.delete(previousSessionId);
+    }
+    inMemoryEd25519RecordsByAccount.set(accountKey, record);
+    inMemoryEd25519AccountBySessionId.set(thresholdSessionId, accountKey);
+  }
+  const previousWallet = inMemoryEd25519RecordsByWallet.get(walletKey);
+  if (
+    shouldReplaceDefaultThresholdSessionRecord({
+      existing: previousWallet,
+      incoming: record,
+      policy: defaultPolicy,
+    })
+  ) {
+    const previousWalletSessionId = String(previousWallet?.thresholdSessionId || '').trim();
+    if (previousWalletSessionId && previousWalletSessionId !== thresholdSessionId) {
+      inMemoryEd25519WalletBySessionId.delete(previousWalletSessionId);
+    }
+    inMemoryEd25519RecordsByWallet.set(walletKey, record);
+    inMemoryEd25519WalletBySessionId.set(thresholdSessionId, walletKey);
+  }
 
-  const laneKey = getThresholdEd25519SessionLaneKeyForRecord(record);
   if (!laneKey) return;
   const previousLaneRecord = inMemoryEd25519RecordsByLane.get(laneKey);
   const previousLaneSessionId = String(previousLaneRecord?.thresholdSessionId || '').trim();
@@ -2461,6 +2612,204 @@ function getThresholdEd25519SessionLaneKeyForRecord(
   return key ? serializeThresholdEd25519SessionLaneKey(key) : null;
 }
 
+function thresholdEd25519AuthSupersessionKey(
+  record: ThresholdEd25519SessionRecord,
+): string | null {
+  if (record.source === 'email_otp') {
+    const providerSubjectId = record.emailOtpAuthContext
+      ? emailOtpAuthContextProviderUserId(record.emailOtpAuthContext)
+      : '';
+    return providerSubjectId ? `email_otp:${providerSubjectId}` : null;
+  }
+  const rpId = String(record.rpId || '').trim();
+  const credentialIdB64u = normalizeOptionalNonEmptyString(record.passkeyCredentialIdB64u);
+  return rpId && credentialIdB64u ? `passkey:${rpId}:${credentialIdB64u}` : null;
+}
+
+function thresholdEd25519SupersessionGroupKey(
+  record: ThresholdEd25519SessionRecord,
+): string | null {
+  const walletId = String(record.walletId || '').trim();
+  const nearAccountId = String(record.nearAccountId || '').trim();
+  const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
+  const signerSlot = parseSignerSlot(record.signerSlot);
+  const authKey = thresholdEd25519AuthSupersessionKey(record);
+  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !signerSlot || !authKey) {
+    return null;
+  }
+  return [
+    encodeLaneToken(walletId),
+    encodeLaneToken(nearAccountId),
+    encodeLaneToken(nearEd25519SigningKeyId),
+    encodeLaneToken(authKey),
+    encodeLaneToken(String(signerSlot)),
+  ].join('|');
+}
+
+export function buildOperationUsableThresholdEd25519SessionRecord(
+  record: ThresholdEd25519SessionRecord,
+): OperationUsableThresholdEd25519SessionRecord | null {
+  if (record.materialState === 'auth_ready_material_pending') return null;
+  if (!String(record.thresholdSessionId || '').trim()) return null;
+  if (!String(record.signingGrantId || '').trim()) return null;
+  if (!String(record.walletSessionJwt || '').trim()) return null;
+  if (Math.floor(Number(record.remainingUses) || 0) <= 0) return null;
+  if (!thresholdSessionRecordGeneration(record)) return null;
+  if (!thresholdEd25519SupersessionGroupKey(record)) return null;
+  return record as OperationUsableThresholdEd25519SessionRecord;
+}
+
+export function describeOperationUsableThresholdEd25519SessionRecordRejection(
+  record: ThresholdEd25519SessionRecord,
+): readonly string[] {
+  const reasons: string[] = [];
+  if (record.materialState === 'auth_ready_material_pending') {
+    reasons.push('material_pending');
+  }
+  if (!String(record.thresholdSessionId || '').trim()) {
+    reasons.push('missing_threshold_session_id');
+  }
+  if (!String(record.signingGrantId || '').trim()) {
+    reasons.push('missing_signing_grant_id');
+  }
+  if (!String(record.walletSessionJwt || '').trim()) {
+    reasons.push('missing_wallet_session_jwt');
+  }
+  if (Math.floor(Number(record.remainingUses) || 0) <= 0) {
+    reasons.push('non_positive_remaining_uses');
+  }
+  if (!thresholdSessionRecordGeneration(record)) {
+    reasons.push('missing_session_generation');
+  }
+  if (!thresholdEd25519SupersessionGroupKey(record)) {
+    reasons.push('missing_supersession_group');
+  }
+  return reasons;
+}
+
+function thresholdEd25519SessionId(record: ThresholdEd25519SessionRecord): string {
+  return String(record.thresholdSessionId || '').trim();
+}
+
+function sameThresholdEd25519SupersessionGroup(args: {
+  incoming: ThresholdEd25519SessionRecord;
+  existing: ThresholdEd25519SessionRecord;
+}): boolean {
+  const incomingGroupKey = thresholdEd25519SupersessionGroupKey(args.incoming);
+  return Boolean(
+    incomingGroupKey &&
+      thresholdEd25519SupersessionGroupKey(args.existing) === incomingGroupKey,
+  );
+}
+
+function thresholdEd25519SameGroupRecords(
+  incomingRecord: ThresholdEd25519SessionRecord,
+): ThresholdEd25519SessionRecord[] {
+  return [...inMemoryEd25519RecordsByLane.values()].filter((existingRecord) =>
+    sameThresholdEd25519SupersessionGroup({
+      incoming: incomingRecord,
+      existing: existingRecord,
+    }),
+  );
+}
+
+function storeThresholdEd25519SessionFact(args: {
+  record: ThresholdEd25519SessionRecord;
+  defaultPolicy: Ed25519DefaultRecordPolicy;
+}): ThresholdEd25519SessionRecord {
+  rememberInMemoryThresholdEd25519Record(args.record, args.defaultPolicy);
+  return args.record;
+}
+
+export function commitCurrentThresholdEd25519Session(args: {
+  record: OperationUsableThresholdEd25519SessionRecord;
+  transition: CurrentSessionCommitTransition;
+}): ThresholdEd25519SessionCommitResult {
+  const incomingRecord = args.record;
+  const incomingGeneration = thresholdSessionRecordGeneration(incomingRecord);
+  if (!incomingGeneration) {
+    throw new Error('Current Ed25519 session commit requires server-issued generation');
+  }
+  const incomingSessionId = thresholdEd25519SessionId(incomingRecord);
+  const existingRecords = thresholdEd25519SameGroupRecords(incomingRecord);
+  for (const existingRecord of existingRecords) {
+    const existingGeneration = thresholdSessionRecordGeneration(existingRecord);
+    const existingSessionId = thresholdEd25519SessionId(existingRecord);
+    if (existingSessionId === incomingSessionId) continue;
+    const existingCurrent = buildOperationUsableThresholdEd25519SessionRecord(existingRecord);
+    if (existingCurrent && existingGeneration && existingGeneration > incomingGeneration) {
+      return {
+        kind: 'stale_commit_ignored',
+        incoming: incomingRecord,
+        current: existingCurrent,
+      };
+    }
+    if (existingCurrent && existingGeneration === incomingGeneration) {
+      storeThresholdEd25519SessionFact({
+        record: incomingRecord,
+        defaultPolicy: 'prefer_current_generation',
+      });
+      return {
+        kind: 'same_generation_distinct_session',
+        incoming: incomingRecord,
+        existing: existingCurrent,
+      };
+    }
+  }
+
+  storeThresholdEd25519SessionFact({
+    record: incomingRecord,
+    defaultPolicy: 'prefer_incoming',
+  });
+
+  const incomingLaneKey = getThresholdEd25519SessionLaneKeyForRecord(incomingRecord);
+  const retired: ThresholdEd25519SessionRecord[] = [];
+  const diagnostics: CurrentSessionRetirementDiagnostic[] = [];
+  for (const existingRecord of existingRecords) {
+    const existingLaneKey = getThresholdEd25519SessionLaneKeyForRecord(existingRecord);
+    if (incomingLaneKey && existingLaneKey === incomingLaneKey) continue;
+    const existingSessionId = thresholdEd25519SessionId(existingRecord);
+    const existingGeneration = thresholdSessionRecordGeneration(existingRecord);
+    const shouldRetire =
+      existingSessionId === incomingSessionId ||
+      existingGeneration === null ||
+      existingGeneration < incomingGeneration;
+    if (!shouldRetire) continue;
+    if (existingGeneration === null) {
+      diagnostics.push({
+        kind: 'retired_null_generation_legacy_fact',
+        thresholdSessionId: existingSessionId,
+      });
+    }
+    forgetInMemoryThresholdEd25519Record(existingRecord);
+    retired.push(existingRecord);
+  }
+
+  return {
+    kind: 'committed_current',
+    current: incomingRecord,
+    retired,
+    diagnostics,
+  };
+}
+
+export function requireCommittedThresholdEd25519Session(
+  result: ThresholdEd25519SessionCommitResult,
+): OperationUsableThresholdEd25519SessionRecord {
+  switch (result.kind) {
+    case 'committed_current':
+      return result.current;
+    case 'same_generation_distinct_session':
+      throw new Error('Current Ed25519 session commit produced same-generation distinct sessions');
+    case 'stale_commit_ignored':
+      throw new Error('Current Ed25519 session commit was stale');
+    default: {
+      const exhaustive: never = result;
+      throw new Error(String((exhaustive as { kind?: unknown })?.kind || 'unknown'));
+    }
+  }
+}
+
 function thresholdEd25519RecordMatchesLane(
   record: ThresholdEd25519SessionRecord,
   lane: ThresholdEd25519SessionRecordKey,
@@ -2912,9 +3261,7 @@ function buildEcdsaRecordFromBootstrap(
     keyRef.signingGrantId ||
       (args.bootstrap.session as { signingGrantId?: unknown }).signingGrantId,
   );
-  const walletSessionJwt = normalizeOptionalNonEmptyString(
-    keyRef.walletSessionJwt || args.bootstrap.session.jwt,
-  );
+  const walletSessionJwt = normalizeOptionalNonEmptyString(args.bootstrap.session.jwt);
   const runtimePolicyScope =
     normalizeThresholdRuntimePolicyScope(
       (args.bootstrap.session as { runtimePolicyScope?: unknown }).runtimePolicyScope,
@@ -3022,35 +3369,208 @@ function sameCurrentPasskeyWalletTarget(args: {
   );
 }
 
-function clearConflictingCurrentPasskeyThresholdEcdsaRecords(args: {
+function sameEmailOtpAuthorityKey(args: {
+  incoming: EmailOtpEcdsaSessionRecord;
+  existing: EmailOtpEcdsaSessionRecord;
+}): boolean {
+  return (
+    emailOtpAuthContextProvider(args.incoming.emailOtpAuthContext) ===
+      emailOtpAuthContextProvider(args.existing.emailOtpAuthContext) &&
+    emailOtpAuthContextProviderUserId(args.incoming.emailOtpAuthContext) ===
+      emailOtpAuthContextProviderUserId(args.existing.emailOtpAuthContext)
+  );
+}
+
+function sameEmailOtpEcdsaLaneGroup(args: {
+  incoming: ThresholdEcdsaSessionRecord;
+  existing: ThresholdEcdsaSessionRecord;
+}): boolean {
+  if (args.incoming.source !== 'email_otp' || args.existing.source !== 'email_otp') return false;
+  return (
+    String(args.incoming.walletId) === String(args.existing.walletId) &&
+    String(args.incoming.evmFamilySigningKeySlotId) ===
+      String(args.existing.evmFamilySigningKeySlotId) &&
+    String(args.incoming.ecdsaThresholdKeyId) === String(args.existing.ecdsaThresholdKeyId) &&
+    String(args.incoming.signingRootId) === String(args.existing.signingRootId) &&
+    String(args.incoming.signingRootVersion || 'default') ===
+      String(args.existing.signingRootVersion || 'default') &&
+    sameEmailOtpAuthorityKey({
+      incoming: args.incoming,
+      existing: args.existing,
+    })
+  );
+}
+
+function sameEmailOtpEcdsaSupersessionTarget(args: {
+  incoming: ThresholdEcdsaSessionRecord;
+  existing: ThresholdEcdsaSessionRecord;
+}): boolean {
+  return (
+    sameEmailOtpEcdsaLaneGroup(args) &&
+    thresholdEcdsaChainTargetsEqual(args.incoming.chainTarget, args.existing.chainTarget)
+  );
+}
+
+function clearStoredThresholdEcdsaLane(args: {
   deps: ThresholdEcdsaSessionStoreDeps;
-  incomingLaneKey: string;
-  incomingRecord: ThresholdEcdsaSessionRecord;
+  laneKey: string;
 }): void {
-  if (!isPasskeyThresholdEcdsaSessionSource(args.incomingRecord.source)) {
-    return;
+  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(args.deps);
+  const persistedRecord = args.deps.recordsByLane.get(args.laneKey);
+  if (persistedRecord) {
+    deindexThresholdEcdsaRecord(depsIndex, args.laneKey, persistedRecord);
+    args.deps.recordsByLane.delete(args.laneKey);
+    args.deps.exportArtifactsByLane?.delete(args.laneKey);
+  }
+  forgetInMemoryThresholdEcdsaRecord(args.laneKey);
+}
+
+export function buildOperationUsableThresholdEcdsaSessionRecord(
+  record: ThresholdEcdsaSessionRecord,
+): OperationUsableThresholdEcdsaSessionRecord | null {
+  if (!String(record.thresholdSessionId || '').trim()) return null;
+  if (!String(record.signingGrantId || '').trim()) return null;
+  if (record.thresholdSessionKind === 'jwt' && !String(record.walletSessionJwt || '').trim()) {
+    return null;
+  }
+  if (Math.floor(Number(record.remainingUses) || 0) <= 0) return null;
+  if (!thresholdSessionRecordGeneration(record)) return null;
+  return record as OperationUsableThresholdEcdsaSessionRecord;
+}
+
+function thresholdEcdsaSessionId(record: ThresholdEcdsaSessionRecord): string {
+  return String(record.thresholdSessionId || '').trim();
+}
+
+function sameThresholdEcdsaCurrentCommitTarget(args: {
+  incoming: ThresholdEcdsaSessionRecord;
+  existing: ThresholdEcdsaSessionRecord;
+}): boolean {
+  if (args.incoming.source === 'email_otp') {
+    return sameEmailOtpEcdsaSupersessionTarget(args);
+  }
+  return sameCurrentPasskeyWalletTarget(args);
+}
+
+function thresholdEcdsaSameTargetRecords(args: {
+  deps: ThresholdEcdsaSessionStoreDeps;
+  incomingRecord: ThresholdEcdsaSessionRecord;
+}): ThresholdEcdsaSessionRecord[] {
+  return listAllThresholdEcdsaRecords(args.deps).filter((existingRecord) =>
+    sameThresholdEcdsaCurrentCommitTarget({
+      incoming: args.incomingRecord,
+      existing: existingRecord,
+    }),
+  );
+}
+
+function storeThresholdEcdsaSessionFact(args: {
+  deps: ThresholdEcdsaSessionStoreDeps;
+  laneKey: string;
+  record: ThresholdEcdsaSessionRecord;
+}): ThresholdEcdsaSessionRecord {
+  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(args.deps);
+  const previous = args.deps.recordsByLane.get(args.laneKey);
+  if (previous) {
+    deindexThresholdEcdsaRecord(depsIndex, args.laneKey, previous);
+  }
+  args.deps.recordsByLane.set(args.laneKey, args.record);
+  indexThresholdEcdsaRecord(depsIndex, args.laneKey, args.record);
+  rememberInMemoryThresholdEcdsaRecord(args.record);
+  return args.record;
+}
+
+export function commitCurrentThresholdEcdsaSession(args: {
+  deps: ThresholdEcdsaSessionStoreDeps;
+  record: OperationUsableThresholdEcdsaSessionRecord;
+  transition: CurrentSessionCommitTransition;
+}): ThresholdEcdsaSessionCommitResult {
+  const incomingRecord = args.record;
+  const incomingGeneration = thresholdSessionRecordGeneration(incomingRecord);
+  if (!incomingGeneration) {
+    throw new Error('Current ECDSA session commit requires server-issued generation');
+  }
+  const incomingLaneKey = getThresholdEcdsaSessionLaneKeyForRecord(incomingRecord);
+  const incomingSessionId = thresholdEcdsaSessionId(incomingRecord);
+  const existingRecords = thresholdEcdsaSameTargetRecords({
+    deps: args.deps,
+    incomingRecord,
+  });
+  for (const existingRecord of existingRecords) {
+    const existingGeneration = thresholdSessionRecordGeneration(existingRecord);
+    const existingSessionId = thresholdEcdsaSessionId(existingRecord);
+    if (existingSessionId === incomingSessionId) continue;
+    const existingCurrent = buildOperationUsableThresholdEcdsaSessionRecord(existingRecord);
+    if (existingCurrent && existingGeneration && existingGeneration > incomingGeneration) {
+      return {
+        kind: 'stale_commit_ignored',
+        incoming: incomingRecord,
+        current: existingCurrent,
+      };
+    }
+    if (existingCurrent && existingGeneration === incomingGeneration) {
+      storeThresholdEcdsaSessionFact({
+        deps: args.deps,
+        laneKey: incomingLaneKey,
+        record: incomingRecord,
+      });
+      return {
+        kind: 'same_generation_distinct_session',
+        incoming: incomingRecord,
+        existing: existingCurrent,
+      };
+    }
   }
 
-  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(args.deps);
-  for (const record of listAllThresholdEcdsaRecords(args.deps)) {
-    const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
-    if (laneKey === args.incomingLaneKey) continue;
-    if (
-      !sameCurrentPasskeyWalletTarget({
-        incoming: args.incomingRecord,
-        existing: record,
-      })
-    ) {
-      continue;
-    }
+  storeThresholdEcdsaSessionFact({
+    deps: args.deps,
+    laneKey: incomingLaneKey,
+    record: incomingRecord,
+  });
 
-    const persistedRecord = args.deps.recordsByLane.get(laneKey);
-    if (persistedRecord) {
-      deindexThresholdEcdsaRecord(depsIndex, laneKey, persistedRecord);
-      args.deps.recordsByLane.delete(laneKey);
-      args.deps.exportArtifactsByLane?.delete(laneKey);
+  const retired: ThresholdEcdsaSessionRecord[] = [];
+  const diagnostics: CurrentSessionRetirementDiagnostic[] = [];
+  for (const existingRecord of existingRecords) {
+    const existingLaneKey = getThresholdEcdsaSessionLaneKeyForRecord(existingRecord);
+    if (existingLaneKey === incomingLaneKey) continue;
+    const existingGeneration = thresholdSessionRecordGeneration(existingRecord);
+    const shouldRetire =
+      thresholdEcdsaSessionId(existingRecord) === incomingSessionId ||
+      existingGeneration === null ||
+      existingGeneration < incomingGeneration;
+    if (!shouldRetire) continue;
+    if (existingGeneration === null) {
+      diagnostics.push({
+        kind: 'retired_null_generation_legacy_fact',
+        thresholdSessionId: thresholdEcdsaSessionId(existingRecord),
+      });
     }
-    forgetInMemoryThresholdEcdsaRecord(laneKey);
+    clearStoredThresholdEcdsaLane({ deps: args.deps, laneKey: existingLaneKey });
+    retired.push(existingRecord);
+  }
+
+  return {
+    kind: 'committed_current',
+    current: incomingRecord,
+    retired,
+    diagnostics,
+  };
+}
+
+function requireCommittedThresholdEcdsaSession(
+  result: ThresholdEcdsaSessionCommitResult,
+): OperationUsableThresholdEcdsaSessionRecord {
+  switch (result.kind) {
+    case 'committed_current':
+      return result.current;
+    case 'same_generation_distinct_session':
+      throw new Error('Current ECDSA session commit produced same-generation distinct sessions');
+    case 'stale_commit_ignored':
+      throw new Error('Current ECDSA session commit was stale');
+    default: {
+      const exhaustive: never = result;
+      throw new Error(String((exhaustive as { kind?: unknown })?.kind || 'unknown'));
+    }
   }
 }
 
@@ -3079,7 +3599,6 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
           ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
         });
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
-  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
   assertUniqueEvmFamilyEcdsaIdentityForStore({
     recordsByLane: deps.recordsByLane,
     incomingLaneKey: laneKey,
@@ -3090,18 +3609,17 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
     incomingLaneKey: laneKey,
     incomingRecord: record,
   });
-  clearConflictingCurrentPasskeyThresholdEcdsaRecords({
-    deps,
-    incomingLaneKey: laneKey,
-    incomingRecord: record,
-  });
-  const previous = deps.recordsByLane.get(laneKey);
-  if (previous) {
-    deindexThresholdEcdsaRecord(depsIndex, laneKey, previous);
+  const currentRecord = buildOperationUsableThresholdEcdsaSessionRecord(record);
+  if (!currentRecord) {
+    throw new Error('Threshold ECDSA bootstrap did not produce an operation-usable session');
   }
-  deps.recordsByLane.set(laneKey, record);
-  indexThresholdEcdsaRecord(depsIndex, laneKey, record);
-  rememberInMemoryThresholdEcdsaRecord(record);
+  requireCommittedThresholdEcdsaSession(
+    commitCurrentThresholdEcdsaSession({
+      deps,
+      record: currentRecord,
+      transition: args.source === 'registration' ? 'registration' : 'wallet_unlock',
+    }),
+  );
   setEcdsaExportArtifactForLane({
     deps,
     laneKey,
@@ -3113,7 +3631,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   return record;
 }
 
-export function upsertStoredThresholdEcdsaSessionRecord(
+export function upsertThresholdEcdsaSessionFact(
   deps: ThresholdEcdsaSessionStoreDeps,
   recordRaw: unknown,
 ): ThresholdEcdsaSessionRecord {
@@ -3124,7 +3642,6 @@ export function upsertStoredThresholdEcdsaSessionRecord(
     updatedAtMs: Math.max(0, Math.floor((deps.now || Date.now)())),
   });
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
-  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
   assertUniqueEvmFamilyEcdsaIdentityForStore({
     recordsByLane: deps.recordsByLane,
     incomingLaneKey: laneKey,
@@ -3135,25 +3652,13 @@ export function upsertStoredThresholdEcdsaSessionRecord(
     incomingLaneKey: laneKey,
     incomingRecord: record,
   });
-  clearConflictingCurrentPasskeyThresholdEcdsaRecords({
-    deps,
-    incomingLaneKey: laneKey,
-    incomingRecord: record,
-  });
-  const previous = deps.recordsByLane.get(laneKey);
-  if (previous) {
-    deindexThresholdEcdsaRecord(depsIndex, laneKey, previous);
-  }
-  deps.recordsByLane.set(laneKey, record);
-  indexThresholdEcdsaRecord(depsIndex, laneKey, record);
-  rememberInMemoryThresholdEcdsaRecord(record);
-  return record;
+  return storeThresholdEcdsaSessionFact({ deps, laneKey, record });
 }
 
 export function upsertRestoredThresholdEcdsaSessionRecord(
   recordRaw: unknown,
 ): ThresholdEcdsaSessionRecord {
-  return upsertStoredThresholdEcdsaSessionRecord(
+  return upsertThresholdEcdsaSessionFact(
     { recordsByLane: inMemoryEcdsaRecordsByLane },
     recordRaw,
   );
@@ -3659,7 +4164,7 @@ export function getThresholdEcdsaSessionRecordByThresholdSessionId(
   });
 }
 
-export function upsertStoredThresholdEd25519SessionRecord(
+export function buildThresholdEd25519SessionFact(
   args: ThresholdEd25519SessionUpsertInput,
 ): ThresholdEd25519SessionRecord | null {
   if (isRawOnlyEd25519ClientBaseInput(args)) return null;
@@ -3675,7 +4180,7 @@ export function upsertStoredThresholdEd25519SessionRecord(
   const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(rawNearEd25519SigningKeyId);
   const materialFields = normalizeThresholdEd25519UpsertMaterialFields(args);
   const signerSlot = Math.floor(Number(args.signerSlot) || 0);
-  const record = normalizeThresholdEd25519SessionRecord({
+  return normalizeThresholdEd25519SessionRecord({
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
@@ -3712,8 +4217,17 @@ export function upsertStoredThresholdEd25519SessionRecord(
     updatedAtMs: Math.floor(Number(args.updatedAtMs ?? Date.now()) || 0),
     source: args.source || 'manual-connect',
   });
-  rememberInMemoryThresholdEd25519Record(record);
-  return record;
+}
+
+export function upsertThresholdEd25519SessionFact(
+  args: ThresholdEd25519SessionUpsertInput,
+): ThresholdEd25519SessionRecord | null {
+  const record = buildThresholdEd25519SessionFact(args);
+  if (!record) return null;
+  return storeThresholdEd25519SessionFact({
+    record,
+    defaultPolicy: 'prefer_current_generation',
+  });
 }
 
 export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
@@ -3757,7 +4271,7 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
   }
   const existing = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
   if (!existing) return null;
-  return upsertStoredThresholdEd25519SessionRecord({
+  const upserted = upsertThresholdEd25519SessionFact({
     walletId: existing.walletId,
     nearAccountId: existing.nearAccountId,
     nearEd25519SigningKeyId: existing.nearEd25519SigningKeyId,
@@ -3791,6 +4305,21 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
     updatedAtMs: args.updatedAtMs ?? Date.now(),
     source: existing.source,
   });
+  if (!upserted) return null;
+  const currentRecord = buildOperationUsableThresholdEd25519SessionRecord(upserted);
+  if (!currentRecord) return upserted;
+  const transition =
+    upserted.source === 'registration'
+      ? 'registration'
+      : upserted.source === 'email_otp'
+        ? 'step_up'
+        : 'wallet_unlock';
+  return requireCommittedThresholdEd25519Session(
+    commitCurrentThresholdEd25519Session({
+      record: currentRecord,
+      transition,
+    }),
+  );
 }
 
 // Broad Ed25519 wallet/account readers expose default/discovery records only.
@@ -4091,7 +4620,7 @@ export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
   const retainedMaterialFields = retainMaterial
     ? thresholdEd25519UpsertMaterialFieldsFromRecord(record)
     : {};
-  return upsertStoredThresholdEd25519SessionRecord({
+  return upsertThresholdEd25519SessionFact({
     walletId: record.walletId,
     nearAccountId: record.nearAccountId,
     nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,

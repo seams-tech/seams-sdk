@@ -762,6 +762,25 @@ impl ClientSession {
         )
     }
 
+    pub fn prepare_add_stage_request_message_from_role_separated_delivery(
+        &self,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &ClientOtState,
+        delivery: &RoleSeparatedServerInputDeliveryPacket,
+    ) -> ProtoResult<WireMessage> {
+        let server_assist_init = ServerAssistInitPacket::from_role_separated_delivery(delivery);
+        let server_assist_init_message = crate::wire::encode_transport_message(
+            self.context_binding,
+            TransportKind::ServerAssistInit,
+            &server_assist_init,
+        )?;
+        self.prepare_add_stage_request_message(
+            client_request_message,
+            evaluator_ot_state,
+            &server_assist_init_message,
+        )
+    }
+
     pub fn validate_add_stage_response_packet(
         &self,
         request: &ClientStageRequestPacket,

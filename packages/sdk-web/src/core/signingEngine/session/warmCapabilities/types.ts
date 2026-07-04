@@ -514,7 +514,7 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   runtimeScopeBootstrap?: {
-    environmentId: string;
+    projectEnvironmentId: string;
     publishableKey: string;
   };
   participantIds: readonly number[];
@@ -587,7 +587,7 @@ type EnsureWarmEcdsaProvisionPlanReadyCommonArgs = {
   keyRef?: never;
   source: ThresholdEcdsaSessionStoreSource;
   runtimeScopeBootstrap?: {
-    environmentId: string;
+    projectEnvironmentId: string;
     publishableKey: string;
   };
   usesNeeded?: number;

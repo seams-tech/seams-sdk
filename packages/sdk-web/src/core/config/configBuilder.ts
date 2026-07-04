@@ -114,22 +114,22 @@ function resolveRegistrationConfig(args: {
   );
 
   if (mode === 'managed') {
-    const environmentId =
-      toTrimmedString(managedOverrides?.environmentId) ||
-      toTrimmedString(managedDefaults?.environmentId);
+    const projectEnvironmentId =
+      toTrimmedString(managedOverrides?.projectEnvironmentId) ||
+      toTrimmedString(managedDefaults?.projectEnvironmentId);
     const publishableKey =
       toTrimmedString(managedOverrides?.publishableKey) ||
       toTrimmedString(managedDefaults?.publishableKey);
     const paymentMode = managedOverrides?.paymentMode ?? managedDefaults?.paymentMode ?? 'disabled';
-    if (!environmentId) {
-      throw new Error('[configPresets] Missing required config: registration.environmentId');
+    if (!projectEnvironmentId) {
+      throw new Error('[configPresets] Missing required config: registration.projectEnvironmentId');
     }
     if (!publishableKey) {
       throw new Error('[configPresets] Missing required config: registration.publishableKey');
     }
     return {
       mode: 'managed',
-      environmentId,
+      projectEnvironmentId,
       publishableKey,
       paymentMode,
       nearAccountProvisioning,

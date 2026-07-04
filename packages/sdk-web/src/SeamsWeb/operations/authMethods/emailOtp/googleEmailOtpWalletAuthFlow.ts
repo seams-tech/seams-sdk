@@ -16,7 +16,10 @@ import {
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/threshold/sessionPolicy';
 import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
+import {
+  listConfiguredThresholdEcdsaPublicationTargets,
+  listThresholdEcdsaProvisionTargets,
+} from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import {
   disposeWalletRegistrationPrecompute,
@@ -420,7 +423,7 @@ async function requestLoginChallenge(args: {
   };
 }
 
-function resolveEcdsaTargets(args: {
+function resolveRegistrationEcdsaTargets(args: {
   configs: SeamsConfigsReadonly;
   policy?: GoogleEmailOtpWalletAuthEcdsaTargets;
 }): readonly ThresholdEcdsaChainTarget[] {
@@ -431,6 +434,18 @@ function resolveEcdsaTargets(args: {
     signerOptions: args.configs.signing.thresholdEcdsa.provisioningDefaults,
     chains: args.configs.network.chains,
   }).map((target) => target.chainTarget);
+}
+
+function resolveLoginEcdsaTargets(args: {
+  configs: SeamsConfigsReadonly;
+  policy?: GoogleEmailOtpWalletAuthEcdsaTargets;
+}): readonly ThresholdEcdsaChainTarget[] {
+  const policy = args.policy || { kind: 'configured' as const };
+  if (policy.kind === 'none') return [];
+  if (policy.kind === 'explicit') return policy.targets;
+  return listConfiguredThresholdEcdsaPublicationTargets(args.configs.network.chains).map(
+    (target) => target.chainTarget,
+  );
 }
 
 function eventOnlyRegistrationOptions(args: {
@@ -680,7 +695,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     input: args.input,
     offer,
   });
-  const requiredTargets = resolveEcdsaTargets({
+  const requiredTargets = resolveRegistrationEcdsaTargets({
     configs: deps.configs,
     policy: args.input.ecdsaTargets,
   });
@@ -866,7 +881,7 @@ function createGoogleEmailOtpWalletLoginFlow(
             new Error('Enter the 6-digit code from your email.'),
           );
         }
-        const requiredTargets = resolveEcdsaTargets({
+        const requiredTargets = resolveLoginEcdsaTargets({
           configs: deps.configs,
           policy: args.input.ecdsaTargets,
         });

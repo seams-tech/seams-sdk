@@ -30,16 +30,17 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
     expect(cfg.registration.bootstrapUrl).toBe('https://app.example/api/registration/bootstrap');
   });
 
-  test('requires environmentId for managed registration config', async () => {
+  test('requires projectEnvironmentId for managed registration config', async () => {
     expect(() =>
       buildConfigsFromEnv({
         relayer: { url: 'https://relay.example' },
+        // @ts-expect-error managed registration requires projectEnvironmentId.
         registration: {
           mode: 'managed',
           publishableKey: 'pk_publishable',
-        } as any,
+        },
       }),
-    ).toThrow(/registration\.environmentId/i);
+    ).toThrow(/registration\.projectEnvironmentId/i);
   });
 
   test('resolves managed registration config fields', async () => {
@@ -47,7 +48,7 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
       relayer: { url: 'https://relay.example' },
       registration: {
         mode: 'managed',
-        environmentId: 'env_prod',
+        projectEnvironmentId: 'env_prod',
         publishableKey: 'pk_publishable',
       },
     });
@@ -56,7 +57,7 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
     if (cfg.registration.mode !== 'managed') {
       throw new Error('Expected managed registration mode');
     }
-    expect(cfg.registration.environmentId).toBe('env_prod');
+    expect(cfg.registration.projectEnvironmentId).toBe('env_prod');
     expect(cfg.registration.publishableKey).toBe('pk_publishable');
     expect(cfg.registration.paymentMode).toBe('disabled');
   });

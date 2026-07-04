@@ -36,16 +36,13 @@ import type {
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { sha256HexUtf8 } from '@shared/utils/digests';
 import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCalls';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { normalizeRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
-import type {
-  Ed25519AuthorityScope,
-  ThresholdRuntimePolicyScope,
-} from '@/core/signingEngine/threshold/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   AddSignerSelection,
   NearEd25519SigningKeyId,
@@ -134,7 +131,10 @@ import {
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
-import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
+import {
+  buildPasskeyWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
@@ -148,23 +148,21 @@ function requireWebAuthnRpId(value: string): WebAuthnRpId {
   return parsed.value;
 }
 
-function thresholdEd25519AuthorityScopeFromRegistrationScope(
-  authorityScope: RegistrationEd25519AuthorityScope,
-): Ed25519AuthorityScope {
-  switch (authorityScope.kind) {
-    case 'passkey':
-      return { kind: 'passkey_rp', rpId: authorityScope.rpId };
-    case 'email_otp':
-      return {
-        kind: 'email_otp',
-        provider: authorityScope.provider,
-        providerUserId: authorityScope.providerUserId,
-      };
-    default: {
-      const exhaustive: never = authorityScope;
-      return exhaustive;
-    }
-  }
+type PasskeyAuthorityCredential = {
+  readonly id?: unknown;
+  readonly rawId?: unknown;
+};
+
+function passkeyWalletAuthAuthorityFromCredential(args: {
+  walletId: WalletId | string;
+  rpId: WebAuthnRpId | string;
+  credential: PasskeyAuthorityCredential;
+}): WalletAuthAuthority {
+  return buildPasskeyWalletAuthAuthority({
+    walletId: args.walletId,
+    rpId: args.rpId,
+    credentialIdB64u: String(args.credential.rawId || args.credential.id || '').trim(),
+  });
 }
 
 function emailOtpRegistrationEd25519AuthorityScope(args: {
@@ -1820,7 +1818,7 @@ async function emailOtpEmailHashHex(email: string): Promise<string> {
   if (!normalizedEmail) {
     throw new Error('Email OTP registration auth context requires email');
   }
-  return bytesToHex(await sha256BytesUtf8(normalizedEmail));
+  return sha256HexUtf8(normalizedEmail);
 }
 
 async function buildRegistrationEmailOtpAuthContext(args: {
@@ -2616,6 +2614,7 @@ async function registerWalletInternal(
       authMethod: args.authMethod,
       operation: 'registerWallet',
     });
+    let registrationSessionAuthority: WalletAuthAuthority | null = null;
     let registrationAuthorityScope: RegistrationEd25519AuthorityScope | null = null;
     let ed25519PrfFirstB64u = '';
     let ecdsaPasskeyPrfFirstB64u = '';
@@ -2678,6 +2677,11 @@ async function registerWalletInternal(
         kind: 'passkey',
         rpId: args.authMethod.rpId,
       };
+      registrationSessionAuthority = passkeyWalletAuthAuthorityFromCredential({
+        walletId: intentResponse.intent.walletId,
+        rpId: args.authMethod.rpId,
+        credential: passkeyAuthority.credential,
+      });
       startAuthority = {
         kind: 'passkey',
         webauthnRegistration: passkeyAuthority.webauthnRegistration,
@@ -2726,6 +2730,14 @@ async function registerWalletInternal(
         proofKind: emailOtpAuthMethod.proofKind,
         providerSubject: emailAuthority.providerSubject,
       });
+      registrationSessionAuthority = (
+        await buildRegistrationEmailOtpAuthContext({
+          configs: context.configs,
+          walletId: toWalletId(intentResponse.intent.walletId),
+          email: emailAuthority.email,
+          providerSubject: emailAuthority.providerSubject,
+        })
+      ).authority;
       emailOtpRecoveryCodeBackup = startEmailOtpRecoveryCodeBackup({
         recorder: registrationTiming,
         authMethod: emailOtpAuthMethod,
@@ -2742,8 +2754,10 @@ async function registerWalletInternal(
     if (!registrationAuthorityScope) {
       throw new Error('Wallet registration Ed25519 authority scope is missing');
     }
-    const ed25519SessionAuthorityScope =
-      thresholdEd25519AuthorityScopeFromRegistrationScope(registrationAuthorityScope);
+    if (!registrationSessionAuthority) {
+      throw new Error('Wallet registration Ed25519 session authority is missing');
+    }
+    const ed25519SessionAuthority = registrationSessionAuthority;
     const nearEd25519SigningKeyId = await ed25519RegistrationKeyScopeIdFromIntent({
       ...intentResponse.intent,
       authorityScope: registrationAuthorityScope,
@@ -2922,7 +2936,7 @@ async function registerWalletInternal(
         ed25519: {
           evaluationResult,
           sessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            authorityScope: ed25519SessionAuthorityScope,
+            authority: ed25519SessionAuthority,
             requestedPolicy,
             ...(sponsoredNamedAccountId ? { nearAccountId: sponsoredNamedAccountId } : {}),
           }).session_policy,
@@ -2987,7 +3001,7 @@ async function registerWalletInternal(
         completeRegisteredThresholdEd25519Registration({
           thresholdEd25519: finalizedEd25519,
           expectedSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            authorityScope: ed25519SessionAuthorityScope,
+            authority: ed25519SessionAuthority,
             requestedPolicy,
             walletId: finalized.walletId,
             nearAccountId: String(nearAccountId),
@@ -3082,7 +3096,7 @@ async function registerWalletInternal(
     );
     const signerSlot = storedRegistration.signerSlot;
     const thresholdEd25519RegistrationSessionPolicy = buildThresholdWarmSessionRequestEnvelope({
-      authorityScope: ed25519SessionAuthorityScope,
+      authority: ed25519SessionAuthority,
       requestedPolicy,
       walletId: finalized.walletId,
       nearAccountId: String(nearAccountId),
@@ -3469,6 +3483,11 @@ export async function addWalletSigner(args: {
     });
 
     const redactedAuthentication = redactCredentialExtensionOutputs(webauthnAuthentication);
+    const addSignerSessionAuthority = passkeyWalletAuthAuthorityFromCredential({
+      walletId,
+      rpId,
+      credential: redactedAuthentication,
+    });
     if (signerSelection.mode === 'ed25519') {
       const runtimePolicyScope = intentResponse.intent.runtimePolicyScope;
       if (!runtimePolicyScope?.signingRootVersion) {
@@ -3546,7 +3565,7 @@ export async function addWalletSigner(args: {
         ed25519: {
           evaluationResult,
           sessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-            authorityScope: { kind: 'passkey_rp', rpId },
+            authority: addSignerSessionAuthority,
             requestedPolicy,
             walletId: String(walletId),
             nearAccountId: String(nearAccountId),
@@ -3561,7 +3580,7 @@ export async function addWalletSigner(args: {
       const completedThresholdEd25519Registration = completeRegisteredThresholdEd25519Registration({
         thresholdEd25519: finalized.ed25519,
         expectedSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-          authorityScope: { kind: 'passkey_rp', rpId },
+          authority: addSignerSessionAuthority,
           requestedPolicy,
           walletId: String(walletId),
           nearAccountId: String(nearAccountId),
@@ -3609,7 +3628,7 @@ export async function addWalletSigner(args: {
         relayerUrl,
         prfFirstB64u: hssClientMaterial.prfFirstB64u,
         registrationSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
-          authorityScope: { kind: 'passkey_rp', rpId },
+          authority: addSignerSessionAuthority,
           requestedPolicy,
           walletId: String(walletId),
           nearAccountId: String(nearAccountId),

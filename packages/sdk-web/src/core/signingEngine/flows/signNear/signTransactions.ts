@@ -81,6 +81,7 @@ import {
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type {
   BudgetFinalizationSpend,
+  SigningBudgetFinalizationResult,
   SigningSessionBudgetStatusAuth,
   SigningSessionPreparedBudgetIdentity,
 } from '../../session/budget/budget';
@@ -129,6 +130,24 @@ function emitNearSigningEvent(
       }),
     );
   } catch {}
+}
+
+function remainingUsesFromNearBudgetFinalization(
+  result: SigningBudgetFinalizationResult | null,
+): number | null {
+  if (!result) return null;
+  switch (result.kind) {
+    case 'finalized':
+    case 'already_finalized':
+      return Math.max(0, Math.floor(Number(result.remainingUses) || 0));
+    case 'projection_mismatch':
+    case 'missing_reservation':
+    case 'reservation_identity_mismatch':
+    case 'budget_status_unavailable':
+      return null;
+  }
+  result satisfies never;
+  return null;
 }
 
 function budgetStatusAuthFromRouterAbReadyState(
@@ -747,18 +766,33 @@ export async function runNearTransactionWithActionsSigning({
       walletSpendRecorded = true;
       return;
     }
+    let finalizationResult: SigningBudgetFinalizationResult | null = null;
     if (finalizePreparedSigningSession) {
       await finalizePreparedSigningSession({
         status: 'success',
         hooks: {
           recordSuccess: async () => {
-            await finalizer.recordSuccess();
+            finalizationResult = await finalizer.recordSuccess();
           },
           recordZeroSpend: (error) => finalizer.recordZeroSpend(error),
         },
       });
     } else {
-      await finalizer.recordSuccess();
+      finalizationResult = await finalizer.recordSuccess();
+    }
+    const remainingUses = remainingUsesFromNearBudgetFinalization(finalizationResult);
+    if (remainingUses !== null) {
+      emitNearSigningEvent(onEvent, nearAccountId, {
+        phase: SigningEventPhase.STEP_11_REMAINING_SPEND_UPDATED,
+        status: 'succeeded',
+        interaction: { kind: 'none', overlay: 'none' },
+        data: {
+          chain: 'near',
+          remainingUses,
+          signingGrantId: String(operationState.lane.signingGrantId),
+          thresholdSessionId: String(operationState.lane.thresholdSessionId),
+        },
+      });
     }
     walletSpendRecorded = true;
   };

@@ -14,7 +14,7 @@ import {
   readExactThresholdEcdsaSessionRecord,
   toExactEcdsaSigningLaneIdentity,
   upsertRestoredThresholdEcdsaSessionRecord,
-  upsertStoredThresholdEcdsaSessionRecord,
+  upsertThresholdEcdsaSessionFact,
   type ConsumableEmailOtpEcdsaLane,
   type ConsumeSingleUseEmailOtpEcdsaLaneCommand,
   type ThresholdEcdsaSessionRecord,
@@ -212,7 +212,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
   test('marks only the exact consumed ECDSA lane', () => {
     const nowMs = { value: 1_800_000_000_000 };
     const store = createStore(nowMs);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -221,7 +221,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
         updatedAtMs: 1_800_000_000_000,
       }),
     );
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-b',
@@ -260,7 +260,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
 
   test('returns missing_lane for an exact lane key that is absent', () => {
     const store = createStore(1_800_000_000_000);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -281,7 +281,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
   test('returns already_consumed when the exact lane was consumed by an earlier call', () => {
     const nowMs = { value: 1_800_000_000_000 };
     const store = createStore(nowMs);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -303,7 +303,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
 
   test('returns stale_record for updated-at mismatch before consumption', () => {
     const store = createStore(1_800_000_000_000);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -327,7 +327,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
 
   test('returns stale_record when stored single-use remainingUses is not exactly one', () => {
     const store = createStore(1_800_000_000_000);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -351,7 +351,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
 
   test('returns stale_record for chain target and key identity command mismatches', () => {
     const store = createStore(1_800_000_000_000);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -433,7 +433,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
 
   test('reads the exact ECDSA session record without treating mirrored runtime memory as a duplicate', () => {
     const store = createStore(1_800_000_000_000);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -457,7 +457,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
 
   test('reads the intended exact ECDSA record when unrelated lanes share a threshold session id', () => {
     const store = createStore(1_800_000_000_000);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',
@@ -466,7 +466,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
         updatedAtMs: 1_800_000_000_000,
       }),
     );
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-b',
@@ -492,7 +492,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
 
   test('ignores broad ECDSA lanes with conflicting key identity facts during exact lookup', () => {
     const store = createStore(1_800_000_000_000);
-    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertThresholdEcdsaSessionFact(
       store,
       ecdsaEmailOtpRecord({
         signingGrantId: 'wallet-session-a',

@@ -246,6 +246,7 @@ export interface ThresholdEd25519HssServerInputDeliveryEnvelope {
 export interface ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
+  addStageRequestMessageB64u: string;
   serverEvalFinalizeOutputB64u?: never;
   stagedEvaluatorArtifactHandle?: never;
   evaluatorOtStateB64u?: never;
@@ -336,6 +337,7 @@ export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope =
 
 export interface ThresholdEd25519HssStoredStagedEvaluatorArtifact {
   stagedEvaluatorArtifactBytes: Uint8Array;
+  addStageRequestMessageBytes: Uint8Array;
   stagedEvaluatorArtifactHandle?: never;
 }
 
@@ -504,7 +506,7 @@ export type ThresholdEd25519HssFinalizeAccountResolution =
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
   wallet_key_id: NearEd25519SigningKeyId;
-  authorityScope: ThresholdEd25519AuthorityScope;
+  authority: WalletAuthAuthority;
   ceremonyHandle: string;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   serverState: ThresholdEd25519HssRegistrationRespondedServerState;
@@ -1056,7 +1058,7 @@ export type ThresholdEd25519SessionAuth =
 export interface ThresholdEd25519SessionRequest {
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
-  runtimeEnvironmentId?: string;
+  projectEnvironmentId?: string;
   auth: ThresholdEd25519SessionAuth;
   sessionKind?: 'jwt';
 }
@@ -1256,7 +1258,7 @@ export interface EcdsaHssPasskeyBootstrapAuthorization {
   rpId: string;
   webauthn_authentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope?: RuntimePolicyScope;
-  runtimeEnvironmentId?: string;
+  projectEnvironmentId?: string;
 }
 
 interface EcdsaHssClientBootstrapRequestBase {

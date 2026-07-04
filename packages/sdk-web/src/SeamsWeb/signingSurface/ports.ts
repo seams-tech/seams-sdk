@@ -95,6 +95,10 @@ import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpCon
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
+  WarmSessionSealAndPersistResult,
+  WarmSessionSealTransportInput,
+} from '@/core/types/secure-confirm-worker';
+import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
@@ -249,6 +253,10 @@ export interface EcdsaRegistrationSurface {
 
 export interface SigningSessionSurface {
   hydrateSigningSession(input: HydrateWarmSigningSessionInput): Promise<void>;
+  persistSigningSessionSealForThresholdSession(input: {
+    sessionId: string;
+    transport?: WarmSessionSealTransportInput;
+  }): Promise<WarmSessionSealAndPersistResult>;
   putWarmSessionEd25519UnsealAuthorization(
     input: WarmSessionEd25519UnsealAuthorizationPutPayload,
   ): Promise<void>;
@@ -314,7 +322,10 @@ export type LocalLoginStateSurface = WalletSessionReadSurface &
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
   ThresholdEd25519HssClientSurface &
   ThresholdEd25519HssCeremonySurface &
-  Pick<SigningSessionSurface, 'hydrateSigningSession'> &
+  Pick<
+    SigningSessionSurface,
+    'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
+  > &
   RpIdSurface &
   PasskeyLoginAssertionSurface &
   Pick<
@@ -473,7 +484,12 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 
 export type RegistrationSigningSurface = RpIdSurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
-  Pick<SigningSessionSurface, 'readPersistedAvailableSigningLanes' | 'hydrateSigningSession'> &
+  Pick<
+    SigningSessionSurface,
+    | 'readPersistedAvailableSigningLanes'
+    | 'hydrateSigningSession'
+    | 'persistSigningSessionSealForThresholdSession'
+  > &
   Pick<
     EmailOtpRegistrationEnrollmentSurface,
     'prepareEmailOtpRegistrationEnrollmentMaterialInternal'

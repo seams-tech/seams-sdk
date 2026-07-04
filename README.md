@@ -25,7 +25,7 @@ pnpm router
 - Docs default origin: `https://docs.localhost`.
 - Internal dev ports: Vite on `http://localhost:3600`, Router API server on `http://127.0.0.1:9090`.
 - Browser-managed registration in the local site uses
-  `VITE_SEAMS_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
+  `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
 
 ## Repo Layout
 

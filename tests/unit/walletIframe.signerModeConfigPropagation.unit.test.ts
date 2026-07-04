@@ -262,7 +262,7 @@ test.describe('Wallet iframe config propagation', () => {
           relayer: { url: 'https://localhost:9444' },
           registration: {
             mode: 'managed',
-            environmentId: 'proj_demo:dev',
+            projectEnvironmentId: 'proj_demo:dev',
             publishableKey: 'pk_demopublishablekeypreview',
           },
           iframeWallet: {
@@ -288,9 +288,10 @@ test.describe('Wallet iframe config propagation', () => {
     });
     expect(capturedRegistration).toEqual({
       mode: 'managed',
-      environmentId: 'proj_demo:dev',
+      projectEnvironmentId: 'proj_demo:dev',
       publishableKey: 'pk_demopublishablekeypreview',
       paymentMode: 'disabled',
+      nearAccountProvisioning: { kind: 'implicit_account' },
     });
   });
 

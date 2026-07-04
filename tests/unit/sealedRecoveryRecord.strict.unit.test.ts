@@ -39,6 +39,7 @@ function emailOtpEcdsaSealedRecoveryRecord(
     relayerUrl: 'https://relay.example',
     ecdsaRestore: {
       chainTarget: TEMPO_CHAIN_TARGET,
+      source: 'email_otp',
       evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice:root:email-otp:v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       providerSubjectId: 'google:alice',

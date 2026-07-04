@@ -23,7 +23,7 @@ import {
   toExactEcdsaSigningLaneIdentity,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
-  upsertStoredThresholdEd25519SessionRecord,
+  upsertThresholdEd25519SessionFact,
   upsertThresholdEcdsaSessionFromBootstrap,
 } from '@/core/signingEngine/session/persistence/records';
 
@@ -53,7 +53,7 @@ function ed25519RouterAbNormalSigning(signingWorkerId: string) {
 }
 
 function seedSplitEd25519GrantRecords(): void {
-  upsertStoredThresholdEd25519SessionRecord({
+  upsertThresholdEd25519SessionFact({
     walletId: SPLIT_WALLET_ID,
     nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: PRIMARY_NEAR_ED25519_SIGNING_KEY_ID,
@@ -74,7 +74,7 @@ function seedSplitEd25519GrantRecords(): void {
     signingRootVersion: 'default',
     source: 'login',
   });
-  upsertStoredThresholdEd25519SessionRecord({
+  upsertThresholdEd25519SessionFact({
     walletId: SPLIT_WALLET_ID,
     nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: SIBLING_NEAR_ED25519_SIGNING_KEY_ID,
@@ -98,7 +98,7 @@ function seedSplitEd25519GrantRecords(): void {
 }
 
 function seedMismatchFixtureRecord(): void {
-  upsertStoredThresholdEd25519SessionRecord({
+  upsertThresholdEd25519SessionFact({
     walletId: MISMATCH_WALLET_ID,
     nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,

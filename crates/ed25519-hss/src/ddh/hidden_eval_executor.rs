@@ -135,7 +135,7 @@ const ED25519_L_BYTES_LE: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalServerInputBundle {
     pub owner: HiddenEvalInputOwner,
     pub label: String,
@@ -144,7 +144,7 @@ pub struct DdhHiddenEvalServerInputBundle {
     pub commitment: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalServerInputs {
     pub y_server_bits: DdhHiddenEvalServerInputBundle,
     pub tau_server_bits: DdhHiddenEvalServerInputBundle,
@@ -252,20 +252,20 @@ pub struct DdhHiddenEvalExecutionTrace {
     pub checkpoint_digests: DdhHiddenEvalCheckpointDigests,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalMessageScheduleContinuation {
     pub add_stage_digest: [u8; 32],
     pub schedule_words: Vec<Vec<DdhHssSharedWord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalRoundCoreContinuation {
     pub rounds_completed: u16,
     pub schedule_words: Vec<Vec<DdhHssSharedWord>>,
     pub state_words: Vec<Vec<DdhHssSharedWord>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalProjectorInputs {
     pub add_stage_bits: Vec<DdhHssSharedWord>,
     pub tau_client_bits: Vec<DdhHssSharedWord>,

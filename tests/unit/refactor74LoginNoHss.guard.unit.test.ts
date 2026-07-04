@@ -566,7 +566,7 @@ function activeEd25519SessionRecordsDoNotCarryRawClientBase(): void {
   );
   const upsertArgs = sourceRangeBetween(
     recordsSource,
-    'export function upsertStoredThresholdEd25519SessionRecord(args: {',
+    'export function upsertThresholdEd25519SessionFact(args: {',
     '}): ThresholdEd25519SessionRecord | null {',
   );
   const parser = sourceRangeBetween(

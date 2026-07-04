@@ -51,15 +51,15 @@ export type ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization =
       rpId: string;
       webauthn_authentication: WebAuthnAuthenticationCredential;
       runtimePolicyScope: ThresholdRuntimePolicyScope;
-      runtimeEnvironmentId?: never;
-      runtimeEnvironmentPublishableKey?: never;
+      projectEnvironmentId?: never;
+      projectEnvironmentPublishableKey?: never;
     }
   | {
       kind: 'passkey_bootstrap';
       rpId: string;
       webauthn_authentication: WebAuthnAuthenticationCredential;
-      runtimeEnvironmentId: string;
-      runtimeEnvironmentPublishableKey: string;
+      projectEnvironmentId: string;
+      projectEnvironmentPublishableKey: string;
       runtimePolicyScope?: never;
     };
 
@@ -125,13 +125,13 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization =
       rpId: string;
       webauthn_authentication: WebAuthnAuthenticationCredential;
       runtimePolicyScope: ThresholdRuntimePolicyScope;
-      runtimeEnvironmentId?: never;
+      projectEnvironmentId?: never;
     }
   | {
       kind: 'passkey_bootstrap';
       rpId: string;
       webauthn_authentication: WebAuthnAuthenticationCredential;
-      runtimeEnvironmentId: string;
+      projectEnvironmentId: string;
       runtimePolicyScope?: never;
     };
 
@@ -587,9 +587,9 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
         kind: 'passkey_bootstrap',
         rpId: requireNonEmptyString(authorization.rpId, 'passkeyBootstrapAuthorization.rpId'),
         webauthn_authentication: authorization.webauthn_authentication,
-        runtimeEnvironmentId: requireNonEmptyString(
-          authorization.runtimeEnvironmentId,
-          'passkeyBootstrapAuthorization.runtimeEnvironmentId',
+        projectEnvironmentId: requireNonEmptyString(
+          authorization.projectEnvironmentId,
+          'passkeyBootstrapAuthorization.projectEnvironmentId',
         ),
       };
     };
@@ -625,8 +625,8 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
         auth: args.auth,
         publishableKeyAuth:
           args.passkeyBootstrapAuthorization &&
-          'runtimeEnvironmentPublishableKey' in args.passkeyBootstrapAuthorization
-            ? args.passkeyBootstrapAuthorization.runtimeEnvironmentPublishableKey
+          'projectEnvironmentPublishableKey' in args.passkeyBootstrapAuthorization
+            ? args.passkeyBootstrapAuthorization.projectEnvironmentPublishableKey
             : undefined,
         body,
       }),

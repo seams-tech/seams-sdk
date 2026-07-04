@@ -45,6 +45,7 @@ import {
 import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
 import {
   type SigningSessionBudgetStatusAuth,
+  type SigningBudgetFinalizationResult,
   type SigningSessionPreparedBudgetIdentity,
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
   isSigningSessionBudgetReservation,
@@ -417,6 +418,28 @@ function emitEvmFamilyFreshAuthRetryEvent(args: {
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain: args.chain, reason: 'wallet_signing_budget_reserved' },
   });
+}
+
+function remainingUsesFromBudgetFinalization(
+  result: SigningBudgetFinalizationResult | null,
+): number | null {
+  if (!result) return null;
+  switch (result.kind) {
+    case 'finalized':
+    case 'already_finalized':
+      return Math.max(0, Math.floor(Number(result.remainingUses) || 0));
+    case 'projection_mismatch':
+    case 'missing_reservation':
+    case 'reservation_identity_mismatch':
+    case 'budget_status_unavailable':
+      return null;
+    default:
+      return assertNeverSigningBudgetFinalization(result);
+  }
+}
+
+function assertNeverSigningBudgetFinalization(result: never): never {
+  throw new Error(`[SigningSessionBudget] unhandled finalization result: ${String(result)}`);
 }
 
 export async function signEvmFamily(
@@ -900,6 +923,16 @@ async function signEvmFamilyAttempt(
       identity: argsForRefresh.record,
       context: 'reauth refresh',
     });
+    const readyMaterial = requireReadyEcdsaMaterialForResolvedLane({
+      lane: resolvedLane,
+      authMethod: argsForRefresh.authMethod,
+      source: argsForRefresh.source,
+      record: argsForRefresh.record,
+      context: 'EVM-family signing reauth refresh',
+    });
+    const refreshedTrustedStatusAuth =
+      argsForRefresh.trustedStatusAuth ||
+      trustedBudgetStatusAuthFromReadySignerSession(readyMaterial.signerSession);
     const preparedTransaction = await prepareTransactionSigningOperation({
       intent:
         signingTarget.kind === 'tempo'
@@ -943,6 +976,7 @@ async function signEvmFamilyAttempt(
               },
               expiresAtMs,
               remainingUses,
+              trustedStatusAuth: refreshedTrustedStatusAuth,
             },
             availableLanesGeneration: Date.now(),
             metadata: {},
@@ -951,13 +985,6 @@ async function signEvmFamilyAttempt(
       },
     });
     const preparedOperation = preparedTransaction.thresholdOperation;
-    const readyMaterial = requireReadyEcdsaMaterialForResolvedLane({
-      lane: preparedOperation.lane,
-      authMethod: argsForRefresh.authMethod,
-      source: argsForRefresh.source,
-      record: argsForRefresh.record,
-      context: 'EVM-family signing reauth refresh',
-    });
     const refreshedSelection: PreparedEvmFamilyEcdsaSigningSession['selection'] =
       argsForRefresh.authMethod === SIGNER_AUTH_METHODS.emailOtp
         ? {
@@ -1034,9 +1061,7 @@ async function signEvmFamilyAttempt(
       preparedOperation,
       transactionOperation: preparedTransaction.transactionOperation,
       budget: preparedTransaction.budget,
-      ...(argsForRefresh.trustedStatusAuth
-        ? { budgetStatusAuth: argsForRefresh.trustedStatusAuth }
-        : {}),
+      budgetStatusAuth: refreshedTrustedStatusAuth,
     };
     assertPreparedEcdsaOperationLane(prepared, 'EVM-family signing reauth refresh');
     preparedEcdsaSigningSession = prepared;
@@ -1484,7 +1509,7 @@ async function signEvmFamilyAttempt(
       ...budgetDiagnostics,
     });
     try {
-      await recordSuccessfulEvmFamilySigningGrantSpend({
+      const result = await recordSuccessfulEvmFamilySigningGrantSpend({
         signingSessionCoordinator,
         walletSession: args.walletSession,
         operation: createTransactionSigningOperation(),
@@ -1492,6 +1517,21 @@ async function signEvmFamilyAttempt(
         finalizedSigningLane: prepared.signingLane,
         ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
       });
+      const remainingUses = remainingUsesFromBudgetFinalization(result);
+      if (remainingUses !== null) {
+        emitEvmFamilySigningEvent(args.onEvent, {
+          phase: SigningEventPhase.STEP_11_REMAINING_SPEND_UPDATED,
+          status: 'succeeded',
+          accountId: walletId,
+          interaction: { kind: 'none', overlay: 'none' },
+          data: {
+            chain: args.request.chain,
+            remainingUses,
+            signingGrantId: String(prepared.signingLane.signingGrantId),
+            thresholdSessionId: String(prepared.signingLane.thresholdSessionId),
+          },
+        });
+      }
       emitSigningSessionFlowTrace('evm-family', {
         stage: 'ecdsa_attempt.budget_finalized',
         accountId: walletId,

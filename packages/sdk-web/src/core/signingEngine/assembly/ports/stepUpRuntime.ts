@@ -1,4 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import type { DurableRecordStore } from '@/core/platform';
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../../session/warmCapabilities/sealedRefreshParity';
 import {
   commitEvmFamilyThresholdEcdsaSessions,
@@ -40,6 +41,7 @@ export function createStepUpRuntime(args: {
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
   getSignerWorkerContext: EmailOtpWalletSessionCoordinatorDeps['getSignerWorkerContext'];
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   getEcdsaSessions: () => WarmSigningPorts['ecdsaSessions'];
   getWarmCapabilityReader: () => WarmSigningPorts['capabilityReader'];
   getThresholdEcdsaSessionRecordByThresholdSessionId:
@@ -57,6 +59,7 @@ export function createStepUpRuntime(args: {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           bootstrapStore: args.ecdsaBootstrapStore,
           ecdsaSessions: args.getEcdsaSessions(),
+          persistEcdsaRoleLocalReadyRecord: args.persistEcdsaRoleLocalReadyRecord,
           warmCapabilityReader: args.getWarmCapabilityReader(),
           ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (parityArgs) =>
             ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(

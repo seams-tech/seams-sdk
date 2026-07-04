@@ -25,7 +25,10 @@ import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
 } from '@/core/signingEngine/session/operationState/lanes';
-import { exactSigningLaneIdentityFromSelectedLane } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  exactSigningLaneIdentityFromSelectedLane,
+  exactSigningLaneIdentityKey,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { buildFreshStepUpRequired } from '@/core/signingEngine/session/operationState/stepUpFreshness';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
@@ -564,6 +567,33 @@ test.describe('ECDSA restorable lane selection', () => {
     });
   });
 
+  test('marks shared Tempo passkey lanes missing when no committed source record is loaded', async () => {
+    const tempoCandidate = sharedTempoCandidate();
+
+    const selection = await resolveEvmFamilyEcdsaSigningSelection({
+      deps: selectionDeps(),
+      walletId,
+      chain: 'tempo',
+      chainTarget: tempoChainTarget,
+      senderSignatureAlgorithm: 'webauthnP256',
+      authMethod: 'passkey',
+      laneCandidate: tempoCandidate,
+    });
+
+    expect(selection.kind).toBe('missing_material');
+    if (selection.kind !== 'missing_material') return;
+    expect(selection.authMethod).toBe('passkey');
+    expect(selection.candidate).toMatchObject({
+      source: 'evm_family_shared_key',
+      sourceChainTarget: chainTarget,
+    });
+    expect(selection.material).toMatchObject({
+      kind: 'public_identity_unavailable',
+      authMethod: 'passkey',
+      chainTarget: tempoChainTarget,
+    });
+  });
+
   test('keeps Email OTP exact material out of passkey diagnostics selection', async () => {
     const input = emailOtpCandidate('ready');
     const emailOtpRecord = emailOtpRecordForChainTarget(input, input.chainTarget);
@@ -602,7 +632,7 @@ test.describe('ECDSA restorable lane selection', () => {
       retention: 'single_use',
       remainingUses: 1,
     });
-    const resolverJwt = 'jwt:record-backed-email-otp-authority';
+    const resolverJwt = 'jwt:unexpected-resolver-authority';
     let resolverCalls = 0;
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
@@ -649,9 +679,43 @@ test.describe('ECDSA restorable lane selection', () => {
       'single_use',
     );
     expect(selection.material.record.remainingUses).toBe(1);
-    expect(resolverCalls).toBe(1);
+    expect(resolverCalls).toBe(0);
     expect(selection.committedLane.source).toBe('record_backed');
-    expect(selection.committedLane.authLane.jwt).toBe(resolverJwt);
+    expect(selection.committedLane.authLane.jwt).toBe(emailOtpRecord.walletSessionJwt);
+  });
+
+  test('commits ready shared Tempo Email OTP material to the selected target lane', async () => {
+    const input = emailOtpSharedTempoCandidate();
+    const emailOtpRecord = emailOtpRecordForChainTarget(input, chainTarget);
+    const deps: EvmFamilyEcdsaSigningSelectionDeps = {
+      ...selectionDeps(),
+      getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,
+    };
+
+    const selection = await resolveEvmFamilyEcdsaSigningSelection({
+      deps,
+      walletId,
+      chain: 'tempo',
+      chainTarget: tempoChainTarget,
+      senderSignatureAlgorithm: 'secp256k1',
+      authMethod: 'email_otp',
+      laneCandidate: input,
+    });
+
+    expect(selection.kind).toBe('ready');
+    if (selection.kind !== 'ready') return;
+    const selectedLaneKey = exactSigningLaneIdentityKey(
+      exactSigningLaneIdentityFromSelectedLane(selection.lane),
+    );
+    const committedLaneKey = exactSigningLaneIdentityKey(
+      exactSigningLaneIdentityFromSelectedLane(selection.committedLane.lane),
+    );
+
+    expect(selection.lane.chainTarget).toEqual(tempoChainTarget);
+    expect(selection.material.record.chainTarget).toEqual(chainTarget);
+    expect(selection.committedLane.record.chainTarget).toEqual(chainTarget);
+    expect(committedLaneKey).toBe(selectedLaneKey);
+    expect(selection.committedLane.material).toBe(selection.material);
   });
 
   test('rejects Email OTP source material for direct EVM lanes when exact lookup is unavailable', async () => {

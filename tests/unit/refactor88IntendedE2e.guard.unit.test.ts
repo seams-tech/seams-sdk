@@ -66,6 +66,10 @@ const walletServiceHeadersTestPath = path.join(
 );
 const refactor88PlanPath = path.join(repoRoot, 'docs/refactor-88-intended-behaviour-e2e.md');
 const refactor53PlanPath = path.join(repoRoot, 'docs/refactor-53-cleanup-tests.md');
+const evmFamilyEcdsaIdentityTestPath = path.join(
+  repoRoot,
+  'tests/unit/evmFamilyEcdsaIdentity.unit.test.ts',
+);
 const registrationFlowBenchmarkReportPath = path.join(
   repoRoot,
   'docs/benchmarks/registration-flow.md',
@@ -1974,9 +1978,7 @@ test('Refactor 88 mutation self-check manifest covers known regression classes',
       'boolean',
     );
     if (id === 'cross_chain_ecdsa_material_reuse') {
-      const knownProductBlocker = requireStringField(proof, 'knownProductBlocker');
-      expect(knownProductBlocker).toContain('target-specific ECDSA owner/public-key facts');
-      expect(knownProductBlocker).toContain('shared evm-family key scope');
+      assertCrossChainBlockerStillBackedBySharedProductIdentity(proof);
     }
     if (id === 'first_post_step_up_transaction_failure') {
       expect(requireStringField(proof, 'observedFailureOracle')).toBe(
@@ -2063,6 +2065,22 @@ test('Refactor 88 mutation self-check manifest covers known regression classes',
   expect(mutationScriptSource).toContain('selectMutations');
   expect(mutationScriptSource).toContain('unknown mutation id(s)');
 });
+
+function assertCrossChainBlockerStillBackedBySharedProductIdentity(
+  proof: Record<string, unknown>,
+): void {
+  const knownProductBlocker = requireStringField(proof, 'knownProductBlocker');
+  expect(knownProductBlocker).toContain('target-specific ECDSA owner/public-key facts');
+  expect(knownProductBlocker).toContain('shared evm-family key scope');
+
+  const identityTestSource = fs.readFileSync(evmFamilyEcdsaIdentityTestPath, 'utf8');
+  expect(identityTestSource).toContain(
+    'derives one shared fingerprint across Tempo and Arc/EVM session lanes',
+  );
+  expect(identityTestSource).toContain('expect(evmKey.thresholdOwnerAddress).toBe');
+  expect(identityTestSource).toContain('deriveEvmFamilyKeyFingerprint(evmKey)');
+  expect(identityTestSource).toContain('deriveEvmFamilyKeyFingerprint(tempoKey)');
+}
 
 function allowsFakeAuthServiceSurface(relativePath: string): boolean {
   return (

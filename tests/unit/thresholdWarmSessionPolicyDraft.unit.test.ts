@@ -5,11 +5,32 @@ import {
   type ThresholdWarmSessionContext,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 
 function testWebAuthnRpId(value: string) {
   const parsed = parseWebAuthnRpId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+function testPasskeyAuthority() {
+  return buildPasskeyWalletAuthAuthority({
+    walletId: 'wallet_alice',
+    rpId: testWebAuthnRpId('wallet.example.test'),
+    credentialIdB64u: 'credential-alice',
+  });
+}
+
+function testEmailOtpAuthority() {
+  return buildEmailOtpWalletAuthAuthority({
+    walletId: 'wallet_alice',
+    provider: 'google',
+    providerUserId: 'google:alice',
+    emailHashHex: 'alice-email-hash',
+  });
 }
 
 function warmSessionContext(): ThresholdWarmSessionContext {
@@ -70,37 +91,39 @@ test.describe('threshold warm-session policy draft', () => {
     if (!policy) throw new Error('expected warm-session policy');
 
     const envelope = buildThresholdWarmSessionRequestEnvelope({
-      authorityScope: { kind: 'passkey_rp', rpId: testWebAuthnRpId('wallet.example.test') },
+      authority: testPasskeyAuthority(),
       nearAccountId: 'alice.testnet',
       requestedPolicy: policy,
     });
 
     expect(envelope.session_policy).toMatchObject({
-      authorityScope: { kind: 'passkey_rp', rpId: 'wallet.example.test' },
+      authority: {
+        walletId: 'wallet_alice',
+        factor: { kind: 'passkey', credentialIdB64u: 'credential-alice' },
+        verifier: { kind: 'webauthn', rpId: 'wallet.example.test' },
+      },
       nearAccountId: 'alice.testnet',
       signingGrantId: 'wss_shared_registration_budget',
       remainingUses: 3,
     });
   });
 
-  test('can carry exact Email OTP registration authority scope', () => {
+  test('can carry exact Email OTP registration authority', () => {
     const policy = createThresholdWarmSessionPolicyDraft(warmSessionContext(), {
       kind: 'generated_signing_grant',
       participantIds: [1, 2],
     });
     if (!policy) throw new Error('expected warm-session policy');
 
-    const authorityScope = {
-      kind: 'email_otp',
-      email: 'alice@example.test',
-    } as const;
+    const authority = testEmailOtpAuthority();
     const envelope = buildThresholdWarmSessionRequestEnvelope({
-      authorityScope,
+      authority,
       requestedPolicy: policy,
     });
 
-    expect(envelope.session_policy.authorityScope).toEqual(authorityScope);
+    expect(envelope.session_policy.authority).toEqual(authority);
     expect(envelope.session_policy).not.toHaveProperty('rpId');
+    expect(envelope.session_policy).not.toHaveProperty('authorityScope');
   });
 
   test('rejects invalid shared signing-grant budget facts', () => {

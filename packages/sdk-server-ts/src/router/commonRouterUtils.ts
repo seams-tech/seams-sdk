@@ -745,7 +745,7 @@ export type ThresholdRuntimePolicyScopeResolution =
 
 export async function resolveThresholdRuntimePolicyScope(input: {
   explicitScopeRaw: unknown;
-  runtimeEnvironmentIdRaw?: unknown;
+  projectEnvironmentIdRaw?: unknown;
   headers: Headers | Record<string, string | string[] | undefined>;
   origin?: string | null;
   publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
@@ -766,8 +766,8 @@ export async function resolveThresholdRuntimePolicyScope(input: {
     }
   }
 
-  const runtimeEnvironmentId = String(input.runtimeEnvironmentIdRaw || '').trim();
-  if (!runtimeEnvironmentId) return { ok: true };
+  const projectEnvironmentId = String(input.projectEnvironmentIdRaw || '').trim();
+  if (!projectEnvironmentId) return { ok: true };
 
   const publishableKeyAuth = input.publishableKeyAuth || null;
   if (!publishableKeyAuth) {
@@ -802,7 +802,7 @@ export async function resolveThresholdRuntimePolicyScope(input: {
   const authResult = await publishableKeyAuth.authenticate({
     secret: publishableKey,
     origin,
-    environmentId: runtimeEnvironmentId,
+    environmentId: projectEnvironmentId,
   });
   if (!authResult.ok) {
     return {

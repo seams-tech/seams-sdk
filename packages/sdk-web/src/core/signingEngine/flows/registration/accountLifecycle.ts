@@ -8,7 +8,7 @@ import type { WalletId } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { compactImplicitNearAccountId } from '@shared/utils/near';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type {
@@ -50,7 +50,6 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '../../interfaces/ecdsaChainTarget';
-import { bytesToHex } from '../../chains/evm/bytes';
 
 export type StoreAuthenticatorInput = {
   credentialId: string;
@@ -626,7 +625,7 @@ async function emailOtpAuthMethod(args: {
     status: 'active',
     localStatus: 'synced',
     walletId: args.walletId,
-    emailHashHex: bytesToHex(await sha256BytesUtf8(email)),
+    emailHashHex: await sha256HexUtf8(email),
     registrationAuthorityId,
     createdAtMs: nowMs,
     updatedAtMs: nowMs,

@@ -1,4 +1,5 @@
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import type { DurableRecordStore } from '@/core/platform';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -13,6 +14,9 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
+import {
+  ecdsaRoleLocalReadyRecordStorageKeyFacts,
+} from '../persistence/ecdsaRoleLocalRecords';
 import {
   thresholdEcdsaChainTargetKey,
   ThresholdEcdsaChainTarget,
@@ -38,6 +42,7 @@ export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (
     args: ThresholdEcdsaBootstrapParityArgs,
   ) => Promise<void>;
@@ -212,6 +217,25 @@ function logThresholdEcdsaCommitDiagnostic(
   } catch {}
 }
 
+async function persistWorkerProvisionedRoleLocalReadyRecord(args: {
+  deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+}): Promise<void> {
+  const record = args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
+  if (!record) {
+    throw new Error('[SigningEngine] ECDSA bootstrap is missing role-local ready record');
+  }
+  const persisted = await args.deps.persistEcdsaRoleLocalReadyRecord({
+    record,
+    storageKeyFacts: ecdsaRoleLocalReadyRecordStorageKeyFacts(record),
+  });
+  if (!persisted.ok) {
+    throw new Error(
+      `[SigningEngine] ECDSA role-local ready record persistence failed (${persisted.code}): ${persisted.message}`,
+    );
+  }
+}
+
 export async function commitWorkerProvisionedThresholdEcdsaSession(
   deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps,
   args: CommitWorkerProvisionedThresholdEcdsaSessionArgs,
@@ -250,7 +274,11 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
           : {
               authMethod: SIGNER_AUTH_METHODS.passkey,
               signerSource: SIGNER_SOURCES.passkeyRegistration,
-            },
+      },
+    });
+    await persistWorkerProvisionedRoleLocalReadyRecord({
+      deps,
+      bootstrap: canonicalBootstrap,
     });
     let record: ThresholdEcdsaSessionRecord;
     if (args.source === 'email_otp') {

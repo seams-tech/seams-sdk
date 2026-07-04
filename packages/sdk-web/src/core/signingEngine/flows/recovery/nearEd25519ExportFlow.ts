@@ -4,12 +4,18 @@ import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeName } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import { buildPasskeyEd25519SessionPolicy, type ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEd25519SessionRecord } from '../../session/persistence/records';
 import { getStoredThresholdEd25519SessionRecordForLane } from '../../session/persistence/records';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { toAuthorizingSigningGrantId } from '../../stepUpConfirmation/otpPrompt/authLane';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';
+import type {
+  ProvisionWarmEd25519CapabilityArgs,
+  ProvisionWarmEd25519CapabilityResult,
+} from '../../session/warmCapabilities/types';
 import {
   parseRouterAbEd25519WalletSessionAuthorityFromRecord,
   type RouterAbEd25519WalletSessionAuthorityFailureReason,
@@ -51,6 +57,9 @@ export type NearEd25519SingleKeyExportDeps = {
     ) => Promise<{ publicKey: string; privateKey: string }>;
   };
   getSignerWorkerContext: () => WorkerOperationContext;
+  provisionThresholdEd25519Session: (
+    args: ProvisionWarmEd25519CapabilityArgs,
+  ) => Promise<ProvisionWarmEd25519CapabilityResult>;
 };
 
 type NearEd25519SingleKeyExportArgs = {
@@ -290,6 +299,106 @@ function emitNearEd25519MaterialSucceeded(args: {
   });
 }
 
+async function prepareFreshPasskeyEd25519ExportAuthority(
+  deps: NearEd25519SingleKeyExportDeps,
+  args: {
+    record: ThresholdEd25519SessionRecord;
+    nearAccountId: AccountId;
+    expectedPublicKey: string;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
+    flowId: string;
+    onEvent?: KeyExportEventCallback;
+  },
+): Promise<{
+  walletSessionJwt: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  prfFirstB64u: string;
+}> {
+  const signerSlot = Math.floor(Number(args.record.signerSlot) || 0);
+  if (signerSlot <= 0) {
+    throw new Error('[SigningEngine][ed25519-export] passkey export requires signer slot');
+  }
+  if (args.record.source === SIGNER_AUTH_METHODS.emailOtp) {
+    throw new Error('[SigningEngine][ed25519-export] passkey export received Email OTP record');
+  }
+  const source = args.record.source;
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId: args.record.walletId,
+    rpId: args.record.rpId,
+    credentialIdB64u: args.record.passkeyCredentialIdB64u,
+  });
+  const planned = await buildPasskeyEd25519SessionPolicy({
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: String(args.record.nearEd25519SigningKeyId),
+    authority,
+    relayerKeyId: args.record.relayerKeyId,
+    runtimePolicyScope: args.runtimePolicyScope,
+    routerAbNormalSigning: args.record.routerAbNormalSigning,
+    participantIds: args.record.participantIds,
+    remainingUses: 1,
+  });
+  const exportCredential = await requestNearEd25519ExportAuthorization(
+    { touchConfirm: deps.touchConfirm, theme: deps.theme },
+    {
+      nearAccountId: args.nearAccountId,
+      expectedPublicKey: args.expectedPublicKey,
+      challengeB64u: planned.sessionPolicyDigest32,
+      flowId: args.flowId,
+      onEvent: args.onEvent,
+    },
+  );
+  const prfFirstB64u = requirePrfFirstForPrivateKeyExport({
+    credential: exportCredential.credential,
+    errorContext: 'single-key HSS Ed25519 export',
+  });
+  const provisioned = await deps.provisionThresholdEd25519Session({
+    kind: 'exact_ed25519_provisioning',
+    walletId: String(args.record.walletId),
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: String(args.record.nearEd25519SigningKeyId),
+    relayerUrl: args.record.relayerUrl,
+    relayerKeyId: args.record.relayerKeyId,
+    source,
+    authority: {
+      kind: 'wallet_auth_authority',
+      authority,
+    },
+    auth: {
+      kind: 'threshold_session_policy_webauthn',
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: exportCredential.credential,
+        rpId: args.record.rpId,
+      }),
+    },
+    runtimePolicyScope: args.runtimePolicyScope,
+    routerAbNormalSigning: args.record.routerAbNormalSigning,
+    participantIds: args.record.participantIds,
+    sessionKind: 'jwt',
+    signerSlot,
+    sessionId: planned.policy.thresholdSessionId,
+    signingGrantId: planned.policy.signingGrantId,
+    remainingUses: planned.policy.remainingUses,
+  });
+  if (!provisioned.ok) {
+    throw new Error(
+      provisioned.message || provisioned.code || 'Passkey Ed25519 export session mint failed',
+    );
+  }
+  const walletSessionJwt = String(provisioned.jwt || '').trim();
+  const thresholdSessionId = String(provisioned.sessionId || '').trim();
+  const signingGrantId = String(provisioned.signingGrantId || '').trim();
+  if (!walletSessionJwt || !thresholdSessionId || !signingGrantId) {
+    throw new Error('[SigningEngine][ed25519-export] passkey export session mint was incomplete');
+  }
+  return {
+    walletSessionJwt,
+    thresholdSessionId,
+    signingGrantId,
+    prfFirstB64u,
+  };
+}
+
 async function runNearEd25519HssExportAndViewer(
   deps: NearEd25519SingleKeyExportDeps,
   args: {
@@ -475,21 +584,19 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     );
     return null;
   }
-  const exportWalletSessionAuth =
-    resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(sessionRecord);
-  if (!exportWalletSessionAuth.ok) {
-    requireSingleKeyHssExportPrerequisite(
-      false,
-      'Missing Router A/B Wallet Session JWT for single-key HSS Ed25519 export',
-    );
-    return null;
-  }
-  const walletSessionJwt = exportWalletSessionAuth.value.walletSessionJwt;
-
   const viewerSessionId = createExportUiRequestId('export-near-ed25519-viewer-session');
 
   try {
     if (sessionRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
+      const exportWalletSessionAuth =
+        resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(sessionRecord);
+      if (!exportWalletSessionAuth.ok) {
+        requireSingleKeyHssExportPrerequisite(
+          false,
+          'Missing Router A/B Wallet Session JWT for single-key HSS Ed25519 export',
+        );
+        return null;
+      }
       const committedLane = buildEd25519ExportLane({
         record: sessionRecord,
         walletSessionAuth: exportWalletSessionAuth.value,
@@ -570,29 +677,27 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
       };
     }
 
-    const exportCredential = await requestNearEd25519ExportAuthorization(
-      { touchConfirm: deps.touchConfirm, theme: deps.theme },
+    const exportAuthority = await prepareFreshPasskeyEd25519ExportAuthority(
+      deps,
       {
+        record: sessionRecord,
         nearAccountId,
         expectedPublicKey,
+        runtimePolicyScope: defaultRuntimePolicyScope,
         flowId: args.flowId,
         onEvent: args.onEvent,
       },
     );
-    const prfFirstB64u = requirePrfFirstForPrivateKeyExport({
-      credential: exportCredential.credential,
-      errorContext: 'single-key HSS Ed25519 export',
-    });
     return await runNearEd25519HssExportAndViewer(deps, {
       runtimePolicyScope: defaultRuntimePolicyScope,
       nearAccountId,
       nearEd25519SigningKeyId: args.exportLane.signer.nearEd25519SigningKeyId,
       participantIds,
-      thresholdSessionId,
-      walletSessionJwt,
+      thresholdSessionId: exportAuthority.thresholdSessionId,
+      walletSessionJwt: exportAuthority.walletSessionJwt,
       relayerUrl,
       relayerKeyId,
-      prfFirstB64u,
+      prfFirstB64u: exportAuthority.prfFirstB64u,
       expectedPublicKey,
       viewerSessionId,
       options: args.options,

@@ -354,7 +354,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   const keyHandle = String(toEvmFamilyEcdsaKeyHandle(record.keyHandle));
   return await ports.loginWithEcdsaCapabilityInternal({
     walletSession: args.walletSession,
-    chainTarget: record.chainTarget,
+    chainTarget: args.chainTarget,
     emailOtpAuthPolicy,
     emailOtpAuthReason: 'sign',
     challengeId: args.challengeId,

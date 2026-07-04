@@ -10,7 +10,10 @@ import {
   type ConcreteAvailableEcdsaSigningLane,
   type AvailableEd25519SigningLane,
 } from '../../session/availability/availableSigningLanes';
-import { emitSigningSessionFlowFailure, emitSigningSessionFlowTrace } from '../../session/operationState/trace';
+import {
+  emitSigningSessionFlowFailure,
+  emitSigningSessionFlowTrace,
+} from '../../session/operationState/trace';
 import { SigningSessionIds } from '../../session/operationState/types';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -29,10 +32,7 @@ import {
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
-import {
-  isConcreteEcdsaExportLane,
-  type ExactEcdsaExportLane,
-} from './ecdsaExportMaterial';
+import { isConcreteEcdsaExportLane, type ExactEcdsaExportLane } from './ecdsaExportMaterial';
 import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
@@ -85,10 +85,12 @@ type EcdsaExportMaterialLaneResolution =
       sourceCandidates: ConcreteEcdsaExportAvailableLane[];
     };
 
-type RestorePasskeyPersistedSessionForSigningInput =
-  RestorePersistedSessionForSigningInput & { authMethod: 'passkey' };
-type RestoreEmailOtpPersistedSessionForSigningInput =
-  RestorePersistedSessionForSigningInput & { authMethod: 'email_otp' };
+type RestorePasskeyPersistedSessionForSigningInput = RestorePersistedSessionForSigningInput & {
+  authMethod: 'passkey';
+};
+type RestoreEmailOtpPersistedSessionForSigningInput = RestorePersistedSessionForSigningInput & {
+  authMethod: 'email_otp';
+};
 
 export type ExportLaneSelectionDeps = {
   readPersistedAvailableSigningLanes: (
@@ -170,15 +172,19 @@ function selectExactExportAvailableLane<TLane extends ConcreteExportAvailableLan
   ecdsaContext?: EcdsaExportSelectionKeyContext;
 }): TLane {
   const traceScope = args.context.includes('ed25519') ? 'near' : 'evm-family';
-  const failDuplicateRecords = (): never => {
+  const ambiguousReason = traceScope === 'evm-family' ? 'ambiguous_material' : 'duplicate_records';
+  const failAmbiguousRecords = (): never => {
     emitSigningSessionFlowFailure(traceScope, {
-      stage: 'key_export.exact_lane_duplicate_records',
+      stage:
+        traceScope === 'evm-family'
+          ? 'key_export.exact_lane_ambiguous_material'
+          : 'key_export.exact_lane_duplicate_records',
       context: args.context,
       candidateCount: args.candidates.length,
       candidates: args.candidates.map(summarizeExportAvailableLane),
     });
     throw new Error(
-      `[SigningEngine][${args.context}] exact lane selection failed: duplicate_records`,
+      `[SigningEngine][${args.context}] exact lane selection failed: ${ambiguousReason}`,
     );
   };
   if (!args.candidates.length) {
@@ -192,11 +198,11 @@ function selectExactExportAvailableLane<TLane extends ConcreteExportAvailableLan
   }
   for (const candidate of args.candidates) {
     if (!exportAvailableLaneSelectionKey(candidate, args.ecdsaContext)) {
-      return failDuplicateRecords();
+      return failAmbiguousRecords();
     }
   }
   if (args.candidates.length !== 1) {
-    return failDuplicateRecords();
+    return failAmbiguousRecords();
   }
 
   const [selectedLane] = args.candidates;
@@ -277,6 +283,15 @@ function ecdsaExportLaneMatchesIdentity(args: {
   return (
     exactSigningLaneIdentityKey(exactEcdsaIdentityForExportLane({ lane: args.lane })) ===
     exactSigningLaneIdentityKey(args.identity)
+  );
+}
+
+function targetEcdsaExportCandidates(args: {
+  availableLanes: AvailableSigningLanes;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): ConcreteEcdsaExportAvailableLane[] {
+  return ecdsaAvailableLaneCandidatesForTarget(args.availableLanes, args.chainTarget).filter(
+    isConcreteEcdsaExportLane,
   );
 }
 
@@ -462,9 +477,7 @@ async function resolveEcdsaExportLane(
     session: {
       chainTarget: sessionChainTarget,
       authMethod: availableEcdsaSigningLaneAuthMethod(selected),
-      signingGrantId: SigningSessionIds.signingGrant(
-        selected.signingGrantId,
-      ),
+      signingGrantId: SigningSessionIds.signingGrant(selected.signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(selected.thresholdSessionId),
       state: selected.state,
       source: selected.source,
@@ -504,10 +517,10 @@ export async function resolveExactKeyExportLane(
         walletId,
         ecdsaChainTargets: [input.chainTarget],
       });
-      const targetCandidates = ecdsaAvailableLaneCandidatesForTarget(
-        targetAvailableLanes,
-        input.chainTarget,
-      ).filter(isConcreteEcdsaExportLane);
+      const targetCandidates = targetEcdsaExportCandidates({
+        availableLanes: targetAvailableLanes,
+        chainTarget: input.chainTarget,
+      });
       const selected = selectExactExportAvailableLane({
         context: 'ecdsa-export-resolve',
         candidates: targetCandidates,

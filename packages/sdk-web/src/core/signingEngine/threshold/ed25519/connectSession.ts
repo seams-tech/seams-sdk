@@ -86,7 +86,7 @@ export async function connectEd25519Session(args: {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   runtimeScopeBootstrap?: {
-    environmentId: string;
+    projectEnvironmentId: string;
     publishableKey: string;
   };
   sessionKind?: 'jwt';
@@ -165,7 +165,7 @@ export async function connectEd25519Session(args: {
     relayerKeyId: args.relayerKeyId,
     sessionPolicy: policy,
     auth,
-    runtimeEnvironmentId: args.runtimeScopeBootstrap?.environmentId,
+    projectEnvironmentId: args.runtimeScopeBootstrap?.projectEnvironmentId,
     publishableKey: args.runtimeScopeBootstrap?.publishableKey,
   });
   if (!minted.ok) {

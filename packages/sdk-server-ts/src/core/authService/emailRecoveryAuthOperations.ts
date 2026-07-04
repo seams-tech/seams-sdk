@@ -414,7 +414,7 @@ export class EmailRecoveryAuthOperations {
           walletId: walletBinding.walletId,
           nearAccountId: walletBinding.nearAccountId,
           nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
-          authorityScope: walletBindingAuthorityScope,
+          authority: resolvedSessionPolicy.sessionPolicy.authority,
           relayerKeyId: keygen.relayerKeyId,
           sessionPolicy: resolvedSessionPolicy.sessionPolicy,
         });

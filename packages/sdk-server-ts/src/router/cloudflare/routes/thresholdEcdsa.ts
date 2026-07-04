@@ -262,7 +262,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     }
     const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
       explicitScopeRaw: passkeyAuthorization.runtimePolicyScope,
-      runtimeEnvironmentIdRaw: passkeyAuthorization.runtimeEnvironmentId,
+      projectEnvironmentIdRaw: passkeyAuthorization.projectEnvironmentId,
       headers: ctx.request.headers,
       origin: ctx.request.headers.get('origin'),
       publishableKeyAuth: ctx.opts.publishableKeyAuth || null,

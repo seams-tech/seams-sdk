@@ -36,7 +36,7 @@ import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces
 export type TransactionLaneSelectionFailure =
   | { kind: 'unsupported_intent'; curve: string; chain: string }
   | { kind: 'no_candidate'; authMethod?: SigningAuthMethod }
-  | { kind: 'duplicate_authority_records'; allowedAuthMethods: readonly SigningAuthMethod[] }
+  | { kind: 'ambiguous_material'; allowedAuthMethods: readonly SigningAuthMethod[] }
   | { kind: 'policy_blocked'; reason: string };
 
 export type NearEd25519AvailableLane = AvailableEd25519SigningLane &
@@ -53,10 +53,7 @@ export type TransactionConcreteAvailableLane =
 
 export type Ed25519LaneAuthorityKey = string & { readonly __brand: 'Ed25519LaneAuthorityKey' };
 
-export type NearEd25519TransactionReadyAvailableLane = Omit<
-  NearEd25519AvailableLane,
-  'source'
-> & {
+export type NearEd25519TransactionReadyAvailableLane = Omit<NearEd25519AvailableLane, 'source'> & {
   state: 'ready' | 'restorable';
 };
 
@@ -311,8 +308,9 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
 function allowedAuthMethods(
   candidates: readonly ConcreteTransactionCandidate[],
 ): SigningAuthMethod[] {
-  return [...new Set(candidates.map((candidate) => laneCandidateAuthMethod(candidate.candidate)))]
-    .sort();
+  return [
+    ...new Set(candidates.map((candidate) => laneCandidateAuthMethod(candidate.candidate))),
+  ].sort();
 }
 
 function selectOnlyConcreteTransactionCandidate<TCandidate extends ConcreteTransactionCandidate>(
@@ -354,10 +352,9 @@ function selectSelectedEd25519Lane(
   input: SelectTransactionLaneInput,
 ): TransactionLaneSelectionResult {
   const intent = input.intent;
-  const concreteCandidates =
-    input.availableLanes?.candidates?.ed25519?.near
-      ? listNearEd25519TransactionReadyLanes(input.availableLanes.candidates.ed25519.near)
-      : [];
+  const concreteCandidates = input.availableLanes?.candidates?.ed25519?.near
+    ? listNearEd25519TransactionReadyLanes(input.availableLanes.candidates.ed25519.near)
+    : [];
   return selectConcreteTransactionCandidate({
     intent,
     candidates: concreteCandidates,
@@ -436,7 +433,7 @@ function selectConcreteTransactionCandidate<
     return {
       ok: false,
       failure: {
-        kind: 'duplicate_authority_records',
+        kind: 'ambiguous_material',
         allowedAuthMethods: allowedAuthMethods(candidates),
       },
     };

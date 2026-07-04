@@ -1,5 +1,4 @@
 import type {
-  ThresholdEd25519AuthorityScope,
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
@@ -17,6 +16,7 @@ import type {
 } from '../../types';
 import type { ThresholdEd25519SessionClaims, ThresholdEcdsaSessionClaims } from '../validation';
 import type { ThresholdSchemeId } from './schemeIds';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export interface ThresholdEd25519PrivateCosignProtocolDriver {
   internalCosignInit?: (
@@ -31,7 +31,7 @@ export type ThresholdEd25519RegistrationKeygenRequest = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
-  authorityScope: ThresholdEd25519AuthorityScope;
+  authority: WalletAuthAuthority;
   keyVersion: string;
   recoveryExportCapable: true;
   publicKey: string;

@@ -431,7 +431,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
       ): Promise<{ ok: true; scope?: RuntimePolicyScope } | { ok: false }> => {
         const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
           explicitScopeRaw: undefined,
-          runtimeEnvironmentIdRaw: command.runtimeEnvironmentId,
+          projectEnvironmentIdRaw: command.projectEnvironmentId,
           headers: req.headers || {},
           origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
           publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -466,7 +466,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         await emitSessionExchangeFailed({
           status: 400,
           code: 'invalid_body',
-          message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+          message: 'session/exchange OIDC wallet derivation requires projectEnvironmentId',
           exchangeType,
           sessionKind,
           userId,
@@ -474,7 +474,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRouterA
         res.status(400).json({
           ok: false,
           code: 'invalid_body',
-          message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+          message: 'session/exchange OIDC wallet derivation requires projectEnvironmentId',
         });
         return false;
       };

@@ -656,6 +656,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            source: 'manual-bootstrap',
             rpId: 'example.com',
             sessionKind: 'cookie',
             keyHandle: 'key-handle-ecdsa',
@@ -805,7 +806,7 @@ test.describe('UserConfirm worker router', () => {
           } as any,
         );
 
-        sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
+        sessionStoreMod.upsertThresholdEd25519SessionFact({
           nearAccountId: 'alice.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
@@ -931,7 +932,7 @@ test.describe('UserConfirm worker router', () => {
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
-        sessionStoreMod.upsertStoredThresholdEcdsaSessionRecord(deps, {
+        sessionStoreMod.upsertThresholdEcdsaSessionFact(deps, {
           walletId: 'alice.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay-ecdsa.example',
@@ -1127,6 +1128,7 @@ test.describe('UserConfirm worker router', () => {
           sealedSecretB64u: 'sealed-ecdsa-policy-refresh',
           ecdsaRestore: {
             chainTarget,
+            source: 'manual-bootstrap',
             rpId: 'example.localhost',
             sessionKind: 'cookie',
             keyHandle: 'key-handle-ecdsa-policy-refresh',
@@ -1256,7 +1258,7 @@ test.describe('UserConfirm worker router', () => {
           request.onblocked = () => resolve();
         });
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
-        sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
+        sessionStoreMod.upsertThresholdEd25519SessionFact({
           nearAccountId: 'account.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
@@ -1401,7 +1403,7 @@ test.describe('UserConfirm worker router', () => {
           request.onblocked = () => resolve();
         });
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
-        sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
+        sessionStoreMod.upsertThresholdEd25519SessionFact({
           nearAccountId: 'account.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
@@ -1543,6 +1545,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            source: 'manual-bootstrap',
             rpId: 'example.com',
             sessionKind: 'cookie',
             keyHandle: 'key-handle-ecdsa',
@@ -1722,6 +1725,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            source: 'manual-bootstrap',
             rpId: 'example.com',
             sessionKind: 'cookie',
             keyHandle: 'key-handle-ecdsa',
@@ -1896,6 +1900,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            source: 'manual-bootstrap',
             rpId: 'example.com',
             sessionKind: 'cookie',
             keyHandle: 'key-handle-ecdsa',
@@ -2105,6 +2110,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            source: 'manual-bootstrap',
             rpId: 'example.com',
             sessionKind: 'cookie',
             keyHandle: 'key-handle-ecdsa',

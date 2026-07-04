@@ -18,9 +18,26 @@ import {
   type FreshEmailOtpEcdsaExportMaterial,
   type FreshEmailOtpEcdsaExportMaterialNeedsChallenge,
   type FreshEmailOtpEcdsaExportMaterialRouteAuthReady,
+  type FreshPasskeyEcdsaExportMaterial,
   type ReadyEcdsaExportMaterial,
+  type ReadyPasskeyThresholdEcdsaExportMaterial,
+  resolveEcdsaExportMaterialForLane,
 } from './ecdsaExportMaterial';
 import { exportEcdsaHssKeyWithWalletSession } from './ecdsaHssExport';
+import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
+import { computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
+import {
+  buildEcdsaExportActivation,
+  type ThresholdEcdsaActivationRequest,
+} from '../../session/passkey/ecdsaSessionProvision';
+import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import { getThresholdEcdsaSessionRecordByKey } from '../../session/persistence/records';
+import {
+  buildEvmFamilyEcdsaSignerBinding,
+  exactEcdsaSigningLaneIdentity,
+} from '../../session/identity/exactSigningLaneIdentity';
 import {
   type EmailOtpWalletSessionExportAuthorizationDeps,
   createEmailOtpKeyExportRequiresPasskeyError,
@@ -71,6 +88,9 @@ export type EcdsaExportFlowDeps = {
     WarmSessionPostSignPolicyAdapterDeps,
     'getWarmSession' | 'resolveExactEcdsaRecord'
   >;
+  provisionThresholdEcdsaSession: (
+    args: ThresholdEcdsaActivationRequest,
+  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   getSignerWorkerContext: () => WorkerOperationContext;
 };
 
@@ -235,6 +255,208 @@ async function prepareAndShowEcdsaExportArtifact(
   }
 }
 
+function requirePasskeyEcdsaExportAuth(
+  exportLane: ExactEcdsaExportLane,
+): Extract<ExactEcdsaExportLane['laneIdentity']['auth'], { kind: 'passkey' }> {
+  const auth = exportLane.laneIdentity.auth;
+  if (auth.kind !== 'passkey') {
+    throw new Error('[SigningEngine][ecdsa-export] fresh passkey export requires passkey lane');
+  }
+  return auth;
+}
+
+function walletKeyForFreshPasskeyEcdsaExport(args: {
+  exportLane: ExactEcdsaExportLane;
+  material: FreshPasskeyEcdsaExportMaterial;
+}) {
+  return {
+    kind: 'evm_family_ecdsa_wallet_key' as const,
+    walletId: args.exportLane.key.walletId,
+    evmFamilySigningKeySlotId: args.exportLane.key.evmFamilySigningKeySlotId,
+    keyHandle: args.material.publicFacts.keyHandle,
+    chainTarget: args.exportLane.session.chainTarget,
+    keyFacts: {
+      kind: 'evm_family_ecdsa_key_facts' as const,
+      keyScope: args.exportLane.key.keyScope,
+      ecdsaThresholdKeyId: args.exportLane.key.ecdsaThresholdKeyId,
+      signingRootId: args.exportLane.key.signingRootId,
+      signingRootVersion: args.exportLane.key.signingRootVersion,
+      participantIds: args.exportLane.key.participantIds,
+      thresholdOwnerAddress: args.material.publicFacts.thresholdOwnerAddress,
+      thresholdEcdsaPublicKeyB64u: args.material.publicFacts.publicKeyB64u,
+    },
+  };
+}
+
+function refreshedPasskeyEcdsaExportLane(args: {
+  baseLane: ExactEcdsaExportLane;
+  thresholdSessionId: string;
+  signingGrantId: string;
+}): ExactEcdsaExportLane {
+  const laneIdentity = exactEcdsaSigningLaneIdentity({
+    signer: buildEvmFamilyEcdsaSignerBinding({
+      walletId: args.baseLane.key.walletId,
+      chainTarget: args.baseLane.session.chainTarget,
+      keyHandle: args.baseLane.publicFacts.keyHandle,
+      key: args.baseLane.key,
+    }),
+    auth: requirePasskeyEcdsaExportAuth(args.baseLane),
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+  });
+  return {
+    ...args.baseLane,
+    laneIdentity,
+    session: {
+      ...args.baseLane.session,
+      signingGrantId: laneIdentity.signingGrantId,
+      thresholdSessionId: laneIdentity.thresholdSessionId,
+      state: 'ready',
+      material: { kind: 'loaded_worker_material' },
+    },
+  };
+}
+
+async function prepareFreshPasskeyEcdsaExportMaterial(
+  deps: EcdsaExportFlowDeps,
+  args: {
+    walletId: string;
+    exportLane: ExactEcdsaExportLane;
+    material: FreshPasskeyEcdsaExportMaterial;
+    exportPublicKey: string;
+    flowId: string;
+    onEvent?: KeyExportEventCallback;
+  },
+): Promise<{
+  exportLane: ExactEcdsaExportLane;
+  material: ReadyPasskeyThresholdEcdsaExportMaterial;
+  credential: Awaited<ReturnType<typeof requestThresholdEcdsaExportAuthorization>>['credential'];
+}> {
+  if (args.material.record.source === 'email_otp') {
+    throw new Error('[SigningEngine][ecdsa-export] fresh passkey export received Email OTP record');
+  }
+  const auth = requirePasskeyEcdsaExportAuth(args.exportLane);
+  const record = args.material.record;
+  const relayerKeyId = String(record.relayerKeyId || '').trim();
+  const ecdsaThresholdKeyId = String(record.ecdsaThresholdKeyId || '').trim();
+  const evmFamilySigningKeySlotId = String(record.evmFamilySigningKeySlotId || '').trim();
+  if (!relayerKeyId || !ecdsaThresholdKeyId || !evmFamilySigningKeySlotId) {
+    throw new Error('[SigningEngine][ecdsa-export] fresh passkey export missing key identity');
+  }
+  const planned = await buildEcdsaSessionPolicy({
+    walletId: args.walletId,
+    evmFamilySigningKeySlotId,
+    relayerKeyId,
+    chainTarget: args.exportLane.session.chainTarget,
+    ecdsaThresholdKeyId,
+    runtimePolicyScope: args.material.runtimePolicyScope,
+    participantIds: record.participantIds.map((participantId) => Number(participantId)),
+    remainingUses: 1,
+  });
+  const requestId = createExportUiRequestId('tecdsa-export-bootstrap');
+  const challengeB64u = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+    walletId: planned.policy.walletId,
+    evmFamilySigningKeySlotId: planned.policy.evmFamilySigningKeySlotId,
+    rpId: auth.rpId,
+    ecdsaThresholdKeyId: planned.policy.ecdsaThresholdKeyId,
+    signingRootId: String(record.signingRootId || args.exportLane.key.signingRootId),
+    signingRootVersion: String(
+      record.signingRootVersion || args.exportLane.key.signingRootVersion || 'default',
+    ),
+    keyScope: args.exportLane.key.keyScope,
+    relayerKeyId,
+    requestId,
+    sessionId: planned.policy.sessionId,
+    signingGrantId: planned.policy.signingGrantId,
+    ttlMs: planned.policy.ttlMs,
+    remainingUses: planned.policy.remainingUses,
+    participantIds: planned.policy.participantIds || record.participantIds,
+  });
+  const exportCredential = await requestThresholdEcdsaExportAuthorization(
+    { touchConfirm: deps.touchConfirm, theme: deps.theme },
+    {
+      walletSessionUserId: args.walletId,
+      publicKey: args.exportPublicKey,
+      chainTarget: args.exportLane.session.chainTarget,
+      challengeB64u,
+      flowId: args.flowId,
+      onEvent: args.onEvent,
+    },
+  );
+  const passkeyPrfFirstB64u = String(
+    getPrfFirstB64uFromCredential(exportCredential.credential) || '',
+  ).trim();
+  if (!passkeyPrfFirstB64u) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export requires PRF.first');
+  }
+  const provisioned = await deps.provisionThresholdEcdsaSession(
+    buildEcdsaExportActivation({
+      walletKey: walletKeyForFreshPasskeyEcdsaExport({
+        exportLane: args.exportLane,
+        material: args.material,
+      }),
+      lanePolicy: {
+        chainTarget: args.exportLane.session.chainTarget,
+        thresholdSessionId: planned.policy.sessionId,
+        signingGrantId: planned.policy.signingGrantId,
+        thresholdSessionKind: 'jwt',
+        ttlMs: planned.policy.ttlMs,
+        remainingUses: planned.policy.remainingUses,
+        runtimePolicyScope: args.material.runtimePolicyScope,
+      },
+      source: record.source,
+      relayerUrl: record.relayerUrl,
+      sessionIdentity: buildEcdsaSessionIdentity({
+        thresholdSessionId: planned.policy.sessionId,
+        signingGrantId: planned.policy.signingGrantId,
+      }),
+      sessionKind: 'jwt',
+      sessionBudgetUses: planned.policy.remainingUses,
+      requestId,
+      runtimePolicy: { kind: 'scoped_policy', scope: args.material.runtimePolicyScope },
+      passkeyPrfFirstB64u,
+      webauthnAuthentication: exportCredential.credential,
+    }),
+  );
+  const thresholdSessionId = String(provisioned.session.thresholdSessionId || '').trim();
+  const signingGrantId = String(provisioned.session.signingGrantId || '').trim();
+  if (!thresholdSessionId || !signingGrantId) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export provision returned no session');
+  }
+  const refreshedRecord = getThresholdEcdsaSessionRecordByKey(deps.sessionStore, {
+    walletId: toWalletId(args.walletId),
+    keyHandle: args.material.publicFacts.keyHandle,
+    authMethod: 'passkey',
+    curve: 'ecdsa',
+    chainTarget: args.exportLane.session.chainTarget,
+    signingGrantId,
+    thresholdSessionId,
+  });
+  if (!refreshedRecord) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export provision did not publish record');
+  }
+  const refreshedLane = refreshedPasskeyEcdsaExportLane({
+    baseLane: args.exportLane,
+    thresholdSessionId,
+    signingGrantId,
+  });
+  const refreshedMaterial = await resolveEcdsaExportMaterialForLane(
+    deps.sessionStore,
+    refreshedLane,
+  );
+  if (
+    refreshedMaterial.kind !== 'ready_threshold_ecdsa_export_material' ||
+    refreshedMaterial.authMethod !== 'passkey'
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export provision is not ready');
+  }
+  return {
+    exportLane: refreshedLane,
+    material: refreshedMaterial,
+    credential: exportCredential.credential,
+  };
+}
+
 export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
   deps: EcdsaExportFlowDeps,
   args: {
@@ -354,6 +576,49 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
         otpCode: authorization.otpCode,
         committedLane,
       }),
+  });
+}
+
+export async function exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(
+  deps: EcdsaExportFlowDeps,
+  args: {
+    walletId: string;
+    exportLane: ExactEcdsaExportLane;
+    material: FreshPasskeyEcdsaExportMaterial;
+    options: EcdsaExportOptions;
+    flowId: string;
+    onEvent?: KeyExportEventCallback;
+  },
+): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
+  if (args.exportLane.session.authMethod !== 'passkey') {
+    throw new Error('[SigningEngine][ecdsa-export] fresh passkey export requires passkey lane');
+  }
+  const exportPublicKey = String(args.material.publicFacts.publicKeyB64u);
+  const prepared = await prepareFreshPasskeyEcdsaExportMaterial(deps, {
+    walletId: args.walletId,
+    exportLane: args.exportLane,
+    material: args.material,
+    exportPublicKey,
+    flowId: args.flowId,
+    onEvent: args.onEvent,
+  });
+  return await prepareAndShowEcdsaExportArtifact(deps, {
+    walletId: args.walletId,
+    exportLane: prepared.exportLane,
+    exportPublicKey,
+    options: args.options,
+    flowId: args.flowId,
+    onEvent: args.onEvent,
+    prepareArtifact: async () =>
+      await exportEcdsaHssKeyWithWalletSession(
+        { getSignerWorkerContext: deps.getSignerWorkerContext },
+        {
+          walletSessionUserId: args.walletId,
+          signerSession: prepared.material.signerSession,
+          committedLane: prepared.material.committedLane,
+          credential: prepared.credential,
+        },
+      ),
   });
 }
 

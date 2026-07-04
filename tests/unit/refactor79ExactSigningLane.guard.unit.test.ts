@@ -406,7 +406,9 @@ test('Refactor 79 export transport parses exact lane identities at public and if
 
 test('Refactor 79 Ed25519 registration HSS scope keeps passkey rpId out of wallet key identity', () => {
   const serverTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
-  const authService = readRepoSource('packages/sdk-server-ts/src/core/AuthService.ts');
+  const walletRegistrationPlanning = readRepoSource(
+    'packages/sdk-server-ts/src/core/authService/walletRegistrationPlanning.ts',
+  );
   const thresholdService = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
   );
@@ -416,7 +418,7 @@ test('Refactor 79 Ed25519 registration HSS scope keeps passkey rpId out of walle
     'export interface ThresholdEd25519HssClientInputs',
   );
   const registrationScopeBuilder = sourceRangeBetween(
-    authService,
+    walletRegistrationPlanning,
     'function thresholdEd25519RegistrationAccountScope(input:',
     'function thresholdEd25519KnownAccountRegistrationScope(input:',
   );
@@ -435,7 +437,8 @@ test('Refactor 79 Ed25519 registration HSS scope keeps passkey rpId out of walle
   expect(scopeType).not.toContain('walletKeyId: string;');
   expect(scopeType).not.toContain('rpId: string;');
   expect(finalizeRequestType).toContain('wallet_key_id: NearEd25519SigningKeyId;');
-  expect(finalizeRequestType).toContain('authorityScope: ThresholdEd25519AuthorityScope;');
+  expect(finalizeRequestType).toContain('authority: WalletAuthAuthority;');
+  expect(finalizeRequestType).not.toContain('authorityScope: ThresholdEd25519AuthorityScope;');
   expect(finalizeRequestType).not.toContain('rpId: string;');
   expect(registrationScopeBuilder).toContain(
     'nearEd25519SigningKeyId: input.nearEd25519SigningKeyId',
@@ -536,7 +539,7 @@ test('Refactor 79 ECDSA authority ranges read signer binding instead of flat lan
     },
     {
       file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
-      start: 'const transactionLaneSigner = requireEvmFamilyEcdsaSigner(',
+      start: 'const restoreMaterialLaneSigner = requireEvmFamilyEcdsaSigner(',
       end: 'const result = await args.deps.restorePersistedSessionForSigning({',
     },
   ];

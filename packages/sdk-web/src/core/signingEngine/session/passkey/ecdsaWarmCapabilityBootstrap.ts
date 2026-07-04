@@ -2,6 +2,7 @@ import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { DurableRecordStore } from '@/core/platform';
 import type { DurableSealedSessionPort, UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import { SigningOperationIntent } from '../operationState/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
@@ -142,6 +143,7 @@ export type BootstrapWarmEcdsaCapabilityDeps = {
   queueByWallet: Map<string, Promise<void>>;
   activationDeps: WalletSessionActivationDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   capabilityReader: WarmSessionCapabilityReader;
 };
@@ -170,6 +172,7 @@ export type PromptCapableWarmupDeps = {
   queueByWallet: Map<string, Promise<void>>;
   activationDeps: WalletSessionActivationDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   capabilityReader: WarmSessionCapabilityReader;
 };
 
@@ -218,6 +221,7 @@ function createProvisionThresholdEcdsaSessionDeps(
     queueByWallet: deps.queueByWallet,
     activationDeps: deps.activationDeps,
     touchConfirm: deps.touchConfirm,
+    persistEcdsaRoleLocalReadyRecord: deps.persistEcdsaRoleLocalReadyRecord,
     resolveSealTransport: ({ lane }) =>
       deps.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
         lane,
@@ -250,6 +254,7 @@ function createNoPromptWarmSessionDeps(
           queueByWallet: deps.queueByWallet,
           activationDeps: deps.activationDeps,
           touchConfirm: deps.touchConfirm,
+          persistEcdsaRoleLocalReadyRecord: deps.persistEcdsaRoleLocalReadyRecord,
           capabilityReader: deps.capabilityReader,
         }),
         request,

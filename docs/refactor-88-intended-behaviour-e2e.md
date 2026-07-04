@@ -865,6 +865,13 @@ Current live validation:
   ECDSA owner/public-key facts. The Refactor 88 guard suite passes 55/55,
   Playwright TypeScript checking passes, and focused whitespace checking
   passes.
+- Re-run after backing the remaining cross-chain mutation blocker with live
+  product evidence: the Refactor 88 guard now checks that
+  `cross_chain_ecdsa_material_reuse` stays `blocked_product_identity` only
+  while `tests/unit/evmFamilyEcdsaIdentity.unit.test.ts` still asserts shared
+  Tempo and Arc/EVM EVM-family owner/fingerprint identity. When that product
+  assertion changes, the guard forces this row to become a detected mutation
+  proof instead of letting the blocker go stale.
 
 ### Phase 3B: Prove The Gate Can Fail
 

@@ -367,6 +367,7 @@ export type ThresholdEd25519HssServerAssistInitEnvelope = {
 export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope = {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
+  addStageRequestMessageB64u: string;
 };
 
 export type ThresholdEd25519HssFinalizedReportEnvelope = {
@@ -703,6 +704,7 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     stagedEvaluatorArtifactB64u: String(result.stagedEvaluatorArtifactB64u || '').trim(),
+    addStageRequestMessageB64u: String(result.addStageRequestMessageB64u || '').trim(),
   };
 }
 

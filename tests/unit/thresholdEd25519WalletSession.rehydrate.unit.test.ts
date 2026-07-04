@@ -21,7 +21,7 @@ test.describe('threshold Ed25519 Wallet Session rehydrate', () => {
         try {
           const storeMod = await import(paths.thresholdSessionStore);
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
-          storeMod.upsertStoredThresholdEd25519SessionRecord({
+          storeMod.upsertThresholdEd25519SessionFact({
             nearAccountId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',

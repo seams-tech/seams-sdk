@@ -436,7 +436,7 @@ export async function handleSessionExchange(
     ): Promise<{ ok: true; scope?: RuntimePolicyScope } | { ok: false; response: Response }> => {
       const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
         explicitScopeRaw: undefined,
-        runtimeEnvironmentIdRaw: command.runtimeEnvironmentId,
+        projectEnvironmentIdRaw: command.projectEnvironmentId,
         headers: ctx.request.headers,
         origin: ctx.request.headers.get('origin'),
         publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -478,7 +478,7 @@ export async function handleSessionExchange(
       await emitSessionExchangeFailed(ctx, {
         status: 400,
         code: 'invalid_body',
-        message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+        message: 'session/exchange OIDC wallet derivation requires projectEnvironmentId',
         exchangeType,
         sessionKind,
         userId,
@@ -489,7 +489,7 @@ export async function handleSessionExchange(
           {
             ok: false,
             code: 'invalid_body',
-            message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+            message: 'session/exchange OIDC wallet derivation requires projectEnvironmentId',
           },
           { status: 400 },
         ),

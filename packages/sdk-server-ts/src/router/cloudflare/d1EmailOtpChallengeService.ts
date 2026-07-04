@@ -350,10 +350,15 @@ export class CloudflareD1EmailOtpChallengeService {
     const challengeId = toOptionalTrimmedString(input.challengeId);
     const userId = toOptionalTrimmedString(input.userId);
     const walletId = toOptionalTrimmedString(input.walletId);
-    if (!challengeId) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
     if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
     if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
-    const record = await this.challenges.read(challengeId);
+    const record = challengeId
+      ? await this.challenges.read(challengeId)
+      : await this.challenges.readLatestActiveForSubjectWallet({
+          challengeSubjectId: userId,
+          walletId,
+          nowMs: Date.now(),
+        });
     if (!record || record.challengeSubjectId !== userId || record.walletId !== walletId) {
       return { ok: false, code: 'not_found', message: 'Email OTP outbox entry was not found' };
     }
@@ -363,7 +368,7 @@ export class CloudflareD1EmailOtpChallengeService {
     }
     return {
       ok: true,
-      challengeId,
+      challengeId: record.challengeId,
       walletId,
       userId,
       otpChannel: EMAIL_OTP_CHANNEL,

@@ -4,7 +4,7 @@ import type {
 } from '@/core/signingEngine/session/persistence/records';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  upsertStoredThresholdEd25519SessionRecord,
+  upsertThresholdEd25519SessionFact,
 } from '@/core/signingEngine/session/persistence/records';
 import type {
   RestorePersistedEd25519SessionPurpose,
@@ -60,7 +60,7 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   if (!rpId) return null;
   const routerAbNormalSigning = args.record.routerAbNormalSigning;
   if (!routerAbNormalSigning) return null;
-  return upsertStoredThresholdEd25519SessionRecord({
+  return upsertThresholdEd25519SessionFact({
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
     nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,

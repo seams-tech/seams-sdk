@@ -177,14 +177,14 @@ function parseEcdsaHssPasskeyBootstrapAuthorization(
       return null;
     }
   }
-  const runtimeEnvironmentId = toOptionalString(value.runtimeEnvironmentId);
+  const projectEnvironmentId = toOptionalString(value.projectEnvironmentId);
   if (!rpId || !webauthnAuthentication) return null;
   return {
     kind: 'passkey_bootstrap',
     rpId,
     webauthn_authentication: webauthnAuthentication,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+    ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
   };
 }
 

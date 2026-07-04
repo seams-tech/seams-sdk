@@ -2,14 +2,19 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { normalizePositiveInteger } from '@shared/utils/normalize';
 import type { AccountId } from '@/core/types/accountIds';
 import {
+  buildOperationUsableThresholdEd25519SessionRecord,
+  buildThresholdEd25519SessionFact,
+  commitCurrentThresholdEd25519Session,
+  describeOperationUsableThresholdEd25519SessionRecordRejection,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
   listStoredThresholdEd25519SessionLaneRecordsForAccount,
+  requireCommittedThresholdEd25519Session,
+  upsertThresholdEd25519SessionFact,
   type ThresholdEd25519MaterialReadySessionRecord,
   type ThresholdEd25519RestoreAvailableSessionRecord,
   type ThresholdEd25519SessionRecord,
   type ThresholdEd25519UpsertMaterialFields,
-  upsertStoredThresholdEd25519SessionRecord,
 } from '../persistence/records';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type {
@@ -133,6 +138,10 @@ type RetainedEd25519WorkerMaterialFacts =
 
 function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
+}
+
+function isMaterialPendingOnlyRejection(reasons: readonly string[]): boolean {
+  return reasons.length === 1 && reasons[0] === 'material_pending';
 }
 
 function positiveInteger(value: unknown): number {
@@ -590,7 +599,7 @@ export function persistWarmSessionEd25519Capability(
     retained: retainedMaterial,
   });
 
-  const record = upsertStoredThresholdEd25519SessionRecord({
+  const parsedRecord = buildThresholdEd25519SessionFact({
     walletId,
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId,
@@ -617,9 +626,56 @@ export function persistWarmSessionEd25519Capability(
     updatedAtMs: Math.floor(Number(args.updatedAtMs ?? Date.now()) || 0),
     source,
   });
-  if (!record) {
+  if (!parsedRecord) {
     throw new Error('Failed to persist warm threshold-ed25519 capability');
   }
+  const currentRecord = buildOperationUsableThresholdEd25519SessionRecord(parsedRecord);
+  if (!currentRecord) {
+    const reasons = describeOperationUsableThresholdEd25519SessionRecordRejection(parsedRecord);
+    if (isMaterialPendingOnlyRejection(reasons)) {
+      const storedPending = upsertThresholdEd25519SessionFact({
+        walletId,
+        nearAccountId: args.nearAccountId,
+        nearEd25519SigningKeyId,
+        rpId: String(args.rpId || '').trim(),
+        ...(args.kind === 'jwt_passkey' ? { passkeyCredentialIdB64u } : {}),
+        relayerUrl: String(args.relayerUrl || '').trim(),
+        relayerKeyId: String(args.relayerKeyId || '').trim(),
+        participantIds,
+        ...(signingRootId ? { signingRootId } : {}),
+        ...(signingRootVersion ? { signingRootVersion } : {}),
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        signerSlot,
+        routerAbNormalSigning: args.routerAbNormalSigning,
+        thresholdSessionKind: 'jwt',
+        thresholdSessionId: sessionId,
+        signingGrantId,
+        ...(jwt ? { walletSessionJwt: jwt } : {}),
+        expiresAtMs,
+        remainingUses,
+        ...(args.kind === 'jwt_email_otp' ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
+        updatedAtMs: parsedRecord.updatedAtMs,
+        source,
+      });
+      if (!storedPending) {
+        throw new Error('Failed to persist pending warm threshold-ed25519 capability');
+      }
+      return storedPending;
+    }
+    throw new Error(
+      `Warm threshold-ed25519 capability produced an unusable current session: ${
+        reasons.join(', ') || 'unknown'
+      }`,
+    );
+  }
+  const transition =
+    source === 'registration' ? 'registration' : source === 'email_otp' ? 'step_up' : 'wallet_unlock';
+  const record = requireCommittedThresholdEd25519Session(
+    commitCurrentThresholdEd25519Session({
+      record: currentRecord,
+      transition,
+    }),
+  );
   publishResolvedIdentity({
     walletId: record.walletId,
     authMethod,

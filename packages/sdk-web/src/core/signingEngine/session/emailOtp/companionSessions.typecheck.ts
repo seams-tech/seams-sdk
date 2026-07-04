@@ -1,5 +1,6 @@
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { listStoredThresholdEcdsaSessionRecordsForWallet } from '@/core/signingEngine/session/persistence/records';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   selectEmailOtpEcdsaCompanionLaneForEd25519Signing,
   type EmailOtpEcdsaCompanionLaneForEd25519Signing,
@@ -10,7 +11,7 @@ import {
 
 declare const walletId: WalletId;
 declare const listRecords: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
-declare const signingGrantId: string;
+declare const authority: EmailOtpWalletAuthAuthority;
 declare const selectionResult: EmailOtpEcdsaCompanionSelectionResult;
 declare const companion: EmailOtpEcdsaCompanionForEd25519Signing;
 declare const emailOtpCompanionLane: EmailOtpEcdsaCompanionLaneForEd25519Signing;
@@ -31,15 +32,15 @@ void selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
 });
 
 void selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-  kind: 'signing_grant_exact',
+  kind: 'current_wallet_authority',
   walletId,
-  signingGrantId,
+  authority,
   listThresholdEcdsaSessionRecordsForWallet: listRecords,
 });
 
-// @ts-expect-error Exact companion selection requires signingGrantId.
+// @ts-expect-error Current companion selection requires wallet-bound authority.
 void selectEmailOtpEcdsaCompanionLaneForEd25519Signing({
-  kind: 'signing_grant_exact',
+  kind: 'current_wallet_authority',
   walletId,
   listThresholdEcdsaSessionRecordsForWallet: listRecords,
 });
@@ -59,6 +60,8 @@ switch (selectionResult.kind) {
   case 'ready':
   case 'duplicate_chain_lanes':
   case 'not_found':
+  case 'ambiguous_material':
+  case 'conflicting_key_material':
   case 'display_only_fallback':
     break;
   default:

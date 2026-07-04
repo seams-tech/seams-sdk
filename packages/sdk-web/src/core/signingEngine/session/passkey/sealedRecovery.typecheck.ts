@@ -20,6 +20,7 @@ void restorePasskeyEcdsaSealedRecordForWallet({
   deletePersistedRecord: async () => undefined,
   recordSessionMaterialRestored: async () => undefined,
   readWarmSessionStatusFromWorker: async () => status,
+  loadEcdsaRoleLocalReadyRecord: async () => ({ ok: true, value: { kind: 'not_found' } }),
   updatePersistedPolicy: async () => undefined,
 });
 

@@ -1,6 +1,10 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
-import type { WalletId } from '@shared/utils/domainIds';
+import {
+  parseWebAuthnCredentialIdB64u,
+  type WalletId,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import {
   nearEd25519SigningKeyIdFromString,
   walletIdFromString,
@@ -13,6 +17,7 @@ export type RecoveryResolvedWalletBinding = {
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   rpId: string;
+  credentialIdB64u: WebAuthnCredentialIdB64u;
   signerSlot: number;
 };
 
@@ -43,12 +48,19 @@ export function parseRecoveryResolvedWalletBinding(
     requireBindingString(raw, 'nearEd25519SigningKeyId', context),
   );
   const rpId = requireBindingString(raw, 'rpId', context);
+  const credentialIdB64u = parseWebAuthnCredentialIdB64u(
+    requireBindingString(raw, 'credentialIdB64u', context),
+  );
+  if (!credentialIdB64u.ok) {
+    throw new Error(`${context} returned invalid credentialIdB64u`);
+  }
   const signerSlot = requirePositiveSignerSlot(raw.signerSlot, context);
   return {
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
     rpId,
+    credentialIdB64u: credentialIdB64u.value,
     signerSlot,
   };
 }
@@ -71,6 +83,7 @@ export function assertSameRecoveryResolvedWalletBinding(
     String(left.nearAccountId) !== String(right.nearAccountId) ||
     String(left.nearEd25519SigningKeyId) !== String(right.nearEd25519SigningKeyId) ||
     left.rpId !== right.rpId ||
+    left.credentialIdB64u !== right.credentialIdB64u ||
     left.signerSlot !== right.signerSlot
   ) {
     throw new Error(`${context} returned mismatched wallet binding`);

@@ -484,7 +484,10 @@ Interpretation:
   signing-root server-input derivation, and core HSS session preparation; HSS
   respond is useful to keep instrumented, but it is already relatively small
 - treat the direct browser artifact benchmark as a per-artifact lower bound;
-  keep `benchmark:registration-flow:smoke` as the product-path benchmark
+  use the future real-topology registration latency benchmark as the
+  product-path confirmation. Refactor 88 retired the old
+  `benchmark:registration-flow` runner with its managed-registration mock
+  harness.
 - native registration-path benchmark
   `crates/ed25519-hss/docs/benchmarks/refactor-64/prime-order-registration-native.json` now
   measures the crate-local registration-style flow without browser, worker,
@@ -697,7 +700,8 @@ Interpretation target:
 ### Browser/WASM Trace Instructions
 
 Use Chrome Performance traces on the direct artifact benchmark first, then
-confirm promising changes with `benchmark:registration-flow:smoke`.
+confirm promising changes with the future real-topology registration latency
+benchmark.
 
 Procedure:
 
@@ -1535,7 +1539,7 @@ For HSS Rust behavior changes:
 - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml`
 - `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --manifest-path wasm/hss_client_signer/Cargo.toml --target wasm32-unknown-unknown`
 - `pnpm -C sdk type-check`
-- `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang pnpm benchmark:registration-flow:smoke`
+- real-topology registration latency benchmark once the replacement exists
 
 For protocol-shape changes:
 

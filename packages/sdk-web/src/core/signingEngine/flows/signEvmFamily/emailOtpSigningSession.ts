@@ -16,8 +16,6 @@ import {
   getThresholdEcdsaSessionRecordForWalletTarget,
   thresholdEcdsaEmailOtpAuthContext,
 } from '../../session/persistence/records';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import { isExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -33,10 +31,7 @@ import {
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import { emitEvmFamilySigningEvent } from './events';
-import {
-  type ResolvedEvmFamilyEcdsaSigningLane,
-} from './ecdsaLanes';
-import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
+import { type ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import {
   throwEmailOtpSigningSessionAuthStateError,
   type EmailOtpEcdsaBootstrapAuthorization,
@@ -103,21 +98,6 @@ export type EvmFamilyEmailOtpTransactionSigningBridge = {
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
 
-function emailOtpReauthChainTargetFromAnchor(
-  anchor: ReauthAnchorIdentity,
-): ThresholdEcdsaChainTarget | null {
-  const identity = anchor.laneIdentity;
-  if (!isExactEcdsaSigningLaneIdentity(identity)) return null;
-  if (signingLaneAuthMethod(identity.auth) !== 'email_otp') return null;
-  return identity.signer.chainTarget;
-}
-
-function emailOtpRecordFromCommittedLane(
-  committedLane: EmailOtpEcdsaCommittedLane | null | undefined,
-): ThresholdEcdsaSessionRecord | undefined {
-  return committedLane?.source === 'record_backed' ? committedLane.record : undefined;
-}
-
 export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   walletId: string;
   walletSession: WalletSessionRef;
@@ -142,11 +122,6 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     remainingUses?: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 }): EvmFamilyEmailOtpTransactionSigningBridge {
-  const emailOtpRecord = emailOtpRecordFromCommittedLane(args.committedLane);
-  const anchorChainTarget =
-    args.reauthSource.kind === 'reauth_anchor'
-      ? emailOtpReauthChainTargetFromAnchor(args.reauthSource.anchor)
-      : null;
   const committedAuthLane = args.committedLane.authLane;
 
   return {
@@ -194,11 +169,9 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
       if (typeof args.loginWithEmailOtpEcdsaCapabilityForSigning !== 'function') {
         throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
       }
-      const bootstrapChainTarget =
-        emailOtpRecord?.chainTarget || anchorChainTarget || args.chainTarget;
       return await args.loginWithEmailOtpEcdsaCapabilityForSigning({
         walletSession: args.walletSession,
-        chainTarget: bootstrapChainTarget,
+        chainTarget: args.chainTarget,
         challengeId,
         otpCode: code,
         committedLane: args.committedLane,

@@ -188,7 +188,7 @@ export async function mintEd25519WalletSession(args: {
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
   auth: Ed25519WalletSessionMintAuthorization;
-  runtimeEnvironmentId?: string;
+  projectEnvironmentId?: string;
   publishableKey?: string;
 }): Promise<{
   ok: boolean;
@@ -251,8 +251,8 @@ export async function mintEd25519WalletSession(args: {
     const usesPublishableKeyBearer = Boolean(
       publishableKey && !appSessionJwt && !thresholdEcdsaSessionJwt,
     );
-    const runtimeEnvironmentId = usesPublishableKeyBearer
-      ? String(args.runtimeEnvironmentId || '').trim() || undefined
+    const projectEnvironmentId = usesPublishableKeyBearer
+      ? String(args.projectEnvironmentId || '').trim() || undefined
       : undefined;
     const response = await fetch(url, {
       method: 'POST',
@@ -265,7 +265,7 @@ export async function mintEd25519WalletSession(args: {
         sessionKind: args.sessionKind,
         relayerKeyId: args.relayerKeyId,
         sessionPolicy: args.sessionPolicy,
-        ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+        ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
         ...(webauthn_authentication ? { webauthn_authentication } : {}),
       }),
     });

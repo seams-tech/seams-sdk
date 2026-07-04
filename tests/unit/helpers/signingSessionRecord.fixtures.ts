@@ -10,7 +10,7 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
   type ThresholdEd25519UpsertMaterialFields,
-  upsertStoredThresholdEd25519SessionRecord,
+  upsertThresholdEd25519SessionFact,
   upsertThresholdEcdsaSessionFromBootstrap,
 } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -120,7 +120,7 @@ export function seedEd25519WarmSessionRecord(
           participantIds,
           runtimePolicyScope,
         });
-  const record = upsertStoredThresholdEd25519SessionRecord({
+  const record = upsertThresholdEd25519SessionFact({
     walletId,
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId,

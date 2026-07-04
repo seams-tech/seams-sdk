@@ -226,7 +226,7 @@ export function registerThresholdEd25519Routes(
           appSessionClaims?.runtimePolicyScope || ecdsaSessionClaims?.runtimePolicyScope;
         const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
           explicitScopeRaw: inheritedRuntimePolicyScope ?? request.sessionPolicy.runtimePolicyScope,
-          runtimeEnvironmentIdRaw: request.runtimeEnvironmentId,
+          projectEnvironmentIdRaw: request.projectEnvironmentId,
           headers: req.headers || {},
           origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
           publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -287,8 +287,8 @@ export function registerThresholdEd25519Routes(
         const result = await resolved.scheme.session({
           relayerKeyId: request.relayerKeyId,
           sessionPolicy: request.sessionPolicy,
-          ...(request.runtimeEnvironmentId
-            ? { runtimeEnvironmentId: request.runtimeEnvironmentId }
+          ...(request.projectEnvironmentId
+            ? { projectEnvironmentId: request.projectEnvironmentId }
             : {}),
           ...(request.sessionKind ? { sessionKind: request.sessionKind } : {}),
           auth: sessionAuth,

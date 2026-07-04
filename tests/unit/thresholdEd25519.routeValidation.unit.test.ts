@@ -75,6 +75,7 @@ test('threshold-ed25519 HSS finalize accepts trimmed evaluation result', () => {
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
+      addStageRequestMessageB64u: 'add-stage-request',
     },
   });
 
@@ -83,6 +84,7 @@ test('threshold-ed25519 HSS finalize accepts trimmed evaluation result', () => {
     expect(parsed.request.evaluationResult).toEqual({
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
+      addStageRequestMessageB64u: 'add-stage-request',
     });
   }
 });
@@ -93,6 +95,7 @@ test('threshold-ed25519 HSS finalize rejects client-sent server finalize output'
     evaluationResult: {
       contextBindingB64u: 'context-binding',
       stagedEvaluatorArtifactB64u: 'staged-artifact',
+      addStageRequestMessageB64u: 'add-stage-request',
       serverEvalFinalizeOutputB64u: 'server-finalize-output',
     },
   });

@@ -1,6 +1,9 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
-import { nearEd25519SigningKeyIdFromString, type NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import {
+  nearEd25519SigningKeyIdFromString,
+  type NearEd25519SigningKeyId,
+} from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import {
   decodeJwtPayloadRecord,
@@ -69,16 +72,21 @@ import {
   type ReauthAnchorIdentity,
   type ReauthAnchorSourceState,
 } from '../operationState/transactionState';
-import type {
-  SigningOperationFingerprint,
-  SigningOperationId,
-} from '../operationState/types';
+import type { SigningOperationFingerprint, SigningOperationId } from '../operationState/types';
 import {
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
   type Ed25519WorkerMaterialBindingDigest,
   type Ed25519WorkerMaterialKeyId,
 } from '../keyMaterialBrands';
+import {
+  canonicalizeLaneFacts,
+  serverIssuedGenerationFromNumber,
+  type CanonicalFactSupersession,
+  type CanonicalLaneInventoryAdapter,
+  type CanonicalTieBreakOrder,
+  type ServerIssuedGeneration,
+} from './canonicalLaneInventory';
 
 export type AvailableSigningLaneState =
   | 'ready'
@@ -156,6 +164,57 @@ export type ConcreteAvailableEcdsaSigningLane = {
 export type AvailableEcdsaSigningLane =
   | MissingAvailableEcdsaSigningLane
   | ConcreteAvailableEcdsaSigningLane;
+
+export type EcdsaLaneRecordFactSource =
+  | 'runtime_session_record'
+  | 'sealed_restore_record'
+  | 'evm_family_shared_projection';
+
+export type EcdsaLaneGroupKey = {
+  walletId: string;
+  authKey: string;
+  evmFamilySigningKeySlotId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+};
+
+export type EcdsaLaneRecordFact = {
+  source: EcdsaLaneRecordFactSource;
+  groupKey: EcdsaLaneGroupKey;
+  chainTargetKey: string;
+  lane: ConcreteAvailableEcdsaSigningLane;
+};
+
+export type EcdsaLaneGroup = {
+  key: EcdsaLaneGroupKey;
+  facts: readonly EcdsaLaneRecordFact[];
+};
+
+export type EcdsaLaneConflict = {
+  groupKey: EcdsaLaneGroupKey;
+  field:
+    | 'ecdsaThresholdKeyId'
+    | 'thresholdOwnerAddress'
+    | 'keyHandle'
+    | 'publicKeyB64u'
+    | 'participantIds';
+  values: readonly string[];
+};
+
+export type EcdsaCanonicalLaneSelection =
+  | {
+      kind: 'selected';
+      selectedFact: EcdsaLaneRecordFact;
+      supersededFacts: readonly EcdsaLaneRecordFact[];
+    }
+  | { kind: 'no_current_lane'; unusableFacts: readonly EcdsaLaneRecordFact[] }
+  | { kind: 'conflicting_key_material'; conflicts: readonly EcdsaLaneConflict[] }
+  | {
+      kind: 'ambiguous_material';
+      candidates: readonly EcdsaLaneGroupKey[];
+      candidateFacts: readonly EcdsaLaneRecordFact[];
+    };
 
 export function availableEcdsaSigningLaneAuthMethod(
   lane: Pick<ConcreteAvailableEcdsaSigningLane, 'auth'>,
@@ -392,28 +451,35 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
 export type InvalidAvailableSigningLaneDiagnostic =
   | {
       curve: 'ed25519';
-      source: 'runtime_session_record';
+      source: 'runtime_session_record' | 'canonical_lane_inventory';
       reason:
         | 'missing_router_ab_state'
         | 'missing_threshold_session_id'
-        | 'missing_signing_grant_id';
+        | 'missing_signing_grant_id'
+        | 'ambiguous_material'
+        | 'conflicting_key_material';
       authMethod?: 'email_otp' | 'passkey';
       thresholdSessionId?: string;
       signingGrantId?: string;
+      message?: string;
     }
   | {
       curve: 'ecdsa';
-      source: 'runtime_session_record';
+      source: 'runtime_session_record' | 'canonical_lane_inventory';
       reason:
         | 'missing_router_ab_state'
         | 'missing_threshold_session_id'
         | 'unsupported_ecdsa_chain_target'
-        | 'invalid_runtime_public_facts';
+        | 'invalid_runtime_public_facts'
+        | 'conflicting_key_material'
+        | 'ambiguous_material';
       authMethod?: 'email_otp' | 'passkey';
       thresholdSessionId?: string;
       signingGrantId?: string;
       targetKey?: string;
       message?: string;
+      groupKey?: EcdsaLaneGroupKey;
+      conflicts?: readonly EcdsaLaneConflict[];
     };
 
 export type AvailableSigningLaneDiagnostics = {
@@ -608,8 +674,8 @@ function isEd25519AvailableWorkerMaterialState(
     case 'sealed_worker_material':
       return Boolean(
         material.identity &&
-          String(material.identity.bindingDigest || '').trim() &&
-          String(material.identity.materialKeyId || '').trim(),
+        String(material.identity.bindingDigest || '').trim() &&
+        String(material.identity.materialKeyId || '').trim(),
       );
     default:
       return false;
@@ -778,6 +844,10 @@ export function ecdsaAvailableLaneIdentityKey(
 }
 
 export function ecdsaAvailableLaneAuthKey(auth: SigningLaneAuthBinding): string | null {
+  return signingLaneAuthBindingKey(auth);
+}
+
+function signingLaneAuthBindingKey(auth: SigningLaneAuthBinding): string | null {
   if (auth.kind === 'passkey') {
     const rpId = String(auth.rpId || '').trim();
     const credentialIdB64u = String(auth.credentialIdB64u || '').trim();
@@ -961,10 +1031,7 @@ function sourceStateFromAvailableLane(
   const authMethod = signingLaneAuthMethod(lane.auth);
   return {
     kind: 'reauth_anchor_source_state',
-    availabilitySource:
-      'source' in lane && lane.source
-        ? lane.source
-        : 'runtime_session_record',
+    availabilitySource: 'source' in lane && lane.source ? lane.source : 'runtime_session_record',
     storeSource: authMethod === 'email_otp' ? 'email_otp' : 'login',
     retention: authMethod === 'email_otp' ? 'single_use' : 'session',
     remainingUses: nullableNonNegativeInteger(lane.remainingUses),
@@ -1007,10 +1074,7 @@ function parseDurableEcdsaWalletSessionJwtClaims(
   jwt: string,
 ): DurableEcdsaWalletSessionJwtClaims | null {
   const payload = decodeJwtPayloadRecord(jwt);
-  if (
-    !payload ||
-    payload.kind !== ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
-  ) {
+  if (!payload || payload.kind !== ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND) {
     return null;
   }
   if (String(payload.keyScope || '').trim() !== 'evm-family') return null;
@@ -1272,7 +1336,9 @@ function ed25519RecoveryRecordForDurableLane(
 }
 
 function ed25519RecoveryRecordAuthBinding(
-  record: Extract<SealedRecoveryRecord, { curve: 'ed25519' }> | EmailOtpEcdsaCompanionEd25519Recovery,
+  record:
+    | Extract<SealedRecoveryRecord, { curve: 'ed25519' }>
+    | EmailOtpEcdsaCompanionEd25519Recovery,
 ): SigningLaneAuthBinding | null {
   if (record.authMethod === 'passkey') {
     return {
@@ -1319,7 +1385,9 @@ function recordToEd25519Lane(args: {
     chain: 'near',
     walletId: toWalletId(recoveryRecord.walletId),
     nearAccountId: toAccountId(recoveryRecord.nearAccountId),
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(recoveryRecord.nearEd25519SigningKeyId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+      recoveryRecord.nearEd25519SigningKeyId,
+    ),
     signerSlot,
     // IndexedDB policy fields are lookup hints until authenticated sealed
     // payload metadata or trusted runtime/server status confirms them.
@@ -1449,7 +1517,9 @@ async function runtimeRecordToEcdsaLane(args: {
   const remainingUses = nullableNonNegativeInteger(
     advisoryRemainingUses(advisory) ?? args.record.remainingUses,
   );
-  const expiresAtMs = nullablePositiveInteger(advisoryExpiresAtMs(advisory) ?? args.record.expiresAtMs);
+  const expiresAtMs = nullablePositiveInteger(
+    advisoryExpiresAtMs(advisory) ?? args.record.expiresAtMs,
+  );
   const recordPolicyState = runtimeRecordPolicyState({ remainingUses, expiresAtMs });
   const runtimeUpdatedAtMs = nullablePositiveInteger(args.record.updatedAtMs) || 0;
   const durableUpdatedAtMs =
@@ -1499,9 +1569,7 @@ function runtimeRecordToEd25519Lane(args: {
   const thresholdSessionId = String(args.record.thresholdSessionId || '').trim();
   const signingGrantId = String(args.record.signingGrantId || '').trim();
   if (!thresholdSessionId || !signingGrantId) return null;
-  const durableSigningGrantId = String(
-    args.durableLane.signingGrantId || '',
-  ).trim();
+  const durableSigningGrantId = String(args.durableLane.signingGrantId || '').trim();
   const advisory = args.advisory;
   const hasMatchingDurableLane =
     args.durableLane.source === 'durable_sealed_record' &&
@@ -1518,7 +1586,9 @@ function runtimeRecordToEd25519Lane(args: {
   const remainingUses = nullableNonNegativeInteger(
     advisoryRemainingUses(advisory) ?? args.record.remainingUses,
   );
-  const expiresAtMs = nullablePositiveInteger(advisoryExpiresAtMs(advisory) ?? args.record.expiresAtMs);
+  const expiresAtMs = nullablePositiveInteger(
+    advisoryExpiresAtMs(advisory) ?? args.record.expiresAtMs,
+  );
   const recordPolicyState = runtimeRecordPolicyState({ remainingUses, expiresAtMs });
   const runtimeUpdatedAtMs = nullablePositiveInteger(args.record.updatedAtMs) || 0;
   const durableUpdatedAtMs = hasMatchingDurableLane
@@ -1560,6 +1630,12 @@ function availableLaneUpdatedAtMs(
   lane: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
 ): number {
   return Math.floor(Number('updatedAtMs' in lane ? lane.updatedAtMs : 0) || 0);
+}
+
+function availableLaneServerIssuedGeneration(
+  lane: ConcreteAvailableEcdsaSigningLane | ConcreteAvailableEd25519SigningLane,
+): ServerIssuedGeneration | null {
+  return serverIssuedGenerationFromNumber(lane.expiresAtMs ?? lane.policyHint?.expiresAtMs);
 }
 
 function availableLaneStatePriority(
@@ -1629,6 +1705,221 @@ function compareEd25519AvailableLanePriority(
   return compareAvailableLanePriority(left, right);
 }
 
+type Ed25519LaneGroupKey = {
+  walletId: string;
+  authKey: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  signerSlot: string;
+};
+
+type Ed25519LaneRecordFact = {
+  groupKey: Ed25519LaneGroupKey;
+  lane: ConcreteAvailableEd25519SigningLane;
+};
+
+function ed25519LaneGroupKey(
+  lane: ConcreteAvailableEd25519SigningLane,
+): Ed25519LaneGroupKey | null {
+  const authKey = signingLaneAuthBindingKey(lane.auth);
+  const walletId = String(lane.walletId || '').trim();
+  const nearAccountId = String(lane.nearAccountId || '').trim();
+  const nearEd25519SigningKeyId = String(lane.nearEd25519SigningKeyId || '').trim();
+  const signerSlot = String(lane.signerSlot || '').trim();
+  if (!authKey || !walletId || !nearAccountId || !nearEd25519SigningKeyId || !signerSlot) {
+    return null;
+  }
+  return {
+    walletId,
+    authKey,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    signerSlot,
+  };
+}
+
+function ed25519LaneGroupKeyString(key: Ed25519LaneGroupKey): string {
+  return [
+    key.walletId,
+    key.authKey,
+    key.nearAccountId,
+    key.nearEd25519SigningKeyId,
+    key.signerSlot,
+  ]
+    .map((part) => encodeURIComponent(part))
+    .join('|');
+}
+
+function ed25519LaneRecordFact(
+  lane: AvailableEd25519SigningLane,
+): Ed25519LaneRecordFact | null {
+  if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') return null;
+  const groupKey = ed25519LaneGroupKey(lane);
+  if (!groupKey) return null;
+  return { groupKey, lane };
+}
+
+function compareEd25519AvailableLanePriorityDescending(
+  left: AvailableEd25519SigningLane,
+  right: AvailableEd25519SigningLane,
+): number {
+  return compareEd25519AvailableLanePriority(right, left);
+}
+
+function canonicalTieBreakFromNumber(left: number, right: number): CanonicalTieBreakOrder {
+  if (left > right) return 1;
+  if (right > left) return -1;
+  return 0;
+}
+
+function canonicalTieBreakFromString(left: string, right: string): CanonicalTieBreakOrder {
+  const comparison = left.localeCompare(right);
+  if (comparison > 0) return 1;
+  if (comparison < 0) return -1;
+  return 0;
+}
+
+function firstCanonicalTieBreakResult(
+  results: readonly CanonicalTieBreakOrder[],
+): CanonicalTieBreakOrder {
+  for (const result of results) {
+    if (result !== 0) return result;
+  }
+  return 0;
+}
+
+type Ed25519LaneConflict = never;
+
+function ed25519LaneGroupConflicts(
+  _facts: readonly Ed25519LaneRecordFact[],
+): readonly Ed25519LaneConflict[] {
+  return [];
+}
+
+function isEd25519CanonicalFactOperationUsable(fact: Ed25519LaneRecordFact): boolean {
+  return fact.lane.state !== 'deferred' && fact.lane.material.kind !== 'material_pending';
+}
+
+function ed25519CanonicalFactGeneration(
+  fact: Ed25519LaneRecordFact,
+): ServerIssuedGeneration | null {
+  return availableLaneServerIssuedGeneration(fact.lane);
+}
+
+function ed25519CanonicalFactExactness(): 'exact_target' {
+  return 'exact_target';
+}
+
+function ed25519CanonicalTieBreak(
+  left: Ed25519LaneRecordFact,
+  right: Ed25519LaneRecordFact,
+): CanonicalTieBreakOrder {
+  return firstCanonicalTieBreakResult([
+    canonicalTieBreakFromNumber(
+      availableLaneStatePriority(left.lane),
+      availableLaneStatePriority(right.lane),
+    ),
+    canonicalTieBreakFromNumber(
+      availableLaneSourcePriority(left.lane),
+      availableLaneSourcePriority(right.lane),
+    ),
+    canonicalTieBreakFromNumber(
+      ed25519AvailableLaneMaterialPriority(left.lane),
+      ed25519AvailableLaneMaterialPriority(right.lane),
+    ),
+    canonicalTieBreakFromString(
+      ed25519CanonicalStableTieBreakKey(left.lane),
+      ed25519CanonicalStableTieBreakKey(right.lane),
+    ),
+  ]);
+}
+
+function ed25519CanonicalStableTieBreakKey(lane: ConcreteAvailableEd25519SigningLane): string {
+  return [lane.thresholdSessionId, lane.signingGrantId, lane.source || 'runtime_session_record']
+    .map((part) => String(part))
+    .join('|');
+}
+
+const ed25519CanonicalSupersession: CanonicalFactSupersession<Ed25519LaneRecordFact> = {
+  isOperationUsable: isEd25519CanonicalFactOperationUsable,
+  generation: ed25519CanonicalFactGeneration,
+  exactness: ed25519CanonicalFactExactness,
+  tieBreak: ed25519CanonicalTieBreak,
+};
+
+const ed25519CanonicalLaneInventoryAdapter: CanonicalLaneInventoryAdapter<
+  Ed25519LaneRecordFact,
+  Ed25519LaneGroupKey,
+  Ed25519LaneConflict
+> = {
+  groupKey: ed25519RecordFactGroupKey,
+  groupKeyString: ed25519LaneGroupKeyString,
+  groupConflicts: ed25519LaneGroupConflicts,
+  supersession: ed25519CanonicalSupersession,
+};
+
+function ed25519RecordFactGroupKey(fact: Ed25519LaneRecordFact): Ed25519LaneGroupKey {
+  return fact.groupKey;
+}
+
+function ed25519FactsByGroup(
+  facts: readonly Ed25519LaneRecordFact[],
+): Map<string, Ed25519LaneRecordFact[]> {
+  const groups = new Map<string, Ed25519LaneRecordFact[]>();
+  for (const fact of facts) {
+    const groupKey = ed25519LaneGroupKeyString(fact.groupKey);
+    groups.set(groupKey, [...(groups.get(groupKey) || []), fact]);
+  }
+  return groups;
+}
+
+function canonicalizeEd25519FactGroup(
+  facts: readonly Ed25519LaneRecordFact[],
+  invalidLanes: InvalidAvailableSigningLaneDiagnostic[],
+): AvailableEd25519SigningLane[] {
+  const selection = canonicalizeLaneFacts(facts, ed25519CanonicalLaneInventoryAdapter);
+  switch (selection.kind) {
+    case 'selected':
+      return [selection.selectedFact.lane];
+    case 'no_current_lane':
+      return [];
+    case 'conflicting_key_material':
+      invalidLanes.push({
+        curve: 'ed25519',
+        source: 'canonical_lane_inventory',
+        reason: 'conflicting_key_material',
+        message: 'Ed25519 canonical lane inventory has conflicting material facts',
+      });
+      return [];
+    case 'ambiguous_material':
+      invalidLanes.push({
+        curve: 'ed25519',
+        source: 'canonical_lane_inventory',
+        reason: 'ambiguous_material',
+        message: 'Ed25519 canonical lane inventory has incomparable usable records',
+      });
+      return [];
+    default: {
+      const exhaustive: never = selection;
+      return exhaustive;
+    }
+  }
+}
+
+function canonicalizeEd25519AvailableLanes(
+  candidates: readonly AvailableEd25519SigningLane[],
+  invalidLanes: InvalidAvailableSigningLaneDiagnostic[],
+): AvailableEd25519SigningLane[] {
+  const facts = candidates
+    .map(ed25519LaneRecordFact)
+    .filter((fact): fact is Ed25519LaneRecordFact => fact !== null);
+  const canonicalLanes: AvailableEd25519SigningLane[] = [];
+  for (const factGroup of ed25519FactsByGroup(facts).values()) {
+    canonicalLanes.push(...canonicalizeEd25519FactGroup(factGroup, invalidLanes));
+  }
+  return canonicalLanes.sort(compareEd25519AvailableLanePriorityDescending);
+}
+
 function ed25519CompanionIdentityKey(lane: AvailableEd25519SigningLane): string | null {
   if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') return null;
   const signingGrantId = String(lane.signingGrantId || '').trim();
@@ -1669,7 +1960,9 @@ function primaryEd25519LaneFromNormalizedCandidates(args: {
   return (
     args.candidates.find(
       (candidate) => ed25519AvailableLaneIdentityKey(candidate) === primaryKey,
-    ) || args.primaryLane
+    ) ||
+    args.candidates[0] ||
+    args.primaryLane
   );
 }
 
@@ -1719,43 +2012,353 @@ function summarizeEcdsaLaneForDiagnostics(
   };
 }
 
-function ecdsaSharedIdentityConflictGroup(lane: ConcreteAvailableEcdsaSigningLane): string {
+function ecdsaLaneRecordFactSource(
+  lane: ConcreteAvailableEcdsaSigningLane,
+): EcdsaLaneRecordFactSource {
+  if (lane.source === 'evm_family_shared_key') return 'evm_family_shared_projection';
+  if (lane.source === 'durable_sealed_record') return 'sealed_restore_record';
+  return 'runtime_session_record';
+}
+
+function ecdsaLaneGroupKey(lane: ConcreteAvailableEcdsaSigningLane): EcdsaLaneGroupKey | null {
+  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
+  if (!authKey) return null;
+  return {
+    walletId: String(lane.key.walletId),
+    authKey,
+    evmFamilySigningKeySlotId: String(lane.key.evmFamilySigningKeySlotId),
+    ecdsaThresholdKeyId: String(lane.key.ecdsaThresholdKeyId),
+    signingRootId: String(lane.key.signingRootId),
+    signingRootVersion: String(lane.key.signingRootVersion || 'default'),
+  };
+}
+
+function ecdsaLaneGroupKeyString(key: EcdsaLaneGroupKey): string {
   return [
-    lane.key.walletId,
-    ecdsaAvailableLaneAuthKey(lane.auth),
-    lane.key.keyScope,
-    lane.key.signingRootId,
-    lane.key.signingRootVersion,
+    key.walletId,
+    key.authKey,
+    key.evmFamilySigningKeySlotId,
+    key.ecdsaThresholdKeyId,
+    key.signingRootId,
+    key.signingRootVersion,
+  ]
+    .map((part) => encodeURIComponent(part))
+    .join('|');
+}
+
+function ecdsaLaneRecordFact(lane: ConcreteAvailableEcdsaSigningLane): EcdsaLaneRecordFact | null {
+  const groupKey = ecdsaLaneGroupKey(lane);
+  if (!groupKey) return null;
+  return {
+    source: ecdsaLaneRecordFactSource(lane),
+    groupKey,
+    chainTargetKey: thresholdEcdsaChainTargetKey(lane.chainTarget),
+    lane,
+  };
+}
+
+function ecdsaLaneFamilyGroupKeyString(lane: ConcreteAvailableEcdsaSigningLane): string | null {
+  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
+  if (!authKey) return null;
+  return [
+    String(lane.key.walletId),
+    authKey,
+    String(lane.key.evmFamilySigningKeySlotId),
+    String(lane.key.signingRootId),
+    String(lane.key.signingRootVersion || 'default'),
+  ]
+    .map((part) => encodeURIComponent(part))
+    .join('|');
+}
+
+function ecdsaCanonicalPublicFactValues(
+  facts: readonly EcdsaLaneRecordFact[],
+  read: (lane: ConcreteAvailableEcdsaSigningLane) => string,
+): string[] {
+  return [...new Set(facts.map((fact) => read(fact.lane)).filter(Boolean))].sort();
+}
+
+function ecdsaLaneGroupConflicts(group: EcdsaLaneGroup): EcdsaLaneConflict[] {
+  const fields = [
+    {
+      field: 'ecdsaThresholdKeyId' as const,
+      values: ecdsaCanonicalPublicFactValues(group.facts, (lane) =>
+        String(lane.key.ecdsaThresholdKeyId || ''),
+      ),
+    },
+    {
+      field: 'thresholdOwnerAddress' as const,
+      values: ecdsaCanonicalPublicFactValues(group.facts, (lane) =>
+        String(lane.publicFacts.thresholdOwnerAddress || '').toLowerCase(),
+      ),
+    },
+    {
+      field: 'keyHandle' as const,
+      values: ecdsaCanonicalPublicFactValues(group.facts, (lane) =>
+        String(lane.publicFacts.keyHandle || ''),
+      ),
+    },
+    {
+      field: 'publicKeyB64u' as const,
+      values: ecdsaCanonicalPublicFactValues(group.facts, (lane) =>
+        String(lane.publicFacts.publicKeyB64u || ''),
+      ),
+    },
+    {
+      field: 'participantIds' as const,
+      values: ecdsaCanonicalPublicFactValues(group.facts, (lane) =>
+        lane.publicFacts.participantIds.map((participantId) => Number(participantId)).join(','),
+      ),
+    },
+  ];
+  return fields
+    .filter((entry) => entry.values.length > 1)
+    .map((entry) => ({
+      groupKey: group.key,
+      field: entry.field,
+      values: entry.values,
+    }));
+}
+
+function ecdsaFamilyGroupConflicts(
+  facts: readonly EcdsaLaneRecordFact[],
+): Map<string, EcdsaLaneConflict[]> {
+  const factsByFamilyGroup = new Map<string, EcdsaLaneRecordFact[]>();
+  for (const fact of facts) {
+    const familyGroupKey = ecdsaLaneFamilyGroupKeyString(fact.lane);
+    if (!familyGroupKey) continue;
+    factsByFamilyGroup.set(familyGroupKey, [
+      ...(factsByFamilyGroup.get(familyGroupKey) || []),
+      fact,
+    ]);
+  }
+  const conflictsByFamilyGroup = new Map<string, EcdsaLaneConflict[]>();
+  for (const [familyGroupKey, groupFacts] of factsByFamilyGroup) {
+    const firstFact = groupFacts[0];
+    if (!firstFact) continue;
+    const conflicts = ecdsaLaneGroupConflicts({
+      key: firstFact.groupKey,
+      facts: groupFacts,
+    });
+    if (conflicts.length) {
+      conflictsByFamilyGroup.set(familyGroupKey, conflicts);
+    }
+  }
+  return conflictsByFamilyGroup;
+}
+
+function ecdsaFactFamilyConflicts(args: {
+  fact: EcdsaLaneRecordFact;
+  conflictsByFamilyGroup: Map<string, EcdsaLaneConflict[]>;
+}): readonly EcdsaLaneConflict[] {
+  const familyGroupKey = ecdsaLaneFamilyGroupKeyString(args.fact.lane);
+  if (!familyGroupKey) return [];
+  return args.conflictsByFamilyGroup.get(familyGroupKey) || [];
+}
+
+function ecdsaRecordFactsForCandidates(
+  candidates: readonly AvailableEcdsaSigningLane[],
+): EcdsaLaneRecordFact[] {
+  return candidates
+    .filter(
+      (candidate): candidate is ConcreteAvailableEcdsaSigningLane =>
+        isConcreteAvailableSigningLane(candidate) && candidate.curve === 'ecdsa',
+    )
+    .map(ecdsaLaneRecordFact)
+    .filter((fact): fact is EcdsaLaneRecordFact => fact !== null);
+}
+
+function ecdsaCanonicalSourcePriority(lane: ConcreteAvailableEcdsaSigningLane): number {
+  if (lane.source === 'evm_family_shared_key') return 1;
+  if (lane.source === 'durable_sealed_record') return 2;
+  return 3;
+}
+
+function ecdsaCanonicalFactGroupKey(fact: EcdsaLaneRecordFact): EcdsaLaneGroupKey {
+  return fact.groupKey;
+}
+
+function ecdsaCanonicalGroupConflicts(
+  facts: readonly EcdsaLaneRecordFact[],
+): readonly EcdsaLaneConflict[] {
+  const firstFact = facts[0];
+  if (!firstFact) return [];
+  return ecdsaLaneGroupConflicts({ key: firstFact.groupKey, facts });
+}
+
+function isEcdsaCanonicalFactOperationUsable(fact: EcdsaLaneRecordFact): boolean {
+  return fact.lane.state !== 'deferred';
+}
+
+function ecdsaCanonicalFactGeneration(fact: EcdsaLaneRecordFact): ServerIssuedGeneration | null {
+  return availableLaneServerIssuedGeneration(fact.lane);
+}
+
+function ecdsaCanonicalFactExactness(
+  fact: EcdsaLaneRecordFact,
+): 'exact_target' | 'shared_projection' {
+  return fact.lane.source === 'evm_family_shared_key' ? 'shared_projection' : 'exact_target';
+}
+
+function ecdsaCanonicalStableTieBreakKey(lane: ConcreteAvailableEcdsaSigningLane): string {
+  return [
+    lane.thresholdSessionId,
+    lane.signingGrantId,
+    lane.source || 'runtime_session_record',
+    thresholdEcdsaChainTargetKey(lane.chainTarget),
   ]
     .map((part) => String(part))
     .join('|');
 }
 
-function ecdsaSharedKeyConflictGroups(
-  candidatesByTarget: Record<string, AvailableEcdsaSigningLane[]>,
-): Set<string> {
-  const ownersByGroup = new Map<string, Set<string>>();
-  const keyHandlesByGroup = new Map<string, Set<string>>();
-  for (const candidates of Object.values(candidatesByTarget)) {
-    for (const candidate of candidates) {
-      if (!isConcreteAvailableSigningLane(candidate) || candidate.curve !== 'ecdsa') continue;
-      const groupKey = ecdsaSharedIdentityConflictGroup(candidate);
-      const owners = ownersByGroup.get(groupKey) || new Set<string>();
-      owners.add(String(candidate.publicFacts.thresholdOwnerAddress).toLowerCase());
-      ownersByGroup.set(groupKey, owners);
-      const keyHandles = keyHandlesByGroup.get(groupKey) || new Set<string>();
-      keyHandles.add(String(candidate.publicFacts.keyHandle));
-      keyHandlesByGroup.set(groupKey, keyHandles);
+function ecdsaCanonicalTieBreak(
+  left: EcdsaLaneRecordFact,
+  right: EcdsaLaneRecordFact,
+): CanonicalTieBreakOrder {
+  return firstCanonicalTieBreakResult([
+    canonicalTieBreakFromNumber(
+      availableLaneStatePriority(left.lane),
+      availableLaneStatePriority(right.lane),
+    ),
+    canonicalTieBreakFromNumber(
+      ecdsaCanonicalSourcePriority(left.lane),
+      ecdsaCanonicalSourcePriority(right.lane),
+    ),
+    canonicalTieBreakFromString(
+      ecdsaCanonicalStableTieBreakKey(left.lane),
+      ecdsaCanonicalStableTieBreakKey(right.lane),
+    ),
+  ]);
+}
+
+const ecdsaCanonicalSupersession: CanonicalFactSupersession<EcdsaLaneRecordFact> = {
+  isOperationUsable: isEcdsaCanonicalFactOperationUsable,
+  generation: ecdsaCanonicalFactGeneration,
+  exactness: ecdsaCanonicalFactExactness,
+  tieBreak: ecdsaCanonicalTieBreak,
+};
+
+const ecdsaCanonicalLaneInventoryAdapter: CanonicalLaneInventoryAdapter<
+  EcdsaLaneRecordFact,
+  EcdsaLaneGroupKey,
+  EcdsaLaneConflict
+> = {
+  groupKey: ecdsaCanonicalFactGroupKey,
+  groupKeyString: ecdsaLaneGroupKeyString,
+  groupConflicts: ecdsaCanonicalGroupConflicts,
+  supersession: ecdsaCanonicalSupersession,
+};
+
+function ecdsaGroupKeysForFacts(facts: readonly EcdsaLaneRecordFact[]): EcdsaLaneGroupKey[] {
+  const groupKeysByEncodedKey = new Map<string, EcdsaLaneGroupKey>();
+  for (const fact of facts) {
+    groupKeysByEncodedKey.set(ecdsaLaneGroupKeyString(fact.groupKey), fact.groupKey);
+  }
+  return [...groupKeysByEncodedKey.values()];
+}
+
+function canonicalEcdsaLaneSelectionForFacts(
+  facts: readonly EcdsaLaneRecordFact[],
+): EcdsaCanonicalLaneSelection {
+  const selection = canonicalizeLaneFacts(facts, ecdsaCanonicalLaneInventoryAdapter);
+  switch (selection.kind) {
+    case 'selected':
+      return {
+        kind: 'selected',
+        selectedFact: selection.selectedFact,
+        supersededFacts: selection.supersededFacts,
+      };
+    case 'no_current_lane':
+      return {
+        kind: 'no_current_lane',
+        unusableFacts: selection.unusableFacts,
+      };
+    case 'conflicting_key_material':
+      return { kind: 'conflicting_key_material', conflicts: selection.conflicts };
+    case 'ambiguous_material':
+      return {
+        kind: 'ambiguous_material',
+        candidates: ecdsaGroupKeysForFacts(selection.candidates),
+        candidateFacts: selection.candidates,
+      };
+    default: {
+      const exhaustive: never = selection;
+      return exhaustive;
     }
   }
-  const conflicts = new Set<string>();
-  for (const [groupKey, owners] of ownersByGroup) {
-    if (owners.size > 1) conflicts.add(groupKey);
+}
+
+function canonicalizeEcdsaAvailableLanes(args: {
+  targets: readonly ThresholdEcdsaChainTarget[];
+  candidatesByTarget: Record<string, AvailableEcdsaSigningLane[]>;
+  invalidLanes: InvalidAvailableSigningLaneDiagnostic[];
+}): {
+  lanesByTarget: Record<string, AvailableEcdsaSigningLane>;
+  candidatesByTarget: Record<string, AvailableEcdsaSigningLane[]>;
+} {
+  const canonicalCandidatesByTarget: Record<string, AvailableEcdsaSigningLane[]> = {};
+  const canonicalLanesByTarget: Record<string, AvailableEcdsaSigningLane> = {};
+  const allConcreteFacts = Object.values(args.candidatesByTarget).flatMap(
+    ecdsaRecordFactsForCandidates,
+  );
+  const conflictsByFamilyGroup = ecdsaFamilyGroupConflicts(allConcreteFacts);
+  for (const chainTarget of args.targets) {
+    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+    const concreteFacts = ecdsaRecordFactsForCandidates(args.candidatesByTarget[targetKey] || []);
+    const targetConflicts = concreteFacts.flatMap((fact) =>
+      ecdsaFactFamilyConflicts({ fact, conflictsByFamilyGroup }),
+    );
+    if (targetConflicts.length) {
+      args.invalidLanes.push({
+        curve: 'ecdsa',
+        source: 'canonical_lane_inventory',
+        reason: 'conflicting_key_material',
+        targetKey,
+        groupKey: targetConflicts[0]?.groupKey,
+        conflicts: targetConflicts,
+      });
+      canonicalCandidatesByTarget[targetKey] = [];
+      canonicalLanesByTarget[targetKey] = emptyEcdsaLane({ chainTarget });
+      continue;
+    }
+    const selection = canonicalEcdsaLaneSelectionForFacts(concreteFacts);
+    switch (selection.kind) {
+      case 'selected':
+        canonicalCandidatesByTarget[targetKey] = [selection.selectedFact.lane];
+        canonicalLanesByTarget[targetKey] = selection.selectedFact.lane;
+        break;
+      case 'no_current_lane':
+        canonicalCandidatesByTarget[targetKey] = [];
+        canonicalLanesByTarget[targetKey] = emptyEcdsaLane({ chainTarget });
+        break;
+      case 'conflicting_key_material':
+        args.invalidLanes.push({
+          curve: 'ecdsa',
+          source: 'canonical_lane_inventory',
+          reason: 'conflicting_key_material',
+          targetKey,
+          groupKey: selection.conflicts[0]?.groupKey,
+          conflicts: selection.conflicts,
+        });
+        canonicalCandidatesByTarget[targetKey] = [];
+        canonicalLanesByTarget[targetKey] = emptyEcdsaLane({ chainTarget });
+        break;
+      case 'ambiguous_material':
+        args.invalidLanes.push({
+          curve: 'ecdsa',
+          source: 'canonical_lane_inventory',
+          reason: 'ambiguous_material',
+          targetKey,
+        });
+        canonicalCandidatesByTarget[targetKey] = [];
+        canonicalLanesByTarget[targetKey] = emptyEcdsaLane({ chainTarget });
+        break;
+    }
   }
-  for (const [groupKey, keyHandles] of keyHandlesByGroup) {
-    if (keyHandles.size > 1) conflicts.add(groupKey);
-  }
-  return conflicts;
+  return {
+    lanesByTarget: canonicalLanesByTarget,
+    candidatesByTarget: canonicalCandidatesByTarget,
+  };
 }
 
 function ecdsaSharedKeyCompletionGroup(lane: ConcreteAvailableEcdsaSigningLane): string {
@@ -1834,8 +2437,7 @@ function completeMissingEvmFamilyTargetsFromSharedKey(args: {
   const uniqueSourceLanes = [...sourceLanesByGroup.values()]
     .filter((group) => group.length > 0)
     .map(
-      (group) =>
-        [...group].sort((left, right) => compareAvailableLanePriority(right, left))[0]!,
+      (group) => [...group].sort((left, right) => compareAvailableLanePriority(right, left))[0]!,
     );
   if (uniqueSourceLanes.length !== 1) return;
   const sourceLane = uniqueSourceLanes[0]!;
@@ -1862,7 +2464,10 @@ function completeMissingEvmFamilyTargetsFromSharedKey(args: {
         ecdsaSharedKeyCompletionGroup(candidate) === ecdsaSharedKeyCompletionGroup(sourceLane),
     );
     if (existingSharedLane) continue;
-    args.candidatesByTarget[targetKey] = [...(args.candidatesByTarget[targetKey] || []), sharedLane];
+    args.candidatesByTarget[targetKey] = [
+      ...(args.candidatesByTarget[targetKey] || []),
+      sharedLane,
+    ];
     args.lanesByTarget[targetKey] = sharedLane;
     args.laneUpdatedAtMsByTarget[targetKey] = availableLaneUpdatedAtMs(sharedLane);
   }
@@ -1915,79 +2520,9 @@ function collapseExactDuplicateAvailableLanes<
     keyedGroups.set(key, [...(keyedGroups.get(key) || []), lane]);
   }
   const normalized = [...keyedGroups.values()].map(
-    (group) =>
-      [...group].sort((left, right) => comparePriority(right, left))[0]!,
+    (group) => [...group].sort((left, right) => comparePriority(right, left))[0]!,
   );
   return [...normalized, ...unkeyed];
-}
-
-function ecdsaReauthAnchorIdentityKey(lane: AvailableEcdsaSigningLane): string | null {
-  if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa') return null;
-  if (lane.state !== 'expired' && lane.state !== 'exhausted') return null;
-  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
-  if (!authKey) return null;
-  try {
-    return [
-      signingLaneAuthMethod(lane.auth),
-      'ecdsa',
-      thresholdEcdsaChainTargetKey(lane.chainTarget),
-      authKey,
-      deriveAvailableEcdsaLaneFingerprint(lane),
-    ].join(':');
-  } catch {
-    return null;
-  }
-}
-
-function ecdsaReauthAnchorSourcePriority(lane: ConcreteAvailableEcdsaSigningLane): number {
-  switch (lane.source) {
-    case 'durable_sealed_record':
-      return 3;
-    case 'runtime_session_record':
-      return 2;
-    case 'evm_family_shared_key':
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-function preferEcdsaReauthAnchor(
-  current: ConcreteAvailableEcdsaSigningLane,
-  candidate: ConcreteAvailableEcdsaSigningLane,
-): ConcreteAvailableEcdsaSigningLane {
-  const sourceDelta =
-    ecdsaReauthAnchorSourcePriority(candidate) - ecdsaReauthAnchorSourcePriority(current);
-  if (sourceDelta > 0) return candidate;
-  if (sourceDelta < 0) return current;
-  return availableLaneUpdatedAtMs(candidate) > availableLaneUpdatedAtMs(current)
-    ? candidate
-    : current;
-}
-
-function collapseEcdsaReauthAnchorLanes(
-  lanes: AvailableEcdsaSigningLane[],
-): AvailableEcdsaSigningLane[] {
-  const keyedGroups = new Map<string, ConcreteAvailableEcdsaSigningLane>();
-  const unkeyed: AvailableEcdsaSigningLane[] = [];
-  for (const lane of lanes) {
-    const key = ecdsaReauthAnchorIdentityKey(lane);
-    if (!key || !isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa') {
-      unkeyed.push(lane);
-      continue;
-    }
-    const current = keyedGroups.get(key);
-    keyedGroups.set(key, current ? preferEcdsaReauthAnchor(current, lane) : lane);
-  }
-  return [...keyedGroups.values(), ...unkeyed];
-}
-
-function normalizeEcdsaAvailableLaneCandidates(
-  lanes: AvailableEcdsaSigningLane[],
-): AvailableEcdsaSigningLane[] {
-  return collapseEcdsaReauthAnchorLanes(
-    collapseExactDuplicateAvailableLanes(lanes, ecdsaAvailableLaneIdentityKey),
-  ).sort((left, right) => compareAvailableLanePriority(right, left));
 }
 
 export async function readAvailableSigningLanes(
@@ -2142,9 +2677,7 @@ export async function readAvailableSigningLanes(
         reason: 'missing_router_ab_state',
         authMethod: recordAuthMethod,
         ...(thresholdSessionId ? { thresholdSessionId } : {}),
-        ...(record.signingGrantId
-          ? { signingGrantId: String(record.signingGrantId) }
-          : {}),
+        ...(record.signingGrantId ? { signingGrantId: String(record.signingGrantId) } : {}),
       });
       continue;
     }
@@ -2249,7 +2782,9 @@ export async function readAvailableSigningLanes(
         ? targetCandidates.find((lane) => ecdsaAvailableLaneIdentityKey(lane) === runtimeLaneKey)
         : undefined) || targetLane;
     const advisoryKey = runtimeEcdsaRecordAdvisoryKey(runtimeRecord);
-    const runtimeAdvisory = advisoryKey ? advisoriesByEcdsaRecordKey.get(advisoryKey) || null : null;
+    const runtimeAdvisory = advisoryKey
+      ? advisoriesByEcdsaRecordKey.get(advisoryKey) || null
+      : null;
     let runtimeLane: ConcreteAvailableEcdsaSigningLane;
     try {
       runtimeLane = await runtimeRecordToEcdsaLane({
@@ -2351,32 +2886,6 @@ export async function readAvailableSigningLanes(
     }
   }
 
-  const ecdsaConflictGroups = ecdsaSharedKeyConflictGroups(ecdsaCandidatesByTarget);
-  if (ecdsaConflictGroups.size) {
-    for (const [targetKey, candidates] of Object.entries(ecdsaCandidatesByTarget)) {
-      ecdsaCandidatesByTarget[targetKey] = candidates.filter(
-        (candidate) =>
-          !isConcreteAvailableSigningLane(candidate) ||
-          candidate.curve !== 'ecdsa' ||
-          !ecdsaConflictGroups.has(ecdsaSharedIdentityConflictGroup(candidate)),
-      );
-    }
-    for (const chainTarget of ecdsaTargets) {
-      const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-      const filteredCandidates = ecdsaCandidatesByTarget[targetKey] || [];
-      const selectedLane = filteredCandidates
-        .filter(
-          (candidate): candidate is ConcreteAvailableEcdsaSigningLane =>
-            isConcreteAvailableSigningLane(candidate) && candidate.curve === 'ecdsa',
-        )
-        .sort((left, right) => availableLaneUpdatedAtMs(right) - availableLaneUpdatedAtMs(left))[0];
-      ecdsaLanesByTarget[targetKey] = selectedLane || emptyEcdsaLane({ chainTarget });
-      ecdsaLaneUpdatedAtMsByTarget[targetKey] = selectedLane
-        ? availableLaneUpdatedAtMs(selectedLane)
-        : 0;
-    }
-  }
-
   completeMissingEvmFamilyTargetsFromSharedKey({
     targets: ecdsaTargets,
     lanesByTarget: ecdsaLanesByTarget,
@@ -2388,38 +2897,34 @@ export async function readAvailableSigningLanes(
     ed25519Candidates,
     ed25519AvailableLaneIdentityKey,
     compareEd25519AvailableLanePriority,
-  ).sort((left, right) => compareEd25519AvailableLanePriority(right, left));
-  const primaryEd25519Lane = primaryEd25519LaneFromNormalizedCandidates({
-    primaryLane: ed25519Lane,
-    candidates: normalizedEd25519Candidates,
-  });
+  ).sort(compareEd25519AvailableLanePriorityDescending);
+  const activeEd25519Candidates = canonicalizeEd25519AvailableLanes(
+    normalizedEd25519Candidates,
+    invalidLanes,
+  );
+  const primaryEd25519Lane = activeEd25519Candidates.length
+    ? primaryEd25519LaneFromNormalizedCandidates({
+        primaryLane: ed25519Lane,
+        candidates: activeEd25519Candidates,
+      })
+    : emptyEd25519Lane();
   const preferredEd25519Lane = emailOtpPreferredEd25519PrimaryLane({
     primaryLane: primaryEd25519Lane,
-    candidates: normalizedEd25519Candidates,
+    candidates: activeEd25519Candidates,
   });
-  const normalizedEcdsaCandidatesByTarget = Object.fromEntries(
-    Object.entries(ecdsaCandidatesByTarget).map(([targetKey, candidates]) => [
-      targetKey,
-      normalizeEcdsaAvailableLaneCandidates(candidates),
-    ]),
-  );
-  const normalizedEcdsaLanesByTarget = Object.fromEntries(
-    ecdsaTargets.map((chainTarget) => {
-      const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-      return [
-        targetKey,
-        normalizedEcdsaCandidatesByTarget[targetKey]?.[0] || emptyEcdsaLane({ chainTarget }),
-      ];
-    }),
-  );
+  const canonicalEcdsaAvailableLanes = canonicalizeEcdsaAvailableLanes({
+    targets: ecdsaTargets,
+    candidatesByTarget: ecdsaCandidatesByTarget,
+    invalidLanes,
+  });
 
   const availableLanes: AvailableSigningLanes = {
     walletId,
     generation,
     ecdsa: {
       targets: ecdsaTargets,
-      lanesByTarget: normalizedEcdsaLanesByTarget,
-      candidatesByTarget: normalizedEcdsaCandidatesByTarget,
+      lanesByTarget: canonicalEcdsaAvailableLanes.lanesByTarget,
+      candidatesByTarget: canonicalEcdsaAvailableLanes.candidatesByTarget,
     },
     lanes: {
       ed25519: {
@@ -2428,7 +2933,7 @@ export async function readAvailableSigningLanes(
     },
     candidates: {
       ed25519: {
-        near: normalizedEd25519Candidates,
+        near: activeEd25519Candidates,
       },
     },
     diagnostics: {

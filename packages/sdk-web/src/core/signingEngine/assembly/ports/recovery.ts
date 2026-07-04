@@ -57,6 +57,8 @@ export function createRecoveryPublicDeps(args: {
     exportEd25519SeedWithAuthorization: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['exportEd25519SeedWithAuthorization'];
   };
   keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
+  provisionThresholdEd25519Session: RecoveryPublicDeps['nearSingleKeyHss']['provisionThresholdEd25519Session'];
+  provisionThresholdEcdsaSession: RecoveryPublicDeps['ecdsa']['provisionThresholdEcdsaSession'];
   warmSessionPolicy: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
     resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
@@ -116,6 +118,8 @@ export function createRecoveryPublicDeps(args: {
     nearSingleKeyHss: {
       keyMaterialStore: args.keyMaterialStore,
       touchConfirm: args.touchConfirm,
+      provisionThresholdEd25519Session: (request) =>
+        args.provisionThresholdEd25519Session(request),
       emailOtpSessions: {
         requestExportChallenge: (
           request: Parameters<EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']>[0],
@@ -139,6 +143,8 @@ export function createRecoveryPublicDeps(args: {
           args.emailOtpSessions.exportEcdsaKeyWithAuthorization(request),
       },
       warmSessionPolicy: args.warmSessionPolicy,
+      provisionThresholdEcdsaSession: (request) =>
+        args.provisionThresholdEcdsaSession(request),
       getSignerWorkerContext: () =>
         args.signerWorkerManager.getContext(),
     },

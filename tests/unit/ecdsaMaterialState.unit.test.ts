@@ -326,7 +326,9 @@ function makeRecord(
   };
 }
 
-function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }> {
+function makeEmailOtpRecord(
+  overrides: Partial<Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>> = {},
+): Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }> {
   return {
     walletId: toWalletId('alice.testnet'),
     chainTarget: EVM_CHAIN_TARGET,
@@ -362,11 +364,14 @@ function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'e
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
       policy: 'session',
+      walletId: toWalletId('alice.testnet'),
+      emailHashHex: '44'.repeat(32),
       reason: 'sign',
       retention: 'session',
       provider: 'email',
       providerUserId: 'email:alice',
     }),
+    ...overrides,
   };
 }
 
@@ -563,5 +568,62 @@ test.describe('ecdsa material state', () => {
 
     expect(readiness.readiness.status).toBe('missing_session');
     expect(readiness.remainingUses).toBe(0);
+  });
+
+  test('keeps runtime-validated Email OTP role-local material warm after registration', async () => {
+    const record = makeEmailOtpRecord();
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    const material = buildEcdsaMaterialStateForCandidate({
+      candidate: makeEmailOtpCandidate(),
+      record,
+      authMethod: 'email_otp',
+      source: 'email_otp',
+      chainTarget: EVM_CHAIN_TARGET,
+      materialChainTarget: EVM_CHAIN_TARGET,
+    });
+    expect(material.kind).toBe('ready_to_sign');
+    const lane = buildEcdsaEmailOtpSigningLane({
+      auth: EMAIL_OTP_AUTH,
+      key: makeEmailOtpCandidate().key,
+      keyHandle: record.keyHandle,
+      walletId: record.walletId,
+      chainTarget: EVM_CHAIN_TARGET,
+      signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
+    });
+    const resolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
+      lane,
+      chain: 'evm',
+      context: 'Email OTP runtime-validated readiness test',
+    });
+
+    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
+      deps: {
+        touchConfirm: {
+          getWarmSessionStatus: async () => ({
+            ok: false,
+            code: 'not_found',
+            message: 'passkey warm-session status is not used for Email OTP ECDSA',
+          }),
+        },
+        getEmailOtpWarmSessionStatus: async () => {
+          throw new Error('runtime-validated role-local material should not ask the Email OTP worker');
+        },
+        signingSessionCoordinator: new SigningSessionCoordinator(),
+      },
+      lane: resolvedLane,
+      material,
+    });
+
+    expect(readiness.readiness.status).toBe('ready');
+    expect(readiness.remainingUses).toBe(record.remainingUses);
+    expect(readiness.expiresAtMs).toBe(record.expiresAtMs);
+    expect(readiness.trustedBudgetStatusAuth.kind).toBe('trusted_budget_status_auth');
+    if (readiness.trustedBudgetStatusAuth.kind !== 'trusted_budget_status_auth') return;
+    expect(readiness.trustedBudgetStatusAuth.auth).toEqual({
+      relayerUrl: record.relayerUrl,
+      thresholdSessionId: record.thresholdSessionId,
+      walletSessionJwt: record.walletSessionJwt,
+    });
   });
 });

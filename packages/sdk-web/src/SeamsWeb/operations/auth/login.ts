@@ -2119,7 +2119,7 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
 }
 
 type ManagedThresholdRuntimeScopeBootstrap = {
-  environmentId: string;
+  projectEnvironmentId: string;
   publishableKey: string;
 };
 
@@ -3832,10 +3832,10 @@ function resolveManagedThresholdRuntimeScopeBootstrap(
 ): ManagedThresholdRuntimeScopeBootstrap | undefined {
   const registration = context.configs?.registration;
   if (!registration || registration.mode !== 'managed') return undefined;
-  const environmentId = String(registration.environmentId || '').trim();
+  const projectEnvironmentId = String(registration.projectEnvironmentId || '').trim();
   const publishableKey = String(registration.publishableKey || '').trim();
-  if (!environmentId || !publishableKey) return undefined;
-  return { environmentId, publishableKey };
+  if (!projectEnvironmentId || !publishableKey) return undefined;
+  return { projectEnvironmentId, publishableKey };
 }
 
 function resolveThresholdEcdsaPublicKeyB64u(

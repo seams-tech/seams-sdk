@@ -208,7 +208,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     emailOtpAuthContext: args.emailOtpAuthContext,
   });
 
-  const walletSessionJwt = String(session?.jwt || keyRef.walletSessionJwt || '').trim();
+  const walletSessionJwt = String(session?.jwt || '').trim();
   const runtimePolicyScope =
     args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
   const keyVersion = ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion
@@ -326,6 +326,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     ...sealedRecordBase,
     ecdsaRestore: {
       chainTarget: actualChainTarget,
+      source: 'email_otp',
       evmFamilySigningKeySlotId,
       providerSubjectId,
       emailHashHex,

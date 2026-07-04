@@ -174,7 +174,18 @@ export type FreshEmailOtpEcdsaExportMaterial =
   | FreshEmailOtpEcdsaExportMaterialNeedsChallenge
   | FreshEmailOtpEcdsaExportMaterialRouteAuthReady;
 
-export type EcdsaExportMaterial = ReadyEcdsaExportMaterial | FreshEmailOtpEcdsaExportMaterial;
+export type FreshPasskeyEcdsaExportMaterial = {
+  kind: 'fresh_passkey_needs_authorization';
+  chainTarget: ThresholdEcdsaChainTarget;
+  publicFacts: VerifiedEcdsaPublicFacts;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  record: ThresholdEcdsaSessionRecord;
+};
+
+export type EcdsaExportMaterial =
+  | ReadyEcdsaExportMaterial
+  | FreshEmailOtpEcdsaExportMaterial
+  | FreshPasskeyEcdsaExportMaterial;
 
 type EcdsaExportSessionRecordLookupKey = ThresholdEcdsaSessionRecordKey;
 
@@ -566,6 +577,30 @@ export async function resolveEcdsaExportMaterialForLane(
   }
   if (exportLane.session.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
+  }
+  const runtimeRecord = readEcdsaExportRecordForLane(deps, exportLane);
+  if (runtimeRecord && runtimeRecord.source !== 'email_otp') {
+    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record: runtimeRecord });
+    assertMatchingVerifiedEcdsaPublicFacts({
+      expected: exportLane.publicFacts,
+      actual: publicFacts,
+      context: 'fresh passkey export lane',
+    });
+    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
+      runtimeRecord.runtimePolicyScope,
+    );
+    if (!runtimePolicyScope) {
+      throw new Error(
+        '[SigningEngine][ecdsa-export] fresh passkey export requires runtimePolicyScope',
+      );
+    }
+    return {
+      kind: 'fresh_passkey_needs_authorization',
+      chainTarget: exportLane.session.chainTarget,
+      publicFacts,
+      runtimePolicyScope,
+      record: runtimeRecord,
+    };
   }
   throw new Error(
     `[SigningEngine][ecdsa-export] exact export ready material unavailable for ${ecdsaExportBoundaryChain(exportLane)} ${exportLane.session.authMethod}`,

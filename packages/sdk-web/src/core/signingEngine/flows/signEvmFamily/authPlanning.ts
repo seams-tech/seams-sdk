@@ -42,6 +42,7 @@ import {
   getEcdsaMaterialRecord,
   resolveEmailOtpEcdsaReadinessSource,
   type EcdsaMaterialState,
+  type ReadyEcdsaMaterial,
 } from './ecdsaMaterialState';
 import type {
   EmailOtpEcdsaCommittedLane,
@@ -135,9 +136,26 @@ function buildReadyEcdsaBackingReadiness(input: {
   thresholdSessionId: SigningSessionReadiness['thresholdSessionId'];
   expiresAtMs: number;
   remainingUses: number;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }): EvmFamilyPlannerReadiness {
   const expiresAtMs = Math.floor(Number(input.expiresAtMs) || 0);
   const remainingUses = Math.floor(Number(input.remainingUses) || 0);
+  if (input.trustedStatusAuth) {
+    return {
+      readiness: {
+        status: 'ready',
+        thresholdSessionId: input.thresholdSessionId,
+        expiresAtMs,
+        remainingUses,
+      },
+      expiresAtMs,
+      remainingUses,
+      trustedBudgetStatusAuth: {
+        kind: 'trusted_budget_status_auth',
+        auth: input.trustedStatusAuth,
+      },
+    };
+  }
   return {
     readiness: {
       status: 'ready',
@@ -150,6 +168,18 @@ function buildReadyEcdsaBackingReadiness(input: {
     trustedBudgetStatusAuth: {
       kind: 'no_trusted_budget_status_auth',
     },
+  };
+}
+
+function trustedBudgetStatusAuthFromReadyEcdsaMaterial(
+  material: ReadyEcdsaMaterial,
+): SigningSessionBudgetStatusAuth {
+  const signerSession = material.signerSession;
+  const walletSessionJwt = signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
+  return {
+    relayerUrl: signerSession.transport.relayerUrl,
+    thresholdSessionId: String(signerSession.session.thresholdSessionId),
+    walletSessionJwt,
   };
 }
 
@@ -188,6 +218,14 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     });
     switch (readinessSource.kind) {
       case 'persisted_record_policy':
+        if (args.material.kind === 'ready_to_sign') {
+          return buildReadyEcdsaBackingReadiness({
+            thresholdSessionId,
+            expiresAtMs: readinessSource.expiresAtMs,
+            remainingUses: readinessSource.remainingUses,
+            trustedStatusAuth: trustedBudgetStatusAuthFromReadyEcdsaMaterial(args.material),
+          });
+        }
         return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
       case 'worker_session_status': {
         const status =
@@ -202,6 +240,9 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
           thresholdSessionId,
           expiresAtMs: Math.floor(Number(statusExpiresAtMs) || 0),
           remainingUses: Math.floor(Number(statusRemainingUses) || 0),
+          ...(args.material.kind === 'ready_to_sign'
+            ? { trustedStatusAuth: trustedBudgetStatusAuthFromReadyEcdsaMaterial(args.material) }
+            : {}),
         });
       }
       case 'unavailable':

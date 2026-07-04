@@ -11,6 +11,7 @@ const IMPORT_PATHS = {
 
 const ECDSA_RESTORE = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+  source: 'manual-bootstrap',
   evmFamilySigningKeySlotId: 'wallet-key:evm-family:passkey-fixture',
   rpId: 'wallet.example.localhost',
   credentialIdB64u: 'passkey-ecdsa-credential',
@@ -26,6 +27,7 @@ const EMAIL_OTP_EMAIL_HASH_HEX = 'email-otp-email-hash';
 
 const EMAIL_OTP_ECDSA_RESTORE = {
   chainTarget: ECDSA_RESTORE.chainTarget,
+  source: 'email_otp',
   evmFamilySigningKeySlotId: 'wallet-key:evm-family:email-otp-fixture',
   providerSubjectId: 'email-otp-subject',
   emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
@@ -171,7 +173,7 @@ test.describe('signing session sealed store', () => {
             updatedAtMs: issuedAtMs,
           })!,
         );
-        const currentRecord = records.upsertStoredThresholdEd25519SessionRecord({
+        const currentRecord = records.upsertThresholdEd25519SessionFact({
           walletId: 'sealed-ed25519-wallet',
           nearAccountId: passkeyEd25519Restore.nearAccountId,
           nearEd25519SigningKeyId: passkeyEd25519Restore.nearEd25519SigningKeyId,

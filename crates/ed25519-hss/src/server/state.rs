@@ -71,7 +71,7 @@ pub enum ServerEvalStatus {
     Expired,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerEvalServerRoots {
     pub y_server: [u8; 32],
     pub tau_server: [u8; 32],
@@ -111,14 +111,14 @@ impl ServerEvalFinalizeOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerEvalFinalizeState {
     pub client_input_commitment: [u8; 32],
     pub server_input_commitment: [u8; 32],
     pub output: ServerEvalFinalizeOutput,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerEvalMessageScheduleState {
     pub message_schedule: DdhHiddenEvalMessageScheduleContinuation,
     pub projector_inputs: DdhHiddenEvalProjectorInputs,
@@ -126,7 +126,7 @@ pub struct ServerEvalMessageScheduleState {
     pub server_input_commitment: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerEvalRoundCoreState {
     pub prior_execution_checkpoint_digest: [u8; 32],
     pub round_core: DdhHiddenEvalRoundCoreContinuation,
@@ -135,7 +135,7 @@ pub struct ServerEvalRoundCoreState {
     pub server_input_commitment: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerEvalOutputProjectionState {
     pub prior_execution_checkpoint_digest: [u8; 32],
     pub round_core: DdhHiddenEvalRoundCoreContinuation,
@@ -144,7 +144,7 @@ pub struct ServerEvalOutputProjectionState {
     pub server_input_commitment: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServerEvalExecutionState {
     MessageSchedule(ServerEvalMessageScheduleState),
     RoundCore(ServerEvalRoundCoreState),
@@ -152,7 +152,7 @@ pub enum ServerEvalExecutionState {
     Finalize(ServerEvalFinalizeState),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerEvalState {
     pub handle: ServerEvalHandle,
     pub context_binding: [u8; 32],

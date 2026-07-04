@@ -557,20 +557,20 @@ export async function exchangeGoogleEmailOtpSession(args: {
   idToken: string;
   accountMode: 'register' | 'login';
   sessionKind?: 'jwt' | 'cookie';
-  runtimeEnvironmentId?: string;
+  projectEnvironmentId?: string;
   publishableKey?: string;
   fetchImpl?: FetchLike;
 }): Promise<GoogleEmailOtpSessionExchangeResult> {
   const sessionKind = args.sessionKind === 'jwt' ? 'jwt' : 'cookie';
   const accountMode = args.accountMode === 'register' ? 'register' : 'login';
-  const runtimeEnvironmentId = String(args.runtimeEnvironmentId || '').trim();
+  const projectEnvironmentId = String(args.projectEnvironmentId || '').trim();
   const response = await postJson({
     url: joinNormalizedUrl(args.relayUrl, '/session/exchange'),
     fetchImpl: args.fetchImpl,
     publishableKey: args.publishableKey,
     body: {
       session_kind: sessionKind,
-      ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+      ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
       exchange: {
         type: 'oidc_jwt',
         provider: 'google',

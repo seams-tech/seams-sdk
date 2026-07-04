@@ -38,7 +38,10 @@ import {
   buildWalletIdentity,
 } from '@shared/utils/walletCapabilityBindings';
 import { parseNamedNearAccountId } from '@shared/utils/near';
-import { nearEd25519SigningKeyIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  nearEd25519SigningKeyIdFromString,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   parseEd25519WorkerMaterialBindingDigest,
@@ -156,7 +159,8 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     });
   if (source === 'evm_family_shared_key') {
     if (authMethod === 'passkey') {
-      const auth = authOverride?.kind === 'passkey' ? authOverride : passkeySigningAuth(passkeyRpId);
+      const auth =
+        authOverride?.kind === 'passkey' ? authOverride : passkeySigningAuth(passkeyRpId);
       const resolvedKey = buildResolvedEvmFamilyEcdsaKey({
         walletId: key.walletId,
         publicFacts,
@@ -346,9 +350,7 @@ function ed25519Lane(
         bindingDigest: parseEd25519WorkerMaterialBindingDigest(
           'ed25519-worker-material-binding-digest-test',
         ),
-        materialKeyId: parseEd25519WorkerMaterialKeyId(
-          'ed25519-worker-material-key-test',
-        ),
+        materialKeyId: parseEd25519WorkerMaterialKeyId('ed25519-worker-material-key-test'),
       },
     },
     remainingUses: 1,
@@ -482,10 +484,10 @@ test.describe('Ed25519 export lane selection', () => {
       updatedAtMs: 1_800_000_001_000,
     });
     await expect(
-      restoreNearEd25519SessionForExport(
-        depsForEd25519([lane, duplicateLane], restoreCalls),
-        { signer: NEAR_EXPORT_SIGNER, laneIdentity: ed25519LaneIdentity(lane) },
-      ),
+      restoreNearEd25519SessionForExport(depsForEd25519([lane, duplicateLane], restoreCalls), {
+        signer: NEAR_EXPORT_SIGNER,
+        laneIdentity: ed25519LaneIdentity(lane),
+      }),
     ).rejects.toThrow('exact lane selection failed: duplicate_records');
 
     expect(restoreCalls.emailOtp).toBe(0);
@@ -657,6 +659,66 @@ test.describe('ECDSA export lane selection', () => {
     });
   });
 
+  test('rejects raw AccountMenu Email OTP ECDSA export duplicates before canonical availability', async () => {
+    const viableLane = ecdsaLane({
+      authMethod: 'email_otp',
+      chainTarget: EVM_TARGET,
+      state: 'restorable',
+      source: 'runtime_session_record',
+      signingGrantId: 'wallet-session-email-otp-current',
+      thresholdSessionId: 'threshold-ecdsa-email-otp-current',
+      remainingUses: 3,
+      updatedAtMs: 1_800_000_000_000,
+    });
+    const exhaustedLane = ecdsaLane({
+      auth: viableLane.auth,
+      key: viableLane.key,
+      publicFacts: viableLane.publicFacts,
+      chainTarget: EVM_TARGET,
+      state: 'exhausted',
+      source: 'runtime_session_record',
+      signingGrantId: 'wallet-session-email-otp-exhausted',
+      thresholdSessionId: 'threshold-ecdsa-email-otp-exhausted',
+      remainingUses: 0,
+      updatedAtMs: 1_800_000_010_000,
+    });
+
+    await expect(
+      resolveExactKeyExportLane(depsFor([viableLane, exhaustedLane]), {
+        kind: 'ecdsa',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        chainTarget: EVM_TARGET,
+      }),
+    ).rejects.toThrow('exact lane selection failed: ambiguous_material');
+  });
+
+  test('rejects AccountMenu ECDSA export resolution when inventory has multiple ECDSA keys', async () => {
+    const requestedKeyLane = ecdsaLane({
+      ecdsaThresholdKeyId: 'ecdsa-key-account-menu-1',
+      signingGrantId: 'wallet-session-account-menu-1',
+      thresholdSessionId: 'threshold-session-account-menu-1',
+    });
+    const otherKeyLane = ecdsaLane({
+      ecdsaThresholdKeyId: 'ecdsa-key-account-menu-2',
+      signingGrantId: 'wallet-session-account-menu-2',
+      thresholdSessionId: 'threshold-session-account-menu-2',
+    });
+
+    await expect(
+      resolveExactKeyExportLane(depsFor([requestedKeyLane, otherKeyLane]), {
+        kind: 'ecdsa',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        chainTarget: EVM_TARGET,
+      }),
+    ).rejects.toThrow('exact lane selection failed: ambiguous_material');
+  });
+
   test('rejects duplicate live sessions for the same ECDSA key identity', async () => {
     const auth = passkeySigningAuth();
     const runtimeLane = ecdsaLane({
@@ -684,7 +746,7 @@ test.describe('ECDSA export lane selection', () => {
         signingTarget: EVM_TARGET,
         laneIdentity: ecdsaLaneIdentity(runtimeLane),
       }),
-    ).rejects.toThrow('exact lane selection failed: duplicate_records');
+    ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
 
   test('selects requested ECDSA key identity when inventory has different key identities', async () => {
@@ -694,14 +756,11 @@ test.describe('ECDSA export lane selection', () => {
       signingGrantId: 'wallet-session-2',
       thresholdSessionId: 'threshold-session-2',
     });
-    const selected = await restoreEcdsaSessionForExport(
-      depsFor([otherLane, requestedLane]),
-      {
-        walletId: WALLET_ID,
-        signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(requestedLane),
-      },
-    );
+    const selected = await restoreEcdsaSessionForExport(depsFor([otherLane, requestedLane]), {
+      walletId: WALLET_ID,
+      signingTarget: EVM_TARGET,
+      laneIdentity: ecdsaLaneIdentity(requestedLane),
+    });
 
     expect(selected.key.ecdsaThresholdKeyId).toBe('ecdsa-key-1');
   });
@@ -718,14 +777,11 @@ test.describe('ECDSA export lane selection', () => {
       thresholdSessionId: 'threshold-session-other',
     });
 
-    const selected = await restoreEcdsaSessionForExport(
-      depsFor([otherLane, requestedLane]),
-      {
-        walletId: WALLET_ID,
-        signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(requestedLane),
-      },
-    );
+    const selected = await restoreEcdsaSessionForExport(depsFor([otherLane, requestedLane]), {
+      walletId: WALLET_ID,
+      signingTarget: EVM_TARGET,
+      laneIdentity: ecdsaLaneIdentity(requestedLane),
+    });
 
     expect(selected.session.signingGrantId).toBe('wallet-session-requested');
     expect(selected.key.ecdsaThresholdKeyId).toBe('ecdsa-key-requested');
@@ -750,7 +806,7 @@ test.describe('ECDSA export lane selection', () => {
         laneIdentity: ecdsaLaneIdentity(lane),
       }),
     ).rejects.toThrow(
-      '[SigningEngine][ecdsa-export] exact lane selection failed: duplicate_records',
+      '[SigningEngine][ecdsa-export] exact lane selection failed: ambiguous_material',
     );
   });
 
@@ -780,7 +836,7 @@ test.describe('ECDSA export lane selection', () => {
         signingTarget: EVM_TARGET,
         laneIdentity: ecdsaLaneIdentity(staleLane),
       }),
-    ).rejects.toThrow('exact lane selection failed: duplicate_records');
+    ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
 
   test('uses passkey auth binding rpId for export selection', async () => {
@@ -789,14 +845,11 @@ test.describe('ECDSA export lane selection', () => {
       signingGrantId: 'wallet-session-passkey-auth-binding',
       thresholdSessionId: 'threshold-session-passkey-auth-binding',
     });
-    const selected = await restoreEcdsaSessionForExport(
-      depsFor([lane]),
-      {
-        walletId: WALLET_ID,
-        signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(lane),
-      },
-    );
+    const selected = await restoreEcdsaSessionForExport(depsFor([lane]), {
+      walletId: WALLET_ID,
+      signingTarget: EVM_TARGET,
+      laneIdentity: ecdsaLaneIdentity(lane),
+    });
 
     expect(selected.session.authMethod).toBe('passkey');
     expect(selected.session.signingGrantId).toBe('wallet-session-passkey-auth-binding');
@@ -828,7 +881,7 @@ test.describe('ECDSA export lane selection', () => {
         signingTarget: EVM_TARGET,
         laneIdentity: ecdsaLaneIdentity(exhaustedLane),
       }),
-    ).rejects.toThrow('exact lane selection failed: duplicate_records');
+    ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
 
   test('resolves shared-key target lane to concrete source material', async () => {

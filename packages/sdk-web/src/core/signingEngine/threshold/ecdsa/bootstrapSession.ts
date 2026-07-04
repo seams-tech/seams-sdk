@@ -615,7 +615,7 @@ type BootstrapEcdsaSessionBaseArgs = {
   requestId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
-    environmentId: string;
+    projectEnvironmentId: string;
     publishableKey: string;
   };
   ttlMs?: number;
@@ -863,18 +863,20 @@ export async function bootstrapEcdsaSession(
         : (args.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses),
     });
     const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
-    const runtimeEnvironmentId = String(args.runtimeScopeBootstrap?.environmentId || '').trim();
+    const projectEnvironmentId = String(
+      args.runtimeScopeBootstrap?.projectEnvironmentId || '',
+    ).trim();
     const runtimeScopePublishableKey = String(
       args.runtimeScopeBootstrap?.publishableKey || '',
     ).trim();
     const managedBootstrapGrant =
       !exactSessionBootstrap &&
       !args.runtimePolicyScope &&
-      runtimeEnvironmentId &&
+      projectEnvironmentId &&
       runtimeScopePublishableKey
         ? await requestManagedRegistrationBootstrapGrant({
             relayerUrl: args.relayerUrl,
-            environmentId: runtimeEnvironmentId,
+            environmentId: projectEnvironmentId,
             publishableKey: runtimeScopePublishableKey,
             walletId: userId,
             rpId: toRpId(rpId),
@@ -1141,13 +1143,13 @@ export async function bootstrapEcdsaSession(
               webauthn_authentication: webauthnAuthentication,
               runtimePolicyScope,
             }
-          : runtimeEnvironmentId && runtimeScopePublishableKey
+          : projectEnvironmentId && runtimeScopePublishableKey
             ? {
                 kind: 'passkey_bootstrap',
                 rpId,
                 webauthn_authentication: webauthnAuthentication,
-                runtimeEnvironmentId,
-                runtimeEnvironmentPublishableKey: runtimeScopePublishableKey,
+                projectEnvironmentId,
+                projectEnvironmentPublishableKey: runtimeScopePublishableKey,
               }
             : null;
       }

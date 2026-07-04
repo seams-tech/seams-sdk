@@ -25,6 +25,7 @@ import {
 import { formatEd25519HssKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   parseRecoveryResolvedWalletBindingFromResponse,
   type RecoveryResolvedWalletBinding,
@@ -43,6 +44,18 @@ function requireSyncAccountWebAuthnRpId(value: unknown): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+function buildSyncAccountPasskeyAuthority(args: {
+  walletId: string;
+  rpId: WebAuthnRpId;
+  credential: WebAuthnAuthenticationCredential;
+}) {
+  return buildPasskeyWalletAuthAuthority({
+    walletId: args.walletId,
+    rpId: args.rpId,
+    credentialIdB64u: String(args.credential.rawId || args.credential.id || '').trim(),
+  });
 }
 
 function thresholdEd25519SessionFromSyncVerifyResponse(
@@ -186,7 +199,11 @@ export async function syncAccount(
         walletId: String(optionsWalletBinding.walletId),
         nearAccountId: String(optionsWalletBinding.nearAccountId),
         nearEd25519SigningKeyId: String(optionsWalletBinding.nearEd25519SigningKeyId),
-        authorityScope: { kind: 'passkey_rp', rpId },
+        authority: buildSyncAccountPasskeyAuthority({
+          walletId: String(optionsWalletBinding.walletId),
+          rpId,
+          credential,
+        }),
         requestedPolicy: thresholdWarmPolicyDraft,
       });
     }

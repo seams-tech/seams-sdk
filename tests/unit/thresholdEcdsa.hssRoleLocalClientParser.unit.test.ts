@@ -132,7 +132,7 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
 }
 
 test.describe('threshold ECDSA HSS role-local client parser', () => {
-  test('sends publishable-key authorization for runtime-environment passkey bootstrap', async () => {
+  test('sends publishable-key authorization for project-environment passkey bootstrap', async () => {
     const originalFetch = globalThis.fetch;
     let capturedInit: RequestInit | undefined;
     try {
@@ -167,8 +167,8 @@ test.describe('threshold ECDSA HSS role-local client parser', () => {
               prf: { results: { first: undefined, second: undefined } },
             },
           },
-          runtimeEnvironmentId: 'env-test',
-          runtimeEnvironmentPublishableKey: 'pk_test_runtime',
+          projectEnvironmentId: 'env-test',
+          projectEnvironmentPublishableKey: 'pk_test_runtime',
         },
       });
 

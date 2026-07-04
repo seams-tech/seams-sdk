@@ -50,8 +50,10 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   listStoredThresholdEcdsaSessionRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
+  buildOperationUsableThresholdEcdsaSessionRecord,
+  commitCurrentThresholdEcdsaSession,
   thresholdEcdsaSessionRecordReadModel,
-  upsertStoredThresholdEcdsaSessionRecord,
+  upsertThresholdEcdsaSessionFact,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
@@ -372,6 +374,8 @@ function makeEmailOtpRecord(input: EmailOtpRecordFixtureInput = {}): EmailOtpEcd
   const chainTarget = input.chainTarget ?? EVM_TARGET;
   const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'session',
+    walletId: WALLET_ID,
+    emailHashHex: 'aa'.repeat(32),
     retention: 'session',
     reason: 'login',
     provider: 'google',
@@ -446,9 +450,8 @@ function makeKeyRef(input: KeyRefFixtureInput = {}): ThresholdEcdsaSecp256k1KeyR
                 ? input.thresholdEcdsaPublicKeyB64u || VALID_PUBLIC_KEY_B64U
                 : VALID_PUBLIC_KEY_B64U,
           }),
-	    thresholdSessionKind: input.thresholdSessionKind ?? 'jwt',
-	    walletSessionJwt:
-	      'walletSessionJwt' in input ? input.walletSessionJwt : 'threshold-auth-token',
+    thresholdSessionKind: input.thresholdSessionKind ?? 'jwt',
+    walletSessionJwt: 'walletSessionJwt' in input ? input.walletSessionJwt : 'threshold-auth-token',
   };
 }
 
@@ -600,9 +603,9 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(() =>
       buildPasskeyEcdsaAuthBinding({ rpId: '', credentialIdB64u: PASSKEY_CREDENTIAL_ID }),
     ).toThrow(/rpId is required/);
-    expect(() =>
-      buildPasskeyEcdsaAuthBinding({ rpId: RP_ID, credentialIdB64u: '' }),
-    ).toThrow(/credentialIdB64u is required/);
+    expect(() => buildPasskeyEcdsaAuthBinding({ rpId: RP_ID, credentialIdB64u: '' })).toThrow(
+      /credentialIdB64u is required/,
+    );
     expect(() =>
       buildEmailOtpEcdsaAuthBinding({ authSubjectId: '', providerId: 'google' }),
     ).toThrow(/authSubjectId is required/);
@@ -862,9 +865,9 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('builds Email OTP worker share handles with exact lane identity', async () => {
-	  const keyRef = makeKeyRef({
-	    thresholdSessionKind: 'jwt',
-	    walletSessionJwt: 'threshold-auth-token',
+    const keyRef = makeKeyRef({
+      thresholdSessionKind: 'jwt',
+      walletSessionJwt: 'threshold-auth-token',
       backendBinding: {
         materialKind: 'email_otp_worker_handle',
         relayerKeyId: 'relayer-key',
@@ -1138,7 +1141,7 @@ test.describe('EVM-family ECDSA identity', () => {
       recordsByLane: new Map(),
       now: () => 1_800_000_000_000,
     };
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeRecord({
         participantIds: [2, 1],
@@ -1155,6 +1158,234 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(lane?.lane.thresholdSessionId).toBe('threshold-session-1');
     expect(String(lane?.key.evmFamilySigningKeySlotId)).toBe(WALLET_KEY_ID);
     expect('rpId' in (lane?.key || {})).toBe(false);
+  });
+
+  test('fact writes preserve same-authority Email OTP ECDSA target facts until current-session commit', () => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+    const deps: ThresholdEcdsaSessionStoreDeps = {
+      recordsByLane: new Map(),
+      now: () => 1_800_000_000_000,
+    };
+    upsertThresholdEcdsaSessionFact(
+      deps,
+      makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-old',
+        signingGrantId: 'signing-grant-email-otp-old',
+      }),
+    );
+    upsertThresholdEcdsaSessionFact(
+      deps,
+      makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-current',
+        signingGrantId: 'signing-grant-email-otp-current',
+      }),
+    );
+
+    const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
+
+    expect(records).toHaveLength(2);
+    expect(records.map((record) => record.thresholdSessionId).sort()).toEqual([
+      'threshold-session-email-otp-current',
+      'threshold-session-email-otp-old',
+    ]);
+    expect(deps.recordsByLane.size).toBe(2);
+  });
+
+  test('current-session commit retires superseded Email OTP ECDSA records for the same authority and key', () => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+    const deps: ThresholdEcdsaSessionStoreDeps = {
+      recordsByLane: new Map(),
+      now: () => 1_800_000_000_000,
+    };
+    upsertThresholdEcdsaSessionFact(
+      deps,
+      makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-old',
+        signingGrantId: 'signing-grant-email-otp-old',
+      }),
+    );
+    const currentRecord = {
+      ...makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-current',
+        signingGrantId: 'signing-grant-email-otp-current',
+      }),
+      expiresAtMs: 1_900_000_001_000,
+      updatedAtMs: 1_800_000_001_000,
+    };
+    const currentSession = buildOperationUsableThresholdEcdsaSessionRecord(currentRecord);
+    if (!currentSession) {
+      throw new Error('current ECDSA test record must be operation usable');
+    }
+
+    const commit = commitCurrentThresholdEcdsaSession({
+      deps,
+      record: currentSession,
+      transition: 'wallet_unlock',
+    });
+    const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
+
+    expect(commit).toMatchObject({
+      kind: 'committed_current',
+      retired: [{ thresholdSessionId: 'threshold-session-email-otp-old' }],
+    });
+    expect(records).toHaveLength(1);
+    expect(records[0]?.chainTarget).toEqual(TEMPO_TARGET);
+    expect(records[0]?.thresholdSessionId).toBe('threshold-session-email-otp-current');
+    expect(deps.recordsByLane.size).toBe(1);
+  });
+
+  test('restored older Email OTP ECDSA fact does not retire a newer current session', () => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+    const deps: ThresholdEcdsaSessionStoreDeps = {
+      recordsByLane: new Map(),
+      now: () => 1_800_000_000_000,
+    };
+    const restoredRecord = {
+      ...makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-generation-1',
+        signingGrantId: 'signing-grant-email-otp-generation-1',
+      }),
+      expiresAtMs: 1_900_000_001_000,
+      updatedAtMs: 1_800_000_001_000,
+    };
+    const currentRecord = {
+      ...makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-generation-2',
+        signingGrantId: 'signing-grant-email-otp-generation-2',
+      }),
+      expiresAtMs: 1_900_000_002_000,
+      updatedAtMs: 1_800_000_002_000,
+    };
+    const currentSession = buildOperationUsableThresholdEcdsaSessionRecord(currentRecord);
+    if (!currentSession) {
+      throw new Error('current ECDSA test record must be operation usable');
+    }
+
+    const currentCommit = commitCurrentThresholdEcdsaSession({
+      deps,
+      record: currentSession,
+      transition: 'step_up',
+    });
+    upsertThresholdEcdsaSessionFact(deps, restoredRecord);
+
+    const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
+
+    expect(currentCommit.kind).toBe('committed_current');
+    expect(records.map((record) => record.thresholdSessionId).sort()).toEqual([
+      'threshold-session-email-otp-generation-1',
+      'threshold-session-email-otp-generation-2',
+    ]);
+  });
+
+  test('stale Email OTP ECDSA current-session commit is ignored while newer current session remains', () => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+    const deps: ThresholdEcdsaSessionStoreDeps = {
+      recordsByLane: new Map(),
+      now: () => 1_800_000_000_000,
+    };
+    const currentRecord = {
+      ...makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-generation-2',
+        signingGrantId: 'signing-grant-email-otp-generation-2',
+      }),
+      expiresAtMs: 1_900_000_002_000,
+      updatedAtMs: 1_800_000_002_000,
+    };
+    const staleRecord = {
+      ...makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-generation-1',
+        signingGrantId: 'signing-grant-email-otp-generation-1',
+      }),
+      expiresAtMs: 1_900_000_001_000,
+      updatedAtMs: 1_800_000_001_000,
+    };
+    const currentSession = buildOperationUsableThresholdEcdsaSessionRecord(currentRecord);
+    const staleSession = buildOperationUsableThresholdEcdsaSessionRecord(staleRecord);
+    if (!currentSession || !staleSession) {
+      throw new Error('ECDSA test records must be operation usable');
+    }
+
+    commitCurrentThresholdEcdsaSession({
+      deps,
+      record: currentSession,
+      transition: 'step_up',
+    });
+    const staleCommit = commitCurrentThresholdEcdsaSession({
+      deps,
+      record: staleSession,
+      transition: 'step_up',
+    });
+    const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
+
+    expect(staleCommit).toMatchObject({
+      kind: 'stale_commit_ignored',
+      incoming: { thresholdSessionId: 'threshold-session-email-otp-generation-1' },
+      current: { thresholdSessionId: 'threshold-session-email-otp-generation-2' },
+    });
+    expect(records.map((record) => record.thresholdSessionId)).toEqual([
+      'threshold-session-email-otp-generation-2',
+    ]);
+  });
+
+  test('equal-generation Email OTP ECDSA current-session commit keeps distinct-session anomaly evidence', () => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+    const deps: ThresholdEcdsaSessionStoreDeps = {
+      recordsByLane: new Map(),
+      now: () => 1_800_000_000_000,
+    };
+    const firstRecord = {
+      ...makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-generation-a',
+        signingGrantId: 'signing-grant-email-otp-generation-a',
+      }),
+      expiresAtMs: 1_900_000_002_000,
+      updatedAtMs: 1_800_000_002_000,
+    };
+    const secondRecord = {
+      ...makeEmailOtpRecord({
+        chainTarget: TEMPO_TARGET,
+        thresholdSessionId: 'threshold-session-email-otp-generation-b',
+        signingGrantId: 'signing-grant-email-otp-generation-b',
+      }),
+      expiresAtMs: 1_900_000_002_000,
+      updatedAtMs: 1_800_000_002_000,
+    };
+    const firstSession = buildOperationUsableThresholdEcdsaSessionRecord(firstRecord);
+    const secondSession = buildOperationUsableThresholdEcdsaSessionRecord(secondRecord);
+    if (!firstSession || !secondSession) {
+      throw new Error('ECDSA test records must be operation usable');
+    }
+
+    commitCurrentThresholdEcdsaSession({
+      deps,
+      record: firstSession,
+      transition: 'step_up',
+    });
+    const secondCommit = commitCurrentThresholdEcdsaSession({
+      deps,
+      record: secondSession,
+      transition: 'step_up',
+    });
+    const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
+
+    expect(secondCommit).toMatchObject({
+      kind: 'same_generation_distinct_session',
+      incoming: { thresholdSessionId: 'threshold-session-email-otp-generation-b' },
+      existing: { thresholdSessionId: 'threshold-session-email-otp-generation-a' },
+    });
+    expect(records.map((record) => record.thresholdSessionId).sort()).toEqual([
+      'threshold-session-email-otp-generation-a',
+      'threshold-session-email-otp-generation-b',
+    ]);
   });
 
   test('runtime ECDSA lane listing backfills canonical verified public facts on legacy persisted records', () => {
@@ -1201,7 +1432,7 @@ test.describe('EVM-family ECDSA identity', () => {
       recordsByLane: new Map(),
       now: () => 1_800_000_000_000,
     };
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeRecord({
         chainTarget: EVM_TARGET,
@@ -1209,7 +1440,7 @@ test.describe('EVM-family ECDSA identity', () => {
         signingGrantId: 'wallet-session-clear-target-evm',
       }),
     );
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeRecord({
         chainTarget: TEMPO_TARGET,
@@ -1244,7 +1475,7 @@ test.describe('EVM-family ECDSA identity', () => {
       now: () => 1_800_000_000_000,
     };
     const sharedKeyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-clear-shared');
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeEmailOtpRecord({
         keyHandle: sharedKeyHandle,
@@ -1252,7 +1483,7 @@ test.describe('EVM-family ECDSA identity', () => {
         signingGrantId: 'wallet-session-clear-shared-a',
       }),
     );
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeEmailOtpRecord({
         keyHandle: sharedKeyHandle,
@@ -1261,7 +1492,7 @@ test.describe('EVM-family ECDSA identity', () => {
         signingGrantId: 'wallet-session-clear-shared-b',
       }),
     );
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeEmailOtpRecord({
         keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-clear-other'),
@@ -1290,7 +1521,7 @@ test.describe('EVM-family ECDSA identity', () => {
     delete rawRecord.verifiedPublicFacts;
     delete rawRecord.thresholdEcdsaPublicKeyB64u;
 
-    expect(() => upsertStoredThresholdEcdsaSessionRecord(deps, rawRecord)).toThrow(
+    expect(() => upsertThresholdEcdsaSessionFact(deps, rawRecord)).toThrow(
       /missing verifiedPublicFacts/,
     );
   });
@@ -1303,7 +1534,7 @@ test.describe('EVM-family ECDSA identity', () => {
     const rawRecord = { ...makeRecord() } as Record<string, unknown>;
     delete rawRecord.subjectId;
 
-    const stored = upsertStoredThresholdEcdsaSessionRecord(deps, rawRecord);
+    const stored = upsertThresholdEcdsaSessionFact(deps, rawRecord);
 
     expect('subjectId' in stored).toBe(false);
   });
@@ -1318,7 +1549,7 @@ test.describe('EVM-family ECDSA identity', () => {
       subjectId: 'alice.testnet',
     } as Record<string, unknown>;
 
-    expect(() => upsertStoredThresholdEcdsaSessionRecord(deps, rawRecord)).toThrow(
+    expect(() => upsertThresholdEcdsaSessionFact(deps, rawRecord)).toThrow(
       /unexpected subjectId/,
     );
   });
@@ -1328,7 +1559,7 @@ test.describe('EVM-family ECDSA identity', () => {
       recordsByLane: new Map(),
       now: () => 1_800_000_000_000,
     };
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeRecord({
         signingRootId: 'project:client-shared-key',
@@ -1342,7 +1573,7 @@ test.describe('EVM-family ECDSA identity', () => {
     );
 
     expect(() =>
-      upsertStoredThresholdEcdsaSessionRecord(
+      upsertThresholdEcdsaSessionFact(
         deps,
         makeRecord({
           signingRootId: 'project:client-shared-key',
@@ -1368,7 +1599,7 @@ test.describe('EVM-family ECDSA identity', () => {
       envId: 'dev',
       signingRootVersion: 'default',
     } as const;
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       makeRecord({
         runtimePolicyScope,
@@ -1379,7 +1610,7 @@ test.describe('EVM-family ECDSA identity', () => {
     );
 
     expect(() =>
-      upsertStoredThresholdEcdsaSessionRecord(
+      upsertThresholdEcdsaSessionFact(
         deps,
         makeRecord({
           runtimePolicyScope,
@@ -1415,7 +1646,7 @@ test.describe('EVM-family ECDSA identity', () => {
     const otherWalletKey = thresholdEcdsaSessionRecordReadModel(
       makeRecord({ walletId: otherWallet }),
     ).key;
-    upsertStoredThresholdEcdsaSessionRecord(deps, record);
+    upsertThresholdEcdsaSessionFact(deps, record);
     const matchingLane = selectedEcdsaLane({
       key: readModel.key,
       keyHandle: record.keyHandle,

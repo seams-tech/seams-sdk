@@ -1056,6 +1056,7 @@ export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHa
   payload: {
     contextBindingB64u: string;
     stagedEvaluatorArtifactB64u: string;
+    addStageRequestMessageB64u: string;
     timings?: Record<string, number>;
   };
   diagnostics?: WorkerResponseDiagnostics;

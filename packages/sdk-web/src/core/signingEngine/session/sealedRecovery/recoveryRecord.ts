@@ -10,6 +10,10 @@ import {
   parseRouterAbEd25519NormalSigningState,
   type RouterAbEd25519NormalSigningState,
 } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
+import {
+  parseRouterAbEcdsaHssNormalSigningStateV1,
+  type RouterAbEcdsaHssNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaHss';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   buildEmailOtpWalletAuthAuthority,
@@ -18,6 +22,7 @@ import {
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import type { RawSealedSessionRecord } from '../persistence/sealedSessionStore';
+import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 
 type RawThresholdSessionIds = {
   ed25519?: unknown;
@@ -26,6 +31,7 @@ type RawThresholdSessionIds = {
 
 type RawEcdsaRestoreMetadata = {
   chainTarget?: unknown;
+  source?: unknown;
   evmFamilySigningKeySlotId?: unknown;
   rpId?: unknown;
   credentialIdB64u?: unknown;
@@ -41,6 +47,7 @@ type RawEcdsaRestoreMetadata = {
   thresholdEcdsaPublicKeyB64u?: unknown;
   participantIds?: unknown;
   runtimePolicyScope?: unknown;
+  routerAbEcdsaHssNormalSigning?: unknown;
 };
 
 type RawEd25519RestoreMetadata = {
@@ -138,6 +145,7 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   relayerUrl: string;
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 };
 
 type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
@@ -170,6 +178,7 @@ type SealedRecoveryWalletSessionAuthCarrier = {
 export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
   SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'passkey';
+    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
     authority: PasskeyWalletAuthAuthority;
     evmFamilySigningKeySlotId: string;
     clientVerifyingShareB64u: string;
@@ -183,6 +192,7 @@ export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
 export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
   SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
+    source: 'email_otp';
     authority: EmailOtpWalletAuthAuthority;
     evmFamilySigningKeySlotId: string;
     clientVerifyingShareB64u?: string;
@@ -277,6 +287,35 @@ function normalizeParticipantIds(value: unknown): number[] {
   return value
     .map((participantId) => Math.floor(Number(participantId)))
     .filter((participantId) => Number.isFinite(participantId) && participantId > 0);
+}
+
+function normalizeRouterAbEcdsaHssNormalSigningState(
+  value: unknown,
+): RouterAbEcdsaHssNormalSigningStateV1 | null {
+  try {
+    return parseRouterAbEcdsaHssNormalSigningStateV1(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeEcdsaRestoreSource(value: unknown): ThresholdEcdsaSessionStoreSource | null {
+  switch (value) {
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+    case 'email_otp':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function normalizePasskeyEcdsaRestoreSource(
+  value: unknown,
+): Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'> | null {
+  const source = normalizeEcdsaRestoreSource(value);
+  return source && source !== 'email_otp' ? source : null;
 }
 
 type Ed25519SealedWorkerMaterialFields = Pick<
@@ -536,6 +575,14 @@ export function normalizeSealedRecoveryRecord(
         ? normalizeNonEmptyString(restore?.rpId) ||
           normalizeNonEmptyString(ed25519Restore?.rpId)
         : null;
+    const passkeySource =
+      raw.authMethod === 'passkey'
+        ? normalizePasskeyEcdsaRestoreSource(restore?.source)
+        : null;
+    const emailOtpSource =
+      raw.authMethod === 'email_otp' && normalizeEcdsaRestoreSource(restore?.source) === 'email_otp'
+        ? 'email_otp'
+        : null;
     const evmFamilySigningKeySlotId = normalizeNonEmptyString(restore?.evmFamilySigningKeySlotId);
     const credentialIdB64u = normalizeNonEmptyString(restore?.credentialIdB64u);
     const providerSubjectId = normalizeNonEmptyString(restore?.providerSubjectId);
@@ -548,6 +595,9 @@ export function normalizeSealedRecoveryRecord(
       restore?.thresholdEcdsaPublicKeyB64u,
     );
     const participantIds = normalizeParticipantIds(restore?.participantIds);
+    const routerAbEcdsaHssNormalSigning = normalizeRouterAbEcdsaHssNormalSigningState(
+      restore?.routerAbEcdsaHssNormalSigning,
+    );
     const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
     const passkeyClientVerifyingShareB64u =
       raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
@@ -569,6 +619,8 @@ export function normalizeSealedRecoveryRecord(
     }
     if (
       !relayerUrl ||
+      (raw.authMethod === 'passkey' && !passkeySource) ||
+      (raw.authMethod === 'email_otp' && !emailOtpSource) ||
 	      (raw.authMethod === 'passkey' && !passkeyRpId) ||
       !evmFamilySigningKeySlotId ||
       (raw.authMethod === 'passkey' && !credentialIdB64u) ||
@@ -577,6 +629,7 @@ export function normalizeSealedRecoveryRecord(
       !relayerKeyId ||
       !keyHandle ||
       !ethereumAddress ||
+      !routerAbEcdsaHssNormalSigning ||
       !participantIds.length ||
       (raw.authMethod === 'passkey' && !passkeyClientVerifyingShareB64u)
     ) {
@@ -734,8 +787,9 @@ export function normalizeSealedRecoveryRecord(
               : {}),
             ...(normalizeNonEmptyString(raw.shamirPrimeB64u)
               ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
-              : {}),
+            : {}),
             chainTarget,
+            source: passkeySource!,
             authority: passkeyAuthority!,
             evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
             signingRootId: signingRootBinding.signingRootId,
@@ -749,6 +803,7 @@ export function normalizeSealedRecoveryRecord(
             relayerKeyId,
             ...walletSessionAuth,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+            routerAbEcdsaHssNormalSigning,
             clientVerifyingShareB64u: passkeyClientVerifyingShareB64u!,
           }
         : {
@@ -768,8 +823,9 @@ export function normalizeSealedRecoveryRecord(
               : {}),
             ...(normalizeNonEmptyString(raw.shamirPrimeB64u)
               ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
-              : {}),
+            : {}),
             chainTarget,
+            source: 'email_otp',
             authority: emailOtpAuthority!,
 	            evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
             signingRootId: signingRootBinding.signingRootId,
@@ -783,6 +839,7 @@ export function normalizeSealedRecoveryRecord(
             relayerKeyId,
             ...walletSessionAuth,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+            routerAbEcdsaHssNormalSigning,
             ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
             ...(normalizeNonEmptyString(thresholdSessionIds.ed25519)
               ? {
@@ -890,12 +947,17 @@ export function normalizeSealedRecoveryRecord(
       ecdsaRestore?.providerSubjectId,
     );
     const companionEmailHashHex = normalizeNonEmptyString(ecdsaRestore?.emailHashHex);
+    const companionEcdsaSource = normalizeEcdsaRestoreSource(ecdsaRestore?.source);
+    const companionRouterAbEcdsaHssNormalSigning =
+      normalizeRouterAbEcdsaHssNormalSigningState(ecdsaRestore?.routerAbEcdsaHssNormalSigning);
     if (
       !thresholdSessionIds.ecdsa ||
       !ecdsaRestore ||
       !ecdsaRestore.chainTarget ||
       !companionSigningRootBinding ||
+      companionEcdsaSource !== 'email_otp' ||
       !companionEcdsaThresholdKeyId ||
+      !companionRouterAbEcdsaHssNormalSigning ||
       !normalizeNonEmptyString(raw.relayerUrl) ||
       !normalizeNonEmptyString(ecdsaRestore.evmFamilySigningKeySlotId) ||
       !companionProviderSubjectId ||
@@ -952,6 +1014,7 @@ export function normalizeSealedRecoveryRecord(
         ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
         : {}),
       chainTarget: companionChainTarget,
+      source: 'email_otp',
       evmFamilySigningKeySlotId: normalizeNonEmptyString(ecdsaRestore.evmFamilySigningKeySlotId)!,
       signingRootId: companionSigningRootBinding.signingRootId,
       signingRootVersion: companionSigningRootBinding.signingRootVersion,
@@ -970,6 +1033,7 @@ export function normalizeSealedRecoveryRecord(
       relayerKeyId: normalizeNonEmptyString(ecdsaRestore.relayerKeyId)!,
       ...companionWalletSessionAuth,
       ...(companionRuntimePolicyScope ? { runtimePolicyScope: companionRuntimePolicyScope } : {}),
+      routerAbEcdsaHssNormalSigning: companionRouterAbEcdsaHssNormalSigning,
       clientVerifyingShareB64u: normalizeNonEmptyString(ecdsaRestore.clientVerifyingShareB64u)!,
     };
   }

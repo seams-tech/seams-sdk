@@ -193,6 +193,27 @@ function availableLanes(
   };
 }
 
+function moveLanePolicyToDurableHint(lanes: AvailableSigningLanes): void {
+  const ed25519 = lanes.lanes.ed25519.near;
+  if (ed25519.state !== 'missing') {
+    ed25519.policyHint = {
+      remainingUses: ed25519.remainingUses,
+      expiresAtMs: ed25519.expiresAtMs,
+    };
+    delete ed25519.remainingUses;
+    delete ed25519.expiresAtMs;
+  }
+  for (const lane of Object.values(lanes.ecdsa.lanesByTarget)) {
+    if (lane.state === 'missing') continue;
+    lane.policyHint = {
+      remainingUses: lane.remainingUses,
+      expiresAtMs: lane.expiresAtMs,
+    };
+    delete lane.remainingUses;
+    delete lane.expiresAtMs;
+  }
+}
+
 test.describe('wallet runtime postconditions', () => {
   test('accepts ready exact Email OTP Ed25519 and ECDSA lanes', async () => {
     const inventory = await assertWalletRuntimePostconditions({
@@ -352,22 +373,30 @@ test.describe('wallet runtime postconditions', () => {
   });
 
   test('accepts durable sealed exact lanes after page refresh', async () => {
+    const lanes = availableLanes('page-refresh', 'email_otp', {
+      state: 'restorable',
+      source: 'durable_sealed_record',
+    });
+    moveLanePolicyToDurableHint(lanes);
+
     const inventory = await assertWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
       authMethod: 'email_otp',
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () =>
-        availableLanes('page-refresh', 'email_otp', { source: 'durable_sealed_record' }),
+      readPersistedAvailableSigningLanes: async () => lanes,
     });
 
     expect(inventory.ed25519).toMatchObject({
+      state: 'restorable',
       material: { kind: 'durable_sealed_record' },
     });
     expect(inventory.ecdsaByTarget.get(TARGET_KEY)).toMatchObject({
+      state: 'restorable',
       material: { kind: 'durable_sealed_record' },
     });
     expect(inventory.ecdsaByTarget.get(ARC_TARGET_KEY)).toMatchObject({
+      state: 'restorable',
       material: { kind: 'durable_sealed_record' },
     });
   });

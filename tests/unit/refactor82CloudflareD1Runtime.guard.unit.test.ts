@@ -40,6 +40,11 @@ const observabilityDocPaths = [
 const authServicePath = 'packages/sdk-server-ts/src/core/AuthService.ts';
 const walletRegistrationRoutesPath =
   'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts';
+const thresholdSigningServicePath =
+  'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts';
+const thresholdServiceSchemesTypesPath =
+  'packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts';
+const sdkServerCoreTypesPath = 'packages/sdk-server-ts/src/core/types.ts';
 const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/routeDefinitions.ts';
 const routeExecutionContextPath =
   'packages/sdk-server-ts/src/router/routeExecutionContext.ts';
@@ -628,7 +633,7 @@ const activeRouterApiTextPaths = [
   'docs/chats/chat-6-voiceId.md',
   'docs/deployment/infra.md',
   'docs/registrations-top-up.md',
-  'docs/refactor-87-modular-auth-capabilities-SPEC.md',
+  'docs/refactor-90-modular-auth-capabilities-SPEC.md',
   'docs/auth-provider-integrations/auth0.md',
   'docs/auth-provider-integrations/better-auth.md',
   'docs/auth-provider-integrations/google-oidc.md',
@@ -2344,6 +2349,46 @@ function removedRegistrationSignerSelectionFilenameViolations(): string[] {
   return violations.sort();
 }
 
+function ed25519RegistrationAuthorityBoundaryViolations(): string[] {
+  const violations: string[] = [];
+  const thresholdSigningService = readSource(thresholdSigningServicePath);
+  const thresholdServiceSchemesTypes = readSource(thresholdServiceSchemesTypesPath);
+  const coreTypes = readSource(sdkServerCoreTypesPath);
+  if (
+    /mintEd25519SessionFromRegistration\s*\(\s*input:\s*\{[^}]*authorityScope:/s.test(
+      thresholdSigningService,
+    )
+  ) {
+    violations.push(
+      `${thresholdSigningServicePath}: mintEd25519SessionFromRegistration accepts authorityScope instead of WalletAuthAuthority`,
+    );
+  }
+  if (
+    /ThresholdEd25519RegistrationKeygenRequest\s*=\s*\{[^}]*authorityScope:/s.test(
+      thresholdServiceSchemesTypes,
+    )
+  ) {
+    violations.push(
+      `${thresholdServiceSchemesTypesPath}: registration keygen request accepts authorityScope instead of WalletAuthAuthority`,
+    );
+  }
+  if (
+    /interface\s+ThresholdEd25519HssFinalizeForRegistrationRequest\s*\{[^}]*authorityScope:/s.test(
+      coreTypes,
+    )
+  ) {
+    violations.push(
+      `${sdkServerCoreTypesPath}: HSS registration finalize request accepts authorityScope instead of WalletAuthAuthority`,
+    );
+  }
+  if (!thresholdSigningService.includes('walletAuthAuthoritiesMatch(policyAuthority, authority)')) {
+    violations.push(
+      `${thresholdSigningServicePath}: registration session mint does not compare the full wallet authority`,
+    );
+  }
+  return violations.sort();
+}
+
 function durableEd25519HssCeremonyStoreViolations(): string[] {
   const violations: string[] = [];
   const localWorker = readSource(cloudflareD1LocalDevWorkerPath);
@@ -2732,5 +2777,10 @@ test('public registration type surfaces stay signer-set only', () => {
 
 test('SDK registration helper files use signer-set filenames', () => {
   const violations = removedRegistrationSignerSelectionFilenameViolations();
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Ed25519 registration session authority boundaries use WalletAuthAuthority', () => {
+  const violations = ed25519RegistrationAuthorityBoundaryViolations();
   expect(violations, violations.join('\n')).toEqual([]);
 });

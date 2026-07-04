@@ -31,6 +31,8 @@ import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/threshold/cr
 import {
   type SigningGrantId,
   type ThresholdEd25519SessionId,
+  parseSigningGrantId,
+  parseThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -38,11 +40,12 @@ import {
   type ThresholdEd25519MaterialPendingSessionRecord,
   type ThresholdEd25519RestoreAvailableSessionRecord,
   type ThresholdEd25519SessionRecord,
-  upsertStoredThresholdEd25519SessionRecord,
+  upsertThresholdEd25519SessionFact,
 } from '@/core/signingEngine/session/persistence/records';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
+  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   listEcdsaSealedSessionsForWallet,
@@ -56,10 +59,10 @@ import {
   generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
   parseThresholdRuntimePolicyScopeFromJwt,
-  type Ed25519AuthorityScope,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
   parseRouterAbEd25519NormalSigningState,
@@ -88,6 +91,7 @@ import { resolveThresholdWarmSessionDefaults } from '@/SeamsWeb/operations/sessi
 import type { ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier } from '@/core/types/signer-worker';
 import { prepareThresholdEd25519PasskeyMaterialSealAuthorizationFromCredential } from '@/core/signingEngine/session/passkey/prfClaim';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import {
   prepareRecoveryCodeSealAuthorizationForEmailOtp,
   recoveryCodeBindingDigestForEmailOtpMaterial,
@@ -200,7 +204,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     walletId?: string;
     nearAccountId?: string;
     nearEd25519SigningKeyId?: string;
-    authorityScope: Ed25519AuthorityScope;
+    authority: WalletAuthAuthority;
     relayerKeyId?: string;
     thresholdSessionId: string;
     signingGrantId: string;
@@ -275,7 +279,10 @@ export type ThresholdWarmSessionContext = {
   configs: SeamsConfigsReadonly;
   signingEngine: ThresholdEd25519HssClientSurface &
     ThresholdEd25519HssCeremonySurface &
-    Pick<SigningSessionSurface, 'hydrateSigningSession'>;
+    Pick<
+      SigningSessionSurface,
+      'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
+    >;
 };
 
 export type ThresholdEd25519WorkerMaterialRestoreContext = {
@@ -369,6 +376,23 @@ export type Ed25519ReusableLoginMaterialResolution =
       reason: RestoreThresholdEd25519WorkerMaterialPendingReason;
       details: string;
     };
+
+function ed25519ReusableLoginAuthorityFromRecord(
+  record: ThresholdEd25519LoginMaterialPendingSessionRecord,
+): Ed25519SessionAuthority | null {
+  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
+  if (!authority.ok) return null;
+  const thresholdSessionId = parseThresholdEd25519SessionId(authority.value.thresholdSessionId);
+  const signingGrantId = parseSigningGrantId(authority.value.signingGrantId);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) return null;
+  return {
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
+    walletSessionJwt: authority.value.auth.walletSessionJwt,
+    expiresAtMs: record.expiresAtMs,
+    remainingUses: record.remainingUses,
+  };
+}
 
 type Ed25519ReusableWorkerMaterialSelector = {
   walletId: string;
@@ -820,7 +844,7 @@ function upsertEd25519SessionRecordFromExactSealedWorkerMaterial(args: {
   );
   if (!thresholdSessionId) return null;
   if (!routerAbNormalSigning) return null;
-  return upsertStoredThresholdEd25519SessionRecord({
+  return upsertThresholdEd25519SessionFact({
     walletId: sealed.walletId,
     nearAccountId: restore.nearAccountId,
     nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
@@ -1075,7 +1099,7 @@ function upsertEd25519SessionRecordFromReusableSealedWorkerMaterial(args: {
 }): ThresholdEd25519SessionRecord | null {
   const restore = args.sealed.ed25519Restore;
   const signingRoot = ed25519RecordSigningRoot(args.current);
-  return upsertStoredThresholdEd25519SessionRecord({
+  return upsertThresholdEd25519SessionFact({
     walletId: args.current.walletId,
     nearAccountId: args.current.nearAccountId,
     nearEd25519SigningKeyId: args.current.nearEd25519SigningKeyId,
@@ -1126,15 +1150,18 @@ export async function resolveReusableEd25519WorkerMaterialForLoginSession(
   switch (selection.kind) {
     case 'exact_match':
       try {
+        const authority = ed25519ReusableLoginAuthorityFromRecord(record);
+        if (!authority) {
+          return {
+            kind: 'pending_material',
+            record,
+            reason: 'pending_material',
+            details: 'wallet-session authority is unavailable for reusable Ed25519 material',
+          };
+        }
         return {
           kind: 'ready_from_reusable_durable_material',
-          authority: {
-            thresholdSessionId: record.thresholdSessionId,
-            signingGrantId: record.signingGrantId,
-            walletSessionJwt: record.walletSessionJwt,
-            expiresAtMs: record.expiresAtMs,
-            remainingUses: record.remainingUses,
-          },
+          authority,
           material: ed25519ReusableSealedWorkerMaterialFromRecord(selection.record),
         };
       } catch (error) {
@@ -1181,7 +1208,7 @@ export function persistEd25519LoginSessionFromReusableWorkerMaterial(args: {
   material: Ed25519ReusableSealedWorkerMaterial;
 }): ThresholdEd25519RestoreAvailableSessionRecord | null {
   const signingRoot = ed25519RecordSigningRoot(args.record);
-  const upserted = upsertStoredThresholdEd25519SessionRecord({
+  const upserted = upsertThresholdEd25519SessionFact({
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
     nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
@@ -1685,7 +1712,7 @@ export function createThresholdWarmSessionPolicyDraft(
 }
 
 export function buildThresholdWarmSessionRequestEnvelope(args: {
-  authorityScope: Ed25519AuthorityScope;
+  authority: WalletAuthAuthority;
   requestedPolicy: ThresholdWarmSessionPolicyDraft;
   walletId?: string;
   nearAccountId?: string;
@@ -1707,7 +1734,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       ...(args.nearEd25519SigningKeyId
         ? { nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId || '').trim() }
         : {}),
-      authorityScope: args.authorityScope,
+      authority: args.authority,
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
       thresholdSessionId,
       signingGrantId,
@@ -2245,19 +2272,30 @@ async function refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial(arg
   expiresAtMs: number;
   remainingUses: number;
 }): Promise<void> {
+  const transport: WarmSessionSealTransportInput = {
+    curve: 'ed25519',
+    authMethod: 'passkey',
+    walletId: args.walletId,
+    relayerUrl: args.relayerUrl,
+    signingGrantId: args.signingGrantId,
+    walletSessionJwt: args.walletSessionJwt,
+  };
   await args.context.signingEngine.hydrateSigningSession({
     sessionId: args.thresholdSessionId,
     prfFirstB64u: args.prfFirstB64u,
     expiresAtMs: args.expiresAtMs,
     remainingUses: args.remainingUses,
-    transport: {
-      curve: 'ed25519',
-      walletId: args.walletId,
-      relayerUrl: args.relayerUrl,
-      signingGrantId: args.signingGrantId,
-      walletSessionJwt: args.walletSessionJwt,
-    },
+    transport,
   });
+  const persisted = await args.context.signingEngine.persistSigningSessionSealForThresholdSession({
+    sessionId: args.thresholdSessionId,
+    transport,
+  });
+  if (!persisted.ok && persisted.code !== 'not_enabled') {
+    throw new Error(
+      `Threshold Ed25519 sealed refresh persistence failed for ${args.nearAccountId} (${persisted.code}): ${persisted.message}`,
+    );
+  }
 }
 
 async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {

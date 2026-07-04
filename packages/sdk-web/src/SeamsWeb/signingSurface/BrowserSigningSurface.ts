@@ -1,4 +1,4 @@
-import type { RuntimePorts } from '@/core/platform';
+import type { DurableRecordStore, RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
@@ -152,6 +152,24 @@ import {
   restoreThresholdEd25519WorkerMaterialFromCredential,
 } from '../operations/session/thresholdWarmSessionBootstrap';
 
+type RuntimePortsRef = {
+  current: RuntimePorts | null;
+};
+
+async function loadEcdsaRoleLocalReadyRecordFromRuntimePorts(
+  runtimePortsRef: RuntimePortsRef,
+  input: Parameters<DurableRecordStore['loadEcdsaRoleLocalReadyRecord']>[0],
+): ReturnType<DurableRecordStore['loadEcdsaRoleLocalReadyRecord']> {
+  if (!runtimePortsRef.current) {
+    return {
+      ok: false,
+      code: 'unavailable',
+      message: 'Signing runtime storage is not initialized',
+    };
+  }
+  return await runtimePortsRef.current.storage.loadEcdsaRoleLocalReadyRecord(input);
+}
+
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
  */
@@ -208,11 +226,15 @@ export class BrowserSigningSurface {
           ? error
           : new Error(String(error || 'sealed refresh parity check failed'));
     });
+    const runtimePortsForUiConfirm: RuntimePortsRef = { current: null };
+    const loadEcdsaRoleLocalReadyRecord: DurableRecordStore['loadEcdsaRoleLocalReadyRecord'] =
+      loadEcdsaRoleLocalReadyRecordFromRuntimePorts.bind(null, runtimePortsForUiConfirm);
 
     const assembly = createManagerAssembly({
       stores: deps.managerStores,
       seamsWebConfigs: this.seamsWebConfigs,
       nearClient: this.nearClient,
+      loadEcdsaRoleLocalReadyRecord,
       getTheme: () => this.theme,
       getAppearanceTokens: () => this.seamsWebConfigs.ui.appearance?.tokens,
     });
@@ -235,6 +257,7 @@ export class BrowserSigningSurface {
       getEvmFamilySigningDeps: () => this.enginePorts.tempoSigningDeps,
     });
     this.signingRuntime = signingRuntime;
+    runtimePortsForUiConfirm.current = signingRuntime.runtimePorts;
     const ecdsaRoleLocalReadyRecordStore = signingRuntime.state.ecdsaSessions;
     this.runtimePorts = signingRuntime.runtimePorts;
     this.thresholdEcdsaSessionByLane = signingRuntime.state.ecdsaSessions.recordsByLane;
@@ -245,6 +268,7 @@ export class BrowserSigningSurface {
       touchIdPrompt: this.touchIdPrompt,
       signerWorkerManager: this.signerWorkerManager,
       stores: deps.signingEngineStores,
+      runtimePorts: this.runtimePorts,
       sealedSigningSessionStore: deps.sealedSigningSessionStore,
       baseTouchConfirm: assembly.touchConfirm,
       getEnginePorts: () => this.enginePorts,
@@ -277,12 +301,16 @@ export class BrowserSigningSurface {
     };
     this.recoveryPublicDeps = createBrowserRecoveryPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,
+      runtimePorts: this.runtimePorts,
       touchIdPrompt: this.touchIdPrompt,
       signerWorkerManager: this.signerWorkerManager,
+      credentialStore: deps.signingEngineStores.recoveryAndDeviceLinking.credentialStore,
       keyMaterialStore: deps.signingEngineStores.recoveryAndDeviceLinking.keyMaterialStore,
       warmSigning: this.warmSigning,
       touchConfirm: this.touchConfirm,
       emailOtpSessions: this.emailOtpSessions,
+      thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
+      getWalletSessionActivationDeps: () => this.enginePorts.walletSessionActivationDeps,
       getTheme: () => this.theme,
     });
 
@@ -317,6 +345,7 @@ export class BrowserSigningSurface {
       touchIdPrompt: this.touchIdPrompt,
       touchConfirm: this.touchConfirm,
       warmSigning: this.warmSigning,
+      runtimePorts: this.runtimePorts,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
       enginePorts: this.enginePorts,
@@ -572,6 +601,8 @@ export class BrowserSigningSurface {
         },
         bootstrapStore: this.ecdsaBootstrapStore,
         sessionStore: this.warmSigning.ecdsaSessions,
+        persistEcdsaRoleLocalReadyRecord:
+          this.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
         warmSessions: {
           hydrateSigningSession: (hydrateInput) =>
             warmCapabilitiesPublic.hydrateSigningSession(
@@ -596,6 +627,8 @@ export class BrowserSigningSurface {
         queueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
         bootstrapStore: this.ecdsaBootstrapStore,
         ecdsaSessions: this.warmSigning.ecdsaSessions,
+        persistEcdsaRoleLocalReadyRecord:
+          this.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
         warmCapabilityReader: this.warmSigning.capabilityReader,
         ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap:
           this.ensureEmailOtpRegistrationEcdsaSealedRefreshParity.bind(this),
@@ -686,6 +719,12 @@ export class BrowserSigningSurface {
     input: Parameters<typeof warmCapabilitiesPublic.hydrateSigningSession>[1],
   ): ReturnType<typeof warmCapabilitiesPublic.hydrateSigningSession> {
     return warmCapabilitiesPublic.hydrateSigningSession(this.warmCapabilitiesPublicDeps, input);
+  }
+
+  persistSigningSessionSealForThresholdSession(
+    input: Parameters<UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']>[0],
+  ): ReturnType<UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']> {
+    return this.touchConfirm.persistSigningSessionSealForThresholdSession(input);
   }
 
   async putWarmSessionEd25519UnsealAuthorization(

@@ -971,6 +971,7 @@ test.describe('wallet registration route boundaries', () => {
               evaluationResult: {
                 contextBindingB64u: 'context',
                 stagedEvaluatorArtifactB64u: 'artifact',
+                addStageRequestMessageB64u: 'add-stage-request',
                 [forbiddenField]: 'client-owned',
               },
             },
@@ -1005,6 +1006,7 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
+              addStageRequestMessageB64u: 'add-stage-request',
               server_output_payload: 'legacy-server-output',
             },
           },
@@ -1038,6 +1040,7 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
+              addStageRequestMessageB64u: 'add-stage-request',
               serverEvalFinalizeOutputB64u: 'server-finalize-output',
             },
           },
@@ -1210,6 +1213,7 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
+              addStageRequestMessageB64u: 'add-stage-request',
             },
             sessionPolicy: {
               version: 'threshold_session_v1',
@@ -1292,6 +1296,7 @@ test.describe('wallet registration route boundaries', () => {
             evaluationResult: {
               contextBindingB64u: 'context',
               stagedEvaluatorArtifactB64u: 'artifact',
+              addStageRequestMessageB64u: 'add-stage-request',
             },
             sessionPolicy: {
               version: 'threshold_session_v1',

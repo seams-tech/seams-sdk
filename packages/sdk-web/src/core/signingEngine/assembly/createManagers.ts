@@ -19,6 +19,7 @@ import type { SignerWorkerManagerDeps } from '../workerManager/SignerWorkerManag
 import { getWorkerTransport } from '../workerManager/workerTransport';
 import { type UserPreferencesStorePort, UserPreferencesManager } from '../session/userPreferences';
 import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
+import type { DurableRecordStore } from '@/core/platform';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
@@ -40,6 +41,7 @@ export function createManagerAssembly(args: {
   stores: ManagerAssemblyStores;
   seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
+  loadEcdsaRoleLocalReadyRecord: DurableRecordStore['loadEcdsaRoleLocalReadyRecord'];
   getTheme: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
 }): ManagerAssembly {
@@ -95,6 +97,7 @@ export function createManagerAssembly(args: {
       evmExplorerUrl,
       getTheme: args.getTheme,
       getAppearanceTokens: args.getAppearanceTokens,
+      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     },
   );
 

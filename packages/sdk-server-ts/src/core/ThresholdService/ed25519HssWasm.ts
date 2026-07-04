@@ -840,7 +840,10 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
 export async function finalizeThresholdEd25519HssReport(input: {
   preparedServerSession: Pick<
     ThresholdEd25519HssStoredRespondedServerSession,
-    'preparedSessionHandle' | 'garblerDriverStateBytes' | 'serverEvalStateBytes'
+    | 'preparedSessionHandle'
+    | 'evaluatorDriverStateBytes'
+    | 'garblerDriverStateBytes'
+    | 'serverEvalStateBytes'
   >;
   evaluationResult: ThresholdEd25519HssStoredStagedEvaluatorArtifact;
 }): Promise<{
@@ -855,10 +858,12 @@ export async function finalizeThresholdEd25519HssReport(input: {
 
   const result = threshold_ed25519_hss_finalize_report_server({
     preparedSessionHandle: String(input.preparedServerSession.preparedSessionHandle || '').trim(),
+    evaluatorDriverStateBytes: input.preparedServerSession.evaluatorDriverStateBytes,
     garblerDriverStateBytes: input.preparedServerSession.garblerDriverStateBytes,
     stagedEvaluatorArtifactHandle: '',
     stagedEvaluatorArtifactBytes: input.evaluationResult.stagedEvaluatorArtifactBytes,
     serverEvalStateBytes: input.preparedServerSession.serverEvalStateBytes,
+    addStageRequestMessageBytes: input.evaluationResult.addStageRequestMessageBytes,
   }) as {
     contextBindingB64u: string;
     evaluationReportJson: string;

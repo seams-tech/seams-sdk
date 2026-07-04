@@ -277,6 +277,7 @@ function makeEd25519RecordWithEcdsaCompanion(args: {
     },
 	    ecdsaRestore: {
 	      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+      source: 'email_otp',
       evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
 	      providerSubjectId: 'google:restore',

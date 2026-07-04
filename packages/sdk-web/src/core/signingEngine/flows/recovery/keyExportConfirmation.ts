@@ -276,6 +276,7 @@ export async function requestNearEd25519ExportAuthorization(
   args: {
     nearAccountId: AccountId;
     expectedPublicKey: string;
+    challengeB64u?: string;
     flowId: string;
     onEvent?: KeyExportEventCallback;
   },
@@ -303,6 +304,7 @@ export async function requestNearEd25519ExportAuthorization(
           nearAccountId: String(args.nearAccountId),
         },
         publicKey: args.expectedPublicKey,
+        ...(args.challengeB64u ? { challengeB64u: args.challengeB64u } : {}),
       },
       intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
     },
@@ -388,6 +390,7 @@ export async function requestThresholdEcdsaExportAuthorization(
     walletSessionUserId: string;
     publicKey: string;
     chainTarget: ThresholdEcdsaChainTarget;
+    challengeB64u?: string;
     flowId: string;
     onEvent?: KeyExportEventCallback;
   },
@@ -423,6 +426,7 @@ export async function requestThresholdEcdsaExportAuthorization(
           walletId: walletIdForUi,
         },
         publicKey: args.publicKey,
+        ...(args.challengeB64u ? { challengeB64u: args.challengeB64u } : {}),
       },
       intentDigest: `export-keys:${walletIdForUi}:${thresholdEcdsaChainTargetKey(args.chainTarget)}:secp256k1`,
     },

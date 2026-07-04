@@ -237,7 +237,7 @@ test('threshold-ed25519 registration session mint accepts Email OTP authority', 
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
-    authorityScope,
+    authority: policy.authority,
     relayerKeyId,
     sessionPolicy: policy,
   });

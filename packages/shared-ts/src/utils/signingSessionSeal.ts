@@ -39,6 +39,11 @@ export const EMAIL_OTP_HKDF_SALTS = {
 
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 export type SigningSessionSealCurve = 'ed25519' | 'ecdsa';
+export type SealedSigningSessionEcdsaRestoreSource =
+  | 'login'
+  | 'registration'
+  | 'manual-bootstrap'
+  | 'email_otp';
 
 export type SealedSigningSessionWalletSessionAuth =
   | {
@@ -114,6 +119,7 @@ type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSe
 
 export type SealedSigningSessionEcdsaRestoreMetadata =
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
+      source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'>;
       evmFamilySigningKeySlotId: string;
       rpId: string;
       credentialIdB64u: string;
@@ -121,6 +127,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
       authSubjectId?: never;
     })
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
+      source: 'email_otp';
       evmFamilySigningKeySlotId: string;
       providerSubjectId: string;
       emailHashHex: string;

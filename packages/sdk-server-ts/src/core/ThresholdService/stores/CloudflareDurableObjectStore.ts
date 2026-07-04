@@ -1028,6 +1028,7 @@ type DurableEd25519HssSessionCeremonyWireRecord = {
   };
   evaluationResult?: {
     stagedEvaluatorArtifactB64u: string;
+    addStageRequestMessageB64u: string;
   };
 };
 
@@ -1128,11 +1129,16 @@ function parseDurableEd25519HssEvaluationResult(
     throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
   }
   const stagedEvaluatorArtifactB64u = toOptionalTrimmedString(raw.stagedEvaluatorArtifactB64u);
+  const addStageRequestMessageB64u = toOptionalTrimmedString(raw.addStageRequestMessageB64u);
   if (!stagedEvaluatorArtifactB64u) {
     throw new Error('durable Ed25519 HSS evaluationResult artifact is required');
   }
+  if (!addStageRequestMessageB64u) {
+    throw new Error('durable Ed25519 HSS evaluationResult add-stage request is required');
+  }
   return {
     stagedEvaluatorArtifactBytes: base64UrlDecode(stagedEvaluatorArtifactB64u),
+    addStageRequestMessageBytes: base64UrlDecode(addStageRequestMessageB64u),
   };
 }
 
@@ -1179,10 +1185,14 @@ function durableEd25519HssEvaluationResultWire(
     throw new Error('durable Ed25519 HSS ceremony cannot store stagedEvaluatorArtifactHandle');
   }
   if (!evaluationResult.stagedEvaluatorArtifactBytes) {
-    throw new Error('durable Ed25519 HSS evaluationResult server finalize output is required');
+    throw new Error('durable Ed25519 HSS evaluationResult artifact is required');
+  }
+  if (!evaluationResult.addStageRequestMessageBytes) {
+    throw new Error('durable Ed25519 HSS evaluationResult add-stage request is required');
   }
   return {
     stagedEvaluatorArtifactB64u: base64UrlEncode(evaluationResult.stagedEvaluatorArtifactBytes),
+    addStageRequestMessageB64u: base64UrlEncode(evaluationResult.addStageRequestMessageBytes),
   };
 }
 

@@ -1,4 +1,5 @@
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
+import type { DurableRecordStore } from '@/core/platform';
 import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   buildWalletRegistrationEcdsaSessionBootstrap,
@@ -14,6 +15,9 @@ import {
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
+import {
+  ecdsaRoleLocalReadyRecordStorageKeyFacts,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
@@ -48,6 +52,7 @@ export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
   >;
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   sessionStore: ThresholdEcdsaSessionStoreDeps;
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
   commitEmailOtpEcdsaSession: (args: {
     walletId: WalletId;
@@ -137,6 +142,10 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       source: 'registration',
     });
     markRegistrationEcdsaBootstrapRuntimeValidated({ bootstrap, record });
+    await persistRegistrationEcdsaRoleLocalReadyRecord({
+      persistEcdsaRoleLocalReadyRecord: deps.persistEcdsaRoleLocalReadyRecord,
+      bootstrap,
+    });
     await hydratePasskeyRegistrationSession({
       walletId,
       relayerUrl: args.relayerUrl,
@@ -146,6 +155,25 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       signingSessionSeal: deps.signingSessionSeal,
       warmSessions: deps.warmSessions,
     });
+  }
+}
+
+async function persistRegistrationEcdsaRoleLocalReadyRecord(args: {
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
+  bootstrap: Awaited<ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>>;
+}): Promise<void> {
+  const record = args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
+  if (!record) {
+    throw new Error('[SigningEngine] ECDSA registration bootstrap is missing role-local ready record');
+  }
+  const persisted = await args.persistEcdsaRoleLocalReadyRecord({
+    record,
+    storageKeyFacts: ecdsaRoleLocalReadyRecordStorageKeyFacts(record),
+  });
+  if (!persisted.ok) {
+    throw new Error(
+      `[SigningEngine] ECDSA registration role-local ready record persistence failed (${persisted.code}): ${persisted.message}`,
+    );
   }
 }
 

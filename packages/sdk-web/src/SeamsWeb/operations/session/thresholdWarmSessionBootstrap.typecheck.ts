@@ -1,12 +1,16 @@
 import type { ThresholdWarmSessionContext } from './thresholdWarmSessionBootstrap';
-import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type {
+  EmailOtpWalletAuthAuthority,
+  PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
 } from './thresholdWarmSessionBootstrap';
 
 declare const context: ThresholdWarmSessionContext;
-declare const rpId: WebAuthnRpId;
+declare const passkeyAuthority: PasskeyWalletAuthAuthority;
+declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 
 createThresholdWarmSessionPolicyDraft(context, {
   kind: 'generated_signing_grant',
@@ -35,7 +39,7 @@ createThresholdWarmSessionPolicyDraft(context, {
 });
 
 buildThresholdWarmSessionRequestEnvelope({
-  authorityScope: { kind: 'passkey_rp', rpId },
+  authority: passkeyAuthority,
   // @ts-expect-error warm-session request drafts must always carry a signing grant.
   requestedPolicy: {
     sessionId: 'threshold-session-1',
@@ -49,7 +53,7 @@ buildThresholdWarmSessionRequestEnvelope({
 });
 
 const warmSessionEnvelope = buildThresholdWarmSessionRequestEnvelope({
-  authorityScope: { kind: 'passkey_rp', rpId },
+  authority: passkeyAuthority,
   requestedPolicy: {
     sessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
@@ -62,17 +66,16 @@ const warmSessionEnvelope = buildThresholdWarmSessionRequestEnvelope({
   },
 });
 
-warmSessionEnvelope.session_policy.authorityScope.rpId;
+warmSessionEnvelope.session_policy.authority.walletId;
 
-// @ts-expect-error Ed25519 warm-session route policies carry authorityScope, never root rpId.
+// @ts-expect-error Ed25519 warm-session route policies carry bound authority, never root rpId.
 warmSessionEnvelope.session_policy.rpId;
 
+// @ts-expect-error Ed25519 warm-session route policies carry bound authority, never authorityScope.
+warmSessionEnvelope.session_policy.authorityScope;
+
 buildThresholdWarmSessionRequestEnvelope({
-  authorityScope: {
-    kind: 'email_otp',
-    provider: 'google',
-    providerUserId: 'google:alice',
-  },
+  authority: emailOtpAuthority,
   requestedPolicy: {
     sessionId: 'threshold-session-2',
     signingGrantId: 'signing-grant-2',

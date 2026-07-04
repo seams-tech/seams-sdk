@@ -58,7 +58,7 @@ export function buildEvmBootstrapArgs(
     args.runtimeScopeBootstrap ||
     (managedRegistration
       ? {
-          environmentId: managedRegistration.environmentId,
+          projectEnvironmentId: managedRegistration.projectEnvironmentId,
           publishableKey: managedRegistration.publishableKey,
         }
       : undefined);

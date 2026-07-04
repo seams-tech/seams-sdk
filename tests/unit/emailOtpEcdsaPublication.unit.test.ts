@@ -26,14 +26,19 @@ const sessionLoginAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
   policy: 'session',
   retention: 'session',
   reason: 'login',
+  walletId: 'wallet.testnet',
   provider: 'google',
   providerUserId: 'wallet.testnet',
+  emailHashHex: 'email-hash-wallet-testnet',
 });
 
 const singleUseSignAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
   policy: 'per_operation',
-    provider: 'google',
+  retention: 'single_use',
+  walletId: 'wallet.testnet',
+  provider: 'google',
   providerUserId: 'wallet.testnet',
+  emailHashHex: 'email-hash-wallet-testnet',
 });
 
 const configs = buildConfigsFromEnv({

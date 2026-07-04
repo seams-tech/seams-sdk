@@ -1039,6 +1039,9 @@ export class CloudflareD1WalletRegistrationService {
         const ed25519AuthorityScope = d1RegistrationAuthorityThresholdEd25519AuthorityScope(
           ceremony.authority,
         );
+        const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
+          ceremony.authority,
+        );
         const finalized = await threshold.ed25519Hss.finalizeForRegistration({
           orgId: ceremony.orgId,
           request: {
@@ -1062,7 +1065,7 @@ export class CloudflareD1WalletRegistrationService {
               accountProvisioning: ed25519.accountProvisioning,
             }),
             wallet_key_id: nearEd25519SigningKeyId,
-            authorityScope: ed25519AuthorityScope,
+            authority: walletAuthAuthority,
             ceremonyHandle: ed25519State.ceremonyHandle,
             preparedSession: ed25519State.preparedSession,
             serverState: ed25519State.serverState,
@@ -1117,7 +1120,7 @@ export class CloudflareD1WalletRegistrationService {
           walletId: ceremony.intent.walletId,
           nearAccountId: finalized.nearAccountId,
           nearEd25519SigningKeyId,
-          authorityScope: ed25519AuthorityScope,
+          authority: walletAuthAuthority,
           keyVersion: ed25519.keyVersion,
           recoveryExportCapable: true,
           publicKey: finalized.publicKey,
@@ -1143,9 +1146,6 @@ export class CloudflareD1WalletRegistrationService {
             nowMs: now,
         });
         if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
-        const walletAuthAuthority = d1WalletAuthAuthorityFromRegistrationAuthority(
-          ceremony.authority,
-        );
         let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
         if (request.ed25519.sessionPolicy) {
           const sessionKind = String(request.ed25519.sessionKind || 'jwt')
@@ -1169,7 +1169,7 @@ export class CloudflareD1WalletRegistrationService {
             walletId: String(ceremony.intent.walletId),
             nearAccountId: finalized.nearAccountId,
             nearEd25519SigningKeyId,
-            authorityScope: ed25519AuthorityScope,
+            authority: walletAuthAuthority,
             relayerKeyId: keygen.relayerKeyId,
             sessionPolicy: sessionPolicy.value,
           });

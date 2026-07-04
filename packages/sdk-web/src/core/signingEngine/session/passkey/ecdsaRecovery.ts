@@ -2,6 +2,11 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EcdsaRoleLocalReadyRecord,
+  LoadEcdsaRoleLocalReadyRecordInput,
+  LoadEcdsaRoleLocalReadyRecordResult,
+} from '@/core/platform';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
@@ -22,8 +27,16 @@ import {
   toExactEcdsaSigningLaneIdentity,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { buildEcdsaRoleLocalPasskeyAuthMethod } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
+import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import {
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+  parseSdkEcdsaHssThresholdKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 type PasskeySessionRestoreIdentity = {
   touchConfirm: PasskeyWarmSessionRecoveryPorts;
@@ -32,15 +45,26 @@ type PasskeySessionRestoreIdentity = {
   thresholdSessionId: string;
 };
 
-function isPermanentSealedSessionRehydrateFailure(status: WarmSessionStatusResult): boolean {
+type PasskeyEcdsaSealedPolicy = {
+  expiresAtMs: number;
+  remainingUses: number;
+};
+
+function shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(
+  status: WarmSessionStatusResult,
+): boolean {
   if (status.ok) return false;
-  return (
-    status.code === 'expired' ||
-    status.code === 'exhausted' ||
-    status.code === 'not_found' ||
-    status.code === 'invalid_args' ||
-    status.code === 'invalid_response'
-  );
+  switch (status.code) {
+    case 'expired':
+    case 'not_found':
+    case 'invalid_args':
+    case 'invalid_response':
+      return true;
+    case 'exhausted':
+      return false;
+    default:
+      return false;
+  }
 }
 
 export type PasskeyEcdsaPrfClaimArgs = PasskeySessionRestoreIdentity & {
@@ -49,6 +73,164 @@ export type PasskeyEcdsaPrfClaimArgs = PasskeySessionRestoreIdentity & {
   uses?: number;
   consume?: boolean;
 };
+
+type LoadPasskeyEcdsaRoleLocalReadyRecord = (
+  input: LoadEcdsaRoleLocalReadyRecordInput,
+) => Promise<LoadEcdsaRoleLocalReadyRecordResult>;
+
+function assertNeverEcdsaRoleLocalLoadValue(value: never): never {
+  throw new Error(`Unhandled ECDSA role-local ready-record load value: ${String(value)}`);
+}
+
+function passkeyEcdsaRoleLocalParticipantIds(
+  participantIds: readonly number[],
+): readonly [1, 2] {
+  if (participantIds.length !== 2 || participantIds[0] !== 1 || participantIds[1] !== 2) {
+    throw new Error('passkey ECDSA restore requires participantIds [1, 2]');
+  }
+  return [1, 2] as const;
+}
+
+function passkeyEcdsaRoleLocalReadyRecordLookupInput(args: {
+  walletId: string;
+  record: PasskeyEcdsaSealedRecoveryRecord;
+}): LoadEcdsaRoleLocalReadyRecordInput {
+  return {
+    walletId: toWalletId(args.walletId),
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+      args.record.evmFamilySigningKeySlotId,
+      'evmFamilySigningKeySlotId',
+    ),
+    chainTarget: args.record.chainTarget,
+    keyHandle: String(args.record.keyHandle || '').trim(),
+    ecdsaThresholdKeyId: parseSdkEcdsaHssThresholdKeyId(args.record.ecdsaThresholdKeyId),
+    signingRootId: parseSdkEcdsaHssSigningRootId(args.record.signingRootId),
+    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(args.record.signingRootVersion),
+    participantIds: passkeyEcdsaRoleLocalParticipantIds(args.record.participantIds),
+    authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+      credentialIdB64u: args.record.authority.factor.credentialIdB64u,
+      rpId: args.record.authority.verifier.rpId,
+    }),
+  };
+}
+
+async function loadPasskeyEcdsaRoleLocalReadyRecord(args: {
+  walletId: string;
+  record: PasskeyEcdsaSealedRecoveryRecord;
+  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
+}): Promise<EcdsaRoleLocalReadyRecord | null> {
+  const loaded = await args.loadEcdsaRoleLocalReadyRecord(
+    passkeyEcdsaRoleLocalReadyRecordLookupInput({
+      walletId: args.walletId,
+      record: args.record,
+    }),
+  );
+  if (!loaded.ok) {
+    throw new Error(loaded.message);
+  }
+  switch (loaded.value.kind) {
+    case 'found':
+      return loaded.value.record;
+    case 'not_found':
+    case 'reauth_required':
+      return null;
+    case 'malformed':
+      throw new Error(loaded.value.message);
+    default:
+      return assertNeverEcdsaRoleLocalLoadValue(loaded.value);
+  }
+}
+
+async function resolvePasskeyEcdsaRoleLocalReadyRecord(args: {
+  walletId: string;
+  record: PasskeyEcdsaSealedRecoveryRecord;
+  thresholdSessionId: string;
+  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
+}): Promise<EcdsaRoleLocalReadyRecord> {
+  const existingRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+    args.thresholdSessionId,
+  );
+  const ecdsaRoleLocalReadyRecord =
+    existingRecord?.ecdsaRoleLocalReadyRecord ||
+    (await loadPasskeyEcdsaRoleLocalReadyRecord({
+      walletId: args.walletId,
+      record: args.record,
+      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+    }));
+  if (!ecdsaRoleLocalReadyRecord) {
+    throw new Error('passkey ECDSA restore requires role-local ready record');
+  }
+  return ecdsaRoleLocalReadyRecord;
+}
+
+async function publishPasskeyEcdsaSealedRecordForWallet(args: {
+  walletId: string;
+  record: PasskeyEcdsaSealedRecoveryRecord;
+  chainTarget: ThresholdEcdsaChainTarget;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  policy: PasskeyEcdsaSealedPolicy;
+  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
+}): Promise<void> {
+  const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
+  const existingRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+    args.thresholdSessionId,
+  );
+  const ecdsaRoleLocalReadyRecord = await resolvePasskeyEcdsaRoleLocalReadyRecord({
+    walletId: args.walletId,
+    record: args.record,
+    thresholdSessionId: args.thresholdSessionId,
+    loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+  });
+  const updatedAtMs = Date.now();
+
+  const restoredRecord = upsertRestoredThresholdEcdsaSessionRecord({
+    walletId: toWalletId(args.walletId),
+    evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
+    chainTarget: args.record.chainTarget,
+    relayerUrl: args.record.relayerUrl,
+    keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
+    ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
+    relayerKeyId: args.record.relayerKeyId,
+    clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
+    ecdsaRoleLocalReadyRecord,
+    participantIds: [...args.record.participantIds],
+    ...(args.record.thresholdEcdsaPublicKeyB64u
+      ? { thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u }
+      : {}),
+    ethereumAddress: args.record.ethereumAddress,
+    ...(args.record.runtimePolicyScope
+      ? { runtimePolicyScope: args.record.runtimePolicyScope }
+      : existingRecord?.runtimePolicyScope
+        ? { runtimePolicyScope: existingRecord.runtimePolicyScope }
+        : {}),
+    routerAbEcdsaHssNormalSigning: args.record.routerAbEcdsaHssNormalSigning,
+    thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
+    ...(args.record.keyVersion ? { signingSessionSealKeyVersion: args.record.keyVersion } : {}),
+    ...(args.record.shamirPrimeB64u
+      ? { signingSessionSealShamirPrimeB64u: args.record.shamirPrimeB64u }
+      : {}),
+    expiresAtMs: args.policy.expiresAtMs,
+    remainingUses: args.policy.remainingUses,
+    updatedAtMs,
+    source: args.record.source,
+  });
+  if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(restoredRecord)) {
+    throw new Error('passkey ECDSA restore requires runtime-valid Router A/B HSS state');
+  }
+  publishResolvedIdentity({
+    walletId: args.walletId,
+    authMethod: 'passkey',
+    curve: 'ecdsa',
+    chainTarget: args.chainTarget,
+    signingGrantId: args.signingGrantId,
+    thresholdSessionId: args.thresholdSessionId,
+    updatedAtMs,
+  });
+}
 
 export async function restorePasskeyEcdsaSessionBeforeClaim(
   args: PasskeySessionRestoreIdentity & { chainTarget: ThresholdEcdsaChainTarget },
@@ -116,6 +298,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   deletePersistedRecord: () => Promise<void>;
   recordSessionMaterialRestored: (status: WarmSessionStatusResult) => Promise<void>;
   readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult | null>;
+  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
   updatePersistedPolicy: (args: {
     expiresAtMs: number;
     remainingUses: number;
@@ -131,64 +314,18 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     return null;
   }
 
-  const publishRecord = (policy: { expiresAtMs: number; remainingUses: number }): void => {
-    const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
-    const existingRecord =
-      getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
-    const ecdsaRoleLocalReadyRecord = existingRecord?.ecdsaRoleLocalReadyRecord;
-    if (!ecdsaRoleLocalReadyRecord) {
-      throw new Error('passkey ECDSA restore requires existing role-local ready record');
-    }
-    const updatedAtMs = Date.now();
-
-    upsertRestoredThresholdEcdsaSessionRecord({
-      walletId: toWalletId(args.walletId),
-      evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
-      chainTarget: args.record.chainTarget,
-      relayerUrl: args.record.relayerUrl,
-      keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
-      ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
-      relayerKeyId: args.record.relayerKeyId,
-      clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
-      ecdsaRoleLocalReadyRecord,
-      participantIds: [...args.record.participantIds],
-      ...(args.record.thresholdEcdsaPublicKeyB64u
-        ? { thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u }
-        : {}),
-      ethereumAddress: args.record.ethereumAddress,
-      ...(args.record.runtimePolicyScope
-        ? { runtimePolicyScope: args.record.runtimePolicyScope }
-        : existingRecord?.runtimePolicyScope
-          ? { runtimePolicyScope: existingRecord.runtimePolicyScope }
-          : {}),
-      thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
-      thresholdSessionId,
-      signingGrantId,
-      ...(walletSessionJwt ? { walletSessionJwt } : {}),
-      ...(args.record.keyVersion ? { signingSessionSealKeyVersion: args.record.keyVersion } : {}),
-      ...(args.record.shamirPrimeB64u
-        ? { signingSessionSealShamirPrimeB64u: args.record.shamirPrimeB64u }
-        : {}),
-      expiresAtMs: policy.expiresAtMs,
-      remainingUses: policy.remainingUses,
-      updatedAtMs,
-      source: 'login',
-    });
-    publishResolvedIdentity({
-      walletId: args.walletId,
-      authMethod: 'passkey',
-      curve: 'ecdsa',
-      chainTarget: args.purpose.chainTarget,
-      signingGrantId,
-      thresholdSessionId,
-      updatedAtMs,
-    });
-  };
-
   try {
-    publishRecord({
-      expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-      remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
+    await publishPasskeyEcdsaSealedRecordForWallet({
+      walletId: args.walletId,
+      record: args.record,
+      chainTarget: args.purpose.chainTarget,
+      thresholdSessionId,
+      signingGrantId,
+      policy: {
+        expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
+        remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
+      },
+      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     });
   } catch (error) {
     return {
@@ -210,7 +347,21 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     },
   });
   if (!rehydrated.ok) {
-    if (isPermanentSealedSessionRehydrateFailure(rehydrated)) {
+    if (rehydrated.code === 'exhausted') {
+      await publishPasskeyEcdsaSealedRecordForWallet({
+        walletId: args.walletId,
+        record: args.record,
+        chainTarget: args.purpose.chainTarget,
+        thresholdSessionId,
+        signingGrantId,
+        policy: {
+          expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
+          remainingUses: 0,
+        },
+        loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+      }).catch(() => undefined);
+    }
+    if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(rehydrated)) {
       await args.deletePersistedRecord().catch(() => undefined);
     }
     await args.recordSessionMaterialRestored(rehydrated);
@@ -218,9 +369,17 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   }
 
   try {
-    publishRecord({
-      expiresAtMs: rehydrated.expiresAtMs,
-      remainingUses: rehydrated.remainingUses,
+    await publishPasskeyEcdsaSealedRecordForWallet({
+      walletId: args.walletId,
+      record: args.record,
+      chainTarget: args.purpose.chainTarget,
+      thresholdSessionId,
+      signingGrantId,
+      policy: {
+        expiresAtMs: rehydrated.expiresAtMs,
+        remainingUses: rehydrated.remainingUses,
+      },
+      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     });
   } catch (error) {
     return {
@@ -239,6 +398,18 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     };
   }
   if (parsed.ok) {
+    await publishPasskeyEcdsaSealedRecordForWallet({
+      walletId: args.walletId,
+      record: args.record,
+      chainTarget: args.purpose.chainTarget,
+      thresholdSessionId,
+      signingGrantId,
+      policy: {
+        expiresAtMs: parsed.expiresAtMs,
+        remainingUses: parsed.remainingUses,
+      },
+      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+    }).catch(() => undefined);
     await args
       .updatePersistedPolicy({
         expiresAtMs: parsed.expiresAtMs,
@@ -246,6 +417,24 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
         updatedAtMs: Date.now(),
       })
       .catch(() => undefined);
+  } else {
+    if (parsed.code === 'exhausted') {
+      await publishPasskeyEcdsaSealedRecordForWallet({
+        walletId: args.walletId,
+        record: args.record,
+        chainTarget: args.purpose.chainTarget,
+        thresholdSessionId,
+        signingGrantId,
+        policy: {
+          expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
+          remainingUses: 0,
+        },
+        loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+      }).catch(() => undefined);
+    }
+    if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(parsed)) {
+      await args.deletePersistedRecord().catch(() => undefined);
+    }
   }
   return parsed;
 }

@@ -55,7 +55,12 @@ async function evaluateMismatchedWarmSessionIdentity(args: {
         walletId: 'wallet_alice',
         nearAccountId: 'registration-alice.testnet',
         nearEd25519SigningKeyId: 'registration-alice.testnet',
-        authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
+        authority: {
+          walletId: 'wallet_alice',
+          factor: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+          verifier: { kind: 'webauthn', rpId: 'example.localhost' },
+          bindingId: 'passkey:example.localhost:registration-credential-id',
+        },
         relayerKeyId: 'rk-1',
         thresholdSessionId: 'registration-session-1',
         signingGrantId: 'signing-grant-1',
@@ -202,7 +207,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               walletId,
               nearAccountId,
               nearEd25519SigningKeyId,
-              authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
+              authority: {
+                walletId,
+                factor: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+                verifier: { kind: 'webauthn', rpId: 'example.localhost' },
+                bindingId: 'passkey:example.localhost:registration-credential-id',
+              },
               relayerKeyId: 'rk-1',
               thresholdSessionId: 'registration-session-1',
               signingGrantId: 'signing-grant-1',
@@ -313,11 +323,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           signingWorkerId: 'signing-worker-local',
         };
         const hydrateInputs: Array<Record<string, unknown>> = [];
+        const persistSealInputs: Array<Record<string, unknown>> = [];
         let sealAuthorizationMaterialKeyId: string | null = null;
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
-          sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
+          sessionStoreMod.upsertThresholdEd25519SessionFact({
             walletId,
             nearAccountId,
             nearEd25519SigningKeyId,
@@ -383,6 +394,17 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               hydrateSigningSession: async (input: Record<string, unknown>) => {
                 hydrateInputs.push(input);
               },
+              persistSigningSessionSealForThresholdSession: async (
+                input: Record<string, unknown>,
+              ) => {
+                persistSealInputs.push(input);
+                return {
+                  ok: true,
+                  sealedSecretB64u: 'sealed-warm-session',
+                  remainingUses: 3,
+                  expiresAtMs: now + 60_000,
+                };
+              },
             },
           };
 
@@ -426,6 +448,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           const hydrateTransport = hydrateInputs[0]?.transport as
             | Record<string, unknown>
             | undefined;
+          const persistTransport = persistSealInputs[0]?.transport as
+            | Record<string, unknown>
+            | undefined;
           const storedRecord =
             sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
               thresholdSessionId,
@@ -433,10 +458,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           return {
             hydrateCalls: hydrateInputs.length,
+            persistSealCalls: persistSealInputs.length,
             hydrateTransportKeyVersion: hydrateTransport?.keyVersion ?? null,
             hydrateTransportWalletSessionJwt: hydrateTransport?.walletSessionJwt ?? null,
+            persistSealTransportAuthMethod: persistTransport?.authMethod ?? null,
+            persistSealTransportWalletSessionJwt: persistTransport?.walletSessionJwt ?? null,
             sealAuthorizationMaterialKeyId,
-            storedRecordKeyVersion: storedRecord?.keyVersion ?? null,
             storedRecordMaterialKeyId: storedRecord?.materialKeyId ?? null,
           };
         } finally {
@@ -447,10 +474,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     );
 
     expect(result.hydrateCalls).toBe(1);
+    expect(result.persistSealCalls).toBe(1);
     expect(result.hydrateTransportKeyVersion).toBeNull();
     expect(result.hydrateTransportWalletSessionJwt).toBe('jwt-registration-reconstruct');
+    expect(result.persistSealTransportAuthMethod).toBe('passkey');
+    expect(result.persistSealTransportWalletSessionJwt).toBe('jwt-registration-reconstruct');
     expect(result.sealAuthorizationMaterialKeyId).toBe('material-key-reconstruct');
-    expect(result.storedRecordKeyVersion).toBe('threshold-ed25519-hss-v1');
     expect(result.storedRecordMaterialKeyId).toBe('material-key-reconstruct');
   });
 
@@ -560,7 +589,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               walletId,
               nearAccountId,
               nearEd25519SigningKeyId,
-              authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
+              authority: {
+                walletId,
+                factor: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+                verifier: { kind: 'webauthn', rpId: 'example.localhost' },
+                bindingId: 'passkey:example.localhost:registration-credential-id',
+              },
               relayerKeyId: 'rk-1',
               thresholdSessionId: 'registration-session-parity',
               signingGrantId: 'signing-grant-parity',
@@ -751,10 +785,23 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               kind: 'email_otp',
               emailOtpAuthContext: {
                 policy: 'session',
-                retention: 'session',
-                reason: 'login',
                 authMethod: 'email_otp',
-                authSubjectId: 'google:registration-subject',
+                authority: {
+                  walletId,
+                  factor: {
+                    kind: 'email_otp',
+                    provider: 'google',
+                    providerUserId: 'google:registration-subject',
+                  },
+                  verifier: {
+                    kind: 'email_otp_wallet_auth_method',
+                    emailHashHex:
+                      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                  },
+                  bindingId:
+                    'email_otp:registration-email-otp.testnet:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                },
+                use: { kind: 'session', reason: 'login' },
               },
             },
             workerCtx,
@@ -783,7 +830,21 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               walletId,
               nearAccountId,
               nearEd25519SigningKeyId,
-              authorityScope: { kind: 'passkey_rp', rpId: 'example.localhost' },
+              authority: {
+                walletId,
+                factor: {
+                  kind: 'email_otp',
+                  provider: 'google',
+                  providerUserId: 'google:registration-subject',
+                },
+                verifier: {
+                  kind: 'email_otp_wallet_auth_method',
+                  emailHashHex:
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                },
+                bindingId:
+                  'email_otp:registration-email-otp.testnet:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              },
               relayerKeyId: 'rk-email-otp',
               thresholdSessionId: 'registration-session-email-otp',
               signingGrantId: 'signing-grant-email-otp',
@@ -838,7 +899,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               capturedHydratedRecord?.sealedWorkerMaterialRef || null,
             hydratedMaterialKeyId: capturedHydratedRecord?.materialKeyId || null,
             hydratedMaterialCreatedAtMs: capturedHydratedRecord?.materialCreatedAtMs || null,
-            hydratedKeyVersion: capturedHydratedRecord?.keyVersion || null,
           };
         } finally {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
@@ -864,6 +924,5 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     expect(result.hydratedSealedWorkerMaterialRef).toBe('email-otp-sealed-worker-material');
     expect(result.hydratedMaterialKeyId).toBe('email-otp-material-key');
     expect(typeof result.hydratedMaterialCreatedAtMs).toBe('number');
-    expect(result.hydratedKeyVersion).toBe('threshold-ed25519-hss-v1');
   });
 });

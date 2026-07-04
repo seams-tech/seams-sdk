@@ -175,6 +175,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   relayerUrl: 'https://relay.example',
   ecdsaRestore: {
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+    source: 'manual-bootstrap',
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
     rpId: 'wallet.example.localhost',
     credentialIdB64u: 'credential-id',
@@ -260,6 +261,7 @@ void invalidPolicyUpdateWithoutUpdatedAtMs;
 
 const invalidEmailOtpEcdsaRestoreWithoutProviderSubject = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+  source: 'email_otp',
   evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   sessionKind: 'jwt',
   keyHandle: 'key-handle-ecdsa',
@@ -272,6 +274,7 @@ void invalidEmailOtpEcdsaRestoreWithoutProviderSubject;
 
 const invalidEmailOtpEcdsaRestoreWithAuthSubjectAlias = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+  source: 'email_otp',
   evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   providerSubjectId: 'google:alice',
   // @ts-expect-error Email OTP ECDSA sealed restore metadata rejects authSubjectId.

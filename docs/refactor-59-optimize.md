@@ -7,7 +7,9 @@ baseline recorded with SDK, HSS, gated relay route substep timings, and
 fine-grained hidden-eval worker diagnostics; retained HSS worker/session-handle,
 finalize cached-session, and preauth registration-prepare route optimizations
 now bring SDK registration p50 to about `1.6s` to `2.1s` across the smoke
-scenarios.
+scenarios. Refactor 88 later retired the runnable registration-flow benchmark
+runner because it depended on a deleted managed-registration mock harness;
+historical reports remain in `docs/benchmarks/registration-flow.md`.
 
 ## Goal
 
@@ -350,7 +352,7 @@ Create a registration-specific benchmark instead of extending
 registration needs a real browser, WebAuthn mocks, IndexedDB, workers, and
 optional wallet-iframe execution.
 
-Target files:
+Historical target files:
 
 - `benchmarks/registration-flow/src/scenario-harness.ts`
 - `benchmarks/registration-flow/src/report.mjs`
@@ -359,7 +361,7 @@ Target files:
 - `benchmarks/registration-flow/README.md`
 - `docs/benchmarks/registration-flow.md`
 
-Package scripts:
+Historical package scripts:
 
 ```json
 {
@@ -467,7 +469,10 @@ Goal:
 
 Work:
 
-- run `benchmark:registration-flow:smoke`
+- use the retained `benchmark:registration-flow:smoke` baseline as historical
+  evidence
+- run the replacement real-topology registration latency benchmark once it
+  exists
 - run the extended sequential profiles
 - record local machine, browser, relay mode, SDK mode, and date
 - identify top three stable buckets by p50 and p95
@@ -603,7 +608,7 @@ git diff --check
 For benchmark harness changes:
 
 ```bash
-pnpm benchmark:registration-flow:smoke
+# Run the replacement real-topology registration latency benchmark once available.
 git diff --check
 ```
 
@@ -612,7 +617,7 @@ For behavior-changing registration optimizations:
 ```bash
 pnpm -C sdk type-check
 pnpm -C tests test:threshold-ed25519:active-path
-pnpm benchmark:registration-flow:smoke
+# Run the replacement real-topology registration latency benchmark once available.
 git diff --check
 ```
 

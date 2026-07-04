@@ -607,11 +607,12 @@ type PasskeyEcdsaLaneCandidate = EcdsaLaneCandidate & {
 
 
 function readyEmailOtpEcdsaCommittedLane(args: {
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
   committedLane: EmailOtpEcdsaCommittedLane;
   material: ReadyEcdsaMaterial;
 }): ReadyEmailOtpEcdsaCommittedLane {
   const common = {
-    lane: args.committedLane.lane,
+    lane: args.lane,
     authLane: args.committedLane.authLane,
     walletSessionAuthority: args.committedLane.walletSessionAuthority,
     material: args.material,
@@ -991,12 +992,10 @@ async function resolveEmailOtpAuthorityForSelection(args: {
       });
       return null;
     }
-    const laneAuthority = await args.deps.resolveEmailOtpEcdsaSigningSessionAuthority({
-      lane: exactLane,
-      chain: args.lane.chainTarget.kind,
-    });
-    if (!laneAuthority) {
+    const recordAuthority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(args.record);
+    if (recordAuthority.kind !== 'ready') {
       logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for authority', {
+        rejection: recordAuthority,
         lane: summarizeEvmFamilyEcdsaLane(args.lane),
         record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
       });
@@ -1005,7 +1004,7 @@ async function resolveEmailOtpAuthorityForSelection(args: {
     return {
       kind: 'record_backed',
       record: args.record,
-      laneAuthority,
+      laneAuthority: recordAuthority.authority,
     };
   }
   logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record-backed authority not found', {
@@ -1249,6 +1248,7 @@ export function commitReadyEmailOtpEcdsaLaneFromRecord(args: {
   material: ReadyEcdsaMaterial;
 }): ReadyEmailOtpEcdsaCommittedLane {
   return readyEmailOtpEcdsaCommittedLane({
+    lane: args.lane,
     committedLane: commitEmailOtpEcdsaLaneFromRecordForMaterial(args),
     material: args.material,
   });
@@ -1490,6 +1490,21 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
         diagnostics,
       });
     }
+    if (!committedPasskeyLane) {
+      logEvmFamilyEcdsaLaneDiagnostic('Passkey ECDSA material requires restore before reauth', {
+        lane: summarizeEvmFamilyEcdsaLane(lane),
+        candidate: summarizeLaneCandidate(args.laneCandidate),
+        material: summarizeEcdsaMaterialState(exactCandidateMaterial),
+      });
+      return {
+        kind: 'missing_material',
+        accountAuth: selectedAccountAuth,
+        authMethod: SIGNER_AUTH_METHODS.passkey,
+        candidate: args.laneCandidate,
+        material: exactCandidateMaterial,
+        diagnostics,
+      };
+    }
     const reauthLane = requirePasskeyCommittedLaneForReauth({
       committedLane: committedPasskeyLane,
       lane,
@@ -1521,6 +1536,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       candidate: args.laneCandidate,
     });
     const readyCommittedLane = readyEmailOtpEcdsaCommittedLane({
+      lane,
       committedLane,
       material: exactCandidateMaterial,
     });

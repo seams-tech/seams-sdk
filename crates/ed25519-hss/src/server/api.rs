@@ -591,6 +591,37 @@ impl ServerSession {
         Ok((message, next_state))
     }
 
+    pub fn prepare_add_stage_response_message_with_runtime(
+        &self,
+        runtime: &SharedRuntime,
+        evaluator_session: &crate::client::ClientSession,
+        state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientStageRequest,
+            client_stage_request_message,
+        )?;
+        let state = if state.execution_state.is_none() {
+            self.materialize_execution_state_from_add_stage_request(
+                runtime,
+                evaluator_session,
+                state,
+                &request,
+            )?
+        } else {
+            state.clone()
+        };
+        let (response, next_state) = self.prepare_add_stage_response(&state, &request)?;
+        let message = crate::wire::encode_transport_message(
+            self.context_binding,
+            TransportKind::ServerStageResponse,
+            &response,
+        )?;
+        Ok((message, next_state))
+    }
+
     pub fn prepare_message_schedule_response(
         &self,
         state: &ServerEvalState,

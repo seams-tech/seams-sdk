@@ -6,7 +6,7 @@ import {
   clearAllThresholdEcdsaSessionRecords,
   getThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  upsertStoredThresholdEcdsaSessionRecord,
+  upsertThresholdEcdsaSessionFact,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
@@ -305,7 +305,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
   test('deps threshold-session ECDSA lookup fails closed across local and in-memory stores', () => {
     const thresholdSessionId = 'tehss-store-ambiguous';
     const deps = { recordsByLane: new Map() };
-    upsertStoredThresholdEcdsaSessionRecord(
+    upsertThresholdEcdsaSessionFact(
       deps,
       rawSessionRecord({
         source: 'email_otp',

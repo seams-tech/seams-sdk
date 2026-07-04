@@ -1,5 +1,5 @@
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
-import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
+import type { DurableRecordStore, EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -37,6 +37,7 @@ import {
   exactEcdsaSigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
+import { ecdsaRoleLocalReadyRecordStorageKeyFacts } from '../persistence/ecdsaRoleLocalRecords';
 import type { SigningOperationIntent } from '../operationState/types';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type {
@@ -52,6 +53,7 @@ export type ProvisionThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
   activationDeps: WalletSessionActivationDeps;
   touchConfirm: WarmSessionSealPersistPorts;
+  persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
   }) => ThresholdSessionSealTransportAuthMaterial | null;
@@ -62,7 +64,7 @@ export type ThresholdEcdsaActivationPolicy =
   | { kind: 'scoped_policy'; scope: ThresholdRuntimePolicyScope };
 
 export type ThresholdEcdsaActivationRuntimeScopeBootstrap = {
-  environmentId: string;
+  projectEnvironmentId: string;
   publishableKey: string;
 };
 
@@ -525,6 +527,25 @@ function exactEcdsaSealLaneFromBootstrap(args: {
   });
 }
 
+async function persistEcdsaRoleLocalReadyRecordForBootstrap(args: {
+  deps: ProvisionThresholdEcdsaSessionDeps;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+}): Promise<void> {
+  const record = args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
+  if (!record) {
+    throw new Error('[WarmSessionStore] threshold ECDSA bootstrap is missing role-local ready record');
+  }
+  const persisted = await args.deps.persistEcdsaRoleLocalReadyRecord({
+    record,
+    storageKeyFacts: ecdsaRoleLocalReadyRecordStorageKeyFacts(record),
+  });
+  if (!persisted.ok) {
+    throw new Error(
+      `[WarmSessionStore] threshold ECDSA role-local ready record persistence failed (${persisted.code}): ${persisted.message}`,
+    );
+  }
+}
+
 export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
   deps: ProvisionThresholdEcdsaSessionDeps,
   request: EcdsaBootstrapRequest,
@@ -532,6 +553,7 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
   const walletId = toWalletId(ecdsaBootstrapWalletId(request));
   return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, walletId, async () => {
     const bootstrap = await bootstrapEcdsaSessionValue(deps.activationDeps, request);
+    await persistEcdsaRoleLocalReadyRecordForBootstrap({ deps, bootstrap });
     const thresholdSessionId = String(
       bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
     ).trim();

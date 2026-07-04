@@ -43,6 +43,7 @@ test.describe('shared signing-session seal specs', () => {
           chainId: 42431,
           networkSlug: 'tempo-testnet',
         },
+        source: 'email_otp',
         evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root:v1',
         providerSubjectId: 'google:alice',
         emailHashHex: 'email-hash',

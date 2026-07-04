@@ -378,7 +378,8 @@ Run focused checks while implementing:
 - `pnpm -C sdk type-check`
 - preparation lifecycle type fixtures
 - `pnpm exec playwright test -c tests/playwright.unit.config.ts tests/unit/registrationIntentAllocation.unit.test.ts tests/unit/registrationCeremonyStore.unit.test.ts tests/unit/relayWalletRegistration.boundary.unit.test.ts --reporter=line`
-- `pnpm benchmark:registration-flow:smoke`
+- real-topology registration latency benchmark once the post-Refactor 88
+  replacement exists
 - `pnpm test:source-guards`
 - `git diff --check`
 

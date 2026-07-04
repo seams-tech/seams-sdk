@@ -1590,11 +1590,18 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
   }
   const wrappedCiphertext = wrappedCiphertextValidation.value;
 
-  const grant = await input.service.consumeEmailOtpGrant({
-    loginGrant,
-    userId: input.userId,
+  const email = await readServerKnownEmailOtpAddress({
+    service: input.service,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
+  });
+  if (!email.ok) return { status: email.status, body: email.body };
+
+  const grant = await input.service.consumeEmailOtpGrant({
+    loginGrant,
+    userId: email.providerUserId,
+    walletId,
+    orgId: email.orgId,
     otpChannel: EMAIL_OTP_CHANNEL,
     clientIp: input.clientIp,
   });
@@ -1607,12 +1614,12 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
 
   const enrollment = await input.service.readEmailOtpEnrollment({
     walletId,
-    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    orgId: email.orgId,
   });
   if (
     enrollment.ok &&
     (enrollment.enrollment.walletId !== walletId ||
-      enrollment.enrollment.orgId !== readEmailOtpOrgIdFromClaims(input.claims))
+      enrollment.enrollment.orgId !== email.orgId)
   ) {
     return {
       status: 403,

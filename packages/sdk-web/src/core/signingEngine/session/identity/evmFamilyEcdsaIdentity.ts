@@ -26,6 +26,7 @@ import type {
 } from '../../interfaces/signing';
 import type {
   EcdsaRoleLocalReadyRecord,
+  EcdsaRoleLocalReadyStateBlob,
   EcdsaThresholdKeyId,
   EmailOtpAuthSubjectId,
   RpId,
@@ -274,11 +275,22 @@ export type ThresholdEcdsaEmailOtpWorkerShare = {
   handle: EmailOtpWorkerShareHandle;
 };
 
+export type ThresholdEcdsaRoleLocalWorkerMaterial =
+  | {
+      kind: 'worker_loaded';
+      stateBlob?: never;
+      ecdsaRoleLocalReadyRecord?: never;
+    }
+  | {
+      kind: 'ready_state_blob';
+      stateBlob: EcdsaRoleLocalReadyStateBlob;
+      ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+    };
+
 export type ThresholdEcdsaRoleLocalWorkerShare = {
   kind: 'role_local_worker_share';
   handle: ThresholdEcdsaRoleLocalWorkerShareHandle;
-  stateBlob?: never;
-  ecdsaRoleLocalReadyRecord?: never;
+  material: ThresholdEcdsaRoleLocalWorkerMaterial;
 };
 
 export type ThresholdEcdsaSignerClientShare =
@@ -739,19 +751,6 @@ function authMethodForRecord(record: ThresholdEcdsaSessionRecord): EvmFamilyEcds
   return record.source === 'email_otp' ? 'email_otp' : 'passkey';
 }
 
-export function walletSessionAuthInputFromPersistedThresholdSession(args: {
-  thresholdSessionKind: ThresholdSessionKind;
-  walletSessionJwt?: unknown;
-}): BuildEcdsaWalletSessionTransportAuthInput {
-  if (args.thresholdSessionKind !== 'jwt') {
-    throw new Error('Router A/B ECDSA signing requires Wallet Session JWT auth');
-  }
-  return {
-    kind: 'wallet_session_jwt',
-    walletSessionJwt: args.walletSessionJwt,
-  };
-}
-
 function mismatch<TKind extends EvmFamilyEcdsaIdentityMismatch['kind']>(
   kind: TKind,
   field: Extract<EvmFamilyEcdsaIdentityMismatch, { kind: TKind }>['field'],
@@ -1121,6 +1120,7 @@ function buildThresholdEcdsaSignerClientShare(args: {
       return {
         kind: 'role_local_worker_share',
         handle: args.backendBinding.roleLocalMaterialHandle,
+        material: { kind: 'worker_loaded' },
       };
     case 'role_local_ready_state_blob':
       return {
@@ -1142,6 +1142,11 @@ function buildThresholdEcdsaSignerClientShare(args: {
           ),
           relayerKeyId: parseEcdsaRelayerKeyId(args.backendBinding.relayerKeyId),
         }),
+        material: {
+          kind: 'ready_state_blob',
+          stateBlob: args.backendBinding.stateBlob,
+          ecdsaRoleLocalReadyRecord: args.backendBinding.ecdsaRoleLocalReadyRecord,
+        },
       };
     case 'metadata_only':
       throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires signing material');
@@ -1698,10 +1703,10 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
       source: input.expected.source,
       thresholdSessionId: expectedThresholdSessionId,
       signingGrantId: expectedSigningGrantId,
-      walletSessionAuth: walletSessionAuthInputFromPersistedThresholdSession({
-        thresholdSessionKind: input.record.thresholdSessionKind,
-        walletSessionJwt: input.record.walletSessionJwt,
-      }),
+      walletSessionAuth: {
+        kind: 'wallet_session_jwt',
+        walletSessionJwt: workerMaterial.value.auth.walletSessionJwt,
+      },
       remainingUses: input.record.remainingUses,
       expiresAtMs: input.record.expiresAtMs,
     });

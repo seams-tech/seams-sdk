@@ -67,13 +67,13 @@ type PlannedEvmFamilyThresholdEcdsaReadinessArgs =
 
 function resolveManagedRuntimeScopeBootstrap(
   configs: SeamsConfigsReadonly,
-): { environmentId: string; publishableKey: string } | undefined {
+): { projectEnvironmentId: string; publishableKey: string } | undefined {
   const registration = configs.registration;
   if (registration.mode !== 'managed') return undefined;
-  const environmentId = String(registration.environmentId || '').trim();
+  const projectEnvironmentId = String(registration.projectEnvironmentId || '').trim();
   const publishableKey = String(registration.publishableKey || '').trim();
-  if (!environmentId || !publishableKey) return undefined;
-  return { environmentId, publishableKey };
+  if (!projectEnvironmentId || !publishableKey) return undefined;
+  return { projectEnvironmentId, publishableKey };
 }
 
 function requireEcdsaStoreSource(

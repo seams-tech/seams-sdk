@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
-  upsertStoredThresholdEd25519SessionRecord,
+  upsertThresholdEd25519SessionFact,
   type ThresholdEd25519SessionRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import type { WarmSessionCapabilityReader } from '../../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types';
@@ -68,7 +68,7 @@ function writeRecord(args: {
   sealedWorkerMaterial?: boolean;
 }): ThresholdEd25519SessionRecord {
   const hasMaterial = Boolean(args.materialHandle || args.sealedWorkerMaterial);
-  const record = upsertStoredThresholdEd25519SessionRecord({
+  const record = upsertThresholdEd25519SessionFact({
     ...BASE_RECORD,
     participantIds: [...BASE_RECORD.participantIds],
     ...(args.materialHandle ? { ed25519WorkerMaterialHandle: args.materialHandle } : {}),

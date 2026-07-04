@@ -54,7 +54,7 @@ type EcdsaBootstrapRequestCommon = {
   operationIntent?: SigningOperationIntent;
   requestId?: string;
   runtimeScopeBootstrap?: {
-    environmentId: string;
+    projectEnvironmentId: string;
     publishableKey: string;
   };
 };

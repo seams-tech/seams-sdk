@@ -114,7 +114,7 @@ type ResolvedRegistrationTransport =
   | {
       mode: 'managed';
       relayerUrl: string;
-      environmentId: string;
+      projectEnvironmentId: string;
       publishableKey: string;
       paymentMode?: string;
     };
@@ -132,8 +132,8 @@ function resolveRegistrationTransport(
     const mode = String((registration as { mode?: unknown }).mode || 'backend_proxy').trim();
     if (mode === 'managed') {
       const relayerUrl = String(context.configs.network.relayer.url || '').trim();
-      const environmentId = String(
-        (registration as { environmentId?: unknown }).environmentId || '',
+      const projectEnvironmentId = String(
+        (registration as { projectEnvironmentId?: unknown }).projectEnvironmentId || '',
       ).trim();
       const publishableKey = String(
         (registration as { publishableKey?: unknown }).publishableKey || '',
@@ -142,15 +142,15 @@ function resolveRegistrationTransport(
         (registration as { paymentMode?: unknown }).paymentMode || '',
       ).trim();
       if (!relayerUrl) throw new Error('Managed registration requires relayer.url');
-      if (!environmentId)
-        throw new Error('Managed registration requires registration.environmentId');
+      if (!projectEnvironmentId)
+        throw new Error('Managed registration requires registration.projectEnvironmentId');
       if (!publishableKey) {
         throw new Error('Managed registration requires registration.publishableKey');
       }
       return {
         mode: 'managed',
         relayerUrl,
-        environmentId,
+        projectEnvironmentId,
         publishableKey,
         ...(paymentMode ? { paymentMode } : {}),
       };
@@ -398,7 +398,7 @@ export async function createManagedRegistrationFlowGrant(args: {
   const grant = await requestManagedRegistrationFlowGrant({
     relayerUrl: registrationTransport.relayerUrl,
     publishableKey: registrationTransport.publishableKey,
-    environmentId: registrationTransport.environmentId,
+    environmentId: registrationTransport.projectEnvironmentId,
     identity: args.identity,
     authority: args.authority,
   });

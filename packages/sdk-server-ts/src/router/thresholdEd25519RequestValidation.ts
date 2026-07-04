@@ -36,7 +36,7 @@ export type ThresholdEd25519RouteParseResult<T> =
 export type ThresholdEd25519SessionRouteCommand = {
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
-  runtimeEnvironmentId?: string;
+  projectEnvironmentId?: string;
   routeAuth:
     | { kind: 'signed_session_header' }
     | {
@@ -49,7 +49,7 @@ export type ThresholdEd25519SessionRouteCommand = {
 const SESSION_KEYS = [
   'relayerKeyId',
   'sessionPolicy',
-  'runtimeEnvironmentId',
+  'projectEnvironmentId',
   'webauthn_authentication',
   'sessionKind',
 ] as const;
@@ -77,6 +77,7 @@ const CLIENT_REQUEST_KEYS = ['clientRequestMessageB64u'] as const;
 const EVALUATION_RESULT_KEYS = [
   'contextBindingB64u',
   'stagedEvaluatorArtifactB64u',
+  'addStageRequestMessageB64u',
 ] as const;
 
 function invalidThresholdEd25519Body(message: string): ThresholdEd25519RouteParseError {
@@ -265,11 +266,14 @@ function parseEvaluationResultEnvelope(
   if (!contextBindingB64u.ok) return contextBindingB64u;
   const stagedEvaluatorArtifactB64u = requiredStringField(raw, 'stagedEvaluatorArtifactB64u');
   if (!stagedEvaluatorArtifactB64u.ok) return stagedEvaluatorArtifactB64u;
+  const addStageRequestMessageB64u = requiredStringField(raw, 'addStageRequestMessageB64u');
+  if (!addStageRequestMessageB64u.ok) return addStageRequestMessageB64u;
   return {
     ok: true,
     request: {
       contextBindingB64u: contextBindingB64u.request,
       stagedEvaluatorArtifactB64u: stagedEvaluatorArtifactB64u.request,
+      addStageRequestMessageB64u: addStageRequestMessageB64u.request,
     },
   };
 }
@@ -302,8 +306,8 @@ export function parseThresholdEd25519SessionRouteRequest(
     request: {
       relayerKeyId: relayerKeyId.request,
       sessionPolicy: sessionPolicy.request,
-      ...(optionalStringField(raw, 'runtimeEnvironmentId')
-        ? { runtimeEnvironmentId: optionalStringField(raw, 'runtimeEnvironmentId') }
+      ...(optionalStringField(raw, 'projectEnvironmentId')
+        ? { projectEnvironmentId: optionalStringField(raw, 'projectEnvironmentId') }
         : {}),
       routeAuth: webauthnAuthentication
         ? {

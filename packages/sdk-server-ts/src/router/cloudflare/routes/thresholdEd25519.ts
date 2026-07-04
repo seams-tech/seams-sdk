@@ -194,7 +194,7 @@ export async function handleThresholdEd25519(
         appSessionClaims?.runtimePolicyScope || ecdsaSessionClaims?.runtimePolicyScope;
       const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
         explicitScopeRaw: inheritedRuntimePolicyScope ?? b.sessionPolicy?.runtimePolicyScope,
-        runtimeEnvironmentIdRaw: b.runtimeEnvironmentId,
+        projectEnvironmentIdRaw: b.projectEnvironmentId,
         headers: ctx.request.headers,
         origin: ctx.request.headers.get('origin'),
         publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
@@ -269,7 +269,7 @@ export async function handleThresholdEd25519(
       const result = await ed25519.session({
         relayerKeyId: b.relayerKeyId,
         sessionPolicy: b.sessionPolicy,
-        ...(b.runtimeEnvironmentId ? { runtimeEnvironmentId: b.runtimeEnvironmentId } : {}),
+        ...(b.projectEnvironmentId ? { projectEnvironmentId: b.projectEnvironmentId } : {}),
         ...(b.sessionKind ? { sessionKind: b.sessionKind } : {}),
         auth: sessionAuth,
       });

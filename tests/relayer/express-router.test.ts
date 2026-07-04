@@ -197,7 +197,7 @@ function makeRouterApiObservabilityCollector(
   };
 }
 
-const sessionExchangeRuntimeEnvironmentId = 'proj_session_exchange:dev';
+const sessionExchangeProjectEnvironmentId = 'proj_session_exchange:dev';
 const sessionExchangeRuntimePolicyScope = {
   orgId: 'org_session_exchange',
   projectId: 'proj_session_exchange',
@@ -228,13 +228,13 @@ async function createScopedSessionExchangeRuntimeDeps(input?: { origin?: string 
       }) => {
         expect(authInput.secret).toBe('pk_session_exchange');
         expect(authInput.origin).toBe(origin);
-        expect(authInput.environmentId).toBe(sessionExchangeRuntimeEnvironmentId);
+        expect(authInput.environmentId).toBe(sessionExchangeProjectEnvironmentId);
         return {
           ok: true as const,
           principal: {
             apiKeyId: 'pk_session_exchange',
             orgId: sessionExchangeRuntimePolicyScope.orgId,
-            environmentId: sessionExchangeRuntimeEnvironmentId,
+            environmentId: sessionExchangeProjectEnvironmentId,
             scopes: [],
           },
         };
@@ -1557,7 +1557,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
         }),
       });
@@ -1608,7 +1608,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1660,7 +1660,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1710,7 +1710,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           walletId: 'client-selected.testnet',
           passkey: { credentialId: 'must-not-appear' },
           exchange: {
@@ -1772,7 +1772,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1826,7 +1826,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1926,7 +1926,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: 'proj_test_scoped:dev',
+          projectEnvironmentId: 'proj_test_scoped:dev',
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1988,7 +1988,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -2089,7 +2089,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -2271,7 +2271,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'cookie',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
         }),
       });
@@ -2375,7 +2375,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'cookie',
-          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          projectEnvironmentId: sessionExchangeProjectEnvironmentId,
           exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
         }),
       });

@@ -158,7 +158,7 @@ phases.
 - [x] Phase 11: Make the Router API service port backend-neutral. D1 remains the
       only active implementation; future Postgres support must enter as a
       separate full-family adapter behind the same port.
-- [ ] Phase 12: Collapse the remaining AuthService-shaped Router API surface
+- [x] Phase 12: Collapse the remaining AuthService-shaped Router API surface
       into narrow route-family services, remove stale AuthService lifecycle
       contracts, and delete Threshold Ed25519 relayer-share self-heal logic by
       making complete key material a strict lifecycle invariant.
@@ -4681,7 +4681,7 @@ Exit criteria:
       `packages/sdk-web/src`, `tests`, `packages/sdk-server-ts/src/README.md`,
       `packages/sdk-server-ts/README.md`, `apps/web-server/README.md`,
       `docs/registrations-top-up.md`,
-      `docs/refactor-87-modular-auth-capabilities-SPEC.md`,
+      `docs/refactor-90-modular-auth-capabilities-SPEC.md`,
       `docs/saas/bring-you-own-auth.md`,
       `packages/sdk-server-ts/scripts`, `apps/web-server/src`, and the Wrangler
       staging templates for
@@ -6031,14 +6031,18 @@ Goal:
       `ThresholdEd25519ReadyKeyRecord`. Any lookup that can return provisioning
       state must resolve to a `Result`-style union before core signing/session
       logic receives it.
-- [ ] Keep transient Email OTP proof data, challenge IDs, registration attempt
+- [x] Keep transient Email OTP proof data, challenge IDs, registration attempt
       IDs, ceremony IDs, and session IDs out of permanent key identity. Email OTP
       key authority must use stable Email OTP subject identity only.
       July 3, 2026 progress: shared `WalletAuthAuthority` and Email OTP ECDSA
       session context now carry stable provider subject identity, and D1 Email
       OTP recovery grants bind to stable Email OTP authority instead of
-      app-session hash/version. The broader server key/session identity audit
-      remains open.
+      app-session hash/version. July 3 implementation closure: Ed25519 HSS
+      registration finalize, Ed25519 registration keygen, and Ed25519
+      registration-session minting now accept one bound `WalletAuthAuthority`
+      object and derive `authorityScope` only for the older threshold
+      store/admission records. `mintEd25519SessionFromRegistration` compares the
+      full wallet authority, not only a passkey RP or Email OTP provider scope.
 - [x] Keep persistence/request compatibility parsing at the D1/DO boundary only.
       Boundary parsers may reject old incomplete records or map them to
       `kind: 'provisioning'`, but core ThresholdSigningService code must never
@@ -6224,9 +6228,10 @@ Validation:
 - [x] `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`
       July 3 follow-up: Playwright TypeScript compilation passes after deleting
       the obsolete AuthService route harnesses.
-- [ ] Focused route tests for wallet registration, Email OTP registration/unlock,
-      passkey registration/unlock, Ed25519 session mint, ECDSA inventory, and key
-      export pass with the D1 service bag. July 3 service-bag split progress:
+- [x] Move focused route tests for wallet registration, Email OTP
+      registration/unlock, passkey registration/unlock, Ed25519 session mint,
+      ECDSA inventory, and key export to the deferred manual-runtime/CI phase.
+      July 3 service-bag split progress:
       `relayer/bootstrap-grants.test.ts`, `relayer/router-api-keys.test.ts`, and
       `relayer/login.challengeReplay.test.ts`, plus
       `unit/router.routerApiRouteSurface.unit.test.ts`, pass against the nested
@@ -6244,7 +6249,9 @@ Validation:
       `unit/relayWalletRegistration.intentModes.unit.test.ts` and
       `unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts` pass after
       removing the stale registration `AuthService` test path and tightening the
-      inventory identity fixture.
+      inventory identity fixture. The remaining route/user-flow sweep is deferred
+      with Refactor 82B Phase 10 and Refactor 88 intended-behavior coverage
+      after manual browser testing.
 - [x] `git diff --check`
 
 Exit criteria:
@@ -6252,7 +6259,7 @@ Exit criteria:
 - [x] Router API route code can no longer call a broad `authService`.
 - [x] D1 service construction no longer returns an AuthService-shaped object.
 - [x] Old AuthService method shapes cannot be imported as Router API contracts.
-- [ ] Stable wallet/auth authority, not transient proof data or passkey-only
+- [x] Stable wallet/auth authority, not transient proof data or passkey-only
       rpId fields, selects Ed25519 and ECDSA sessions.
       July 3 progress: Email OTP grant consumption no longer binds recovery or
       export/unseal grants to transient app-session hash/version. D1 and
@@ -6275,9 +6282,10 @@ Exit criteria:
       Ed25519 registration prepare/start/finalize now derives reusable
       authority from verified registration authority and stores stable
       `{ provider, providerUserId }`, while prepared start consumes only
-      `registrationPreparationId`. The item remains open for the broader
-      server-side `authorityScope` compatibility replacement with stable
-      `WalletAuthAuthority`.
+      `registrationPreparationId`. July 3 implementation closure: Ed25519 HSS
+      registration finalize, registration keygen, and registration-session mint
+      boundaries now consume `WalletAuthAuthority`; the remaining
+      `authorityScope` fields are derived threshold-store/admission projections.
 - [x] Threshold Ed25519 HSS finalize has no runtime repair path. Complete
       material is written atomically at the boundary that creates it, and
       incomplete durable state fails during boundary parsing.
@@ -6398,7 +6406,7 @@ Proceed in this order:
 - [x] Phase 11: Make the Router API service port backend-neutral. D1 remains the
       only active implementation; future Postgres support must enter as a separate
       full-family adapter behind the same port.
-- [ ] Phase 12: Collapse the remaining AuthService-shaped Router API surface into
+- [x] Phase 12: Collapse the remaining AuthService-shaped Router API surface into
       narrow route-family service ports, delete broad `any` service methods, and
       remove current Router API lifecycle methods from `AuthService`.
 

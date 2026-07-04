@@ -45,7 +45,7 @@ import { ActionType } from '@/core/types/actions';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { sha256HexUtf8 } from '@shared/utils/digests';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
@@ -99,7 +99,6 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
 import {
   parseExactEcdsaSigningLaneIdentity,
   parseExactEd25519SigningLaneIdentity,
@@ -1433,7 +1432,7 @@ export class SeamsWeb {
         ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
         ...(managedRegistration
           ? {
-              runtimeEnvironmentId: managedRegistration.environmentId,
+              projectEnvironmentId: managedRegistration.projectEnvironmentId,
               publishableKey: managedRegistration.publishableKey,
             }
           : {}),
@@ -1752,7 +1751,7 @@ export class SeamsWeb {
     if (!normalizedEmail) {
       throw new Error('[SeamsWeb][email-otp] verified email is required for auth-method hash');
     }
-    return bytesToHex(await sha256BytesUtf8(normalizedEmail));
+    return sha256HexUtf8(normalizedEmail);
   }
 
   private async loginWithEmailOtpEd25519CapabilityDomain(

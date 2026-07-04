@@ -82,6 +82,28 @@ export class CloudflareD1EmailOtpChallengeStore {
     return parseEmailOtpChallengeRow(row);
   }
 
+  async readLatestActiveForSubjectWallet(input: {
+    readonly challengeSubjectId: string;
+    readonly walletId: string;
+    readonly nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null> {
+    const row = await this.prepare(
+      `SELECT record_json, expires_at_ms
+         FROM email_otp_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_subject_id = ?
+          AND wallet_id = ?
+          AND expires_at_ms > ?
+        ORDER BY created_at_ms DESC
+        LIMIT 1`,
+      [input.challengeSubjectId, input.walletId, input.nowMs],
+    ).first<D1EmailOtpChallengeRow>();
+    return parseEmailOtpChallengeRow(row);
+  }
+
   async findLatestActive(
     input: EmailOtpChallengeContextInput,
   ): Promise<EmailOtpChallengeRecord | null> {

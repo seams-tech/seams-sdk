@@ -3,6 +3,14 @@ import {
   thresholdEcdsaLaneCandidateFromSessionRecord,
   toExactEcdsaSigningLaneIdentity,
 } from '@/core/signingEngine/session/persistence/records';
+import {
+  canonicalizeLaneFacts,
+  serverIssuedGenerationFromNumber,
+  type CanonicalFactSupersession,
+  type CanonicalLaneInventoryAdapter,
+  type CanonicalTieBreakOrder,
+  type ServerIssuedGeneration,
+} from '@/core/signingEngine/session/availability/canonicalLaneInventory';
 import type {
   EmailOtpEcdsaSessionRecord,
   ThresholdEcdsaSessionRecord,
@@ -18,8 +26,13 @@ import type {
   SigningSessionSealedRecordFilter,
   SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
+import {
+  emailOtpAuthContextProvider,
+  emailOtpAuthContextProviderUserId,
+  emailOtpAuthContextRetention,
+} from '../identity/laneIdentity';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { walletAuthAuthoritiesMatch } from '@shared/utils/walletAuthAuthority';
 import { buildEcdsaMaterialStateForCandidate } from '../../flows/signEvmFamily/ecdsaMaterialState';
 import {
   commitEmailOtpEcdsaLaneFromRecordForMaterial,
@@ -30,9 +43,9 @@ import {
 
 type EmailOtpEcdsaRecordForEd25519SigningSelection =
   | {
-      kind: 'signing_grant_exact';
+      kind: 'current_wallet_authority';
       walletId: WalletId;
-      signingGrantId: string;
+      authority: EmailOtpWalletAuthAuthority;
       listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
     }
   | {
@@ -89,9 +102,39 @@ export type EmailOtpEcdsaCompanionSelectionResult =
       kind: 'not_found';
     }
   | {
+      kind: 'ambiguous_material';
+      count: number;
+    }
+  | {
+      kind: 'conflicting_key_material';
+      field: string;
+      count: number;
+    }
+  | {
       kind: 'display_only_fallback';
       lane: EmailOtpEcdsaCompanionLaneForEd25519Signing;
     };
+
+type EmailOtpEcdsaCompanionLaneGroupKey = {
+  chainTargetKey: string;
+  walletId: string;
+  authProvider: string;
+  authProviderUserId: string;
+  evmFamilySigningKeySlotId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+};
+
+type EmailOtpEcdsaCompanionLaneConflict = {
+  field: string;
+  values: readonly string[];
+};
+
+type EmailOtpEcdsaCompanionLaneFact = {
+  groupKey: EmailOtpEcdsaCompanionLaneGroupKey;
+  lane: EmailOtpEcdsaCompanionLaneForEd25519Signing;
+};
 
 function emailOtpEcdsaSessionRecord(
   record: ThresholdEcdsaSessionRecord,
@@ -181,29 +224,223 @@ function emailOtpEcdsaRecordHasSigningMaterial(record: EmailOtpEcdsaSessionRecor
   );
 }
 
-function compareEmailOtpEcdsaCompanionLanesForEd25519Signing(
-  left: EmailOtpEcdsaCompanionLaneForEd25519Signing,
-  right: EmailOtpEcdsaCompanionLaneForEd25519Signing,
-): number {
-  return (
-    Math.floor(Number(right.committedLane.record.updatedAtMs) || 0) -
-      Math.floor(Number(left.committedLane.record.updatedAtMs) || 0) ||
-    left.chainTargetKey.localeCompare(right.chainTargetKey) ||
-    String(left.committedLane.record.thresholdSessionId).localeCompare(
-      String(right.committedLane.record.thresholdSessionId),
-    )
+function emailOtpEcdsaCompanionLaneGroupKey(
+  lane: EmailOtpEcdsaCompanionLaneForEd25519Signing,
+): EmailOtpEcdsaCompanionLaneGroupKey {
+  const record = emailOtpEcdsaCompanionLaneRecord(lane);
+  return {
+    chainTargetKey: lane.chainTargetKey,
+    walletId: String(record.walletId),
+    authProvider: emailOtpAuthContextProvider(record.emailOtpAuthContext),
+    authProviderUserId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
+    evmFamilySigningKeySlotId: String(record.evmFamilySigningKeySlotId),
+    ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId),
+    signingRootId: String(record.signingRootId),
+    signingRootVersion: String(record.signingRootVersion || 'default'),
+  };
+}
+
+function emailOtpEcdsaCompanionLaneGroupKeyString(
+  key: EmailOtpEcdsaCompanionLaneGroupKey,
+): string {
+  return [
+    key.chainTargetKey,
+    key.walletId,
+    key.authProvider,
+    key.authProviderUserId,
+    key.evmFamilySigningKeySlotId,
+    key.ecdsaThresholdKeyId,
+    key.signingRootId,
+    key.signingRootVersion,
+  ]
+    .map((part) => encodeURIComponent(String(part)))
+    .join('|');
+}
+
+function emailOtpEcdsaCompanionLaneRecord(
+  lane: EmailOtpEcdsaCompanionLaneForEd25519Signing,
+): EmailOtpEcdsaSessionRecord {
+  const record = lane.committedLane.record;
+  if (record.source !== 'email_otp') {
+    throw new Error('Email OTP ECDSA companion lane requires Email OTP record backing');
+  }
+  return record;
+}
+
+function emailOtpEcdsaCompanionFactPublicValues(
+  facts: readonly EmailOtpEcdsaCompanionLaneFact[],
+  read: (record: EmailOtpEcdsaSessionRecord) => string,
+): string[] {
+  return [...new Set(facts.map((fact) => read(emailOtpEcdsaCompanionLaneRecord(fact.lane))))].sort();
+}
+
+function emailOtpEcdsaCompanionGroupConflicts(
+  facts: readonly EmailOtpEcdsaCompanionLaneFact[],
+): readonly EmailOtpEcdsaCompanionLaneConflict[] {
+  const fields = [
+    {
+      field: 'thresholdOwnerAddress',
+      values: emailOtpEcdsaCompanionFactPublicValues(facts, (record) =>
+        String(record.ethereumAddress || record.verifiedPublicFacts?.thresholdOwnerAddress || '')
+          .trim()
+          .toLowerCase(),
+      ),
+    },
+    {
+      field: 'keyHandle',
+      values: emailOtpEcdsaCompanionFactPublicValues(facts, (record) =>
+        String(record.keyHandle || record.verifiedPublicFacts?.keyHandle || '').trim(),
+      ),
+    },
+    {
+      field: 'publicKeyB64u',
+      values: emailOtpEcdsaCompanionFactPublicValues(facts, (record) =>
+        String(
+          record.thresholdEcdsaPublicKeyB64u || record.verifiedPublicFacts?.publicKeyB64u || '',
+        ).trim(),
+      ),
+    },
+    {
+      field: 'participantIds',
+      values: emailOtpEcdsaCompanionFactPublicValues(facts, (record) =>
+        record.participantIds.map((participantId) => Number(participantId)).join(','),
+      ),
+    },
+  ];
+  return fields
+    .filter((field) => field.values.length > 1)
+    .map((field) => ({
+      field: field.field,
+      values: field.values,
+    }));
+}
+
+function emailOtpEcdsaCompanionFactGeneration(
+  fact: EmailOtpEcdsaCompanionLaneFact,
+): ServerIssuedGeneration | null {
+  return serverIssuedGenerationFromNumber(emailOtpEcdsaCompanionLaneRecord(fact.lane).expiresAtMs);
+}
+
+function emailOtpEcdsaCompanionFactTieBreakKey(
+  fact: EmailOtpEcdsaCompanionLaneFact,
+): string {
+  const record = emailOtpEcdsaCompanionLaneRecord(fact.lane);
+  return [
+    Math.floor(Number(record.updatedAtMs) || 0).toString(10).padStart(20, '0'),
+    fact.lane.chainTargetKey,
+    record.thresholdSessionId,
+    record.signingGrantId,
+  ]
+    .map((part) => String(part || ''))
+    .join('|');
+}
+
+function compareStringAscending(left: string, right: string): CanonicalTieBreakOrder {
+  const order = left.localeCompare(right);
+  if (order < 0) return -1;
+  if (order > 0) return 1;
+  return 0;
+}
+
+function emailOtpEcdsaCompanionTieBreak(
+  left: EmailOtpEcdsaCompanionLaneFact,
+  right: EmailOtpEcdsaCompanionLaneFact,
+): CanonicalTieBreakOrder {
+  return compareStringAscending(
+    emailOtpEcdsaCompanionFactTieBreakKey(left),
+    emailOtpEcdsaCompanionFactTieBreakKey(right),
   );
 }
 
-function emailOtpEcdsaCompanionLanesMatchingSigningGrantId(args: {
-  lanes: readonly EmailOtpEcdsaCompanionLaneForEd25519Signing[];
-  signingGrantId: string;
-}): EmailOtpEcdsaCompanionLaneForEd25519Signing[] {
-  const matches: EmailOtpEcdsaCompanionLaneForEd25519Signing[] = [];
-  for (const lane of args.lanes) {
-    if (lane.signingGrantId === args.signingGrantId) matches.push(lane);
+function compareEmailOtpEcdsaCompanionLaneCurrentFirst(
+  left: EmailOtpEcdsaCompanionLaneForEd25519Signing,
+  right: EmailOtpEcdsaCompanionLaneForEd25519Signing,
+): number {
+  const leftRecord = emailOtpEcdsaCompanionLaneRecord(left);
+  const rightRecord = emailOtpEcdsaCompanionLaneRecord(right);
+  return (
+    Math.floor(Number(rightRecord.expiresAtMs) || 0) -
+      Math.floor(Number(leftRecord.expiresAtMs) || 0) ||
+    Math.floor(Number(rightRecord.updatedAtMs) || 0) -
+      Math.floor(Number(leftRecord.updatedAtMs) || 0) ||
+    left.chainTargetKey.localeCompare(right.chainTargetKey) ||
+    String(rightRecord.thresholdSessionId).localeCompare(String(leftRecord.thresholdSessionId))
+  );
+}
+
+const emailOtpEcdsaCompanionSupersession: CanonicalFactSupersession<EmailOtpEcdsaCompanionLaneFact> =
+  {
+    isOperationUsable: () => true,
+    generation: emailOtpEcdsaCompanionFactGeneration,
+    exactness: () => 'exact_target',
+    tieBreak: emailOtpEcdsaCompanionTieBreak,
+  };
+
+const emailOtpEcdsaCompanionInventoryAdapter: CanonicalLaneInventoryAdapter<
+  EmailOtpEcdsaCompanionLaneFact,
+  EmailOtpEcdsaCompanionLaneGroupKey,
+  EmailOtpEcdsaCompanionLaneConflict
+> = {
+  groupKey: (fact) => fact.groupKey,
+  groupKeyString: emailOtpEcdsaCompanionLaneGroupKeyString,
+  groupConflicts: emailOtpEcdsaCompanionGroupConflicts,
+  supersession: emailOtpEcdsaCompanionSupersession,
+};
+
+function canonicalEmailOtpEcdsaCompanionLanes(
+  lanes: readonly EmailOtpEcdsaCompanionLaneForEd25519Signing[],
+): EmailOtpEcdsaCompanionSelectionResult {
+  const facts = lanes.map((lane) => ({
+    groupKey: emailOtpEcdsaCompanionLaneGroupKey(lane),
+    lane,
+  }));
+  const factsByChainTarget = new Map<string, EmailOtpEcdsaCompanionLaneFact[]>();
+  for (const fact of facts) {
+    factsByChainTarget.set(fact.lane.chainTargetKey, [
+      ...(factsByChainTarget.get(fact.lane.chainTargetKey) || []),
+      fact,
+    ]);
   }
-  return matches;
+  const selectedLanes: EmailOtpEcdsaCompanionLaneForEd25519Signing[] = [];
+  for (const chainFacts of factsByChainTarget.values()) {
+    const selection = canonicalizeLaneFacts(chainFacts, emailOtpEcdsaCompanionInventoryAdapter);
+    switch (selection.kind) {
+      case 'selected':
+        selectedLanes.push(selection.selectedFact.lane);
+        break;
+      case 'no_current_lane':
+        break;
+      case 'ambiguous_material':
+        return {
+          kind: 'ambiguous_material',
+          count: selection.candidates.length,
+        };
+      case 'conflicting_key_material': {
+        const firstConflict = selection.conflicts[0];
+        return {
+          kind: 'conflicting_key_material',
+          field: String(firstConflict?.field || 'unknown'),
+          count: firstConflict?.values.length || selection.conflicts.length,
+        };
+      }
+      default: {
+        const exhaustive: never = selection;
+        return exhaustive;
+      }
+    }
+  }
+  return companionSelectionFromExactLanes(
+    selectedLanes.sort(compareEmailOtpEcdsaCompanionLaneCurrentFirst),
+  );
+}
+
+function emailOtpEcdsaCompanionLanesMatchingAuthority(args: {
+  lanes: readonly EmailOtpEcdsaCompanionLaneForEd25519Signing[];
+  authority: EmailOtpWalletAuthAuthority;
+}): EmailOtpEcdsaCompanionLaneForEd25519Signing[] {
+  return args.lanes.filter((lane) =>
+    walletAuthAuthoritiesMatch(lane.committedLane.authority, args.authority),
+  );
 }
 
 function companionSelectionFromExactLanes(
@@ -254,7 +491,7 @@ function committedEmailOtpEcdsaCompanionLanesForWallet(args: {
     const lane = tryCommitEmailOtpEcdsaCompanionLaneForEd25519Signing(record);
     if (lane) lanes.push(lane);
   }
-  return lanes.sort(compareEmailOtpEcdsaCompanionLanesForEd25519Signing);
+  return lanes;
 }
 
 export function selectEmailOtpEcdsaCompanionLaneForEd25519Signing(
@@ -265,17 +502,15 @@ export function selectEmailOtpEcdsaCompanionLaneForEd25519Signing(
     listThresholdEcdsaSessionRecordsForWallet: args.listThresholdEcdsaSessionRecordsForWallet,
   });
   switch (args.kind) {
-    case 'signing_grant_exact': {
-      const signingGrantId = String(args.signingGrantId || '').trim();
-      if (!signingGrantId) return { kind: 'not_found' };
-      const matches = emailOtpEcdsaCompanionLanesMatchingSigningGrantId({
+    case 'current_wallet_authority': {
+      const matches = emailOtpEcdsaCompanionLanesMatchingAuthority({
         lanes,
-        signingGrantId,
+        authority: args.authority,
       });
-      return companionSelectionFromExactLanes(matches);
+      return canonicalEmailOtpEcdsaCompanionLanes(matches);
     }
     case 'latest_wallet_record': {
-      const lane = lanes[0];
+      const lane = [...lanes].sort(compareEmailOtpEcdsaCompanionLaneCurrentFirst)[0];
       if (!lane) return { kind: 'not_found' };
       return {
         kind: 'display_only_fallback',

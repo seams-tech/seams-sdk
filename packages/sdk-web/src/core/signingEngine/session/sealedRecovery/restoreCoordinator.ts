@@ -196,7 +196,7 @@ export async function restorePersistedSessionForSigningCommand(
       deferred: 0,
       duplicateCount: exactPurposeWorkItems.length,
       duplicateRecordSummaries: duplicateRestoreRecordSummaries(exactPurposeWorkItems),
-    };
+    } satisfies RestorePersistedSessionForSigningResult;
   }
   let attempted = 0;
   let restored = 0;

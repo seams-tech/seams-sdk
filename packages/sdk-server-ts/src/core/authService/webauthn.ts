@@ -998,7 +998,7 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
         walletId: walletBinding.walletId,
         nearAccountId: walletBinding.nearAccountId,
         nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
-        authorityScope: walletBindingAuthorityScope,
+        authority: resolvedSessionPolicy.sessionPolicy.authority,
         relayerKeyId,
         sessionPolicy: resolvedSessionPolicy.sessionPolicy,
       });

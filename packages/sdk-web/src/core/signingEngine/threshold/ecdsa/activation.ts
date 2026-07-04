@@ -267,7 +267,7 @@ type ActivateEcdsaSessionRequestCommon = {
   relayerUrl: string;
   requestId?: string;
   runtimeScopeBootstrap?: {
-    environmentId: string;
+    projectEnvironmentId: string;
     publishableKey: string;
   };
 };

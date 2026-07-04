@@ -14,6 +14,7 @@ import {
   SIGNING_SESSION_SEAL_STORAGE_SCOPE,
   SIGNING_SESSION_SECRET_KIND,
   type SealedSigningSessionEcdsaRestoreMetadata,
+  type SealedSigningSessionEcdsaRestoreSource,
   type SealedSigningSessionEd25519RestoreMetadata,
   type SealedSigningSessionRecord,
   type SealedSigningSessionWalletSessionAuth,
@@ -28,6 +29,10 @@ import {
   parseRouterAbEd25519NormalSigningState,
   type RouterAbEd25519NormalSigningState,
 } from '../../threshold/ed25519/routerAbNormalSigningState';
+import {
+  parseRouterAbEcdsaHssNormalSigningStateV1,
+  type RouterAbEcdsaHssNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaHss';
 import {
   exactSealedSessionFilterForIdentity,
   type DeleteDurableSealedSessionCommand,
@@ -441,6 +446,30 @@ function resolveSealedRecordCurve(args: {
   return null;
 }
 
+function parseSealedEcdsaRouterAbHssNormalSigningState(
+  value: unknown,
+): RouterAbEcdsaHssNormalSigningStateV1 | null {
+  try {
+    return parseRouterAbEcdsaHssNormalSigningStateV1(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSealedEcdsaRestoreSource(
+  value: unknown,
+): SealedSigningSessionEcdsaRestoreSource | null {
+  switch (value) {
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+    case 'email_otp':
+      return value;
+    default:
+      return null;
+  }
+}
+
 function normalizeEcdsaRestoreMetadata(
   value: unknown,
 ): SealedSigningSessionEcdsaRestoreMetadata | undefined {
@@ -460,6 +489,7 @@ function normalizeEcdsaRestoreMetadata(
     chainTarget = null;
   }
   const walletSessionAuth = normalizeSealedRestoreWalletSessionAuth(obj);
+  const source = normalizeSealedEcdsaRestoreSource(obj.source);
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
   const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
@@ -472,6 +502,9 @@ function normalizeEcdsaRestoreMetadata(
   const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(
     obj.thresholdEcdsaPublicKeyB64u,
   );
+  const routerAbEcdsaHssNormalSigning = parseSealedEcdsaRouterAbHssNormalSigningState(
+    obj.routerAbEcdsaHssNormalSigning,
+  );
   const participantIds = Array.isArray(obj.participantIds)
     ? obj.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -479,19 +512,25 @@ function normalizeEcdsaRestoreMetadata(
     : [];
   if (
     !chainTarget ||
+    !source ||
     !walletSessionAuth ||
     !keyHandle ||
     !ethereumAddress ||
     !relayerKeyId ||
+    !routerAbEcdsaHssNormalSigning ||
     !participantIds.length
   ) {
     return undefined;
   }
   const authBranch =
-    evmFamilySigningKeySlotId && credentialIdB64u && rpId
-      ? ({ evmFamilySigningKeySlotId, rpId, credentialIdB64u } as const)
-      : evmFamilySigningKeySlotId && providerSubjectId && emailHashHex
+    evmFamilySigningKeySlotId && credentialIdB64u && rpId && source !== 'email_otp'
+      ? ({ source, evmFamilySigningKeySlotId, rpId, credentialIdB64u } as const)
+      : evmFamilySigningKeySlotId &&
+          providerSubjectId &&
+          emailHashHex &&
+          source === 'email_otp'
         ? ({
+            source,
             evmFamilySigningKeySlotId,
             providerSubjectId,
             emailHashHex,
@@ -510,6 +549,7 @@ function normalizeEcdsaRestoreMetadata(
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
     participantIds,
+    routerAbEcdsaHssNormalSigning,
     ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? { runtimePolicyScope: obj.runtimePolicyScope }
       : {}),

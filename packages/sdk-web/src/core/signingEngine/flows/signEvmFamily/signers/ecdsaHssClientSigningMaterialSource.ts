@@ -7,8 +7,10 @@ import {
 import { createDeleteDurableSealedSessionCommand } from '../../../session/persistence/durableSealedSessionCommands';
 import type {
   ReadyEcdsaSignerSession,
+  ThresholdEcdsaRoleLocalWorkerShare,
 } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import {
+  storeEcdsaRoleLocalSigningMaterialWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
   thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm,
@@ -145,6 +147,26 @@ async function clearEmailOtpWorkerSessionBestEffort(args: {
     .catch(() => undefined);
 }
 
+async function ensureRoleLocalSigningMaterialLoaded(args: {
+  workerCtx: WorkerOperationContext;
+  clientShare: ThresholdEcdsaRoleLocalWorkerShare;
+}): Promise<void> {
+  const material = args.clientShare.material;
+  if (material.kind === 'worker_loaded') return;
+  const stored = await storeEcdsaRoleLocalSigningMaterialWasm({
+    materialHandle: args.clientShare.handle.materialHandle,
+    bindingDigest: args.clientShare.handle.bindingDigest,
+    stateBlob: material.stateBlob,
+    workerCtx: args.workerCtx,
+  });
+  if (
+    stored.materialHandle !== args.clientShare.handle.materialHandle ||
+    stored.bindingDigest !== args.clientShare.handle.bindingDigest
+  ) {
+    throw new Error('[multichain] ECDSA role-local worker material handle mismatch');
+  }
+}
+
 export async function loadRouterAbEcdsaHssSigningMaterialSource(args: {
   signerSession: ReadyEcdsaSignerSession;
   workerCtx: WorkerOperationContext;
@@ -186,6 +208,10 @@ export async function loadRouterAbEcdsaHssSigningMaterialSource(args: {
               expiresAtMs: claimedShare.expiresAtMs,
             });
           } else if (signerSession.clientShare.kind === 'role_local_worker_share') {
+            await ensureRoleLocalSigningMaterialLoaded({
+              workerCtx: args.workerCtx,
+              clientShare: signerSession.clientShare,
+            });
             return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
               materialHandle: signerSession.clientShare.handle.materialHandle,
               expectedBindingDigest: signerSession.clientShare.handle.bindingDigest,

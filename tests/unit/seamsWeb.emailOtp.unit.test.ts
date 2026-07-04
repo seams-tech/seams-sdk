@@ -231,7 +231,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         idToken: 'google-id-token-1',
         accountMode: 'register',
         sessionKind: 'cookie',
-        runtimeEnvironmentId: 'env_test',
+        projectEnvironmentId: 'env_test',
         fetchImpl,
       }),
     ).resolves.toEqual({
@@ -257,7 +257,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     ]);
     expect(fetchCalls[4]?.body).toEqual({
       session_kind: 'cookie',
-      runtimeEnvironmentId: 'env_test',
+      projectEnvironmentId: 'env_test',
       exchange: {
         type: 'oidc_jwt',
         provider: 'google',
@@ -272,7 +272,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       expect(String(input)).toBe('https://relay.example/session/exchange');
       expect(JSON.parse(String(init?.body || '{}'))).toEqual({
         session_kind: 'jwt',
-        runtimeEnvironmentId: 'env_test',
+        projectEnvironmentId: 'env_test',
         exchange: {
         type: 'oidc_jwt',
         provider: 'google',
@@ -316,7 +316,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         idToken: 'google-id-token-1',
         accountMode: 'register',
         sessionKind: 'jwt',
-        runtimeEnvironmentId: 'env_test',
+        projectEnvironmentId: 'env_test',
         fetchImpl,
       }),
     ).resolves.toEqual({

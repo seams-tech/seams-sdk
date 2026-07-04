@@ -558,7 +558,7 @@ pub struct DdhHssEvaluationKey {
     pub key_id: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHssSharedWord {
     pub width_bits: u16,
     pub left_word: u64,

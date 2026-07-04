@@ -26,6 +26,7 @@ import { errorMessage } from '@shared/utils/errors';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { isObject } from '@shared/utils/validation';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '@/utils/emailRecovery';
@@ -83,6 +84,23 @@ function requireEmailRecoveryWebAuthnRpId(value: unknown): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+type EmailRecoveryPasskeyCredential = {
+  readonly id?: unknown;
+  readonly rawId?: unknown;
+};
+
+function buildEmailRecoveryPasskeyAuthority(args: {
+  walletId: WalletId | string;
+  rpId: WebAuthnRpId;
+  credential: EmailRecoveryPasskeyCredential;
+}) {
+  return buildPasskeyWalletAuthAuthority({
+    walletId: args.walletId,
+    rpId: args.rpId,
+    credentialIdB64u: String(args.credential.rawId || args.credential.id || '').trim(),
+  });
 }
 
 function requireEmailRecoveryString(value: unknown, field: string): string {
@@ -445,7 +463,11 @@ export class EmailRecoveryDomain {
       }
       const thresholdWarmSessionRequest = buildThresholdWarmSessionRequestEnvelope({
         walletId: String(walletId),
-        authorityScope: { kind: 'passkey_rp', rpId },
+        authority: buildEmailRecoveryPasskeyAuthority({
+          walletId,
+          rpId,
+          credential,
+        }),
         requestedPolicy: thresholdWarmPolicy,
       });
       const ecdsaProvisionTargets = listThresholdEcdsaProvisionTargets({

@@ -333,7 +333,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl?: string;
   runtimeScopeBootstrap?: {
-    environmentId: string;
+    projectEnvironmentId: string;
     publishableKey: string;
   };
   ttlMs?: number;

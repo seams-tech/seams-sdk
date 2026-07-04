@@ -778,7 +778,8 @@ Cheapest useful checks for this refactor:
 - `pnpm -C sdk type-check`
 - focused type fixtures for registration lifecycle and relayer RPC contracts
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationIntentAllocation.unit.test.ts ./unit/relayWalletRegistration.boundary.unit.test.ts --reporter=line`
-- `pnpm benchmark:registration-flow:smoke` for keep decisions
+- real-topology registration latency benchmark for keep decisions once the
+  post-Refactor 88 replacement exists
 - `git diff --check`
 
 Run broader source guards only after the route/store shape lands, because this

@@ -2284,6 +2284,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       nearAccountId: 'near.testnet',
       nearEd25519SigningKeyId: 'ed25519:key',
       rpId: 'example.com',
+      credentialIdB64u: 'credential-a',
       signerSlot: 2,
     });
     const syncChallengeRow = await readWebAuthnChallengeRow({
@@ -3579,6 +3580,7 @@ test('Cloudflare D1 Router API auth service starts and responds to combined Ed25
         evaluationResult: {
           contextBindingB64u: 'ed25519-context-binding',
           stagedEvaluatorArtifactB64u: 'ed25519-staged-evaluator-artifact',
+          addStageRequestMessageB64u: 'ed25519-add-stage-request',
         },
       },
       ecdsa: {
@@ -4503,12 +4505,26 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       },
     });
 
+    const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
     const finalized = await service.walletAuthMethods.finalizeWalletAddAuthMethod({
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
     });
     expect(finalized).toEqual({
       ok: true,
       walletId,
+      authority: {
+        walletId,
+        factor: {
+          kind: 'email_otp',
+          provider: 'email',
+          providerUserId: providerSubject,
+        },
+        verifier: {
+          kind: 'email_otp_wallet_auth_method',
+          emailHashHex,
+        },
+        bindingId: `email_otp:${walletId}:${emailHashHex}`,
+      },
       authMethod: {
         kind: 'email_otp',
         status: 'active',
@@ -4518,7 +4534,6 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       durableObjects.stub.values.get(`${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`),
     ).toBeUndefined();
 
-    const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
     await expect(
       readWalletAuthMethodRecord({
         database,

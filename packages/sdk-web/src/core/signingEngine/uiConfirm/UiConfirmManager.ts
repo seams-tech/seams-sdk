@@ -985,6 +985,26 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
   }
 
+  private async markPasskeySealedRecordExhausted(args: {
+    thresholdSessionId: string;
+    curve?: 'ed25519' | 'ecdsa';
+    chainTarget?: ThresholdEcdsaChainTarget;
+  }): Promise<void> {
+    const existing = await this.readPasskeySealedRecord(
+      args.thresholdSessionId,
+      args.curve,
+      args.chainTarget,
+    );
+    if (!existing) return;
+    await this.updatePasskeySealedRecordPolicy({
+      thresholdSessionId: args.thresholdSessionId,
+      curve: args.curve,
+      chainTarget: args.chainTarget,
+      expiresAtMs: existing.expiresAtMs,
+      remainingUses: 0,
+    });
+  }
+
   private async recordSessionPolicyResult(args: {
     sessionId: string;
     curve?: 'ed25519' | 'ecdsa';
@@ -1029,6 +1049,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         chainTarget: args.chainTarget,
         deleteReason: 'expired',
         preserveResolvedIdentity: true,
+      });
+    }
+    if (result.code === 'exhausted') {
+      await this.markPasskeySealedRecordExhausted({
+        thresholdSessionId: args.sessionId,
+        curve: args.curve,
+        chainTarget: args.chainTarget,
       });
     }
   }
@@ -1257,14 +1284,19 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const ecdsaWalletSessionAuth = ecdsaRecord
       ? ecdsaRestoreWalletSessionAuthFields(ecdsaRecord)
       : null;
+    const ecdsaPasskeySource =
+      ecdsaRecord && ecdsaRecord.source !== 'email_otp' ? ecdsaRecord.source : null;
     const ecdsaRestore =
-      ecdsaRecord &&
-      ecdsaRecord.chainTarget &&
-      ecdsaWalletSessionAuth &&
+	      ecdsaRecord &&
+	      ecdsaRecord.chainTarget &&
+	      ecdsaPasskeySource &&
+      ecdsaPasskeyCredentialId &&
+	      ecdsaWalletSessionAuth &&
       ecdsaRecord.routerAbEcdsaHssNormalSigning &&
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
         ? {
             chainTarget: ecdsaRecord.chainTarget,
+            source: ecdsaPasskeySource,
             evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
             rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
             credentialIdB64u: ecdsaPasskeyCredentialId,
@@ -1630,8 +1662,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       listExactSealedSessionsForWallet: async (filter) => {
         return await listExactSealedSessionsForWallet({
           walletId: filter.walletId,
-            filter:
-              filter.curve === 'ecdsa'
+          filter:
+            filter.curve === 'ecdsa'
               ? {
                   authMethod: filter.authMethod,
                   curve: 'ecdsa',
@@ -1652,6 +1684,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           target,
           reason,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
+        });
+      },
+      onRejectedRecord: ({ walletId, rejection }) => {
+        console.warn('[UiConfirm] passkey signing-session restore rejected record', {
+          walletId,
+          rejection,
         });
       },
     });

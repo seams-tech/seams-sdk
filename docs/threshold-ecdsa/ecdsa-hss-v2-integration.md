@@ -977,7 +977,7 @@ type EcdsaHssPasskeyFirstBootstrapAuthorization = {
   kind: 'passkey_first_bootstrap';
   webauthn_authentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope?: RuntimePolicyScope;
-  runtimeEnvironmentId?: string;
+  projectEnvironmentId?: string;
 };
 ```
 
@@ -997,7 +997,7 @@ signingRootId, signingRootVersion)`, and `relayerKeyId` must equal
   runtime scope and wallet policy match the requested role-local identity, or a
   WebAuthn authentication assertion for `walletSessionUserId` and `rpId`.
 - WebAuthn first-bootstrap must resolve a runtime policy scope from either
-  `runtimePolicyScope` or `runtimeEnvironmentId` plus publishable-key auth, then
+  `runtimePolicyScope` or `projectEnvironmentId` plus publishable-key auth, then
   reject if the resolved `signingRootId` or `signingRootVersion` differs from
   the role-local request.
 - WebAuthn challenge binding must be explicit and non-circular. A fresh passkey

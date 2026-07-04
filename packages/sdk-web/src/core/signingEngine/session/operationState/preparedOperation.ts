@@ -49,6 +49,7 @@ export type ThresholdSigningOperationCoordinator = {
       expiresAtMs?: number;
       remainingUses?: number;
       usesNeeded?: number;
+      trustedStatusAuth?: SigningSessionBudgetStatusAuth;
       forceFreshAuth?: boolean;
       sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
       missingWhenExpiresAtMissing?: boolean;

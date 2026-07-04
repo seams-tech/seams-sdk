@@ -115,7 +115,7 @@ export function logEvmFamilyEcdsaLaneDiagnostic(
   details: Record<string, unknown>,
 ): void {
   try {
-    console.warn(`[SigningEngine][ecdsa] ${message}`, details);
+    console.warn(`[SigningEngine][ecdsa] ${message}`, JSON.stringify(details, null, 2));
   } catch {}
 }
 

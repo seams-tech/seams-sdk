@@ -63,7 +63,7 @@ Neither plan changes the other's types without a cross-plan note in both
 documents.
 
 Refactor 85's `LocalCapabilityMaterial` storage boundary consumes canonical
-material / committed-lane outputs from Phase 10A/10B. If it needs inventory
+material / committed-lane outputs from Phase 10A/10B/10C. If it needs inventory
 facts at a persistence boundary, it consumes the typed canonical facts from this
 plan. It should not introduce a fourth runtime/sealed/warm inventory
 representation for the same ECDSA material.
@@ -2636,7 +2636,7 @@ Do:
   same chain target still fail closed.
 - Re-scope the Refactor 88 `duplicate exact lane` matcher to duplicate canonical
   lanes / ambiguous groups, not benign duplicate raw records.
-- Keep the Phase 10A/10B canonical material boundary aligned with Refactor 85
+- Keep the Phase 10A/10B/10C canonical material boundary aligned with Refactor 85
   `LocalCapabilityMaterial`; Refactor 85 consumes canonical outputs, and only
   consumes typed facts at persistence boundaries instead of adding a new
   inventory shape.
@@ -2698,11 +2698,14 @@ Tracking:
 
 ## Phase 10B: Generic Canonical Lane Inventory Kernel
 
-Status: complete. Phase 10A implemented canonical inventory behavior for ECDSA,
-and manual NEAR step-up validation exposed the same duplicate-record failure
-class in Ed25519. The immediate Ed25519 availability fix closes the runtime
-bug. This phase removes the remaining duplicated canonicalization algorithms by
-extracting a small generic kernel with strict ECDSA and Ed25519 adapters.
+Status: complete for the availability/selection kernel. Phase 10A implemented
+canonical inventory behavior for ECDSA, and manual NEAR step-up validation
+exposed the same duplicate-record failure class in Ed25519. The immediate
+Ed25519 availability fix closes the runtime bug. This phase removes the
+remaining duplicated canonicalization algorithms by extracting a small generic
+kernel with strict ECDSA and Ed25519 adapters. Write-side retirement is split
+into Phase 10C because restore and current-session commit are different
+lifecycle transitions.
 
 Intent:
 
@@ -2853,10 +2856,9 @@ Do:
 - Rebuild Ed25519 canonicalization as an adapter over the generic kernel,
   with usability classification read from the Phase 6 `materialState`
   discriminators.
-- Retire superseded-valid Ed25519 same-authority/same-key runtime records at
-  the Ed25519 upsert boundary, using the same authority/key grouping as the
-  generic kernel — parity with the Phase 10A ECDSA retirement write without
-  adding persistence side effects to availability reads.
+- Keep write-side retirement out of availability reads. Phase 10C replaces the
+  temporary Ed25519 upsert-boundary retirement with explicit fact-write and
+  current-session commit commands.
 - Add type fixtures rejecting direct signing/export calls with
   `CanonicalLaneRecordFact`, group objects, diagnostics, or uncommitted generic
   selections.
@@ -2880,8 +2882,8 @@ Exit criteria:
   ordering.
 - Two operation-usable facts without comparable server-issued generations
   produce `ambiguous_material` for both curves.
-- Successful Ed25519 step-up/upsert retires superseded same-authority/same-key
-  runtime records, matching the ECDSA retirement behavior.
+- Ed25519 availability remains correct when older and newer same-authority
+  facts coexist. Write-side retirement semantics are owned by Phase 10C.
 - `no_current_lane` output carries the unusable facts, and step-up derivation
   consumes it without re-querying raw stores.
 - Curve-specific adapters remain strict and small; raw parsing, material
@@ -2905,18 +2907,142 @@ Tracking:
       lane builders consume `selectedFact`.
 - [x] Convert Ed25519 availability canonicalization to the generic kernel,
       reading usability from the Phase 6 `materialState` union.
-- [x] Retire superseded Ed25519 same-authority/same-key runtime records at the
-      upsert boundary using the same grouping as the generic kernel.
+- [x] Replace the temporary Ed25519 upsert-boundary retirement with the
+      Phase 10C fact-write/current-session-commit command split.
 - [x] Add type fixtures rejecting raw facts/groups/selections as signing or
       export inputs, and the adapter-cannot-override-ordering fixture.
 - [x] Update focused duplicate-lane tests for both adapters, including the
       incomparable-generation ambiguity case.
 - [x] Run `pnpm build:sdk` and focused availability duplicate suites.
 
+## Phase 10C: Current Session Commit Commands
+
+Status: complete. Review of Phase 10B found that retirement at the generic
+session-record upsert boundary treats restore writes and freshly minted current
+sessions as the same lifecycle transition. That can invert authority freshness:
+a sealed restore can write generation N after step-up already committed
+generation N+1, and an unconditional upsert-boundary cleanup can delete the
+newer record.
+
+This phase splits persistence into fact writes and current-session commits for
+both Ed25519 and ECDSA. Keep the two curves as small parallel command types
+because their record shapes and material metadata differ at persistence
+boundaries.
+
+Target command shapes:
+
+```ts
+type Ed25519SessionFactWrite = {
+  kind: 'restore_fact_write';
+  record: ThresholdEd25519SessionRecord;
+};
+
+type Ed25519CurrentSessionCommit = {
+  kind: 'current_session_commit';
+  record: OperationUsableThresholdEd25519SessionRecord;
+  transition: 'registration' | 'wallet_unlock' | 'step_up';
+  generation: ServerIssuedGeneration;
+};
+
+type ThresholdEd25519SessionCommitResult =
+  | {
+      kind: 'committed_current';
+      current: OperationUsableThresholdEd25519SessionRecord;
+      retired: readonly ThresholdEd25519SessionRecord[];
+      diagnostics: readonly ThresholdEd25519RetirementDiagnostic[];
+    }
+  | {
+      kind: 'same_generation_distinct_session';
+      incoming: OperationUsableThresholdEd25519SessionRecord;
+      existing: OperationUsableThresholdEd25519SessionRecord;
+    }
+  | {
+      kind: 'stale_commit_ignored';
+      incoming: OperationUsableThresholdEd25519SessionRecord;
+      current: OperationUsableThresholdEd25519SessionRecord;
+    };
+```
+
+Do:
+
+- Rename the generic Ed25519 upsert path to fact-write semantics:
+  `upsertThresholdEd25519SessionFact`. It only parses and stores a fact.
+  Restore, sealed rehydration, status reads, and reusable-material hydration
+  use this path.
+- Add `commitCurrentThresholdEd25519Session` for registration, wallet unlock,
+  and successful step-up paths that mint a new operation-usable current
+  session. A generic `ThresholdEd25519SessionRecord` must not typecheck as a
+  commit input.
+- Add the matching ECDSA fact-write/current-session-commit split. Remove the
+  previous upsert-boundary cleanup helpers so ECDSA retirement only happens
+  inside current-session commits.
+- Make `OperationUsableThresholdEd25519SessionRecord` and the ECDSA equivalent
+  boundary-built types. Required fields include wallet-bound authority, stable
+  key identity, threshold session id, signing grant id, wallet-session JWT,
+  ready/restorable material state, remaining uses, expiry/generation, and
+  curve-specific restore metadata.
+- Store the incoming current record before retiring predecessors. A crash
+  between store and retire leaves both facts, and the canonical kernel selects
+  safely.
+- Retirement rule for same authority/key group:
+  - Same `thresholdSessionId`: replace as an idempotent re-commit.
+  - `generation(existing) < generation(incoming)`: retire existing.
+  - `generation(existing) === generation(incoming)` with a different
+    `thresholdSessionId`: keep both and return
+    `same_generation_distinct_session`.
+  - `generation(existing) > generation(incoming)`: keep existing and return
+    `stale_commit_ignored`.
+  - `generation(existing) === null` and incoming has current-session commit
+    evidence: retire existing with a diagnostic.
+- State the asymmetry with the read model explicitly: the canonical kernel
+  refuses to order null-generation facts during reads because reading is
+  guessing. A current-session commit has fresh server-issued transition
+  evidence, so it can retire same-group null-generation legacy facts.
+- Treat `stale_commit_ignored` as an operation anomaly for registration, unlock,
+  and step-up callers. The caller must surface diagnostics and re-read canonical
+  state; it must not proceed as if its just-minted session committed.
+
+Exit criteria:
+
+- Restore/rehydration writes no longer retire same-authority/same-key records.
+- Step-up commits generation N+1, then sealed restore writes generation N via
+  fact write; N+1 survives and canonical selection picks N+1.
+- Commit of generation N while generation N+1 exists returns
+  `stale_commit_ignored`, retires nothing, and callers treat it as a failed
+  current-session commit.
+- Equal-generation same-session retry replaces idempotently.
+- Equal-generation different-session commit keeps both records and returns
+  `same_generation_distinct_session`.
+- Same-group null-generation legacy facts are retired only from
+  current-session commit, with diagnostics.
+- Type fixtures reject passing a generic persisted session record into current
+  commit functions.
+- ECDSA and Ed25519 have parallel command splits; no curve-generic persistence
+  abstraction is introduced.
+- `pnpm build:sdk` and focused restore/step-up supersession tests pass.
+
+Tracking:
+
+- [x] Add Ed25519 fact-write and current-session-commit command types.
+- [x] Replace generic Ed25519 upsert-boundary retirement with
+      `commitCurrentThresholdEd25519Session`.
+- [x] Route Ed25519 restore/rehydration/status writes through fact write only.
+- [x] Add Ed25519 regression tests for restore generation N after step-up N+1,
+      stale commit N while N+1 exists, equal-generation idempotent retry,
+      equal-generation distinct-session anomaly, and null-generation legacy
+      retirement during current commit.
+- [x] Add Ed25519 type fixtures rejecting generic records as current-commit
+      inputs.
+- [x] Add ECDSA fact-write and current-session-commit command types.
+- [x] Restrict ECDSA superseded-record cleanup to current commit paths.
+- [x] Add ECDSA parity tests for restore-after-step-up and stale-commit
+      anomalies.
+- [x] Run `pnpm build:sdk` and focused supersession tests.
+
 ## Phase 11: Deferred Deployment And CI Gate
 
 Status: deferred. Start only after Phase 10 manual runtime validation and
-Phase 10A/10B canonical lane-inventory cleanup have passed for Passkey and
+Phase 10A/10B/10C canonical lane-inventory cleanup has passed for Passkey and
 Email OTP flows.
 
 Do:

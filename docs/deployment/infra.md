@@ -60,7 +60,7 @@ environment.
 | `VITE_RELAYER_URL`                                       | Pages build       | Public Router API base URL; historical env var name.                         |
 | `VITE_CONSOLE_BASE_URL`                                  | Pages build       | Optional console API base URL; defaults in app code when unset.              |
 | `VITE_RELAYER_ACCOUNT_ID`                                | Pages build       | Parent NEAR account used for account creation.                               |
-| `VITE_SEAMS_ENVIRONMENT_ID`                              | Pages build       | Hosted environment id for managed registration and sponsored actions.        |
+| `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`                      | Pages build       | Project-environment id for managed registration and sponsored actions.       |
 | `VITE_SEAMS_PUBLISHABLE_KEY`                             | Pages build       | Publishable key for browser-managed Router API calls.                        |
 | `VITE_WALLET_ORIGIN`                                     | Pages build       | Wallet origin. Must match CORS and WebAuthn RP configuration.                |
 | `VITE_WALLET_SERVICE_PATH`                               | Pages build       | Wallet service path; defaults to `/wallet-service` when unset.               |
