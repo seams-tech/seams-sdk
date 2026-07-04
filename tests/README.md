@@ -53,6 +53,7 @@ Status highlights from recent additions:
 - `test:intended` assumes the already-running local site/router are serving the
   SDK artifacts you intend to test; rebuild and restart those services after SDK
   source changes.
+- Both intended commands run the Google ID-token preflight before Playwright.
 - Dev plugin serves SDK at `/sdk/*` directly from `dist/`
 - Assets of interest:
   - `dist/esm/**` ES modules (SDK + embedded bundles)
@@ -110,6 +111,7 @@ on the intended runner.
   - `pnpm test:inline` → line reporter
   - `pnpm test:intended` → intended-behaviour lifecycle contract suite against already-running local services
   - `pnpm test:intended:ci` → intended-behaviour lifecycle contract suite with CI-managed local service startup
+  - `pnpm ensure:intended-google-token` → accept or refresh the Email OTP Google ID token before intended contracts run
   - `pnpm setup:intended-google-oidc` → create/bind the local Google OIDC service account and mint an Email OTP test ID token
   - `pnpm refresh:intended-google-token` → refresh the one-hour Email OTP Google ID token through service-account impersonation
   - `pnpm check:intended-mutation-self-check` → validate Refactor 88 mutation self-check metadata
@@ -154,12 +156,13 @@ pnpm test:intended:ci
 Local `test:intended` is fastest for refactor work and assumes the services are
 already running. CI mode resets local Router/D1 state, builds
 `packages/sdk-web/dist`, starts router/site, then runs the same four contracts.
-The intended config, mutation preflight, and CI-managed service startup load
-`.env.intended.local` automatically. Restart already-running local router/site
-services after changing Google OIDC env values so the runtime sees
-`GOOGLE_OIDC_CLIENT_ID`. Without `SEAMS_INTENDED_GOOGLE_ID_TOKEN`, the two
-passkey contracts can run but the Email OTP contracts fail fast at their
-configuration gate.
+Both intended commands run `ensure:intended-google-token` before Playwright: a
+still-valid token is accepted, and an expired/missing token is refreshed through
+`SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` when service-account impersonation is
+configured. The intended config, mutation preflight, and CI-managed service
+startup load `.env.intended.local` automatically. Restart already-running local
+router/site services after changing Google OIDC env values so the runtime sees
+`GOOGLE_OIDC_CLIENT_ID`.
 
 Chromium only; `workers=1` to avoid relay/faucet rate limits.
 
@@ -188,7 +191,9 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
   `SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` are kept in ignored
   `.env.intended.local`. Run `pnpm setup:intended-google-oidc` once, or pass
   `--client-secret=<secret>` when creating a new local env file, then run
-  `pnpm refresh:intended-google-token` whenever the one-hour ID token expires.
+  `pnpm refresh:intended-google-token` manually when needed. `pnpm test:intended`
+  and `pnpm test:intended:ci` run `pnpm ensure:intended-google-token` first and
+  refresh the one-hour ID token automatically when the service account is set.
 - `VERBOSE_TEST_LOGS=1` print captured console logs live
 
 Manual build without tests:

@@ -33,6 +33,10 @@ const intendedGoogleTokenRefreshScriptPath = path.join(
   repoRoot,
   'tests/scripts/refresh-intended-google-token.mjs',
 );
+const intendedGoogleTokenEnsureScriptPath = path.join(
+  repoRoot,
+  'tests/scripts/ensure-intended-google-token.mjs',
+);
 const intendedLocalConsoleSeedScriptPath = path.join(
   repoRoot,
   'tests/scripts/seed-intended-local-console.mjs',
@@ -1462,11 +1466,17 @@ test('Refactor 88 intended command is wired as a named pre-merge gate', () => {
 
   expect(readScript(rootPackage, 'test:intended')).toBe('pnpm -C tests test:intended');
   expect(readScript(testsPackage, 'test:intended')).toBe(
-    'playwright test -c playwright.intended.config.ts --reporter=line',
+    'pnpm run ensure:intended-google-token && playwright test -c playwright.intended.config.ts --reporter=line',
   );
   expect(readScript(rootPackage, 'test:intended:ci')).toBe('pnpm -C tests test:intended:ci');
   expect(readScript(testsPackage, 'test:intended:ci')).toBe(
-    'playwright test -c playwright.intended.ci.config.ts --reporter=line',
+    'pnpm run ensure:intended-google-token && playwright test -c playwright.intended.ci.config.ts --reporter=line',
+  );
+  expect(readScript(rootPackage, 'ensure:intended-google-token')).toBe(
+    'pnpm -C tests ensure:intended-google-token',
+  );
+  expect(readScript(testsPackage, 'ensure:intended-google-token')).toBe(
+    'node scripts/ensure-intended-google-token.mjs',
   );
   expect(readScript(rootPackage, 'setup:intended-google-oidc')).toBe(
     'pnpm -C tests setup:intended-google-oidc',
@@ -1516,6 +1526,7 @@ test('Refactor 88 intended Google OIDC helper uses service-account impersonation
   const envSource = fs.readFileSync(intendedGoogleOidcEnvModulePath, 'utf8');
   const setupSource = fs.readFileSync(intendedGoogleOidcSetupScriptPath, 'utf8');
   const refreshSource = fs.readFileSync(intendedGoogleTokenRefreshScriptPath, 'utf8');
+  const ensureSource = fs.readFileSync(intendedGoogleTokenEnsureScriptPath, 'utf8');
   const seedSource = fs.readFileSync(intendedLocalConsoleSeedScriptPath, 'utf8');
   const intendedConfigSource = fs.readFileSync(intendedConfigPath, 'utf8');
   const preflightSource = fs.readFileSync(intendedMutationSelfCheckScriptPath, 'utf8');
@@ -1539,6 +1550,11 @@ test('Refactor 88 intended Google OIDC helper uses service-account impersonation
   expect(refreshSource).toContain('validateGoogleIdTokenClaims');
   expect(refreshSource).toContain('SEAMS_INTENDED_GOOGLE_ID_TOKEN');
   expect(refreshSource).not.toContain('console.log(token');
+  expect(ensureSource).toContain('refresh-intended-google-token.mjs');
+  expect(ensureSource).toContain('SEAMS_INTENDED_GOOGLE_ID_TOKEN');
+  expect(ensureSource).toContain('SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT');
+  expect(ensureSource).toContain('minimumTtlSeconds');
+  expect(ensureSource).not.toContain('console.log(token');
   expect(seedSource).toContain('ak_intended_local_publishable');
   expect(seedSource).toContain('hashApiKeySecret');
   expect(seedSource).toContain('SEAMS_INTENDED_PUBLISHABLE_KEY');

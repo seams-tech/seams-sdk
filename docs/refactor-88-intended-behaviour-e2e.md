@@ -279,10 +279,12 @@ tests/e2e/intended-behaviours/
   email-otp.unlock.contract.test.ts
 ```
 
-Add one command at the repo root:
+Add named commands at the repo root:
 
 ```json
 "test:intended": "pnpm -C tests test:intended",
+"test:intended:ci": "pnpm -C tests test:intended:ci",
+"ensure:intended-google-token": "pnpm -C tests ensure:intended-google-token",
 "setup:intended-google-oidc": "pnpm -C tests setup:intended-google-oidc",
 "refresh:intended-google-token": "pnpm -C tests refresh:intended-google-token"
 ```
@@ -290,7 +292,9 @@ Add one command at the repo root:
 Add in `tests/package.json`:
 
 ```json
-"test:intended": "playwright test -c playwright.intended.config.ts --reporter=line",
+"test:intended": "pnpm run ensure:intended-google-token && playwright test -c playwright.intended.config.ts --reporter=line",
+"test:intended:ci": "pnpm run ensure:intended-google-token && playwright test -c playwright.intended.ci.config.ts --reporter=line",
+"ensure:intended-google-token": "node scripts/ensure-intended-google-token.mjs",
 "setup:intended-google-oidc": "node scripts/setup-intended-google-oidc.mjs",
 "refresh:intended-google-token": "node scripts/refresh-intended-google-token.mjs"
 ```
@@ -310,9 +314,10 @@ The tests should be optimized for local refactor use:
   debugging
 - auto-load ignored `.env.intended.local` in local intended config, CI-managed
   service startup, and mutation preflight
-- require `SEAMS_INTENDED_GOOGLE_ID_TOKEN` for the Email OTP contracts; the
-  harness uses public Google Email OTP SDK flows and reads OTPs through the
-  Router dev outbox with a public app-session JWT
+- run `ensure:intended-google-token` before Playwright so the Email OTP
+  contracts have a fresh enough `SEAMS_INTENDED_GOOGLE_ID_TOKEN`; the harness
+  uses public Google Email OTP SDK flows and reads OTPs through the Router dev
+  outbox with a public app-session JWT
 - mint that token through service-account impersonation with
   `pnpm setup:intended-google-oidc` or `pnpm refresh:intended-google-token`;
   the token is one-hour generated state, not a committed fixture
@@ -507,8 +512,11 @@ A mandatory gate that flakes gets bypassed. Rules:
 
 Full execution of the Email OTP contracts now runs locally with the ignored
 `.env.intended.local` Google OIDC/service-account token setup and the Router dev
-outbox. The token remains one-hour generated state; refresh it with
-`pnpm refresh:intended-google-token` before running Email OTP rows.
+outbox. The token remains one-hour generated state; `test:intended` and
+`test:intended:ci` run `ensure:intended-google-token` before Playwright, accept
+a still-valid token, and refresh through the configured service account when
+needed. `pnpm refresh:intended-google-token` remains available for manual
+debugging.
 
 ### Live Validation Findings
 
@@ -544,11 +552,10 @@ Current live validation:
   `pnpm -C tests seed:intended-local-console`, Vite on port 3600 with the
   intended env mapping, then `pnpm -C tests test:intended` passed 4/4 in 3.1m
   against the existing local router.
-- A clean final `pnpm test:intended:ci` rerun is pending only because a
-  user-terminal `pnpm router` was already listening on the local router ports
-  during final validation. The CI-managed path had already built the SDK,
-  started services, seeded D1, and reached all four browser contracts before
-  the harness oracle was narrowed.
+- Re-run on July 4, 2026 after adding the Google ID-token preflight:
+  `pnpm test:intended:ci` refreshed/accepted `.env.intended.local`, built the
+  SDK, started CI-managed router/site services, seeded D1, and passed all four
+  intended contracts in 3.8m.
 - `passkey.registration.contract.test.ts` passes end to end, including NEAR,
   Tempo, Arc/EVM, exhaustion, step-up, Ed25519 export, and ECDSA export.
 - `passkey.unlock.contract.test.ts` passes end to end across the same signing,
