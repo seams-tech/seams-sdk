@@ -1525,7 +1525,7 @@ Initial audit:
 Ledger checkpoint, July 4, 2026:
 
 - [x] `pnpm -C tests check:refactor88-test-ledger:complete` reports
-  `scope=456 ledger_existing=456 ledger_deleted=5 missing=0`.
+  `scope=455 ledger_existing=455 ledger_deleted=6 missing=0`.
 - [x] Current `tests/unit/helpers/*.ts` files all have surviving importers; no
   zero-importer helper deletion was available in this inventory pass.
 
@@ -1793,19 +1793,22 @@ never ahead of it.
 
 Ungated — start now:
 
-- [ ] Run the Refactor 89 removal checklist over the refactor-numbered guard
+- [x] Run the Refactor 89 removal checklist over the refactor-numbered guard
       suites whose invariants are now structural or behaviour-covered:
       54, 56, 58, 67, 71, 73 (replace with a lint rule, not a test), 74 (both
       files), 76, and 80. Record each verdict in the
       [Refactor 89](./refactor-89-clean-source-guards.md) ledger; delete rows
       that reach `ready_to_delete`. Guards delete through the 89 checklist,
       never directly from this phase.
-      Current status: the Refactor 88 master ledger now records these guard
-      files as Refactor 89-owned. They remain `active` in the Refactor 89
-      ledger until that checklist marks specific rows `ready_to_delete`.
-      Refactor 73 has fired: `tests/unit/refactor73TypeFilename.guard.unit.test.ts`
-      was deleted after moving its rule into
-      `tests/scripts/check-type-filename-source.mjs`.
+      Completed July 4, 2026: the Refactor 89 ledger records a dated verdict
+      for each named guard. Refactor 73 fired:
+      `tests/unit/refactor73TypeFilename.guard.unit.test.ts` was deleted after
+      moving its rule into `tests/scripts/check-type-filename-source.mjs`.
+      The remaining named guards stay `active` with concrete replacement gaps:
+      public API/signing-surface contract coverage, Email OTP flow/parser
+      coverage, package-boundary build checks, Refactor 90 vocabulary cleanup,
+      HSS/worker command type fixtures, branded parser/type fixtures, and
+      route parser/exhaustive-union fixtures.
 - [ ] Split `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts`
       (6,695 lines — the largest test file in the repo, named after a facade
       82B already deleted) into per-route-family suites. Delete the

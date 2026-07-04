@@ -127,6 +127,21 @@ past refactor rather than a durable product invariant.
 | `tests/unit/refactor51bWebauthnOriginPolicy.guard.unit.test.ts` | Refactor 51B | WebAuthn origin policy is covered by boundary parser tests. | WebAuthn origin parser/unit tests. | active |
 | `tests/unit/refactor8xRegistrationButton.guard.unit.test.ts` | Refactor 8X | Registration button behavior is covered by component tests. | React/component behavior tests. | active |
 
+Checklist run, July 4, 2026:
+
+| Guard | Verdict | Evidence / next action |
+| --- | --- | --- |
+| `tests/unit/refactor54Simplify.guard.unit.test.ts` | active | Still guards the SeamsWeb public namespace split, signing-surface dependency direction, and root export size. Replacement is incomplete until stable public API/signing-surface contract tests own those checks directly. |
+| `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts` | active | Still guards the headless Google Email OTP flow boundary across demo UI, React code, public API, and wallet iframe flow handles. Keep until `googleEmailOtpWalletAuthFlow` and wallet-iframe handle tests cover every guarded branch without source scans. |
+| `tests/unit/refactor58OtpRegistrationSlim.guard.unit.test.ts` | active | Still guards the Google Email OTP registration/reroll split and server activation-before-wallet-visibility ordering. Keep until focused Email OTP registration behavior/parser tests replace the source-shape checks. |
+| `tests/unit/refactor67ReorgFolders.guard.unit.test.ts` | active | Still guards package-root and deployable-app import boundaries. Keep until durable package-boundary/build-graph checks replace it. |
+| `tests/unit/refactor71WalletSessionNaming.guard.unit.test.ts` | active | Still has a large `sessionId` classification allowlist with many `rename_later_agent_b_signing_or_wasm` entries. Keep until Refactor 90 vocabulary work removes or rehomes those names. |
+| `tests/unit/refactor73TypeFilename.guard.unit.test.ts` | deleted | Fired in Refactor 88 cleanup: the guard was replaced by `tests/scripts/check-type-filename-source.mjs`, wired through `pnpm -C tests run check:type-filename-source` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/refactor74LegacyFallbacks.guard.unit.test.ts` | active | Still guards exact lookup / no-fallback semantics during the in-flight authority and companion-session cleanup. It is currently being adjusted by 82B work, so no Refactor 89 deletion action is safe yet. |
+| `tests/unit/refactor74LoginNoHss.guard.unit.test.ts` | active | Still guards worker-owned Ed25519/HSS material boundaries, deleted raw-material names, and active restore persistence. Keep until generated worker command types, HSS tests, and formal checks replace every source scan. |
+| `tests/unit/refactor76BrandedKeys.guard.unit.test.ts` | active | Still guards branded key-version and ECDSA signing-key-slot boundaries. Keep until constructor/parser tests and `@ts-expect-error` type fixtures reject the same invalid constructions. |
+| `tests/unit/refactor80SwitchCase.guard.unit.test.ts` | active | Still guards parser-before-service route boundaries, lifecycle union shape, type-only imports, and unsafe casts across route/session code. Keep until parser tests and exhaustive-union fixtures replace each group. |
+
 ## Phase 2: Collapse Router A/B Source Guards
 
 Router A/B source guards grew while Router, Deriver A/B, SigningWorker, local
