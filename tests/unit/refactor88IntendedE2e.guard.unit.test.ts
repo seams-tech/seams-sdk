@@ -1512,13 +1512,13 @@ test('Refactor 88 intended command is wired as a named pre-merge gate', () => {
     'pnpm -C tests preflight:intended-mutation-self-check',
   );
   expect(readScript(testsPackage, 'preflight:intended-mutation-self-check')).toBe(
-    'node scripts/check-intended-mutation-self-check.mjs --preflight',
+    'pnpm run ensure:intended-google-token && node scripts/check-intended-mutation-self-check.mjs --preflight',
   );
   expect(readScript(rootPackage, 'preflight:intended-mutation-self-check:ci')).toBe(
     'pnpm -C tests preflight:intended-mutation-self-check:ci',
   );
   expect(readScript(testsPackage, 'preflight:intended-mutation-self-check:ci')).toBe(
-    'node scripts/check-intended-mutation-self-check.mjs --preflight --ci',
+    'pnpm run ensure:intended-google-token && node scripts/check-intended-mutation-self-check.mjs --preflight --ci',
   );
 });
 

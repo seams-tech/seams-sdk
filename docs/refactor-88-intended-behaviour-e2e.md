@@ -901,8 +901,10 @@ can serve a cached/prebundled SDK from `packages/sdk-web/dist`; source or `dist`
 edits against that stale process can make a seeded mutation appear to pass.
 The current local stack is already occupying `https://localhost`,
 `https://localhost:8443`, and `https://localhost:9444`, so CI-managed mutation
-startup cannot run concurrently with it. Email OTP mutation rows also require
-`SEAMS_INTENDED_GOOGLE_ID_TOKEN`.
+startup cannot run concurrently with it. Email OTP mutation rows use the same
+`ensure:intended-google-token` preflight as `test:intended`, accepting a
+fresh-enough token or refreshing through the configured service account before
+the readiness checks run.
 
 Preflight commands:
 
@@ -917,15 +919,16 @@ pnpm preflight:intended-mutation-self-check -- --mutation first_post_step_up_tra
 
 The check command validates the manifest and proof metadata. The completion
 check is expected to fail until all rows are `detected`; use it for the final
-Phase 3B completion audit. The preflight commands do not seed regressions; they
-report whether the current local or CI-managed environment can run the Phase 3B
-mutation proof rows.
+Phase 3B completion audit. The preflight commands run
+`ensure:intended-google-token` before they inspect the environment. They do not
+seed regressions; they report whether the current local or CI-managed
+environment can run the Phase 3B mutation proof rows.
 Local preflight requires `SEAMS_INTENDED_MUTATION_FRESH_STARTUP=1` after a
 fresh SDK build and restarted site/router services, because a long-running site
 can serve stale SDK artifacts.
 Use `--mutation <id>` or `--mutation=<id>` to preflight a single proof row.
-That lets the passkey-only rows run independently while Email OTP rows remain
-blocked on `SEAMS_INTENDED_GOOGLE_ID_TOKEN`.
+That lets passkey-only rows run independently while Email OTP rows reuse the
+local Google-token setup.
 
 Tracking:
 

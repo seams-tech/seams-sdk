@@ -53,7 +53,8 @@ Status highlights from recent additions:
 - `test:intended` assumes the already-running local site/router are serving the
   SDK artifacts you intend to test; rebuild and restart those services after SDK
   source changes.
-- Both intended commands run the Google ID-token preflight before Playwright.
+- Intended commands and mutation preflight run the Google ID-token preflight
+  before Playwright/readiness checks.
 - Dev plugin serves SDK at `/sdk/*` directly from `dist/`
 - Assets of interest:
   - `dist/esm/**` ES modules (SDK + embedded bundles)
@@ -156,8 +157,9 @@ pnpm test:intended:ci
 Local `test:intended` is fastest for refactor work and assumes the services are
 already running. CI mode resets local Router/D1 state, builds
 `packages/sdk-web/dist`, starts router/site, then runs the same four contracts.
-Both intended commands run `ensure:intended-google-token` before Playwright: a
-still-valid token is accepted, and an expired/missing token is refreshed through
+Intended commands and mutation preflight run `ensure:intended-google-token`
+before Playwright/readiness checks: a still-valid token is accepted, and an
+expired/missing token is refreshed through
 `SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` when service-account impersonation is
 configured. The intended config, mutation preflight, and CI-managed service
 startup load `.env.intended.local` automatically. Restart already-running local
@@ -192,8 +194,9 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
   `.env.intended.local`. Run `pnpm setup:intended-google-oidc` once, or pass
   `--client-secret=<secret>` when creating a new local env file, then run
   `pnpm refresh:intended-google-token` manually when needed. `pnpm test:intended`
-  and `pnpm test:intended:ci` run `pnpm ensure:intended-google-token` first and
-  refresh the one-hour ID token automatically when the service account is set.
+  `pnpm test:intended`, `pnpm test:intended:ci`, and mutation preflight run
+  `pnpm ensure:intended-google-token` first and refresh the one-hour ID token
+  automatically when the service account is set.
 - `VERBOSE_TEST_LOGS=1` print captured console logs live
 
 Manual build without tests:
