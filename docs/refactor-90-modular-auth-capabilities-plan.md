@@ -8,9 +8,9 @@ each old phase went.
 Status: Phases 0A, 0B, and 2A are complete. Phases 0D and 0F are in progress.
 Phase 0E and everything from Part 1 onward are planning.
 
-Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-87-modular-auth-capabilities-SPEC.md).
+Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md).
 
-Progress journal: [Refactor 87 Journal](./refactor-87-journal.md). Dated
+Progress journal: [Refactor 90 Journal](./refactor-90-journal.md). Dated
 progress entries live there, not here. Each phase in this plan carries only a
 one-line status.
 
@@ -76,7 +76,7 @@ re-litigate them in later phases without a written reversal note here.
    capability initialization, never a deep failure inside iframe/worker
    bootstrap.
 9. **Document hygiene:** dated progress entries go to
-   [refactor-87-journal.md](./refactor-87-journal.md); the plan holds one-line
+   [refactor-90-journal.md](./refactor-90-journal.md); the plan holds one-line
    statuses. Line counts are progress telemetry, not phase goals — phase goals
    are stated in terms of ownership, boundaries, and behavior.
 10. **Parallel implementations are deleted in the same change that replaces
@@ -137,7 +137,7 @@ re-litigate them in later phases without a written reversal note here.
     non-doc line accounting in the journal; source guards and fixtures retire
     in the same slice that makes their invariant structural (closed unions,
     branded IDs, generic lanes). The worker fleet consolidates in B4:
-    `eth-signer` and `tempo-signer` merge into one EVM-family worker — 87
+    `eth-signer` and `tempo-signer` merge into one EVM-family worker — 90
     Phase 0F made role-local material chain-agnostic, removing the reason for
     the split.
 
@@ -542,7 +542,7 @@ Cross-plan notes:
 - Refactor 79 remains the owner for `ExactSigningLaneIdentity` and exact signing
   lane mutation rules. This phase uses the same authority model for worker
   material handles.
-- Refactor 87 owns `WalletUnlockSubject` because unlock is an auth/capability
+- Refactor 90 owns `WalletUnlockSubject` because unlock is an auth/capability
   entrypoint, not a NEAR account API.
 - Refactor 84b HSS slimming must keep HSS crate contexts digest-only; SDK
   capability subjects may include app-specific identity before digesting.
@@ -927,7 +927,7 @@ Check:
 ## Phase 2A: AuthService Mechanical Module Split
 
 Status: complete (July 3, 2026). Dated progress entries:
-[refactor-87-journal.md](./refactor-87-journal.md#phase-2a-authservice-mechanical-module-split).
+[refactor-90-journal.md](./refactor-90-journal.md#phase-2a-authservice-mechanical-module-split).
 
 Goal (achieved): split `packages/sdk-server-ts/src/core/AuthService.ts` into
 smaller source modules without changing behavior, route contracts, storage
@@ -1127,7 +1127,7 @@ type CapabilityOperationKind =
   (`WalletAuthAuthority.factor`); `rpId` is verifier context on the
   wallet-bound authority, not factor identity. Do not mint a third
   representation. See
-  [refactor-82B.md](./refactor-82B.md#vocabulary-mapping-into-refactor-87).
+  [refactor-82B.md](./refactor-82B.md#vocabulary-mapping-into-refactor-90).
   The 82B `WalletAuthAuthority` restructure is gated on this phase landing —
   coordinate the two changes as one cut.
 - Model evidence kinds as composed family unions (Decided Point 7): auth-factor
@@ -1888,6 +1888,10 @@ Static checks:
 
 Targeted tests (owning phase in parentheses):
 
+- Refactor 88 lifecycle contract gate: `pnpm test:intended` before merging any
+  slice that touches auth, session exchange, signing, export, wallet iframe
+  routing, warm sessions, D1/DO state, or grant-spend replacement paths. Until
+  CI owns startup, Email OTP rows require `SEAMS_INTENDED_GOOGLE_ID_TOKEN`.
 - Native provider session -> `SeamsSession` (A2); Better Auth session ->
   `SeamsSession` through the same port (P1B).
 - Session exchange creation, refresh, revoke, replay denial, and tenant
@@ -1963,8 +1967,8 @@ question gating it is open.
 
 ## Related Docs
 
-- [Modular Auth And Capability Refactor SPEC](./refactor-87-modular-auth-capabilities-SPEC.md)
-- [Refactor 87 Progress Journal](./refactor-87-journal.md)
+- [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md)
+- [Refactor 90 Progress Journal](./refactor-90-journal.md)
 - [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
 - [Slack OTP Step-Up Spec](./otp-slack.md)
 - [Optional HSS Bootstrap Profiles](./refactor-8X-hss-optional.md)

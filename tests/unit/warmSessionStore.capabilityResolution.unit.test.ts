@@ -1,17 +1,15 @@
 import { expect, test } from '@playwright/test';
-import {
-  toExactEcdsaSigningLaneIdentity,
-} from '@/core/signingEngine/session/persistence/records';
+import { toExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/persistence/records';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
+import { createWarmSessionStatusReader } from './helpers/warmSessionUiConfirm.fixtures';
 import {
-  createWarmSessionTestServices,
-  createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionStore.fixtures';
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 const FIXTURE_EMAIL_HASH_HEX = '22'.repeat(32);
 
@@ -83,8 +81,11 @@ test.describe('WarmSessionStore capability resolution', () => {
     );
 
     expect(capability?.state).toBe('auth_missing');
+    expect(capability?.auth).toMatchObject({
+      capability: 'ed25519',
+      walletSessionJwtSource: 'none',
+    });
     expect(capability?.auth?.walletSessionJwt).toBeUndefined();
-    expect(capability?.auth).toBeNull();
     expect(capability?.prfClaim?.state).toBe('warm');
   });
 
@@ -188,9 +189,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     expect(capability.emailOtpAuthContext).toEqual(
       emailOtpSessionContext('email-otp-exhausted-reauth.testnet'),
     );
-    expect(
-      store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
-    ).toMatchObject({
+    expect(store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId)).toMatchObject({
       capability: 'ecdsa',
       walletSessionJwt: expect.any(String),
     });
@@ -303,5 +302,4 @@ test.describe('WarmSessionStore capability resolution', () => {
       kind: 'reuse_warm_ecdsa_bootstrap',
     });
   });
-
 });

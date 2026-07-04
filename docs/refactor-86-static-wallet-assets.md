@@ -4,23 +4,37 @@ Date created: July 1, 2026
 Updated: July 3, 2026 — review added the version-skew contract, embedding
 authorization, `/.well-known/webauthn` ownership correction, storage
 partitioning, and sequencing gates.
+Updated: July 4, 2026 — decoupled from Refactor 90 for the stabilization
+milestone: Phase 5 split into 5a (plugin removal on the current
+`iframeWallet` config) and 5b (0E config adoption, parked); Phase 6 split the
+same way; embedding control two-staged with a named server owner.
 
-Status: planning.
+Status: planning. Fits the stabilization milestone (82/82B/88/83/85 plus this
+plan) — only Phases 5b and 6b park on Refactor 90.
 
 Sequencing gates:
 
-- Phases 1-4 are independent of other in-flight refactors and can start now.
-- Phase 5 is gated on Refactor 87 Phase 0E landing: it consumes 0E's
-  `createSeamsConfig` / `walletRuntime: hostedWalletIframe(...)` surface and
-  its typed config-error taxonomy. This plan does not mint its own
-  missing-`walletOrigin` error shape.
+- Phases 1, 1B, and 2 are independent and can start now, in parallel with the
+  stabilization tracks. This plan owns build/plugin/Caddy files no other
+  in-flight plan touches.
+- Phase 3 (the local dogfood flip to static wallet-origin serving) runs after
+  Refactor 88's `test:intended` is fully mandatory and green, so the topology
+  flip lands under the lifecycle gate and app-origin `/sdk/*` leaks fail
+  contracts immediately.
+- Refactor 83 Phase 1 registration baselines are captured before Phase 3
+  flips local serving, or the serving topology is recorded beside the
+  numbers; a topology change mid-measurement contaminates the comparison.
+- Phase 5a and Phase 6a use the current `iframeWallet` config surface and are
+  stabilization-scoped. Phase 5b and Phase 6b are parked on Refactor 90
+  Phase 0E (`createSeamsConfig` / `walletRuntime: hostedWalletIframe(...)`
+  and its typed config-error taxonomy).
 - Browser passkey smokes reuse the Refactor 84a wallet-binding scenarios
   rather than a parallel suite.
 
 Dated progress entries and validation evidence go to a companion journal file
 (`refactor-86-journal.md`, created on first entry), not this plan.
 
-Parent plan: [Refactor 87 Modular Auth And Capability](./refactor-87-modular-auth-capabilities-plan.md)
+Parent plan: [Refactor 90 Modular Auth And Capability](./refactor-90-modular-auth-capabilities-plan.md)
 
 ## Goal
 
@@ -29,16 +43,21 @@ wallet origin, so host applications do not need any Seams SDK Vite plugin or
 SDK asset routing in their app `vite.config.ts`.
 
 The SDK should publish a self-contained wallet asset tree for Seams-operated
-wallet hosts such as `https://wallet.seams.sh`. App developers should configure
-the hosted wallet iframe through the SDK runtime config from
-[Refactor 87](./refactor-87-modular-auth-capabilities-plan.md), and never mount
-`/sdk/*`, `/wallet-service`, or wallet workers inside their own app.
+wallet hosts such as `https://wallet.seams.sh`. App developers configure the
+hosted wallet iframe through SDK config — the existing `iframeWallet` surface
+during stabilization (Phase 5a), the Refactor 90 Phase 0E
+`walletRuntime: hostedWalletIframe(...)` surface once 0E lands (Phase 5b) —
+and never mount `/sdk/*`, `/wallet-service`, or wallet workers inside their
+own app. Plugin removal is about asset serving, not config API shape: the
+current config already carries `walletOrigin`, `servicePath`, `sdkBasePath`,
+`walletHostVariant`, and `rpId`, which is everything Phase 5a needs.
 
 Developer contract:
 
 - import the SDK from normal React/application code;
-- configure environment ID, publishable key, and `walletRuntime:
-  hostedWalletIframe(...)`;
+- configure environment ID, publishable key, and the hosted wallet iframe
+  (current `iframeWallet` config now; `walletRuntime: hostedWalletIframe(...)`
+  after 0E);
 - do not edit Vite config for Seams;
 - do not run an extra wallet/static server;
 - do not route or expose SDK wallet assets from the app.
@@ -207,11 +226,17 @@ Remaining decisions:
       long-lived caching with stable entry names; unversioned stable names
       force short cache lifetimes or ETags. Resolve before Phase 2 emits the
       tree layout.
-- [ ] Embedding authorization model: how the hosted wallet origin resolves
-      which parent origins may embed it (per-tenant allowed origins from
-      `environmentId`/publishable key server config), and how that drives both
-      postMessage origin checks and the wallet-service embedding-control
-      response. Resolve during Phase 1.
+- [ ] Embedding authorization model, two-staged:
+      - Stage 1 (stabilization): a static `frame-ancestors` default for local
+        dev/dogfood (the localhost app origin), shipped with the Phase 1
+        header contract.
+      - Stage 2 (hosted deploy): per-tenant allowed parent origins resolved
+        from `environmentId`/publishable key server config, driving both
+        postMessage origin checks and the wallet-service embedding-control
+        response. The server-side resolution is Router/API-owned work — named
+        here so it does not fall between plans — and it gates the actual
+        `wallet.seams.sh` deployment, not local dogfood.
+      Resolve the model shape during Phase 1.
 
 ## Implementation Preconditions
 
@@ -268,6 +293,11 @@ Seams wallet host deployment artifact:
   headers.manifest.json
 ```
 
+The worker file list above is illustrative: the manifest's worker entries are
+generated from build output, not hand-enumerated, so later worker-fleet
+changes (Refactor 90 B4 merges `eth-signer`/`tempo-signer` into one
+EVM-family worker) update the artifact without editing this plan.
+
 Seams hosted wallet-origin responsibility:
 
 ```txt
@@ -276,7 +306,8 @@ GET https://wallet.seams.sh/wallet-service -> dist/public/wallet-service/index.h
 GET https://wallet.seams.sh/export-viewer  -> dist/public/export-viewer/index.html
 ```
 
-App developer responsibility:
+App developer responsibility (0E target shape; during stabilization the same
+values ride the existing `iframeWallet` config):
 
 ```ts
 createSeamsConfig({
@@ -301,7 +332,7 @@ origin.
 
 `hostedWalletIframe(...)` is SDK runtime configuration, independent of Vite,
 Next, and framework build hooks. Refactor 86 owns the hosted asset contract;
-Refactor 87 owns the typed SDK runtime surface and capability dependency
+Refactor 90 owns the typed SDK runtime surface and capability dependency
 validation.
 
 Minimal app `vite.config.ts`:
@@ -348,10 +379,10 @@ Tasks:
       protocol-version handshake that fails closed with a typed error, or
       both. No wallet-origin deploy may silently change the postMessage
       protocol under an older app SDK.
-- [ ] Define the embedding-authorization model: how per-tenant allowed parent
-      origins are resolved (from `environmentId`/publishable key server
-      config) and how they drive both postMessage origin checks and the
-      wallet-service embedding-control response.
+- [ ] Define the embedding-authorization model in two stages (see Remaining
+      decisions): a static `frame-ancestors` local-dev default now, and the
+      Router/API-owned per-tenant allowed-origin resolution that gates the
+      hosted `wallet.seams.sh` deployment.
 - [ ] Document the browser storage-partitioning model: wallet-origin
       IndexedDB and sealed material are partitioned by top-level site in
       current Chrome/Firefox/Safari, so local material cached under one app
@@ -536,16 +567,17 @@ Acceptance:
 - [ ] There is one source of truth for wallet shim JS.
 - [ ] There is one source of truth for wallet service CSS.
 
-### Phase 5: Remove Runtime Vite Plugin Requirement
+### Phase 5a: Remove Runtime Vite Plugin Requirement (Current Config)
 
-Goal: make wallet runtime delivery plugin-free.
+Goal: make wallet runtime delivery plugin-free against the existing
+`iframeWallet` config surface. Stabilization-scoped; no 0E dependency —
+plugin removal is asset serving, and the current config already carries every
+field this phase needs.
 
-Gate: this phase consumes Refactor 87 Phase 0E's `createSeamsConfig` /
-`walletRuntime: hostedWalletIframe(...)` surface and its typed config-error
-taxonomy. Phases 1-4 are independent of 0E and can run first. Do not start the
-Phase 5 config work before 0E lands, and do not mint a separate
-missing-`walletOrigin` error shape here — 0E owns the config-error taxonomy;
-this plan consumes it.
+Error-shape note: the fail-closed missing-`walletOrigin` error added here is
+one named error on the current config boundary, annotated in code as the
+error the 0E config-error taxonomy absorbs in Phase 5b. One forwarding-noted
+error is not a parallel taxonomy.
 
 Tasks:
 
@@ -560,12 +592,9 @@ Tasks:
       makes app frameworks responsible for wallet asset hosting or default CSP
       headers.
 - [ ] Make browser wallet capability setup require hosted iframe mode. Missing
-      `walletOrigin` should fail at config/use boundary with a clear error
-      instead of selecting direct app-origin workers.
-- [ ] Route browser wallet capability setup through the Refactor 87
-      `walletRuntime: hostedWalletIframe(...)` SDK runtime config. Keep any legacy
-      `iframeWallet` config normalization at the public config boundary only,
-      then delete it when the runtime config replaces examples and tests.
+      `walletOrigin` fails at the current config/use boundary with the single
+      named error (see the error-shape note) instead of selecting direct
+      app-origin workers.
 - [ ] If any helpers remain, keep them as examples or optional dev utilities
       for Seams-owned wallet-origin development only.
 - [ ] Remove build-time `_headers` emission from app Vite plugin usage.
@@ -592,20 +621,39 @@ Acceptance:
 - [ ] Host app Vite config uses no `@seams/sdk/plugins/vite` import.
 - [ ] Local wallet-origin dev can still mount the static wallet assets with one
       Seams-owned plain static mount.
-- [ ] Wallet runtime delivery succeeds with no Seams SDK Vite plugin.
+- [ ] Wallet runtime delivery succeeds with no Seams SDK Vite plugin, on the
+      current `iframeWallet` config.
+- [ ] The missing-`walletOrigin` error is one named error with the 0E
+      forwarding annotation.
 
-### Phase 6: Documentation And Deployment Guidance
+### Phase 5b: Adopt The 0E Runtime Config (Parked On Refactor 90 Phase 0E)
 
-Goal: make integrator setup boring.
+Tasks:
+
+- [ ] Route browser wallet capability setup through the Refactor 90
+      `walletRuntime: hostedWalletIframe(...)` SDK runtime config. Keep legacy
+      `iframeWallet` config normalization at the public config boundary only,
+      then delete it when the runtime config replaces examples and tests.
+- [ ] Replace the Phase 5a missing-`walletOrigin` error with the 0E
+      config-error taxonomy.
+- [ ] Update app examples to `createSeamsConfig(...)`.
+
+Acceptance:
+
+- [ ] `iframeWallet` acceptance is deleted; config errors come from the 0E
+      taxonomy.
+
+### Phase 6a: Deployment And Internal Documentation
+
+Goal: make integrator setup boring. Stabilization-scoped: internal recipes,
+deployment contract, and header docs. The public getting-started rewrite is
+Phase 6b, deliberately deferred so public docs are not written against the
+`iframeWallet` surface and then re-taught on `createSeamsConfig` after 0E.
 
 Tasks:
 
 - [ ] Update `packages/sdk-web/src/plugins/README.md` to state app developers use
       the hosted wallet origin and do not configure SDK Vite plugins.
-- [ ] Update React/getting-started docs so the normal setup is only:
-      install package, import SDK/components, configure environment ID,
-      publishable key, `walletRuntime: hostedWalletIframe(...)`, auth methods,
-      and requested capabilities.
 - [ ] Update `docs/saas/self-hosted-migration.md` to remove app-owned wallet
       asset hosting from the normal integration path.
 - [ ] Document the Seams wallet-origin deployment contract for
@@ -643,13 +691,25 @@ Tasks:
 
 Acceptance:
 
-- [ ] A new integrator can use the SDK without hosting wallet assets and without
+- [ ] An integrator can use the SDK without hosting wallet assets and without
       editing Vite config.
-- [ ] A new React integrator can use the SDK by importing package code and
-      setting SDK configuration only.
 - [ ] Local app development does not require an extra wallet/static server.
 - [ ] Hosted wallet-origin headers and app embedding requirements are explicit
       and testable.
+
+### Phase 6b: Public Getting-Started Rewrite (Parked On Refactor 90 Phase 0E)
+
+Tasks:
+
+- [ ] Update React/getting-started docs so the normal setup is only:
+      install package, import SDK/components, configure environment ID,
+      publishable key, `walletRuntime: hostedWalletIframe(...)`, auth methods,
+      and requested capabilities.
+
+Acceptance:
+
+- [ ] A new React integrator can use the SDK by importing package code and
+      setting the 0E SDK configuration only.
 
 ### Phase 7: Guards And Cleanup
 
@@ -705,6 +765,9 @@ Tasks:
       wallet static hosting helpers.
 - [ ] Add a source guard that rejects default Content-Security-Policy emission in
       app or wallet static hosting helpers.
+- [ ] Record every guard added by this phase in the
+      [Refactor 89](./refactor-89-clean-source-guards.md) ledger with intake
+      rows (owner refactor, cleanup trigger, replacement coverage).
 
 Acceptance:
 

@@ -2,7 +2,7 @@
 
 Date created: July 2, 2026
 Updated: July 3, 2026 — aligned with the Refactor 82B authority/material type
-decisions and the Refactor 87 reorganization; sequencing gates recorded below.
+decisions and the Refactor 90 reorganization; sequencing gates recorded below.
 
 Status: planned, partially gated.
 
@@ -16,6 +16,11 @@ Sequencing gates:
 - Phase 1 baselines are captured after Refactor 84b's finalize payload trim
   lands, so measurements are not dominated by a payload that is about to
   shrink.
+- Refactor 88 now provides both local and CI-managed intended lifecycle
+  commands. Any 83 change touching registration, auth, warm sessions, signing
+  lanes, export, or wallet iframe routing runs `pnpm test:intended` as the
+  pre-merge lifecycle gate; use `pnpm test:intended:ci` when a fresh local
+  startup/reset is needed.
 
 Dated progress entries and validation evidence go to a companion journal file
 (`refactor-83-journal.md`, created on first entry), not this plan.
@@ -71,7 +76,7 @@ new HSS protocol optimization plan and it is not a compatibility plan.
   changes are coordinated, not landed independently by both plans.
 - `docs/refactor-85-indexedDB.md`: IndexedDB minimization. Phase 4's single
   persistence commit feeds 85's Phase 7 schema shrink.
-- `docs/refactor-87-modular-auth-capabilities-plan.md`: Phase B6 promotes the
+- `docs/refactor-90-modular-auth-capabilities-plan.md`: Phase B6 promotes the
   signer-set request into capability provisioning. Prepared-branch identities
   in this plan must stay stable so B6 can map them to capability provisioning
   identities.
@@ -117,7 +122,7 @@ material types.
 One prepared package shape, not a per-mode union. Ed25519-only registration is
 a one-branch signer set on the same machinery (Phase 0A); a
 `near_ed25519_prepared` vs `signer_set_prepared` split would re-introduce the
-deleted mode-enum thinking. Branch identities stay stable so Refactor 87 B6
+deleted mode-enum thinking. Branch identities stay stable so Refactor 90 B6
 can map them to capability provisioning identities.
 
 ```ts
@@ -185,6 +190,10 @@ type RegistrationPersistencePlan = {
 - [ ] Capture baselines after the Refactor 84b finalize payload trim lands, and
       note the 84b state next to the recorded numbers so the two changes are
       not conflated.
+- [ ] Capture baselines before Refactor 86 Phase 3 flips local wallet-asset
+      serving to the static wallet origin, or record the serving topology
+      beside the numbers; a topology change mid-measurement contaminates the
+      comparison.
 
 Exit criteria:
 
@@ -377,6 +386,7 @@ Server D1/DO registration:
 
 Primary test inventory:
 
+- Refactor 88 lifecycle contract gate: `pnpm test:intended`.
 - `tests/unit/registrationIntentAllocation.unit.test.ts`
 - `tests/unit/registrationSignerSetNormalization.unit.test.ts`
 - `tests/unit/registrationWalletPersistence.unit.test.ts`
@@ -393,7 +403,7 @@ Primary test inventory:
       worker material identity currently produced by warm-session
       reconstruction? Resolve during the Phase 3 inventory.
 - [x] Does ECDSA registration need per-chain local session material at
-      registration time? Resolved by Refactor 87 Phase 0F: role-local material
+      registration time? Resolved by Refactor 90 Phase 0F: role-local material
       handles are chain-agnostic, so one wallet-key material record hydrates
       all requested EVM-family targets. Chain enforcement lives in exact lanes
       and session records and is checked before worker material opens.
@@ -401,4 +411,3 @@ Primary test inventory:
       started precompute handle? Resolve before Phase 6 lands.
 - [ ] Which post-registration checks verify external state and must stay in the
       user-visible path? Resolve during Phase 4.
-

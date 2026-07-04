@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
+import { createWarmSessionUiConfirmFixture } from './helpers/warmSessionUiConfirm.fixtures';
 import {
-  createWarmSessionTestServices,
-  createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-  testEcdsaChainTarget,
-} from './helpers/warmSessionStore.fixtures';
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
@@ -222,8 +222,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           expect(args).toMatchObject({
             kind: 'claim_no_prompt_ecdsa_prf_first',
             walletId,
-            signingGrantId:
-              restoredBootstrap.thresholdEcdsaKeyRef.signingGrantId,
+            signingGrantId: restoredBootstrap.thresholdEcdsaKeyRef.signingGrantId,
             thresholdSessionId: 'no-prompt-reconnect-restored-session',
             chainTarget,
             uses: 1,
@@ -243,8 +242,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             lanePolicy: {
               chainTarget,
               thresholdSessionId: 'no-prompt-reconnect-restored-session',
-              signingGrantId:
-                restoredBootstrap.thresholdEcdsaKeyRef.signingGrantId,
+              signingGrantId: restoredBootstrap.thresholdEcdsaKeyRef.signingGrantId,
             },
             routeAuth: {
               kind: 'wallet_session',
@@ -482,9 +480,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaRecordsForWalletTarget: () => [
-        { source: 'login', record },
-      ],
+      listThresholdEcdsaRecordsForWalletTarget: () => [{ source: 'login', record }],
       provisionThresholdEcdsaSession: async () => {
         provisionCalls += 1;
         throw new Error('provisionThresholdEcdsaSession should not be called for ready reuse');
@@ -543,9 +539,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaRecordsForWalletTarget: () => [
-        { source: 'login', record: staleRecord },
-      ],
+      listThresholdEcdsaRecordsForWalletTarget: () => [{ source: 'login', record: staleRecord }],
       provisionThresholdEcdsaSession: async (request) => {
         provisionCalls += 1;
         if (!('walletKey' in request) || !('lanePolicy' in request)) {

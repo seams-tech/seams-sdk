@@ -1,8 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { buildPermissionsPolicy, buildWalletCsp } from '@/plugins/headers';
 
+const DEFAULT_LOCAL_WALLET_ORIGIN = 'https://localhost:8443';
+
+function resolveExpectedWalletOrigin(): string {
+  return process.env.VITE_WALLET_ORIGIN || DEFAULT_LOCAL_WALLET_ORIGIN;
+}
+
 test('wallet-service headers are present and consistent', async ({ request }) => {
-  const walletOrigin = process.env.VITE_WALLET_ORIGIN || 'https://wallet.example.localhost';
+  const walletOrigin = resolveExpectedWalletOrigin();
 
   const res = await request.get('/wallet-service');
   expect(res.ok()).toBeTruthy();

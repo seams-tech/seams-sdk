@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
+import { createWarmSessionStatusReader } from './helpers/warmSessionUiConfirm.fixtures';
 import {
-  createWarmSessionTestServices,
-  createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionStore.fixtures';
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
   test('uses explicit ECDSA ownership and does not borrow Ed25519 auth', async () => {

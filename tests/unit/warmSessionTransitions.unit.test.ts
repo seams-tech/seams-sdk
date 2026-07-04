@@ -6,7 +6,7 @@ import {
 } from '@/core/signingEngine/session/warmCapabilities/transitions';
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { testEcdsaChainTarget } from './helpers/warmSessionStore.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 
 function createEnvelope(): WarmSessionEnvelope {

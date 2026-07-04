@@ -24,6 +24,7 @@ import {
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -78,7 +79,11 @@ const EXPORT_FLOW_EVM_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 });
 const EXPORT_FLOW_ECDSA_KEY = buildEvmFamilyEcdsaKeyIdentity({
   walletId: EXPORT_FLOW_SUBJECT_ID,
-  walletKeyId: 'wallet-key-export-flow',
+  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+    walletId: EXPORT_FLOW_SUBJECT_ID,
+    signingRootId: 'signing-root-export-flow',
+    signingRootVersion: 'root-v1',
+  }),
   ecdsaThresholdKeyId: 'ecdsa-threshold-export-flow',
   signingRootId: 'signing-root-export-flow',
   signingRootVersion: 'root-v1',

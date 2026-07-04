@@ -18,12 +18,19 @@ Playwright tests for the Passkey SDK, covering WebAuthn + PRF flows, wallet ifra
 
 ## Suites & Scope
 
-- End‑to‑End: registration, login, actions, account sync, worker wiring
+- Intended Behaviour Contracts: registration, unlock, signing, step-up, and
+  export lifecycle checks against the real site, wallet origin, Router API,
+  D1, Durable Objects, IndexedDB, and workers
+- E2E/API Smokes: dashboard, pricing, wallet-service headers, theme validation,
+  and cancel-overlay behavior
 - Unit: orchestrator helpers, progress heuristics, nonce, confirm handler
 - Wallet Iframe: handshake, overlay routing, sticky/anchored behavior
 - Lit Components: modal/drawer host + iframe confirm UI
 
-Playwright config includes wallet‑iframe and lit‑components suites in `testMatch`.
+Playwright config includes wallet‑iframe and lit‑components suites in
+`testMatch`. The generic config excludes
+`tests/e2e/intended-behaviours/**`; run those contracts through
+`test:intended` or `test:intended:ci`.
 
 ## Coverage Overview
 
@@ -42,7 +49,10 @@ Status highlights from recent additions:
 
 ## Build & Assets
 
-- Build freshness check runs before tests; stale builds trigger `npm run build`
+- `test:intended:ci` builds fresh SDK artifacts before starting local services.
+- `test:intended` assumes the already-running local site/router are serving the
+  SDK artifacts you intend to test; rebuild and restart those services after SDK
+  source changes.
 - Dev plugin serves SDK at `/sdk/*` directly from `dist/`
 - Assets of interest:
   - `dist/esm/**` ES modules (SDK + embedded bundles)
@@ -51,47 +61,46 @@ Status highlights from recent additions:
 
 ## Setup Architecture
 
-The test bootstrap is a precise 5‑step sequence to avoid WebAuthn/import‑map races. It’s split for clarity:
+The generic Playwright bootstrap is a precise sequence for UI/browser tests that
+still run through the local app-origin SDK mirror. It is split for clarity:
 
 - `tests/setup/bootstrap.ts`: `executeSequentialSetup()`
-  1. WebAuthn Virtual Authenticator (Chromium CDP)
-  2. Import map injection (NEAR + lit deps)
-  3. Environment stabilization
-  4. Dynamic import from `/sdk/esm/...` and instance wiring
-  5. Global fallbacks (e.g., base64UrlEncode)
+  1. Wallet SDK CORS/CORP and wallet-service route setup
+  2. WebAuthn Virtual Authenticator (Chromium CDP)
+  3. Import map injection (NEAR + lit deps)
+  4. Environment stabilization
+  5. Dynamic import from `/sdk/esm/...` and instance wiring
+  6. Global fallbacks (e.g., base64UrlEncode)
 
 - `tests/setup/index.ts`:
-  - `setupBasicPasskeyTest(page, overrides)` orchestrates the 5 steps
+  - `setupBasicPasskeyTest(page, overrides)` runs the generic SDK/browser
+    bootstrap for UI, iframe, and component tests
   - `handleInfrastructureErrors()` centralizes CI‑skip for faucet 429
-  - `setupRouterApiServerTest()` / `setupTestnetFaucetTest()` presets
+
+The intended-behaviour contracts use
+`tests/e2e/intended-behaviours/harness.ts` instead of this generic bootstrap.
+They run public SDK/UI flows against the real local site, wallet origin, Router
+API, D1, Durable Objects, IndexedDB, and workers. Registration, unlock,
+signing, step-up, and export lifecycle authority belongs there.
+The generic Playwright config excludes those contracts so lifecycle checks stay
+on the intended runner.
 
 - `tests/setup/logging.ts`: quiet‑by‑default console capture (`VERBOSE_TEST_LOGS`)
 
 ## Fixtures & Helpers
 
-- `tests/setup/fixtures.ts` extends Playwright `test` with:
-  - `passkey.setup(overrides?)` to run bootstrap lazily
-  - `passkey.withTestUtils(cb)` to run in browser with wired `testUtils`
-  - `consoleCapture` to collect logs; prints only on failure unless verbose
+- `tests/setup/index.ts` exports public setup helpers:
+  - `setupBasicPasskeyTest(page, overrides)` for generic SDK/browser bootstrap
+    only; do not use it as a lifecycle oracle
+  - `handleInfrastructureErrors(result)` for testnet/faucet skip handling
+  - SDK ESM path helpers from `tests/setup/sdkEsmPaths.ts`
 
-- Flow helpers in `tests/setup/flows.ts`:
-  - `registerPasskey(passkey, opts?)`
-  - `unlock(passkey, { accountId })`
-  - `executeTransfer(passkey, { accountId, receiverId, amountYocto })`
-
-Example (see `tests/setup/flows.ts`):
-
-```ts
-import { test, expect } from '../setup/fixtures';
-import { registerPasskey, unlock } from '../setup/flows';
-
-test('register → login', async ({ passkey }) => {
-  const reg = await registerPasskey(passkey);
-  expect(reg.success).toBe(true);
-  const login = await unlock(passkey, { accountId: reg.accountId });
-  expect(login.success).toBe(true);
-});
-```
+- `tests/e2e/intended-behaviours/harness.ts` owns the intended-behaviour
+  contract harness:
+  - Chromium virtual WebAuthn and PRF setup
+  - lifecycle trace capture and versioned failure matchers
+  - public registration, unlock, signing, and export actions
+  - cryptographic signature verification for returned NEAR and ECDSA signatures
 
 ## Running
 
@@ -99,6 +108,13 @@ test('register → login', async ({ passkey }) => {
   - `pnpm test` → `pnpm -C tests test` (full suite)
   - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes the heavier wallet-iframe sticky-behavior coverage)
   - `pnpm test:inline` → line reporter
+  - `pnpm test:intended` → intended-behaviour lifecycle contract suite against already-running local services
+  - `pnpm test:intended:ci` → intended-behaviour lifecycle contract suite with CI-managed local service startup
+  - `pnpm setup:intended-google-oidc` → create/bind the local Google OIDC service account and mint an Email OTP test ID token
+  - `pnpm refresh:intended-google-token` → refresh the one-hour Email OTP Google ID token through service-account impersonation
+  - `pnpm check:intended-mutation-self-check` → validate Refactor 88 mutation self-check metadata
+  - `pnpm check:intended-mutation-self-check:complete` → fail until all Refactor 88 mutation proof rows are `detected`
+  - `pnpm preflight:intended-mutation-self-check` / `pnpm preflight:intended-mutation-self-check:ci` → report local or CI-managed readiness for Phase 3B mutation proof
   - `pnpm test:unit`, `pnpm test:source-guards`, `pnpm test:integration:signing`
   - `pnpm test:wallet-iframe`, `pnpm test:lit-components`
   - `pnpm show-report` to open Playwright HTML report
@@ -110,7 +126,13 @@ Test profiles:
   high-level transaction lifecycle suites.
 - `test:source-guards` runs architecture guards and source/script checks.
 - `test:integration:signing` runs browser/WASM-heavy signing lifecycle suites
-  that are intentionally outside the unit closeout gate.
+  that are intentionally outside the unit closeout gate. It uses the same
+  Vite-only browser setup as the generic suites.
+- `test`, `test:lite`, and `test:inline` use the Vite-only browser setup.
+  The fake relay server launcher has been removed.
+- Generic e2e scripts exclude `e2e/intended-behaviours/*.contract.test.ts`;
+  lifecycle contracts run through `test:intended` or `test:intended:ci`.
+  `test:e2e` uses the same generic config and excludes intended contracts.
 
 - Direct Playwright subset examples:
 
@@ -118,6 +140,26 @@ Test profiles:
 pnpm -C tests exec playwright test **/e2e/**/*.test.ts
 pnpm -C tests exec playwright test -c playwright.unit.config.ts
 ```
+
+Intended-behaviour contracts:
+
+```bash
+pnpm setup:intended-google-oidc
+pnpm router
+pnpm site
+pnpm test:intended
+pnpm test:intended:ci
+```
+
+Local `test:intended` is fastest for refactor work and assumes the services are
+already running. CI mode resets local Router/D1 state, builds
+`packages/sdk-web/dist`, starts router/site, then runs the same four contracts.
+The intended config, mutation preflight, and CI-managed service startup load
+`.env.intended.local` automatically. Restart already-running local router/site
+services after changing Google OIDC env values so the runtime sees
+`GOOGLE_OIDC_CLIENT_ID`. Without `SEAMS_INTENDED_GOOGLE_ID_TOKEN`, the two
+passkey contracts can run but the Email OTP contracts fail fast at their
+configuration gate.
 
 Chromium only; `workers=1` to avoid relay/faucet rate limits.
 
@@ -137,10 +179,16 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
 
 ## Environment
 
-- `USE_RELAY_SERVER=1` run with relay (fast path, no .env)
-- `RELAY_PROVISION_TTL_MINUTES=720` control relay provision cache TTL
-- `FORCE_RELAY_REPROVISION=1` ignore cache and reprovision
-- `REUSE_EXISTING_RELAY_ENV=1` keep existing `.env`
+- `SEAMS_INTENDED_GOOGLE_ID_TOKEN=<token>` enables the Email OTP intended
+  contracts against the local Router Google OIDC/dev-outbox path; mutation
+  preflight rejects missing, placeholder, or malformed non-JWT values before
+  the Router performs signature and claim verification
+- `SEAMS_INTENDED_GOOGLE_PROJECT_ID`, `SEAMS_INTENDED_GOOGLE_CLIENT_ID`,
+  `GOOGLE_OIDC_CLIENT_ID`, optional Google OAuth client secret vars, and
+  `SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` are kept in ignored
+  `.env.intended.local`. Run `pnpm setup:intended-google-oidc` once, or pass
+  `--client-secret=<secret>` when creating a new local env file, then run
+  `pnpm refresh:intended-google-token` whenever the one-hour ID token expires.
 - `VERBOSE_TEST_LOGS=1` print captured console logs live
 
 Manual build without tests:
@@ -152,7 +200,10 @@ pnpm build:sdk
 ## Suite Quick Reference
 
 - E2E
-  - `e2e/thresholdEd25519.*.test.ts` threshold keygen/session/signing coverage
+  - `e2e/intended-behaviours/*.contract.test.ts` intended registration,
+    unlock, signing, step-up, and export lifecycle contracts
+  - `e2e/dashboard.*.apiWiring.test.ts` and
+    `e2e/pricing.checkout.apiWiring.test.ts` dashboard/API wiring smoke tests
   - `e2e/cancel_overlay_specs.test.ts` cancel + overlay specs (cancel hides UI)
 
 - Unit
@@ -205,6 +256,9 @@ To keep iframe tests stable:
 ## Gaps & Next Steps
 
 - Strengthen lifecycle assertions around sticky flows (handoff and final hide)
+- Complete the Refactor 88 mutation self-check rows until
+  `pnpm check:intended-mutation-self-check:complete` passes against fresh
+  CI-managed intended startup or restarted local services
 - Local‑only cancel flow should release nonce and emit structured error
 - Theme regression guardrails for confirm UI (light vs dark tokens)
 - Consider gating `data-w3a-router-id` to debug/test builds only (cosmetic)

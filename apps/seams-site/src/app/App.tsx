@@ -8,6 +8,7 @@ import { CompanyPage } from '@/pages/company/page';
 import { ContactPage } from '@/pages/contact/page';
 import { DashboardPage } from '@/pages/dashboard/page';
 import { DashboardLoginPage } from '@/pages/dashboard/login/page';
+import { IntendedBehaviourE2EPage } from '@/pages/intended-e2e/page';
 import { NearLoginPage } from '@/pages/near-login/page';
 import { NotFoundPage } from '@/pages/not-found/page';
 import { ToasterThemed } from '@/components/ToasterThemed';
@@ -98,6 +99,8 @@ export const App: React.FC = () => {
         return <ContactPage />;
       case '/dashboard/login':
         return <DashboardLoginPage />;
+      case '/__intended-e2e':
+        return FRONTEND_CONFIG.enableIntendedE2E ? <IntendedBehaviourE2EPage /> : <NotFoundPage />;
       default:
         if (
           pathname === '/dashboard' ||

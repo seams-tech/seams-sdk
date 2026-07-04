@@ -1,10 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 import {
-  createThresholdEcdsaBootstrapFixture,
-  testEcdsaChainTarget,
-} from './helpers/warmSessionStore.fixtures';
+  buildEmailOtpAuthContextForWalletAuthMethod,
+  type ThresholdEcdsaEmailOtpAuthContext,
+} from '@/core/signingEngine/session/identity/laneIdentity';
+import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
   clearSigningGrant,
   discoverLanesForWallet,
@@ -23,7 +26,6 @@ import {
   upsertStoredThresholdEd25519SessionRecord,
   upsertThresholdEcdsaSessionFromBootstrap,
 } from '@/core/signingEngine/session/persistence/records';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 
 const SPLIT_WALLET_ID = toWalletId('frost-clear-grant-k7p9m2');
 const SPLIT_NEAR_ACCOUNT_ID = toAccountId('b'.repeat(64));
@@ -43,6 +45,13 @@ const SIBLING_ECDSA_SIGNING_GRANT_ID = 'grant-clear-ecdsa-sibling';
 const PRIMARY_ECDSA_THRESHOLD_SESSION_ID = 'tsess-clear-ecdsa-primary';
 const SIBLING_ECDSA_THRESHOLD_SESSION_ID = 'tsess-clear-ecdsa-sibling';
 
+function ed25519RouterAbNormalSigning(signingWorkerId: string) {
+  return {
+    kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+    signingWorkerId,
+  };
+}
+
 function seedSplitEd25519GrantRecords(): void {
   upsertStoredThresholdEd25519SessionRecord({
     walletId: SPLIT_WALLET_ID,
@@ -53,9 +62,11 @@ function seedSplitEd25519GrantRecords(): void {
     relayerKeyId: 'rk-1',
     participantIds: [1, 2],
     signerSlot: 1,
+    routerAbNormalSigning: ed25519RouterAbNormalSigning('clear-grant-primary-worker'),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'tsess-clear-split-ed25519-primary',
     signingGrantId: PRIMARY_SIGNING_GRANT_ID,
+    passkeyCredentialIdB64u: 'credential-clear-split-ed25519-primary',
     walletSessionJwt: 'jwt-clear-split-ed25519-primary',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
@@ -72,9 +83,11 @@ function seedSplitEd25519GrantRecords(): void {
     relayerKeyId: 'rk-1',
     participantIds: [1, 2],
     signerSlot: 2,
+    routerAbNormalSigning: ed25519RouterAbNormalSigning('clear-grant-sibling-worker'),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'tsess-clear-split-ed25519-sibling',
     signingGrantId: SIBLING_SIGNING_GRANT_ID,
+    passkeyCredentialIdB64u: 'credential-clear-split-ed25519-sibling',
     walletSessionJwt: 'jwt-clear-split-ed25519-sibling',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
@@ -94,9 +107,11 @@ function seedMismatchFixtureRecord(): void {
     relayerKeyId: 'rk-1',
     participantIds: [1, 2],
     signerSlot: 1,
+    routerAbNormalSigning: ed25519RouterAbNormalSigning('clear-grant-mismatch-worker'),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: MISMATCH_THRESHOLD_SESSION_ID,
     signingGrantId: MISMATCH_SIGNING_GRANT_ID,
+    passkeyCredentialIdB64u: 'credential-clear-mismatch',
     walletSessionJwt: 'jwt-clear-mismatch',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
@@ -132,13 +147,15 @@ function createEcdsaStoreDeps(): ThresholdEcdsaSessionStoreDeps {
 }
 
 function ecdsaEmailOtpAuthContext(): ThresholdEcdsaEmailOtpAuthContext {
-  return {
+  return buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'session',
+    walletId: ECDSA_WALLET_ID,
+    emailHashHex: '11'.repeat(32),
+    provider: 'email',
+    providerUserId: ECDSA_WALLET_ID,
     retention: 'session',
     reason: 'sign',
-    authMethod: 'email_otp',
-    authSubjectId: String(ECDSA_WALLET_ID),
-  };
+  });
 }
 
 function seedEcdsaGrantRecord(

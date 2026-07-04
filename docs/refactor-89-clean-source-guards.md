@@ -13,10 +13,10 @@ Sequencing:
   lands: the e2e contract suite is the replacement coverage that justifies
   deleting transitional guards. Do not delete lifecycle-seam guards before
   `test:intended` covers those seams.
-- Guard retirement runs incrementally at Refactor 87 slice exits (87 plan
+- Guard retirement runs incrementally at Refactor 90 slice exits (90 plan
   Decided Point 14): a guard retires in the slice that makes its invariant
   structural (closed unions, branded IDs, generic lanes, boundary parsers).
-- The final sweep is Refactor 87 Phase P3, which requires that no guard
+- The final sweep is Refactor 90 Phase P3, which requires that no guard
   remains whose invariant is structurally enforced.
 
 Related plans:
@@ -117,7 +117,7 @@ past refactor rather than a durable product invariant.
 | `tests/unit/refactor74LoginNoHss.guard.unit.test.ts` | Refactor 74 | Worker-owned Ed25519 material and HSS boundary shape are enforced by generated command types and HSS tests. | Worker command type fixtures, Ed25519 HSS route/material tests, formal anti-drift checks. | active |
 | `tests/unit/refactor76BrandedKeys.guard.unit.test.ts` | Refactor 76 | Branded key constructors are the only public construction path and unsafe casts are covered by type fixtures. | `@ts-expect-error` fixtures and constructor parser tests. | active |
 | `tests/unit/refactor71WalletSessionNaming.guard.unit.test.ts` | Refactor 71 | Wallet-session vocabulary is stable and old naming is absent from active source. | Public API type tests and route/session parser tests. | active |
-| `tests/unit/refactor73TypeFilename.guard.unit.test.ts` | Refactor 73 | Type-only file naming is enforced by lint/build tooling. | TypeScript build/lint rule or package-level source layout tests. | active |
+| `tests/unit/refactor73TypeFilename.guard.unit.test.ts` | Refactor 73 | Type-only file naming is enforced by lint/build tooling. | `tests/scripts/check-type-filename-source.mjs`, run by `pnpm -C tests run check:type-filename-source` and `pnpm -C tests run test:source-guards`. | deleted |
 | `tests/unit/refactor67ReorgFolders.guard.unit.test.ts` | Refactor 67 | Folder layout is stable and package import boundaries are covered by durable architecture guards. | Package boundary tests and build graph checks. | active |
 | `tests/unit/refactor58OtpRegistrationSlim.guard.unit.test.ts` | Refactor 58 | OTP registration slim path is represented by behavior tests instead of source shape checks. | OTP registration flow tests. | active |
 | `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts` | Refactor 56 | Headless auth public surface is stable and covered by API contract tests. | Public API type tests and headless auth behavior tests. | active |
@@ -195,6 +195,26 @@ Append new temporary guards here.
 | `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | Refactor 78 | Prevents wallet/account identity collapse while binding builders settle. | Builders and type fixtures make the collapse unrepresentable. | Builder tests, `@ts-expect-error` fixtures, parser tests. | active |
 | `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | Refactor 78 | Tracks known temporary exceptions to wallet/account source bans. | Allowlist reaches zero entries. | Same as above. | active |
 | `tests/unit/refactor83CapabilitySubjects.guard.unit.test.ts` visible iframe passkey registration checks | Refactor 83 | Prevents visible iframe passkey registration from drifting back to optional wallet IDs, `server_allocated` activation payloads, or shortened WebAuthn usernames. | Activation/public/message types, host parser tests, PasskeyAuthMenu behavior tests, and WebAuthn option tests are stable for one release branch. | Activation type fixtures, host activation parser tests, lit WebAuthn option tests. | active |
+| `tests/unit/refactor88IntendedE2e.guard.unit.test.ts` | Refactor 88 | Keeps the intended-behaviour contract suite small, public-flow based, and protected from retired mocked setup/runtime surfaces while the harness and cleanup land together. | `test:intended` is wired into remote CI, Phase 3B mutation self-check has passed, and retired setup/runtime files are absent for one release branch. | `pnpm test:intended`, `pnpm test:intended:ci`, mutation self-check evidence, and focused setup/harness unit tests. | active |
+
+## Retired Cleanup Ledger
+
+These rows record deleted tests, fixtures, and setup hooks whose old behavior is
+replaced by the Refactor 88 intended-behaviour contracts.
+
+| Surface | Owner refactor | Why it was removed | Replacement coverage | Status |
+| --- | --- | --- | --- | --- |
+| `tests/e2e/docs.thresholdRegisterAndSigning.integration.test.ts` | Refactor 88 | Mocked docs/demo registration -> signing through `setupBasicPasskeyTest`, `__testOverrides`, mocked SDK methods, and fake chain responses. | Passkey intended registration contract plus `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. | deleted |
+| `tests/e2e/docs.thresholdSigningActions.smoke.test.ts` | Refactor 88 | Mocked docs/demo signing actions through a fake logged-in SDK surface. | Passkey intended registration/unlock contracts covering NEAR, Tempo, and Arc/EVM signing. | deleted |
+| `tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts` | Refactor 88 | Kept a production `__testOverrides` path alive to fake SDK hook state. | Demo surfaces no longer expose `__testOverrides`; guarded by `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. | deleted |
+| `tests/unit/seamsWeb.loginThresholdWarm.unit.test.ts` | Refactor 88 | Used a large in-memory runtime fixture graph for unlock -> warm signing behavior. | Passkey and Email OTP intended contracts plus focused boundary/domain tests. | deleted |
+| `tests/unit/helpers/warmSessionStore.fixtures.ts` | Refactor 88 | Bundled broad warm-session, ECDSA chain-target, signing-session record, status, and touch-confirm fixtures into one runtime-shape fixture. | Focused helpers: `ecdsaChainTarget.fixtures.ts`, `ecdsaBootstrap.fixtures.ts`, `signingSessionRecord.fixtures.ts`, `warmSessionUiConfirm.fixtures.ts`, and `warmSessionTestServices.fixtures.ts`. | deleted |
+| `tests/setup/fixtures.ts`, `tests/setup/flows.ts`, `tests/setup/test-utils.ts` | Refactor 88 | Fed broad `window.testUtils` browser mutation helpers into mocked lifecycle tests. | Intended harness drives public SDK/UI flows directly and guards against mocked setup imports. | deleted |
+| `tests/setup/webauthn-mocks.ts` | Refactor 88 | Overrode `navigator.credentials.create/get` with a bespoke WebAuthn/PRF mock and kept browser setup on a second authenticator path. | Generic setup and intended contracts both use the PRF-capable CDP virtual authenticator (`hasPrf: true`) plus `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. | deleted |
+| `tests/scripts/provision-router-api-server.mjs`, `tests/scripts/start-servers.mjs`, `tests/scripts/test-router-api-server.mjs` | Refactor 88 | Launched a fake AuthService Router API server through generic Playwright scripts and preserved a flag-controlled fake-relay topology. | Generic Playwright scripts use the Vite-only browser setup; intended contracts own real Router/site lifecycle coverage. Guarded by `tests/unit/refactor88IntendedE2e.guard.unit.test.ts`. | deleted |
+| `benchmarks/registration-flow/playwright.config.ts`, `benchmarks/registration-flow/src/report.mjs`, `benchmarks/registration-flow/src/runner.mjs`, `benchmarks/registration-flow/src/scenario-harness.ts`, `benchmarks/registration-flow/src/scenarios.mjs` | Refactor 88 | The runner depended on the deleted `tests/e2e/thresholdEd25519.testUtils` managed-registration mock harness. | Historical reports are retained; any replacement benchmark must use the real intended-behaviour topology. | deleted |
+| Browser setup hooks `failureMocks`, `rollbackVerification`, `verifyAccountExists`, `webAuthnUtils`, `loginStatus`, `window.testUtils`, and `createConsoleCapture` | Refactor 88 | Preserved obsolete browser-side mock/control surfaces unrelated to public intended lifecycle behavior. | Refactor 88 guard rejects reintroducing the retired hooks in active setup surfaces. | deleted |
+| `tests/unit/refactor73TypeFilename.guard.unit.test.ts` | Refactor 89 / Refactor 73 | Kept a refactor-numbered Playwright source guard alive for a source-layout rule. | Standalone lint-style check `tests/scripts/check-type-filename-source.mjs`, wired into `test:source-guards`. | deleted |
 
 ## Validation
 

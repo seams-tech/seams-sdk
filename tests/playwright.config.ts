@@ -130,8 +130,6 @@ if (process.env.VITE_COEP_MODE == null) {
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
-const USE_RELAY_SERVER =
-  process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';
 const NO_CADDY =
   process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1';
 const OVERRIDE_FRONTEND_URL = NO_CADDY
@@ -203,6 +201,7 @@ export default defineConfig({
     '**/wallet-iframe/**/*.test.ts',
     '**/lit-components/**/*.test.ts',
   ],
+  testIgnore: ['**/e2e/intended-behaviours/**'],
   fullyParallel: false,
   retries: 0,
   workers: 1, // Reduced to 1 to prevent parallel faucet requests and rate limiting
@@ -233,17 +232,14 @@ export default defineConfig({
     // Safari/WebKit tests would need different WebAuthn testing approach
   ],
 
-  /* Run your local dev server(s) before starting the tests */
+  /* Run the local app dev server before starting the tests */
   webServer: {
-    // If USE_RELAY_SERVER is set, start both servers with a relay health check
-    command: USE_RELAY_SERVER
-      ? 'node ./scripts/start-servers.mjs'
-      : NO_CADDY
-        ? `pnpm -C "${EXAMPLES_FRONTEND_DIR}" exec vite --host 127.0.0.1 --port ${DEV_SERVER_PORT} --strictPort`
-        : `pnpm -C "${EXAMPLES_FRONTEND_DIR}" dev`,
+    command: NO_CADDY
+      ? `pnpm -C "${EXAMPLES_FRONTEND_DIR}" exec vite --host 127.0.0.1 --port ${DEV_SERVER_PORT} --strictPort`
+      : `pnpm -C "${EXAMPLES_FRONTEND_DIR}" dev`,
     url: DEV_SERVER_URL,
     reuseExistingServer: true,
-    timeout: 60000, // Allow time for relay health check + build
+    timeout: 60000,
     // Propagate strict CSP to the dev server process.
     env: {
       VITE_WALLET_DEV_CSP: process.env.VITE_WALLET_DEV_CSP ?? 'strict',

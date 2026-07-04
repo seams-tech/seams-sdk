@@ -1,14 +1,16 @@
 import { expect, test } from '@playwright/test';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
 import {
-  createWarmSessionTestServices,
-  createThresholdEcdsaStoreFixture,
   createWarmSessionUiConfirmFixture,
   createWarmSessionStatusReader,
+} from './helpers/warmSessionUiConfirm.fixtures';
+import {
+  createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-  testEcdsaChainTarget,
-} from './helpers/warmSessionStore.fixtures';
+} from './helpers/signingSessionRecord.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/persistence/records';
 
@@ -88,7 +90,11 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(ed25519Record.walletId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('auth_missing');
-    expect(warmSession.capabilities.ed25519.auth).toBeNull();
+    expect(warmSession.capabilities.ed25519.auth).toMatchObject({
+      capability: 'ed25519',
+      walletSessionJwtSource: 'none',
+    });
+    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwt).toBeUndefined();
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
       state: 'missing',
       sessionId: 'cookie-ed25519-session',

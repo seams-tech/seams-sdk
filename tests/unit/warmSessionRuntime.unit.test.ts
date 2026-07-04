@@ -1,16 +1,17 @@
+import { createWarmSessionUiConfirmFixture } from './helpers/warmSessionUiConfirm.fixtures';
 import { expect, test } from '@playwright/test';
 import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
 import { ensureEcdsaPrfSealPersisted } from '@/core/signingEngine/session/passkey/runtime';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import { toExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/persistence/records';
+
 import {
-  createThresholdEcdsaBootstrapFixture,
-  createThresholdEcdsaStoreFixture,
-  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
-  testEcdsaChainTarget,
-} from './helpers/warmSessionStore.fixtures';
+  createThresholdEcdsaStoreFixture,
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 
 const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
 const SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(

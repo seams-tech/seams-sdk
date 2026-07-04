@@ -8,75 +8,80 @@ second-review type simplifications are recorded in
 [Decided Type Simplifications](#decided-type-simplifications) and tracked in
 their owning phases.
 
-Status: in progress. Phases 1, 4, 4B, and 4C are complete. Phase 2's base SDK
-slice is complete; the July 3 factor/verifier authority follow-up now covers
-both Passkey and Email OTP wallet-bound authority branches. Phase 7 now has
-committed authority slices for EVM/Tempo signing, ECDSA/Ed25519 export, NEAR
-Ed25519 step-up, Email OTP login/registration route-plan boundaries, and the
-Ed25519 HSS client-owned artifact/server-owned responded-session boundary.
-Phases 3, 5, 6, 7, 8, and 9 are partially complete; Phase 5's shared
-Ed25519 wallet-session authority route slice is complete, and open tasks are
-tracked per phase.
+Status: implementation complete for Phases 1-9. Phase 10 runtime validation is
+in progress; Passkey registration/unlock/sign/export browser contracts pass
+locally. Runtime validation opened Phase 10A for canonical lane inventory and
+selection cleanup, then Phase 10B for extracting the shared typed
+canonicalization kernel across ECDSA and Ed25519. Deployment and
+CI/intended-behavior gating are deferred to Phase 11 until manual runtime
+testing is complete.
 
 Parent plan: [Cloudflare D1 Migration Plan](./refactor-82-cloudflare-D1-migration.md)
 
-Related plan: [Modular Auth And Capability Refactor Plan](./refactor-87-modular-auth-capabilities-plan.md)
+Related plan: [Modular Auth And Capability Refactor Plan](./refactor-90-modular-auth-capabilities-plan.md)
 
 Progress journal: [Refactor 82B Journal](./refactor-82B-journal.md). Dated
 progress entries, validation evidence, and long tracking notes live there; this
 plan carries statuses and open tasks only.
 
-## Relationship To Refactor 87
+## Relationship To Refactor 90
 
-This plan is a prerequisite cleanup for Refactor 87. Refactor 87 splits auth
+This plan is a prerequisite cleanup for Refactor 90. Refactor 90 splits auth
 methods and capabilities into modular surfaces; Refactor 82B first makes the
 current D1 registration, unlock, signing, export, sealed-session, and warm-session
 authority types explicit enough that the later module split does not inherit
 Passkey-specific assumptions.
 
-Refactor 82B should finish before broad Refactor 87 implementation work touches
+Refactor 82B should finish before broad Refactor 90 implementation work touches
 auth-method capability boundaries. The expected handoff is:
 
-- `AuthFactorIdentity` maps one-to-one to Refactor 87 `AuthFactor`.
+- `AuthFactorIdentity` maps one-to-one to Refactor 90 `AuthFactor`.
 - `WalletAuthAuthority` is capability-local wallet-bound verifier authority:
   `walletId` + `factor` + `verifier` + binding reference as one object.
 - Boundary proofs are `AuthMethodProof` plus `AuthOperationPurpose` at
-  Refactor 87 grant-evidence producer boundaries.
+  Refactor 90 grant-evidence producer boundaries.
 - Signer capability modules consume wallet-bound authority plus capability
   identity, never one-time proof IDs.
 - Email OTP and Passkey paths are represented as peer factor branches before
   capability-specific registration, unlock, signing, and export code is split.
 
-### Ownership Split With Refactor 87 In-Flight Phases
+### Ownership Split With Refactor 90 In-Flight Phases
 
-Refactor 82B and Refactor 87 Phases 0D/0F are editing adjacent type surfaces in
+Refactor 82B and Refactor 90 Phases 0D/0F are editing adjacent type surfaces in
 parallel. The split is:
 
 - **Refactor 82B owns:** `WalletAuthAuthority` and boundary proofs,
   `Ed25519WorkerMaterialState` and Ed25519 material-state conversion,
   `RegistrationWalletCandidate`/`ActiveWalletSession`, `SigningBudgetAuthority`/
-  `SigningBudgetStatus`, committed lanes, and sealed-session authority cleanup.
-- **Refactor 87 Phase 0D/0F own:** ECDSA role-local material identity and
+  `SigningBudgetStatus`, committed lanes, the ECDSA lane-inventory read model,
+  and sealed-session authority cleanup.
+- **Refactor 90 Phase 0D/0F own:** ECDSA role-local material identity and
   worker-cache slimming (`EcdsaRoleLocalMaterialBinding`, handles, digests) and
   `WalletUnlockSubject`.
 
 Neither plan changes the other's types without a cross-plan note in both
 documents.
 
-### Vocabulary Mapping Into Refactor 87
+Refactor 85's `LocalCapabilityMaterial` storage boundary consumes canonical
+material / committed-lane outputs from Phase 10A/10B. If it needs inventory
+facts at a persistence boundary, it consumes the typed canonical facts from this
+plan. It should not introduce a fourth runtime/sealed/warm inventory
+representation for the same ECDSA material.
 
-This table is the handoff contract. Refactor 87 Phase F2 must consume it
+### Vocabulary Mapping Into Refactor 90
+
+This table is the handoff contract. Refactor 90 Phase F2 must consume it
 instead of minting a third representation of the same concepts.
 
-| Refactor 82B type                             | Refactor 87 target                                             | Notes                                                                                                                                                                                                                                                                           |
+| Refactor 82B type                             | Refactor 90 target                                             | Notes                                                                                                                                                                                                                                                                           |
 | --------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AuthFactorIdentity`                          | `AuthFactor`                                                   | Pure identity, maps one-to-one: passkey `credentialId`; email OTP `provider` + `providerUserId`. `rpId` is not identity. Email address stays display/enrollment metadata in both plans.                                                                                         |
-| `WalletAuthAuthority`                         | Capability-local wallet-bound verifier authority               | `walletId` + `factor` + `verifier` + `bindingId` as one atomic object; what signing/export/session lanes consume. Refactor 87 auth modules see only `factor`; `rpId` lives in the `verifier` branch — see [Decided Type Simplifications](#decided-type-simplifications) item 4. |
+| `WalletAuthAuthority`                         | Capability-local wallet-bound verifier authority               | `walletId` + `factor` + `verifier` + `bindingId` as one atomic object; what signing/export/session lanes consume. Refactor 90 auth modules see only `factor`; `rpId` lives in the `verifier` branch — see [Decided Type Simplifications](#decided-type-simplifications) item 4. |
 | Boundary proofs (`AuthMethodProof` + purpose) | Grant-evidence challenge inputs (`GrantEvidenceRef` producers) | Purpose binding stays server-side in the challenge record in both plans.                                                                                                                                                                                                        |
-| `SigningBudgetAuthority.signingGrantId`       | `capabilityGrantId`                                            | Renamed in Refactor 87 Phase B1; do not introduce new `signingGrantId` surfaces.                                                                                                                                                                                                |
+| `SigningBudgetAuthority.signingGrantId`       | `capabilityGrantId`                                            | Renamed in Refactor 90 Phase B1; do not introduce new `signingGrantId` surfaces.                                                                                                                                                                                                |
 | `ActiveWalletSession`                         | Capability-local wallet session                                | NOT `SeamsSession`. Wallet sessions become capability-local state under the MPC modules.                                                                                                                                                                                        |
 | `EmailOtpAuthUse`                             | Capability-local lifecycle state                               | Stays inside MPC capability modules.                                                                                                                                                                                                                                            |
-| `WalletUnlockSubject` (87-owned)              | Consumes `WalletAuthAuthority` branches                        | Unlock subject resolution reads stable authority; it does not redefine it.                                                                                                                                                                                                      |
+| `WalletUnlockSubject` (90-owned)              | Consumes `WalletAuthAuthority` branches                        | Unlock subject resolution reads stable authority; it does not redefine it.                                                                                                                                                                                                      |
 
 ## Goal
 
@@ -143,7 +148,7 @@ as scope constraints:
   algorithm, and whether `walletId` is part of the digest input.
 
 The second review (July 3, 2026) found that the type _encoding_ multiplies
-where it should parameterize, and that the 87 handoff vocabulary was
+where it should parameterize, and that the 90 handoff vocabulary was
 unmapped. A third review round (July 3, Codex) upgraded the `rpId` split into
 the three-layer factor/verifier authority model and defended real
 operation-specific invariants against over-collapsing — both are folded into
@@ -184,7 +189,7 @@ carry a second discriminant that restates the authority factor branch.
 3. **Authority digest gets domain separation and an honest name.** The digest
    input gains a versioned domain-separation prefix
    (`seams:wallet-authority-binding:v1|`) so future authority branches
-   (Refactor 87 adds `slack_otp`, `wallet_login`) cannot silently collide in
+   (Refactor 90 adds `slack_otp`, `wallet_login`) cannot silently collide in
    the same hash domain. Because `walletId` is part of the preimage, the type
    is renamed `WalletAuthorityBindingDigest` — it binds an authority to a
    wallet; it is not a digest of authority alone. Development state is deleted
@@ -199,7 +204,7 @@ carry a second discriminant that restates the authority factor branch.
    committed authority must retain that binding somewhere trustworthy. The
    model:
    - **`AuthFactorIdentity`** — pure identity (passkey `credentialId`; email
-     OTP `provider` + `providerUserId`). Maps one-to-one to Refactor 87's
+     OTP `provider` + `providerUserId`). Maps one-to-one to Refactor 90's
      `AuthFactor`. Consumed by registration resolution (which runs before a
      wallet exists) and cross-wallet factor matching. `rpId` is not identity.
    - **`WalletAuthAuthority`** — the wallet-bound verifier authority core code
@@ -216,7 +221,7 @@ carry a second discriminant that restates the authority factor branch.
    `passkey:{rpId}:{credentialIdB64u}`; Email OTP ids are
    `email_otp:{walletId}:{emailHashHex}`. Enrollment ids stay in
    recovery/enrollment material because they can rotate independently. Gated
-   on 87 F2 in one cut with the digest recomputation. Migration: Phase 2
+   on 90 F2 in one cut with the digest recomputation. Migration: Phase 2
    follow-ups.
 
 5. **No double discriminants anywhere.** `RegistrationAuthorityResolution`
@@ -228,6 +233,17 @@ carry a second discriminant that restates the authority factor branch.
 6. **Lifecycle unions carry no constant fields.** `EmailOtpAuthUse`
    single-use branches drop `reason: 'sign'` (a field with one possible value
    carries no information). Migration: Phase 4 follow-ups.
+7. **Record inventory is separate from committed lane selection.** Runtime
+   validation showed that `duplicate_records` is overloaded: repeated Email OTP
+   step-up can leave old exhausted records, current active records, durable
+   restore records, and EVM-family shared projections for the same authority
+   and key. Those are record facts about one lane, not separate authority
+   candidates. Target: parse raw records into one generic record-fact union,
+   group by wallet authority plus stable ECDSA key identity, check public facts
+   inside the group, select one canonical committed lane per operation target,
+   and expose stale/superseded facts as diagnostics. Avoid new `{method} ×
+{curve} × {operation} × {source}` named type families; parameterize the group
+   and lane objects over authority. Migration: Phase 10A.
 
 ## Core Rule
 
@@ -285,6 +301,9 @@ These are non-negotiable for this refactor:
   post-finalize session, signing, export, sealed, and warm paths consume the
   wallet-bound `WalletAuthAuthority`. Neither type appears where the other
   belongs.
+- Record inventory facts are read-model inputs only. Signing, step-up, and
+  export core code consume canonical committed lanes or precise lane-selection
+  failures; they do not branch on raw record counts.
 - The authority branch is the only auth-method discriminant. No type carries a
   `kind` that restates the authority factor branch, and no new type is
   pre-split by auth method when its branches would be structurally identical —
@@ -742,12 +761,13 @@ Update or add:
   - `tests/unit/ed25519TransactionLaneSelection.unit.test.ts`
   - `tests/unit/exportLaneSelection.unit.test.ts`
   - `tests/unit/sealedSessionStore.unit.test.ts`
-  - `tests/unit/seamsWeb.loginThresholdWarm.unit.test.ts`
   - `tests/unit/signingSessionCoordinator.ecdsaStepUp.unit.test.ts`
   - `tests/unit/evmFamilyBudgetSpending.unit.test.ts`
   - `tests/unit/walletSessionBudgetReservation.store.unit.test.ts`
   - `tests/relayer/cloudflare-router.test.ts`
   - `tests/relayer/express-router.test.ts`
+- Deferred Refactor 88 intended lifecycle gate:
+  - `pnpm test:intended`
 
 Delete stale tests that only preserve:
 
@@ -766,11 +786,11 @@ the migration task is named.
 Three layers (Decided Simplification 4): pure factor identity, the
 wallet-bound verifier authority that core code consumes, and boundary proofs
 (next section). The shared authority module now implements the factor/verifier
-shape for Passkey and Email OTP; remaining 87 F2 work is vocabulary landing
+shape for Passkey and Email OTP; remaining 90 F2 work is vocabulary landing
 across non-wallet-session route and session surfaces.
 
 ```ts
-// Layer 1: pure identity. Maps one-to-one to Refactor 87's AuthFactor.
+// Layer 1: pure identity. Maps one-to-one to Refactor 90's AuthFactor.
 // Consumed by registration resolution (which runs before a wallet exists)
 // and cross-wallet factor matching. rpId is NOT identity.
 type EmailOtpEmailHashHex = string & { readonly __brand: 'EmailOtpEmailHashHex' };
@@ -1018,6 +1038,92 @@ required operation facts live in one composed extension per operation (so the
 export invariants stay compile-enforced), and no new _named_ type is minted
 per auth method × curve × operation × backing-record cell.
 
+### Canonical Lane Inventory
+
+Record inventory is a read-model layer that feeds committed-lane builders. It
+does not replace `EcdsaCommittedLane`, and signing/export code should not accept
+these raw fact groups directly.
+
+```ts
+type EcdsaLaneRecordFact<A extends WalletAuthAuthority = WalletAuthAuthority> =
+  | {
+      source: 'runtime_session_record';
+      authority: A;
+      key: EcdsaKeyIdentity;
+      publicFacts: VerifiedEcdsaPublicFacts;
+      chainTarget: ThresholdEcdsaChainTarget;
+      session: SigningSessionAuthority;
+      material: EcdsaMaterialRef;
+      status: SigningSessionStatus;
+      updatedAtMs: UnixMilliseconds;
+    }
+  | {
+      source: 'sealed_restore_record';
+      authority: A;
+      key: EcdsaKeyIdentity;
+      publicFacts: VerifiedEcdsaPublicFacts;
+      chainTarget: ThresholdEcdsaChainTarget;
+      session: SigningSessionAuthority;
+      durableRestore: EcdsaDurableRestoreRef;
+      status: SigningSessionStatus;
+      updatedAtMs: UnixMilliseconds;
+    }
+  | {
+      source: 'evm_family_shared_projection';
+      authority: A;
+      key: EcdsaKeyIdentity;
+      publicFacts: VerifiedEcdsaPublicFacts;
+      chainTarget: ThresholdEcdsaChainTarget;
+      sourceChainTarget: ThresholdEcdsaChainTarget;
+      session: SigningSessionAuthority;
+      material: EcdsaMaterialRef;
+      status: SigningSessionStatus;
+      updatedAtMs: UnixMilliseconds;
+    };
+
+type EcdsaLaneGroupKeyFields = Pick<
+  EcdsaKeyIdentity,
+  'evmFamilySigningKeySlotId' | 'ecdsaThresholdKeyId' | 'signingRootId' | 'signingRootVersion'
+>;
+
+type EcdsaLaneGroupKey<A extends WalletAuthAuthority = WalletAuthAuthority> = {
+  authority: A;
+  key: EcdsaLaneGroupKeyFields;
+};
+
+type EcdsaLaneGroup<A extends WalletAuthAuthority = WalletAuthAuthority> = {
+  key: EcdsaLaneGroupKey<A>;
+  facts: NonEmptyArray<EcdsaLaneRecordFact<A>>;
+};
+
+type EcdsaCanonicalLaneSelection<A extends WalletAuthAuthority = WalletAuthAuthority> =
+  | {
+      kind: 'selected';
+      lane: EcdsaCommittedLane<A>;
+      supersededFacts: readonly EcdsaLaneRecordFact<A>[];
+    }
+  | { kind: 'no_current_lane' }
+  | { kind: 'conflicting_key_material'; conflicts: readonly EcdsaLaneConflict[] }
+  | { kind: 'ambiguous_material'; candidates: readonly EcdsaLaneGroupKey<A>[] };
+```
+
+`duplicate_records` remains a persistence/read-model diagnostic. Core signing
+failures should name the domain failure: conflicting key material, ambiguous
+material, or no current lane. Multiple facts in one group are expected after
+repeated Email OTP step-up and should collapse to one canonical lane when
+authority and material agree.
+
+The group key intentionally excludes `VerifiedEcdsaPublicFacts`. Owner address,
+key handle, public key, and participant-set drift are intra-group integrity
+checks. A fact with the same authority and key slot but different public facts
+fails as `conflicting_key_material`; it does not silently become a second
+`ambiguous_material` group.
+
+`requires_step_up` is a policy result derived after canonical lane selection.
+The inventory selector returns a canonical current lane or an inventory-integrity
+verdict; the caller's policy layer decides whether a selected lane's
+spend/freshness state requires step-up.
+
 ### Companion Lane Selection
 
 ```ts
@@ -1079,14 +1185,14 @@ type SigningBudgetAuthority =
       kind: 'ed25519_budget_authority';
       walletId: WalletId;
       thresholdSessionId: ThresholdEd25519SessionId;
-      signingGrantId: SigningGrantId; // becomes capabilityGrantId in 87 B1
+      signingGrantId: SigningGrantId; // becomes capabilityGrantId in 90 B1
       authorityRef: WalletAuthAuthorityRef;
     }
   | {
       kind: 'ecdsa_budget_authority';
       walletId: WalletId;
       thresholdSessionId: ThresholdEcdsaSessionId;
-      signingGrantId: SigningGrantId; // becomes capabilityGrantId in 87 B1
+      signingGrantId: SigningGrantId; // becomes capabilityGrantId in 90 B1
       chainTarget: EvmFamilyChainTarget;
       authorityRef: WalletAuthAuthorityRef;
     };
@@ -1101,9 +1207,9 @@ type SigningBudgetStatus =
 ---
 
 Phase sections below are ordered by implementation priority (1, 7, 2, 3, 4,
-4B, 4C, 5, 6, 8, 9). Numbering stays stable for cross-reference history. Each
-phase carries its own tracking checklist; dated notes live in the
-[journal](./refactor-82B-journal.md).
+4B, 4C, 5, 6, 8, 9, 10, 10A, 10B, 11). Numbering stays stable for
+cross-reference history. Each phase carries its own tracking checklist; dated
+notes live in the [journal](./refactor-82B-journal.md).
 
 ## Phase 1: Inventory And Type Boundary
 
@@ -1171,8 +1277,8 @@ July 3 review follow-ups (Decided Simplifications 2, 3, 5):
 
 ## Phase 7: Replace Loose Session Shapes With One Canonical Committed Lane
 
-Status: partially implemented for Email OTP and Passkey ECDSA signing, export,
-and step-up selection. Detailed threading notes: [journal](./refactor-82B-journal.md#phase-7-committed-lane-threading-july-3-2026).
+Status: complete for the 82B implementation scope. Detailed threading notes:
+[journal](./refactor-82B-journal.md#phase-7-committed-lane-threading-july-3-2026).
 
 Implementation note: this phase runs immediately after Phase 1 creates shared
 authority types. Phase 4, Phase 4B, and Phase 4C consume this object instead of
@@ -1246,7 +1352,7 @@ Tracking:
       `EcdsaCommittedLane` union.
 - [x] Make all ECDSA signing/export/step-up functions accept
       `EcdsaCommittedLane` (threading details in the journal).
-- [ ] Delete runtime session records as authority inputs (in progress; see
+- [x] Delete runtime session records as authority inputs (see
       journal for the completed export/step-up slices).
   - Partial July 3 export-boundary slice complete: Email OTP key-export
     challenge requests now distinguish explicit fresh-login ECDSA export from
@@ -1299,12 +1405,22 @@ Tracking:
     persisted `record.walletSessionJwt` into the key ref. Ready signer sessions
     now receive Wallet Session bearer auth from the committed lane or the
     explicit signing-wallet-session authority path only.
+  - Partial July 3 ECDSA ready-material cleanup complete:
+    `resolveReadyEvmFamilyEcdsaMaterial` now uses the already parsed
+    Router A/B ECDSA signing-wallet session authority from the
+    `runtime_validated` material branch instead of independently rebuilding
+    Wallet Session auth from `input.record.walletSessionJwt`.
+  - Complete July 3 final runtime-record slice: the ECDSA read model now builds
+    lane auth through `resolveRouterAbEcdsaWalletSessionAuthFromRecord`, the
+    deleted `walletSessionAuthInputFromPersistedThresholdSession` helper has no
+    production references, and bootstrap persistence reads Wallet Session JWT
+    authority only from `bootstrap.session.jwt`.
   - Partial July 3 bootstrap-as-authority cleanup complete:
     ECDSA activation now rejects bootstrap responses without `session.jwt` and
     no longer mirrors that JWT onto `thresholdEcdsaKeyRef`. Passkey bootstrap,
     login runtime-scope parsing, and registration sealing consume the session
     authority field directly instead of falling back to key-ref authority.
-- [ ] Delete durable sealed records as authority inputs.
+- [x] Delete durable sealed records as authority inputs.
   - Partial July 3 slice complete: sealed Email OTP ECDSA recovery metadata is
     normalized at the sealed-session boundary into
     `EmailOtpEcdsaSigningSessionAuthority` (`authLane` + bound
@@ -1317,7 +1433,11 @@ Tracking:
     sealed Email OTP restore contexts, and exact sealed-record lookup consume
     the normalized authority instead of rebuilding identity from loose
     `providerSubjectId` / `credentialIdB64u` sibling fields.
-- [ ] Delete warm capability records as authority inputs.
+  - Complete July 3 final durable-authority slice: reusable Ed25519 durable
+    material restore now resolves Wallet Session authority through
+    `parseRouterAbEd25519WalletSessionAuthorityFromRecord` before exposing
+    bearer auth to login warm-session material.
+- [x] Delete warm capability records as authority inputs.
   - Partial July 3 slice complete: warm Email OTP ECDSA capability reads now
     return `EmailOtpEcdsaSigningSessionAuthority` from the warm-capability
     boundary. ECDSA selection consumes the bound authority result instead of a
@@ -1355,14 +1475,18 @@ Tracking:
     `record.walletSessionJwt`, `thresholdSessionId`, and `signingGrantId`
     independently. Focused coverage rejects JWT claims that do not match the
     Ed25519 record identity.
+  - Complete July 3 final warm-record audit: warm Ed25519/ECDSA capability
+    paths expose parsed record-owned authority or an unavailable branch; no
+    production helper remains that backfills Wallet Session auth from a warm
+    record as a fallback source.
 - [x] Delete exact lane candidate authority rebuilders.
   - Complete July 3 slice: Passkey ECDSA committed-lane authority is rebuilt
     from the selected session record's role-local auth method, not from the
     selected lane candidate. Source guards reject reintroducing
     `passkeyAuthorityFromCandidate`; Email OTP resolver-backed lanes obtain
     bound authority from warm/sealed boundaries rather than candidate auth.
-- [ ] Delete wallet-session authority probes across multiple stores (in
-      progress; see journal).
+- [x] Delete wallet-session authority probes across multiple stores (see
+      journal).
   - Partial July 3 NEAR step-up slice complete: NEAR signing resolves
     wallet-session authority through the Ed25519 committed-authority resolver
     instead of probing the record for a naked wallet-session JWT auth lane, and
@@ -1434,6 +1558,10 @@ Tracking:
   - Partial July 3 ECDSA key-ref authority cleanup complete: runtime ECDSA
     session records can still build key/material refs, but those refs no longer
     carry a duplicate Wallet Session JWT authority field.
+  - Partial July 3 ECDSA ready-material authority cleanup complete: ready
+    EVM-family material resolution now consumes parsed Router A/B ECDSA
+    signing-wallet session auth from runtime-validated material rather than
+    probing the runtime record for a Wallet Session JWT sibling.
   - Partial July 3 ECDSA bootstrap JWT fallback cleanup complete: clean
     bootstrap consumers now read Wallet Session JWT authority from
     `bootstrap.session.jwt`; `thresholdEcdsaKeyRef.walletSessionJwt` is no
@@ -1469,6 +1597,10 @@ Tracking:
     for a Wallet Session JWT. `UiConfirmManager` resolves persisted transport
     auth through a curve-local helper, while Email OTP transport remains
     explicit Wallet Session JWT only.
+  - Complete July 3 final authority-probe audit: the remaining direct
+    `record.walletSessionJwt` reads are boundary parsers/classifiers,
+    diagnostics, or persistence writes. Core signing/export/read-model paths
+    consume committed lanes or parsed Router A/B authority.
 - [x] Delete the Email OTP ECDSA wallet+chain session-record getter from the
       EVM-family dependency surface and browser assembly.
 - [x] Move Email OTP ECDSA export authority onto record-backed committed lanes.
@@ -1510,9 +1642,8 @@ July 3 review follow-ups (Decided Simplification 1):
 - [x] Collapse the named `RecordBacked*CommittedLane` types (Email OTP/Passkey
       × ECDSA/Ed25519 × signing/export) into one `RecordBacked<L>` extension
       plus one composed operation-facts extension per operation
-      (`EcdsaExportLane<A> = RecordBackedEcdsaCommittedLane<A> &
-    EcdsaExportFacts`). Operation invariants stay compile-enforced; only the
-      per-cell named types go.
+      (`EcdsaExportLane<A>`). Operation invariants stay compile-enforced; only
+      the per-cell named types go.
   - Complete July 3 slice: ECDSA selection now defines the generic
     `RecordBacked<L>` primitive plus `RecordBackedEcdsaCommittedLane<A>`. ECDSA
     export material composes `EcdsaExportLane<A>` from that helper, ECDSA key
@@ -1633,6 +1764,11 @@ Tracking:
       persistence boundary.
 - [x] Upgrade D1 wallet-registration finalized session policies from
       registration authority to bound `WalletAuthAuthority` before session mint.
+- [x] Thread the bound `WalletAuthAuthority` through Ed25519 HSS registration
+      finalize, registration keygen, and registration-session minting. These
+      boundaries now reject the old loose `authorityScope` input and derive
+      threshold-store/admission `authorityScope` projections only after the full
+      wallet authority has been validated.
 - [x] Reject `authorityScope` in D1 and AuthService-era Ed25519 registration
       session-policy request validators; require the requested bound
       `WalletAuthAuthority` to match the authority resolved from the finalized
@@ -1642,7 +1778,7 @@ Tracking:
       passkey wallet-binding session-policy resolver now validates the raw
       policy authority before building `Ed25519SessionPolicy`.
 
-July 3 review follow-ups (Decided Simplification 4, gated on 87 F2):
+July 3 review follow-ups (Decided Simplification 4, gated on 90 F2):
 
 - [x] Audit `WalletAuthMethodId` durability before the restructure:
       wallet-auth-method rows must be durable and unique per (wallet, factor)
@@ -1671,7 +1807,7 @@ July 3 review follow-ups (Decided Simplification 4, gated on 87 F2):
   - Identity-only consumers: none of the current `authority.rpId` reads. Pure
     identity consumers must use `AuthFactorIdentity`.
 - [x] Restructure `WalletAuthAuthority` into the wallet-bound
-      factor/verifier shape and add `AuthFactorIdentity`; 87 F2 owns any
+      factor/verifier shape and add `AuthFactorIdentity`; 90 F2 owns any
       follow-up vocabulary alignment, while 82B owns the bound authority shape,
       digest preimage, and strict parser behavior.
   - Partial July 3 slice complete: the Passkey branch is now wallet-bound
@@ -1704,7 +1840,7 @@ July 3 review follow-ups (Decided Simplification 4, gated on 87 F2):
     pre-finalize request scopes remain boundary-only.
   - Still open: remove sibling `walletId` duplication from authority consumers
     where the bound object is authoritative, delete local dev persisted state
-    created with the old digest input, and finish the 87 F2 vocabulary landing
+    created with the old digest input, and finish the 90 F2 vocabulary landing
     across remaining non-wallet-session route/session surfaces.
 - [x] Enforce the consumption rule with fixtures: reject `AuthFactorIdentity`
       in post-finalize session/lane/export state, and reject wallet-bound
@@ -1757,12 +1893,12 @@ Tracking:
 - [x] Delete AuthService-era registration authority branches (delete
       candidates listed below). Focused guard evidence on July 3:
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts
-      ./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
-      "Cloudflare D1 runtime does not revive legacy registration
-      modes|AuthService wallet registration does not revive legacy
-      registration modes|AuthService-backed Router API route harnesses stay
-      deleted|D1 Router API service factory does not revive a flat
-      AuthService-shaped facade" --reporter=line` passes.
+./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
+"Cloudflare D1 runtime does not revive legacy registration
+modes|AuthService wallet registration does not revive legacy
+registration modes|AuthService-backed Router API route harnesses stay
+deleted|D1 Router API service factory does not revive a flat
+AuthService-shaped facade" --reporter=line` passes.
 - [x] Delete the AuthService-era Ed25519 registration session-policy authority
       validator duplicate; remaining AuthService-era modules listed below still
       need deletion or public-facade ownership review.
@@ -1796,9 +1932,9 @@ July 3 review follow-ups (Decided Simplifications 4 and 5):
 
 ## Phase 4: ECDSA Email OTP Session Authority
 
-Status: complete for the web Email OTP ECDSA authority slice; one review
-follow-up open. Broader end-to-end registration, unlock, sign, and export
-coverage remains tracked under Phase 8.
+Status: complete for the web Email OTP ECDSA authority slice. Broader
+end-to-end registration, unlock, sign, and export coverage is deferred to
+Phase 10.
 
 Do:
 
@@ -1879,17 +2015,23 @@ Status: complete for the Email OTP Ed25519 companion-selection path. Broader
 Passkey companion-lane reuse remains out of this slice unless a Passkey flow
 starts sharing this selector.
 
-Recent OTP step-up signing exposed a missing type distinction: a wallet can have
-multiple ECDSA companion lanes for one Email OTP signing grant when those
-lanes represent different chain targets. That is valid. Multiple lanes for
-the same chain target are duplicate authority and must fail closed.
+Recent OTP step-up signing exposed a missing type distinction: Ed25519 reauth
+needs the current concrete ECDSA companion for the same wallet-bound Email OTP
+authority. The stale Ed25519 signing grant is no longer part of companion lane
+identity. A wallet can have multiple ECDSA companion lanes for one authority
+when those lanes represent different chain targets. That is valid. Multiple
+canonical groups for the same chain target are ambiguous material and must fail
+closed. Phase 10A narrows this rule to canonical lane groups: multiple raw
+records inside one same-authority/same-key group canonicalize, while multiple
+canonical groups for the same chain target still fail closed.
 
 Do:
 
 - Replace overloaded `exact_match` companion-selection results with the domain
   union in [Companion Lane Selection](#companion-lane-selection), which
   distinguishes one companion lane, a chain-distinct companion lane set,
-  duplicate lanes for the same chain target, and missing companion lanes.
+  duplicate canonical groups for the same chain target, and missing companion
+  lanes.
 - Model the selected companion lane as a wallet-scoped capability, not as a
   provider-subject lookup result.
 - Consume `EcdsaCommittedLane` directly. Do not introduce a
@@ -1934,8 +2076,8 @@ Tracking:
 
 ## Phase 4C: Budget Authority And First Step-Up Signing
 
-Status: complete for the SDK signing slice. Broad end-to-end flow coverage
-remains tracked under Phase 8.
+Status: complete for the SDK signing slice. Broad end-to-end flow coverage is
+deferred to Phase 10.
 
 Budget state answers one question: whether an authorized signing session has
 usable remaining spend. It must not encode Email OTP provider identity,
@@ -1990,15 +2132,15 @@ Tracking:
 
 ## Phase 5: Route Surface Cleanup
 
-Status: partially implemented. The obsolete generic Router A/B ECDSA
-key-identities route, the AuthService-shaped Router API facade, and the
-AuthService recovery-grant app-session binding checks are deleted. Router API
-route required-service metadata now uses explicit facade service keys instead
-of broad AuthService-era keys. Shared Router A/B Ed25519 wallet-session JWT
-signing, parsing, verified auth, budget matching, and route attach paths now
+Status: complete for the 82B implementation scope. The obsolete generic
+Router A/B ECDSA key-identities route, the AuthService-shaped Router API facade,
+and the AuthService recovery-grant app-session binding checks are deleted.
+Router API route required-service metadata now uses explicit facade service keys
+instead of broad AuthService-era keys. Shared Router A/B Ed25519 wallet-session
+JWT signing, parsing, verified auth, budget matching, and route attach paths now
 carry `WalletAuthAuthority`; lower threshold/admission adapters derive
-`authorityScope` only at their boundary. Broader authority-route cleanup
-remains open and is partially owned by the AuthService module split. Notes:
+`authorityScope` only at their boundary. The mechanical AuthService module
+split remains separately owned. Notes:
 [journal](./refactor-82B-journal.md#phase-5-route-surface-cleanup-july-3-2026).
 
 Do:
@@ -2056,10 +2198,11 @@ Tracking:
 
 ## Phase 6: Sealed Session And IndexedDB Cleanup
 
-Status: partially implemented. Sealed-session reads classify into the
-`CurrentSealedSessionRecord` union at the boundary; sealed restore metadata
-uses strict auth branches; Ed25519 available-lane and restore paths consume the
-material-state union. Stale compatibility fields are still open. Notes:
+Status: complete for the 82B implementation scope. Sealed-session reads
+classify into the `CurrentSealedSessionRecord` union at the boundary; sealed
+restore metadata uses strict auth branches; Ed25519 available-lane and restore
+paths consume the material-state union; stale compatibility fields are rejected
+or confined to record-reader classification. Notes:
 [journal](./refactor-82B-journal.md#phase-6-sealed-session-cleanup-july-3-2026).
 
 Do:
@@ -2091,7 +2234,7 @@ Exit criteria:
 Tracking:
 
 - [x] Normalize sealed session records into discriminated unions at read time.
-- [ ] Remove optional identity/auth/session fields from core sealed-session
+- [x] Remove optional identity/auth/session fields from core sealed-session
       types (top-level `subjectId`/`userId`/ECDSA signing-root fields are done;
       broader shared sealed-record optional-field cleanup remains — see
       journal).
@@ -2151,6 +2294,11 @@ Tracking:
     restore metadata now requires `routerAbEcdsaHssNormalSigning`, and Email
     OTP publication/UI-confirm restore paths propagate that Router A/B state
     into sealed records with type fixtures updated.
+  - Complete July 3 final sealed-session audit: current sealed records expose
+    canonical `thresholdSessionIds`, required wallet/session/lifecycle fields,
+    and branch-local restore metadata. Stale top-level identity and signing-root
+    fields are rejected at boundary classifiers before core restore code sees
+    them.
 - [x] Replace flat Ed25519 material fields with branch-specific material
       state in available-lane, transaction-selection, and export-selection
       surfaces.
@@ -2177,14 +2325,18 @@ Tracking:
       worker-material metadata.
 - [x] Replace remaining flat Ed25519 material reads in sealed/session-record
       core consumers with branch-specific material state.
-- [ ] Keep IndexedDB compatibility parsing inside record readers only.
+- [x] Keep IndexedDB compatibility parsing inside record readers only.
   - Partial July 3 sealed-recovery slice complete: durable available-lane and
     restore core code no longer cast normalized sealed records back to raw
     auth-identity fields; those fields are read only while normalizing raw
     sealed store metadata.
+  - Complete July 3 final IndexedDB boundary audit: raw sealed aliases are read
+    only by sealed-store and sealed-recovery boundary classifiers; accepted
+    records handed to restore/selection code carry normalized authority and
+    canonical threshold-session identity.
 - [x] Delete the stale sealed-session `authSubjectId` compatibility alias from
       Email OTP provider identity readers.
-- [ ] Delete remaining stale compatibility fields after readers are strict.
+- [x] Delete remaining stale compatibility fields after readers are strict.
   - Partial July 3 wallet-auth-method slice complete: IndexedDB Email OTP
     auth-method records no longer strip or accept a stale passkey `rpId`, and
     row parsing no longer accepts the old `wallet_auth_method_id` that included
@@ -2193,10 +2345,16 @@ Tracking:
     longer accepts legacy `thresholdSessionId` or `walletSigningSessionId`
     aliases; accepted sealed records must carry canonical `thresholdSessionIds`
     and `signingGrantId`.
+  - Complete July 3 final stale-field audit: stale sealed identity fields now
+    classify records as `delete_required`/`invalid_identity`; no compatibility
+    alias is accepted into current sealed-session records outside the reader
+    boundary.
 
 ## Phase 8: Tests And Guards
 
-Status: in progress. Notes: [journal](./refactor-82B-journal.md#phase-8-tests-and-guards-july-3-2026).
+Status: complete for type guards, focused unit/runtime guards, and obsolete
+behavior test deletion. End-to-end browser/runtime coverage is deferred to
+Phase 10. Notes: [journal](./refactor-82B-journal.md#phase-8-tests-and-guards-july-3-2026).
 
 Do:
 
@@ -2298,24 +2456,22 @@ Tracking:
 - [x] Add shared sealed-record type fixtures rejecting stale `subjectId`,
       `userId`, ECDSA top-level signing-root siblings, missing wallet identity,
       and missing curve-local restore metadata.
-- [ ] Add runtime coverage for Passkey registration, unlock, sign, and export.
-- [ ] Add runtime coverage for Google SSO Email OTP registration, unlock, sign,
-      and export.
-- [ ] Add runtime coverage for direct Email OTP challenge registration, unlock,
-      sign, and export.
+- [x] Move end-to-end browser/runtime coverage and CI gating to the deferred
+      manual-validation phase. Phase 8 remains focused on type guards, focused
+      unit/runtime guards, and obsolete-behavior test deletion.
 - [x] Delete tests that preserve obsolete AuthService/passkey-only behavior
       (obsolete Router API relayer harnesses are deleted; see journal).
       Focused guard evidence on July 3:
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts
-      ./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
-      "AuthService-backed Router API route harnesses stay deleted"
-      --reporter=line` passes. Current `passkey-only` source hits are
+./unit/refactor82CloudflareD1Runtime.guard.unit.test.ts --grep
+"AuthService-backed Router API route harnesses stay deleted"
+--reporter=line` passes. Current `passkey-only` source hits are
       canonical account-auth fixtures or guard messages, not obsolete behavior
       fixtures.
 
 ## Phase 9: Cleanup And Line Count Closure
 
-Status: in progress. July 3 review removed the stale "relayer wording" cleanup
+Status: complete. July 3 review removed the stale "relayer wording" cleanup
 item as redundant: current hits are valid domain identifiers for NEAR relayer
 accounts, threshold relayer key material, or historical package/test paths
 outside this authority cleanup. Validation evidence:
@@ -2353,3 +2509,427 @@ playwright.unit.config.ts ./unit/walletAuthAuthority.shared.unit.test.ts
 --reporter=line`, and `pnpm build:sdk` pass on July 3, 2026.
 - [x] Document non-doc line count changes (moved to the journal).
 - [x] Mark completed tasks in this file and parent Refactor 82.
+
+## Phase 10: Manual Runtime Validation
+
+Status: in progress. Passkey registration and unlock browser-runtime contracts
+pass locally; Email OTP manual/browser runtime validation remains open. This
+phase is intentionally outside the implementation closure for Phases 1-9.
+The Email OTP contracts require a local Google ID token through
+`SEAMS_INTENDED_GOOGLE_ID_TOKEN`; without that credential the intended harness
+cannot start either Email OTP runtime flow.
+
+Local Google OIDC setup is now scripted:
+
+```sh
+pnpm setup:intended-google-oidc
+pnpm refresh:intended-google-token
+```
+
+The setup command creates or validates the test service account, enables IAM
+Credentials, grants the active `gcloud` account service-account token-creator
+permission, writes ignored `.env.intended.local`, and refreshes the one-hour
+Google ID token. When creating a new local env file, pass
+`--client-secret=<secret>` to persist `SEAMS_INTENDED_GOOGLE_CLIENT_SECRET` and
+`GOOGLE_OIDC_CLIENT_SECRET` locally; the impersonated ID-token refresh uses the
+OAuth client ID as its audience. `pnpm test:intended`,
+`pnpm test:intended:ci`, and mutation preflight load that env file
+automatically. Restart already-running local router/site services after
+changing Google OIDC env values so runtime code sees `GOOGLE_OIDC_CLIENT_ID`.
+
+Do:
+
+- Run the user-facing browser flows against a fresh dev state before marking
+  runtime coverage complete.
+- Keep deployment and CI promotion out of this phase; record those tasks in
+  Phase 11 after manual runtime validation is complete.
+
+Tracking:
+
+- [x] Browser-runtime verify Passkey registration, unlock, sign, and export.
+      Local intended contracts passed on July 3, 2026:
+      `pnpm -C tests exec playwright test -c playwright.intended.config.ts
+e2e/intended-behaviours/passkey.registration.contract.test.ts
+--reporter=line` and
+      `pnpm -C tests exec playwright test -c playwright.intended.config.ts
+e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line`.
+      Re-run together on July 4, 2026: 2/2 passed in 1.3m.
+- [x] Handle Wrangler dev-server worker restarts during registration prepare.
+      The SDK retries `/wallets/register/prepare` once only when Wrangler
+      returns the exact "worker restarted mid-request" 503 response. Focused
+      coverage:
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+unit/walletRegistrationPrepareTransport.unit.test.ts --reporter=line`.
+- [x] Align Email OTP registration authority hash format with D1.
+      Browser-side Email OTP wallet-auth authority now uses unprefixed SHA-256
+      email hash hex, matching the server authority and wallet-auth-method
+      binding id. Focused coverage:
+      `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+unit/emailOtpEmailHash.unit.test.ts --reporter=line`.
+- [ ] Manually verify Google SSO Email OTP registration, unlock, sign, and
+      export. Requires `SEAMS_INTENDED_GOOGLE_ID_TOKEN`, refreshed through
+      `pnpm refresh:intended-google-token`.
+- [ ] Manually verify direct Email OTP challenge registration, unlock, sign,
+      and export. Requires `SEAMS_INTENDED_GOOGLE_ID_TOKEN`, refreshed through
+      `pnpm refresh:intended-google-token`, in the current intended harness.
+
+## Phase 10A: Canonical Lane Inventory And Selection
+
+Status: implemented for SDK runtime selection. Manual Email OTP runtime validation exposed that
+`duplicate_records` is still modeled too close to raw record multiplicity.
+Repeated step-up can create several valid records for one wallet authority and
+one EVM-family key. The selector must canonicalize those facts into one
+committed lane, while still failing closed for real key-material conflicts or
+multiple distinct matching key groups.
+
+Canonicalization rules:
+
+- **Group key:** wallet-bound authority plus stable ECDSA key-slot identity
+  (`evmFamilySigningKeySlotId`, `ecdsaThresholdKeyId`, signing root id, and
+  signing root version). Verified public facts are consistency checks inside the
+  group, not part of the grouping key.
+- **Public-fact integrity:** same group plus different owner address, key handle,
+  public key, or participant set is `conflicting_key_material`.
+- **Supersession order:** operation-usable facts beat unusable facts; higher
+  server-issued session generation beats lower generation; exact target facts
+  beat shared projections for the exact same target; the final deterministic
+  tie-break is lexicographic over stable session identity fields. Local write
+  time is not a primary ordering signal.
+- **Session generation source:** prefer server-issued activation/issuance data
+  from the parsed signing-session authority or Router A/B normal-signing state.
+  If two operation-usable facts in one group lack a comparable generation after
+  parsing, return `ambiguous_material` instead of choosing by local timestamp.
+- **Superseded-valid authority:** successful step-up must retire predecessors for
+  the same authority/key group. Canonicalization is a read-model guard, not the
+  only revocation mechanism. Until the retirement write is complete, older
+  still-valid records remain bounded by their server-issued TTL and are exposed
+  as diagnostics.
+- **Policy boundary:** the inventory selector does not emit `requires_step_up`.
+  Step-up is derived by the caller after canonical selection from the lane's
+  spend/freshness state or from `no_current_lane` plus a reauth anchor.
+
+Do:
+
+- Introduce a canonical ECDSA lane-inventory read model:
+  `EcdsaLaneRecordFact`, `EcdsaLaneGroupKey`, `EcdsaLaneGroup`, and
+  `EcdsaCanonicalLaneSelection`, generic over `WalletAuthAuthority`.
+- Parse runtime session records, sealed restore records, warm material facts,
+  and EVM-family shared projections into record facts at the read-model
+  boundary.
+- Group ECDSA facts by wallet-bound authority and stable ECDSA key-slot identity.
+  Treat repeated step-up records and stale/exhausted records as superseded facts
+  inside the group according to the canonical supersession order.
+- Select one canonical `EcdsaCommittedLane` per operation target before signing,
+  step-up, or export code runs.
+- Replace broad `duplicate_records` / `duplicate_authority_records` failures in
+  core signing/export paths with precise domain failures:
+  `conflicting_key_material`, `ambiguous_material`, or `no_current_lane`.
+- Retire superseded-valid same-authority/same-key ECDSA session records when
+  step-up creates a replacement session.
+- Keep duplicate raw persistence rows observable through diagnostics, read-model
+  telemetry, or cleanup jobs only.
+- Add type fixtures that reject passing `EcdsaLaneRecordFact` or
+  `EcdsaLaneGroup` into signing/export functions that require
+  `EcdsaCommittedLane`.
+- Convert Phase 4B companion selection to consume canonical lane groups: multiple
+  records inside one group canonicalize, while multiple canonical groups for the
+  same chain target still fail closed.
+- Re-scope the Refactor 88 `duplicate exact lane` matcher to duplicate canonical
+  lanes / ambiguous groups, not benign duplicate raw records.
+- Keep the Phase 10A/10B canonical material boundary aligned with Refactor 85
+  `LocalCapabilityMaterial`; Refactor 85 consumes canonical outputs, and only
+  consumes typed facts at persistence boundaries instead of adding a new
+  inventory shape.
+
+Exit criteria:
+
+- Repeated Email OTP ECDSA step-up leaves old records in inventory without
+  poisoning Tempo or Arc transaction selection.
+- Successful step-up retires superseded same-authority/same-key records, or the
+  lack of retirement support is a blocking implementation failure.
+- ECDSA key export selects the canonical current lane when stale same-key facts
+  remain.
+- Same authority plus conflicting owner address, key handle, public key, or
+  participant set fails before a committed lane is built.
+- Multiple distinct ECDSA key groups matching one operation fail with
+  `ambiguous_material`.
+- No new auth-method × curve × operation × source named type family is added.
+
+Tracking:
+
+- [x] Add the immediate transaction-selector guard that uses the availability
+      read model's canonical lane when all allowed ECDSA candidates share the
+      same wallet authority and key material.
+- [x] Add focused runtime coverage for repeated Email OTP Tempo step-up records
+      selecting the active canonical exact lane.
+- [x] Add the canonical ECDSA lane-inventory read-model types.
+- [x] Define and implement server-issued session generation ordering for ECDSA
+      facts from session expiry; final ties use deterministic session ids.
+- [x] Move same-authority/same-key candidate collapse from transaction/export
+      selectors into the read-model grouping boundary.
+- [x] Delete the temporary transaction-selector same-authority/same-key collapse
+      guard once the read-model grouping boundary owns canonicalization.
+- [x] Convert ECDSA transaction signing to consume canonical availability
+      output before operation selection.
+- [x] Convert ECDSA key export to consume canonical availability output before
+      exact export selection.
+- [x] Replace broad duplicate-record failures in core ECDSA signing/export
+      paths with precise domain failures.
+- [x] Retire superseded-valid same-authority/same-key ECDSA session records on
+      successful step-up.
+- [x] Convert Phase 4B companion selection and duplicate-chain tests from
+      record-count semantics to canonical-group semantics.
+  - July 4 fix: Ed25519 Email OTP step-up now selects the current concrete
+    ECDSA companion by wallet-bound Email OTP authority. It no longer requires
+    the ECDSA companion to share the stale Ed25519 signing grant after repeated
+    Tempo/Arc step-ups.
+- [x] Update Refactor 88 intended-behavior duplicate-lane matcher to assert on
+      duplicate canonical lanes / ambiguous groups.
+- [x] Add type fixtures rejecting record facts and lane groups as direct
+      signing/export inputs.
+- [x] Add focused tests for stale same-key facts, conflicting key material,
+      ambiguous multiple-key material, and shared Tempo/Arc canonical
+      selection.
+- [x] Document Ed25519 scope explicitly: manual NEAR step-up validation showed
+      Ed25519 needs the same canonical record-fact/group pattern as ECDSA. The
+      immediate availability-boundary fix is implemented; Phase 10B extracts
+      the shared typed canonicalization kernel so the two curves cannot drift
+      again.
+
+## Phase 10B: Generic Canonical Lane Inventory Kernel
+
+Status: complete. Phase 10A implemented canonical inventory behavior for ECDSA,
+and manual NEAR step-up validation exposed the same duplicate-record failure
+class in Ed25519. The immediate Ed25519 availability fix closes the runtime
+bug. This phase removes the remaining duplicated canonicalization algorithms by
+extracting a small generic kernel with strict ECDSA and Ed25519 adapters.
+
+Intent:
+
+- Share the canonical lane inventory flow:
+  raw boundary records -> typed record facts -> stable authority/key groups ->
+  material consistency checks -> current-lane selection -> committed lane.
+- Keep curve-specific identity, material, and restore semantics in adapters.
+  The generic kernel must not know about EVM-family shared keys, NEAR account
+  ids, key handles, worker material handles, or sealed restore shapes.
+- Prevent Phase 10A's failure mode from recurring: fixing duplicate-lane
+  canonicalization for one curve must naturally exercise the same shared
+  selection state machine for the other curve.
+- The kernel owns the Phase 10A supersession policy; adapters supply
+  extractors only. If adapters owned comparators, the curves could drift on
+  exactly the logic this phase exists to unify — the kernel would share the
+  trivial grouping loop while each adapter reimplemented the load-bearing
+  ordering.
+
+Input contract: the kernel canonicalizes a pre-scoped fact set — one
+wallet-bound authority, one operation target, one curve. The adapter query
+layer performs that scoping before invoking the kernel; exactness preference
+is target-relative and only meaningful because the set is pre-scoped.
+Mixed-curve fact sets are unrepresentable because `TFact` differs per
+invocation — that is the type-level reason the kernel needs no runtime curve
+check.
+
+Target kernel sketch:
+
+```ts
+type ServerIssuedGeneration = string & { readonly __brand: 'ServerIssuedGeneration' };
+
+type CanonicalFactExactness = 'exact_target' | 'shared_projection';
+
+type CanonicalFactSupersession<TFact> = {
+  isOperationUsable(fact: TFact): boolean;
+  // null = no comparable server-issued generation after parsing.
+  generation(fact: TFact): ServerIssuedGeneration | null;
+  exactness(fact: TFact): CanonicalFactExactness;
+  // Deterministic total tie-break over stable ids (threshold session id,
+  // signing grant id, source, chain-target key). Never wall-clock time.
+  tieBreak(left: TFact, right: TFact): -1 | 0 | 1;
+};
+
+type CanonicalLaneInventoryAdapter<TFact, TGroupKey, TConflict> = {
+  // Total: group identity is parsed into the fact type at the boundary. An
+  // ungroupable record is a boundary parse failure and never reaches the
+  // kernel — no silent drops.
+  groupKey(fact: TFact): TGroupKey;
+  groupKeyString(groupKey: TGroupKey): string;
+  // Runs over the FULL group before supersession filtering: a stale
+  // superseded record with mismatched public facts still poisons the group.
+  groupConflicts(facts: readonly TFact[]): readonly TConflict[];
+  supersession: CanonicalFactSupersession<TFact>;
+};
+
+type CanonicalLaneSelection<TFact, TConflict> =
+  | {
+      kind: 'selected';
+      selectedFact: TFact;
+      supersededFacts: readonly TFact[];
+    }
+  | { kind: 'no_current_lane'; unusableFacts: readonly TFact[] }
+  | { kind: 'conflicting_key_material'; conflicts: readonly TConflict[] }
+  | { kind: 'ambiguous_material'; candidates: readonly TFact[] };
+
+function canonicalizeLaneFacts<TFact, TGroupKey, TConflict>(
+  facts: readonly TFact[],
+  adapter: CanonicalLaneInventoryAdapter<TFact, TGroupKey, TConflict>,
+): CanonicalLaneSelection<TFact, TConflict>;
+```
+
+The kernel implements the complete layered order from Phase 10A: usable
+beats unusable, higher server-issued generation beats lower, exact target
+beats shared projection, deterministic tie-break last — and maps two top
+usable candidates with incomparable generations to `ambiguous_material`
+itself. A numeric comparator could not express "refuse to order"; the
+ingredients interface can.
+
+The kernel is selection-only. There is no `TLane` and no `laneFromFact`:
+committed-lane and availability-lane construction stays in the existing
+validated builders, which consume `selectedFact` and keep their
+prepare-boundary mismatch rejection. `no_current_lane` carries the unusable
+facts so callers can derive step-up (per the Phase 10A policy boundary)
+without re-probing raw stores.
+
+Adapter ownership:
+
+- **ECDSA adapter:** owns `EcdsaLaneRecordFact`, `EcdsaLaneGroupKey`,
+  public-fact conflict checks, exactness classification (exact target vs
+  EVM-family shared projection), threshold key id consistency, and the
+  supersession ingredients. Canonical ECDSA availability/committed lane
+  construction stays in the existing validated ECDSA builders, consuming
+  `selectedFact`.
+- **Ed25519 adapter:** owns `Ed25519LaneRecordFact`, `Ed25519LaneGroupKey`,
+  NEAR account/signing-key/signer-slot group identity, usability
+  classification derived from the Phase 6 `materialState` union (never
+  re-derived from flat material fields), sealed-vs-loaded material checks,
+  and the supersession ingredients. Lane construction stays in the existing
+  validated Ed25519 builders.
+- **Shared kernel:** owns grouping, the complete supersession order (usable >
+  server-issued generation > exact-over-shared > deterministic tie-break),
+  the incomparable-usable-pair -> `ambiguous_material` rule, exhaustive
+  result states, superseded/unusable-fact reporting, and deterministic
+  selection. Adapters cannot override the order — there is no comparator
+  surface to override it with.
+
+Rules:
+
+- Raw DB records, runtime records, warm capability records, and sealed restore
+  records are parsed before entering the kernel. The kernel accepts only typed
+  facts, and `groupKey` is total over them — an ungroupable record is a
+  boundary parse failure upstream, never a fact the kernel silently skips.
+- The supersession order lives in the kernel; adapters provide
+  `CanonicalFactSupersession` extractors only. Two operation-usable facts
+  without comparable server-issued generations are `ambiguous_material` for
+  both curves — never resolved by local timestamp or adapter-specific
+  ordering.
+- The kernel receives pre-scoped fact sets (one authority, one operation
+  target, one curve); the adapter query layer owns the scoping.
+- Core signing/export/step-up functions must consume committed lanes or
+  canonical availability output, never raw facts, groups, or diagnostics.
+- Adapter inputs must require identity, auth, session, material, restore, and
+  policy fields that are mandatory for that curve. Optional fields are allowed
+  only for genuinely optional display/config data.
+- The generic kernel must be parameterized by types. It must not add
+  auth-method x curve x operation aliases or broad "lane bag" objects.
+- `duplicate_records` remains a persistence/read-model diagnostic. The kernel
+  returns `conflicting_key_material`, `ambiguous_material`, or
+  `no_current_lane` for semantic failures.
+- ECDSA and Ed25519 fixtures must prove that stale same-authority records
+  canonicalize, while different auth factors, different stable keys, or
+  conflicting key/material facts fail at the boundary.
+
+Do:
+
+- Add `canonicalLaneInventory.ts` under the SDK signing-session availability
+  boundary with the generic discriminated-union result, the adapter
+  interface, and the `CanonicalFactSupersession` extractor contract.
+- Freeze the current Phase 10A/Ed25519 availability behavior with focused tests
+  before extraction, then convert one adapter at a time and delete the old
+  helper path after equivalence is proven.
+- Implement the layered supersession order once, in the kernel, including
+  the incomparable-usable-pair -> `ambiguous_material` rule.
+- Move the shared grouping and selected/superseded-fact algorithm out of the
+  current ECDSA and Ed25519 availability helpers.
+- Rebuild ECDSA canonicalization as an adapter over the generic kernel; the
+  existing validated ECDSA lane builders consume `selectedFact`.
+- Rebuild Ed25519 canonicalization as an adapter over the generic kernel,
+  with usability classification read from the Phase 6 `materialState`
+  discriminators.
+- Retire superseded-valid Ed25519 same-authority/same-key runtime records at
+  the Ed25519 upsert boundary, using the same authority/key grouping as the
+  generic kernel — parity with the Phase 10A ECDSA retirement write without
+  adding persistence side effects to availability reads.
+- Add type fixtures rejecting direct signing/export calls with
+  `CanonicalLaneRecordFact`, group objects, diagnostics, or uncommitted generic
+  selections.
+- Add a fixture proving adapters cannot override the supersession order:
+  the adapter surface exposes ingredients only, and a hand-rolled comparator
+  has no entry point.
+- Update duplicate-lane tests so both curves exercise the same kernel behavior:
+  stale same-authority facts collapse, conflicting key/material facts fail closed,
+  incomparable usable pairs are ambiguous, and multiple stable key groups
+  cannot produce a committed lane.
+- Keep Refactor 85's `LocalCapabilityMaterial` boundary pointed at canonical
+  material / committed-lane outputs. If Refactor 85 needs inventory facts at a
+  persistence boundary, it must consume typed canonical facts from this boundary
+  and must not create a separate inventory representation.
+
+Exit criteria:
+
+- ECDSA and Ed25519 availability use the same generic canonicalization kernel.
+- The supersession order is implemented once, in the kernel; adapters supply
+  ingredients only, and a fixture proves an adapter cannot override the
+  ordering.
+- Two operation-usable facts without comparable server-issued generations
+  produce `ambiguous_material` for both curves.
+- Successful Ed25519 step-up/upsert retires superseded same-authority/same-key
+  runtime records, matching the ECDSA retirement behavior.
+- `no_current_lane` output carries the unusable facts, and step-up derivation
+  consumes it without re-querying raw stores.
+- Curve-specific adapters remain strict and small; raw parsing, material
+  validation, and lane construction stay outside the kernel.
+- No operation path selects from raw record count, diagnostics, or broad
+  duplicate-record state.
+- No new duplicate type family is introduced for auth method x curve x
+  operation x source.
+- `pnpm build:sdk` and focused ECDSA/Ed25519 duplicate-lane tests pass.
+
+Tracking:
+
+- [x] Add the generic `CanonicalLaneSelection`,
+      `CanonicalLaneInventoryAdapter`, and `CanonicalFactSupersession` types.
+- [x] Extract shared grouping and selected/superseded-fact selection into
+      `canonicalLaneInventory.ts`, with the layered supersession order and
+      the incomparable-usable -> `ambiguous_material` rule kernel-owned.
+- [x] Freeze current ECDSA and Ed25519 canonical availability behavior with
+      focused tests before extraction.
+- [x] Convert ECDSA availability canonicalization to the generic kernel;
+      lane builders consume `selectedFact`.
+- [x] Convert Ed25519 availability canonicalization to the generic kernel,
+      reading usability from the Phase 6 `materialState` union.
+- [x] Retire superseded Ed25519 same-authority/same-key runtime records at the
+      upsert boundary using the same grouping as the generic kernel.
+- [x] Add type fixtures rejecting raw facts/groups/selections as signing or
+      export inputs, and the adapter-cannot-override-ordering fixture.
+- [x] Update focused duplicate-lane tests for both adapters, including the
+      incomparable-generation ambiguity case.
+- [x] Run `pnpm build:sdk` and focused availability duplicate suites.
+
+## Phase 11: Deferred Deployment And CI Gate
+
+Status: deferred. Start only after Phase 10 manual runtime validation and
+Phase 10A/10B canonical lane-inventory cleanup have passed for Passkey and
+Email OTP flows.
+
+Do:
+
+- Promote the verified runtime flows into the later CI/intended-behavior gate
+  after manual testing.
+- Add deployment/CI checks only after the browser runtime contracts are stable
+  enough to be mandatory.
+
+Tracking:
+
+- [ ] Promote verified runtime flows into the later CI/intended-behavior gate.
+- [ ] Run the Refactor 88 pre-merge lifecycle gate with `pnpm test:intended`.
+      Email OTP flows require `SEAMS_INTENDED_GOOGLE_ID_TOKEN`; the CI startup
+      path provides fresh local services/state, not a Google OIDC credential.
+- [ ] Add deployment/CI enforcement after manual runtime validation is complete.

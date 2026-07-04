@@ -1,8 +1,7 @@
+import { createWarmSessionUiConfirmFixture } from './helpers/warmSessionUiConfirm.fixtures';
 import { expect, test } from '@playwright/test';
 import { ensureEvmFamilyThresholdEcdsaRecordReady } from '@/core/signingEngine/flows/signEvmFamily/ecdsaReadiness';
-import {
-  getThresholdEcdsaSessionRecordByKey,
-} from '@/core/signingEngine/session/persistence/records';
+import { getThresholdEcdsaSessionRecordByKey } from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildEvmTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
@@ -15,13 +14,13 @@ import {
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
+
 import {
-  createThresholdEcdsaBootstrapFixture,
-  createThresholdEcdsaStoreFixture,
-  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionStore.fixtures';
+  createThresholdEcdsaStoreFixture,
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 test.describe('EVM family threshold reconnect events', () => {
   test('emits numbered v2 reconnect phases when ensuring stale threshold session readiness', async () => {
@@ -114,8 +113,9 @@ test.describe('EVM family threshold reconnect events', () => {
           registration: { mode: 'self' },
         },
         getPasskeyThresholdEcdsaSessionRecordForSigning: () => staleRecord,
-        getThresholdEcdsaSessionRecordByKey: (identity: Parameters<typeof getThresholdEcdsaSessionRecordByKey>[1]) =>
-          getThresholdEcdsaSessionRecordByKey(ecdsaStore, identity),
+        getThresholdEcdsaSessionRecordByKey: (
+          identity: Parameters<typeof getThresholdEcdsaSessionRecordByKey>[1],
+        ) => getThresholdEcdsaSessionRecordByKey(ecdsaStore, identity),
         clearThresholdEcdsaSessionRecordForExactIdentity: () => undefined,
         provisionThresholdEcdsaSession: async (request: {
           walletKey: {
@@ -132,9 +132,7 @@ test.describe('EVM family threshold reconnect events', () => {
           const chainTarget = request.lanePolicy.chainTarget;
           const chain = chainTarget.kind;
           const sessionId = String(request.sessionIdentity.thresholdSessionId);
-          const requestedSigningGrantId = String(
-            request.sessionIdentity.signingGrantId,
-          );
+          const requestedSigningGrantId = String(request.sessionIdentity.signingGrantId);
           provisionedChainIds.push(chainTarget.chainId);
           const freshBootstrap = createThresholdEcdsaBootstrapFixture({
             nearAccountId: 'reconnect-events.testnet',

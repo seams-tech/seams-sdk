@@ -1,5 +1,13 @@
 # Registration Flow Benchmark Report
 
+Status: archived historical report from the retired registration-flow benchmark.
+
+Commands embedded below are provenance only. The Playwright runner and mocked
+managed-registration harness they target were removed during Refactor 88.
+Current lifecycle and replacement latency checks should run through the
+Refactor 88 intended-behaviour topology, which exercises the public SDK/UI flow
+against the real Router API, wallet iframe, IndexedDB, D1/DO, and workers.
+
 Generated: 2026-06-11T04:14:14.540Z
 Run ID: `20260611-041314Z`
 

@@ -3,7 +3,6 @@ import { toast } from 'sonner';
 
 import { useSeams } from '@seams/sdk/react';
 
-import type { FrontendConfig } from '@/config';
 import { useSetGreeting } from '@/shared/hooks/useSetGreeting';
 import { NearGreetingSection } from './sections/NearGreetingSection';
 import { SigningSessionSection } from './sections/SigningSessionSection';
@@ -15,28 +14,7 @@ import { useDemoSigningSession } from './hooks/useDemoSigningSession';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
 
-type DemoPageTestOverrides = {
-  useSeamsHook?: typeof useSeams;
-  useSetGreetingHook?: typeof useSetGreeting;
-  frontendConfig?: Pick<
-    FrontendConfig,
-    | 'chains'
-    | 'managedRegistration'
-    | 'relayerUrl'
-    | 'tempoExplorerUrl'
-    | 'tempoFeeToken'
-    | 'tempoRpcUrl'
-  >;
-};
-
-type DemoPageProps = {
-  __testOverrides?: DemoPageTestOverrides;
-};
-
-export const DemoPage: React.FC<DemoPageProps> = (props) => {
-  const useSeamsHook = props.__testOverrides?.useSeamsHook || useSeams;
-  const useSetGreetingHook = props.__testOverrides?.useSetGreetingHook || useSetGreeting;
-
+export const DemoPage: React.FC = () => {
   const [clockMs, setClockMs] = useState(() => Date.now());
 
   // Lightweight clock for TTL countdown display
@@ -48,9 +26,9 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const {
     loginState: { isLoggedIn, walletId, nearAccountId, nearPublicKey },
     seams,
-  } = useSeamsHook();
+  } = useSeams();
 
-  const { onchainGreeting, isLoading, fetchGreeting, error } = useSetGreetingHook();
+  const { onchainGreeting, isLoading, fetchGreeting, error } = useSetGreeting();
 
   const [tempoGreetingInput, setTempoGreetingInput] = useState(() =>
     createChainDefaultGreeting('Tempo'),
@@ -87,7 +65,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     isLoggedIn,
     walletId,
     seams,
-    frontendConfig: props.__testOverrides?.frontendConfig,
     tempoGreetingInput,
     arcGreetingInput,
   });

@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { listThresholdEcdsaSessionRecordsForWalletTarget } from '@/core/signingEngine/session/persistence/records';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
 import {
-  createWarmSessionTestServices,
-  createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
-  testEcdsaChainTarget,
-} from './helpers/warmSessionStore.fixtures';
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

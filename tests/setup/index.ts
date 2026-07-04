@@ -1,11 +1,12 @@
 /**
  * E2E Test Setup Utilities
  *
- * Provides reusable setup functions for SeamsWeb e2e testing for:
- * - Registration flow: Works correctly
- * - Contract verification: Finds stored credentials
- * - Login flow: standard WebAuthn works properly
- * - Recovery flow: Works correctly with proper account ID extraction
+ * Provides reusable browser setup functions for UI, iframe, and component tests:
+ * - Chromium virtual WebAuthn
+ * - import-map wiring for local SDK modules
+ * - wallet iframe worker URL normalization for the generic browser suite
+ *
+ * Intended lifecycle coverage lives in tests/e2e/intended-behaviours/harness.ts.
  *
  * IMPORTANT: Module Loading Strategy
  * ===================================
@@ -22,12 +23,13 @@
  *
  * Setup Process:
  * ==============
- * The setup follows a precise 5-step sequence to avoid race conditions:
- * 1. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator first
- * 2. IMPORT MAP INJECTION: Add module resolution mappings to the page
- * 3. STABILIZATION WAIT: Allow browser environment to settle
- * 4. DYNAMIC IMPORTS: Load SeamsWeb only after environment is ready
- * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
+ * The setup follows a precise sequence to avoid race conditions:
+ * 1. WALLET SDK ROUTES: Install local wallet-origin SDK and wallet-service routes
+ * 2. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator
+ * 3. IMPORT MAP INJECTION: Add module resolution mappings to the page
+ * 4. STABILIZATION WAIT: Allow browser environment to settle
+ * 5. DYNAMIC IMPORTS: Load SeamsWeb after environment setup
+ * 6. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
  */
 
 // STATIC IMPORTS: Safe to load early
@@ -37,11 +39,8 @@
 // - type SeamsWeb: TypeScript type only, no runtime code
 // - encoders: Utility functions used in Node.js context, not browser
 import { Page, test } from '@playwright/test';
-import type { SeamsWeb } from '@/SeamsWeb';
 import { executeSequentialSetup } from './bootstrap';
 import { DEFAULT_TEST_CONFIG } from './config';
-import { setupWebAuthnMocks } from './webauthn-mocks';
-import { setupTestUtilities } from './test-utils';
 import type { PasskeyTestConfig, PasskeyTestSetupOptions } from './types';
 export { SDK_ESM_BASE_PATH, SDK_ESM_PATHS, sdkEsmPath } from './sdkEsmPaths';
 
@@ -50,10 +49,10 @@ export { SDK_ESM_BASE_PATH, SDK_ESM_PATHS, sdkEsmPath } from './sdkEsmPaths';
 // =============================================================================
 
 /**
- * Main setup function using the 5-step process
+ * Generic browser setup function using the browser setup sequence.
  *
- * This function orchestrates the complete test environment setup following
- * a precise sequence to avoid module loading race conditions:
+ * This function prepares UI, iframe, and component tests following a precise
+ * sequence to avoid module loading race conditions:
  *
  * UserConfirm context:
  * - The wallet iframe now loads two cooperating workers:
@@ -61,11 +60,12 @@ export { SDK_ESM_BASE_PATH, SDK_ESM_PATHS, sdkEsmPath } from './sdkEsmPaths';
  *   - Signer worker: derives WrapKeySeed from prfFirstB64u + wrapKeySalt supplied in wallet-origin
  *     requests and performs NEAR signing; confirmTxFlow never carries raw PRF material.
  *
- * 1. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator first
- * 2. IMPORT MAP INJECTION: Add module resolution mappings to the page
- * 3. STABILIZATION WAIT: Allow browser environment to settle
- * 4. DYNAMIC IMPORTS: Load SeamsWeb only after environment is ready
- * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
+ * 1. WALLET SDK ROUTES: Install local wallet-origin SDK and wallet-service routes
+ * 2. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator
+ * 3. IMPORT MAP INJECTION: Add module resolution mappings to the page
+ * 4. STABILIZATION WAIT: Allow browser environment to settle
+ * 5. DYNAMIC IMPORTS: Load SeamsWeb after environment setup
+ * 6. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
  */
 export async function setupBasicPasskeyTest(
   page: Page,
@@ -73,16 +73,11 @@ export async function setupBasicPasskeyTest(
 ): Promise<void> {
   const config: PasskeyTestConfig = { ...DEFAULT_TEST_CONFIG, ...options };
 
-  // Defensive shims (test-only):
-  // 1) Pin embedded base to the current frame origin so SDK assets resolve same-origin (toggle: forceSameOriginSdkBase)
-  // 2) Patch Worker() to rewrite cross-origin URLs to same-origin equivalents (toggle: forceSameOriginWorkers)
-  // Defaults: both true unless W3A_FORCE_SAME_ORIGIN_WORKERS=0
+  // Generic browser tests still run through the local app origin and need their SDK assets mirrored.
+  // Intended-behaviour contracts use their own harness and never import this shimmed setup path.
   try {
     const appOrigin = new URL(config.frontendUrl).origin;
     const rpId = config.rpId || '';
-    const envDefault = process.env.W3A_FORCE_SAME_ORIGIN_WORKERS !== '0';
-    const forceSameOriginWorkers = options.forceSameOriginWorkers ?? envDefault;
-    const forceSameOriginSdkBase = options.forceSameOriginSdkBase ?? forceSameOriginWorkers;
 
     // Make rpId available in all frames (wallet iframe mocks run cross-origin).
     await page.addInitScript(
@@ -97,9 +92,8 @@ export async function setupBasicPasskeyTest(
 
     // (1) Lock __W3A_WALLET_SDK_BASE__ to per-frame same-origin /sdk/
     await page.addInitScript(
-      (args: { appOrigin: string; enable: boolean }) => {
-        const { appOrigin, enable } = args || ({} as any);
-        if (!enable) return;
+      (args: { appOrigin: string }) => {
+        const { appOrigin } = args || ({} as any);
         try {
           const frameOrigin = (() => {
             try {
@@ -135,14 +129,13 @@ export async function setupBasicPasskeyTest(
           } catch {}
         } catch {}
       },
-      { appOrigin, enable: forceSameOriginSdkBase },
+      { appOrigin },
     );
 
     // (2) Patch Worker constructor to force same-origin worker URLs (per-frame)
     await page.addInitScript(
-      (args: { appOrigin: string; enable: boolean }) => {
-        const { appOrigin, enable } = args || ({} as any);
-        if (!enable) return;
+      (args: { appOrigin: string }) => {
+        const { appOrigin } = args || ({} as any);
         try {
           const frameOrigin = (() => {
             try {
@@ -188,129 +181,17 @@ export async function setupBasicPasskeyTest(
           Object.defineProperty(window, 'Worker', { value: PatchedWorker });
         } catch {}
       },
-      { appOrigin, enable: forceSameOriginWorkers },
+      { appOrigin },
     );
   } catch {}
 
-  // Execute the 5-step sequential setup process
+  // Execute the generic sequential setup process.
   const authenticatorId = await executeSequentialSetup(page, config, {
     skipSeamsWebInit: options.skipSeamsWebInit,
     injectWalletServiceImportMap: options.injectWalletServiceImportMap,
   });
 
-  // Continue with the rest of the setup (WebAuthn mocks, etc.)
-  await setupWebAuthnMocks(page);
-  await setupTestUtilities(page, config);
-
-  // Note: We do not install Router API mocks by default.
-  // Tests should call setupRouterApiMock(true) in their page.evaluate context
-  // before attempting registration to avoid "Invalid signed transaction payload" errors.
-
   // environment ready
-}
-
-/**
- * Setup test environment with Router API atomic registration flow
- * This configures the test to use the atomic registration/bootstrap endpoint
- */
-export async function setupRouterApiServerTest(
-  page: Page,
-  options: {
-    frontendUrl?: string;
-    relayServerUrl?: string;
-    nearRpcUrl?: string;
-    rpId?: string;
-    testReceiverAccountId?: string;
-  } = {},
-): Promise<void> {
-  await setupBasicPasskeyTest(page, {
-    ...options,
-    useRelayer: true,
-    relayServerUrl: options.relayServerUrl || 'https://router-api.localhost',
-  });
-}
-
-/**
- * Setup test environment with testnet faucet (sequential) registration flow
- * This configures the test to use the traditional sequential registration flow
- */
-export async function setupTestnetFaucetTest(
-  page: Page,
-  options: {
-    frontendUrl?: string;
-    nearRpcUrl?: string;
-    rpId?: string;
-    testReceiverAccountId?: string;
-  } = {},
-): Promise<void> {
-  await setupBasicPasskeyTest(page, {
-    ...options,
-    useRelayer: false,
-    relayServerUrl: undefined,
-  });
-}
-
-// =============================================================================
-// TEST UTILITY INTERFACE - available in browser context
-// =============================================================================
-
-export interface TestUtils {
-  SeamsWeb: typeof SeamsWeb;
-  seams: SeamsWeb;
-  configs: {
-    nearNetwork: 'testnet';
-    relayerAccount: string;
-    nearRpcUrl: string;
-    useRelayer: boolean;
-    relayServerUrl?: string;
-    // Additional centralized configuration
-    frontendUrl: string;
-    rpId: string;
-    testReceiverAccountId: string;
-  };
-  confirmOverrides?: {
-    none: { uiMode: 'none'; behavior: 'skipClick'; autoProceedDelay: number };
-    skipClick: { uiMode: 'modal'; behavior: 'skipClick'; autoProceedDelay: number };
-  };
-  generateTestAccountId: () => string;
-  verifyAccountExists: (accountId: string) => Promise<boolean>;
-  // WebAuthn Virtual Authenticator utilities
-  webAuthnUtils: {
-    simulateSuccessfulPasskeyInput: (operationTrigger: () => Promise<void>) => Promise<void>;
-    simulateFailedPasskeyInput: (
-      operationTrigger: () => Promise<void>,
-      postOperationCheck?: () => Promise<void>,
-    ) => Promise<void>;
-    getCredentials: () => Promise<any[]>;
-    clearCredentials: () => Promise<void>;
-  };
-  // Failure testing utilities
-  failureMocks: {
-    webAuthnCeremony: () => void;
-    nearKeypairGeneration: () => void;
-    contractVerification: () => void;
-    faucetService: () => void;
-    routerApi: () => void;
-    contractRegistration: () => void;
-    databaseStorage: () => void;
-    restore: () => void;
-  };
-  rollbackVerification: {
-    verifyDatabaseClean: (accountId: string) => Promise<boolean>;
-    verifyAccountDeleted: (accountId: string) => Promise<boolean>;
-    getRollbackEvents: (events: any[]) => any[];
-  };
-  /**
-   * Login status helper:
-   * Returns the current login session snapshot when available.
-   */
-  loginStatus?: () => Promise<any>;
-  // Registration flow utilities
-  registrationFlowUtils: {
-    setupRouterApiMock: (successResponse?: boolean) => void;
-    setupTestnetFaucetMock: (successResponse?: boolean) => void;
-    restoreFetch: () => void;
-  };
 }
 
 // =============================================================================
@@ -322,15 +203,13 @@ export interface TestUtils {
  * Configure WebAuthn Virtual Authenticator first
  */
 /**
- * Handles common infrastructure errors that should result in test skips rather than failures.
- * This centralizes error detection for testnet faucet rate limiting and contract connectivity issues.
+ * Handles the retained infrastructure skip for shared testnet faucet rate limiting.
  *
  * @param result - The test result object containing success status and error message
  * @returns boolean - true if test was skipped due to infrastructure issues, false otherwise
  */
 export function handleInfrastructureErrors(result: { success: boolean; error?: string }): boolean {
   if (!result.success && result.error) {
-    // Check if this is a rate limiting error (429) from testnet faucet
     if (result.error.includes('429') && result.error.includes('Faucet service error')) {
       console.warn('⚠️  Test skipped due to testnet faucet rate limiting (HTTP 429)');
       console.warn('   This is expected when running multiple tests quickly.');
@@ -339,40 +218,6 @@ export function handleInfrastructureErrors(result: { success: boolean; error?: s
 
       // Skip this test instead of failing
       test.skip(true, 'Testnet faucet rate limited (HTTP 429) - retry later');
-      return true;
-    }
-    // Real Router server sometimes lacks funds; treat as infra flake and skip
-    if (
-      result.error.includes('LackBalanceForState') ||
-      result.error.includes('NotEnoughBalance') ||
-      result.error.includes('InvalidTxError: NotEnoughBalance') ||
-      result.error.includes('Atomic registration failed')
-    ) {
-      console.warn('⚠️  Test skipped due to Router server insufficient balance (infra condition)');
-      console.warn(
-        '   Use mocked Router server for deterministic tests or fund the relayer account.',
-      );
-      console.warn(`   Error: ${result.error}`);
-      test.skip(true, 'Router server insufficient balance - skipping test');
-      return true;
-    }
-    // Port already in use (Router server collision) – treat as infra
-    if (result.error.includes('EADDRINUSE') || result.error.includes('address already in use')) {
-      console.warn('⚠️  Test skipped due to port already in use (EADDRINUSE)');
-      console.warn('   Another test/server is using the Router port. Skipping this test.');
-      console.warn(`   Error: ${result.error}`);
-      test.skip(true, 'Router server port in use (EADDRINUSE) - skipping test');
-      return true;
-    }
-    // Occasional on-chain propagation delays in CI cause access key mismatch after registration
-    if (
-      result.error.includes('On-chain access key mismatch') ||
-      result.error.includes('not found after registration')
-    ) {
-      console.warn('⚠️  Test skipped due to transient on-chain access key propagation delay');
-      console.warn('   This can occur on shared testnet infrastructure; treating as infra flake.');
-      console.warn(`   Error: ${result.error}`);
-      test.skip(true, 'On-chain access key propagation delay - skipping test');
       return true;
     }
   }

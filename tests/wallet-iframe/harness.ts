@@ -218,9 +218,15 @@ export const captureOverlay = () => {
     const src = f.getAttribute('src') || '';
     return allow.includes('publickey-credentials') || /wallet\.example\.localhost/.test(src);
   });
+  const walletOriginCandidates = overlayCandidates.filter((f) =>
+    /wallet\.example\.localhost/.test(f.getAttribute('src') || ''),
+  );
+  const preferredCandidates = walletOriginCandidates.length
+    ? walletOriginCandidates
+    : overlayCandidates;
 
   const pickOverlay = (): HTMLIFrameElement | undefined => {
-    for (const candidate of overlayCandidates) {
+    for (const candidate of preferredCandidates) {
       const style = getComputedStyle(candidate);
       const opacity = Number.parseFloat(style.opacity || '1');
       const pointerEnabled = style.pointerEvents !== 'none';
@@ -229,7 +235,9 @@ export const captureOverlay = () => {
         return candidate;
       }
     }
-    return overlayCandidates.length ? overlayCandidates[overlayCandidates.length - 1] : undefined;
+    return preferredCandidates.length
+      ? preferredCandidates[preferredCandidates.length - 1]
+      : undefined;
   };
 
   const overlayIframe = pickOverlay();

@@ -3,16 +3,21 @@ import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { commitEvmFamilyThresholdEcdsaSessions } from '@/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
+import { readPersistedAvailableSigningLanesForTargets } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
+import { listStoredThresholdEcdsaSessionRecordsForWallet } from '@/core/signingEngine/session/persistence/records';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
 import {
-  createThresholdEcdsaBootstrapFixture,
-  createThresholdEcdsaStoreFixture,
-  createWarmSessionTestServices,
   resetWarmSessionFixtureState,
-} from './helpers/warmSessionStore.fixtures';
+  createThresholdEcdsaStoreFixture,
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 function createBootstrapStore() {
   return {
@@ -94,6 +99,10 @@ test.describe('Email OTP ECDSA bootstrap commit', () => {
         bootstrapStore: createBootstrapStore(),
         ecdsaSessions,
         warmCapabilityReader,
+        persistEcdsaRoleLocalReadyRecord: async () => ({
+          ok: true,
+          value: { kind: 'persisted' },
+        }),
         ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: async (parityArgs) =>
           ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(async () => {
             throw Object.assign(
@@ -109,6 +118,8 @@ test.describe('Email OTP ECDSA bootstrap commit', () => {
         source: 'email_otp',
         emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
           policy: 'session',
+          walletId: toWalletId('email-otp-ecdsa-ready.testnet'),
+          emailHashHex: '11'.repeat(32),
           retention: 'session',
           reason: 'sign',
           provider: 'google',
@@ -120,6 +131,190 @@ test.describe('Email OTP ECDSA bootstrap commit', () => {
     expect(result.warmCapability.state).toBe('ready');
     expect(result.warmCapability.record?.thresholdSessionId).toBe(
       bootstrap.session.thresholdSessionId,
+    );
+  });
+
+  test('keeps Email OTP registration ECDSA lane ready in persisted signing availability', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const walletId = toWalletId('email-otp-ecdsa-availability.testnet');
+    const bootstrap = withEmailOtpWorkerHandleBootstrap(
+      createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'tempo',
+        roleLocalAuthMethod: 'email_otp',
+        emailOtpAuthSubjectId: 'google:email-otp-ecdsa-availability',
+        remainingUses: 3,
+      }),
+    );
+    const chainTarget = bootstrap.thresholdEcdsaKeyRef.chainTarget;
+    const warmCapabilityReader = createWarmSessionTestServices({
+      getEmailOtpWarmSessionStatus: async (sessionId) => {
+        expect(sessionId).toBe(bootstrap.session.thresholdSessionId);
+        return {
+          ok: true,
+          remainingUses: 3,
+          expiresAtMs: bootstrap.session.expiresAtMs,
+        };
+      },
+    });
+
+    await commitEvmFamilyThresholdEcdsaSessions(
+      {
+        queueByWallet: new Map(),
+        bootstrapStore: createBootstrapStore(),
+        ecdsaSessions,
+        warmCapabilityReader,
+        persistEcdsaRoleLocalReadyRecord: async () => ({
+          ok: true,
+          value: { kind: 'persisted' },
+        }),
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: async () => undefined,
+      },
+      {
+        walletId,
+        chainTarget,
+        bootstrap,
+        source: 'email_otp',
+        emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+          policy: 'session',
+          walletId,
+          emailHashHex: '33'.repeat(32),
+          retention: 'session',
+          reason: 'sign',
+          provider: 'google',
+          providerUserId: 'google:email-otp-ecdsa-availability',
+        }),
+      },
+    );
+
+    const lanes = await readPersistedAvailableSigningLanesForTargets(
+      {
+        ecdsaSessions,
+        statusReader: {
+          getWarmSessionStatus: async () => ({
+            ok: false,
+            code: 'not_found',
+            message: 'passkey status is not used for Email OTP ECDSA',
+          }),
+        },
+        getEmailOtpWarmSessionStatus: async (sessionId) => {
+          expect(sessionId).toBe(bootstrap.session.thresholdSessionId);
+          return {
+            ok: true,
+            remainingUses: 3,
+            expiresAtMs: bootstrap.session.expiresAtMs,
+          };
+        },
+      },
+      {
+        walletId,
+        authMethod: 'email_otp',
+        ecdsaChainTargets: [chainTarget],
+      },
+    );
+
+    expect(lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(chainTarget)]).toMatchObject({
+      auth: { kind: 'email_otp' },
+      curve: 'ecdsa',
+      state: 'ready',
+      source: 'runtime_session_record',
+      thresholdSessionId: bootstrap.session.thresholdSessionId,
+      signingGrantId: bootstrap.session.signingGrantId,
+      remainingUses: 3,
+    });
+  });
+
+  test('keeps sibling Tempo and Arc Email OTP exact records during registration', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const walletId = toWalletId('email-otp-ecdsa-siblings.testnet');
+    const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: 'session',
+      walletId,
+      emailHashHex: '22'.repeat(32),
+      retention: 'session',
+      reason: 'sign',
+      provider: 'google',
+      providerUserId: 'google:email-otp-ecdsa-siblings',
+    });
+    const warmCapabilityReader = createWarmSessionTestServices({
+      getEmailOtpWarmSessionStatus: async () => ({
+        ok: true,
+        remainingUses: 3,
+        expiresAtMs: Date.now() + 120_000,
+      }),
+    });
+    const tempoBootstrap = withEmailOtpWorkerHandleBootstrap(
+      createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'tempo',
+        roleLocalAuthMethod: 'email_otp',
+        emailOtpAuthSubjectId: 'google:email-otp-ecdsa-siblings',
+        sessionId: 'sess-tempo-sibling',
+        remainingUses: 3,
+      }),
+    );
+    const arcBootstrap = withEmailOtpWorkerHandleBootstrap(
+      createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'evm',
+        roleLocalAuthMethod: 'email_otp',
+        emailOtpAuthSubjectId: 'google:email-otp-ecdsa-siblings',
+        sessionId: 'sess-arc-sibling',
+        remainingUses: 3,
+      }),
+    );
+
+    await commitEvmFamilyThresholdEcdsaSessions(
+      {
+        queueByWallet: new Map(),
+        bootstrapStore: createBootstrapStore(),
+        ecdsaSessions,
+        warmCapabilityReader,
+        persistEcdsaRoleLocalReadyRecord: async () => ({
+          ok: true,
+          value: { kind: 'persisted' },
+        }),
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: async () => undefined,
+      },
+      {
+        walletId,
+        chainTarget: tempoBootstrap.thresholdEcdsaKeyRef.chainTarget,
+        bootstrap: tempoBootstrap,
+        source: 'email_otp',
+        emailOtpAuthContext,
+      },
+    );
+    await commitEvmFamilyThresholdEcdsaSessions(
+      {
+        queueByWallet: new Map(),
+        bootstrapStore: createBootstrapStore(),
+        ecdsaSessions,
+        warmCapabilityReader,
+        persistEcdsaRoleLocalReadyRecord: async () => ({
+          ok: true,
+          value: { kind: 'persisted' },
+        }),
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: async () => undefined,
+      },
+      {
+        walletId,
+        chainTarget: arcBootstrap.thresholdEcdsaKeyRef.chainTarget,
+        bootstrap: arcBootstrap,
+        source: 'email_otp',
+        emailOtpAuthContext,
+      },
+    );
+
+    const records = listStoredThresholdEcdsaSessionRecordsForWallet(walletId, {
+      source: 'email_otp',
+    });
+    expect(records.map((record) => thresholdEcdsaChainTargetKey(record.chainTarget)).sort()).toEqual(
+      [
+        thresholdEcdsaChainTargetKey(arcBootstrap.thresholdEcdsaKeyRef.chainTarget),
+        thresholdEcdsaChainTargetKey(tempoBootstrap.thresholdEcdsaKeyRef.chainTarget),
+      ].sort(),
     );
   });
 });

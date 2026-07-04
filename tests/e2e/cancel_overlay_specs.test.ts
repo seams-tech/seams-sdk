@@ -59,7 +59,7 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
             theme: 'light',
             nearRpcUrl: cfg.nearRpcUrl,
             nearNetwork: cfg.nearNetwork || 'testnet',
-            relayer: cfg.useRelayer && cfg.relayServerUrl ? { url: cfg.relayServerUrl } : undefined,
+            relayer: cfg.relayer,
             // Tag the test-owned iframe for deterministic selection
             testOptions: { ownerTag: 'tests' },
           });
@@ -91,10 +91,11 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
             return pred();
           };
 
-          const nearAccountId =
-            ((window as any).testUtils?.generateTestAccountId?.() as string) || `e2e_${Date.now()}`;
-          const receiverId =
-            (window as any).testUtils?.configs?.testReceiverAccountId || 'w3a-v1.testnet';
+          const parentAccountId = String(cfg.relayerAccount || 'w3a-v1.testnet')
+            .trim()
+            .replace(/^\./, '');
+          const nearAccountId = `e2etest${Date.now()}.${parentAccountId}`;
+          const receiverId = cfg.testReceiverAccountId || 'w3a-v1.testnet';
 
           const events: Record<string, any[]> = {};
           const registrationSignerSet = {

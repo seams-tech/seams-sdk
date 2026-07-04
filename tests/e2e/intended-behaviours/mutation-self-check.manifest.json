@@ -1,0 +1,99 @@
+{
+  "version": "refactor-88-2026-07-04",
+  "instruction": "Run these one at a time on a scratch branch with a fresh SDK build and restarted site/router services, or with the CI-managed intended startup. Revert each seeded regression after confirming the intended contract fails with the expected compact trace.",
+  "mutations": [
+    {
+      "id": "email_otp_reroll_bootstrap_token_request_mismatch",
+      "contractFiles": ["email-otp.registration.contract.test.ts"],
+      "seededRegression": "Bind the Email OTP registration bootstrap token to the pre-reroll wallet id or request a second bootstrap token during reroll.",
+      "expectedFailureOracle": "bootstrap_token_request_mismatch",
+      "phase3bProof": {
+        "status": "detected",
+        "observedFailureOracle": "bootstrap_token_request_mismatch",
+        "observedAt": "2026-07-04",
+        "observedFailureCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "restoredValidationCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "requiresFreshStartup": true,
+        "requiresEmailOtpGoogleIdToken": true,
+        "localCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "ciCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line"
+      },
+      "requiredHarnessEvidence": [
+        "registerEmailOtpWallet",
+        "Email OTP registration did not reroll the initial wallet id"
+      ]
+    },
+    {
+      "id": "first_post_step_up_transaction_failure",
+      "contractFiles": [
+        "passkey.registration.contract.test.ts",
+        "passkey.unlock.contract.test.ts",
+        "email-otp.registration.contract.test.ts",
+        "email-otp.unlock.contract.test.ts"
+      ],
+      "seededRegression": "Drop or stale the refreshed spend authority after step-up so the first post-step-up signing action fails.",
+      "expectedFailureOracle": "post-step-up transaction failed",
+      "phase3bProof": {
+        "status": "detected",
+        "observedFailureOracle": "post-step-up transaction failed",
+        "observedAt": "2026-07-04",
+        "observedFailureCommand": "pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
+        "restoredValidationCommand": "pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
+        "requiresFreshStartup": true,
+        "requiresEmailOtpGoogleIdToken": false,
+        "localCommand": "pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
+        "ciCommand": "pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line"
+      },
+      "requiredHarnessEvidence": ["postExhaustionStepUpSatisfied", "post_step_up_retry_success"]
+    },
+    {
+      "id": "export_provider_user_mismatch_after_app_session_refresh",
+      "contractFiles": [
+        "passkey.registration.contract.test.ts",
+        "passkey.unlock.contract.test.ts",
+        "email-otp.registration.contract.test.ts",
+        "email-otp.unlock.contract.test.ts"
+      ],
+      "seededRegression": "Refresh the app session with a provider-user binding that does not match the wallet's export authority.",
+      "expectedFailureOracle": "fresh Email OTP export authorization",
+      "phase3bProof": {
+        "status": "detected",
+        "observedFailureOracle": "fresh Email OTP export authorization",
+        "observedAt": "2026-07-04",
+        "observedFailureCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "restoredValidationCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "requiresFreshStartup": true,
+        "requiresEmailOtpGoogleIdToken": true,
+        "localCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line",
+        "ciCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line"
+      },
+      "requiredHarnessEvidence": ["exportEd25519Key", "exportEcdsaKey", "assertKeyExportAuthEvents"]
+    },
+    {
+      "id": "cross_chain_ecdsa_material_reuse",
+      "contractFiles": [
+        "passkey.registration.contract.test.ts",
+        "passkey.unlock.contract.test.ts",
+        "email-otp.registration.contract.test.ts",
+        "email-otp.unlock.contract.test.ts"
+      ],
+      "seededRegression": "Reuse Tempo ECDSA signing material for Arc/EVM or Arc/EVM signing material for Tempo.",
+      "expectedFailureOracle": "Arc/EVM recovered signer mismatch",
+      "phase3bProof": {
+        "status": "blocked_product_identity",
+        "unblockRequirement": "Provision target-specific Tempo and Arc/EVM ECDSA owner/public-key facts so wrong-material reuse produces a recovered-signer mismatch, then run the passkey intended contracts and update this row to detected.",
+        "requiresFreshStartup": true,
+        "requiresEmailOtpGoogleIdToken": false,
+        "knownProductBlocker": "Current registration exposes identical Tempo and Arc/EVM thresholdOwnerAddress values through the shared evm-family key scope; target-specific ECDSA owner/public-key facts must be distinct before this seeded regression can prove detection.",
+        "localCommand": "pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
+        "ciCommand": "pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line"
+      },
+      "requiredHarnessEvidence": [
+        "verifyTempoEcdsaSignature",
+        "verifyArcEvmSignature",
+        "recoverAddress",
+        "recoverTransactionAddress"
+      ]
+    }
+  ]
+}

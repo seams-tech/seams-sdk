@@ -69,24 +69,24 @@ type ManagedRegistrationConfig = Extract<
 function resolveManagedRegistrationConfig(
   source: ImportMetaEnv,
 ): ManagedRegistrationConfig | undefined {
-  const environmentId = toOptionalString(source.VITE_SEAMS_ENVIRONMENT_ID);
+  const projectEnvironmentId = toOptionalString(source.VITE_SEAMS_PROJECT_ENVIRONMENT_ID);
   const publishableKey = toOptionalString(source.VITE_SEAMS_PUBLISHABLE_KEY);
 
-  if (environmentId && !publishableKey) {
+  if (projectEnvironmentId && !publishableKey) {
     throw new Error(
-      'Missing VITE_SEAMS_PUBLISHABLE_KEY: managed registration requires both VITE_SEAMS_ENVIRONMENT_ID and VITE_SEAMS_PUBLISHABLE_KEY',
+      'Missing VITE_SEAMS_PUBLISHABLE_KEY: managed registration requires both VITE_SEAMS_PROJECT_ENVIRONMENT_ID and VITE_SEAMS_PUBLISHABLE_KEY',
     );
   }
-  if (publishableKey && !environmentId) {
+  if (publishableKey && !projectEnvironmentId) {
     throw new Error(
-      'Missing VITE_SEAMS_ENVIRONMENT_ID: managed registration requires both VITE_SEAMS_ENVIRONMENT_ID and VITE_SEAMS_PUBLISHABLE_KEY',
+      'Missing VITE_SEAMS_PROJECT_ENVIRONMENT_ID: managed registration requires both VITE_SEAMS_PROJECT_ENVIRONMENT_ID and VITE_SEAMS_PUBLISHABLE_KEY',
     );
   }
-  if (!environmentId || !publishableKey) return undefined;
+  if (!projectEnvironmentId || !publishableKey) return undefined;
 
   return {
     mode: 'managed',
-    environmentId,
+    projectEnvironmentId,
     publishableKey,
   };
 }
@@ -172,6 +172,7 @@ export const FRONTEND_CONFIG = Object.freeze({
   signingSessionSealKeyVersion,
   signingSessionSealShamirPrimeB64u,
   routerAb,
+  enableIntendedE2E: parseBooleanFlag(env.VITE_ENABLE_INTENDED_E2E, env.DEV === true),
   dashboardFlags: {
     walletsRoutesEnabled: parseBooleanFlag(env.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED, true),
   },

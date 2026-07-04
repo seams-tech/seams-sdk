@@ -4,7 +4,7 @@ Date created: June 28, 2026
 
 Status: planning.
 
-Companion doc: [Implementation plan](./refactor-87-modular-auth-capabilities-plan.md).
+Companion doc: [Implementation plan](./refactor-90-modular-auth-capabilities-plan.md).
 
 ## Goal
 

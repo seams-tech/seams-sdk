@@ -21,16 +21,15 @@ import {
   toEvmFamilyEcdsaKeyHandle,
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+
 import {
-  createThresholdEcdsaBootstrapFixture,
-  createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
-  testEcdsaChainTarget,
-} from './helpers/warmSessionStore.fixtures';
-import {
-  thresholdEcdsaSessionRecordReadModel,
-} from '@/core/signingEngine/session/persistence/records';
+  createThresholdEcdsaStoreFixture,
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
+import { thresholdEcdsaSessionRecordReadModel } from '@/core/signingEngine/session/persistence/records';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const budgetChainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -163,7 +162,10 @@ test.describe('EVM-family request boundaries', () => {
 
   test('refreshes step-up ECDSA lanes with the normalized signing target chain', () => {
     const signEvmFamily = fs.readFileSync(
-      path.join(repoRoot, 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts'),
+      path.join(
+        repoRoot,
+        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+      ),
       'utf8',
     );
 

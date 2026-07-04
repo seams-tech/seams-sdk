@@ -9,16 +9,18 @@ import {
   readSigningCapabilityRecord,
 } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
 import {
-  createWarmSessionTestServices,
-  createThresholdEcdsaBootstrapFixture,
-  createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
   createWarmSessionUiConfirmFixture,
+} from './helpers/warmSessionUiConfirm.fixtures';
+import {
+  createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionStore.fixtures';
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 test.describe('WarmSessionStore transitions and persistence assertions', () => {
   test('emits an Ed25519 provision transition after authorization appears', async () => {
@@ -133,8 +135,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
             kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
             signingWorkerId: 'signing-worker-transition',
           },
-          ed25519WorkerMaterialHandle: '',
-          ed25519WorkerMaterialBindingDigest: '',
+          materialState: 'auth_ready_material_pending',
           remainingUses: 7,
           expiresAtMs,
           source: 'login',
@@ -175,8 +176,8 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       walletId,
       nearAccountId: accountId,
       nearEd25519SigningKeyId,
-  signerSlot: 1,
-  auth: {
+      signerSlot: 1,
+      auth: {
         kind: 'passkey',
         rpId: 'localhost' as any,
         credentialIdB64u: 'credential-ed25519-pending-material',

@@ -23,15 +23,8 @@ import {
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
 
-type PasskeyLoginMenuTestOverrides = {
-  useSeamsHook?: typeof useSeams;
-  useAuthMenuControlHook?: typeof useAuthMenuControl;
-  PasskeyAuthMenuComponent?: typeof PasskeyAuthMenu;
-};
-
 type PasskeyLoginMenuProps = {
   onLoggedIn?: (nearAccountId?: string) => void;
-  __testOverrides?: PasskeyLoginMenuTestOverrides;
 };
 
 type GoogleSsoReadiness =
@@ -242,11 +235,6 @@ function handleAccountSyncEvent(event: AccountSyncFlowEvent): void {
 }
 
 export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
-  const useSeamsHook = props.__testOverrides?.useSeamsHook || useSeams;
-  const useAuthMenuControlHook =
-    props.__testOverrides?.useAuthMenuControlHook || useAuthMenuControl;
-  const PasskeyAuthMenuComponent =
-    props.__testOverrides?.PasskeyAuthMenuComponent || PasskeyAuthMenu;
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
     [],
@@ -258,10 +246,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     registerPasskey,
     seams,
     refreshLoginState,
-  } = useSeamsHook();
+  } = useSeams();
 
   // let tutorial control the menu (programmatically open/close menus)
-  const authMenuControl = useAuthMenuControlHook();
+  const authMenuControl = useAuthMenuControl();
   const [googleSsoReadiness, setGoogleSsoReadiness] = React.useState<GoogleSsoReadiness>({
     kind: 'checking',
   });
@@ -416,7 +404,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
   return (
     <div className="passkey-login-container-root">
-      <PasskeyAuthMenuComponent
+      <PasskeyAuthMenu
         // Keep the key stable across accountExists changes to avoid
         // remounting the menu (which causes input focus + content flashes).
         key={`pam2-${authMenuControl.defaultModeOverride ?? 'auto'}-${authMenuControl.remountKey}`}

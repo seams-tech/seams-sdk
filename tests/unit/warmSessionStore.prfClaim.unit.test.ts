@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
+import { createWarmSessionUiConfirmFixture } from './helpers/warmSessionUiConfirm.fixtures';
 import {
-  createWarmSessionTestServices,
-  createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionStore.fixtures';
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 import {
   clearRouterAbEd25519WorkerMaterialRuntimeValidation,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
@@ -27,9 +27,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       nearAccountId: 'missing-status.testnet',
       thresholdSessionId: 'missing-status-session',
       walletSessionJwt: 'jwt:missing-status-session',
-      ed25519WorkerMaterialHandle: '',
-      ed25519WorkerMaterialBindingDigest: '',
-      clientVerifyingShareB64u: '',
     });
     const expiredRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'expired-status.testnet',
@@ -133,7 +130,8 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     await expect(store.getEd25519SigningSessionStatus(record.nearAccountId)).resolves.toMatchObject(
       {
         sessionId: 'cookie-status-session',
-        status: 'not_found',
+        status: 'unavailable',
+        statusCode: 'auth_missing',
         authMethod: 'passkey',
       },
     );

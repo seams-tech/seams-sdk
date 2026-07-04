@@ -1,3 +1,4 @@
+import { createWarmSessionStatusReader } from './helpers/warmSessionUiConfirm.fixtures';
 import { expect, test } from '@playwright/test';
 import {
   deriveEcdsaCapabilityState,
@@ -10,13 +11,13 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from '@/core/signingEngine/session/warmCapabilities/readModel';
+
 import {
-  createThresholdEcdsaStoreFixture,
-  createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionStore.fixtures';
+  createThresholdEcdsaStoreFixture,
+} from './helpers/signingSessionRecord.fixtures';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 test.describe('warmSessionReadModel', () => {
@@ -140,19 +141,18 @@ test.describe('warmSessionReadModel', () => {
     });
   });
 
-  test('derives ready vs unavailable capability state from auth and claim state', () => {
+  test('derives ready state from runtime-validated material before claim state', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'derive.testnet',
       thresholdSessionId: 'derive-ed25519-session',
       walletSessionJwt: 'jwt:derive-ed25519-session',
       runtimeValidated: true,
     });
-    const unvalidatedRecord = seedEd25519WarmSessionRecord({
+    const unavailableRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'derive-unavailable.testnet',
       thresholdSessionId: 'derive-unavailable-ed25519-session',
       walletSessionJwt: 'jwt:derive-unavailable-ed25519-session',
-      ed25519WorkerMaterialHandle: '',
-      ed25519WorkerMaterialBindingDigest: '',
+      runtimeValidated: true,
     });
 
     expect(
@@ -170,15 +170,15 @@ test.describe('warmSessionReadModel', () => {
 
     expect(
       deriveEd25519CapabilityState({
-        record: unvalidatedRecord,
-        auth: resolveEd25519AuthMaterial(unvalidatedRecord),
+        record: unavailableRecord,
+        auth: resolveEd25519AuthMaterial(unavailableRecord),
         prfClaim: {
           state: 'unavailable',
-          sessionId: unvalidatedRecord.thresholdSessionId,
+          sessionId: unavailableRecord.thresholdSessionId,
           code: 'worker_error',
         },
       }),
-    ).toBe('prf_unavailable');
+    ).toBe('ready');
   });
 
   test('derives material_pending for restored Ed25519 records without worker handle', () => {
@@ -186,9 +186,8 @@ test.describe('warmSessionReadModel', () => {
       nearAccountId: 'pending-material.testnet',
       thresholdSessionId: 'pending-material-session',
       walletSessionJwt: 'jwt:pending-material-session',
+      materialState: 'restore_available',
       clientVerifyingShareB64u: 'restored-client-verifier',
-      ed25519WorkerMaterialHandle: '',
-      ed25519WorkerMaterialBindingDigest: '',
     });
 
     expect(

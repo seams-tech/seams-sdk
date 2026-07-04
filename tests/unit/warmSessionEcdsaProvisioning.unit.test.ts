@@ -13,15 +13,14 @@ import type {
   WarmSessionEnvelope,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform';
+import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
+
 import {
-  buildEvmFamilyEcdsaKeyIdentityFromRecord,
-} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import {
-  createThresholdEcdsaStoreFixture,
-  createThresholdEcdsaBootstrapFixture,
   seedEcdsaWarmSessionRecord,
-  testEcdsaChainTarget,
-} from './helpers/warmSessionStore.fixtures';
+  createThresholdEcdsaStoreFixture,
+} from './helpers/signingSessionRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
 const TEMPO_CHAIN_TARGET = testEcdsaChainTarget('tempo');

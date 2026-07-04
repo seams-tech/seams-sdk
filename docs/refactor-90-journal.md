@@ -1,6 +1,6 @@
-# Refactor 87 Progress Journal
+# Refactor 90 Progress Journal
 
-Companion to the [Modular Auth And Capability Refactor Plan](./refactor-87-modular-auth-capabilities-plan.md).
+Companion to the [Modular Auth And Capability Refactor Plan](./refactor-90-modular-auth-capabilities-plan.md).
 
 This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives

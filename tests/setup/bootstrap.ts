@@ -2,7 +2,7 @@ import { Page, type Route } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { printStepLine } from './logging';
-import { installRouterApiProxyShim, installWalletSdkCorsShim } from './cross-origin-headers';
+import { installWalletSdkCorsShim } from './cross-origin-headers';
 import type { PasskeyTestConfig } from './types';
 import { DEFAULT_TEST_CONFIG } from './config';
 import { SDK_ESM_PATHS } from './sdkEsmPaths';
@@ -91,6 +91,7 @@ async function setupWebAuthnVirtualAuthenticator(page: Page): Promise<string> {
       hasResidentKey: true,
       hasUserVerification: true,
       isUserVerified: true,
+      hasPrf: true,
       automaticPresenceSimulation: true,
     },
   });
@@ -275,8 +276,6 @@ async function loadSeamsWebDynamically(
               nearNetwork: setupOptions.nearNetwork as 'testnet',
               relayerAccount: setupOptions.relayerAccount,
               nearRpcUrl: setupOptions.nearRpcUrl,
-              useRelayer: setupOptions.useRelayer || false,
-              relayServerUrl: setupOptions.relayServerUrl,
               relayer: setupOptions.relayer,
               // Additional centralized configuration
               frontendUrl: setupOptions.frontendUrl,
@@ -413,7 +412,7 @@ async function ensureGlobalFallbacks(page: Page): Promise<void> {
 }
 
 /**
- * Orchestrator function that executes all 5 setup steps sequentially
+ * Orchestrator function that executes generic browser setup sequentially.
  */
 export async function executeSequentialSetup(
   page: Page,
@@ -438,11 +437,6 @@ export async function executeSequentialSetup(
     mirror: mirrorWalletOrigin,
     injectWalletServiceImportMap: options.injectWalletServiceImportMap,
   });
-  const useRelayServer =
-    process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';
-  if (mirrorWalletOrigin && useRelayServer) {
-    await installRouterApiProxyShim(page, { logStyle: 'setup' });
-  }
 
   // Step 2: ENVIRONMENT SETUP
   const authenticatorId = await setupWebAuthnVirtualAuthenticator(page);

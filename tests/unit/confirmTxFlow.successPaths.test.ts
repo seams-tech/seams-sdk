@@ -532,8 +532,13 @@ test.describe('confirmTxFlow – success paths', () => {
         const request = {
           requestId: 'r2',
           type: types.UserConfirmationType.REGISTER_ACCOUNT,
-          summary: {},
+          summary: {
+            walletId: 'bob',
+            nearAccountId: 'bob.testnet',
+            signerSlot: 1,
+          },
           payload: {
+            walletId: 'bob',
             nearAccountId: 'bob.testnet',
             signerSlot: 1,
             rpcCall: { method: 'create', argsJson: {} },
@@ -780,6 +785,12 @@ test.describe('confirmTxFlow – success paths', () => {
               releaseNonce(_n: string) {},
             },
             nearClient: {
+              async viewAccount() {
+                if (fundingCalls === 0) {
+                  throw new Error('Account does not exist while viewing');
+                }
+                return { amount: '100000000000000000000000' };
+              },
               async viewAccessKey() {
                 accessKeyLookups += 1;
                 if (fundingCalls === 0) {
