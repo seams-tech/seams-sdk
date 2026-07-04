@@ -185,16 +185,16 @@ const expectedMutationDetectedProofEvidence = {
   email_otp_reroll_bootstrap_token_request_mismatch: {
     observedAt: '2026-07-04',
     observedFailureCommand:
-      'SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
+      'pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
     restoredValidationCommand:
-      'SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
+      'pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
   },
   export_provider_user_mismatch_after_app_session_refresh: {
     observedAt: '2026-07-04',
     observedFailureCommand:
-      'SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
+      'pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
     restoredValidationCommand:
-      'SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
+      'pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line',
   },
   first_post_step_up_transaction_failure: {
     observedAt: '2026-07-04',
@@ -2023,6 +2023,16 @@ test('Refactor 88 mutation self-check manifest covers known regression classes',
     const ciCommand = requireStringField(proof, 'ciCommand');
     expect(localCommand, `${id} localCommand`).toContain('playwright.intended.config.ts');
     expect(ciCommand, `${id} ciCommand`).toContain('playwright.intended.ci.config.ts');
+    expect(localCommand, `${id} localCommand`).not.toContain('SEAMS_INTENDED_GOOGLE_ID_TOKEN=');
+    expect(ciCommand, `${id} ciCommand`).not.toContain('SEAMS_INTENDED_GOOGLE_ID_TOKEN=');
+    if (proof.requiresEmailOtpGoogleIdToken === true) {
+      expect(localCommand, `${id} local token ensure`).toContain(
+        'pnpm -C tests run ensure:intended-google-token',
+      );
+      expect(ciCommand, `${id} ci token ensure`).toContain(
+        'pnpm -C tests run ensure:intended-google-token',
+      );
+    }
     expect(
       targetedContracts.some(
         (contractFile) => localCommand.includes(contractFile) || ciCommand.includes(contractFile),
@@ -2033,7 +2043,7 @@ test('Refactor 88 mutation self-check manifest covers known regression classes',
 
   expect(mutationScriptSource).toContain('fixedCiPorts');
   expect(mutationScriptSource).toContain('expectedManifestVersion');
-  expect(mutationScriptSource).toContain('googleIdTokenPlaceholder');
+  expect(mutationScriptSource).toContain('googleTokenEnsureCommand');
   expect(mutationScriptSource).toContain('expectedFailureOraclesByMutationId');
   expect(mutationScriptSource).toContain('printManifestCheckSummary');
   expect(mutationScriptSource).toContain('formatProofStatusCounts');
@@ -2055,6 +2065,7 @@ test('Refactor 88 mutation self-check manifest covers known regression classes',
   expect(mutationScriptSource).toContain('validateGoogleIdTokenPreflight');
   expect(mutationScriptSource).toContain('isCompactJwtShape');
   expect(mutationScriptSource).toContain('local-google-id-token');
+  expect(mutationScriptSource).toContain('must not inline a Google ID token');
   expect(mutationScriptSource).toContain('compact JWT: header.payload.signature');
   expect(mutationScriptSource).toContain('jwt-shaped');
   expect(mutationScriptSource).toContain('SEAMS_INTENDED_MUTATION_FRESH_STARTUP');

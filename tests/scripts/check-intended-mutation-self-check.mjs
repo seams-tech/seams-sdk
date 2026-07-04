@@ -15,7 +15,7 @@ const manifestPath = path.join(
 const intendedRoot = path.join(repoRoot, 'tests/e2e/intended-behaviours');
 const harnessPath = path.join(intendedRoot, 'harness.ts');
 const expectedManifestVersion = 'refactor-88-2026-07-04';
-const googleIdTokenPlaceholder = 'SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token>';
+const googleTokenEnsureCommand = 'pnpm -C tests run ensure:intended-google-token';
 
 const expectedMutationIds = [
   'cross_chain_ecdsa_material_reuse',
@@ -504,12 +504,15 @@ function validateProofTokenPolicy(input) {
     { label: 'ciCommand', command: input.ciCommand },
   ];
   for (const command of commands) {
-    const hasPlaceholder = command.command.includes(googleIdTokenPlaceholder);
-    if (input.requiresEmailOtpGoogleIdToken && !hasPlaceholder) {
-      throw new Error(`${input.id} ${command.label} must include ${googleIdTokenPlaceholder}`);
+    const hasTokenEnsure = command.command.includes(googleTokenEnsureCommand);
+    if (command.command.includes('SEAMS_INTENDED_GOOGLE_ID_TOKEN=')) {
+      throw new Error(`${input.id} ${command.label} must not inline a Google ID token`);
     }
-    if (!input.requiresEmailOtpGoogleIdToken && hasPlaceholder) {
-      throw new Error(`${input.id} ${command.label} must not require ${googleIdTokenPlaceholder}`);
+    if (input.requiresEmailOtpGoogleIdToken && !hasTokenEnsure) {
+      throw new Error(`${input.id} ${command.label} must include ${googleTokenEnsureCommand}`);
+    }
+    if (!input.requiresEmailOtpGoogleIdToken && hasTokenEnsure) {
+      throw new Error(`${input.id} ${command.label} must not require ${googleTokenEnsureCommand}`);
     }
   }
 }

@@ -737,19 +737,20 @@ Current live validation:
   remains blocked until target-specific ECDSA owner/public-key facts are
   distinct enough for the seeded wrong-material regression to be observable.
   Blocked proof rows also print `unblock: ...` from the manifest so the next
-  required action is visible in preflight output. Full preflight exits nonzero while
-  `SEAMS_INTENDED_GOOGLE_ID_TOKEN` is absent because the two Email OTP rows are
-  correctly blocked.
+  required action is visible in preflight output. Full preflight runs
+  `ensure:intended-google-token` before readiness checks, so Email OTP rows use
+  the local service-account token setup instead of manual inline token
+  assignment.
   `pnpm preflight:intended-mutation-self-check:ci` blocks because the fixed
-  local intended ports are already occupied by the current Caddy/router stack;
-  Email OTP rows also need `SEAMS_INTENDED_GOOGLE_ID_TOKEN`.
+  local intended ports are already occupied by the current Caddy/router stack.
 - Re-run without a running local site and without the fresh-startup marker now
   reports `site root: blocked (502)`, `intended page: blocked (502)`, and
   missing `SEAMS_INTENDED_MUTATION_FRESH_STARTUP=1`, while Router `healthz` and
-  `readyz` remain ready. Targeted Email OTP preflight also reports missing
-  `SEAMS_INTENDED_GOOGLE_ID_TOKEN`; targeted cross-chain preflight reports the
-  target-specific ECDSA owner/public-key blocker. This keeps mutation preflight
-  failures actionable when Caddy is up but the Vite site is not serving.
+  `readyz` remain ready. Targeted Email OTP preflight reports service/fresh-start
+  blockers after the token-ensure step; targeted cross-chain preflight reports
+  the target-specific ECDSA owner/public-key blocker. This keeps mutation
+  preflight failures actionable when Caddy is up but the Vite site is not
+  serving.
 - Email OTP mutation preflight now rejects
   `SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token>` and other malformed
   non-JWT values before a proof run. This is a shape check only; Router Google
@@ -872,6 +873,13 @@ Current live validation:
   ECDSA owner/public-key facts. The Refactor 88 guard suite passes 55/55,
   Playwright TypeScript checking passes, and focused whitespace checking
   passes.
+- Re-run after retiring inline Google ID-token placeholders from the mutation
+  manifest: Email OTP proof rows now run
+  `pnpm -C tests run ensure:intended-google-token` before the targeted intended
+  Playwright command; `pnpm -C tests preflight:intended-mutation-self-check --
+  --mutation email_otp_reroll_bootstrap_token_request_mismatch` reports the row
+  ready when local services are ready. The mutation manifest check, Refactor 88
+  guard suite, and ledger completeness gate pass.
 - Re-run after backing the remaining cross-chain mutation blocker with live
   product evidence: the Refactor 88 guard now checks that
   `cross_chain_ecdsa_material_reuse` stays `blocked_product_identity` only
@@ -950,10 +958,11 @@ Tracking:
   fresh SDK build plus restarted site/router services or CI-managed intended
   startup.
 - [x] Harden the mutation self-check script so the manifest version is fixed,
-  Email OTP proof rows must carry `SEAMS_INTENDED_GOOGLE_ID_TOKEN` commands,
-  non-Email rows cannot require that token, `knownProductBlocker` is scoped to
-  the cross-chain ECDSA row, and proof commands cannot mention contracts
-  outside their manifest row.
+  Email OTP proof rows must run `ensure:intended-google-token` before their
+  targeted contract command, proof commands cannot inline Google ID tokens,
+  non-Email rows cannot require that token setup, `knownProductBlocker` is
+  scoped to the cross-chain ECDSA row, and proof commands cannot mention
+  contracts outside their manifest row.
 - [x] Add machine-readable Phase 3B proof status to each mutation manifest row,
   with validator policy for detected rows, Email OTP token blocks, and the
   cross-chain ECDSA product-identity block.

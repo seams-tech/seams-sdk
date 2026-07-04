@@ -11,12 +11,12 @@
         "status": "detected",
         "observedFailureOracle": "bootstrap_token_request_mismatch",
         "observedAt": "2026-07-04",
-        "observedFailureCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
-        "restoredValidationCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "observedFailureCommand": "pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "restoredValidationCommand": "pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
         "requiresFreshStartup": true,
         "requiresEmailOtpGoogleIdToken": true,
-        "localCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
-        "ciCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line"
+        "localCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "ciCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line"
       },
       "requiredHarnessEvidence": [
         "registerEmailOtpWallet",
@@ -60,12 +60,12 @@
         "status": "detected",
         "observedFailureOracle": "fresh Email OTP export authorization",
         "observedAt": "2026-07-04",
-        "observedFailureCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
-        "restoredValidationCommand": "SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "observedFailureCommand": "pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
+        "restoredValidationCommand": "pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
         "requiresFreshStartup": true,
         "requiresEmailOtpGoogleIdToken": true,
-        "localCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line",
-        "ciCommand": "SEAMS_INTENDED_GOOGLE_ID_TOKEN=<local-google-id-token> pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line"
+        "localCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line",
+        "ciCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line"
       },
       "requiredHarnessEvidence": ["exportEd25519Key", "exportEcdsaKey", "assertKeyExportAuthEvents"]
     },
