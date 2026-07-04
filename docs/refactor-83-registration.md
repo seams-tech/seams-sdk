@@ -1,8 +1,9 @@
 # Refactor 83: Registration Critical Path Cleanup
 
 Date created: July 2, 2026
-Updated: July 3, 2026 — aligned with the Refactor 82B authority/material type
-decisions and the Refactor 90 reorganization; sequencing gates recorded below.
+Updated: July 4, 2026 — aligned with the Refactor 82B authority/material type
+decisions, the Refactor 90 reorganization, and the Email OTP unlock latency
+extension; sequencing gates recorded below.
 
 Status: planned, partially gated.
 
@@ -13,6 +14,10 @@ Sequencing gates:
   material-state unions and committed-lane loose-shape deletion complete),
   because Phases 3-5 edit `records.ts`, `sealedSessionStore.ts`, and
   `thresholdWarmSessionBootstrap.ts`, which 82B owns until that exit.
+- Phase 7B can start after Refactor 82B Phase 10C exits and the manual Email OTP
+  registration/unlock/sign/export flows pass. It shares warm-session files with
+  Phases 3-5, so implementation must coordinate fact-write/current-commit
+  boundaries instead of reintroducing generic upsert cleanup.
 - Phase 1 baselines are captured after Refactor 84b's finalize payload trim
   lands, so measurements are not dominated by a payload that is about to
   shrink.
@@ -40,6 +45,12 @@ preserving the security boundaries that matter:
 This plan is about simplifying and shortening the registration path. It is not a
 new HSS protocol optimization plan and it is not a compatibility plan.
 
+Scope extension: Email OTP wallet unlock has the same user-visible latency
+problem class as registration when it reconstructs or restores warm signing
+material. Phase 7B owns measuring and shortening that unlock activation path
+without changing authentication semantics. Registration and unlock measurements
+stay separate.
+
 ## Non-Goals
 
 - Do not add legacy `mode: "ed25519_and_ecdsa"` handling.
@@ -48,6 +59,8 @@ new HSS protocol optimization plan and it is not a compatibility plan.
 - Do not change HSS cryptographic transcript rules unless a separate HSS plan
   proves the change.
 - Do not keep runtime postcondition scans as production control flow.
+- Do not make Email OTP unlock reuse registration-only artifacts. Unlock consumes
+  durable wallet/session state and produces current warm capability state.
 
 ## Related Plans
 
@@ -67,7 +80,8 @@ new HSS protocol optimization plan and it is not a compatibility plan.
   types — verified registration authority / `AuthFactorIdentity` at prepare,
   `WalletAuthMethodId` bindings, `ActiveWalletSession`, and the
   `Ed25519WorkerMaterialState` union. Phases 2-5 and 7 are gated on 82B
-  Phases 6-7 exiting.
+  Phases 6-7 exiting. Phase 7B consumes 82B Phase 10C's fact-write and
+  current-session-commit split.
 - `docs/refactor-84a-iframe-walletId.md`: visible registration is wallet-bound
   before WebAuthn. Phase 6 treats the registration draft wallet ID as part of
   precompute scope, with reroll as a named scope-invalidation case.
@@ -111,6 +125,9 @@ These are hypotheses to measure and either remove or explicitly keep.
       without a user-visible runtime scan.
 - [ ] Email OTP registration may prepare/reconstruct material and backup recovery
       codes serially where the work is independent.
+- [ ] Email OTP wallet unlock may serially restore Ed25519 material, restore or
+      bootstrap ECDSA material, apply server seals, write sealed/current session
+      records, and rebuild active runtime state. Measure before moving work.
 
 ## Target Shape
 
@@ -170,6 +187,23 @@ type RegistrationPersistencePlan = {
   signers: RegisteredSignerSet;
   runtimeMaterial: FinalizedRegistrationRuntimeMaterial;
   activeSession: ActiveWalletSession; // 82B type; minted at finalize
+};
+```
+
+Email OTP unlock uses the same strict material/session vocabulary, but it is a
+different lifecycle. It starts from durable wallet-bound authority and sealed
+material, then produces current warm capabilities. It must not pass generic
+persisted records into signing; all current records cross the 82B Phase 10C
+commit boundary first.
+
+```ts
+type EmailOtpUnlockActivationPlan = {
+  wallet: RegisteredWalletBinding;
+  authority: WalletAuthAuthority;
+  activeSession: ActiveWalletSession;
+  ed25519: OperationUsableThresholdEd25519SessionRecord;
+  ecdsa: readonly OperationUsableThresholdEcdsaSessionRecord[];
+  runtimeState: ActiveWalletRuntimeState;
 };
 ```
 
@@ -334,10 +368,60 @@ Exit criteria:
 - [ ] Email OTP registration keeps the same authority and backup semantics with a
       shorter post-OTP tail.
 
+## Phase 7B: Email OTP Unlock Critical Path
+
+Status: planned. Manual Refactor 82B validation shows Email OTP main flows work,
+but wallet unlock remains slow. This phase measures unlock as its own lifecycle
+and removes duplicate warm-session activation work that does not belong on the
+post-OTP critical path.
+
+Do:
+
+- [ ] Capture one clean local Email OTP unlock trace for a wallet with:
+      Ed25519 only, Ed25519 plus Tempo, and Ed25519 plus Tempo plus Arc/EVM.
+- [ ] Add or tighten unlock timing buckets for:
+      `emailOtpProofVerificationMs`, `appSessionExchangeMs`,
+      `ed25519MaterialRestoreMs`, `ecdsaMaterialRestoreMs`,
+      `signingSessionSealApplyMs`, `warmCapabilityPersistenceMs`,
+      `activeRuntimeConstructionMs`, and wallet-iframe round trip time.
+- [ ] Distinguish cold worker/WASM startup from steady-state unlock. Cold-start
+      cost can be warmed or deferred; steady-state duplicate work should be
+      removed.
+- [ ] Inventory Ed25519 unlock material reconstruction and compare it with the
+      material state already available from sealed session restore. Keep the
+      reconstruction path only when sealed material is unavailable.
+- [ ] Inventory ECDSA unlock activation and verify it restores one wallet-key
+      role-local material record for EVM-family targets instead of doing
+      per-chain duplicate material work.
+- [ ] Build a typed `EmailOtpUnlockActivationPlan` before local writes. It must
+      carry wallet-bound authority, active wallet session, operation-usable
+      Ed25519/ECDSA current records, and constructed runtime state together.
+- [ ] Route Ed25519 and ECDSA unlocked session records through the 82B Phase 10C
+      current-session commit commands. Restore/rehydration writes stay
+      fact-write only.
+- [ ] Parallelize independent post-OTP work only after measurement proves the
+      dependency boundary: server seal application, sealed material reads, ECDSA
+      restore, and local persistence can overlap only when they do not depend on
+      each other's output.
+- [ ] Delete stale unlock fixtures that encode serial duplicate material restore
+      as intended behavior.
+
+Exit criteria:
+
+- [ ] We can point to the top three Email OTP unlock costs from a trace.
+- [ ] Email OTP unlock produces a single typed activation plan and one logical
+      local persistence commit where IndexedDB allows it.
+- [ ] Unlock does not run duplicate Ed25519 reconstruction when sealed restored
+      material is sufficient.
+- [ ] Unlock does not perform per-chain ECDSA material restore for shared
+      EVM-family material.
+- [ ] OTP registration, unlock, NEAR/Tempo/Arc signing, step-up signing, and
+      Ed25519/ECDSA key export still pass manual validation.
+
 ## Phase 8: Cleanup And Line Count Closure
 
 - [ ] Use `rg` and a targeted manual review to find duplicate registration
-      helpers after Phases 2-7 land.
+      helpers after Phases 2-7B land.
 - [ ] Delete old precompute, reconstruction, parser, and lane assertion helpers
       that no longer have callers.
 - [ ] Delete stale tests instead of preserving deprecated behavior.
@@ -372,6 +456,16 @@ Client persistence and runtime material:
 - `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
 - `packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories.ts`
 
+Client Email OTP unlock activation:
+
+- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
+- `packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts`
+- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
+- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
+- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`
+
 Server D1/DO registration:
 
 - `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`
@@ -395,6 +489,7 @@ Primary test inventory:
 - `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts`
 - `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`
 - `tests/unit/sealedSessionStore.unit.test.ts`
+- `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
 - `tests/wallet-iframe/router.registrationActivation.test.ts`
 
 ## Open Questions
@@ -411,3 +506,6 @@ Primary test inventory:
       started precompute handle? Resolve before Phase 6 lands.
 - [ ] Which post-registration checks verify external state and must stay in the
       user-visible path? Resolve during Phase 4.
+- [ ] What are the top three Email OTP unlock costs after 82B Phase 10C, and is
+      the dominant cost Ed25519 material restore, ECDSA material restore, server
+      seal application, local persistence, or wallet-iframe orchestration?
