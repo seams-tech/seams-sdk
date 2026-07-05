@@ -928,6 +928,9 @@ test('Refactor 88 intended CI config owns service startup', () => {
     expect(startupSource).toContain("spawnManaged('site'");
     expect(startupSource).toContain("['-C', 'apps/seams-site', 'run', 'vite']");
     expect(startupSource).not.toContain("spawnManaged('site', ['run', 'site']");
+    expect(startupSource).not.toContain('ed25519-hss-native-service');
+    expect(startupSource).not.toContain('hss:ed25519-native-service');
+    expect(startupSource).not.toContain('ED25519_HSS_NATIVE_SERVICE');
     expect(startupSource).toContain("spawnManaged('router'");
     expect(startupSource).toContain("['run', 'router', '--', '--fresh']");
     expect(startupSource).toContain("removePath('.router-ab-local')");
@@ -941,6 +944,7 @@ test('Refactor 88 intended CI config owns service startup', () => {
     expect(startupSource).toContain("terminateManagedProcessLeaks('SIGTERM')");
     expect(startupSource).toContain("terminateManagedProcessLeaks('SIGKILL')");
     expect(startupSource).toContain('function isLocalWorkerdCommand(command)');
+    expect(startupSource).not.toContain('function isEd25519HssNativeServiceCommand(command)');
     assertTokensAppearInOrder(startupSource, [
         'const router = startRouter();',
         "await waitForHttpOk(`${routerUrl}/healthz`, 'router healthz', 180_000);",
@@ -989,6 +993,23 @@ test('Refactor 88 failure string tripwires are versioned harness matchers', () =
     expect(source).toContain('wallet_runtime_postcondition');
     expect(source).toContain('captureFailedResponseBody');
     expect(source).toContain('recordViolationIfNeeded(bodySnippet)');
+});
+test('Refactor 83B intended registration rejects serialized HSS replay provenance', () => {
+    const source = fs.readFileSync(intendedHarnessPath, 'utf8');
+    const consoleHandler = extractDelimitedSource(source, 'private handleConsoleMessage', 'private handlePageError');
+    const timingParser = extractDelimitedSource(source, 'function registrationTimingViolationFromConsoleMessage', 'function requirePasskeyRegistrationResult');
+    expect(source).toContain("[Registration] wallet timing summary");
+    expect(consoleHandler).toContain('registrationTimingViolationFromConsoleMessage(text)');
+    expect(consoleHandler).toContain('this.violations.push(registrationTimingViolation)');
+    expect(timingParser).toContain('registration_hss_advance_provenance_missing');
+    expect(timingParser).toContain("raw.route !== 'wallets_register_hss_advance_state'");
+    expect(timingParser).toContain("case 'durable_workerd_wasm':");
+    expect(timingParser).not.toContain("case 'native_service':");
+    expect(timingParser).toContain('registration_hss_serialized_replay');
+    expect(timingParser).toContain('registration_hss_finalize_provenance_missing');
+    expect(timingParser).toContain("raw.route !== 'wallets_register_finalize'");
+    expect(timingParser).toContain("case 'serialized_replay':");
+    expect(timingParser).toContain("ed25519.kind === 'ed25519_enabled'");
 });
 test('Refactor 88 NEAR signing contract verifies Ed25519 signatures cryptographically', () => {
     const source = fs.readFileSync(intendedHarnessPath, 'utf8');
