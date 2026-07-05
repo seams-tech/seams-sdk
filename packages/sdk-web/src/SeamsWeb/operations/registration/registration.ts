@@ -4871,6 +4871,13 @@ export async function addWalletSigner(args: {
       if (!responded.ed25519) {
         throw new Error('Wallet add-signer HSS respond did not return Ed25519 server input');
       }
+      const preparedAddStageRequest =
+        await context.signingEngine.prepareThresholdEd25519HssAddStageRequestMessage({
+          preparedSession: startedCeremony.ed25519.preparedSession,
+          clientRequest,
+          serverInputDelivery: responded.ed25519,
+          expectedContextBindingB64u: startedCeremony.ed25519.preparedSession.contextBindingB64u,
+        });
       const evaluationResult = await buildThresholdEd25519RegistrationHssClientOwnedArtifact({
         context,
         preparedSession: startedCeremony.ed25519.preparedSession,
@@ -4878,7 +4885,8 @@ export async function addWalletSigner(args: {
         serverInputDelivery: responded.ed25519,
         clientOutputMaskHandle,
         addStage: {
-          kind: 'fused',
+          kind: 'prepared',
+          request: preparedAddStageRequest,
         },
       });
       const requestedPolicy = createThresholdWarmSessionPolicyDraft(context, {

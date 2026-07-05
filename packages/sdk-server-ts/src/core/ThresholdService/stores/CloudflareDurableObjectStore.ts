@@ -1026,6 +1026,12 @@ type DurableEd25519HssSessionCeremonyWireRecord = {
     yRelayerB64u: string;
     tauRelayerB64u: string;
   };
+  advancedServerEval?: {
+    contextBindingB64u: string;
+    addStageRequestDigestB64u: string;
+    advancedServerEvalStateB64u: string;
+    priorStageResponseMessageB64u: string;
+  };
   evaluationResult?: {
     stagedEvaluatorArtifactB64u: string;
     addStageRequestMessageB64u: string;
@@ -1143,6 +1149,42 @@ function parseDurableEd25519HssEvaluationResult(
   };
 }
 
+function parseDurableEd25519HssAdvancedServerEval(raw: unknown):
+  | {
+      contextBindingB64u: string;
+      addStageRequestDigestB64u: string;
+      advancedServerEvalStateB64u: string;
+      priorStageResponseMessageB64u: string;
+    }
+  | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isObject(raw)) throw new Error('durable Ed25519 HSS advancedServerEval is invalid');
+  const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
+  const addStageRequestDigestB64u = toOptionalTrimmedString(raw.addStageRequestDigestB64u);
+  const advancedServerEvalStateB64u = toOptionalTrimmedString(raw.advancedServerEvalStateB64u);
+  const priorStageResponseMessageB64u = toOptionalTrimmedString(
+    raw.priorStageResponseMessageB64u,
+  );
+  if (
+    !contextBindingB64u ||
+    !addStageRequestDigestB64u ||
+    !advancedServerEvalStateB64u ||
+    !priorStageResponseMessageB64u
+  ) {
+    throw new Error('durable Ed25519 HSS advancedServerEval is incomplete');
+  }
+  base64UrlDecode(contextBindingB64u);
+  base64UrlDecode(addStageRequestDigestB64u);
+  base64UrlDecode(advancedServerEvalStateB64u);
+  base64UrlDecode(priorStageResponseMessageB64u);
+  return {
+    contextBindingB64u,
+    addStageRequestDigestB64u,
+    advancedServerEvalStateB64u,
+    priorStageResponseMessageB64u,
+  };
+}
+
 function isDurableEd25519HssRespondedServerSession(
   preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession,
 ): preparedServerSession is ThresholdEd25519HssStoredRespondedServerSession {
@@ -1197,6 +1239,21 @@ function durableEd25519HssEvaluationResultWire(
   };
 }
 
+function durableEd25519HssAdvancedServerEvalWire(
+  advancedServerEval: Extract<
+    ThresholdEd25519HssCeremonyRecord,
+    { kind: 'session' }
+  >['advancedServerEval'],
+): DurableEd25519HssSessionCeremonyWireRecord['advancedServerEval'] {
+  if (!advancedServerEval) return undefined;
+  return {
+    contextBindingB64u: advancedServerEval.contextBindingB64u,
+    addStageRequestDigestB64u: advancedServerEval.addStageRequestDigestB64u,
+    advancedServerEvalStateB64u: advancedServerEval.advancedServerEvalStateB64u,
+    priorStageResponseMessageB64u: advancedServerEval.priorStageResponseMessageB64u,
+  };
+}
+
 function durableEd25519HssSessionCeremonyWire(
   record: ThresholdEd25519HssCeremonyRecord,
 ): DurableEd25519HssSessionCeremonyWireRecord {
@@ -1205,6 +1262,7 @@ function durableEd25519HssSessionCeremonyWire(
   }
   const serverInputs = durableEd25519HssServerInputsWire(record.serverInputs);
   const evaluationResult = durableEd25519HssEvaluationResultWire(record.evaluationResult);
+  const advancedServerEval = durableEd25519HssAdvancedServerEvalWire(record.advancedServerEval);
   return {
     kind: 'session',
     expiresAtMs: record.expiresAtMs,
@@ -1214,6 +1272,7 @@ function durableEd25519HssSessionCeremonyWire(
     preparedSession: record.preparedSession,
     preparedServerSession: durableEd25519HssPreparedServerSessionWire(record.preparedServerSession),
     ...(serverInputs ? { serverInputs } : {}),
+    ...(advancedServerEval ? { advancedServerEval } : {}),
     ...(evaluationResult ? { evaluationResult } : {}),
   };
 }
@@ -1233,6 +1292,7 @@ function parseDurableEd25519HssSessionCeremonyWire(
   const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
   if (!relayerKeyId) throw new Error('durable Ed25519 HSS ceremony relayerKeyId is required');
   const serverInputs = parseDurableEd25519HssServerInputs(raw.serverInputs);
+  const advancedServerEval = parseDurableEd25519HssAdvancedServerEval(raw.advancedServerEval);
   const evaluationResult = parseDurableEd25519HssEvaluationResult(raw.evaluationResult);
   return {
     kind: 'session',
@@ -1243,6 +1303,7 @@ function parseDurableEd25519HssSessionCeremonyWire(
     preparedSession: parseDurableEd25519HssPreparedSession(raw.preparedSession),
     preparedServerSession: parseDurableEd25519HssPreparedServerSession(raw.preparedServerSession),
     ...(serverInputs ? { serverInputs } : {}),
+    ...(advancedServerEval ? { advancedServerEval } : {}),
     ...(evaluationResult ? { evaluationResult } : {}),
   };
 }

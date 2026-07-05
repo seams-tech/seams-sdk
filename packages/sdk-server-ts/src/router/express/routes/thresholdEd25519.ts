@@ -3,6 +3,7 @@ import type { ExpressRouterApiContext } from '../createRouterApiRouter';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH,
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
+  ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
   ROUTER_AB_ED25519_HSS_PREPARE_PATH,
   ROUTER_AB_ED25519_HSS_RESPOND_PATH,
   ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
@@ -31,6 +32,7 @@ import {
 } from '../../routerAbPrivateSigningWorker';
 import {
   parseThresholdEd25519HssFinalizeWithSessionRouteRequest,
+  parseThresholdEd25519HssAdvanceWithSessionRouteRequest,
   parseThresholdEd25519HssPrepareWithSessionRouteRequest,
   parseThresholdEd25519HssRespondWithSessionRouteRequest,
   parseThresholdEd25519SessionRouteRequest,
@@ -484,6 +486,42 @@ export function registerThresholdEd25519Routes(
         });
         if (!validated.ok) return validated;
         return threshold.ed25519Hss.finalizeWithSession({
+          claims: validated.claims,
+          request: parsedBody.request,
+        });
+      },
+    );
+  });
+
+  router.post(ROUTER_AB_ED25519_HSS_ADVANCE_PATH, async (req: Request, res: Response) => {
+    const bodyUnknown = (req.body || {}) as unknown;
+    const body = (bodyUnknown || {}) as Record<string, unknown>;
+    const parsedBody = parseThresholdEd25519HssAdvanceWithSessionRouteRequest(bodyUnknown);
+    await handle(
+      ctx,
+      req,
+      res,
+      ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
+      {
+        ceremonyHandle: typeof body.ceremonyHandle === 'string' ? body.ceremonyHandle : undefined,
+      },
+      async () => {
+        if (!parsedBody.ok) return parsedBody.body;
+        const threshold = ctx.opts.threshold;
+        if (!threshold || !threshold.ed25519Hss) {
+          return {
+            ok: false,
+            code: 'threshold_disabled',
+            message: 'Threshold Ed25519 HSS is not configured on this server',
+          };
+        }
+        const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
+          body: bodyUnknown,
+          headers: req.headers || {},
+          session: ctx.opts.session,
+        });
+        if (!validated.ok) return validated;
+        return threshold.ed25519Hss.advanceWithSession({
           claims: validated.claims,
           request: parsedBody.request,
         });

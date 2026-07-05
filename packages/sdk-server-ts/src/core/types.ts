@@ -499,6 +499,31 @@ export type ThresholdEd25519HssRespondForRegistrationResponse =
       message?: string;
     };
 
+export interface ThresholdEd25519HssAdvanceWithSessionRequest {
+  ceremonyHandle: string;
+  addStageRequestMessageB64u: string;
+}
+
+export type ThresholdEd25519HssAdvanceWithSessionResponse =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      addStageRequestDigestB64u: string;
+      advanceServerEvalTimings?: {
+        decodeStateMs: number;
+        serializedSessionMaterializeMs: number;
+        advanceAddStageResponseMs: number;
+        advanceMessageScheduleRoundsMs: number;
+        advanceRoundCoreRoundsMs: number;
+        encodeAdvancedStateMs: number;
+      };
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
+
 export type ThresholdEd25519HssAdvanceForRegistrationResponse =
   | {
       ok: true;
@@ -527,7 +552,7 @@ export interface ThresholdEd25519HssFinalizeWithSessionRequest {
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
 }
 
-export type ThresholdEd25519HssRegistrationServerEvalSource =
+export type ThresholdEd25519HssServerEvalSource =
   | {
       kind: 'serialized_replay';
       advancedServerEval?: never;
@@ -554,6 +579,9 @@ export type ThresholdEd25519HssRegistrationServerEvalSource =
       };
       advancedServerEval?: never;
     };
+
+export type ThresholdEd25519HssRegistrationServerEvalSource =
+  ThresholdEd25519HssServerEvalSource;
 
 export type ThresholdEd25519HssFinalizeAccountResolution =
   | {

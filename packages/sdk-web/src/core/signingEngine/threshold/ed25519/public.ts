@@ -139,53 +139,29 @@ type BuildThresholdEd25519HssClientOwnedStagedArtifactInput = Parameters<
 >[0];
 
 type BuildThresholdEd25519HssClientOwnedStagedArtifactPublicInput =
-  | Omit<
-      Extract<
-        BuildThresholdEd25519HssClientOwnedStagedArtifactInput,
-        { addStageVerification: 'required' }
-      >,
-      'workerCtx'
-    >
-  | Omit<
-      Extract<
-        BuildThresholdEd25519HssClientOwnedStagedArtifactInput,
-        { addStageVerification: 'skip' }
-      >,
-      'workerCtx'
-    >;
+  Omit<
+    Extract<
+      BuildThresholdEd25519HssClientOwnedStagedArtifactInput,
+      { addStageVerification: 'required' }
+    >,
+    'workerCtx'
+  >;
 
 export function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
   deps: ThresholdEd25519PublicDeps,
   args: BuildThresholdEd25519HssClientOwnedStagedArtifactPublicInput,
 ): ReturnType<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm> {
   const workerCtx = deps.getSignerWorkerContext();
-  const commonArgs = {
+  return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
     preparedSession: args.preparedSession,
     clientRequest: args.clientRequest,
     serverInputDelivery: args.serverInputDelivery,
     clientOutputMaskHandle: args.clientOutputMaskHandle,
     expectedContextBindingB64u: args.expectedContextBindingB64u,
     workerCtx,
-  };
-  switch (args.addStageVerification) {
-    case 'required':
-      return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
-        ...commonArgs,
-        addStageVerification: 'required',
-        expectedAddStageRequestMessageB64u: args.expectedAddStageRequestMessageB64u,
-      });
-    case 'skip':
-      return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
-        ...commonArgs,
-        addStageVerification: 'skip',
-      });
-    default:
-      return assertNeverThresholdEd25519HssAddStageVerification(args);
-  }
-}
-
-function assertNeverThresholdEd25519HssAddStageVerification(_value: never): never {
-  throw new Error('Unexpected Threshold Ed25519 HSS add-stage verification mode');
+    addStageVerification: 'required',
+    expectedAddStageRequestMessageB64u: args.expectedAddStageRequestMessageB64u,
+  });
 }
 
 export function runThresholdEd25519HssCeremonyWithSession(

@@ -19,6 +19,7 @@ import {
 } from '@shared/utils/routerAbEcdsaHss';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH,
+  ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
   ROUTER_AB_ED25519_HSS_PREPARE_PATH,
   ROUTER_AB_ED25519_HSS_RESPOND_PATH,
@@ -1790,6 +1791,14 @@ export function createRouterApiRouteDefinitions(
       'POST',
       ROUTER_AB_ED25519_HSS_RESPOND_PATH,
       'Respond to Router A/B Ed25519 HSS client request',
+      'ed25519',
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+    ),
+    thresholdSessionRoute(
+      'router_ab_ed25519_hss_advance',
+      'POST',
+      ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
+      'Advance Router A/B Ed25519 HSS server eval state',
       'ed25519',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),

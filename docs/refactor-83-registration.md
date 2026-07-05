@@ -688,6 +688,13 @@ Do:
       The current usable combined unlock samples are 7,993ms and 8,011ms; using
       nearest-rank p50 for the small sample gives 7,993ms, and the observed
       worst case is 8,011ms. This is a current post-change combined-flow
+      baseline before the 83B unlock durable-advance follow-up. Updated July
+      5, 2026: the shared HSS pool fix reduced unlock without unlock-specific
+      work: `ed25519MaterialRestoreMs` improved from 6,957ms to 2,391ms and
+      `workerUnlockAndSessionBootstrapMs` improved from 8,002ms to 3,487ms.
+      The remaining restore cost was the old full-replay session ceremony, so
+      unlock/session HSS now uses `/router-ab/ed25519/hss/advance` and
+      requires durable advanced eval before finalize.
       baseline. Updated July 5, 2026: the benchmark matrix captured fresh
       not-prewarmed core activation samples for Ed25519-only, Tempo-only, and
       Tempo+Arc. Ed25519-only completed in 5,001ms with

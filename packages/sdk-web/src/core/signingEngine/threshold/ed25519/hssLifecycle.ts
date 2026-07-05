@@ -7,6 +7,7 @@ import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/cred
 import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
+  ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
   ROUTER_AB_ED25519_HSS_PREPARE_PATH,
   ROUTER_AB_ED25519_HSS_RESPOND_PATH,
@@ -15,6 +16,7 @@ import {
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm,
   buildThresholdEd25519SeedExportArtifactWasm,
   openThresholdEd25519HssSeedOutputWasm,
+  prepareThresholdEd25519HssAddStageRequestMessageWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssClientOutputMaskHandleWasm,
   type ThresholdEd25519HssCanonicalContext,
@@ -23,6 +25,7 @@ import {
   type ThresholdEd25519HssFinalizedReportEnvelope,
   type ThresholdEd25519HssOpenedSeedOutput,
   type ThresholdEd25519HssPreparedSessionEnvelope,
+  type ThresholdEd25519HssPreparedAddStageRequestEnvelope,
   type ThresholdEd25519HssServerInputDeliveryEnvelope,
   type ThresholdEd25519SeedExportArtifact,
   type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
@@ -224,6 +227,22 @@ export type RespondThresholdEd25519HssServerCeremonyWithSessionResult =
       code: 'server_respond_failed';
       message: string;
       serverInputDelivery?: never;
+    };
+
+export type AdvanceThresholdEd25519HssServerCeremonyWithSessionResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      addStageRequestDigestB64u: string;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'server_advance_failed';
+      message: string;
+      addStageRequestDigestB64u?: never;
     };
 
 export type FinalizeThresholdEd25519HssServerCeremonyWithSessionResult =
@@ -952,6 +971,173 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
   }
 }
 
+export async function advanceThresholdEd25519HssServerCeremonyWithSession(args: {
+  relayerUrl: string;
+  walletSessionJwt: string;
+  ceremonyHandle: string;
+  contextBindingB64u: string;
+  addStageRequest: ThresholdEd25519HssPreparedAddStageRequestEnvelope;
+}): Promise<AdvanceThresholdEd25519HssServerCeremonyWithSessionResult> {
+  const contextBindingB64u = String(args.contextBindingB64u || '').trim();
+  try {
+    const startedAt = Date.now();
+    const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
+    const walletSessionJwt = String(args.walletSessionJwt || '').trim();
+    const ceremonyHandle = String(args.ceremonyHandle || '').trim();
+    const addStageRequestMessageB64u = String(
+      args.addStageRequest.addStageRequestMessageB64u || '',
+    ).trim();
+    if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server advance');
+    if (!walletSessionJwt) {
+      throw new Error('Missing Wallet Session JWT for Ed25519 HSS server advance');
+    }
+    if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server advance');
+    if (!addStageRequestMessageB64u) {
+      throw new Error('Missing add-stage request for Ed25519 HSS server advance');
+    }
+    if (String(args.addStageRequest.contextBindingB64u || '').trim() !== contextBindingB64u) {
+      throw new Error('HSS add-stage request context binding mismatch');
+    }
+    if (typeof fetch !== 'function') {
+      throw new Error('fetch is not available for Ed25519 HSS server advance');
+    }
+
+    const requestPayload = {
+      ceremonyHandle,
+      addStageRequestMessageB64u,
+    };
+    const serializeStartedAt = Date.now();
+    const requestBody = JSON.stringify(requestPayload);
+    const serializeMs = Date.now() - serializeStartedAt;
+    const requestBytes = utf8Bytes(requestBody);
+
+    const fetchStartedAt = Date.now();
+    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_ADVANCE_PATH}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${walletSessionJwt}`,
+      },
+      credentials: 'omit',
+      body: requestBody,
+    });
+    const fetchMs = Date.now() - fetchStartedAt;
+
+    const parseStartedAt = Date.now();
+    const data = (await response.json().catch(() => ({}))) as Partial<{
+      ok: boolean;
+      contextBindingB64u: string;
+      addStageRequestDigestB64u: string;
+      code: string;
+      message: string;
+    }>;
+    const parseMs = Date.now() - parseStartedAt;
+    const advancedContextBindingB64u = String(data.contextBindingB64u || '').trim();
+    const addStageRequestDigestB64u = String(data.addStageRequestDigestB64u || '').trim();
+    if (!response.ok || data.ok !== true || !addStageRequestDigestB64u) {
+      throw new Error(data.message || data.code || `HTTP ${response.status}`);
+    }
+    if (advancedContextBindingB64u !== contextBindingB64u) {
+      throw new Error('HSS advanced server eval context binding mismatch');
+    }
+    console.info('[threshold-ed25519][client] hss advance timings', {
+      ceremonyHandle,
+      serializeMs,
+      fetchMs,
+      parseMs,
+      requestBytes,
+      totalMs: Date.now() - startedAt,
+    });
+    return {
+      ok: true,
+      contextBindingB64u,
+      addStageRequestDigestB64u,
+    };
+  } catch (error: unknown) {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    return {
+      ok: false,
+      contextBindingB64u,
+      code: 'server_advance_failed',
+      message,
+    };
+  }
+}
+
+async function buildThresholdEd25519SessionHssEvaluationResult(args: {
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
+  clientOutputMaskHandle: string;
+  addStageRequest: ThresholdEd25519HssPreparedAddStageRequestEnvelope;
+  workerCtx: WorkerOperationContext;
+}): Promise<{
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
+  evaluateMs: number;
+}> {
+  const evaluateStartedAt = Date.now();
+  const evaluationResult =
+    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
+      preparedSession: args.preparedSession,
+      clientRequest: args.clientRequest,
+      serverInputDelivery: args.serverInputDelivery,
+      clientOutputMaskHandle: args.clientOutputMaskHandle,
+      expectedContextBindingB64u: args.preparedSession.contextBindingB64u,
+      addStageVerification: 'required',
+      expectedAddStageRequestMessageB64u: args.addStageRequest.addStageRequestMessageB64u,
+      workerCtx: args.workerCtx,
+    });
+  return {
+    evaluationResult,
+    evaluateMs: Date.now() - evaluateStartedAt,
+  };
+}
+
+async function buildThresholdEd25519SessionHssArtifactAfterAdvance(args: {
+  relayerUrl: string;
+  walletSessionJwt: string;
+  ceremonyHandle: string;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
+  clientOutputMaskHandle: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<{
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
+  evaluateMs: number;
+}> {
+  const addStageRequest = await prepareThresholdEd25519HssAddStageRequestMessageWasm({
+    preparedSession: args.preparedSession,
+    clientRequest: args.clientRequest,
+    serverInputDelivery: args.serverInputDelivery,
+    expectedContextBindingB64u: args.preparedSession.contextBindingB64u,
+    workerCtx: args.workerCtx,
+  });
+  const advancePromise = advanceThresholdEd25519HssServerCeremonyWithSession({
+    relayerUrl: args.relayerUrl,
+    walletSessionJwt: args.walletSessionJwt,
+    ceremonyHandle: args.ceremonyHandle,
+    contextBindingB64u: args.preparedSession.contextBindingB64u,
+    addStageRequest,
+  });
+  const evaluatePromise = buildThresholdEd25519SessionHssEvaluationResult({
+    preparedSession: args.preparedSession,
+    clientRequest: args.clientRequest,
+    serverInputDelivery: args.serverInputDelivery,
+    clientOutputMaskHandle: args.clientOutputMaskHandle,
+    addStageRequest,
+    workerCtx: args.workerCtx,
+  });
+  const [advanced, evaluated] = await Promise.all([advancePromise, evaluatePromise]);
+  if (!advanced.ok) {
+    throw new Error(advanced.message || 'Ed25519 HSS advance failed');
+  }
+  if (evaluated.evaluationResult.contextBindingB64u !== args.preparedSession.contextBindingB64u) {
+    throw new Error('HSS client-owned staged artifact context binding mismatch');
+  }
+  return evaluated;
+}
+
 export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args: {
   relayerUrl: string;
   walletSessionJwt: string;
@@ -1107,33 +1293,23 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     };
   }
 
-  const evaluateStartedAt = Date.now();
-  const evaluationResult =
-    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
+  const evaluated = await buildThresholdEd25519SessionHssArtifactAfterAdvance({
+    relayerUrl: args.relayerUrl,
+    walletSessionJwt: args.walletSessionJwt,
+    ceremonyHandle: prepared.ceremonyHandle,
     preparedSession: prepared.preparedSession,
     clientRequest,
     serverInputDelivery: responded.serverInputDelivery,
     clientOutputMaskHandle,
-    expectedContextBindingB64u: prepared.preparedSession.contextBindingB64u,
-    addStageVerification: 'skip',
     workerCtx: args.workerCtx,
   });
-  if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
-    return {
-      ok: false,
-      contextBindingB64u: evaluationResult.contextBindingB64u,
-      code: 'complete_client_ceremony_failed',
-      message: 'HSS client-owned staged artifact context binding mismatch',
-    };
-  }
-  const evaluateMs = Date.now() - evaluateStartedAt;
 
   const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
     walletSessionJwt: args.walletSessionJwt,
     ceremonyHandle: prepared.ceremonyHandle,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
-    evaluationResult,
+    evaluationResult: evaluated.evaluationResult,
   });
   if (!finalized.ok) {
     return {
@@ -1146,7 +1322,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
 
   console.info('[threshold-ed25519][client] hss ceremony timings', {
     relayerKeyId: String(args.relayerKeyId || '').trim(),
-    evaluateMs,
+    evaluateMs: evaluated.evaluateMs,
     totalMs: Date.now() - startedAt,
   });
   return {
@@ -1231,33 +1407,23 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     };
   }
 
-  const evaluateStartedAt = Date.now();
-  const evaluationResult =
-    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
-      preparedSession: prepared.preparedSession,
-      clientRequest,
-      serverInputDelivery: responded.serverInputDelivery,
-      clientOutputMaskHandle: evaluatorClientOutputMaskHandle,
-      expectedContextBindingB64u: prepared.preparedSession.contextBindingB64u,
-      addStageVerification: 'skip',
-      workerCtx: args.workerCtx,
-    });
-  if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
-    return {
-      ok: false,
-      contextBindingB64u: evaluationResult.contextBindingB64u,
-      code: 'complete_client_ceremony_failed',
-      message: 'HSS client-owned staged artifact context binding mismatch',
-    };
-  }
-  const evaluateMs = Date.now() - evaluateStartedAt;
+  const evaluated = await buildThresholdEd25519SessionHssArtifactAfterAdvance({
+    relayerUrl: args.relayerUrl,
+    walletSessionJwt: args.walletSessionJwt,
+    ceremonyHandle: prepared.ceremonyHandle,
+    preparedSession: prepared.preparedSession,
+    clientRequest,
+    serverInputDelivery: responded.serverInputDelivery,
+    clientOutputMaskHandle: evaluatorClientOutputMaskHandle,
+    workerCtx: args.workerCtx,
+  });
 
   const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
     walletSessionJwt: args.walletSessionJwt,
     ceremonyHandle: prepared.ceremonyHandle,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
-    evaluationResult,
+    evaluationResult: evaluated.evaluationResult,
   });
   if (!finalized.ok) {
     return {
@@ -1314,7 +1480,7 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
   const completeMs = Date.now() - completeStartedAt;
   console.info('[threshold-ed25519][client] hss material-handle ceremony timings', {
     relayerKeyId: String(args.relayerKeyId || '').trim(),
-    evaluateMs,
+    evaluateMs: evaluated.evaluateMs,
     completeMs,
     totalMs: Date.now() - startedAt,
   });

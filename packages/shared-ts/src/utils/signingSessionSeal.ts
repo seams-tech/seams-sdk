@@ -11,6 +11,7 @@ export const ROUTER_AB_ED25519_WALLET_SESSION_PATH =
   '/router-ab/wallet-session/ed25519' as const;
 export const ROUTER_AB_ED25519_HSS_PREPARE_PATH = '/router-ab/ed25519/hss/prepare' as const;
 export const ROUTER_AB_ED25519_HSS_RESPOND_PATH = '/router-ab/ed25519/hss/respond' as const;
+export const ROUTER_AB_ED25519_HSS_ADVANCE_PATH = '/router-ab/ed25519/hss/advance' as const;
 export const ROUTER_AB_ED25519_HSS_FINALIZE_PATH = '/router-ab/ed25519/hss/finalize' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH =
   '/router-ab/ed25519/sign/prepare' as const;

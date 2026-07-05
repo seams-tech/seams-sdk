@@ -187,8 +187,6 @@ wins.
 ## Non-Goals
 
 - Do not persist WASM handles.
-- Do not remove production serialized replay from session-ceremony finalize;
-  unlock/reconstruction keeps that path until a scoped migration replaces it.
 - Do not optimize one timing bucket while total registration stays flat.
 - Do not update `crates/ecdsa-hss` unless measurements show the same replay
   bottleneck on a user-visible ECDSA path.
@@ -206,8 +204,10 @@ wins.
       `source: 'serialized_replay'`; this is now promoted to a failing
       contract in Phase 7.
 - [x] Add registration-scoped source guards for silent replay imports/calls.
-- [x] Confirm unlock/session HSS still has a production replay path and is out
-      of this guard scope.
+- [x] Confirm unlock/session HSS originally kept a production replay path.
+      Completed July 5, 2026: the unlock follow-up removed the normal
+      session-finalize replay path and added Wallet Session-authenticated
+      `/router-ab/ed25519/hss/advance`.
 
 Exit criteria:
 
@@ -341,9 +341,9 @@ Measurement conclusion:
   `~2.65s`.
 - The remaining registration HSS latency requires execution-local ownership of
   live role-separated eval state if we want another large reduction.
-- Unlock/session material restore remains outside the 83B evidence set. Keep
-  its production serialized replay path available until a dedicated unlock
-  measurement proves the same latency shape.
+- Unlock/session material restore now uses the same add-stage split and durable
+  advanced eval pattern as registration. The remaining task is manual intended
+  unlock benchmarking against the new path.
 
 ## Phase 3: Split Client Add-Stage From Artifact Build
 
@@ -478,22 +478,24 @@ Exit criteria:
       first; - in-flight claim wait/retry while advance is running; -
       structured diagnostic/restart when no durable advanced eval and no claim
       exists.
-- [x] Keep session-ceremony serialized replay production-reachable for unlock.
+- [x] Remove the normal session-ceremony serialized replay path after the
+      unlock benchmark confirmed the same replay bottleneck. Completed July 5,
+      2026: `ed25519HssFinalizeWithSession` now requires a matching durable
+      advanced eval and returns `hss_advance_required` when the advance step is
+      missing.
 
 Validation note:
 
 - Registration intended/CI now parses `[Registration] wallet timing summary`
   JSON and fails on `wallets_register_finalize` HSS provenance of
   `serialized_replay` or missing Ed25519 finalize provenance.
-- Session/recovery replay remains explicit outside registration:
-  `ed25519HssFinalizeWithSession` passes
-  `serverEvalSource: { kind: 'serialized_replay' }`, and email recovery
-  registration-material finalization passes the same explicit source.
+- Session HSS replay is no longer a normal production path:
+  `ed25519HssFinalizeWithSession` passes durable advanced eval only.
 
 Exit criteria:
 
 - Registration cannot silently fall through to serialized replay.
-- Unlock/session HSS remains unaffected.
+- Unlock/session HSS cannot silently fall through to serialized replay.
 
 ## Phase 8: Pool Or Checkpoint Optimization
 

@@ -8,6 +8,7 @@ import type {
   Ed25519SessionPolicy,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
+  ThresholdEd25519HssAdvanceWithSessionRequest,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519HssRespondWithSessionRequest,
@@ -71,6 +72,7 @@ const SESSION_POLICY_KEYS = [
 
 const HSS_PREPARE_KEYS = ['relayerKeyId', 'operation', 'context', 'sessionKind'] as const;
 const HSS_RESPOND_KEYS = ['ceremonyHandle', 'clientRequest', 'sessionKind'] as const;
+const HSS_ADVANCE_KEYS = ['ceremonyHandle', 'addStageRequestMessageB64u', 'sessionKind'] as const;
 const HSS_FINALIZE_KEYS = ['ceremonyHandle', 'evaluationResult', 'sessionKind'] as const;
 const HSS_CONTEXT_KEYS = ['applicationBindingDigestB64u', 'participantIds'] as const;
 const CLIENT_REQUEST_KEYS = ['clientRequestMessageB64u'] as const;
@@ -377,6 +379,34 @@ export function parseThresholdEd25519HssRespondWithSessionRouteRequest(
     request: {
       ceremonyHandle: ceremonyHandle.request,
       clientRequest: clientRequest.request,
+    },
+  };
+}
+
+export function parseThresholdEd25519HssAdvanceWithSessionRouteRequest(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<ThresholdEd25519HssAdvanceWithSessionRequest> {
+  if (!isPlainObject(raw)) return invalidThresholdEd25519Body('Expected JSON object body');
+  const sessionKindError = rejectNonJwtSessionKind(
+    raw,
+    'Router A/B Ed25519 HSS requires sessionKind=jwt',
+  );
+  if (sessionKindError) return sessionKindError;
+  const unsupported = findUnexpectedRouteKey(raw, HSS_ADVANCE_KEYS);
+  if (unsupported) {
+    return invalidThresholdEd25519Body(
+      `Unsupported threshold-ed25519 HSS advance field: ${unsupported}`,
+    );
+  }
+  const ceremonyHandle = requiredStringField(raw, 'ceremonyHandle');
+  if (!ceremonyHandle.ok) return ceremonyHandle;
+  const addStageRequestMessageB64u = requiredStringField(raw, 'addStageRequestMessageB64u');
+  if (!addStageRequestMessageB64u.ok) return addStageRequestMessageB64u;
+  return {
+    ok: true,
+    request: {
+      ceremonyHandle: ceremonyHandle.request,
+      addStageRequestMessageB64u: addStageRequestMessageB64u.request,
     },
   };
 }

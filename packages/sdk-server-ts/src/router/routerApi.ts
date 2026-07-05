@@ -7,6 +7,8 @@ import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssFinalizeWithSessionResponse,
+  ThresholdEd25519HssAdvanceWithSessionRequest,
+  ThresholdEd25519HssAdvanceWithSessionResponse,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519HssPrepareWithSessionResponse,
@@ -133,6 +135,10 @@ export interface ThresholdSigningAdapter {
       claims: SessionClaims;
       request: ThresholdEd25519HssRespondWithSessionRequest;
     }): Promise<ThresholdEd25519HssRespondWithSessionResponse>;
+    advanceWithSession(input: {
+      claims: SessionClaims;
+      request: ThresholdEd25519HssAdvanceWithSessionRequest;
+    }): Promise<ThresholdEd25519HssAdvanceWithSessionResponse>;
     finalizeWithSession(input: {
       claims: SessionClaims;
       request: ThresholdEd25519HssFinalizeWithSessionRequest;

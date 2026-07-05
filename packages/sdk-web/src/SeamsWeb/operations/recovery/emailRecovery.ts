@@ -887,6 +887,13 @@ export class EmailRecoveryDomain {
       const ed25519ServerInputDelivery = parseEmailRecoveryEd25519HssServerInputDelivery(
         ed25519RespondThresholdSection.hss,
       );
+      const ed25519PreparedAddStage =
+        await context.signingEngine.prepareThresholdEd25519HssAddStageRequestMessage({
+          preparedSession: preparedEd25519Hss.preparedSession,
+          clientRequest: ed25519ClientRequest,
+          serverInputDelivery: ed25519ServerInputDelivery,
+          expectedContextBindingB64u: preparedEd25519Hss.preparedSession.contextBindingB64u,
+        });
       const ed25519EvaluationResult =
         await buildThresholdEd25519RegistrationHssClientOwnedArtifact({
           context,
@@ -895,7 +902,8 @@ export class EmailRecoveryDomain {
           serverInputDelivery: ed25519ServerInputDelivery,
           clientOutputMaskHandle,
           addStage: {
-            kind: 'fused',
+            kind: 'prepared',
+            request: ed25519PreparedAddStage,
           },
         });
       const ed25519FinalizeResp = await fetch(

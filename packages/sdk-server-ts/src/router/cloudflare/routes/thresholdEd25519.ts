@@ -4,6 +4,7 @@ import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH,
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH,
+  ROUTER_AB_ED25519_HSS_ADVANCE_PATH,
   ROUTER_AB_ED25519_HSS_PREPARE_PATH,
   ROUTER_AB_ED25519_HSS_RESPOND_PATH,
   ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
@@ -35,6 +36,7 @@ import {
 } from '../../routerAbPrivateSigningWorker';
 import {
   parseThresholdEd25519HssFinalizeWithSessionRouteRequest,
+  parseThresholdEd25519HssAdvanceWithSessionRouteRequest,
   parseThresholdEd25519HssPrepareWithSessionRouteRequest,
   parseThresholdEd25519HssRespondWithSessionRouteRequest,
   parseThresholdEd25519SessionRouteRequest,
@@ -88,6 +90,7 @@ export async function handleThresholdEd25519(
   if (
     pathname !== ROUTER_AB_ED25519_WALLET_SESSION_PATH &&
     pathname !== ROUTER_AB_ED25519_HSS_PREPARE_PATH &&
+    pathname !== ROUTER_AB_ED25519_HSS_ADVANCE_PATH &&
     pathname !== ROUTER_AB_ED25519_HSS_FINALIZE_PATH &&
     pathname !== ROUTER_AB_ED25519_HSS_RESPOND_PATH &&
     pathname !== ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH &&
@@ -452,6 +455,46 @@ export async function handleThresholdEd25519(
       });
       if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
       const result = await threshold.ed25519Hss.finalizeWithSession({
+        claims: validated.claims,
+        request: parsedBody.request,
+      });
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        durationMs: Date.now() - startedAt,
+        ...('code' in result && result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
+    }
+    case ROUTER_AB_ED25519_HSS_ADVANCE_PATH: {
+      const startedAt = Date.now();
+      const b = (body || {}) as Record<string, unknown>;
+      const parsedBody = parseThresholdEd25519HssAdvanceWithSessionRouteRequest(body);
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        ceremonyHandle: typeof b.ceremonyHandle === 'string' ? b.ceremonyHandle : undefined,
+      });
+      const threshold = ctx.opts.threshold;
+      if (!threshold || !threshold.ed25519Hss) {
+        const result = {
+          ok: false,
+          code: 'threshold_disabled',
+          message: 'Threshold Ed25519 HSS is not configured on this server',
+        };
+        return json(result, { status: 501 });
+      }
+      if (!parsedBody.ok) {
+        return json(parsedBody.body, { status: thresholdEd25519StatusCode(parsedBody.body) });
+      }
+      const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
+        body,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
+      if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
+      const result = await threshold.ed25519Hss.advanceWithSession({
         claims: validated.claims,
         request: parsedBody.request,
       });

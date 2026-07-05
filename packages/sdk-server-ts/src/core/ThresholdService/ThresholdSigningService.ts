@@ -76,6 +76,8 @@ import type {
   ThresholdEd25519VerifiedWalletAuth,
   ThresholdEd25519SessionAuth,
   ThresholdEd25519HssCanonicalContext,
+  ThresholdEd25519HssAdvanceWithSessionRequest,
+  ThresholdEd25519HssAdvanceWithSessionResponse,
   ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssAdvanceForRegistrationRequest,
@@ -105,6 +107,7 @@ import type {
   ThresholdEd25519HssRespondWithSessionRequest,
   ThresholdEd25519HssRespondWithSessionResponse,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
+  ThresholdEd25519HssServerEvalSource,
   ThresholdEd25519HssRegistrationServerEvalSource,
   ThresholdEd25519HssRegistrationProjectionMode,
   ThresholdEd25519RegistrationAccountScope,
@@ -371,6 +374,10 @@ export type ThresholdEd25519HssCeremonyRecord =
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
       preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession;
       serverInputs?: ThresholdEd25519HssStoredServerInputs;
+      advancedServerEval?: Extract<
+        ThresholdEd25519HssServerEvalSource,
+        { kind: 'durable_advanced_eval' }
+      >['advancedServerEval'];
       evaluationResult?: ThresholdEd25519HssStoredStagedEvaluatorArtifact;
     }
   | {
@@ -2357,6 +2364,20 @@ export class ThresholdSigningService {
         };
       }
       return this.ed25519HssRespondWithSession({ claims, request: input.request });
+    },
+    advanceWithSession: async (input: {
+      claims: SessionClaims;
+      request: ThresholdEd25519HssAdvanceWithSessionRequest;
+    }): Promise<ThresholdEd25519HssAdvanceWithSessionResponse> => {
+      const claims = parseRouterAbEd25519WalletSessionClaims(input.claims);
+      if (!claims) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Invalid Wallet Session claims',
+        };
+      }
+      return this.ed25519HssAdvanceWithSession({ claims, request: input.request });
     },
     finalizeWithSession: async (input: {
       claims: SessionClaims;
@@ -5953,6 +5974,138 @@ export class ThresholdSigningService {
     }
   }
 
+  private async ed25519HssAdvanceWithSession(input: {
+    claims: ThresholdEd25519SessionClaims;
+    request: ThresholdEd25519HssAdvanceWithSessionRequest;
+  }): Promise<ThresholdEd25519HssAdvanceWithSessionResponse> {
+    try {
+      const advanceStartedAt = Date.now();
+      const parseStartedAt = Date.now();
+      const rec = (input.request || {}) as unknown as Record<string, unknown>;
+      const ceremonyHandle = toOptionalTrimmedString(rec.ceremonyHandle);
+      if (!ceremonyHandle) {
+        return { ok: false, code: 'invalid_body', message: 'ceremonyHandle is required' };
+      }
+      const addStageRequestMessageB64u = toOptionalTrimmedString(rec.addStageRequestMessageB64u);
+      if (!addStageRequestMessageB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'addStageRequestMessageB64u is required',
+        };
+      }
+      let addStageRequestDigestB64u: string;
+      try {
+        addStageRequestDigestB64u = base64UrlEncode(
+          await sha256BytesPortable(base64UrlDecode(addStageRequestMessageB64u)),
+        );
+      } catch {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'addStageRequestMessageB64u is invalid',
+        };
+      }
+      const ceremony = await this.getThresholdEd25519HssCeremony(ceremonyHandle);
+      if (!ceremony.ok) return ceremony;
+      if (ceremony.value.kind !== 'session') {
+        return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
+      }
+      const scopeError = await this.validateThresholdEd25519HssSessionScope({
+        claims: input.claims,
+        relayerKeyId: ceremony.value.relayerKeyId,
+        context: ceremony.value.context,
+        preparedSession: ceremony.value.preparedSession,
+      });
+      if (scopeError) return scopeError;
+      if (ceremony.value.advancedServerEval) {
+        if (
+          ceremony.value.advancedServerEval.addStageRequestDigestB64u !==
+          addStageRequestDigestB64u
+        ) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'ceremonyHandle already has a different advanced HSS eval',
+          };
+        }
+        return {
+          ok: true,
+          contextBindingB64u: ceremony.value.advancedServerEval.contextBindingB64u,
+          addStageRequestDigestB64u,
+        };
+      }
+      const respondedServerSession = requireThresholdEd25519HssRespondedServerSession(
+        ceremony.value.preparedServerSession,
+      );
+      if (!respondedServerSession) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ceremonyHandle has not recorded responded server eval state',
+        };
+      }
+      const projectionMode: ThresholdEd25519HssRegistrationProjectionMode =
+        thresholdEd25519HssSessionOperationIncludesSeedOutput(ceremony.value.operation)
+          ? 'registration_seed_and_output'
+          : 'registration_output_only';
+      const parseMs = Date.now() - parseStartedAt;
+      const wasmStartedAt = Date.now();
+      const advanced = await advanceThresholdEd25519HssServerEvalState({
+        preparedServerSession: respondedServerSession,
+        addStageRequestMessageB64u,
+        projectionMode,
+      });
+      const wasmAdvanceMs = Date.now() - wasmStartedAt;
+      if (advanced.contextBindingB64u !== ceremony.value.preparedSession.contextBindingB64u) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'advanced server eval context binding mismatch',
+        };
+      }
+      if (advanced.addStageRequestDigestB64u !== addStageRequestDigestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'advanced server eval add-stage digest mismatch',
+        };
+      }
+      const advancedServerEval = {
+        contextBindingB64u: advanced.contextBindingB64u,
+        addStageRequestDigestB64u: advanced.addStageRequestDigestB64u,
+        advancedServerEvalStateB64u: advanced.advancedServerEvalStateB64u,
+        priorStageResponseMessageB64u: advanced.priorStageResponseMessageB64u,
+      };
+      await this.ed25519HssCeremonyStore.put(ceremonyHandle, {
+        ...ceremony.value,
+        advancedServerEval,
+      });
+
+      this.logger?.info?.('[threshold-ed25519] hss advance timings', {
+        relayerKeyId: ceremony.value.relayerKeyId,
+        nearAccountId: input.claims.nearAccountId,
+        operation: ceremony.value.operation,
+        requestBytes: jsonBytes(input.request || {}),
+        parseMs,
+        wasmAdvanceMs,
+        wasmAdvanceBreakdownMs: advanced.timings || null,
+        totalMs: Date.now() - advanceStartedAt,
+      });
+
+      return {
+        ok: true,
+        contextBindingB64u: advanced.contextBindingB64u,
+        addStageRequestDigestB64u,
+        ...(advanced.timings ? { advanceServerEvalTimings: advanced.timings } : {}),
+      };
+    } catch (e: unknown) {
+      const msg = errorMessage(e);
+      this.logger?.error?.('[threshold-ed25519] hss advance failed', { message: msg });
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
   private async ed25519HssRespondForRegistration(input: {
     orgId: string;
     request: ThresholdEd25519HssRespondForRegistrationRequest;
@@ -6198,6 +6351,9 @@ export class ThresholdSigningService {
       }
       const storedEvaluationResult =
         storedThresholdEd25519HssEvaluationResultFromClientOwnedEnvelope(evaluationResult.value);
+      const evaluationAddStageRequestDigestB64u = base64UrlEncode(
+        await sha256BytesPortable(storedEvaluationResult.addStageRequestMessageBytes),
+      );
 
       const scopeError = await this.validateThresholdEd25519HssSessionScope({
         claims: input.claims,
@@ -6231,6 +6387,34 @@ export class ThresholdSigningService {
           message: 'ceremonyHandle has not recorded responded server eval state',
         };
       }
+      const advancedServerEval = takenCeremony.value.advancedServerEval;
+      if (!advancedServerEval) {
+        await this.ed25519HssCeremonyStore.put(ceremonyHandle, takenCeremony.value);
+        return {
+          ok: false,
+          code: 'hss_advance_required',
+          message: 'ceremonyHandle has not recorded advanced server eval state',
+        };
+      }
+      if (
+        advancedServerEval.contextBindingB64u !==
+        takenCeremony.value.preparedSession.contextBindingB64u
+      ) {
+        await this.ed25519HssCeremonyStore.put(ceremonyHandle, takenCeremony.value);
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'advanced server eval context binding mismatch',
+        };
+      }
+      if (advancedServerEval.addStageRequestDigestB64u !== evaluationAddStageRequestDigestB64u) {
+        await this.ed25519HssCeremonyStore.put(ceremonyHandle, takenCeremony.value);
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'advanced server eval add-stage digest mismatch',
+        };
+      }
       await this.ed25519HssCeremonyStore.put(ceremonyHandle, finalizingCeremony);
       try {
         const wasmStartedAt = Date.now();
@@ -6239,7 +6423,7 @@ export class ThresholdSigningService {
           preparedSession: takenCeremony.value.preparedSession,
           preparedServerSession: respondedServerSession,
           evaluationResult: storedEvaluationResult,
-          serverEvalSource: { kind: 'serialized_replay' },
+          serverEvalSource: { kind: 'durable_advanced_eval', advancedServerEval },
           expectedContextBindingB64u: takenCeremony.value.preparedSession.contextBindingB64u,
         });
         if (takenCeremony.value.operation === 'registration_material_restore') {
