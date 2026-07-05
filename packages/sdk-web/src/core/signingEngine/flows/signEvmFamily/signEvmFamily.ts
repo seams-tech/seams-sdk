@@ -411,7 +411,7 @@ function emitEvmFamilyFreshAuthRetryEvent(args: {
       ? SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED
       : SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
     status: 'running',
-    accountId: args.walletId,
+    walletId: args.walletId,
     message: isEmailOtp
       ? 'Signing session needs reauthorization; requesting Email OTP'
       : 'Signing session needs reauthorization; requesting passkey',
@@ -590,7 +590,7 @@ async function signEvmFamilyAttempt(
     };
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'fresh_auth_retry.decision',
-      accountId: walletId,
+      walletId,
       chain: requestChain,
       chainTarget: requestChainTarget,
       decision,
@@ -625,7 +625,7 @@ async function signEvmFamilyAttempt(
       });
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.prepared',
-      accountId: walletId,
+      walletId,
       chain: requestChain,
       chainTarget: requestChainTarget,
       ...(derivePreparedEvmFamilyKeyFingerprint(preparedEcdsaSigningSession)
@@ -1083,7 +1083,7 @@ async function signEvmFamilyAttempt(
     ) {
       emitSigningSessionFlowTrace('evm-family', {
         stage: 'ecdsa_attempt.budget_admission_reused',
-        accountId: walletId,
+        walletId,
         chain: args.request.chain,
         chainTarget: requestChainTarget,
         lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
@@ -1115,7 +1115,7 @@ async function signEvmFamilyAttempt(
     assertPreparedEcdsaOperationLane(updatedPrepared, 'budget identity preparation');
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.budget_admitted',
-      accountId: walletId,
+      walletId,
       chain: args.request.chain,
       chainTarget: requestChainTarget,
       lane: summarizeEvmFamilyEcdsaLane(updatedPrepared.signingLane),
@@ -1135,7 +1135,7 @@ async function signEvmFamilyAttempt(
     }
     emitSigningSessionFlowFailure('evm-family', {
       stage: 'ecdsa_attempt.admitted_state_required',
-      accountId: walletId,
+      walletId,
       chain: args.request.chain,
       context,
       lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
@@ -1203,7 +1203,7 @@ async function signEvmFamilyAttempt(
         thresholdEcdsaRecord = getEcdsaMaterialRecord(admittedWarmSession.material);
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_attempt.warm_session_budget_admitted',
-          accountId: walletId,
+          walletId,
           chain: args.request.chain,
           chainTarget: requestChainTarget,
           lane: summarizeEvmFamilyEcdsaLane(admittedWarmSession.signingLane),
@@ -1214,7 +1214,7 @@ async function signEvmFamilyAttempt(
     } catch (error: unknown) {
       emitSigningSessionFlowFailure('evm-family', {
         stage: 'ecdsa_attempt.warm_session_budget_admission_failed',
-        accountId: walletId,
+        walletId,
         chain: args.request.chain,
         chainTarget: requestChainTarget,
         lane: summarizeEvmFamilyEcdsaLane(preparedEcdsaSigningSession.signingLane),
@@ -1257,7 +1257,7 @@ async function signEvmFamilyAttempt(
           selectedEcdsaAuthMethod = SIGNER_AUTH_METHODS.emailOtp;
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_attempt.email_otp_reauth_refreshed',
-            accountId: walletId,
+            walletId,
             chain: args.request.chain,
             refreshedLane: summarizeEvmFamilyEcdsaLane(refreshed.lane),
             refreshedRecord: summarizeEvmFamilyEcdsaSessionRecord(refreshed.record),
@@ -1289,7 +1289,7 @@ async function signEvmFamilyAttempt(
           if (admittedAfterReauth.budget.kind !== 'BudgetAdmitted') {
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_attempt.email_otp_reauth_not_admitted',
-              accountId: walletId,
+              walletId,
               chain: args.request.chain,
               lane: summarizeEvmFamilyEcdsaLane(admittedAfterReauth.signingLane),
               budgetKind: admittedAfterReauth.budget.kind,
@@ -1301,7 +1301,7 @@ async function signEvmFamilyAttempt(
           }
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_attempt.email_otp_reauth_admitted',
-            accountId: walletId,
+            walletId,
             chain: args.request.chain,
             ...(derivePreparedEvmFamilyKeyFingerprint(admittedAfterReauth)
               ? {
@@ -1501,7 +1501,7 @@ async function signEvmFamilyAttempt(
     const budgetDiagnostics = buildBudgetFailureDiagnostics(prepared);
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.budget_finalization_started',
-      accountId: walletId,
+      walletId,
       chain: args.request.chain,
       chainTarget: requestChainTarget,
       lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
@@ -1522,7 +1522,7 @@ async function signEvmFamilyAttempt(
         emitEvmFamilySigningEvent(args.onEvent, {
           phase: SigningEventPhase.STEP_11_REMAINING_SPEND_UPDATED,
           status: 'succeeded',
-          accountId: walletId,
+          walletId,
           interaction: { kind: 'none', overlay: 'none' },
           data: {
             chain: args.request.chain,
@@ -1534,7 +1534,7 @@ async function signEvmFamilyAttempt(
       }
       emitSigningSessionFlowTrace('evm-family', {
         stage: 'ecdsa_attempt.budget_finalized',
-        accountId: walletId,
+        walletId,
         chain: args.request.chain,
         chainTarget: requestChainTarget,
         lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
@@ -1544,7 +1544,7 @@ async function signEvmFamilyAttempt(
     } catch (error: unknown) {
       emitSigningSessionFlowFailure('evm-family', {
         stage: 'ecdsa_attempt.budget_finalization_failed',
-        accountId: walletId,
+        walletId,
         chain: args.request.chain,
         chainTarget: requestChainTarget,
         lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
@@ -1578,7 +1578,7 @@ async function signEvmFamilyAttempt(
     if (!preparedMatchesOperation) {
       emitSigningSessionFlowTrace('evm-family', {
         stage: 'ecdsa_attempt.budget_reservation_uses_admitted_operation',
-        accountId: walletId,
+        walletId,
         chain: args.request.chain,
         chainTarget: requestChainTarget,
         admittedLane: summarizeEvmFamilyEcdsaLane(operationLane),
@@ -1609,7 +1609,7 @@ async function signEvmFamilyAttempt(
     if (prepared.budget.kind !== 'BudgetAdmitted') return;
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.budget_zero_spend_recorded',
-      accountId: walletId,
+      walletId,
       chain: args.request.chain,
       chainTarget: requestChainTarget,
       lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
@@ -1657,13 +1657,13 @@ async function signEvmFamilyAttempt(
   const preparedNonceSession = getPreparedEcdsaSigningSessionIfEcdsa();
   const nonceOperation: PreparedNonceOperationContext = {
     ...createTransactionSigningOperation(),
-    accountId: walletId,
+    accountId: String(walletId),
   };
   if (preparedNonceSession) {
     const nonceFingerprint = derivePreparedEvmFamilyKeyFingerprint(preparedNonceSession);
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.nonce_operation_prepared',
-      accountId: walletId,
+      walletId,
       chain: requestChain,
       chainTarget: requestChainTarget,
       ...(nonceFingerprint ? { evmFamilyKeyFingerprint: nonceFingerprint } : {}),

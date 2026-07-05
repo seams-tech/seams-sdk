@@ -230,7 +230,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         createSigningFlowEvent({
           ...event,
           flowId,
-          accountId: input.walletId,
+          walletId: input.walletId,
           authMethod,
         }),
       );

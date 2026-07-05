@@ -47,10 +47,11 @@ export function evmFamilySigningTargetFromExplicitTarget(args: {
 
 export type EvmFamilyLifecycleEvent = Omit<
   CreateSigningFlowEventInput,
-  'flowId' | 'accountId'
+  'flowId' | 'walletId' | 'accountId'
 > & {
   flowId?: string;
-  accountId?: string;
+  walletId: string;
+  accountId?: never;
 };
 
 export type EvmFamilyLifecycleEventCallback = (event: SigningFlowEvent) => void;

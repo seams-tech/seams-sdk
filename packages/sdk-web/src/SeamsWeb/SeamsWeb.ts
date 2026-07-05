@@ -1493,7 +1493,7 @@ export class SeamsWeb {
     onEvent: ((event: RegistrationFlowEvent) => void) | undefined,
     args: {
       flowId: string;
-      accountId: string;
+      walletId: string;
       challengeId?: string;
       chainTarget: ThresholdEcdsaChainTarget;
       progress: EmailOtpWorkerProgressEvent;
@@ -1501,7 +1501,7 @@ export class SeamsWeb {
   ): RegistrationEventPhase | null {
     const base = {
       flowId: args.flowId,
-      accountId: args.accountId,
+      walletId: args.walletId,
       authMethod: 'email_otp' as const,
       ...(args.challengeId ? { requestId: args.challengeId } : {}),
     };
@@ -1571,7 +1571,7 @@ export class SeamsWeb {
     onEvent: ((event: UnlockFlowEvent) => void) | undefined,
     args: {
       flowId: string;
-      accountId: string;
+      walletId: string;
       challengeId?: string;
       chainTarget: ThresholdEcdsaChainTarget;
       progress: EmailOtpWorkerProgressEvent;
@@ -1580,7 +1580,7 @@ export class SeamsWeb {
     const chainLabel = args.chainTarget.kind === 'tempo' ? 'Tempo' : 'EVM';
     const base = {
       flowId: args.flowId,
-      accountId: args.accountId,
+      walletId: args.walletId,
       authMethod: 'email_otp' as const,
       ...(args.challengeId ? { requestId: args.challengeId } : {}),
     };
@@ -1663,7 +1663,7 @@ export class SeamsWeb {
     const flowId = this.emailOtpUnlockFlowId(args.walletId);
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: args.walletId,
+      walletId: args.walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_STARTED,
       status: 'running',
@@ -1674,7 +1674,7 @@ export class SeamsWeb {
         const result = await router.requestEmailOtpChallenge(args);
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId: this.emailOtpUnlockFlowId(args.walletId, result.challengeId),
-          accountId: args.walletId,
+          walletId: args.walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
           status: 'succeeded',
@@ -1690,7 +1690,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId: this.emailOtpUnlockFlowId(args.walletId, result.challengeId),
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
         status: 'succeeded',
@@ -1701,7 +1701,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         error: e,
       });
@@ -1718,7 +1718,7 @@ export class SeamsWeb {
     const flowId = this.emailOtpRegistrationFlowId(args.walletId);
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
-      accountId: args.walletId,
+      walletId: args.walletId,
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_04_OTP_CHALLENGE_STARTED,
       status: 'running',
@@ -1729,7 +1729,7 @@ export class SeamsWeb {
         const result = await router.requestEmailOtpEnrollmentChallenge(args);
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId: this.emailOtpRegistrationFlowId(args.walletId, result.challengeId),
-          accountId: args.walletId,
+          walletId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT,
           status: 'succeeded',
@@ -1744,7 +1744,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId: this.emailOtpRegistrationFlowId(args.walletId, result.challengeId),
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT,
         status: 'succeeded',
@@ -1755,7 +1755,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpRegistrationFailure(args.onEvent, {
         flowId,
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         error: e,
       });
@@ -1772,7 +1772,7 @@ export class SeamsWeb {
     const flowId = this.emailOtpUnlockFlowId(walletId);
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: walletId,
+      walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_STARTED,
       status: 'running',
@@ -1786,7 +1786,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId: this.emailOtpUnlockFlowId(walletId, result.challengeId),
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
           status: 'succeeded',
@@ -1800,7 +1800,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId: this.emailOtpUnlockFlowId(walletId, result.challengeId),
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
         status: 'succeeded',
@@ -1811,7 +1811,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         error: e,
       });
@@ -1851,7 +1851,7 @@ export class SeamsWeb {
         if (args.accountMode === 'register') {
           this.emitEmailOtpRegistrationEvent(args.onEvent, {
             flowId: walletId ? this.emailOtpRegistrationFlowId(walletId) : exchangeFlowId,
-            ...(walletId ? { accountId: walletId } : {}),
+            ...(walletId ? { walletId } : {}),
             authMethod: 'email_otp',
             phase: RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_SUCCEEDED,
             status: 'succeeded',
@@ -1862,7 +1862,7 @@ export class SeamsWeb {
         } else {
           this.emitEmailOtpUnlockEvent(args.onEvent, {
             flowId: walletId ? this.emailOtpUnlockFlowId(walletId) : exchangeFlowId,
-            ...(walletId ? { accountId: walletId } : {}),
+            ...(walletId ? { walletId } : {}),
             authMethod: 'email_otp',
             phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
             status: 'succeeded',
@@ -1891,7 +1891,7 @@ export class SeamsWeb {
       if (args.accountMode === 'register') {
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId: walletId ? this.emailOtpRegistrationFlowId(walletId) : exchangeFlowId,
-          ...(walletId ? { accountId: walletId } : {}),
+          ...(walletId ? { walletId } : {}),
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_SUCCEEDED,
           status: 'succeeded',
@@ -1902,7 +1902,7 @@ export class SeamsWeb {
       } else {
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId: walletId ? this.emailOtpUnlockFlowId(walletId) : exchangeFlowId,
-          ...(walletId ? { accountId: walletId } : {}),
+          ...(walletId ? { walletId } : {}),
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
           status: 'succeeded',
@@ -1944,7 +1944,7 @@ export class SeamsWeb {
     const flowId = this.emailOtpRegistrationFlowId(args.walletId, args.challengeId);
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
-      accountId: args.walletId,
+      walletId: args.walletId,
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED,
       status: 'running',
@@ -1965,7 +1965,7 @@ export class SeamsWeb {
         const result = await router.enrollEmailOtp(iframeArgs);
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.walletId,
+          walletId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
           status: 'succeeded',
@@ -1978,7 +1978,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.walletId,
+          walletId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
           status: 'running',
@@ -1986,7 +1986,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.walletId,
+          walletId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
           status: 'succeeded',
@@ -2006,7 +2006,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -2019,7 +2019,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
         status: 'running',
@@ -2027,7 +2027,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
         status: 'succeeded',
@@ -2039,7 +2039,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpRegistrationFailure(args.onEvent, {
         flowId,
-        accountId: args.walletId,
+        walletId: args.walletId,
         authMethod: 'email_otp',
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
@@ -2229,7 +2229,7 @@ export class SeamsWeb {
     });
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: walletId,
+      walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED,
       status: 'running',
@@ -2274,7 +2274,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
           status: 'succeeded',
@@ -2283,7 +2283,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_07_COMPLETED,
           status: 'succeeded',
@@ -2377,7 +2377,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -2386,7 +2386,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_07_COMPLETED,
         status: 'succeeded',
@@ -2406,7 +2406,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
@@ -2432,7 +2432,7 @@ export class SeamsWeb {
     });
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: walletId,
+      walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED,
       status: 'running',
@@ -2463,7 +2463,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
           status: 'succeeded',
@@ -2472,7 +2472,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
           status: 'succeeded',
@@ -2481,7 +2481,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_07_COMPLETED,
           status: 'succeeded',
@@ -2493,7 +2493,7 @@ export class SeamsWeb {
       const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
         const phase = this.emitEmailOtpUnlockWorkerProgress(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           challengeId: args.challengeId,
           chainTarget,
           progress,
@@ -2615,7 +2615,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -2624,7 +2624,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
         status: 'succeeded',
@@ -2633,7 +2633,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_07_COMPLETED,
         status: 'succeeded',
@@ -2654,7 +2654,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
@@ -2680,7 +2680,7 @@ export class SeamsWeb {
     );
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: walletId,
+      walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED,
       status: 'running',
@@ -2713,7 +2713,7 @@ export class SeamsWeb {
           });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -2722,7 +2722,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
         status: 'succeeded',
@@ -2731,7 +2731,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_07_COMPLETED,
         status: 'succeeded',
@@ -2742,7 +2742,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         requestId: args.challengeId,
         error: e,
@@ -2762,7 +2762,7 @@ export class SeamsWeb {
     );
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
-      accountId: walletId,
+      walletId,
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED,
       status: 'running',
@@ -2783,7 +2783,7 @@ export class SeamsWeb {
         const result = await router.enrollAndLoginWithEmailOtpEcdsaCapability(iframeArgs);
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
           status: 'succeeded',
@@ -2793,7 +2793,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
           status: 'running',
@@ -2801,7 +2801,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
           status: 'succeeded',
@@ -2810,7 +2810,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
           status: 'running',
@@ -2819,7 +2819,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
           status: 'succeeded',
@@ -2828,7 +2828,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_11_COMPLETED,
           status: 'succeeded',
@@ -2840,7 +2840,7 @@ export class SeamsWeb {
       const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
         const phase = this.emitEmailOtpRegistrationWorkerProgress(args.onEvent, {
           flowId,
-          accountId: walletId,
+          walletId,
           challengeId: args.challengeId,
           chainTarget,
           progress,
@@ -2860,7 +2860,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -2870,7 +2870,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
         status: 'running',
@@ -2878,7 +2878,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
         status: 'succeeded',
@@ -2887,7 +2887,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
         status: 'running',
@@ -2896,7 +2896,7 @@ export class SeamsWeb {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
         status: 'succeeded',
@@ -2905,7 +2905,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_11_COMPLETED,
         status: 'succeeded',
@@ -2916,7 +2916,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpRegistrationFailure(args.onEvent, {
         flowId,
-        accountId: walletId,
+        walletId,
         authMethod: 'email_otp',
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,

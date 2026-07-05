@@ -77,6 +77,7 @@ export interface WalletFlowEventBase<
   flowId: string;
   requestId?: string;
   accountId?: string;
+  walletId?: string;
   authMethod?: WalletFlowAuthMethod;
   interaction?: WalletFlowEventInteraction;
   data?: Record<string, unknown>;

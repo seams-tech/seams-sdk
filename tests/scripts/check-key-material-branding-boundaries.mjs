@@ -551,8 +551,6 @@ check('valid signing-session seal key ids use explicit domain names in active de
     );
     const currentSealFixtureFiles = [
       'tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts',
-      'tests/relayer/health-wellknown.test.ts',
-      'tests/relayer/signing-session-seal-router.test.ts',
       'tests/unit/warmSessionStore.lifecycle.unit.test.ts',
       'tests/unit/sealedRefresh.parity.unit.test.ts',
       'tests/unit/signingSessionSeal.idempotencyRecords.unit.test.ts',

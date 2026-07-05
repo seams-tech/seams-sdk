@@ -138,7 +138,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
       emitEvmFamilySigningEvent(args.onEvent, {
         phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
         status: 'running',
-        accountId: args.walletId,
+        walletId: args.walletId,
         interaction: { kind: 'none', overlay: 'none' },
       });
       emitSigningBoundaryTrace(
@@ -162,7 +162,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
       emitEvmFamilySigningEvent(args.onEvent, {
         phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
         status: 'waiting_for_user',
-        accountId: args.walletId,
+        walletId: args.walletId,
         interaction: { kind: 'otp_input', overlay: 'show' },
         ...(challenge.emailHint ? { data: { emailHint: challenge.emailHint } } : {}),
       });

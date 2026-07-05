@@ -405,7 +405,7 @@ export async function resolveEvmFamilyTransactionStepUp(
     }
     plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
       plan: signingSessionPlan,
-      accountId: walletId,
+      accountId: String(walletId),
       intent: signingIntent,
       curve: 'ecdsa',
       expiresAtMs: preparedOperation.expiresAtMs,

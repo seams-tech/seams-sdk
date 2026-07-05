@@ -614,7 +614,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           ecdsaChainTargets: [chainTarget],
         });
         const laneReadDiagnostic = {
-          accountId: walletId,
+          walletId,
           chain,
           chainTarget,
           targetKey: thresholdEcdsaChainTargetKey(chainTarget),
@@ -654,7 +654,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.lane_selected',
-          accountId: walletId,
+          walletId,
           chain,
           chainTarget,
           primaryAuthMethod: selectedLane.ok
@@ -677,7 +677,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           if (selectedLane.failure.kind !== 'no_candidate') {
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_prepare.lane_selection_failed',
-              accountId: walletId,
+              walletId,
               chain,
               chainTarget,
               primaryAuthMethod: candidateAuthMethod,
@@ -704,7 +704,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (!selectedAvailableLane || !laneCandidate || !transactionLane) {
           const noLaneDiagnostic = {
             stage: 'ecdsa_prepare.exact_available_lane_missing',
-            accountId: walletId,
+            walletId,
             chain,
             chainTarget,
             targetKey: thresholdEcdsaChainTargetKey(chainTarget),
@@ -784,7 +784,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (shouldRestoreAvailableLane) {
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_start',
-            accountId: walletId,
+            walletId,
             chain,
             chainTarget,
             restoreChainTarget,
@@ -829,7 +829,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             restoreResults[authMethod] = { error: message };
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_prepare.restore_failed',
-              accountId: walletId,
+              walletId,
               chain,
               chainTarget,
               restoreChainTarget,
@@ -851,7 +851,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           }
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_succeeded',
-            accountId: walletId,
+            walletId,
             chain,
             chainTarget,
             restoreChainTarget,
@@ -877,7 +877,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         };
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.material_selected',
-          accountId: walletId,
+          walletId,
           chain,
           chainTarget,
           selectionKind: selection.kind,
@@ -890,7 +890,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (selection.kind === 'missing_material') {
           emitSigningSessionFlowFailure('evm-family', {
             stage: 'ecdsa_selection.exact_material_missing',
-            accountId: walletId,
+            walletId,
             chain,
             chainTarget,
             authMethod: selection.authMethod,
@@ -904,7 +904,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (selection.kind === 'budget_blocked') {
           emitSigningSessionFlowFailure('evm-family', {
             stage: 'ecdsa_prepare.selection_budget_blocked',
-            accountId: walletId,
+            walletId,
             chain,
             chainTarget,
             authMethod: selection.authMethod,
@@ -961,7 +961,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             : readinessFromSelection(selection);
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.readiness',
-          accountId: walletId,
+          walletId,
           chain,
           chainTarget,
           authMethod: committedSelectionAuthMethod,

@@ -126,6 +126,29 @@ const OPTIONAL_CORE_IDENTITY_FIELD_PATTERN = {
   regex: /\b(?:walletId|nearAccountId|nearEd25519SigningKeyId|walletSession)\?:/g,
 };
 
+const BOUNDARY_EXEMPTIONS = [
+  {
+    file: 'packages/shared-ts/src/utils/registrationIntent.ts',
+    pattern: 'as-ed25519-key-scope',
+    reason: 'shared domain parser constructs NearEd25519SigningKeyId after validation',
+  },
+  {
+    file: 'packages/shared-ts/src/utils/walletCapabilityBindings.ts',
+    pattern: 'inline-near-account-binding',
+    reason: 'shared capability builder constructs NearAccountBinding branches from typed inputs',
+  },
+  {
+    file: 'packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
+    pattern: 'core-optional-identity-field',
+    reason: 'boundary parser accepts raw wallet-session values before normalizing to WalletSessionRef',
+  },
+  {
+    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/nonceMetrics.ts',
+    pattern: 'core-optional-identity-field',
+    reason: 'diagnostics metadata does not drive command identity or signing authorization',
+  },
+];
+
 function currentRepoRoot() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 }
@@ -157,7 +180,12 @@ function loadAllowlist(root) {
     root,
     'tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json',
   );
-  return JSON.parse(fs.readFileSync(allowlistPath, 'utf8'));
+  if (fs.existsSync(allowlistPath)) {
+    throw new Error(
+      'walletCapabilityBindings.sourceGuard.allowlist.json is retired; use typed boundaries or built-in boundary exemptions',
+    );
+  }
+  return { allow: [] };
 }
 
 function assertAllowlistEntriesAreDocumented(allowlist) {
@@ -178,7 +206,9 @@ function isAllowed(
   file,
   pattern,
 ) {
-  return allowlist.allow.some((entry) => entry.file === file && entry.pattern === pattern.id);
+  return [...allowlist.allow, ...BOUNDARY_EXEMPTIONS].some(
+    (entry) => entry.file === file && entry.pattern === pattern.id,
+  );
 }
 
 function allowlistEntryKey(entry) {
@@ -304,6 +334,35 @@ check('wallet capability binding source guard rejects stale allowlist entries', 
     .map((entry) => `${entry.file}: ${entry.pattern}`);
 
   expect(staleEntries).toEqual([]);
+});
+
+check('wallet capability binding source guard uses every built-in boundary exemption', () => {
+  const root = currentRepoRoot();
+  const sourceFiles = [
+    path.join(root, 'packages/shared-ts/src'),
+    path.join(root, 'packages/sdk-server-ts/src'),
+    path.join(root, 'packages/sdk-web/src'),
+  ].flatMap(listSourceFiles);
+  const coreSourceFiles = CORE_COMMAND_IDENTITY_GUARD_DIRS.flatMap((dir) =>
+    listSourceFiles(path.join(root, dir)),
+  );
+
+  const usedExemptionKeys = new Set([
+    ...collectPatternMatchKeys({
+      root,
+      files: sourceFiles,
+      patterns: FORBIDDEN_PATTERNS,
+    }),
+    ...collectOptionalCoreIdentityFieldMatchKeys({
+      root,
+      files: coreSourceFiles,
+    }),
+  ]);
+  const staleExemptions = BOUNDARY_EXEMPTIONS.filter(
+    (entry) => !usedExemptionKeys.has(allowlistEntryKey(entry)),
+  ).map((entry) => `${entry.file}: ${entry.pattern}`);
+
+  expect(staleExemptions).toEqual([]);
 });
 
 check('wallet capability binding source guard blocks stale unit session fixtures', () => {

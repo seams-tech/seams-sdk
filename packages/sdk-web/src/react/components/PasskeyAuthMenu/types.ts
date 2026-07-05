@@ -21,6 +21,7 @@ export type PasskeyAuthMenuOtpPrompt = {
   title?: string;
   description?: string;
   emailHint?: string;
+  walletId?: string;
   accountId?: string;
   submitLabel?: string;
   helperText?: string;
@@ -40,6 +41,7 @@ export type PasskeyAuthMenuOtpPrompt = {
     | Promise<
         | {
             username?: string;
+            walletId?: string;
             accountId?: string;
             emailHint?: string;
             title?: string;
@@ -52,6 +54,7 @@ export type PasskeyAuthMenuOtpPrompt = {
       >
     | {
         username?: string;
+        walletId?: string;
         accountId?: string;
         emailHint?: string;
         title?: string;
@@ -76,6 +79,7 @@ export type PasskeyAuthMenuOtpSubmitResult = {
 
 export type PasskeyAuthMenuRegistrationPrompt = {
   username?: string;
+  walletId?: string;
   accountId?: string;
   emailHint?: string;
   title?: string;
@@ -88,6 +92,7 @@ export type PasskeyAuthMenuRegistrationPrompt = {
     | Promise<
         | {
             username?: string;
+            walletId?: string;
             accountId?: string;
             emailHint?: string;
             title?: string;
@@ -99,6 +104,7 @@ export type PasskeyAuthMenuRegistrationPrompt = {
       >
     | {
         username?: string;
+        walletId?: string;
         accountId?: string;
         emailHint?: string;
         title?: string;

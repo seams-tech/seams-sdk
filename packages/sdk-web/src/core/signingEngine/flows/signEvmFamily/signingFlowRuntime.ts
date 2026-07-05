@@ -429,7 +429,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_start',
-          accountId: walletId,
+          walletId,
           chain: args.request.chain,
           chainId: requestChainId,
           lane: {
@@ -462,7 +462,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(readyRecord);
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_admitted',
-          accountId: walletId,
+          walletId,
           chain: args.request.chain,
           chainId: requestChainId,
           record: {
@@ -564,7 +564,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             emitEvmFamilySigningEvent(args.onEvent, {
               phase: SigningEventPhase.STEP_10_COMMIT_QUEUED,
               status: 'running',
-              accountId: walletId,
+              walletId,
               interaction: { kind: 'none', overlay: 'none' },
               data: { queueKey, chain: args.request.chain },
             });
@@ -587,7 +587,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                 emitEvmFamilySigningEvent(args.onEvent, {
                   phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
                   status: 'running',
-                  accountId: walletId,
+                  walletId,
                   interaction: { kind: 'none', overlay: 'none' },
                   data: { queueKey, chain: args.request.chain },
                 });

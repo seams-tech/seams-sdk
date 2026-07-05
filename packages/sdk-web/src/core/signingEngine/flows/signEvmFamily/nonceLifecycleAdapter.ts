@@ -88,6 +88,7 @@ export async function reportEvmFamilyBroadcastAccepted(
   });
 
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
     status: 'running',
     message: 'Marking managed nonce lane as in-flight',
@@ -113,6 +114,7 @@ export async function reportEvmFamilyBroadcastAccepted(
     ...(txHash ? { txHash } : {}),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
     status: 'succeeded',
     message: 'Managed nonce lane marked in-flight',
@@ -135,6 +137,7 @@ export async function reportEvmFamilyBroadcastRejected(
     walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
     status: 'running',
     message: 'Marking managed nonce reservation rejected',
@@ -161,6 +164,7 @@ export async function reportEvmFamilyBroadcastRejected(
     errorCode: extractErrorCode(mappedError) || extractErrorCode(args.error),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
     status: 'failed',
     message: 'Managed nonce reservation marked rejected',
@@ -179,6 +183,7 @@ export async function reportEvmFamilyBroadcastRejected(
   }
 
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
     status: 'running',
     message: 'Reconciling managed nonce lane after broadcast error',
@@ -194,6 +199,7 @@ export async function reportEvmFamilyBroadcastRejected(
     .reconcile({ lane: evmManagedReservationToLane(reservation) })
     .catch(() => null);
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
     status: 'succeeded',
     message: 'Managed nonce lane reconciled',
@@ -246,6 +252,7 @@ export async function reportEvmFamilyDroppedOrReplaced(
     walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase:
       args.reason === 'replaced'
         ? SigningEventPhase.STEP_13_TRANSACTION_REPLACED
@@ -275,6 +282,7 @@ export async function reportEvmFamilyDroppedOrReplaced(
     ...(args.txHash ? { txHash: args.txHash } : {}),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase:
       args.reason === 'replaced'
         ? SigningEventPhase.STEP_13_TRANSACTION_REPLACED
@@ -304,6 +312,7 @@ export async function reconcileEvmFamilyNonceLane(
     walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
     status: 'running',
     message: 'Reconciling managed nonce lane',
@@ -323,6 +332,7 @@ export async function reconcileEvmFamilyNonceLane(
     ...(formatted.blockedNonce ? { blockedNonce: formatted.blockedNonce } : {}),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
+    walletId: args.walletId,
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
     status: 'succeeded',
     message: 'Managed nonce lane reconciled',

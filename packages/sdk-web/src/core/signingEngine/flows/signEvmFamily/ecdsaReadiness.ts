@@ -128,7 +128,7 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
     emitEvmFamilySigningEvent(args.onEvent, {
       phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
       status: 'running',
-      accountId: walletId,
+      walletId,
       interaction: { kind: 'none', overlay: 'none' },
       data: { chain },
     });
@@ -188,7 +188,7 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   emitEvmFamilySigningEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED,
     status: 'succeeded',
-    accountId: walletId,
+    walletId,
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain },
   });

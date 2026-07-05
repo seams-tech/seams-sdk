@@ -325,7 +325,7 @@ function otpPromptFromGoogleEmailOtpFlow(input: {
     title: activeFlow.prompt.title,
     description: activeFlow.prompt.description,
     emailHint: activeFlow.emailHint,
-    accountId: activeFlow.walletId,
+    walletId: activeFlow.walletId,
     submitLabel: activeFlow.prompt.submitLabel,
     helperText: activeFlow.prompt.helperText,
     onResend: async () => {
@@ -361,7 +361,7 @@ function registrationPromptFromGoogleEmailOtpFlow(input: {
     title: activeFlow.prompt.title,
     description: activeFlow.prompt.description,
     emailHint: activeFlow.emailHint,
-    accountId: activeFlow.walletId,
+    walletId: activeFlow.walletId,
     username: activeFlow.walletId,
     submitLabel: activeFlow.prompt.submitLabel,
     helperText: activeFlow.prompt.helperText,
@@ -374,7 +374,7 @@ function registrationPromptFromGoogleEmailOtpFlow(input: {
       activeFlow = result.value;
       return {
         username: activeFlow.walletId,
-        accountId: activeFlow.walletId,
+        walletId: activeFlow.walletId,
         emailHint: activeFlow.emailHint,
         title: activeFlow.prompt.title,
         description: activeFlow.prompt.description,
