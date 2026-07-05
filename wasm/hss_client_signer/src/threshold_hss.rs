@@ -327,6 +327,108 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
 }
 
 #[wasm_bindgen]
+pub fn threshold_ed25519_hss_prepare_add_stage_request_message(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let client_request_message_b64u = get_required_string(&args, "clientRequestMessageB64u")?;
+    let evaluator_ot_state_b64u = get_required_string(&args, "evaluatorOtStateB64u")?;
+    let server_input_delivery_b64u = get_required_string(&args, "serverInputDeliveryB64u")?;
+
+    let decode_evaluator_ot_state_started_at = Date::now();
+    let evaluator_ot_state: ClientOtState =
+        decode_state_blob(&evaluator_ot_state_b64u, "evaluatorOtStateB64u")?;
+    let decode_evaluator_ot_state_ms = elapsed_ms(decode_evaluator_ot_state_started_at);
+
+    let decode_server_input_delivery_started_at = Date::now();
+    let server_input_delivery: RoleSeparatedServerInputDeliveryPacket =
+        decode_state_blob(&server_input_delivery_b64u, "serverInputDeliveryB64u")?;
+    let decode_server_input_delivery_ms = elapsed_ms(decode_server_input_delivery_started_at);
+
+    let decode_client_request_message_started_at = Date::now();
+    let client_request_message =
+        decode_wire_message(&client_request_message_b64u, "clientRequestMessageB64u")?;
+    let decode_client_request_message_ms = elapsed_ms(decode_client_request_message_started_at);
+
+    let decode_evaluator_driver_state_started_at = Date::now();
+    let session_source = hss_client_session_source_from_js(&args)?;
+    let decode_evaluator_driver_state_ms = elapsed_ms(decode_evaluator_driver_state_started_at);
+
+    let (
+        (context_binding, add_stage_request_message, prepare_add_stage_request_ms),
+        materialize_session_ms,
+    ) = with_materialized_hss_client_session_timed(
+        session_source,
+        |context_binding, _runtime, evaluator_session| {
+            let prepare_add_stage_request_started_at = Date::now();
+            let add_stage_request_message = evaluator_session
+                .prepare_add_stage_request_message_from_role_separated_delivery(
+                    &client_request_message,
+                    &evaluator_ot_state,
+                    &server_input_delivery,
+                )
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            Ok((
+                context_binding,
+                add_stage_request_message,
+                elapsed_ms(prepare_add_stage_request_started_at),
+            ))
+        },
+    )?;
+
+    let encode_add_stage_request_started_at = Date::now();
+    let add_stage_request_message_b64u = encode_wire_message(&add_stage_request_message);
+    let encode_add_stage_request_ms = elapsed_ms(encode_add_stage_request_started_at);
+
+    let timings = object();
+    set_f64(
+        &timings,
+        "decodeEvaluatorDriverStateMs",
+        decode_evaluator_driver_state_ms,
+    )?;
+    set_f64(
+        &timings,
+        "decodeEvaluatorOtStateMs",
+        decode_evaluator_ot_state_ms,
+    )?;
+    set_f64(
+        &timings,
+        "decodeServerInputDeliveryMs",
+        decode_server_input_delivery_ms,
+    )?;
+    set_f64(
+        &timings,
+        "decodeClientRequestMessageMs",
+        decode_client_request_message_ms,
+    )?;
+    set_f64(&timings, "materializeSessionMs", materialize_session_ms)?;
+    set_f64(
+        &timings,
+        "prepareAddStageRequestMs",
+        prepare_add_stage_request_ms,
+    )?;
+    set_f64(
+        &timings,
+        "encodeAddStageRequestMs",
+        encode_add_stage_request_ms,
+    )?;
+
+    let out = object();
+    set_string(
+        &out,
+        "contextBindingB64u",
+        &base64_url_encode(&context_binding),
+    )?;
+    set_string(
+        &out,
+        "addStageRequestMessageB64u",
+        &add_stage_request_message_b64u,
+    )?;
+    Reflect::set(&out, &JsValue::from_str("timings"), &timings)
+        .map_err(|_| JsValue::from_str("Failed to serialize field timings"))?;
+    Ok(out.into())
+}
+
+#[wasm_bindgen]
 pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
     args: JsValue,
 ) -> Result<JsValue, JsValue> {
@@ -354,6 +456,14 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
     let client_request_message =
         decode_wire_message(&client_request_message_b64u, "clientRequestMessageB64u")?;
     let decode_client_request_message_ms = elapsed_ms(decode_client_request_message_started_at);
+    let expected_add_stage_request_message =
+        match get_optional_string(&args, "expectedAddStageRequestMessageB64u")? {
+            Some(value) => Some(decode_wire_message(
+                &value,
+                "expectedAddStageRequestMessageB64u",
+            )?),
+            None => None,
+        };
 
     let decode_evaluator_driver_state_started_at = Date::now();
     let session_source = hss_client_session_source_from_js(&args)?;
@@ -367,13 +477,18 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
         session_source,
         |context_binding, runtime, evaluator_session| {
             let build_artifact_started_at = Date::now();
-            let add_stage_request_message = evaluator_session
-                .prepare_add_stage_request_message_from_role_separated_delivery(
-                    &client_request_message,
-                    &evaluator_ot_state,
-                    &server_input_delivery,
-                )
-                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            let add_stage_request_message =
+                if let Some(expected) = expected_add_stage_request_message.as_ref() {
+                    expected.clone()
+                } else {
+                    evaluator_session
+                        .prepare_add_stage_request_message_from_role_separated_delivery(
+                            &client_request_message,
+                            &evaluator_ot_state,
+                            &server_input_delivery,
+                        )
+                        .map_err(|e| JsValue::from_str(&e.to_string()))?
+                };
             let (artifact, _server_output, stage_profile) = evaluator_session
                 .build_client_owned_staged_evaluator_artifact_and_server_finalize_output_from_role_separated_delivery_message_profiled(
                     runtime,
@@ -383,6 +498,17 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
                     client_output_mask,
                 )
                 .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            if let Some(expected) = expected_add_stage_request_message.as_ref() {
+                evaluator_session
+                    .validate_add_stage_request_message_from_role_separated_delivery_for_commitment(
+                        &client_request_message,
+                        &evaluator_ot_state,
+                        &server_input_delivery,
+                        expected,
+                        artifact.bindings.client_input_commitment,
+                    )
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            }
             Ok((
                 context_binding,
                 artifact,

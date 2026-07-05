@@ -1115,6 +1115,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     serverInputDelivery: responded.serverInputDelivery,
     clientOutputMaskHandle,
     expectedContextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    addStageVerification: 'skip',
     workerCtx: args.workerCtx,
   });
   if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
@@ -1238,6 +1239,7 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
       serverInputDelivery: responded.serverInputDelivery,
       clientOutputMaskHandle: evaluatorClientOutputMaskHandle,
       expectedContextBindingB64u: prepared.preparedSession.contextBindingB64u,
+      addStageVerification: 'skip',
       workerCtx: args.workerCtx,
     });
   if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {

@@ -12,6 +12,7 @@ import initHssClientSigner, {
   threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact,
   threshold_ed25519_hss_derive_client_output_mask,
   threshold_ed25519_hss_open_seed_output,
+  threshold_ed25519_hss_prepare_add_stage_request_message,
   threshold_ed25519_hss_prepare_client_request,
   threshold_ed25519_hss_prepare_session,
   threshold_ed25519_seed_export_artifact_from_seed,
@@ -142,6 +143,37 @@ function readNonEmptyString(record: Record<string, unknown>, key: string): strin
     throw new Error(`HSS client worker request is missing ${key}`);
   }
   return parsed;
+}
+
+function readEd25519HssAddStageBinding(
+  record: Record<string, unknown>,
+):
+  | {
+      kind: 'prepared_request';
+      expectedAddStageRequestMessageB64u: string;
+    }
+  | {
+      kind: 'generated_request';
+    } {
+  const raw = record.addStageBinding;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('HSS client worker request is missing addStageBinding');
+  }
+  const binding = raw as Record<string, unknown>;
+  switch (binding.kind) {
+    case 'prepared_request':
+      return {
+        kind: 'prepared_request',
+        expectedAddStageRequestMessageB64u: readNonEmptyString(
+          binding,
+          'expectedAddStageRequestMessageB64u',
+        ),
+      };
+    case 'generated_request':
+      return { kind: 'generated_request' };
+    default:
+      throw new Error('HSS client worker request has invalid addStageBinding');
+  }
 }
 
 function readOptionalExpiresAtMs(record: Record<string, unknown>): number {
@@ -306,7 +338,8 @@ function buildEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     expectedContextBindingB64u,
   });
   const sessionSource = readHssSessionSourceFields(record);
-  return threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact({
+  const addStageBinding = readEd25519HssAddStageBinding(record);
+  const wasmArgs: Record<string, unknown> = {
     sessionSource: sessionSource.sessionSource,
     workerSessionHandle: sessionSource.workerSessionHandle,
     evaluatorDriverStateB64u: sessionSource.evaluatorDriverStateB64u,
@@ -314,7 +347,33 @@ function buildEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     evaluatorOtStateB64u: readNonEmptyString(record, 'evaluatorOtStateB64u'),
     serverInputDeliveryB64u: readNonEmptyString(record, 'serverInputDeliveryB64u'),
     clientOutputMaskB64u,
-  });
+  };
+  if (addStageBinding.kind === 'prepared_request') {
+    wasmArgs.expectedAddStageRequestMessageB64u =
+      addStageBinding.expectedAddStageRequestMessageB64u;
+  }
+  return threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(wasmArgs);
+}
+
+function prepareEd25519HssAddStageRequestMessage(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('HSS add-stage request preparation request must be an object');
+  }
+  const record = payload as Record<string, unknown>;
+  const expectedContextBindingB64u = readNonEmptyString(record, 'expectedContextBindingB64u');
+  const sessionSource = readHssSessionSourceFields(record);
+  const output = threshold_ed25519_hss_prepare_add_stage_request_message({
+    sessionSource: sessionSource.sessionSource,
+    workerSessionHandle: sessionSource.workerSessionHandle,
+    evaluatorDriverStateB64u: sessionSource.evaluatorDriverStateB64u,
+    clientRequestMessageB64u: readNonEmptyString(record, 'clientRequestMessageB64u'),
+    evaluatorOtStateB64u: readNonEmptyString(record, 'evaluatorOtStateB64u'),
+    serverInputDeliveryB64u: readNonEmptyString(record, 'serverInputDeliveryB64u'),
+  }) as { contextBindingB64u?: unknown };
+  if (String(output.contextBindingB64u || '').trim() !== expectedContextBindingB64u) {
+    throw new Error('HSS add-stage request context binding mismatch');
+  }
+  return output;
 }
 
 function toU8(value: unknown): Uint8Array {
@@ -779,6 +838,11 @@ async function handleHssClientMessage(data: unknown): Promise<HssWorkerCommandRe
         return {
           type: HssClientCustomResponseType.PrepareThresholdEd25519HssClientOutputMaskHandleSuccess,
           payload: prepareEd25519HssClientOutputMaskHandle(payload),
+        };
+      case HssClientCustomRequestType.PrepareThresholdEd25519HssAddStageRequestMessage:
+        return {
+          type: HssClientCustomResponseType.PrepareThresholdEd25519HssAddStageRequestMessageSuccess,
+          payload: prepareEd25519HssAddStageRequestMessage(payload),
         };
       case HssClientCustomRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle:
         return {

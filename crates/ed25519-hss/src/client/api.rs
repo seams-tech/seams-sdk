@@ -781,6 +781,93 @@ impl ClientSession {
         )
     }
 
+    pub fn validate_add_stage_request_message_from_role_separated_delivery_for_commitment(
+        &self,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &ClientOtState,
+        delivery: &RoleSeparatedServerInputDeliveryPacket,
+        add_stage_request_message: &WireMessage,
+        expected_client_input_commitment: [u8; 32],
+    ) -> ProtoResult<()> {
+        let client_packet: ClientPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOtRequest,
+            client_request_message,
+        )?;
+        let server_assist_init = ServerAssistInitPacket::from_role_separated_delivery(delivery);
+        let expected_parts = self.prepare_add_stage_request_parts(
+            &client_packet,
+            evaluator_ot_state,
+            &server_assist_init,
+        )?;
+        let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientStageRequest,
+            add_stage_request_message,
+        )?;
+        self.validate_add_stage_request_packet_for_expected_parts(
+            &request,
+            &server_assist_init,
+            &expected_parts,
+            expected_client_input_commitment,
+        )
+    }
+
+    fn validate_add_stage_request_packet_for_expected_parts(
+        &self,
+        request: &ClientStageRequestPacket,
+        server_assist_init: &ServerAssistInitPacket,
+        expected_parts: &AddStageRequestParts,
+        expected_client_input_commitment: [u8; 32],
+    ) -> ProtoResult<()> {
+        if request.context_binding != self.context_binding {
+            return Err(ProtoError::InvalidInput(
+                "prepared add-stage request context binding mismatch".to_string(),
+            ));
+        }
+        if request.server_eval_handle != server_assist_init.server_eval_handle {
+            return Err(ProtoError::InvalidInput(
+                "prepared add-stage request server eval handle mismatch".to_string(),
+            ));
+        }
+        if request.stage_id != crate::wire::ServerEvalStageId::add_stage() {
+            return Err(ProtoError::InvalidInput(
+                "prepared add-stage request stage id mismatch".to_string(),
+            ));
+        }
+        if request.prior_transcript_digest != expected_parts.prior_transcript_digest {
+            return Err(ProtoError::InvalidInput(
+                "prepared add-stage request prior transcript mismatch".to_string(),
+            ));
+        }
+        let ClientStagePayload::AddStage(AddStageRequestPayload {
+            client_input_commitment,
+            client_stage_openings_digest,
+            ..
+        }) = &request.client_stage_payload
+        else {
+            return Err(ProtoError::InvalidInput(
+                "prepared add-stage request payload must be add-stage".to_string(),
+            ));
+        };
+        if *client_input_commitment != expected_parts.client_input_commitment
+            || *client_input_commitment != expected_client_input_commitment
+        {
+            return Err(ProtoError::InvalidInput(
+                "prepared add-stage request client input commitment mismatch".to_string(),
+            ));
+        }
+        if request.client_stage_commitments.digests.len() < 2
+            || request.client_stage_commitments.digests[0] != *client_input_commitment
+            || request.client_stage_commitments.digests[1] != *client_stage_openings_digest
+        {
+            return Err(ProtoError::InvalidInput(
+                "prepared add-stage request commitments are not bound to payload".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate_add_stage_response_packet(
         &self,
         request: &ClientStageRequestPacket,

@@ -15,6 +15,7 @@ import {
 } from './hssLifecycle';
 import {
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm,
+  prepareThresholdEd25519HssAddStageRequestMessageWasm,
   prepareThresholdEd25519HssClientOutputMaskHandleWasm,
   prepareThresholdEd25519HssClientRequestWasm,
 } from '../crypto/hssClientSignerWasm';
@@ -123,17 +124,68 @@ export function prepareThresholdEd25519HssClientOutputMaskHandle(
   });
 }
 
-export function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
+export function prepareThresholdEd25519HssAddStageRequestMessage(
   deps: ThresholdEd25519PublicDeps,
-  args: Omit<
-    Parameters<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm>[0],
-    'workerCtx'
-  >,
-): ReturnType<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm> {
-  return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
+  args: Omit<Parameters<typeof prepareThresholdEd25519HssAddStageRequestMessageWasm>[0], 'workerCtx'>,
+): ReturnType<typeof prepareThresholdEd25519HssAddStageRequestMessageWasm> {
+  return prepareThresholdEd25519HssAddStageRequestMessageWasm({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });
+}
+
+type BuildThresholdEd25519HssClientOwnedStagedArtifactInput = Parameters<
+  typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm
+>[0];
+
+type BuildThresholdEd25519HssClientOwnedStagedArtifactPublicInput =
+  | Omit<
+      Extract<
+        BuildThresholdEd25519HssClientOwnedStagedArtifactInput,
+        { addStageVerification: 'required' }
+      >,
+      'workerCtx'
+    >
+  | Omit<
+      Extract<
+        BuildThresholdEd25519HssClientOwnedStagedArtifactInput,
+        { addStageVerification: 'skip' }
+      >,
+      'workerCtx'
+    >;
+
+export function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
+  deps: ThresholdEd25519PublicDeps,
+  args: BuildThresholdEd25519HssClientOwnedStagedArtifactPublicInput,
+): ReturnType<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm> {
+  const workerCtx = deps.getSignerWorkerContext();
+  const commonArgs = {
+    preparedSession: args.preparedSession,
+    clientRequest: args.clientRequest,
+    serverInputDelivery: args.serverInputDelivery,
+    clientOutputMaskHandle: args.clientOutputMaskHandle,
+    expectedContextBindingB64u: args.expectedContextBindingB64u,
+    workerCtx,
+  };
+  switch (args.addStageVerification) {
+    case 'required':
+      return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
+        ...commonArgs,
+        addStageVerification: 'required',
+        expectedAddStageRequestMessageB64u: args.expectedAddStageRequestMessageB64u,
+      });
+    case 'skip':
+      return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
+        ...commonArgs,
+        addStageVerification: 'skip',
+      });
+    default:
+      return assertNeverThresholdEd25519HssAddStageVerification(args);
+  }
+}
+
+function assertNeverThresholdEd25519HssAddStageVerification(_value: never): never {
+  throw new Error('Unexpected Threshold Ed25519 HSS add-stage verification mode');
 }
 
 export function runThresholdEd25519HssCeremonyWithSession(

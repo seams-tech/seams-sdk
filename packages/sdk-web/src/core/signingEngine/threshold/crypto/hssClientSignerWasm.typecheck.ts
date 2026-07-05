@@ -3,6 +3,7 @@ import {
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   finalizeEcdsaClientBootstrapCommandWasm,
   parseServerPlannedEcdsaHssContext,
+  prepareThresholdEd25519HssAddStageRequestMessageWasm,
   prepareThresholdEd25519HssClientOutputMaskHandleWasm,
   prepareEcdsaClientBootstrapCommandWasm,
   type ServerPlannedEcdsaHssContext,
@@ -289,6 +290,7 @@ const maskedStagedArtifactRequest = {
   },
   clientOutputMaskHandle: 'client-mask-handle',
   expectedContextBindingB64u: 'context-binding',
+  addStageVerification: 'skip',
   workerCtx,
 } satisfies BuildStagedArtifactFromHandleInput;
 void maskedStagedArtifactRequest;
@@ -307,6 +309,45 @@ const missingStagedArtifactMaskHandle: BuildStagedArtifactFromHandleInput = {
     serverInputDeliveryB64u: 'server-input-delivery',
   },
   expectedContextBindingB64u: 'context-binding',
+  addStageVerification: 'skip',
   workerCtx,
 };
 void missingStagedArtifactMaskHandle;
+
+type PrepareAddStageRequestInput = Parameters<
+  typeof prepareThresholdEd25519HssAddStageRequestMessageWasm
+>[0];
+
+const preparedAddStageRequest = {
+  preparedSession: {
+    evaluatorDriverStateB64u: 'evaluator-state',
+  },
+  clientRequest: {
+    sessionResidence: 'serialized_state',
+    clientRequestMessageB64u: 'client-request',
+    evaluatorOtStateB64u: 'evaluator-ot-state',
+  },
+  serverInputDelivery: {
+    serverInputDeliveryB64u: 'server-input-delivery',
+  },
+  expectedContextBindingB64u: 'context-binding',
+  workerCtx,
+} satisfies PrepareAddStageRequestInput;
+void preparedAddStageRequest;
+
+// @ts-expect-error prepared add-stage request construction needs context binding verification.
+const missingPreparedAddStageContext: PrepareAddStageRequestInput = {
+  preparedSession: {
+    evaluatorDriverStateB64u: 'evaluator-state',
+  },
+  clientRequest: {
+    sessionResidence: 'serialized_state',
+    clientRequestMessageB64u: 'client-request',
+    evaluatorOtStateB64u: 'evaluator-ot-state',
+  },
+  serverInputDelivery: {
+    serverInputDeliveryB64u: 'server-input-delivery',
+  },
+  workerCtx,
+};
+void missingPreparedAddStageContext;

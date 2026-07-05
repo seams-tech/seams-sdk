@@ -1,4 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,16 +17,17 @@ import {
   threshold_ed25519_hss_prepare_role_separated_server_input_delivery,
   threshold_ed25519_hss_prepare_server_session,
 } from '../../../wasm/near_signer/pkg-server/wasm_signer_worker.js';
-import * as thresholdPrfImports from '../../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
 import {
-  __wbg_set_wasm as setThresholdPrfWasm,
+  initSync as initThresholdPrfWasmSync,
   init_threshold_prf,
   threshold_prf_derive_ed25519_hss_server_inputs,
-} from '../../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
+} from '../../../wasm/threshold_prf/pkg/threshold_prf.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../..');
+const requireFromRoot = createRequire(path.join(REPO_ROOT, 'package.json'));
+const requireFromTests = createRequire(path.join(REPO_ROOT, 'tests', 'package.json'));
 const OUT_ROOT = path.join(REPO_ROOT, 'benchmarks', 'ed25519-hss-wasm', 'out');
 const HSS_CLIENT_SIGNER_WASM_PATH = path.join(
   REPO_ROOT,
@@ -48,6 +51,13 @@ const THRESHOLD_PRF_WASM_PATH = path.join(
   'threshold_prf_bg.wasm',
 );
 
+const SDK_ED25519_HSS_APPLICATION_BINDING_DOMAIN_V1 =
+  'seams-sdk:ed25519-hss:application-binding:v1';
+const BINDING_FACTS = {
+  nearEd25519SigningKeyId: 'near-ed25519:wasm-benchmark',
+  signingRootId: 'project_single_key_hss:env_single_key_hss',
+  signingRootVersion: 'root-v1',
+};
 const CONTEXT = {
   signingRootId: 'project_single_key_hss:env_single_key_hss',
   nearAccountId: 'single-key-hss-active.testnet',
@@ -55,6 +65,7 @@ const CONTEXT = {
   keyVersion: 'root-v1',
   participantIds: [1, 2],
   derivationVersion: 1,
+  applicationBindingDigestB64u: computeApplicationBindingDigestB64u(BINDING_FACTS),
 };
 const RELAYER_KEY_ID = 'ed25519:relayer-key-id';
 const PRF_FIRST_B64U = Buffer.alloc(32, 11).toString('base64url');
@@ -150,20 +161,76 @@ function ensureWasm() {
   initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_PATH) });
   initNearSignerWasmSync({ module: readFileSync(NEAR_SIGNER_SERVER_WASM_PATH) });
   init_worker();
-  const thresholdPrfModule = new WebAssembly.Module(readFileSync(THRESHOLD_PRF_WASM_PATH));
-  const thresholdPrfInstance = new WebAssembly.Instance(thresholdPrfModule, {
-    './threshold_prf_bg.js': thresholdPrfImports,
-  });
-  setThresholdPrfWasm(thresholdPrfInstance.exports);
-  if (typeof thresholdPrfInstance.exports.__wbindgen_start === 'function') {
-    thresholdPrfInstance.exports.__wbindgen_start();
-  }
+  initThresholdPrfWasmSync({ module: readFileSync(THRESHOLD_PRF_WASM_PATH) });
   init_threshold_prf();
   wasmReady = true;
 }
 
 function b64uToBytes(value) {
   return new Uint8Array(Buffer.from(value, 'base64url'));
+}
+
+function bytesToB64u(value) {
+  return Buffer.from(value).toString('base64url');
+}
+
+function requireBytes(value, label) {
+  if (!(value instanceof Uint8Array)) {
+    throw new Error(`${label} must be bytes`);
+  }
+  return value;
+}
+
+function computeApplicationBindingDigestB64u(input) {
+  return createHash('sha256').update(encodeApplicationBindingFacts(input)).digest('base64url');
+}
+
+function encodeApplicationBindingFacts(input) {
+  const out = [];
+  const domainBytes = new TextEncoder().encode(SDK_ED25519_HSS_APPLICATION_BINDING_DOMAIN_V1);
+  pushU32(out, domainBytes.length);
+  out.push(...domainBytes);
+  pushLengthDelimitedField(out, 'nearEd25519SigningKeyId', input.nearEd25519SigningKeyId);
+  pushLengthDelimitedField(out, 'signingRootId', input.signingRootId);
+  pushLengthDelimitedField(out, 'signingRootVersion', input.signingRootVersion);
+  return new Uint8Array(out);
+}
+
+function pushLengthDelimitedField(out, label, value) {
+  const labelBytes = new TextEncoder().encode(label);
+  const valueBytes = new TextEncoder().encode(requireNonEmptyString(value, label));
+  pushU32(out, labelBytes.length);
+  out.push(...labelBytes);
+  pushU32(out, valueBytes.length);
+  out.push(...valueBytes);
+}
+
+function pushU32(out, value) {
+  out.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
+}
+
+function requireNonEmptyString(value, field) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) throw new Error(`${field} is required`);
+  return normalized;
+}
+
+function loadPlaywright() {
+  try {
+    return requireFromRoot('playwright');
+  } catch (rootError) {
+    try {
+      return requireFromTests('playwright');
+    } catch (testsPlaywrightError) {
+      try {
+        return requireFromTests('@playwright/test');
+      } catch (testsPackageError) {
+        throw new Error(
+          `playwright is not resolvable from the root or tests workspace: ${rootError.message}; ${testsPlaywrightError.message}; ${testsPackageError.message}`,
+        );
+      }
+    }
+  }
 }
 
 function hexToBytes(value) {
@@ -274,11 +341,7 @@ function createBenchmarkState() {
     THRESHOLD_PRF_THRESHOLD,
     THRESHOLD_PRF_SHARE_COUNT,
     shareWireSetBytes(SIGNING_ROOT_SHARE_WIRE_HEX),
-    CONTEXT.signingRootId,
-    CONTEXT.nearAccountId,
-    CONTEXT.keyPurpose,
-    CONTEXT.keyVersion,
-    CONTEXT.derivationVersion,
+    b64uToBytes(CONTEXT.applicationBindingDigestB64u),
   );
   const clientOutputMask = threshold_ed25519_hss_derive_client_output_mask({
     ...CONTEXT,
@@ -294,7 +357,7 @@ function createBenchmarkState() {
   );
   assertContextBinding(
     'server inputs',
-    String(serverInputs.contextBindingB64u || ''),
+    bytesToB64u(serverInputs.contextBinding),
     preparedSession.contextBindingB64u,
   );
 
@@ -313,8 +376,8 @@ function createBenchmarkState() {
     },
     clientInputs,
     serverInputs: {
-      yRelayerBytes: b64uToBytes(serverInputs.yRelayerB64u),
-      tauRelayerBytes: b64uToBytes(serverInputs.tauRelayerB64u),
+      yRelayerBytes: requireBytes(serverInputs.yRelayer, 'serverInputs.yRelayer'),
+      tauRelayerBytes: requireBytes(serverInputs.tauRelayer, 'serverInputs.tauRelayer'),
     },
     clientOutputMaskB64u: clientOutputMask.clientOutputMaskB64u,
   };
@@ -428,7 +491,7 @@ async function withStaticServer(fn) {
 }
 
 async function measureBrowserWorkerHandleArtifact(state) {
-  const { chromium } = await import('playwright');
+  const { chromium } = loadPlaywright();
   return await withStaticServer(async (origin) => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -506,11 +569,7 @@ async function measureBrowserWorkerHandleArtifact(state) {
             thresholdPrfThreshold,
             thresholdPrfShareCount,
             shareWireSetBytes(shareWireHex),
-            context.signingRootId,
-            context.nearAccountId,
-            context.keyPurpose,
-            context.keyVersion,
-            context.derivationVersion,
+            b64uToBytes(context.applicationBindingDigestB64u),
           );
           const clientOutputMask = hss.threshold_ed25519_hss_derive_client_output_mask({
             ...context,
@@ -533,8 +592,8 @@ async function measureBrowserWorkerHandleArtifact(state) {
                 preparedSessionHandle: preparedServerSession.preparedSessionHandle,
                 garblerDriverStateBytes: b64uToBytes(preparedServerSession.garblerDriverStateB64u),
                 clientRequestMessageBytes: b64uToBytes(clientRequest.clientRequestMessageB64u),
-                yRelayerBytes: b64uToBytes(serverInputs.yRelayerB64u),
-                tauRelayerBytes: b64uToBytes(serverInputs.tauRelayerB64u),
+                yRelayerBytes: serverInputs.yRelayer,
+                tauRelayerBytes: serverInputs.tauRelayer,
               });
             return {
               sessionSource: 'worker_handle',

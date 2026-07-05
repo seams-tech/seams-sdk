@@ -81,6 +81,7 @@
     "show-report": "pnpm -C tests show-report",
     "benchmark:ecdsa-hss:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; cd wasm/eth_signer && wasm-pack build --target web --out-dir pkg && cd ../hss_client_signer && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/ecdsa-hss-wasm/src/runner.mjs'",
     "benchmark:ed25519-hss:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; pnpm build:wasm && node ./benchmarks/ed25519-hss-wasm/src/runner.mjs'",
+    "benchmark:ed25519-hss:advance-sources": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; pnpm build:wasm && node ./benchmarks/ed25519-hss-advance-sources/src/runner.mjs \"$@\"' --",
     "benchmark:router-ab-threshold-prf:wasm": "bash -lc 'cd wasm/threshold_prf && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/router-ab-threshold-prf-wasm/src/runner.mjs \"$@\"' --"
   },
   "devDependencies": {

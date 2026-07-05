@@ -168,8 +168,7 @@ export interface ThresholdEd25519HssStoredPreparedServerSession {
   garblerDriverStateBytes: Uint8Array;
 }
 
-export interface ThresholdEd25519HssStoredRespondedServerSession
-  extends ThresholdEd25519HssStoredPreparedServerSession {
+export interface ThresholdEd25519HssStoredRespondedServerSession extends ThresholdEd25519HssStoredPreparedServerSession {
   serverEvalStateBytes: Uint8Array;
 }
 
@@ -178,8 +177,7 @@ export interface ThresholdEd25519HssPersistedPreparedServerSession {
   garblerDriverStateB64u: string;
 }
 
-export interface ThresholdEd25519HssPersistedRespondedServerSession
-  extends ThresholdEd25519HssPersistedPreparedServerSession {
+export interface ThresholdEd25519HssPersistedRespondedServerSession extends ThresholdEd25519HssPersistedPreparedServerSession {
   serverEvalStateB64u: string;
 }
 
@@ -417,6 +415,20 @@ export interface ThresholdEd25519HssRespondForRegistrationRequest {
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
 
+export type ThresholdEd25519HssRegistrationProjectionMode =
+  | 'registration_seed_and_output'
+  | 'registration_output_only';
+
+export interface ThresholdEd25519HssAdvanceForRegistrationRequest {
+  registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
+  wallet_key_id: NearEd25519SigningKeyId;
+  ceremonyHandle: string;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  serverState: ThresholdEd25519HssRegistrationRespondedServerState;
+  addStageRequestMessageB64u: string;
+  projectionMode: ThresholdEd25519HssRegistrationProjectionMode;
+}
+
 export type ThresholdEd25519HssPrepareWithSessionResponse =
   | {
       ok: true;
@@ -487,10 +499,61 @@ export type ThresholdEd25519HssRespondForRegistrationResponse =
       message?: string;
     };
 
+export type ThresholdEd25519HssAdvanceForRegistrationResponse =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      advancedServerEvalStateB64u: string;
+      priorStageResponseMessageB64u: string;
+      addStageRequestDigestB64u: string;
+      projectionMode: ThresholdEd25519HssRegistrationProjectionMode;
+      advanceServerEvalTimings?: {
+        decodeStateMs: number;
+        serializedSessionMaterializeMs: number;
+        advanceAddStageResponseMs: number;
+        advanceMessageScheduleRoundsMs: number;
+        advanceRoundCoreRoundsMs: number;
+        encodeAdvancedStateMs: number;
+      };
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
+
 export interface ThresholdEd25519HssFinalizeWithSessionRequest {
   ceremonyHandle: string;
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
 }
+
+export type ThresholdEd25519HssRegistrationServerEvalSource =
+  | {
+      kind: 'serialized_replay';
+      advancedServerEval?: never;
+      finalizedReport?: never;
+    }
+  | {
+      kind: 'durable_advanced_eval';
+      advancedServerEval: {
+        contextBindingB64u: string;
+        addStageRequestDigestB64u: string;
+        advancedServerEvalStateB64u: string;
+        priorStageResponseMessageB64u: string;
+      };
+      finalizedReport?: never;
+    }
+  | {
+      kind: 'durable_finalized_report';
+      finalizedReport: {
+        contextBindingB64u: string;
+        addStageRequestDigestB64u: string;
+        clientOutputMessageB64u: string;
+        serverOutputMessageB64u: string;
+        seedOutputMessageB64u: string;
+      };
+      advancedServerEval?: never;
+    };
 
 export type ThresholdEd25519HssFinalizeAccountResolution =
   | {
@@ -511,6 +574,7 @@ export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   ceremonyHandle: string;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   serverState: ThresholdEd25519HssRegistrationRespondedServerState;
+  serverEvalSource: ThresholdEd25519HssRegistrationServerEvalSource;
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
   accountResolution: ThresholdEd25519HssFinalizeAccountResolution;
 }
@@ -533,10 +597,16 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
       nearAccountId: string;
       relayerKeyId: string;
       finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+      finalizedServerOutputMessageB64u: string;
       finalizeReportTimings?: {
         decodeArtifactMs: number;
         serializedSessionMaterializeMs: number;
+        advanceAddStageResponseMs: number;
+        advanceMessageScheduleRoundsMs: number;
+        advanceRoundCoreRoundsMs: number;
+        advanceOutputProjectionMs: number;
         finalizeReportMs: number;
+        finalizePacketAssemblyMs: number;
         encodeReportMs: number;
         openServerOutputMs: number;
         openSeedOutputMs: number;

@@ -1024,6 +1024,7 @@ export const HssClientCustomRequestType = {
   ThresholdEcdsaRoleLocalPresignSessionStep: 70_009,
   ThresholdEcdsaRoleLocalPresignSessionAbort: 70_010,
   ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle: 70_011,
+  PrepareThresholdEd25519HssAddStageRequestMessage: 70_012,
 } as const;
 
 export type HssClientCustomRequestType =
@@ -1038,6 +1039,7 @@ export const HssClientCustomResponseType = {
   ThresholdEcdsaRoleLocalPresignSessionStepSuccess: 70_109,
   ThresholdEcdsaRoleLocalPresignSessionAbortSuccess: 70_110,
   ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleSuccess: 70_111,
+  PrepareThresholdEd25519HssAddStageRequestMessageSuccess: 70_112,
 } as const;
 
 export type HssClientCustomResponseType =
@@ -1078,6 +1080,16 @@ type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource =
       workerSessionHandle?: never;
     };
 
+export type ThresholdEd25519HssAddStageBinding =
+  | {
+      kind: 'prepared_request';
+      expectedAddStageRequestMessageB64u: string;
+    }
+  | {
+      kind: 'generated_request';
+      expectedAddStageRequestMessageB64u?: never;
+    };
+
 export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest =
   BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource & {
     clientRequestMessageB64u: string;
@@ -1085,7 +1097,26 @@ export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHa
     serverInputDeliveryB64u: string;
     clientOutputMaskHandle: string;
     expectedContextBindingB64u: string;
+    addStageBinding: ThresholdEd25519HssAddStageBinding;
   };
+
+export type PrepareThresholdEd25519HssAddStageRequestMessageRequest =
+  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource & {
+    clientRequestMessageB64u: string;
+    evaluatorOtStateB64u: string;
+    serverInputDeliveryB64u: string;
+    expectedContextBindingB64u: string;
+  };
+
+export type PrepareThresholdEd25519HssAddStageRequestMessageResponse = {
+  type: typeof HssClientCustomResponseType.PrepareThresholdEd25519HssAddStageRequestMessageSuccess;
+  payload: {
+    contextBindingB64u: string;
+    addStageRequestMessageB64u: string;
+    timings?: Record<string, number>;
+  };
+  diagnostics?: WorkerResponseDiagnostics;
+};
 
 export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleResponse = {
   type: typeof HssClientCustomResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleSuccess;
@@ -1194,6 +1225,10 @@ type HssClientCustomOperationMap = {
     payload: BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest;
     result: BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleResponse;
   };
+  [HssClientCustomRequestType.PrepareThresholdEd25519HssAddStageRequestMessage]: {
+    payload: PrepareThresholdEd25519HssAddStageRequestMessageRequest;
+    result: PrepareThresholdEd25519HssAddStageRequestMessageResponse;
+  };
   [HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial]: {
     payload: StoreThresholdEcdsaRoleLocalSigningMaterialRequest;
     result: StoreThresholdEcdsaRoleLocalSigningMaterialResponse;
@@ -1268,6 +1303,7 @@ export type HssEd25519ProtocolOperationType =
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
   | typeof HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle
+  | typeof HssClientCustomRequestType.PrepareThresholdEd25519HssAddStageRequestMessage
   | typeof HssClientCustomRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle;
 export type HssEcdsaRoleLocalMaterialOperationType =
   | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap

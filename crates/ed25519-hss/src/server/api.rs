@@ -112,6 +112,10 @@ impl ServerDriverState {
 }
 
 impl ServerSession {
+    pub fn hidden_eval_constant_pool(&self) -> ProtoResult<DdhHiddenEvalConstantPool> {
+        prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())
+    }
+
     fn allowed_output_kind_for_operation(
         operation: ServerEvalOperation,
     ) -> crate::wire::AllowedOutputKind {
@@ -627,6 +631,16 @@ impl ServerSession {
         state: &ServerEvalState,
         request: &ClientStageRequestPacket,
     ) -> ProtoResult<(ServerStageResponsePacket, ServerEvalState)> {
+        let constant_pool = self.hidden_eval_constant_pool()?;
+        self.prepare_message_schedule_response_with_pool(state, request, &constant_pool)
+    }
+
+    pub fn prepare_message_schedule_response_with_pool(
+        &self,
+        state: &ServerEvalState,
+        request: &ClientStageRequestPacket,
+        constant_pool: &DdhHiddenEvalConstantPool,
+    ) -> ProtoResult<(ServerStageResponsePacket, ServerEvalState)> {
         crate::protocol::invariants::validate_message_schedule_request_packet(state, request)?;
         let request_digest =
             crate::protocol::transcript::compute_client_stage_request_digest(request)?;
@@ -658,12 +672,11 @@ impl ServerSession {
                 "message-schedule response requires stored hidden-eval program".to_string(),
             )
         })?;
-        let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
         let next_message_schedule = match &state.execution_state {
             Some(crate::server::ServerEvalExecutionState::MessageSchedule(schedule_state)) => {
                 Some(advance_message_schedule_continuation_with_pool(
                     self.ddh_garbler.backend(),
-                    &constant_pool,
+                    constant_pool,
                     &schedule_state.message_schedule,
                 )?)
             }
@@ -685,7 +698,7 @@ impl ServerSession {
                 initialize_round_core_continuation_from_message_schedule_with_pool(
                     hidden_eval_program,
                     self.ddh_garbler.backend(),
-                    &constant_pool,
+                    constant_pool,
                     next_message_schedule.as_ref().ok_or_else(|| {
                         crate::shared::ProtoError::InvalidInput(
                             "message-schedule response requires next schedule continuation"
@@ -737,12 +750,27 @@ impl ServerSession {
         state: &ServerEvalState,
         client_stage_request_message: &WireMessage,
     ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        let constant_pool = self.hidden_eval_constant_pool()?;
+        self.prepare_message_schedule_response_message_with_pool(
+            state,
+            client_stage_request_message,
+            &constant_pool,
+        )
+    }
+
+    pub fn prepare_message_schedule_response_message_with_pool(
+        &self,
+        state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+        constant_pool: &DdhHiddenEvalConstantPool,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
         let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientStageRequest,
             client_stage_request_message,
         )?;
-        let (response, next_state) = self.prepare_message_schedule_response(state, &request)?;
+        let (response, next_state) =
+            self.prepare_message_schedule_response_with_pool(state, &request, constant_pool)?;
         let message = crate::wire::encode_transport_message(
             self.context_binding,
             TransportKind::ServerStageResponse,
@@ -755,6 +783,16 @@ impl ServerSession {
         &self,
         state: &ServerEvalState,
         request: &ClientStageRequestPacket,
+    ) -> ProtoResult<(ServerStageResponsePacket, ServerEvalState)> {
+        let constant_pool = self.hidden_eval_constant_pool()?;
+        self.prepare_round_core_response_with_pool(state, request, &constant_pool)
+    }
+
+    pub fn prepare_round_core_response_with_pool(
+        &self,
+        state: &ServerEvalState,
+        request: &ClientStageRequestPacket,
+        constant_pool: &DdhHiddenEvalConstantPool,
     ) -> ProtoResult<(ServerStageResponsePacket, ServerEvalState)> {
         crate::protocol::invariants::validate_round_core_request_packet(state, request)?;
         let request_digest =
@@ -782,11 +820,9 @@ impl ServerSession {
         );
         let next_round_core = match &state.execution_state {
             Some(crate::server::ServerEvalExecutionState::RoundCore(round_core_state)) => {
-                let constant_pool =
-                    prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
                 advance_round_core_continuation_with_pool(
                     self.ddh_garbler.backend(),
-                    &constant_pool,
+                    constant_pool,
                     &round_core_state.round_core,
                 )?
             }
@@ -831,12 +867,27 @@ impl ServerSession {
         state: &ServerEvalState,
         client_stage_request_message: &WireMessage,
     ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        let constant_pool = self.hidden_eval_constant_pool()?;
+        self.prepare_round_core_response_message_with_pool(
+            state,
+            client_stage_request_message,
+            &constant_pool,
+        )
+    }
+
+    pub fn prepare_round_core_response_message_with_pool(
+        &self,
+        state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+        constant_pool: &DdhHiddenEvalConstantPool,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
         let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientStageRequest,
             client_stage_request_message,
         )?;
-        let (response, next_state) = self.prepare_round_core_response(state, &request)?;
+        let (response, next_state) =
+            self.prepare_round_core_response_with_pool(state, &request, constant_pool)?;
         let message = crate::wire::encode_transport_message(
             self.context_binding,
             TransportKind::ServerStageResponse,
@@ -849,6 +900,16 @@ impl ServerSession {
         &self,
         state: &ServerEvalState,
         request: &ClientStageRequestPacket,
+    ) -> ProtoResult<(ServerStageResponsePacket, ServerEvalState)> {
+        let constant_pool = self.hidden_eval_constant_pool()?;
+        self.prepare_output_projection_response_with_pool(state, request, &constant_pool)
+    }
+
+    pub fn prepare_output_projection_response_with_pool(
+        &self,
+        state: &ServerEvalState,
+        request: &ClientStageRequestPacket,
+        constant_pool: &DdhHiddenEvalConstantPool,
     ) -> ProtoResult<(ServerStageResponsePacket, ServerEvalState)> {
         crate::protocol::invariants::validate_output_projection_request_packet(state, request)?;
         let request_digest =
@@ -896,11 +957,10 @@ impl ServerSession {
                 "output-projection response requires stored hidden-eval program".to_string(),
             )
         })?;
-        let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
         let output = materialize_server_output_bundles_from_continuations_with_pool(
             hidden_eval_program,
             self.ddh_garbler.backend(),
-            &constant_pool,
+            constant_pool,
             &output_state.round_core,
             &output_state.projector_inputs,
         )?;
@@ -946,12 +1006,27 @@ impl ServerSession {
         state: &ServerEvalState,
         client_stage_request_message: &WireMessage,
     ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        let constant_pool = self.hidden_eval_constant_pool()?;
+        self.prepare_output_projection_response_message_with_pool(
+            state,
+            client_stage_request_message,
+            &constant_pool,
+        )
+    }
+
+    pub fn prepare_output_projection_response_message_with_pool(
+        &self,
+        state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+        constant_pool: &DdhHiddenEvalConstantPool,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
         let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientStageRequest,
             client_stage_request_message,
         )?;
-        let (response, next_state) = self.prepare_output_projection_response(state, &request)?;
+        let (response, next_state) =
+            self.prepare_output_projection_response_with_pool(state, &request, constant_pool)?;
         let message = crate::wire::encode_transport_message(
             self.context_binding,
             TransportKind::ServerStageResponse,

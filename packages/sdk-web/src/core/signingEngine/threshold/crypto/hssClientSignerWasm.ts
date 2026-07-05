@@ -6,6 +6,7 @@ import {
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
   type WasmDeriveThresholdEd25519HssClientInputsResult,
   type WasmOpenThresholdEd25519HssSeedOutputResult,
+  type WasmPrepareThresholdEd25519HssAddStageRequestMessageResult,
   type WasmPrepareThresholdEd25519HssClientRequestResult,
   type WasmPrepareThresholdEd25519HssSessionResult,
 } from '@/core/types/signer-worker';
@@ -28,6 +29,7 @@ import {
   type HssWorkerOperationResult,
   type HssWorkerOperationType,
   type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest,
+  type PrepareThresholdEd25519HssAddStageRequestMessageRequest,
   type PrepareThresholdEd25519HssClientOutputMaskHandleResult,
   type StoreThresholdEcdsaRoleLocalSigningMaterialResult,
   type ThresholdEcdsaPresignAbortResult,
@@ -284,6 +286,7 @@ function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandl
   >;
   clientOutputMaskHandle: string;
   expectedContextBindingB64u: string;
+  addStageVerification: ThresholdEd25519HssAddStageVerification;
 }): BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest {
   const common = {
     clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
@@ -292,6 +295,7 @@ function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandl
     clientOutputMaskHandle: String(input.clientOutputMaskHandle || '').trim(),
     expectedContextBindingB64u: String(input.expectedContextBindingB64u || '').trim(),
   };
+  const addStageBinding = buildThresholdEd25519HssAddStageBinding(input.addStageVerification);
   switch (input.sessionSource.sessionSource) {
     case 'worker_handle':
       return {
@@ -302,6 +306,7 @@ function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandl
         serverInputDeliveryB64u: common.serverInputDeliveryB64u,
         clientOutputMaskHandle: common.clientOutputMaskHandle,
         expectedContextBindingB64u: common.expectedContextBindingB64u,
+        addStageBinding,
       };
     case 'serialized_state':
       return {
@@ -311,6 +316,69 @@ function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandl
         evaluatorOtStateB64u: common.evaluatorOtStateB64u,
         serverInputDeliveryB64u: common.serverInputDeliveryB64u,
         clientOutputMaskHandle: common.clientOutputMaskHandle,
+        expectedContextBindingB64u: common.expectedContextBindingB64u,
+        addStageBinding,
+      };
+    default:
+      return assertNeverHssClientWorkerSessionSource(input.sessionSource);
+  }
+}
+
+function buildThresholdEd25519HssAddStageBinding(
+  verification: ThresholdEd25519HssAddStageVerification,
+): BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest['addStageBinding'] {
+  switch (verification.addStageVerification) {
+    case 'required': {
+      const expectedAddStageRequestMessageB64u = String(
+        verification.expectedAddStageRequestMessageB64u || '',
+      ).trim();
+      if (!expectedAddStageRequestMessageB64u) {
+        throw new Error('Threshold Ed25519 HSS add-stage verification requires a prepared request');
+      }
+      return {
+        kind: 'prepared_request',
+        expectedAddStageRequestMessageB64u,
+      };
+    }
+    case 'skip':
+      return { kind: 'generated_request' };
+    default:
+      return assertNeverThresholdEd25519HssAddStageVerification(verification);
+  }
+}
+
+function prepareThresholdEd25519HssAddStageRequestMessagePayload(input: {
+  sessionSource: ThresholdEd25519HssWorkerSessionSource;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  serverInputDelivery: Pick<
+    ThresholdEd25519HssServerInputDeliveryEnvelope,
+    'serverInputDeliveryB64u'
+  >;
+  expectedContextBindingB64u: string;
+}): PrepareThresholdEd25519HssAddStageRequestMessageRequest {
+  const common = {
+    clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
+    evaluatorOtStateB64u: input.clientRequest.evaluatorOtStateB64u,
+    serverInputDeliveryB64u: input.serverInputDelivery.serverInputDeliveryB64u,
+    expectedContextBindingB64u: String(input.expectedContextBindingB64u || '').trim(),
+  };
+  switch (input.sessionSource.sessionSource) {
+    case 'worker_handle':
+      return {
+        sessionSource: 'worker_handle',
+        workerSessionHandle: input.sessionSource.workerSessionHandle,
+        clientRequestMessageB64u: common.clientRequestMessageB64u,
+        evaluatorOtStateB64u: common.evaluatorOtStateB64u,
+        serverInputDeliveryB64u: common.serverInputDeliveryB64u,
+        expectedContextBindingB64u: common.expectedContextBindingB64u,
+      };
+    case 'serialized_state':
+      return {
+        sessionSource: 'serialized_state',
+        evaluatorDriverStateB64u: input.sessionSource.evaluatorDriverStateB64u,
+        clientRequestMessageB64u: common.clientRequestMessageB64u,
+        evaluatorOtStateB64u: common.evaluatorOtStateB64u,
+        serverInputDeliveryB64u: common.serverInputDeliveryB64u,
         expectedContextBindingB64u: common.expectedContextBindingB64u,
       };
     default:
@@ -369,6 +437,21 @@ export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope = {
   stagedEvaluatorArtifactB64u: string;
   addStageRequestMessageB64u: string;
 };
+
+export type ThresholdEd25519HssPreparedAddStageRequestEnvelope = {
+  contextBindingB64u: string;
+  addStageRequestMessageB64u: string;
+};
+
+export type ThresholdEd25519HssAddStageVerification =
+  | {
+      addStageVerification: 'required';
+      expectedAddStageRequestMessageB64u: string;
+    }
+  | {
+      addStageVerification: 'skip';
+      expectedAddStageRequestMessageB64u?: never;
+    };
 
 export type ThresholdEd25519HssFinalizedReportEnvelope = {
   contextBindingB64u: string;
@@ -656,17 +739,70 @@ export async function prepareThresholdEd25519HssClientOutputMaskHandleWasm(input
   };
 }
 
-export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm(input: {
+export async function prepareThresholdEd25519HssAddStageRequestMessageWasm(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   serverInputDelivery: Pick<
     ThresholdEd25519HssServerInputDeliveryEnvelope,
     'serverInputDeliveryB64u'
   >;
-  clientOutputMaskHandle: string;
   expectedContextBindingB64u: string;
   workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
+}): Promise<ThresholdEd25519HssPreparedAddStageRequestEnvelope> {
+  const sessionSource = hssSessionSourceFromClientRequest({
+    preparedSession: input.preparedSession,
+    clientRequest: input.clientRequest,
+  });
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: HssClientCustomRequestType.PrepareThresholdEd25519HssAddStageRequestMessage,
+      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
+      payload: prepareThresholdEd25519HssAddStageRequestMessagePayload({
+        sessionSource,
+        clientRequest: input.clientRequest,
+        serverInputDelivery: input.serverInputDelivery,
+        expectedContextBindingB64u: input.expectedContextBindingB64u,
+      }),
+    },
+  });
+
+  if (
+    response.type !==
+    HssClientCustomResponseType.PrepareThresholdEd25519HssAddStageRequestMessageSuccess
+  ) {
+    throw new Error('PrepareThresholdEd25519HssAddStageRequestMessage failed');
+  }
+  emitHssClientWorkerDiagnostics(
+    'prepare_add_stage_request_message',
+    readHssClientWorkerDiagnostics(response),
+  );
+
+  const result = response.payload as WasmPrepareThresholdEd25519HssAddStageRequestMessageResult;
+  const contextBindingB64u = String(result.contextBindingB64u || '').trim();
+  const addStageRequestMessageB64u = String(result.addStageRequestMessageB64u || '').trim();
+  if (contextBindingB64u !== input.expectedContextBindingB64u || !addStageRequestMessageB64u) {
+    throw new Error('Threshold Ed25519 HSS add-stage request preparation returned invalid data');
+  }
+  return {
+    contextBindingB64u,
+    addStageRequestMessageB64u,
+  };
+}
+
+export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm(
+  input: {
+    preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
+    clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+    serverInputDelivery: Pick<
+      ThresholdEd25519HssServerInputDeliveryEnvelope,
+      'serverInputDeliveryB64u'
+    >;
+    clientOutputMaskHandle: string;
+    expectedContextBindingB64u: string;
+    workerCtx: WorkerOperationContext;
+  } & ThresholdEd25519HssAddStageVerification,
+): Promise<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
   const sessionSource = hssSessionSourceFromClientRequest({
     preparedSession: input.preparedSession,
     clientRequest: input.clientRequest,
@@ -682,6 +818,7 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
         serverInputDelivery: input.serverInputDelivery,
         clientOutputMaskHandle: input.clientOutputMaskHandle,
         expectedContextBindingB64u: input.expectedContextBindingB64u,
+        addStageVerification: input,
       }),
     },
   });
@@ -701,11 +838,34 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
 
   const result =
     response.payload as WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult;
+  let addStageRequestMessageB64u = String(result.addStageRequestMessageB64u || '').trim();
+  switch (input.addStageVerification) {
+    case 'required': {
+      const expectedAddStageRequestMessageB64u = String(
+        input.expectedAddStageRequestMessageB64u || '',
+      ).trim();
+      if (!expectedAddStageRequestMessageB64u) {
+        throw new Error('Threshold Ed25519 HSS artifact add-stage request mismatch');
+      }
+      addStageRequestMessageB64u = expectedAddStageRequestMessageB64u;
+      break;
+    }
+    case 'skip':
+      break;
+    default:
+      assertNeverThresholdEd25519HssAddStageVerification(input);
+  }
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     stagedEvaluatorArtifactB64u: String(result.stagedEvaluatorArtifactB64u || '').trim(),
-    addStageRequestMessageB64u: String(result.addStageRequestMessageB64u || '').trim(),
+    addStageRequestMessageB64u,
   };
+}
+
+function assertNeverThresholdEd25519HssAddStageVerification(
+  _value: never,
+): never {
+  throw new Error('Unexpected Threshold Ed25519 HSS add-stage verification mode');
 }
 
 export async function openThresholdEd25519HssSeedOutputWasm(input: {

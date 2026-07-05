@@ -665,6 +665,11 @@ export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactR
   addStageRequestMessageB64u: string;
   timings?: Record<string, number>;
 }
+export interface WasmPrepareThresholdEd25519HssAddStageRequestMessageResult {
+  contextBindingB64u: string;
+  addStageRequestMessageB64u: string;
+  timings?: Record<string, number>;
+}
 export type WasmOpenThresholdEd25519HssSeedOutputRequest =
   WasmThresholdEd25519HssSerializedSessionSource & {
     seedOutputMessageB64u: string;

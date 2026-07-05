@@ -1,18 +1,26 @@
 use curve25519_dalek::scalar::Scalar;
 use ed25519_hss::client::ClientDriverState;
+use ed25519_hss::client::{ClientSession, OutputOpeners};
 use ed25519_hss::ddh::DdhHssBackendVersion;
 use ed25519_hss::fixtures::deterministic_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
-use ed25519_hss::runtime::flow::PreparedServerAssistFlow;
-use ed25519_hss::server::{ServerDriverState, ServerEvalOperation};
+use ed25519_hss::runtime::flow::{
+    advance_server_eval_state_to_output_projection_request,
+    finalize_advanced_server_eval_state_with_output_projection,
+    finalize_server_eval_state_from_add_stage_request, PreparedServerAssistFlow,
+};
+use ed25519_hss::runtime::SharedRuntime;
+use ed25519_hss::server::{ServerDriverState, ServerEvalOperation, ServerEvalState, ServerSession};
 use ed25519_hss::wire::{
     ClientStageRequestPacket, OutputProjectionMode, RoleSeparatedClientStagePayload,
     RoleSeparatedOutputDeliveryPayload, ServerAssistInitPacket, ServerStageResponsePacket,
+    StagedEvaluatorArtifact, WireMessage,
 };
 
 use crate::support::{
     build_client_owned_staged_evaluator_artifact, contains_subslice, decode_client_request,
-    decode_server_input_delivery, decode_transport_message, TransportKind,
+    decode_server_input_delivery, decode_transport_message, encode_transport_message,
+    TransportKind, TEST_CLIENT_OUTPUT_MASK,
 };
 
 const STALE_DDH_HSS_BACKEND_VERSION: &str = "ddh_hss_backend_v1_output_projector_binding";
@@ -86,6 +94,302 @@ fn stale_backend_json_value<T: serde::Serialize>(value: &T) -> serde_json::Value
         STALE_DDH_HSS_BACKEND_VERSION,
     );
     json
+}
+
+struct RegistrationAdvanceFixture {
+    runtime: SharedRuntime,
+    garbler_session: ServerSession,
+    evaluator_session: ClientSession,
+    initial_server_eval_state: ServerEvalState,
+    add_stage_request_message: WireMessage,
+    staged_evaluator_artifact: StagedEvaluatorArtifact,
+    output_openers: OutputOpeners,
+}
+
+fn registration_advance_fixture(
+    input: &ed25519_hss::shared::FExpandInput,
+) -> RegistrationAdvanceFixture {
+    let session = prepare_prime_order_succinct_hss(&input.context).expect("prepare session");
+    let runtime = session.shared_runtime();
+    let garbler_session = session.garbler_session();
+    let evaluator_session = session.evaluator_session();
+    let client_ot_offer_message = garbler_session
+        .client_ot_offer_message()
+        .expect("client OT offer message");
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            input.y_client,
+            input.tau_client,
+        )
+        .expect("client OT request message");
+    let client_packet =
+        decode_client_request(session.candidate().context_binding, &client_request_message)
+            .expect("decode client request");
+    let (delivery, initial_server_eval_state) = garbler_session
+        .prepare_role_separated_server_input_delivery(
+            &client_packet,
+            input.y_server,
+            input.tau_server,
+            ServerEvalOperation::Registration,
+        )
+        .expect("role-separated server input delivery");
+    let server_assist_init = ServerAssistInitPacket::from_role_separated_delivery(&delivery);
+    let server_assist_init_message = encode_transport_message(
+        session.candidate().context_binding,
+        TransportKind::ServerAssistInit,
+        &server_assist_init,
+    )
+    .expect("server assist init message");
+    let add_stage_request_message = session
+        .prepare_add_stage_request_message(
+            &client_request_message,
+            &evaluator_ot_state,
+            &server_assist_init_message,
+        )
+        .expect("add-stage request message");
+    let staged_evaluator_artifact = evaluator_session
+        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+            &runtime,
+            &client_packet,
+            &evaluator_ot_state,
+            &delivery,
+            TEST_CLIENT_OUTPUT_MASK,
+        )
+        .expect("client-owned staged evaluator artifact");
+
+    RegistrationAdvanceFixture {
+        runtime,
+        garbler_session,
+        evaluator_session,
+        initial_server_eval_state,
+        add_stage_request_message,
+        staged_evaluator_artifact,
+        output_openers: session.output_openers(),
+    }
+}
+
+#[test]
+fn prepared_add_stage_request_validates_client_owned_artifact_commitment() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let runtime = session.shared_runtime();
+    let garbler_session = session.garbler_session();
+    let evaluator_session = session.evaluator_session();
+    let client_ot_offer_message = garbler_session
+        .client_ot_offer_message()
+        .expect("client OT offer message");
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("client OT request message");
+    let client_packet =
+        decode_client_request(session.candidate().context_binding, &client_request_message)
+            .expect("decode client request");
+    let (delivery, _initial_server_eval_state) = garbler_session
+        .prepare_role_separated_server_input_delivery(
+            &client_packet,
+            fixture.input.y_server,
+            fixture.input.tau_server,
+            ServerEvalOperation::Registration,
+        )
+        .expect("role-separated server input delivery");
+    let add_stage_request_message_a = evaluator_session
+        .prepare_add_stage_request_message_from_role_separated_delivery(
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+        )
+        .expect("prepare add-stage request message A");
+    let add_stage_request_message_b = evaluator_session
+        .prepare_add_stage_request_message_from_role_separated_delivery(
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+        )
+        .expect("prepare add-stage request message B");
+    assert_ne!(
+        add_stage_request_message_a, add_stage_request_message_b,
+        "add-stage request messages carry a fresh client nonce"
+    );
+
+    let artifact = evaluator_session
+        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+            &runtime,
+            &client_packet,
+            &evaluator_ot_state,
+            &delivery,
+            TEST_CLIENT_OUTPUT_MASK,
+        )
+        .expect("client-owned staged evaluator artifact");
+    evaluator_session
+        .validate_add_stage_request_message_from_role_separated_delivery_for_commitment(
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+            &add_stage_request_message_a,
+            artifact.bindings.client_input_commitment,
+        )
+        .expect("prepared add-stage request validates against artifact commitment");
+    assert!(
+        evaluator_session
+            .validate_add_stage_request_message_from_role_separated_delivery_for_commitment(
+                &client_request_message,
+                &evaluator_ot_state,
+                &delivery,
+                &add_stage_request_message_a,
+                [0u8; 32],
+            )
+            .is_err(),
+        "wrong artifact commitment must be rejected"
+    );
+}
+
+#[test]
+#[ignore = "full durable-advance/replay equivalence is too expensive for the default debug test lane"]
+fn durable_advanced_eval_round_trip_matches_current_finalize_replay() {
+    let fixture = boundary_fixture();
+    let prepared = registration_advance_fixture(&fixture.input);
+    let advanced = advance_server_eval_state_to_output_projection_request(
+        &prepared.runtime,
+        &prepared.garbler_session,
+        &prepared.evaluator_session,
+        &prepared.initial_server_eval_state,
+        &prepared.add_stage_request_message,
+    )
+    .expect("advance server eval state");
+    assert!(
+        advanced.state.finalize_state().is_none(),
+        "advanced state must stop before output projection"
+    );
+
+    let advanced_state_bytes =
+        serde_json::to_vec(&advanced.state).expect("serialize advanced server state");
+    let advanced_state_round_trip: ServerEvalState =
+        serde_json::from_slice(&advanced_state_bytes).expect("deserialize advanced server state");
+    let prior_stage_response_bytes = serde_json::to_vec(&advanced.prior_stage_response_message)
+        .expect("serialize prior stage response");
+    let prior_stage_response_round_trip: WireMessage =
+        serde_json::from_slice(&prior_stage_response_bytes).expect("deserialize prior response");
+
+    let finalized_from_advanced = finalize_advanced_server_eval_state_with_output_projection(
+        &prepared.garbler_session,
+        &prepared.evaluator_session,
+        &advanced_state_round_trip,
+        &prior_stage_response_round_trip,
+        &prepared.staged_evaluator_artifact.projection_mode,
+    )
+    .expect("finalize advanced server eval state");
+    let finalized_from_replay = finalize_server_eval_state_from_add_stage_request(
+        &prepared.runtime,
+        &prepared.garbler_session,
+        &prepared.evaluator_session,
+        &prepared.initial_server_eval_state,
+        &prepared.add_stage_request_message,
+        &prepared.staged_evaluator_artifact.projection_mode,
+    )
+    .expect("finalize server eval state from add-stage request");
+
+    assert!(
+        finalized_from_advanced.state.finalize_state().is_some(),
+        "advanced path must produce finalized server state"
+    );
+    assert!(
+        finalized_from_replay.state.finalize_state().is_some(),
+        "replay path must produce finalized server state"
+    );
+    let (_packet_from_advanced, report_from_advanced) = prepared
+        .garbler_session
+        .prepare_server_finalize_packet_from_staged_evaluator_artifact(
+            &prepared.runtime,
+            &finalized_from_advanced.state,
+            &prepared.staged_evaluator_artifact,
+        )
+        .expect("server finalize packet from advanced state");
+    let (_packet_from_replay, report_from_replay) = prepared
+        .garbler_session
+        .prepare_server_finalize_packet_from_staged_evaluator_artifact(
+            &prepared.runtime,
+            &finalized_from_replay.state,
+            &prepared.staged_evaluator_artifact,
+        )
+        .expect("server finalize packet from replay state");
+
+    let advanced_seed_output = prepared
+        .output_openers
+        .seed
+        .open(&report_from_advanced.output_delivery.seed)
+        .expect("open advanced seed output");
+    let replay_seed_output = prepared
+        .output_openers
+        .seed
+        .open(&report_from_replay.output_delivery.seed)
+        .expect("open replay seed output");
+    let advanced_server_output = prepared
+        .output_openers
+        .server
+        .open(&report_from_advanced.output_delivery.server)
+        .expect("open advanced server output");
+    let replay_server_output = prepared
+        .output_openers
+        .server
+        .open(&report_from_replay.output_delivery.server)
+        .expect("open replay server output");
+
+    assert_eq!(advanced_seed_output, replay_seed_output);
+    assert_eq!(advanced_server_output, replay_server_output);
+    assert_eq!(
+        report_from_advanced.artifact.context_binding,
+        report_from_replay.artifact.context_binding
+    );
+}
+
+#[test]
+fn durable_advanced_eval_rejects_tampered_or_context_mismatched_add_stage_request() {
+    let fixture = boundary_fixture();
+    let prepared = registration_advance_fixture(&fixture.input);
+    let mut tampered_add_stage_request = prepared.add_stage_request_message.clone();
+    let last_byte = tampered_add_stage_request
+        .bytes
+        .last_mut()
+        .expect("add-stage request byte");
+    *last_byte ^= 0x01;
+
+    let tampered_err = advance_server_eval_state_to_output_projection_request(
+        &prepared.runtime,
+        &prepared.garbler_session,
+        &prepared.evaluator_session,
+        &prepared.initial_server_eval_state,
+        &tampered_add_stage_request,
+    )
+    .expect_err("tampered add-stage request must fail");
+    assert!(
+        tampered_err.to_string().contains("decode")
+            || tampered_err.to_string().contains("commitment")
+            || tampered_err.to_string().contains("transcript"),
+        "unexpected tampered add-stage request error: {tampered_err}"
+    );
+
+    let other_fixture = second_boundary_fixture();
+    let other_prepared = registration_advance_fixture(&other_fixture.input);
+    let context_err = advance_server_eval_state_to_output_projection_request(
+        &other_prepared.runtime,
+        &other_prepared.garbler_session,
+        &other_prepared.evaluator_session,
+        &other_prepared.initial_server_eval_state,
+        &prepared.add_stage_request_message,
+    )
+    .expect_err("context-mismatched add-stage request must fail");
+    assert!(
+        context_err.to_string().contains("context")
+            || context_err.to_string().contains("binding")
+            || context_err.to_string().contains("transcript"),
+        "unexpected context-mismatched add-stage request error: {context_err}"
+    );
 }
 
 #[test]

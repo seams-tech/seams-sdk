@@ -1,12 +1,33 @@
 use crate::protocol::PreparedSession;
 use crate::runtime::SharedRuntime;
-use crate::server::{ServerEvalOperation, ServerEvalState, ServerOtState};
+use crate::server::{ServerEvalOperation, ServerEvalState, ServerEvalStatus, ServerOtState};
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
-    ClientOtOffer, ClientStageRequestPacket, EvaluationReport,
+    ClientOtOffer, ClientStageRequestPacket, EvaluationReport, OutputProjectionMode,
     RoleSeparatedServerInputDeliveryPacket, ServerAssistInitPacket, StagedEvaluatorArtifact,
     TransportKind, WireMessage,
 };
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ServerEvalAdvanceTimingsMs {
+    pub add_stage_response_ms: f64,
+    pub message_schedule_rounds_ms: f64,
+    pub round_core_rounds_ms: f64,
+    pub output_projection_ms: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdvancedServerEvalState {
+    pub state: ServerEvalState,
+    pub prior_stage_response_message: WireMessage,
+    pub timings: ServerEvalAdvanceTimingsMs,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FinalizedServerEvalState {
+    pub state: ServerEvalState,
+    pub timings: ServerEvalAdvanceTimingsMs,
+}
 
 pub struct PreparedServerAssistFlow {
     pub server_assist_init_message: WireMessage,
@@ -19,6 +40,209 @@ pub struct PreparedServerAssistFlow {
     pub output_projection_request_message: WireMessage,
     pub output_projection_response_message: WireMessage,
     pub final_server_eval_state: ServerEvalState,
+}
+
+fn elapsed_ms(now_ms: &mut impl FnMut() -> f64, started_ms: f64) -> f64 {
+    (now_ms() - started_ms).max(0.0)
+}
+
+fn zero_ms() -> f64 {
+    0.0
+}
+
+pub fn advance_server_eval_state_to_output_projection_request(
+    runtime: &SharedRuntime,
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    add_stage_request_message: &WireMessage,
+) -> ProtoResult<AdvancedServerEvalState> {
+    advance_server_eval_state_to_output_projection_request_profiled(
+        runtime,
+        garbler_session,
+        evaluator_session,
+        server_eval_state,
+        add_stage_request_message,
+        zero_ms,
+    )
+}
+
+pub fn advance_server_eval_state_to_output_projection_request_profiled(
+    runtime: &SharedRuntime,
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    add_stage_request_message: &WireMessage,
+    mut now_ms: impl FnMut() -> f64,
+) -> ProtoResult<AdvancedServerEvalState> {
+    if server_eval_state.status == ServerEvalStatus::Finalized {
+        return Err(ProtoError::InvalidInput(
+            "server eval state is already finalized and cannot be advanced".to_string(),
+        ));
+    }
+
+    let add_stage_response_started_ms = now_ms();
+    let (add_stage_response_message, mut server_eval_state) = garbler_session
+        .prepare_add_stage_response_message_with_runtime(
+            runtime,
+            evaluator_session,
+            server_eval_state,
+            add_stage_request_message,
+        )?;
+    let add_stage_response_ms = elapsed_ms(&mut now_ms, add_stage_response_started_ms);
+    let mut prior_stage_response_message = add_stage_response_message;
+    let hidden_eval_constant_pool = garbler_session.hidden_eval_constant_pool()?;
+
+    let message_schedule_rounds_started_ms = now_ms();
+    for _ in 0..crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
+        let request_message = evaluator_session
+            .prepare_message_schedule_request_message(&prior_stage_response_message)?;
+        let (response_message, next_server_eval_state) = garbler_session
+            .prepare_message_schedule_response_message_with_pool(
+                &server_eval_state,
+                &request_message,
+                &hidden_eval_constant_pool,
+            )?;
+        prior_stage_response_message = response_message;
+        server_eval_state = next_server_eval_state;
+    }
+    let message_schedule_rounds_ms = elapsed_ms(&mut now_ms, message_schedule_rounds_started_ms);
+
+    let round_core_rounds_started_ms = now_ms();
+    for _ in 0..crate::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
+        let request_message =
+            evaluator_session.prepare_round_core_request_message(&prior_stage_response_message)?;
+        let (response_message, next_server_eval_state) = garbler_session
+            .prepare_round_core_response_message_with_pool(
+                &server_eval_state,
+                &request_message,
+                &hidden_eval_constant_pool,
+            )?;
+        prior_stage_response_message = response_message;
+        server_eval_state = next_server_eval_state;
+    }
+    let round_core_rounds_ms = elapsed_ms(&mut now_ms, round_core_rounds_started_ms);
+
+    Ok(AdvancedServerEvalState {
+        state: server_eval_state,
+        prior_stage_response_message,
+        timings: ServerEvalAdvanceTimingsMs {
+            add_stage_response_ms,
+            message_schedule_rounds_ms,
+            round_core_rounds_ms,
+            output_projection_ms: 0.0,
+        },
+    })
+}
+
+pub fn finalize_advanced_server_eval_state_with_output_projection(
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    prior_stage_response_message: &WireMessage,
+    projection_mode: &OutputProjectionMode,
+) -> ProtoResult<FinalizedServerEvalState> {
+    finalize_advanced_server_eval_state_with_output_projection_profiled(
+        garbler_session,
+        evaluator_session,
+        server_eval_state,
+        prior_stage_response_message,
+        projection_mode,
+        zero_ms,
+    )
+}
+
+pub fn finalize_advanced_server_eval_state_with_output_projection_profiled(
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    prior_stage_response_message: &WireMessage,
+    projection_mode: &OutputProjectionMode,
+    mut now_ms: impl FnMut() -> f64,
+) -> ProtoResult<FinalizedServerEvalState> {
+    let output_projection_started_ms = now_ms();
+    let output_projection_request_message = evaluator_session
+        .prepare_output_projection_request_message_with_projection_mode(
+            prior_stage_response_message,
+            projection_mode,
+        )?;
+    let hidden_eval_constant_pool = garbler_session.hidden_eval_constant_pool()?;
+    let (_output_projection_response_message, final_server_eval_state) = garbler_session
+        .prepare_output_projection_response_message_with_pool(
+            server_eval_state,
+            &output_projection_request_message,
+            &hidden_eval_constant_pool,
+        )?;
+    let output_projection_ms = elapsed_ms(&mut now_ms, output_projection_started_ms);
+    Ok(FinalizedServerEvalState {
+        state: final_server_eval_state,
+        timings: ServerEvalAdvanceTimingsMs {
+            output_projection_ms,
+            ..ServerEvalAdvanceTimingsMs::default()
+        },
+    })
+}
+
+pub fn finalize_server_eval_state_from_add_stage_request(
+    runtime: &SharedRuntime,
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    add_stage_request_message: &WireMessage,
+    projection_mode: &OutputProjectionMode,
+) -> ProtoResult<FinalizedServerEvalState> {
+    finalize_server_eval_state_from_add_stage_request_profiled(
+        runtime,
+        garbler_session,
+        evaluator_session,
+        server_eval_state,
+        add_stage_request_message,
+        projection_mode,
+        zero_ms,
+    )
+}
+
+pub fn finalize_server_eval_state_from_add_stage_request_profiled(
+    runtime: &SharedRuntime,
+    garbler_session: &crate::server::ServerSession,
+    evaluator_session: &crate::client::ClientSession,
+    server_eval_state: &ServerEvalState,
+    add_stage_request_message: &WireMessage,
+    projection_mode: &OutputProjectionMode,
+    mut now_ms: impl FnMut() -> f64,
+) -> ProtoResult<FinalizedServerEvalState> {
+    if server_eval_state.status == ServerEvalStatus::Finalized {
+        return Ok(FinalizedServerEvalState {
+            state: server_eval_state.clone(),
+            timings: ServerEvalAdvanceTimingsMs::default(),
+        });
+    }
+
+    let advanced = advance_server_eval_state_to_output_projection_request_profiled(
+        runtime,
+        garbler_session,
+        evaluator_session,
+        server_eval_state,
+        add_stage_request_message,
+        &mut now_ms,
+    )?;
+    let finalized = finalize_advanced_server_eval_state_with_output_projection_profiled(
+        garbler_session,
+        evaluator_session,
+        &advanced.state,
+        &advanced.prior_stage_response_message,
+        projection_mode,
+        &mut now_ms,
+    )?;
+    Ok(FinalizedServerEvalState {
+        state: finalized.state,
+        timings: ServerEvalAdvanceTimingsMs {
+            add_stage_response_ms: advanced.timings.add_stage_response_ms,
+            message_schedule_rounds_ms: advanced.timings.message_schedule_rounds_ms,
+            round_core_rounds_ms: advanced.timings.round_core_rounds_ms,
+            output_projection_ms: finalized.timings.output_projection_ms,
+        },
+    })
 }
 
 impl PreparedSession {
@@ -241,6 +465,7 @@ impl PreparedSession {
         let (add_stage_response_message, next_server_eval_state) = self
             .prepare_add_stage_response_message(&server_eval_state, &add_stage_request_message)?;
         server_eval_state = next_server_eval_state;
+        let hidden_eval_constant_pool = self.garbler_session().hidden_eval_constant_pool()?;
 
         let mut message_schedule_request_messages =
             Vec::with_capacity(crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS as usize);
@@ -251,7 +476,12 @@ impl PreparedSession {
             let request_message =
                 self.prepare_message_schedule_request_message(&prior_stage_response_message)?;
             let (response_message, next_server_eval_state) = self
-                .prepare_message_schedule_response_message(&server_eval_state, &request_message)?;
+                .garbler_session()
+                .prepare_message_schedule_response_message_with_pool(
+                    &server_eval_state,
+                    &request_message,
+                    &hidden_eval_constant_pool,
+                )?;
             message_schedule_request_messages.push(request_message);
             message_schedule_response_messages.push(response_message.clone());
             prior_stage_response_message = response_message;
@@ -265,8 +495,13 @@ impl PreparedSession {
         for _ in 0..crate::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
             let request_message =
                 self.prepare_round_core_request_message(&prior_stage_response_message)?;
-            let (response_message, next_server_eval_state) =
-                self.prepare_round_core_response_message(&server_eval_state, &request_message)?;
+            let (response_message, next_server_eval_state) = self
+                .garbler_session()
+                .prepare_round_core_response_message_with_pool(
+                    &server_eval_state,
+                    &request_message,
+                    &hidden_eval_constant_pool,
+                )?;
             round_core_request_messages.push(request_message);
             round_core_response_messages.push(response_message.clone());
             prior_stage_response_message = response_message;
@@ -276,9 +511,11 @@ impl PreparedSession {
         let output_projection_request_message =
             self.prepare_output_projection_request_message(&prior_stage_response_message)?;
         let (output_projection_response_message, final_server_eval_state) = self
-            .prepare_output_projection_response_message(
+            .garbler_session()
+            .prepare_output_projection_response_message_with_pool(
                 &server_eval_state,
                 &output_projection_request_message,
+                &hidden_eval_constant_pool,
             )?;
 
         Ok(PreparedServerAssistFlow {
