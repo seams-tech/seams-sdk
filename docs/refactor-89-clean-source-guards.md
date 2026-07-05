@@ -104,7 +104,6 @@ Seed inventory from current source:
 - `tests/unit/*.behavior.guard.unit.test.ts`
 - `tests/unit/*.domain.guard.unit.test.ts`
 - `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts`
-- `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json`
 
 Browser-dependent guardrails are guard-owned inventory, but they do not run in
 `playwright.source.config.ts` because that profile intentionally has no
@@ -139,15 +138,16 @@ Large mixed-suite invariant split, July 4, 2026:
 | `tests/scripts/check-cloudflare-d1-runtime-boundaries.mjs` HSS/authority boundaries | Ed25519 HSS ceremony state is DO-backed; wallet registration and Email OTP grant authority bind to stable fields. | D1 route-family tests and HSS protocol tests cover ceremony durability and authority binding. | DO-backed HSS ceremony tests, grant parser tests, route-family tests. | active |
 | `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` contract shape | The intended suite stays five Chromium lifecycle specs with zero retries, high-level harness scripts, public action sequences, and no private SDK/runtime imports. | The suite is remote-CI enforced and the lifecycle contract shape is owned by CI plus public API contract tests. | `pnpm test:intended`, `pnpm test:intended:ci`, public SDK contract tests. | active |
 | `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` retired mock surfaces | Deleted mocked runtime files, fake relay launchers, setup wrappers, `window.testUtils`, `__testOverrides`, and broad browser mutation hooks stay absent. | Retired surfaces stay absent for one release branch and source/package lint owns the file/hook bans. | Source-layout checks, package-script checks, setup/harness unit tests. | active |
-| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` retained boundary audit | Generic browser bootstrap consumers, wallet-iframe tests, Lit component tests, SeamsWeb setup tests, and confirm-flow tests have explicit `keep` rows. | Refactor 88/89 ledger remains complete and future retained boundary files are checked by a smaller ledger script. | `check:refactor88-test-ledger:complete`, retained-boundary source evidence checks. | active |
+| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` retained boundary audit | Generic browser bootstrap consumers, wallet-iframe tests, Lit component tests, SeamsWeb setup tests, and confirm-flow tests have explicit `keep` rows. | Deleted the retained-boundary audit shard from the broad contract-boundary checker after moving the row/evidence checks into the ledger verifier. | `check:refactor88-test-ledger:complete`, retained-boundary source evidence checks. | deleted |
+| `tests/scripts/check-refactor88-test-ledger.mjs` retained boundary audit | The Refactor 88 ledger owns retained focused browser/unit coverage rows and source evidence for wallet-iframe, Lit component, SeamsWeb setup, confirm-flow, and generic bootstrap consumers. | Refactor 88 closes and retained-boundary coverage is either durable behavior coverage or no longer part of the cleanup ledger. | `check:refactor88-test-ledger:complete`, `test:source-guards`. | active |
 | `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` startup/OIDC gate | Intended commands, Google OIDC service-account token refresh, CI startup, route gating, suite timeout, and sibling pre-merge gate references stay wired. | Remote CI owns startup and sibling plans no longer need local checklist guards. | CI workflow gate, `ensure:intended-google-token`, `playwright.intended.ci.config.ts`. | active |
 | `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` runtime oracles | Failure-string tripwires stay versioned; NEAR and ECDSA signatures are cryptographically verified; structured auth-path events and external-only request stubs stay enforced. | Intended harness behavior is covered by direct harness tests or remote CI artifact assertions. | Harness unit tests, intended contracts, compact trace assertions. | active |
-| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` mutation proof | Mutation manifest rows, exact oracles, proof statuses, detected evidence, and blocker policy stay machine-readable. | Phase 3B completion passes with all rows `detected`; cross-chain ECDSA product identity blocker is removed. | `check:intended-mutation-self-check:complete`, scratch-branch mutation evidence. | active |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` secret-material boundaries | Cloudflare route and worker code avoid joined-state material, recipient-output combining, signer plaintext decoding, and canonical export key reconstruction. | Protocol/vector tests and type-level material boundaries cover secret material flow. | HSS protocol vectors, worker request parser tests, materialization graph checks. | active |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` route boundaries | Strict router routes apply CORS, boundary parsers, bearer-JWT admission, replay reservation, and public-keyset boundaries. | Route constants, route parser tests, and local/cloudflare parity tests own route shape and admission. | Cloudflare route tests, release route probes, local parity tests. | active |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` ECDSA HSS protocol split | ECDSA HSS export, registration, activation, direct activation delivery, and normal signing stay on protocol-specific deriver/activation paths. | Typed route commands and protocol tests enforce the split directly. | ECDSA HSS route tests, activation parser tests, protocol vectors. | active |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` normal-signing session flow | Normal signing loads active material, reserves replay/presignature state, uses one-use presignature storage, and keeps private worker dispatch behind internal auth. | Public/private handler tests cover admission, replay, presignature pool, and worker authorization. | Router normal-signing handler tests, presignature pool tests, worker auth tests. | active |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` audit/legacy bans | Sanitized audit events stay sanitized, old v1 flow symbols stay absent, and Cloudflare boundaries avoid legacy normal-signing names. | Generated protocol fixtures and release probes own the legacy-symbol bans. | Protocol fixture tests, release source probes. | active |
+| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` mutation proof | Mutation manifest rows, exact oracles, proof statuses, detected evidence, and blocker policy stay machine-readable. | Deleted the source-shaped mutation row assertions after Phase 3B completion passed with all rows `detected`; the dedicated mutation self-check now owns this invariant. | `check:intended-mutation-self-check:complete`, scratch-branch mutation evidence. | deleted |
+| `crates/router-ab-cloudflare/tests/source_guards.rs` secret-material boundaries | Cloudflare route and worker code avoid joined-state material, recipient-output combining, and signer plaintext decoding. | Protocol/vector tests and type-level material boundaries cover secret material flow. Canonical export-key reconstruction checks moved to `crates/router-ab-cloudflare/tests/ecdsa_hss_activation_boundaries.rs`. | HSS protocol vectors, worker request parser tests, materialization graph checks. | active |
+| `crates/router-ab-cloudflare/tests/source_guards.rs` route boundaries | Strict router routes apply CORS, boundary parsers, bearer-JWT admission, replay reservation, and public-keyset boundaries. | Route literal assertions moved to `crates/router-ab-cloudflare/tests/route_paths.rs`; strict-router CORS assertions moved to `crates/router-ab-cloudflare/tests/strict_router_cors_boundaries.rs`; bearer-admission, parser-boundary, normal-signing replay, and admission-candidate assertions moved to `crates/router-ab-cloudflare/tests/strict_router_route_boundaries.rs`; remaining source checks retire after route parser tests and local/cloudflare parity tests own dispatch. | `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test route_paths`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test strict_router_cors_boundaries`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test strict_router_route_boundaries`; later Cloudflare route tests, release route probes, local parity tests. | active |
+| `crates/router-ab-cloudflare/tests/ecdsa_hss_activation_boundaries.rs` ECDSA HSS activation/export split | ECDSA HSS export, registration, activation, direct activation delivery, sanitized export audit events, and no-canonical-export-key boundaries stay on protocol-specific deriver/activation paths. | Moved out of `source_guards.rs` into a focused Rust integration test; later typed route commands and protocol tests can narrow or replace the remaining source-shape assertions. | `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test ecdsa_hss_activation_boundaries`; later ECDSA HSS route tests, activation parser tests, protocol vectors. | active |
+| `crates/router-ab-cloudflare/tests/ecdsa_hss_normal_signing_boundaries.rs` ECDSA HSS normal-signing/presignature split | ECDSA HSS normal signing uses active material only, binds full active-state identity, materializes before handler calls, uses one-use presignature storage, and keeps presignature pool state distinct. | Moved out of `source_guards.rs` into a focused Rust integration test; later handler/storage tests and protocol vectors can narrow or replace the remaining source-shape assertions. | `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test ecdsa_hss_normal_signing_boundaries`; later ECDSA HSS normal-signing handler tests, presignature pool tests, protocol vectors. | active |
+| `crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs` normal-signing worker flow | Normal signing stays off A/B derivation handlers, loads active material before handlers, uses SigningWorker names, routes through strict worker dispatch, keeps private worker dispatch behind internal auth, rejects legacy v1 flow symbols, and keeps private routes away from Wallet Session parsing. | Moved out of `source_guards.rs` into a focused Rust integration test; later public/private handler tests, worker-auth tests, and protocol fixtures can narrow or replace the remaining source-shape assertions. | `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test normal_signing_worker_boundaries`; later Router normal-signing handler tests, worker auth tests, protocol fixture tests. | active |
 | `tests/unit/ed25519HssMaterialBoundaries.guard.unit.test.ts` no-HSS login material | Shared HSS setup helpers, old reconstruction input shapes, raw material names, and stale HSS material paths stay out of active login/signing flows. | Playwright wrapper deleted; source-shaped assertions moved to `tests/scripts/check-ed25519-hss-material-boundaries.mjs`. Later worker command type fixtures and Ed25519 HSS route/material tests can narrow or delete the standalone check. | `tests/scripts/check-ed25519-hss-material-boundaries.mjs`; later worker command type fixtures and Ed25519 HSS route/material tests. | deleted |
 | `tests/unit/ed25519HssMaterialBoundaries.guard.unit.test.ts` Ed25519 session state | Current finalized Ed25519 material-state and login unseal resolver shapes stay aligned with session records. | Playwright wrapper deleted; source-shaped assertions moved to `tests/scripts/check-ed25519-hss-material-boundaries.mjs`. Later material-state and parser tests can narrow or delete the standalone check. | `tests/scripts/check-ed25519-hss-material-boundaries.mjs`; later Ed25519 material-state tests and session-record parser tests. | deleted |
 | `tests/unit/ed25519HssMaterialBoundaries.guard.unit.test.ts` restore/sync/link-device exceptions | Recovery, sync, and the Refactor 84 link-device stub stay explicitly recorded while they share no-HSS setup helpers. | Playwright wrapper deleted; source-shaped assertions moved to `tests/scripts/check-ed25519-hss-material-boundaries.mjs`. Later recovery/link-device coverage can narrow or delete the standalone check. | `tests/scripts/check-ed25519-hss-material-boundaries.mjs`; later recovery fifth spec and link-device route/session tests. | deleted |
@@ -171,7 +171,12 @@ Current guard-owned inventory:
 | File | Classification | Cleanup trigger / owner |
 | --- | --- | --- |
 | `crates/ed25519-hss/tests/materialization_graph_guard.rs` | durable | Keep as the Ed25519 HSS materialization graph/doc-boundary guard unless protocol vectors replace the documented-helper invariant. |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` | temporary | Phase 2 splits route-shape and ECDSA/Ed25519 call-chain checks; retire route-specific scans after route constants, local/cloudflare parity, handler tests, and protocol vectors own them. |
+| `crates/router-ab-cloudflare/tests/source_guards.rs` | temporary | The broad Cloudflare source guard has been reduced to generic joined-material, recipient-output-combine, and signer-plaintext bans. Route literal checks now live in `crates/router-ab-cloudflare/tests/route_paths.rs`, strict-router CORS checks now live in `crates/router-ab-cloudflare/tests/strict_router_cors_boundaries.rs`, bearer-admission and parser-boundary checks now live in `crates/router-ab-cloudflare/tests/strict_router_route_boundaries.rs`, ECDSA-HSS activation/export checks now live in `crates/router-ab-cloudflare/tests/ecdsa_hss_activation_boundaries.rs`, ECDSA-HSS normal-signing/presignature checks now live in `crates/router-ab-cloudflare/tests/ecdsa_hss_normal_signing_boundaries.rs`, and normal-signing worker checks now live in `crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs`. |
+| `crates/router-ab-cloudflare/tests/ecdsa_hss_activation_boundaries.rs` | durable | Focused ECDSA-HSS activation/export boundary tests split out of the broad Cloudflare source guard. Keep until ECDSA-HSS route behavior tests, activation parser tests, and protocol vectors directly assert client-only export, protocol-specific registration, direct activation delivery, sanitized export audit events, and no canonical export-key reconstruction. |
+| `crates/router-ab-cloudflare/tests/ecdsa_hss_normal_signing_boundaries.rs` | durable | Focused ECDSA-HSS normal-signing and presignature boundary tests split out of the broad Cloudflare source guard. Keep until ECDSA-HSS handler/storage tests and protocol vectors directly assert active-material binding, full active-state identity, request-bound presignature use, pool reservation ordering, and one-use storage separation. |
+| `crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs` | durable | Focused normal-signing worker and legacy-symbol boundary tests split out of the broad Cloudflare source guard. Keep until handler, worker-auth, and protocol-fixture tests directly assert normal-signing call-chain boundaries, strict worker dispatch, active-material ordering, and legacy v1 symbol deletion. |
+| `crates/router-ab-cloudflare/tests/strict_router_cors_boundaries.rs` | durable | Stable strict-router CORS boundary tests split out of the broad Cloudflare source guard. Keep until Cloudflare route behavior/parity tests directly assert public-keyset wildcard CORS and exact-origin bearer-route CORS. |
+| `crates/router-ab-cloudflare/tests/strict_router_route_boundaries.rs` | durable | Stable strict-router bearer-admission, parser-boundary, normal-signing replay-order, and admission-candidate tests split out of the broad Cloudflare source guard. Keep until route-family behavior/parity tests directly assert bearer JWT admission, boundary parser usage, replay reservation ordering, and admission candidate naming. |
 | `crates/router-ab-core/tests/source_guards.rs` | temporary | Phase 2 retires core Router boundary scans after module visibility, core protocol unit tests, and protocol vectors own the invariant. |
 | `tests/unit/accountSignerLifecycle.domain.guard.unit.test.ts` | deleted | Deleted after signer lifecycle write-field and shared signer-domain constant source checks moved into `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, wired through `test:source-guards`. |
 | `tests/unit/authSecretTerminology.guard.unit.test.ts` | deleted | Deleted after the auth-neutral docs terminology invariant moved into `tests/scripts/check-auth-secret-terminology.mjs`, wired through `test:source-guards`. |
@@ -202,7 +207,8 @@ Current guard-owned inventory:
 | `tests/unit/routeLifecycleDomainBoundaries.guard.unit.test.ts` | deleted | Deleted after route/lifecycle source checks moved into `tests/scripts/check-route-lifecycle-domain-boundaries.mjs`, wired through `test:source-guards`. |
 | `tests/scripts/check-cloudflare-d1-runtime-boundaries.mjs` | temporary | Refactor 82 owns retirement after D1 runtime, CI, docs, route capability, and no-Postgres checks are converted to durable route/runtime tests. |
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` | deleted | Deleted after role-local ECDSA handle ownership, wallet unlock subject, visible iframe passkey registration, prepared registration route, registration precompute, active-state/persistence-subject, Email OTP commit, and unlock activation-plan checks moved into `tests/scripts/check-registration-capability-subjects.mjs`, wired through `test:source-guards`. |
-| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` | temporary | Refactor 88 owns retirement after `test:intended` is remote-CI enforced, Phase 3B mutation proof is complete, and retired setup/runtime files stay absent for one release branch. |
+| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` | temporary | Refactor 88 owns retirement after `test:intended` is remote-CI enforced and retired setup/runtime files stay absent for one release branch; the Phase 3B mutation-proof shard has moved to `check:intended-mutation-self-check:complete`, and retained-boundary audit ownership has moved to `check:refactor88-test-ledger:complete`. |
+| `tests/scripts/check-refactor88-test-ledger.mjs` | temporary | Refactor 88 owns retirement after the exhaustive test ledger closes; currently guards ledger completeness plus retained-boundary audit evidence while the cleanup/deletion sweep is active. |
 | `tests/unit/passkeyRegistrationButtonBoundaries.guard.unit.test.ts` | deleted | Deleted after retained Lit component tests owned button behavior and the import-independence check moved into `tests/scripts/check-passkey-registration-button-boundaries.mjs`, wired through `test:source-guards`. |
 | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` | deleted | Deleted after local topology, Wallet Session request-builder, active material/readiness, route-core, legacy-route, and budget/reconciliation source checks moved into `tests/scripts/check-router-ab-normal-signing-sdk-boundaries.mjs`, wired through `test:source-guards`. |
 | `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts` | deleted | Deleted after Router A/B wallet-session legacy claim-kind, exact claim-builder, canonical ECDSA-HSS scope comparison, and internal-auth helper checks moved into `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`, wired through `test:source-guards`. |
@@ -220,8 +226,8 @@ Current guard-owned inventory:
 | `tests/unit/thresholdEcdsa.behavior.guard.unit.test.ts` | deleted | Deleted after the ECDSA HSS old-v1 deletion, role-local authorization, refill wiring, and no-export-material checks moved into `tests/scripts/check-threshold-ecdsa-hss-boundaries.mjs`, wired through `test:source-guards`. |
 | `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts` | deleted | Deleted after threshold Ed25519 NEAR signing queue source checks moved into `tests/scripts/check-threshold-ed25519-near-signing-queue.mjs`, wired through `test:source-guards`. |
 | `tests/unit/thresholdEd25519PresignNonceLifecycle.guard.unit.test.ts` | deleted | Deleted after the Ed25519 presign nonce burn-order and CSPRNG handle checks moved into `tests/scripts/check-threshold-ed25519-presign-nonce-lifecycle.mjs`, wired through `test:source-guards`. |
-| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | temporary allowlist | Ten documented entries remain after pruning stale paths. The standalone check now rejects allowlist entries with no matching live source pattern. Phase 3 deletes the file when every entry is converted to typed builders or removed. |
-| `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | deleted | Deleted after wallet capability source checks moved into `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`, wired through `test:source-guards`; the allowlist remains active while the standalone check still consumes it. |
+| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | deleted | Deleted after the remaining wallet-scoped event/trace compatibility projections moved from `accountId` payloads to explicit `walletId` payloads. `tests/scripts/check-wallet-capability-bindings-source-guard.mjs` now fails if the JSON allowlist is recreated and still rejects stale built-in boundary exemptions. |
+| `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | deleted | Deleted after wallet capability source checks moved into `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`, wired through `test:source-guards`; the JSON allowlist is retired and the standalone check enforces that it stays deleted. |
 | `tests/unit/walletIframeHost.configGuards.test.ts` | runtime | Keep as unit coverage for production iframe host config guard helpers. |
 | `tests/unit/walletScopedLookups.guard.unit.test.ts` | deleted | Deleted after the D1 wallet-id parser behavior assertion moved into `tests/unit/domainIds.boundary.unit.test.ts` and the remaining wallet-scoped lookup / NEAR projection source checks moved into `tests/scripts/check-wallet-scoped-lookup-boundaries.mjs`, wired through `test:source-guards`. |
 
@@ -278,8 +284,8 @@ prune them to security-critical boundaries.
 
 | Guard | Cleanup trigger | Replacement coverage | Status |
 | --- | --- | --- | --- |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` route-shape checks | Refactor 81 route rename has shipped and old `/v1`/`/v2` routes are absent from all active clients. | Route constant tests, local/cloudflare parity tests, release probe scripts. | active |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` ECDSA/Ed25519 call-chain checks | Handler boundaries are enforced by typed route commands and behavior tests. | Router public/private handler tests, HSS protocol tests, presignature lifecycle tests. | active |
+| `crates/router-ab-cloudflare/tests/source_guards.rs` route-shape checks | Refactor 81 route rename has shipped and old `/v1`/`/v2` routes are absent from all active clients. | Route literal checks moved to `crates/router-ab-cloudflare/tests/route_paths.rs`; CORS boundary checks moved to `crates/router-ab-cloudflare/tests/strict_router_cors_boundaries.rs`; bearer-admission, parser-boundary, replay-order, and admission-candidate checks moved to `crates/router-ab-cloudflare/tests/strict_router_route_boundaries.rs`; remaining dispatch source checks stay here until local/cloudflare parity tests and release probe scripts own them. | active |
+| `crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs` ECDSA/Ed25519 call-chain checks | Handler boundaries are enforced by typed route commands and behavior tests. | ECDSA-HSS activation/export checks moved to `crates/router-ab-cloudflare/tests/ecdsa_hss_activation_boundaries.rs`; ECDSA-HSS normal-signing/presignature checks moved to `crates/router-ab-cloudflare/tests/ecdsa_hss_normal_signing_boundaries.rs`; Ed25519 and strict worker call-chain checks moved to `crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs`. | active |
 | `crates/router-ab-core/tests/source_guards.rs` Router boundary checks | Core protocol boundaries are covered by module visibility, type ownership, or protocol vectors. | Core protocol unit tests and vector tests. | active |
 | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` route/topology checks | Refactor 81 unversioned route shape has shipped and active docs/scripts use one namespace. | Source-shaped route/topology checks moved to `tests/scripts/check-router-ab-normal-signing-sdk-boundaries.mjs`; later route-definition tests, SDK relayer tests, and local worker parity tests can narrow or delete that standalone check. | deleted |
 | `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts` | Wallet Session claim parsing is enforced by server route parser tests. | Standalone source check `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`, wired into `test:source-guards`; later parser/JWT tests can delete or narrow that script. | deleted |
@@ -296,7 +302,7 @@ lane identity cover construction.
 | Guard | Cleanup trigger | Replacement coverage | Status |
 | --- | --- | --- | --- |
 | `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | Playwright wrapper deleted; standalone check can narrow or delete once `walletCapabilityBindings.sourceGuard.allowlist.json` is empty and builders reject invalid wallet/account/signer combinations. | `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`; later builder parser tests and type fixtures. | deleted |
-| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | Every entry is deleted or converted to a typed boundary; stale entries fail `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`. | Same as above. | active |
+| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | Deleted after every entry was removed or converted to a typed/boundary-owned shape; recreated JSON allowlists fail `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`. | Same as above. | deleted |
 | `tests/unit/walletScopedLookups.guard.unit.test.ts` | Account-scoped fallback lookups are impossible through function signatures. | D1 wallet-id parser behavior in `tests/unit/domainIds.boundary.unit.test.ts`; remaining wallet-scoped lookup / NEAR projection source checks in `tests/scripts/check-wallet-scoped-lookup-boundaries.mjs`, wired into `test:source-guards`. | deleted |
 | `tests/unit/signingEngineEcdsaIdentity.*.guard.unit.test.ts` | ECDSA identity no longer has NEAR-shaped compatibility fields or fallback paths. | `tests/scripts/check-signing-engine-ecdsa-identity-boundaries.mjs`, wired into `test:source-guards`; later ECDSA identity parser/export/lifecycle tests can narrow or delete that standalone check. | deleted |
 | `tests/unit/accountSignerLifecycle.domain.guard.unit.test.ts` | Signer lifecycle write-field and shared signer-domain constant checks no longer need the Playwright source shard. | Standalone source check `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, wired into `test:source-guards`; later lifecycle type fixtures can delete or narrow that script. | deleted |
@@ -354,9 +360,9 @@ Append new temporary guards here.
 | `tests/unit/refactor79ExactSigningLane.guard.unit.test.ts` | Refactor 79 | Refactor-numbered file was moved to stable exact signing-lane authority coverage. | Exact lane identity is stable and behavior/type tests catch the same regressions. | `tests/unit/exactSigningLaneAuthorityBoundaries.guard.unit.test.ts`. | moved |
 | `tests/unit/refactor80SwitchCase.guard.unit.test.ts` | Refactor 80 | Refactor-numbered file first moved to stable route/lifecycle domain-boundary coverage, then the source-shaped invariant moved out of Playwright. | Route parser tests and lifecycle union fixtures cover every guarded branch. | `tests/scripts/check-route-lifecycle-domain-boundaries.mjs`, run by `pnpm -C tests run check:route-lifecycle-domain-boundaries` and `pnpm -C tests run test:source-guards`. | deleted |
 | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` | Refactors 68, 69, 81 | Prevented Router A/B topology and route-shape regressions while local/cloudflare routing was settling. | Source-shaped checks moved to `tests/scripts/check-router-ab-normal-signing-sdk-boundaries.mjs`, wired through `test:source-guards`; later route constants and parity tests can narrow or delete the standalone check. | `tests/scripts/check-router-ab-normal-signing-sdk-boundaries.mjs`; later route-definition tests, SDK relayer tests, local/cloudflare parity tests. | deleted |
-| `crates/router-ab-cloudflare/tests/source_guards.rs` | Router A/B / Refactors 79-81 | Protects Cloudflare Worker security boundaries and route-shape invariants during modularization. | Split into durable security-boundary tests and delete route/refactor-specific text scans. | Cloudflare handler tests, route parity tests, protocol vectors. | active |
+| `crates/router-ab-cloudflare/tests/source_guards.rs` | Router A/B / Refactors 79-81 | Protects remaining generic Cloudflare Worker secret-material and plaintext boundaries during modularization. | Route literal checks moved to `crates/router-ab-cloudflare/tests/route_paths.rs`, CORS checks moved to `crates/router-ab-cloudflare/tests/strict_router_cors_boundaries.rs`, bearer-admission/parser/replay checks moved to `crates/router-ab-cloudflare/tests/strict_router_route_boundaries.rs`, ECDSA-HSS activation/export checks moved to `crates/router-ab-cloudflare/tests/ecdsa_hss_activation_boundaries.rs`, ECDSA-HSS normal-signing/presignature checks moved to `crates/router-ab-cloudflare/tests/ecdsa_hss_normal_signing_boundaries.rs`, and normal-signing worker checks moved to `crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs`. | `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test route_paths`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test strict_router_cors_boundaries`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test strict_router_route_boundaries`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test ecdsa_hss_activation_boundaries`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test ecdsa_hss_normal_signing_boundaries`; `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test normal_signing_worker_boundaries`; later Cloudflare handler tests, route parity tests, protocol vectors. | active |
 | `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | Refactor 78 | Playwright wrapper deleted after the source-shaped guard moved to a standalone check. | Builders and type fixtures make the collapse unrepresentable. | `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`; later builder tests, `@ts-expect-error` fixtures, parser tests. | deleted |
-| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | Refactor 78 | Tracks known temporary exceptions to wallet/account source bans. | Allowlist reaches zero entries. | Same as above. | active |
+| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | Refactor 78 | Tracked known temporary exceptions to wallet/account source bans. | Allowlist reached zero entries and the standalone guard rejects recreation. | `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`; wallet-scoped flow events now use `walletId` payloads. | deleted |
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` role-local ECDSA material handles | Refactor 83 | Playwright wrapper deleted after the source-shaped assertion moved to a standalone check. | ECDSA material-handle construction is enforced by branded builders and type fixtures for one release branch. | `tests/scripts/check-registration-capability-subjects.mjs`; later ECDSA material-handle builder tests and `@ts-expect-error` fixtures can narrow the source check. | deleted |
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` wallet-scoped unlock subject | Refactor 83 | Playwright wrapper deleted after the source-shaped assertion moved to a standalone check. | Wallet unlock subject builders and unlock behavior tests own wallet-scoped identity without source text checks. | `tests/scripts/check-registration-capability-subjects.mjs`; later wallet unlock subject parser tests and Email OTP/passkey unlock behavior tests can narrow the source check. | deleted |
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` visible iframe passkey registration checks | Refactor 83 | Playwright wrapper deleted after the source-shaped assertion moved to a standalone check. | Activation/public/message types, host parser tests, PasskeyAuthMenu behavior tests, and WebAuthn option tests are stable for one release branch. | `tests/scripts/check-registration-capability-subjects.mjs`; later activation type fixtures, host activation parser tests, and lit WebAuthn option tests can narrow the source check. | deleted |
@@ -365,7 +371,8 @@ Append new temporary guards here.
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` registration active state and persistence subjects | Refactor 83 | Playwright wrapper deleted after the source-shaped assertion moved to a standalone check. | Registration active-state builders, persistence-plan tests, and intended registration contracts cover registration success without source scans. | `tests/scripts/check-registration-capability-subjects.mjs`; later registration active-state unit tests, persistence-plan parser/builder tests, and Refactor 88 registration contracts can narrow the source check. | deleted |
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` Email OTP unlock current-session commits | Refactor 83 | Playwright wrapper deleted after the source-shaped assertion moved to a standalone check. | Ed25519/ECDSA session commit tests and restore tests cover commit-vs-fact-write behavior for one release branch. | `tests/scripts/check-registration-capability-subjects.mjs`; later current-session commit tests, sealed-restore tests, and Email OTP unlock intended contracts can narrow the source check. | deleted |
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` Email OTP unlock activation plan | Refactor 83 | Playwright wrapper deleted after the source-shaped assertion moved to a standalone check. | Email OTP unlock behavior contracts and activation-plan builder tests cover readiness ordering without source scans. | `tests/scripts/check-registration-capability-subjects.mjs`; later activation-plan builder tests and Refactor 88 Email OTP unlock contracts can narrow the source check. | deleted |
-| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` | Refactor 88 | Keeps the intended-behaviour contract suite small, public-flow based, and protected from retired mocked setup/runtime surfaces while the harness and cleanup land together. | `test:intended` is wired into remote CI, Phase 3B mutation self-check has passed, and retired setup/runtime files are absent for one release branch. | `pnpm test:intended`, `pnpm test:intended:ci`, mutation self-check evidence, and focused setup/harness unit tests. | active |
+| `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` | Refactor 88 | Keeps the intended-behaviour contract suite small, public-flow based, and protected from retired mocked setup/runtime surfaces while the harness and cleanup land together. | `test:intended` is wired into remote CI and retired setup/runtime files are absent for one release branch; mutation proof is now owned by `check:intended-mutation-self-check:complete`, and retained-boundary audit evidence is owned by `check:refactor88-test-ledger:complete`. | `pnpm test:intended`, `pnpm test:intended:ci`, mutation self-check evidence, ledger evidence checks, and focused setup/harness unit tests. | active |
+| `tests/scripts/check-refactor88-test-ledger.mjs` | Refactor 88 | Keeps the exhaustive test ledger complete and keeps retained focused coverage rows tied to live source evidence while legacy tests are deleted. | Refactor 88 closes with all ungated deletion accounting complete and remaining gated rows owned by later plans. | `pnpm -C tests run check:refactor88-test-ledger:complete`, `pnpm -C tests run test:source-guards`. | active |
 
 ## Retired Cleanup Ledger
 
@@ -405,6 +412,7 @@ Recommended cleanup-batch validation:
 pnpm -C tests run test:source-guards
 pnpm -C tests exec playwright test tests/unit/<replacement-test>.unit.test.ts --reporter=line
 cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards
+cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test route_paths
 cargo test --manifest-path crates/router-ab-core/Cargo.toml --test source_guards
 git diff --check
 ```
@@ -959,6 +967,91 @@ Validation checkpoint, July 4, 2026:
   run check:refactor88-test-ledger:complete` reported
   `scope=420 ledger_existing=420 ledger_deleted=44 missing=0`; and `git diff
   --check` passed.
+- Re-run after moving permanent parser/builder/diagnostics wallet-capability
+  boundaries into built-in checker exemptions: `pnpm -C tests run
+  check:wallet-capability-bindings-source-guard` passed with six
+  migration-owned JSON allowlist entries remaining.
+- Re-run after deleting the retired wallet-capability JSON allowlist: `pnpm -C
+  tests run check:wallet-capability-bindings-source-guard` passed; `pnpm -C
+  packages/sdk-web type-check` passed after wallet-scoped ECDSA and Email OTP
+  flow events moved to `walletId` payloads; `pnpm -C tests run
+  check:refactor88-test-ledger:complete` reported
+  `scope=413 ledger_existing=413 ledger_deleted=53 missing=0`; and `pnpm -C
+  tests run test:source-guards` passed with all standalone checks and 190/190
+  source-profile tests.
+- Re-run after moving strict-router route literals out of
+  `crates/router-ab-cloudflare/tests/source_guards.rs` into
+  `crates/router-ab-cloudflare/tests/route_paths.rs`: `cargo fmt
+  --manifest-path crates/router-ab-cloudflare/Cargo.toml` passed; `cargo test
+  --manifest-path crates/router-ab-cloudflare/Cargo.toml --test route_paths`
+  passed 1/1; `cargo test --manifest-path
+  crates/router-ab-cloudflare/Cargo.toml --test source_guards` passed 38/38;
+  and `git diff --check -- crates/router-ab-cloudflare/tests/route_paths.rs
+  crates/router-ab-cloudflare/tests/source_guards.rs
+  docs/refactor-89-clean-source-guards.md` passed.
+- Re-run after splitting strict-router CORS checks out of the broad Cloudflare
+  source guard into `crates/router-ab-cloudflare/tests/strict_router_cors_boundaries.rs`:
+  `cargo fmt --manifest-path crates/router-ab-cloudflare/Cargo.toml` passed;
+  `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test
+  strict_router_cors_boundaries` passed 2/2; `cargo test --manifest-path
+  crates/router-ab-cloudflare/Cargo.toml --test source_guards` passed 36/36;
+  and `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
+  --test route_paths` passed 1/1.
+- Re-run after splitting strict-router bearer-admission and parser-boundary
+  checks into `crates/router-ab-cloudflare/tests/strict_router_route_boundaries.rs`:
+  `cargo fmt --manifest-path crates/router-ab-cloudflare/Cargo.toml` passed;
+  `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test
+  strict_router_route_boundaries` passed 3/3; and `cargo test
+  --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  passed 33/33.
+- Re-run after moving the normal-signing replay-order and admission-candidate
+  route checks into `crates/router-ab-cloudflare/tests/strict_router_route_boundaries.rs`:
+  `cargo fmt --manifest-path crates/router-ab-cloudflare/Cargo.toml` passed;
+  `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test
+  strict_router_route_boundaries` passed 5/5; and `cargo test
+  --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  passed 31/31.
+- Re-run after moving Phase 3B mutation-proof ownership out of
+  `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` and into the
+  dedicated mutation verifier: `node --check
+  tests/scripts/check-intended-behaviour-contract-boundaries.mjs`, `node
+  --check tests/scripts/check-intended-mutation-self-check.mjs`, `pnpm -C
+  tests run check:intended-mutation-self-check:complete`, and `pnpm -C tests
+  run check:intended-behaviour-contract-boundaries` passed.
+- Re-run after moving retained-boundary audit ownership out of
+  `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` and into the
+  Refactor 88 ledger verifier: `node --check
+  tests/scripts/check-intended-behaviour-contract-boundaries.mjs`, `node
+  --check tests/scripts/check-refactor88-test-ledger.mjs`, `pnpm -C tests run
+  check:refactor88-test-ledger:complete`, and `pnpm -C tests run
+  check:intended-behaviour-contract-boundaries` passed. The aggregate `pnpm -C
+  tests run test:source-guards` command passed with the ledger verifier wired
+  into the source profile and 190/190 Playwright source-profile tests green.
+- Re-run after moving ECDSA-HSS activation/export assertions from
+  `crates/router-ab-cloudflare/tests/source_guards.rs` into
+  `crates/router-ab-cloudflare/tests/ecdsa_hss_activation_boundaries.rs`:
+  `cargo fmt --manifest-path crates/router-ab-cloudflare/Cargo.toml` passed;
+  `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test
+  ecdsa_hss_activation_boundaries` passed 8/8; and `cargo test
+  --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  passed 21/21.
+- Re-run after moving ECDSA-HSS normal-signing/presignature assertions from
+  `crates/router-ab-cloudflare/tests/source_guards.rs` into
+  `crates/router-ab-cloudflare/tests/ecdsa_hss_normal_signing_boundaries.rs`:
+  `cargo fmt --manifest-path crates/router-ab-cloudflare/Cargo.toml` passed;
+  `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test
+  ecdsa_hss_normal_signing_boundaries` passed 8/8; and `cargo test
+  --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  passed 13/13.
+- Re-run after moving normal-signing worker, strict private worker dispatch,
+  and legacy-symbol assertions from
+  `crates/router-ab-cloudflare/tests/source_guards.rs` into
+  `crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs`:
+  `cargo fmt --manifest-path crates/router-ab-cloudflare/Cargo.toml` passed;
+  `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test
+  normal_signing_worker_boundaries` passed 10/10; and `cargo test
+  --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  passed 3/3.
 - Re-run after deleting the `tests/unit/signingEngineArchitecture.*.guard.unit.test.ts`
   Playwright wrappers and `tests/unit/helpers/signingEngineArchitectureGuard.ts`
   helper, with their checks moved into
@@ -987,7 +1080,7 @@ Validation checkpoint, July 4, 2026:
   passes end-to-end after `build:sdk-full`, with all standalone source scripts
   passing and 190/190 Playwright source-profile tests green.
   `pnpm -C tests run check:refactor88-test-ledger:complete` reports
-  `scope=414 ledger_existing=414 ledger_deleted=52 missing=0`.
+  `scope=407 ledger_existing=407 ledger_deleted=66 missing=0`.
 
 Remaining source-guard cleanup buckets:
 
@@ -999,5 +1092,7 @@ Remaining source-guard cleanup buckets:
   need replacement coverage, conversion to stable durable tests, or deletion as
   their owner-plan gates fire.
 - Refactor 88 remote-CI enforcement and the retired setup/runtime absence window
-  still gate deletion of `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`;
-  Phase 3B mutation proof is complete.
+  still gate deletion of `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`.
+  The Phase 3B mutation-proof shard has moved to the dedicated
+  `check:intended-mutation-self-check:complete` verifier, and retained-boundary
+  audit evidence has moved to `check:refactor88-test-ledger:complete`.

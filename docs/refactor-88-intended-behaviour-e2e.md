@@ -22,7 +22,7 @@ registration, and recovery reruns also pass against a clean managed stack. The
 remaining Refactor 88 work is deletion accounting and owner-plan-gated cleanup,
 not an open lifecycle-contract failure. Supporting gates are green:
 `check:refactor88-test-ledger:complete` reports
-`scope=414 ledger_existing=414 ledger_deleted=52 missing=0`, and
+`scope=407 ledger_existing=407 ledger_deleted=66 missing=0`, and
 `test:source-guards` passes all standalone checks plus 190/190 Playwright
 source-profile tests.
 
@@ -931,6 +931,18 @@ Current live validation:
   mutation manifest records all four Phase 3B rows as `detected`, so
   `pnpm check:intended-mutation-self-check:complete` is now the live completion
   gate instead of a known-blocker report.
+- Re-run after the current cleanup batch: `pnpm -C tests run
+  check:intended-mutation-self-check:complete` passed with 4/4 seeded
+  regressions detected and proof-status counts
+  `blocked_email_otp_token=0 blocked_product_identity=0 detected=4`.
+- Re-run after moving retained-boundary audit ownership into the ledger
+  verifier: `node --check
+  tests/scripts/check-intended-behaviour-contract-boundaries.mjs`, `node
+  --check tests/scripts/check-refactor88-test-ledger.mjs`, `pnpm -C tests run
+  check:refactor88-test-ledger:complete`, and `pnpm -C tests run
+  check:intended-behaviour-contract-boundaries` passed. `pnpm -C tests run
+  test:source-guards` also passed with the ledger verifier wired into the
+  aggregate source profile and 190/190 Playwright source-profile tests green.
 - Re-run after reconciling Refactor 89 durable guard classifications with this
   Phase 5 ledger: `pnpm -C tests check:refactor88-test-ledger:complete`
   reported `scope=455 ledger_existing=455 ledger_deleted=6 missing=0`; the
@@ -1067,7 +1079,17 @@ Current live validation:
   --check` passed; and `pnpm -C tests run test:source-guards` passed after
   `build:sdk-full` with 468/468 source-profile tests. A later pass pruned stale
   wallet capability allowlist entries and added stale-entry rejection to the
-  standalone check; the focused command passes with ten live entries remaining.
+  standalone check; a later pass moved permanent parser/builder/diagnostics
+  boundaries into built-in checker exemptions, and the focused command passes
+  with six migration-owned JSON allowlist entries remaining. A follow-up pass
+  deleted the retired JSON allowlist after wallet-scoped ECDSA and Email OTP
+  flow events moved from `accountId` payloads to `walletId`; `pnpm -C tests run
+  check:wallet-capability-bindings-source-guard` and `pnpm -C
+  packages/sdk-web type-check` passed, and `pnpm -C tests run
+  check:refactor88-test-ledger:complete` reported
+  `scope=413 ledger_existing=413 ledger_deleted=53 missing=0`. `pnpm -C tests
+  run test:source-guards` also passed with all standalone checks and 190/190
+  source-profile tests.
   Follow-up validation stabilized the aggregate gate by running
   `build:sdk-full` before standalone source scripts, retrying fresh WASM output
   existence checks in `build-wasm.sh`, and removing the public signer-worker
@@ -1104,7 +1126,7 @@ Current live validation:
   lifecycle contracts in 4.5m. Focused clean-stack checks passed for passkey
   registration (34.3s), Email OTP registration (39.7s), and recovery email
   (30.6s). `pnpm -C tests run check:refactor88-test-ledger:complete` reports
-  `scope=414 ledger_existing=414 ledger_deleted=52 missing=0`, and
+  `scope=407 ledger_existing=407 ledger_deleted=66 missing=0`, and
   `pnpm -C tests run test:source-guards` passes all standalone scripts plus
   190/190 Playwright source-profile tests.
 
@@ -1314,12 +1336,13 @@ Initial audit:
 | --- | --- | --- |
 | `tests/e2e/docs.thresholdRegisterAndSigning.integration.test.ts` | deleted | Used `setupBasicPasskeyTest`, `__testOverrides`, mocked SDK methods, mocked chain responses, and demo component mounting to approximate registration -> signing. The passkey intended contracts now cover that lifecycle with real Router API, wallet iframe, IndexedDB, D1/DO, and workers. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
 | `tests/e2e/docs.thresholdSigningActions.smoke.test.ts` | deleted | Mounted docs/demo components against a mocked logged-in SDK surface. The passkey intended contracts now cover NEAR, Tempo, and Arc/EVM signing as lifecycle authority. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
-| `tests/unit/intendedBehaviourContracts.guard.unit.test.ts` | deleted | Deleted 2,347-line Refactor 88 intended-behaviour Playwright source guard after moving lifecycle contract shape, retired mocked-surface, retained audit, OIDC/startup, runtime oracle, and mutation proof source checks into `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`, wired through `pnpm -C tests run check:intended-behaviour-contract-boundaries` and `pnpm -C tests run test:source-guards`. |
+| `tests/unit/intendedBehaviourContracts.guard.unit.test.ts` | deleted | Deleted 2,347-line Refactor 88 intended-behaviour Playwright source guard after moving lifecycle contract shape, retired mocked-surface, OIDC/startup, and runtime oracle checks into `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`; retained audit evidence is now owned by `tests/scripts/check-refactor88-test-ledger.mjs`, and Phase 3B mutation proof is now owned by `tests/scripts/check-intended-mutation-self-check.mjs`. Wired through `pnpm -C tests run check:intended-behaviour-contract-boundaries`, `pnpm -C tests run check:refactor88-test-ledger:complete`, `pnpm -C tests run check:intended-mutation-self-check:complete`, and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts` | deleted | Mounted the demo login menu with fake SDK hooks through production `__testOverrides` props. The test kept a broad fake-SDK injection path alive while checking wiring that is now either public UI behaviour or intended lifecycle coverage. The demo components no longer expose `__testOverrides`; guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
 | `tests/unit/seamsWeb.loginThresholdWarm.unit.test.ts` | deleted | Built a large in-memory lane/session fixture graph for unlock -> warm signing behaviour. The lifecycle coverage now lives in the passkey and Email OTP intended contracts; retained boundary coverage exists in focused tests for pending Ed25519 login reads, `passkey_assertion` session exchange normalization, implicit NEAR identity handling, and warm-session policy. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
 | `tests/unit/helpers/warmSessionStore.fixtures.ts` | deleted | Former broad fixture module fed large runtime-shape helpers into mocked warm-session tests and was a recurring refactor tax. Cleanup passes split generic ECDSA chain-target/bootstrap helpers, signing-session record store/reset/seed helpers, touch-confirm/status fixtures, and the remaining warm-session service builder into focused helpers. Guarded by `tests/scripts/check-intended-behaviour-contract-boundaries.mjs`. |
 | `tests/unit/helpers/accountAuth.fixtures.ts` | keep | Account-auth fixture helper with one surviving importer. Retain while `tests/unit/accountAuth.fixtures.unit.test.ts` owns the boundary fixture contract; delete if that importer disappears. |
 | `tests/unit/helpers/availableSigningLanes.fixtures.ts` | keep | Available-signing-lane fixture helper used by duplicate-lane unit tests. It supports focused lane inventory coverage rather than a broad mocked lifecycle graph. |
+| `tests/unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts` | keep | Shared D1 Router API service fixtures split out of the service-factory monolith for route-family tests. The helper has live importers in the retained D1 route-family suites. |
 | `tests/unit/helpers/d1StagingScriptFixtures.ts` | keep | D1 staging script fixture helper shared by retained staging-script tests. It supports script/runbook coverage outside wallet lifecycle contracts. |
 | `tests/unit/helpers/ecdsaBootstrap.fixtures.ts` | keep | Focused ECDSA bootstrap fixture helper extracted from the deleted warm-session mega-fixture. It is shared by retained ECDSA bootstrap, reconnect, and request-boundary tests. |
 | `tests/unit/helpers/ecdsaChainTarget.fixtures.ts` | keep | Focused ECDSA chain-target helper used by retained ECDSA and warm-session boundary tests. |
@@ -1420,12 +1443,12 @@ Initial audit:
 | `tests/unit/seamsWeb.setTheme.unit.test.ts` | keep | Public theme setter coverage. It verifies synchronous `setTheme` updates and `appearance.theme` initialization for `SeamsWeb`; this is public surface state, not signing lifecycle authority. |
 | `tests/unit/touchConfirm.workerRouter.integration.test.ts` | keep | Worker-router request/response multiplexing and persistence snapshot coverage. This is compact transport/state-read coverage and remains valuable alongside the intended contracts. |
 | `tests/unit/thresholdEd25519.registrationWarmSession.unit.test.ts` | keep | Registration warm-session boundary coverage for identity binding and hydration ordering. The intended specs cover public lifecycle success; this test still catches narrow persistence/binding failures before a full browser flow. |
-| `tests/relayer/bootstrap-grants.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Router bootstrap-grant coverage still enters through `makeFakeAuthService`. Rewrite-or-delete against the D1-canonical route-family harness when 82B lands that harness. |
+| `tests/relayer/bootstrap-grants.test.ts` | deleted | Deleted 661-line fake AuthService bootstrap-grant route suite after Refactor 82 Phase 11/12 D1 route-family coverage landed. |
 | `tests/relayer/cloudflare-cron.test.ts` | keep | Cloudflare cron boundary coverage. It validates scheduled worker behaviour and does not replay registration, unlock, signing, step-up, or export through mocked lifecycle fixtures. |
-| `tests/relayer/cloudflare-router.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Large Cloudflare route suite built around `makeFakeAuthService` and budget fixtures. Collapse into route-family coverage when the D1-canonical harness and grant-use migration land. |
+| `tests/relayer/cloudflare-router.test.ts` | deleted | Deleted 4,339-line fake AuthService Cloudflare router suite after Refactor 82 Phase 11/12 D1 route-family coverage landed; surviving budget/grant-use assertions are owned by Refactor 90 vocabulary work. |
 | `tests/relayer/console-account-router.test.ts` | keep | Console account router boundary coverage. It validates route authorization and account-management behaviour outside wallet lifecycle authority. |
 | `tests/relayer/console-account.service.test.ts` | keep | Console account service coverage. It checks compact service-domain behaviour without using mocked wallet lifecycle fixtures. |
-| `tests/relayer/console-api-key-kinds.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Mixed console/router API-key-kind coverage includes Router API calls through `makeFakeAuthService`. Split retained console assertions from Router API coverage after the D1 route-family harness lands. |
+| `tests/relayer/console-api-key-kinds.test.ts` | deleted | Deleted 414-line mixed console/router fake AuthService API-key-kind suite after retained console API-key coverage stayed in focused console tests and Router API coverage moved to the D1 route-family harness. |
 | `tests/relayer/console-app-session-auth.test.ts` | keep | Console app-session auth coverage. It validates console session authorization and cookie/token handling outside the signing lifecycle matrix. |
 | `tests/relayer/console-billing-prepaid-reservations.test.ts` | keep | Console prepaid-reservation coverage. It verifies billing reservation rules as service/domain behaviour, not mocked wallet runtime state. |
 | `tests/relayer/console-billing.service.test.ts` | keep | Console billing service coverage. It validates billing ledger and debit behaviour through focused service tests. |
@@ -1440,28 +1463,28 @@ Initial audit:
 | `tests/relayer/console-sponsorship-spend-caps.test.ts` | keep | Console sponsorship spend-cap coverage. It verifies sponsorship limit behaviour as console service/route coverage. |
 | `tests/relayer/console-webhooks.pagination.test.ts` | keep | Console webhook pagination coverage. It validates webhook list pagination and remains outside registration/signing lifecycle coverage. |
 | `tests/relayer/corsOrigins.test.ts` | keep | CORS origin helper coverage. It validates boundary normalization and origin decisions directly. |
-| `tests/relayer/email-otp.authservice.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Email OTP AuthService suite is explicitly named by Phase 8 for rewrite-or-delete against the D1-canonical route-family harness. |
+| `tests/relayer/email-otp.authservice.test.ts` | deleted | Deleted 2,026-line Email OTP AuthService suite after Refactor 82 Phase 11/12 route-family coverage and the Refactor 88 Email OTP intended contracts superseded the facade-era lifecycle coverage. |
 | `tests/relayer/email-otp.route-helpers.test.ts` | keep | Email OTP route-helper coverage. It validates compact parser/response helper behaviour without carrying a mocked lifecycle fixture graph. |
 | `tests/relayer/email-otp.shamir3pass.test.ts` | keep | Email OTP Shamir 3-pass AuthService coverage. It checks cryptographic/session policy boundaries directly and is not replaced by the intended success flows. |
-| `tests/relayer/email-recovery.prepare.test.ts` | replace | Recovery prepare route coverage still uses `makeFakeAuthService`. The fifth recovery intended spec now covers recovery into signing; delete or replace this route-level fixture when the fake-AuthService relayer batch moves to the D1-canonical harness. |
+| `tests/relayer/email-recovery.prepare.test.ts` | deleted | Deleted 337-line fake AuthService recovery-prepare route suite after the recovery intended spec covered recovery into signing and D1 route-family coverage owned route ingress. |
 | `tests/relayer/express-router.test.ts` | blocked_on_coverage(90 F3 Express route deletion) | Large Express route suite is scheduled to die with the Express route implementations. Phase 8 names this file and records its 4,370-line deletion gate. |
-| `tests/relayer/health-wellknown.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Health and well-known route coverage still shares `makeFakeAuthService`. Keep until the D1 route-family harness can provide narrow service doubles. |
-| `tests/relayer/helpers.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Shared relayer helper module still exports `makeFakeAuthService`. Delete the fake AuthService branch when its last fake route suite is rewritten or deleted; retain only imported HTTP/Cloudflare primitives if still used. |
-| `tests/relayer/login.challengeReplay.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Login challenge replay coverage still enters through `makeFakeAuthService`. Rewrite against the D1 route-family harness or delete if covered by intended unlock contracts. |
+| `tests/relayer/health-wellknown.test.ts` | deleted | Deleted 233-line fake AuthService health/well-known route suite after route readiness coverage moved to the D1 route-family harness and source guards retained active signing-session seal defaults. |
+| `tests/relayer/helpers.ts` | blocked_on_coverage(90 F3 Express route deletion) | Shared relayer helper module still exports `makeFakeAuthService` only for `tests/relayer/express-router.test.ts`. Delete the fake helper branch with the Express route suite. |
+| `tests/relayer/login.challengeReplay.test.ts` | deleted | Deleted 92-line fake AuthService login challenge replay suite after intended unlock contracts and D1 route-family coverage superseded the mocked route fixture. |
 | `tests/relayer/nearErrors.test.ts` | keep | NEAR error normalization coverage. It validates helper mapping for route responses and is not lifecycle fixture coverage. |
 | `tests/relayer/oidc-exchange.authservice.test.ts` | keep | OIDC exchange AuthService coverage. It verifies token issuer/audience/nonce/session boundaries directly and supports the Google intended-test setup. |
 | `tests/relayer/payment-state-machine.test.ts` | keep | Payment state-machine coverage. It validates compact domain transitions outside wallet lifecycle flows. |
-| `tests/relayer/router-ab-keyset-routes.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Router A/B keyset route coverage still uses `makeFakeAuthService`. Move surviving assertions to the D1-canonical route-family harness. |
-| `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Router A/B normal-signing auth-boundary coverage relies on fake AuthService routes. Keep until the D1 route-family harness and intended signing contracts divide route-boundary and lifecycle responsibility. |
-| `tests/relayer/router-api-keys.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Router API-key coverage includes Router API calls through `makeFakeAuthService`. Split publishable/secret key boundary assertions into the D1 route-family harness. |
+| `tests/relayer/router-ab-keyset-routes.test.ts` | deleted | Deleted 142-line fake AuthService Router A/B keyset route suite after D1 route-family coverage owned keyset route ingress. |
+| `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts` | deleted | Deleted 1,572-line fake AuthService Router A/B normal-signing boundary suite after intended signing contracts and focused Router A/B boundary/source guards owned the surviving assertions. |
+| `tests/relayer/router-api-keys.test.ts` | deleted | Deleted 883-line fake AuthService Router API-key route suite after D1 route-family coverage owned publishable/secret key route boundaries. |
 | `tests/relayer/runtime-snapshot-consumer.test.ts` | keep | Runtime snapshot consumer coverage. It validates snapshot ingestion/selection behaviour outside mocked lifecycle execution. |
 | `tests/relayer/sessionService.test.ts` | keep | Session service coverage. It checks focused session storage/version behaviour directly. |
-| `tests/relayer/signing-session-seal-router.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Signing-session seal route coverage still relies on fake AuthService routes. Retain until route-boundary coverage moves to the D1-canonical harness and intended specs own success lifecycles. |
+| `tests/relayer/signing-session-seal-router.test.ts` | deleted | Deleted 1,066-line fake AuthService signing-session seal route suite after D1 route-family coverage owned route-boundary checks and focused signing-session seal unit/source guards retained seal defaults and idempotency coverage. |
 | `tests/relayer/signingBudgetStatus.fixtures.ts` | blocked_on_coverage(90 B3 grant-use migration) | Shared budget-status fixture only supports budget-era router tests. Delete with the budget-to-grant-use migration after any surviving concurrency cases are renamed around grant-use semantics. |
 | `tests/relayer/sponsored-evm-call.test.ts` | keep | Sponsored EVM call route/service coverage. It validates billing debit, sponsorship, and D1 behaviour through focused route tests. |
 | `tests/relayer/threshold-ecdsa-role-local-passkey-bootstrap.test.ts` | keep | Threshold ECDSA role-local passkey bootstrap coverage. It verifies digest/key derivation and route boundary behaviour outside end-to-end signing lifecycle success. |
 | `tests/relayer/threshold-ecdsa.durable-stores.test.ts` | keep | Threshold ECDSA durable-store coverage. It validates durable object storage, replay guards, and pool/session store behaviour directly. |
-| `tests/relayer/threshold-ed25519.scheme-dispatch.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Threshold Ed25519 scheme-dispatch route coverage still uses `makeFakeAuthService`. Move surviving route-boundary assertions to the D1 route-family harness. |
+| `tests/relayer/threshold-ed25519.scheme-dispatch.test.ts` | deleted | Deleted 268-line fake AuthService Threshold Ed25519 scheme-dispatch route suite after D1 route-family coverage owned route ingress and focused Threshold Ed25519 source guards retained active-path boundaries. |
 | `tests/unit/accountSignerLifecycle.domain.guard.unit.test.ts` | deleted | Deleted 118-line account signer lifecycle Playwright source guard after moving signer lifecycle write-field and shared signer-domain constant checks into `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, wired through `pnpm -C tests run check:account-signer-lifecycle-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/authSecretTerminology.guard.unit.test.ts` | deleted | Durable auth-neutral docs terminology check moved out of Playwright into `tests/scripts/check-auth-secret-terminology.mjs`, wired through `test:source-guards`. |
 | `tests/unit/crossPlatformBoundaries.guard.unit.test.ts` | deleted | Deleted 455-line cross-platform Playwright source guard after its platform API, secret-material, runtime-port, role-local persistence, signer-command schema, and export-material boundary checks moved into `tests/scripts/check-cross-platform-boundaries.mjs`, wired through `pnpm -C tests run check:cross-platform-boundaries` and `pnpm -C tests run test:source-guards`. |
@@ -1542,7 +1565,13 @@ Initial audit:
 | `tests/unit/browserPlatformRuntime.signerCrypto.unit.test.ts` | keep | Browser platform signer-crypto coverage. It validates runtime crypto dependency wiring outside mocked lifecycle tests. |
 | `tests/unit/canonicalLaneInventory.unit.test.ts` | keep | Canonical lane inventory coverage. It verifies lane normalization and duplicate handling that the intended contracts rely on. |
 | `tests/unit/cloudflareD1ConsoleServices.unit.test.ts` | keep | Cloudflare D1 console service coverage. It validates D1-backed console service behavior outside wallet lifecycle E2E coverage. |
-| `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts` | blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup) | Large D1 Router API/AuthService suite named in Phase 8 for split into route-family suites. Keep until 82B lands the D1-canonical harness, then delete facade-era sections. |
+| `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts` | deleted | Deleted 6,695-line D1 Router API service-factory monolith after splitting the retained assertions into route-family suites and the shared D1 fixture helper. The split retained registration-policy, OIDC, Email OTP/recovery, service-surface metadata, registration ceremony, wallet-auth-method, and add-signer coverage. |
+| `tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts` | keep | D1 Router API Email OTP and recovery route-family coverage split out of the service-factory monolith. It verifies server seals, Google Email OTP registration attempts, wallet registration, recovery-key rotation, recovery session tracking, OTP challenge delivery, provider failures, rate limits, and unlock-proof one-time use. |
+| `tests/unit/cloudflareD1RouterApiOidc.unit.test.ts` | keep | D1 Router API OIDC route-family coverage split out of the service-factory monolith. It verifies Google OIDC login token validation, generic OIDC exchange validation, identity linking, and tampered-signature rejection. |
+| `tests/unit/cloudflareD1RouterApiRegistrationCeremony.unit.test.ts` | keep | D1 Router API registration ceremony route-family coverage split out of the service-factory monolith. It verifies Durable Object-backed registration intents, challenge/origin mismatch rejection, wallet mismatch rejection, Ed25519-only ceremonies, combined Ed25519/ECDSA ceremonies, ECDSA target preparation, response, and finalize behavior. |
+| `tests/unit/cloudflareD1RouterApiRegistrationPolicy.unit.test.ts` | keep | D1 registration session-policy route-family coverage split out of the service-factory monolith. It verifies passkey authority binding and rejects root RP ID leakage in Ed25519 registration policy construction. |
+| `tests/unit/cloudflareD1RouterApiServiceSurface.unit.test.ts` | keep | D1 Router API service-surface route-family coverage split out of the service-factory monolith. It verifies tenant-scoped signer metadata reads, wallet auth-method revocation through D1, and threshold-signing wiring from Durable Object config. |
+| `tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts` | keep | D1 Router API wallet-auth-method route-family coverage split out of the service-factory monolith. It verifies adding Email OTP wallet auth methods through D1 and Durable Objects plus ECDSA add-signer ceremony start, respond, and finalize behavior. |
 | `tests/unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts` | keep | Cloudflare self-hosted signing-worker script coverage. It validates deployment script behavior outside browser lifecycle contracts. |
 | `tests/unit/configs.appearance.test.ts` | keep | Appearance config normalization coverage. It validates public config parsing and defaults. |
 | `tests/unit/configs.emailOtpAuthPolicy.test.ts` | keep | Email OTP auth-policy config coverage. It validates config boundary rules for Email OTP. |
@@ -1745,8 +1774,8 @@ Initial audit:
 | `tests/unit/vite-wallet-corp.unit.test.ts` | keep | Vite wallet CORP coverage. It validates dev-server header behavior for wallet assets. |
 | `tests/unit/walletAuthAuthority.shared.unit.test.ts` | keep | Shared wallet-auth authority coverage. It validates authority construction and parsing. |
 | `tests/unit/walletAuthMethodStore.unit.test.ts` | keep | Wallet auth-method store coverage. It validates persistence behavior for auth methods. |
-| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | blocked_on_coverage(Refactor 89 source guard cleanup) | Source-guard allowlist owned by Refactor 89. Ten documented live entries remain after stale-entry pruning; `tests/scripts/check-wallet-capability-bindings-source-guard.mjs` now rejects allowlist entries with no matching source pattern. Delete when the allowlist reaches zero entries. |
-| `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | deleted | Deleted 272-line wallet capability binding Playwright source guard after moving identity fallback bans, stale unit session fixture checks, optional core identity field checks, and allowlist documentation validation into `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`, wired through `pnpm -C tests run check:wallet-capability-bindings-source-guard` and `pnpm -C tests run test:source-guards`. The allowlist file remains active because the standalone check still consumes it. |
+| `tests/unit/walletCapabilityBindings.sourceGuard.allowlist.json` | deleted | Deleted 64-line wallet capability binding source-guard allowlist after the six remaining wallet-scoped `accountId: walletId` event/trace projections moved to explicit `walletId` payloads. `tests/scripts/check-wallet-capability-bindings-source-guard.mjs` now rejects a recreated JSON allowlist and still checks built-in parser/builder/diagnostics boundary exemptions for staleness. |
+| `tests/unit/walletCapabilityBindings.sourceGuard.unit.test.ts` | deleted | Deleted 272-line wallet capability binding Playwright source guard after moving identity fallback bans, stale unit session fixture checks, optional core identity field checks, and allowlist-retirement enforcement into `tests/scripts/check-wallet-capability-bindings-source-guard.mjs`, wired through `pnpm -C tests run check:wallet-capability-bindings-source-guard` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/walletIframeHost.configGuards.test.ts` | keep | Wallet iframe host config guard coverage. It validates iframe host config invariants directly. |
 | `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts` | keep | Wallet iframe host Email OTP recovery-code coverage. It validates recovery-code iframe handling. |
 | `tests/unit/walletIframeHost.exportUi.unit.test.ts` | keep | Wallet iframe host export UI coverage. It validates export UI host behavior. |
@@ -1781,7 +1810,30 @@ Initial audit:
 Ledger checkpoint, July 5, 2026:
 
 - [x] `pnpm -C tests run check:refactor88-test-ledger:complete` reports
-  `scope=414 ledger_existing=414 ledger_deleted=52 missing=0`.
+  `scope=407 ledger_existing=407 ledger_deleted=66 missing=0`.
+- [x] Re-run after the first D1 service-factory split reports
+  `scope=403 ledger_existing=403 ledger_deleted=65 missing=0`; focused D1
+  validation passes 37/37 for
+  `tests/unit/cloudflareD1RouterApiRegistrationPolicy.unit.test.ts` plus the
+  remaining `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts`.
+- [x] Re-run after the OIDC route-family split reports
+  `scope=404 ledger_existing=404 ledger_deleted=65 missing=0`; focused D1
+  validation passes 35/35 for
+  `tests/unit/cloudflareD1RouterApiOidc.unit.test.ts` plus the remaining
+  `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts`.
+- [x] Re-run after the Email OTP/recovery route-family split reports
+  `scope=405 ledger_existing=405 ledger_deleted=65 missing=0`; focused D1
+  validation passes 37/37 across the remaining monolith plus the extracted
+  registration-policy, OIDC, and Email OTP route-family suites.
+- [x] Re-run after the final D1 service-factory split reports
+  `scope=407 ledger_existing=407 ledger_deleted=66 missing=0`; focused D1
+  validation passes 37/37 across
+  `tests/unit/cloudflareD1RouterApiServiceSurface.unit.test.ts`,
+  `tests/unit/cloudflareD1RouterApiRegistrationCeremony.unit.test.ts`,
+  `tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`,
+  `tests/unit/cloudflareD1RouterApiRegistrationPolicy.unit.test.ts`,
+  `tests/unit/cloudflareD1RouterApiOidc.unit.test.ts`, and
+  `tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts`.
 - [x] Current `tests/unit/helpers/*.ts` files all have surviving importers; no
   zero-importer helper deletion was available in this inventory pass.
 
@@ -1828,7 +1880,8 @@ Ledger checkpoint, July 5, 2026:
 - [x] Guard the retained-boundary audit rows so each `keep` classification
   points at an existing focused test file, stays recorded in this plan, and
   covers every current `tests/wallet-iframe/*.test.ts` file, with source
-  evidence tokens for each retained boundary reason.
+  evidence tokens for each retained boundary reason. This is now enforced by
+  `tests/scripts/check-refactor88-test-ledger.mjs`.
 - [x] Classify every remaining `setupBasicPasskeyTest` consumer as retained
   boundary coverage and guard future generic browser bootstrap use behind an
   explicit audit row.
@@ -1894,21 +1947,18 @@ Concrete cleanup targets:
 - [x] Delete the fake AuthService server launcher scripts now that no package
   script starts them.
 - [ ] Delete `tests/relayer/helpers.ts` fake AuthService helpers once Refactor
-  82 Phase 11/12 D1 adapter cleanup is complete.
+  90 F3 removes the Express route suite.
 
 Current blocker to deleting the remaining fake AuthService surface:
 
-- `tests/relayer/helpers.ts` and `makeFakeAuthService` are still used by the
-  relayer router/API suite and two unit route-surface tests:
-  `tests/unit/router.routerApiRouteSurface.unit.test.ts` and
-  `tests/unit/router.sponsoredEvmCallCloudflare.unit.test.ts`.
-- Deleting those helpers belongs to the Router API/D1 adapter migration, not to
-  the intended-behaviour harness cleanup. Refactor 88 now guards intended
-  contracts away from these surfaces while leaving the existing router boundary
-  tests intact.
+- `tests/relayer/helpers.ts` and `makeFakeAuthService` are still used only by
+  `tests/relayer/express-router.test.ts`, which is gated on Refactor 90 F3.
+- The two route-surface unit tests now use local throwing
+  `RouterApiServiceBag` fixtures, so route wiring no longer imports the fake
+  AuthService helper.
 - `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` now quarantines
-  `makeFakeAuthService` references to `tests/relayer/**` and two explicit
-  Router boundary unit files.
+  `makeFakeAuthService` references to `tests/relayer/helpers.ts` and
+  `tests/relayer/express-router.test.ts`.
 
 Completed setup cleanup:
 
@@ -2076,25 +2126,27 @@ Ungated — start now:
 
 Gated — each task names its gate and fires in the same change:
 
-- [ ] Gate: Refactor 82 Phase 11/12 lands the D1-canonical route-family
-      harness (`routes-d1` — that harness is an 82 deliverable, not a test
-      chore here). Split
-      `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts` (6,695 lines,
-      the largest test file in the repo, named after a facade 82B already
-      deleted) into per-route-family suites. Delete the facade-era sections and
-      the rows the intended contracts or relayer route suites already prove.
-      Current status: recorded in the Phase 5 ledger as
-      `blocked_on_coverage(82B Phase 11/12 D1 adapter cleanup)`.
+- [x] Split
+      `tests/unit/cloudflareD1RouterApiAuthService.unit.test.ts` (started at
+      6,695 lines) into per-route-family suites. Deleted the monolith after
+      retaining current coverage in `tests/unit/cloudflareD1RouterApiRegistrationPolicy.unit.test.ts`,
+      `tests/unit/cloudflareD1RouterApiOidc.unit.test.ts`,
+      `tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts`,
+      `tests/unit/cloudflareD1RouterApiServiceSurface.unit.test.ts`,
+      `tests/unit/cloudflareD1RouterApiRegistrationCeremony.unit.test.ts`,
+      `tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`, and
+      `tests/unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts`.
 - [ ] Gate: Refactor 90 F3 deletes the Express route implementations
       (Decided Point 11). Delete `tests/relayer/express-router.test.ts`
-      (4,370 lines) in that same change.
-- [ ] Gate: Refactor 82 Phase 11/12 lands the D1-canonical route-family
+      (4,370 lines) and the remaining `tests/relayer/helpers.ts`
+      `makeFakeAuthService` branch in that same change.
+- [x] Gate: Refactor 82 Phase 11/12 lands the D1-canonical route-family
       harness (`routes-d1` — that harness is an 82 deliverable, not a test
-      chore here). Rewrite-or-delete the 15 fake-AuthService relayer suites
-      against it (including `tests/relayer/email-otp.authservice.test.ts`,
-      2,026 lines), delete `tests/relayer/helpers.ts` and
-      `makeFakeAuthService`, and convert the two quarantined unit
-      route-surface tests off the fake (per the Phase 7 blocker note).
+      chore here). Deleted the 12 unblocked fake/AuthService relayer suites
+      totaling 12,033 lines, including `tests/relayer/email-otp.authservice.test.ts`
+      (2,026 lines), and converted the two quarantined unit route-surface tests
+      off the fake helper. `tests/relayer/helpers.ts` remains only for the
+      Refactor 90 F3 Express deletion gate.
 - [ ] Gate: Refactor 90 A4/B5 rework console scopes and RBAC. Collapse
       `tests/relayer/console-router.test.ts` (12,831 lines) and
       `tests/relayer/console-d1-adapters.test.ts` (8,391 lines) into one
@@ -2140,8 +2192,8 @@ Phase exit:
 - The Phase 5 ledger covers every file under the six test directories — no
   unaudited files remain — and deletions are recorded with file/line counts.
   `blocked_on_coverage` rows name live coverage plans, not "later".
-- The Phase 8 deletion sweep is complete: ungated deletions done, and every
-  gated deletion fired in the same change as its named gate.
+- The Phase 8 deletion sweep has fired every unblocked gate. Remaining gated
+  deletions name their blocker and must fire in the same change as that blocker.
 - Intended e2e tests have one setup entrypoint and cannot import mocked setup
   helpers.
 - Current supporting validation, July 5, 2026:
@@ -2151,4 +2203,8 @@ Phase exit:
   `pnpm -C tests run check:intended-mutation-self-check:complete`,
   `pnpm -C tests run check:intended-behaviour-contract-boundaries`,
   `pnpm -C tests run check:refactor88-test-ledger:complete`, and
-  `pnpm -C tests run test:source-guards` all pass.
+  `pnpm -C tests run test:source-guards` all pass. The latest mutation
+  completion run reports 4/4 detected proof rows. The latest ledger completion
+  run reports `scope=407 ledger_existing=407 ledger_deleted=66 missing=0`, and
+  the latest source-guard profile reports all standalone checks plus 190/190
+  Playwright source-profile tests green.
