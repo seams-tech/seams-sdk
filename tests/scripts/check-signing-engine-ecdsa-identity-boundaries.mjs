@@ -576,7 +576,6 @@ function checkEcdsaProvisionPlansOnlyComeFromBuilders() {
 
 function checkServerBudgetStatusRoutesStayParserOwned() {
   const routeFiles = [
-    'packages/sdk-server-ts/src/router/express/routes/sessions.ts',
     'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
   ];
   const offenders = [];

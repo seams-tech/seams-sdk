@@ -828,7 +828,11 @@ function registrationMaterialRestoreVerifiesDerivedPublicKeyBeforeRelayerRotatio
     const wasmSource = readRepoSource('packages/sdk-server-ts/src/core/ThresholdService/ed25519HssWasm.ts');
     const serviceSource = readRepoSource('packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts');
     const finalizeSource = sourceRangeBetween(wasmSource, 'export async function finalizeThresholdEd25519HssServerCeremony', 'export async function deriveThresholdEd25519HssPublicKey');
-    const filteredResponseReport = sourceRangeBetween(finalizeSource, 'finalizedReport: {', '},\n    serverOutput,');
+    const filteredResponseReport = sourceRangeBetween(
+        finalizeSource,
+        'finalizedReport: {',
+        'finalizedServerOutputMessageB64u:',
+    );
     const rotateSource = sourceRangeBetween(serviceSource, 'private async rotateEd25519RelayerMaterialForRegistrationMaterialRestore', 'private async ed25519HssPrepareForRegistration');
     expect(finalizeSource).toContain('seedOutputMessageB64u?: string;');
     expect(finalizeSource).toContain('...(seedOutputMessageB64u ? { seedOutputMessageB64u } : {})');

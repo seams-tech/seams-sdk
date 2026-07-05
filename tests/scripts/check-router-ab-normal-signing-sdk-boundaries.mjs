@@ -369,18 +369,8 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
                 forbiddenMarkers: [],
             },
             {
-                relativePath: 'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
-                requiredMarkers: ['handleRouterAbEd25519NormalSigningRouteCore'],
-                forbiddenMarkers: adapterForbiddenMarkers,
-            },
-            {
                 relativePath: 'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
                 requiredMarkers: ['handleRouterAbEd25519NormalSigningRouteCore'],
-                forbiddenMarkers: adapterForbiddenMarkers,
-            },
-            {
-                relativePath: 'packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
-                requiredMarkers: ['handleRouterAbEcdsaHssNormalSigningRouteCore'],
                 forbiddenMarkers: adapterForbiddenMarkers,
             },
             {

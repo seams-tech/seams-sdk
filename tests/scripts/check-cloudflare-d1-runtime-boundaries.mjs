@@ -2216,8 +2216,9 @@ function d1WalletRegistrationSerializedReplayViolations() {
 function ed25519HssSessionAdvanceViolations() {
     const thresholdService = readSource(thresholdSigningServicePath);
     const cloudflareRoute = readSource('packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts');
-    const expressRoute = readSource('packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts');
     const hssLifecycle = readSource('packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts');
+    const emailOtpWorkerPath = 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts';
+    const emailOtpWorker = readSource(emailOtpWorkerPath);
     const doStore = readSource('packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts');
     const highLevelEd25519HssSources = [
         'packages/sdk-web/src/core/signingEngine/threshold/ed25519/public.ts',
@@ -2234,8 +2235,8 @@ function ed25519HssSessionAdvanceViolations() {
         [thresholdSigningServicePath, thresholdService, "serverEvalSource: { kind: 'durable_advanced_eval', advancedServerEval }"],
         ['packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts', cloudflareRoute, 'ROUTER_AB_ED25519_HSS_ADVANCE_PATH'],
         ['packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts', cloudflareRoute, 'parseThresholdEd25519HssAdvanceWithSessionRouteRequest'],
-        ['packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts', expressRoute, 'ROUTER_AB_ED25519_HSS_ADVANCE_PATH'],
         ['packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts', hssLifecycle, 'advanceThresholdEd25519HssServerCeremonyWithSession'],
+        [emailOtpWorkerPath, emailOtpWorker, 'advanceThresholdEd25519HssServerCeremonyWithSession'],
         ['packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts', hssLifecycle, "addStageVerification: 'required'"],
         ['packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts', doStore, 'advancedServerEvalStateB64u'],
     ];
@@ -2251,6 +2252,29 @@ function ed25519HssSessionAdvanceViolations() {
     );
     if (/serverEvalSource\s*:\s*\{\s*kind:\s*['"]serialized_replay['"]\s*\}/.test(finalizeWithSessionBlock)) {
         violations.push(`${thresholdSigningServicePath}: session HSS finalize still permits serialized replay`);
+    }
+    const emailOtpSeedExportBlock = extractDelimitedSource(
+        emailOtpWorker,
+        'async function runThresholdEd25519SeedExportFromPrfFirst',
+        'async function buildEmailOtpEcdsaClientRootProof',
+    );
+    const emailOtpSeedExportTokens = [
+        'respondThresholdEd25519HssServerCeremonyWithSession',
+        'threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact',
+        'advanceThresholdEd25519HssServerCeremonyWithSession',
+        'finalizeThresholdEd25519HssServerCeremonyWithSession',
+    ];
+    let previousOffset = -1;
+    for (const token of emailOtpSeedExportTokens) {
+        const offset = emailOtpSeedExportBlock.indexOf(token);
+        if (offset === -1) {
+            violations.push(`${emailOtpWorkerPath}: Email OTP Ed25519 export missing ${token}`);
+            continue;
+        }
+        if (offset <= previousOffset) {
+            violations.push(`${emailOtpWorkerPath}: Email OTP Ed25519 export calls ${token} out of order`);
+        }
+        previousOffset = offset;
     }
     for (const [filePath, source] of highLevelEd25519HssSources) {
         if (/addStageVerification\s*:\s*['"]skip['"]/.test(source)) {

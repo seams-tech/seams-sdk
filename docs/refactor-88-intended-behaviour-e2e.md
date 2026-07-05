@@ -22,9 +22,13 @@ registration, and recovery reruns also pass against a clean managed stack. The
 remaining Refactor 88 work is deletion accounting and owner-plan-gated cleanup,
 not an open lifecycle-contract failure. Supporting gates are green:
 `check:refactor88-test-ledger:complete` reports
-`scope=407 ledger_existing=407 ledger_deleted=66 missing=0`, and
+`scope=406 ledger_existing=406 ledger_deleted=67 missing=0`, and
 `test:source-guards` passes all standalone checks plus 190/190 Playwright
 source-profile tests.
+Updated: July 5, 2026 — post-Refactor 90 F3 validation fixed the Email OTP
+Ed25519 export path by restoring the required HSS server advance call before
+finalize. `pnpm -C tests run test:intended:ci` now passes all five intended
+contracts in 4.1m.
 
 Status: in progress.
 
@@ -1467,9 +1471,9 @@ Initial audit:
 | `tests/relayer/email-otp.route-helpers.test.ts` | keep | Email OTP route-helper coverage. It validates compact parser/response helper behaviour without carrying a mocked lifecycle fixture graph. |
 | `tests/relayer/email-otp.shamir3pass.test.ts` | keep | Email OTP Shamir 3-pass AuthService coverage. It checks cryptographic/session policy boundaries directly and is not replaced by the intended success flows. |
 | `tests/relayer/email-recovery.prepare.test.ts` | deleted | Deleted 337-line fake AuthService recovery-prepare route suite after the recovery intended spec covered recovery into signing and D1 route-family coverage owned route ingress. |
-| `tests/relayer/express-router.test.ts` | blocked_on_coverage(90 F3 Express route deletion) | Large Express route suite is scheduled to die with the Express route implementations. Phase 8 names this file and records its 4,370-line deletion gate. |
+| `tests/relayer/express-router.test.ts` | deleted | Deleted 4,370-line fake AuthService Express Router API suite after Refactor 90 F3 moved the Express host onto the canonical fetch-backed Router API adapter and deleted the duplicated `router/express/routes/**` implementation files. |
 | `tests/relayer/health-wellknown.test.ts` | deleted | Deleted 233-line fake AuthService health/well-known route suite after route readiness coverage moved to the D1 route-family harness and source guards retained active signing-session seal defaults. |
-| `tests/relayer/helpers.ts` | blocked_on_coverage(90 F3 Express route deletion) | Shared relayer helper module still exports `makeFakeAuthService` only for `tests/relayer/express-router.test.ts`. Delete the fake helper branch with the Express route suite. |
+| `tests/relayer/helpers.ts` | keep | Removed the 540-line `makeFakeAuthService` branch with the Refactor 90 F3 Express route deletion. The remaining helper module keeps shared HTTP, Cloudflare, session, and recovery fixture helpers used by retained relayer tests. |
 | `tests/relayer/login.challengeReplay.test.ts` | deleted | Deleted 92-line fake AuthService login challenge replay suite after intended unlock contracts and D1 route-family coverage superseded the mocked route fixture. |
 | `tests/relayer/nearErrors.test.ts` | keep | NEAR error normalization coverage. It validates helper mapping for route responses and is not lifecycle fixture coverage. |
 | `tests/relayer/oidc-exchange.authservice.test.ts` | keep | OIDC exchange AuthService coverage. It verifies token issuer/audience/nonce/session boundaries directly and supports the Google intended-test setup. |
@@ -1834,6 +1838,11 @@ Ledger checkpoint, July 5, 2026:
   `tests/unit/cloudflareD1RouterApiRegistrationPolicy.unit.test.ts`,
   `tests/unit/cloudflareD1RouterApiOidc.unit.test.ts`, and
   `tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts`.
+- [x] Re-run after the Refactor 90 F3 Express route deletion reports
+  `scope=406 ledger_existing=406 ledger_deleted=67 missing=0`; current
+  Phase 8 test-surface diff records 25 added lines, 5,046 deleted lines,
+  net -5,021 after deleting `tests/relayer/express-router.test.ts` and the
+  fake AuthService branch in `tests/relayer/helpers.ts`.
 - [x] Current `tests/unit/helpers/*.ts` files all have surviving importers; no
   zero-importer helper deletion was available in this inventory pass.
 
@@ -1946,19 +1955,18 @@ Concrete cleanup targets:
   config so only `test:intended` and `test:intended:ci` own lifecycle contracts.
 - [x] Delete the fake AuthService server launcher scripts now that no package
   script starts them.
-- [ ] Delete `tests/relayer/helpers.ts` fake AuthService helpers once Refactor
-  90 F3 removes the Express route suite.
+- [x] Delete `tests/relayer/helpers.ts` fake AuthService helpers after
+  Refactor 90 F3 removed the Express route suite.
 
-Current blocker to deleting the remaining fake AuthService surface:
+Deleted fake AuthService surface:
 
-- `tests/relayer/helpers.ts` and `makeFakeAuthService` are still used only by
-  `tests/relayer/express-router.test.ts`, which is gated on Refactor 90 F3.
+- `tests/relayer/express-router.test.ts` is deleted.
+- `tests/relayer/helpers.ts` no longer exports `makeFakeAuthService`.
 - The two route-surface unit tests now use local throwing
   `RouterApiServiceBag` fixtures, so route wiring no longer imports the fake
   AuthService helper.
-- `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` now quarantines
-  `makeFakeAuthService` references to `tests/relayer/helpers.ts` and
-  `tests/relayer/express-router.test.ts`.
+- `tests/scripts/check-intended-behaviour-contract-boundaries.mjs` now rejects
+  `makeFakeAuthService` references outside its own checker token table.
 
 Completed setup cleanup:
 
@@ -2136,10 +2144,10 @@ Gated — each task names its gate and fires in the same change:
       `tests/unit/cloudflareD1RouterApiRegistrationCeremony.unit.test.ts`,
       `tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`, and
       `tests/unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts`.
-- [ ] Gate: Refactor 90 F3 deletes the Express route implementations
-      (Decided Point 11). Delete `tests/relayer/express-router.test.ts`
+- [x] Gate: Refactor 90 F3 deletes the Express route implementations
+      (Decided Point 11). Deleted `tests/relayer/express-router.test.ts`
       (4,370 lines) and the remaining `tests/relayer/helpers.ts`
-      `makeFakeAuthService` branch in that same change.
+      `makeFakeAuthService` branch (540 lines) in the same change.
 - [x] Gate: Refactor 82 Phase 11/12 lands the D1-canonical route-family
       harness (`routes-d1` — that harness is an 82 deliverable, not a test
       chore here). Deleted the 12 unblocked fake/AuthService relayer suites
@@ -2168,10 +2176,14 @@ Phase exit:
 
 - [x] Every ungated deletion above is done and recorded with file/line
       counts.
-- [ ] Every gated deletion has its gate named on its ledger rows, and fired
-      deletions landed in the same change as their gate.
-- [ ] Net test-suite line change for this phase is recorded in the ledger
-      totals; each deletion row names the coverage that replaced it.
+- [x] Every gated deletion has its gate named on its ledger rows, and fired
+      deletions landed in the same change as their gate. Refactor 90 A4/B5
+      and B3 rows remain explicitly blocked until those product migrations
+      land.
+- [x] Current net test-suite line change is recorded in the ledger checkpoint;
+      each fired deletion row names the coverage that replaced it. Refactor 90
+      A4/B5 and B3 will add their own line-accounting checkpoints when they
+      fire.
 
 ## Exit Criteria
 
@@ -2205,6 +2217,7 @@ Phase exit:
   `pnpm -C tests run check:refactor88-test-ledger:complete`, and
   `pnpm -C tests run test:source-guards` all pass. The latest mutation
   completion run reports 4/4 detected proof rows. The latest ledger completion
-  run reports `scope=407 ledger_existing=407 ledger_deleted=66 missing=0`, and
-  the latest source-guard profile reports all standalone checks plus 190/190
-  Playwright source-profile tests green.
+  run reports `scope=406 ledger_existing=406 ledger_deleted=67 missing=0`, and
+  the latest intended run reports 5/5 contracts green in 4.1m. The latest
+  source-guard profile reports all standalone checks plus 190/190 Playwright
+  source-profile tests green.

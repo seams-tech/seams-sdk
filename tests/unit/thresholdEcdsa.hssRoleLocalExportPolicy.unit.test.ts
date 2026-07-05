@@ -20,8 +20,8 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
 );
-const EXPRESS_THRESHOLD_ECDSA_ROUTE_URL = new URL(
-  '../../packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
+const THRESHOLD_ECDSA_ROUTE_URL = new URL(
+  '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
   import.meta.url,
 );
 const EXPORT_CONFIRMATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-confirmation:v2';
@@ -573,7 +573,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
   });
 
   test('keeps Express export-share request log metadata on an explicit allowlist', () => {
-    const source = readFileSync(EXPRESS_THRESHOLD_ECDSA_ROUTE_URL, 'utf8');
+    const source = readFileSync(THRESHOLD_ECDSA_ROUTE_URL, 'utf8');
     const routeStart = source.indexOf('ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH');
     expect(routeStart).toBeGreaterThan(-1);
     const routeLogMeta = source.slice(routeStart, source.indexOf('async () =>', routeStart));

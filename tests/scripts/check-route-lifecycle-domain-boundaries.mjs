@@ -281,7 +281,6 @@ check('route/lifecycle boundary sync-account routes parse request bodies at the 
     'packages/sdk-server-ts/src/router/syncAccountRequestValidation.ts',
   );
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/express/routes/syncAccount.ts',
     'packages/sdk-server-ts/src/router/cloudflare/routes/syncAccount.ts',
   ];
 
@@ -307,7 +306,7 @@ check('route/lifecycle boundary sync-account routes parse request bodies at the 
 check('route/lifecycle boundary link-device server routes are absent until the feature returns', () => {
   const serverRouteSurface = [
     readRepoSource('packages/sdk-server-ts/src/router/routeDefinitions.ts'),
-    readRepoSource('packages/sdk-server-ts/src/router/express/createRouterApiRouter.ts'),
+    readRepoSource('packages/sdk-server-ts/src/router/express-adaptor.ts'),
     readRepoSource('packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts'),
   ].join('\n');
 
@@ -323,7 +322,6 @@ check('route/lifecycle boundary email-recovery routes parse request bodies at th
     'packages/sdk-server-ts/src/router/emailRecoveryRequestValidation.ts',
   );
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/express/routes/emailRecovery.ts',
     'packages/sdk-server-ts/src/router/cloudflare/routes/emailRecovery.ts',
   ];
 
@@ -353,14 +351,8 @@ check('route/lifecycle boundary email-recovery routes parse request bodies at th
 
 check('route/lifecycle boundary auth provider routes parse request bodies at the boundary', () => {
   const parserSource = readRepoSource('packages/sdk-server-ts/src/router/authRequestValidation.ts');
-  const expressSource = readRepoSource('packages/sdk-server-ts/src/router/express/routes/auth.ts');
   const cloudflareSource = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
-  );
-  const expressProviderRoute = sourceRange(
-    expressSource,
-    "router.post('/auth/:provider/:action'",
-    '    } catch (e: any) {',
   );
   const cloudflareProviderRoute = sourceRange(
     cloudflareSource,
@@ -390,40 +382,26 @@ check('route/lifecycle boundary auth provider routes parse request bodies at the
   expect(parserSource).not.toMatch(/['"]stepUpChallengeId['"]/);
   expect(parserSource).not.toMatch(/['"]step_up_webauthn_authentication['"]/);
   expect(parserSource).not.toMatch(/['"]sessionKind['"]/);
-  expect(expressSource).toContain('assertNeverAuthProviderAction');
   expect(cloudflareSource).toContain('assertNeverAuthProviderAction');
   expect(cloudflareSource).toContain('assertNeverAuthIdentityMutation');
 
-  for (const source of [expressProviderRoute, cloudflareProviderRoute]) {
-    expect(source).toContain('switch');
-    expect(source).toContain('parsePasskeyLoginOptionsRequest');
-    expect(source).toContain('parsePasskeyLoginVerifyRequest');
-    expect(source).toContain('parseGoogleLoginVerifyRequest');
-    expect(source).not.toContain('createWebAuthnLoginOptions(req.body)');
-    expect(source).not.toContain('createWebAuthnLoginOptions(body as any)');
-    expect(source).not.toContain('verifyWebAuthnLogin({');
-    expect(source).not.toContain('verifyGoogleLogin({ idToken');
-    expect(source).not.toContain('body as any');
-    expect(source).not.toContain('sessionKind');
-    expect(source).not.toContain('idToken');
-    expect(source).not.toContain('challenge_id');
-  }
+  expect(cloudflareProviderRoute).toContain('switch');
+  expect(cloudflareProviderRoute).toContain('parsePasskeyLoginOptionsRequest');
+  expect(cloudflareProviderRoute).toContain('parsePasskeyLoginVerifyRequest');
+  expect(cloudflareProviderRoute).toContain('parseGoogleLoginVerifyRequest');
+  expect(cloudflareProviderRoute).not.toContain('createWebAuthnLoginOptions(req.body)');
+  expect(cloudflareProviderRoute).not.toContain('createWebAuthnLoginOptions(body as any)');
+  expect(cloudflareProviderRoute).not.toContain('verifyWebAuthnLogin({');
+  expect(cloudflareProviderRoute).not.toContain('verifyGoogleLogin({ idToken');
+  expect(cloudflareProviderRoute).not.toContain('body as any');
+  expect(cloudflareProviderRoute).not.toContain('sessionKind');
+  expect(cloudflareProviderRoute).not.toContain('idToken');
+  expect(cloudflareProviderRoute).not.toContain('challenge_id');
 });
 
 check('route/lifecycle boundary auth identity mutation routes parse request bodies at the boundary', () => {
-  const expressSource = readRepoSource('packages/sdk-server-ts/src/router/express/routes/auth.ts');
   const cloudflareSource = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
-  );
-  const expressLinkRoute = sourceRange(
-    expressSource,
-    "router.post('/auth/link'",
-    "  router.post('/auth/unlink'",
-  );
-  const expressUnlinkRoute = sourceRange(
-    expressSource,
-    "router.post('/auth/unlink'",
-    "  router.post('/auth/:provider/:action'",
   );
   const cloudflareMutationRoute = sourceRange(
     cloudflareSource,
@@ -431,32 +409,25 @@ check('route/lifecycle boundary auth identity mutation routes parse request bodi
     "  const parsedRoute = parseAuthProviderActionPath(ctx.pathname);",
   );
 
-  expect(expressLinkRoute).toContain('parseAuthLinkIdentityRequest');
-  expect(expressUnlinkRoute).toContain('parseAuthUnlinkIdentityRequest');
   expect(cloudflareMutationRoute).toContain('parseAuthIdentityMutationRequest');
   expect(cloudflareMutationRoute).toContain('switch (command.kind)');
   expect(cloudflareMutationRoute).toContain('assertNeverAuthIdentityMutation');
   expect(cloudflareMutationRoute).not.toContain('linkParsed!');
   expect(cloudflareMutationRoute).not.toContain('unlinkParsed!');
 
-  for (const source of [expressLinkRoute, expressUnlinkRoute, cloudflareMutationRoute]) {
-    expect(source).not.toContain('body as any');
-    expect(source).not.toContain('(req.body || {})');
-    expect(source).not.toContain('(body as Record<string, unknown>)');
-    expect(source).not.toContain('stepUpChallengeId');
-    expect(source).not.toContain('step_up_webauthn_authentication');
-    expect(source).not.toContain('sessionKind');
-    expect(source).not.toContain('id_token');
-    expect(source).not.toContain('step_up_challenge_id');
-  }
+  expect(cloudflareMutationRoute).not.toContain('body as any');
+  expect(cloudflareMutationRoute).not.toContain('(req.body || {})');
+  expect(cloudflareMutationRoute).not.toContain('(body as Record<string, unknown>)');
+  expect(cloudflareMutationRoute).not.toContain('stepUpChallengeId');
+  expect(cloudflareMutationRoute).not.toContain('step_up_webauthn_authentication');
+  expect(cloudflareMutationRoute).not.toContain('sessionKind');
+  expect(cloudflareMutationRoute).not.toContain('id_token');
+  expect(cloudflareMutationRoute).not.toContain('step_up_challenge_id');
 });
 
 check('route/lifecycle boundary threshold ECDSA key-identity inventory has one wallet boundary', () => {
   const parserSource = readRepoSource(
     'packages/sdk-server-ts/src/router/thresholdEcdsaRequestValidation.ts',
-  );
-  const expressSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
   );
   const cloudflareSource = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
@@ -466,7 +437,7 @@ check('route/lifecycle boundary threshold ECDSA key-identity inventory has one w
     'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
   );
 
-  for (const source of [parserSource, expressSource, cloudflareSource, routeDefinitionSource]) {
+  for (const source of [parserSource, cloudflareSource, routeDefinitionSource]) {
     expect(source).not.toContain('ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH');
     expect(source).not.toContain('parseRouterAbEcdsaHssKeyIdentitiesRequest');
     expect(source).not.toContain('RouterAbEcdsaHssKeyIdentitiesRequest');
@@ -476,14 +447,12 @@ check('route/lifecycle boundary threshold ECDSA key-identity inventory has one w
 
   expect(walletRegistrationSource).toContain('handleRouterApiWalletEcdsaKeyFactsInventory');
   expect(walletRegistrationSource).toContain("permission: 'ecdsa_key_facts_inventory'");
-  expect(expressSource).toContain('thresholdEcdsaRouteDiagnosticMetadata');
-  expect(expressSource).not.toContain("typeof (body as { walletId?: unknown }).walletId");
-  expect(expressSource).not.toContain("typeof (body as { clientDeviceId?: unknown }).clientDeviceId");
+  expect(cloudflareSource).not.toContain("typeof (body as { walletId?: unknown }).walletId");
+  expect(cloudflareSource).not.toContain("typeof (body as { clientDeviceId?: unknown }).clientDeviceId");
 });
 
 check('route/lifecycle boundary threshold Ed25519 HSS has no legacy email OTP command branch', () => {
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
     'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
   ];
 
@@ -512,20 +481,11 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   const thresholdService = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
   );
-  const expressEd25519 = readRepoSource(
-    'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
-  );
   const cloudflareEd25519 = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
   );
-  const expressEcdsa = readRepoSource(
-    'packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
-  );
   const cloudflareEcdsa = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
-  );
-  const expressSessions = readRepoSource(
-    'packages/sdk-server-ts/src/router/express/routes/sessions.ts',
   );
   const cloudflareSessions = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
@@ -573,58 +533,42 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   expect(thresholdService).not.toContain('resolveThresholdEd25519SessionWalletAuthProof');
   expect(thresholdService).not.toContain('walletAuthProof');
 
-  for (const source of [expressEd25519, cloudflareEd25519]) {
-    expect(source).toContain('parseThresholdEd25519SessionRouteRequest');
-    expect(source).toContain('buildThresholdEd25519VerifiedWalletAuth');
-    expect(source).toContain('parseThresholdEd25519HssPrepareWithSessionRouteRequest');
-    expect(source).toContain('parseThresholdEd25519HssFinalizeWithSessionRouteRequest');
-    expect(source).toContain('parseThresholdEd25519HssRespondWithSessionRouteRequest');
-    expect(source).not.toContain('validated.body as unknown as ThresholdEd25519');
-    expect(source).not.toContain('request: validated.body as');
-    expect(source).not.toContain('request: validated.body');
-    expect(source).not.toContain('as unknown as ThresholdEd25519SessionRequest');
-  }
+  expect(cloudflareEd25519).toContain('parseThresholdEd25519SessionRouteRequest');
+  expect(cloudflareEd25519).toContain('buildThresholdEd25519VerifiedWalletAuth');
+  expect(cloudflareEd25519).toContain('parseThresholdEd25519HssPrepareWithSessionRouteRequest');
+  expect(cloudflareEd25519).toContain('parseThresholdEd25519HssFinalizeWithSessionRouteRequest');
+  expect(cloudflareEd25519).toContain('parseThresholdEd25519HssRespondWithSessionRouteRequest');
+  expect(cloudflareEd25519).not.toContain('validated.body as unknown as ThresholdEd25519');
+  expect(cloudflareEd25519).not.toContain('request: validated.body as');
+  expect(cloudflareEd25519).not.toContain('request: validated.body');
+  expect(cloudflareEd25519).not.toContain('as unknown as ThresholdEd25519SessionRequest');
 
-  const expressPoolFill = sourceRange(
-    expressEcdsa,
-    'async function handleRouterAbEcdsaHssPoolFillInitRoute',
-    '  router.post(\n    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH',
-  );
   const cloudflarePoolFill = sourceRange(
     cloudflareEcdsa,
     'if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH)',
     '  return null;',
   );
-  for (const source of [expressPoolFill, cloudflarePoolFill]) {
-    expect(source).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
-    expect(source).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
-    expect(source).not.toContain('as RouterAbEcdsaHssPoolFill');
-    expect(source).not.toContain('const reqBody =');
-    expect(source).not.toContain('request: reqBody');
-    expect(source).not.toContain('body: req.body');
-  }
+  expect(cloudflarePoolFill).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
+  expect(cloudflarePoolFill).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
+  expect(cloudflarePoolFill).not.toContain('as RouterAbEcdsaHssPoolFill');
+  expect(cloudflarePoolFill).not.toContain('const reqBody =');
+  expect(cloudflarePoolFill).not.toContain('request: reqBody');
+  expect(cloudflarePoolFill).not.toContain('body: req.body');
 
-  const expressExchange = sourceRange(
-    expressSessions,
-    "router.post('/session/exchange'",
-    "  router.post('/session/revoke'",
-  );
   const cloudflareExchange = sourceRange(
     cloudflareSessions,
     'export async function handleSessionExchange',
     'export async function handleSessionRevoke',
   );
-  for (const source of [expressExchange, cloudflareExchange]) {
-    expect(source).toContain('parseSessionExchangeRouteCommand');
-    expect(source).toContain('const command = parsedExchange.command;');
-    expect(source).toContain("if (command.kind === 'oidc_jwt')");
-    expect(source).not.toContain('const exchange =');
-    expect(source).not.toContain('exchange as any');
-    expect(source).not.toContain('exchange.token');
-    expect(source).not.toContain('exchange.webauthn_authentication');
-    expect(source).not.toContain('verifyGoogleLogin({ idToken: (exchange');
-    expect(source).not.toContain('verifyOidcJwtExchange({ token: (exchange');
-  }
+  expect(cloudflareExchange).toContain('parseSessionExchangeRouteCommand');
+  expect(cloudflareExchange).toContain('const command = parsedExchange.command;');
+  expect(cloudflareExchange).toContain("if (command.kind === 'oidc_jwt')");
+  expect(cloudflareExchange).not.toContain('const exchange =');
+  expect(cloudflareExchange).not.toContain('exchange as any');
+  expect(cloudflareExchange).not.toContain('exchange.token');
+  expect(cloudflareExchange).not.toContain('exchange.webauthn_authentication');
+  expect(cloudflareExchange).not.toContain('verifyGoogleLogin({ idToken: (exchange');
+  expect(cloudflareExchange).not.toContain('verifyOidcJwtExchange({ token: (exchange');
 });
 
 console.log('[check-route-lifecycle-domain-boundaries] passed');

@@ -1119,5 +1119,6 @@ Remaining source-guard cleanup buckets:
   `check:intended-mutation-self-check:complete` verifier, and retained-boundary
   audit evidence has moved to `check:refactor88-test-ledger:complete`.
 - `tests/scripts/check-refactor88-test-ledger.mjs` remains active until
-  Refactor 88 closes. It still guards live Refactor 90-gated rows for Express
-  route deletion, console route collapse, and budget-to-grant-use cleanup.
+  Refactor 88 closes. The Refactor 90 F3 Express route deletion has fired; the
+  guard still covers the live Refactor 90-gated console route collapse and
+  budget-to-grant-use cleanup rows.

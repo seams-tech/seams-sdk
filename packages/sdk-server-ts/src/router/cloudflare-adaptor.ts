@@ -62,8 +62,6 @@ export type {
 export type {
   RouterApiCloudflareRouteExtensionInput,
   RouterApiCloudflareRouteExtension,
-  RouterApiExpressRouteExtensionInput,
-  RouterApiExpressRouteExtension,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
 } from './routeExtensions';

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Router as ExpressRouter } from 'express';
 import {
   createDefaultVoiceIdService,
   createVoiceIdRouterApiRouteExtension,
@@ -17,7 +16,7 @@ test('VoiceID Router API extension maps capability routes to SDK route definitio
     }),
   );
 
-  assert.equal(extension.kind, 'universal_route_extension');
+  assert.equal(extension.kind, 'cloudflare_route_extension');
   assert.equal(extension.id, 'voice_id');
   assert.deepEqual(
     extension.routes.map((route) => route.id),
@@ -84,45 +83,3 @@ test('VoiceID Router API extension dispatches Cloudflare requests through capabi
   assert.equal(body.kind, 'ok');
   assert.equal(body.service, 'voice-id-api');
 });
-
-test('VoiceID Router API extension registers Express routes from capability metadata', () => {
-  const router = new RecordingExpressRouter();
-  const extension = createVoiceIdRouterApiRouteExtension(
-    createVoiceIdServerCapability({
-      kind: 'service',
-      service: createDefaultVoiceIdService({ verifierMode: 'fake' }),
-    }),
-  );
-
-  extension.registerExpressRoutes({
-    router: router.asExpressRouter(),
-    routes: extension.routes,
-  });
-
-  assert.deepEqual(
-    router.routeKeys(),
-    voiceIdCapabilityRoutes.map((route) => `${route.method} ${route.path}`),
-  );
-});
-
-class RecordingExpressRouter {
-  private readonly routes: Array<{ method: 'GET' | 'POST'; path: string }> = [];
-
-  get(path: string): RecordingExpressRouter {
-    this.routes.push({ method: 'GET', path });
-    return this;
-  }
-
-  post(path: string): RecordingExpressRouter {
-    this.routes.push({ method: 'POST', path });
-    return this;
-  }
-
-  asExpressRouter(): ExpressRouter {
-    return this as unknown as ExpressRouter;
-  }
-
-  routeKeys(): readonly string[] {
-    return this.routes.map((route) => `${route.method} ${route.path}`);
-  }
-}

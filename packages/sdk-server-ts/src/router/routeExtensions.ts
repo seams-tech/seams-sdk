@@ -1,7 +1,6 @@
-import type { Router as ExpressRouter } from 'express';
 import { defineRoute, type RouteDefinition } from './routeDefinitions';
 
-export type RouterApiRouteExtensionTransport = 'cloudflare' | 'express';
+export type RouterApiRouteExtensionTransport = 'cloudflare';
 
 export interface RouterApiCloudflareRouteExtensionInput {
   request: Request;
@@ -12,46 +11,17 @@ export interface RouterApiCloudflareRouteExtensionInput {
   cfCtx?: unknown;
 }
 
-export interface RouterApiExpressRouteExtensionInput {
-  router: ExpressRouter;
-  routes: readonly RouteDefinition[];
-}
-
 interface RouterApiRouteExtensionBase {
   id: string;
   routes: readonly RouteDefinition[];
 }
 
-export type RouterApiRouteExtension =
-  | (RouterApiRouteExtensionBase & {
-      kind: 'cloudflare_route_extension';
-      handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> | Response;
-      registerExpressRoutes?: never;
-    })
-  | (RouterApiRouteExtensionBase & {
-      kind: 'express_route_extension';
-      registerExpressRoutes(input: RouterApiExpressRouteExtensionInput): void;
-      handleCloudflareRoute?: never;
-    })
-  | (RouterApiRouteExtensionBase & {
-      kind: 'universal_route_extension';
-      handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> | Response;
-      registerExpressRoutes(input: RouterApiExpressRouteExtensionInput): void;
-    });
+export type RouterApiRouteExtension = RouterApiRouteExtensionBase & {
+  kind: 'cloudflare_route_extension';
+  handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> | Response;
+};
 
-export type RouterApiCloudflareRouteExtension = Extract<
-  RouterApiRouteExtension,
-  { kind: 'cloudflare_route_extension' | 'universal_route_extension' }
->;
-
-export type RouterApiExpressRouteExtension = Extract<
-  RouterApiRouteExtension,
-  { kind: 'express_route_extension' | 'universal_route_extension' }
->;
-
-function assertNever(_value: never): never {
-  throw new Error('Unhandled Router API route extension kind');
-}
+export type RouterApiCloudflareRouteExtension = RouterApiRouteExtension;
 
 function normalizeExtensionId(extension: RouterApiRouteExtension): string {
   const id = String(extension.id || '').trim();
@@ -68,12 +38,6 @@ function relayRouteExtensionSupportsTransport(
   switch (extension.kind) {
     case 'cloudflare_route_extension':
       return transport === 'cloudflare';
-    case 'express_route_extension':
-      return transport === 'express';
-    case 'universal_route_extension':
-      return true;
-    default:
-      return assertNever(extension);
   }
 }
 
@@ -139,10 +103,6 @@ export function getRouterApiRouteExtensionsForTransport(
   extensions: readonly RouterApiRouteExtension[] | undefined,
   transport: 'cloudflare',
 ): readonly RouterApiCloudflareRouteExtension[];
-export function getRouterApiRouteExtensionsForTransport(
-  extensions: readonly RouterApiRouteExtension[] | undefined,
-  transport: 'express',
-): readonly RouterApiExpressRouteExtension[];
 export function getRouterApiRouteExtensionsForTransport(
   extensions: readonly RouterApiRouteExtension[] | undefined,
   transport: RouterApiRouteExtensionTransport,

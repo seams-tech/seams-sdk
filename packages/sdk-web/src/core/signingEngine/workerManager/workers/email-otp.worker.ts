@@ -100,6 +100,7 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
+  advanceThresholdEd25519HssServerCeremonyWithSession,
   finalizeThresholdEd25519HssServerCeremonyWithSession,
   prepareThresholdEd25519HssServerCeremonyWithSession,
   respondThresholdEd25519HssServerCeremonyWithSession,
@@ -3125,6 +3126,22 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
     stagedEvaluatorArtifactB64u?: unknown;
     addStageRequestMessageB64u?: unknown;
   };
+  const advanced = await advanceThresholdEd25519HssServerCeremonyWithSession({
+    relayerUrl: relayUrl,
+    walletSessionJwt,
+    ceremonyHandle: prepared.ceremonyHandle,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    addStageRequest: {
+      contextBindingB64u: readString(evaluationResult.contextBindingB64u, 'contextBindingB64u'),
+      addStageRequestMessageB64u: readString(
+        evaluationResult.addStageRequestMessageB64u,
+        'addStageRequestMessageB64u',
+      ),
+    },
+  });
+  if (!advanced.ok) {
+    throw new Error(advanced.message || 'Email OTP Ed25519 export advance failed');
+  }
   const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: relayUrl,
     walletSessionJwt,

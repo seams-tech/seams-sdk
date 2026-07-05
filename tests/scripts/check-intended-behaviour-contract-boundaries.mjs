@@ -266,10 +266,6 @@ function isIntendedBehaviourBoundaryChecker(relativePath) {
 }
 const allowedE2eLegacySetupBootstrapFiles = ['tests/e2e/cancel_overlay_specs.test.ts'];
 const allowedE2eLegacySetupBootstrapFileSet = new Set(allowedE2eLegacySetupBootstrapFiles);
-const fakeAuthServiceAllowedFiles = [
-    'tests/relayer/express-router.test.ts',
-    'tests/relayer/helpers.ts',
-];
 const fakeAuthServiceQuarantineTokens = [
     'makeFakeAuthService',
     'test-router-api-server.mjs',
@@ -609,12 +605,10 @@ test('Refactor 88 remaining generic browser bootstrap consumers stay audited', (
     }
     expect(violations, violations.join('\n')).toEqual([]);
 });
-test('Refactor 88 fake AuthService helpers stay quarantined to router boundary tests', () => {
+test('Refactor 88 fake AuthService helpers stay deleted', () => {
     const violations = [];
     for (const relativePath of listSourceTextFiles(['tests'])) {
         if (isIntendedBehaviourBoundaryChecker(relativePath))
-            continue;
-        if (allowsFakeAuthServiceSurface(relativePath))
             continue;
         const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
         for (const token of fakeAuthServiceQuarantineTokens) {
@@ -1113,9 +1107,6 @@ test('Refactor 88 key export actions use public exact-lane export UI', () => {
 function hasRefactor88KeepClassification(relativePath) {
     const planSource = fs.readFileSync(refactor88PlanPath, 'utf8');
     return planSource.includes('| `' + relativePath + '` | keep |');
-}
-function allowsFakeAuthServiceSurface(relativePath) {
-    return fakeAuthServiceAllowedFiles.includes(relativePath);
 }
 function assertTokensAppearInOrder(source, tokens, label) {
     let offset = 0;

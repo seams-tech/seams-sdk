@@ -251,8 +251,6 @@ export { createRouterApiModule } from './router/modules';
 export type {
   RouterApiCloudflareRouteExtension,
   RouterApiCloudflareRouteExtensionInput,
-  RouterApiExpressRouteExtension,
-  RouterApiExpressRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
 } from './router/routeExtensions';

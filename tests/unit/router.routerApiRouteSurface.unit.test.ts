@@ -1,11 +1,10 @@
 import { expect, test } from '@playwright/test';
-import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express/createRouterApiRouter';
+import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express-adaptor';
 import {
   createRouterApiModule,
   type RouterApiModule,
@@ -24,11 +23,6 @@ import {
   createVoiceIdServerCapability,
 } from '../../voiceId/server/src/index';
 import { callCf } from '../relayer/helpers';
-
-type ExpressRouteEntry = {
-  method: string;
-  path: string;
-};
 
 type CloudflareRouterApiHandler = ReturnType<typeof createCloudflareRouter>;
 
@@ -117,30 +111,6 @@ function makeSponsoredEvmExecutorConfig() {
 
 function makeTestPublishableKeyAuth() {
   return createRouterApiPublishableKeyAuthAdapter(createInMemoryConsoleApiKeyService());
-}
-
-function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
-  const entries: ExpressRouteEntry[] = [];
-
-  const visitStack = (stack: unknown): void => {
-    if (!Array.isArray(stack)) return;
-    for (const layer of stack) {
-      if (!layer || typeof layer !== 'object') continue;
-      const route = (layer as { route?: { path?: unknown; methods?: Record<string, boolean> } })
-        .route;
-      if (route && typeof route.path === 'string' && route.methods) {
-        for (const [method, enabled] of Object.entries(route.methods)) {
-          if (!enabled) continue;
-          entries.push({ method: method.toUpperCase(), path: route.path });
-        }
-      }
-      const nested = (layer as { handle?: { stack?: unknown } }).handle?.stack;
-      if (nested) visitStack(nested);
-    }
-  };
-
-  visitStack((router as { stack?: unknown })?.stack);
-  return entries;
 }
 
 function canonicalRouteKeys(
@@ -295,9 +265,9 @@ function voiceIdSampleForm(input: {
 }
 
 test.describe('Router API route surface wiring', () => {
-  test('attached route surface matches registered express routes', async () => {
+  test('Express adapter route surface matches canonical fetch router surface', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const router = createRouterApiRouter(service, {
+    const options = {
       healthz: true,
       readyz: true,
       signingSessionSeal: {
@@ -314,27 +284,17 @@ test.describe('Router API route surface wiring', () => {
         runtimeSnapshots: {} as any,
         config: makeSponsoredEvmExecutorConfig(),
       },
-    });
+    };
 
-    const surface = getRouterApiRouteSurface(router);
-    expect(surface).toBeTruthy();
-    expect(surface?.mePath).toBe('/session/me');
-    expect(surface?.signedDelegatePath).toBe('/delegate/submit');
+    const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
+    const fetchSurface = getRouterApiRouteSurface(createCloudflareRouter(service, options));
+    expect(expressSurface).toBeTruthy();
+    expect(fetchSurface).toBeTruthy();
+    expect(expressSurface?.mePath).toBe('/session/me');
+    expect(expressSurface?.signedDelegatePath).toBe('/delegate/submit');
 
-    const actualKeys = new Set(
-      listExpressRoutes(router)
-        .filter((entry) => entry.method !== 'HEAD' && entry.method !== 'OPTIONS')
-        .map((entry) => `${entry.method} ${entry.path}`),
-    );
-    const expectedKeys = new Set(
-      canonicalRouteKeys(
-        (surface?.routeDefinitions || []).map((route) => ({
-          method: route.method,
-          path: route.path,
-          aliases: route.aliases,
-        })),
-      ),
-    );
+    const actualKeys = new Set(canonicalRouteKeys(expressSurface?.routeDefinitions || []));
+    const expectedKeys = new Set(canonicalRouteKeys(fetchSurface?.routeDefinitions || []));
 
     expect([...expectedKeys].filter((key) => !actualKeys.has(key))).toEqual([]);
     expect([...actualKeys].filter((key) => !expectedKeys.has(key))).toEqual([]);
@@ -481,12 +441,7 @@ test.describe('Router API route surface wiring', () => {
       'POST',
       '/voiceid/owner-presence',
     );
-    const expressRoute = voiceIdTestRoute(
-      'voiceid_owner_presence_express',
-      'GET',
-      '/voiceid/express-owner-presence',
-    );
-    const universalRoute = voiceIdTestRoute('voiceid_capabilities', 'GET', '/voiceid/capabilities');
+    const capabilitiesRoute = voiceIdTestRoute('voiceid_capabilities', 'GET', '/voiceid/capabilities');
     const extensions: RouterApiRouteExtension[] = [
       {
         kind: 'cloudflare_route_extension',
@@ -498,32 +453,13 @@ test.describe('Router API route surface wiring', () => {
           }),
       },
       {
-        kind: 'express_route_extension',
-        id: 'voiceid-express',
-        routes: [expressRoute],
-        registerExpressRoutes: ({ router, routes }) => {
-          for (const route of routes) {
-            router.get(route.path, (_req: ExpressRequest, res: ExpressResponse) => {
-              res.json({ routeId: route.id, runtime: 'express' });
-            });
-          }
-        },
-      },
-      {
-        kind: 'universal_route_extension',
-        id: 'voiceid-universal',
-        routes: [universalRoute],
+        kind: 'cloudflare_route_extension',
+        id: 'voiceid-capabilities',
+        routes: [capabilitiesRoute],
         handleCloudflareRoute: ({ route }) =>
           new Response(JSON.stringify({ routeId: route.id, runtime: 'cloudflare' }), {
             headers: { 'Content-Type': 'application/json' },
           }),
-        registerExpressRoutes: ({ router, routes }) => {
-          for (const route of routes) {
-            router.get(route.path, (_req: ExpressRequest, res: ExpressResponse) => {
-              res.json({ routeId: route.id, runtime: 'express' });
-            });
-          }
-        },
       },
     ];
 
@@ -533,7 +469,6 @@ test.describe('Router API route surface wiring', () => {
       (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
     );
     expect(cloudflareIds.has('voiceid_owner_presence_cloudflare')).toBe(true);
-    expect(cloudflareIds.has('voiceid_owner_presence_express')).toBe(false);
     expect(cloudflareIds.has('voiceid_capabilities')).toBe(true);
 
     const ownerPresenceResponse = await callCf(cloudflareHandler, {
@@ -550,16 +485,8 @@ test.describe('Router API route surface wiring', () => {
     const expressRouter = createRouterApiRouter(service, { routeExtensions: extensions });
     const expressSurface = getRouterApiRouteSurface(expressRouter);
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
-    expect(expressIds.has('voiceid_owner_presence_cloudflare')).toBe(false);
-    expect(expressIds.has('voiceid_owner_presence_express')).toBe(true);
+    expect(expressIds.has('voiceid_owner_presence_cloudflare')).toBe(true);
     expect(expressIds.has('voiceid_capabilities')).toBe(true);
-
-    const expressKeys = new Set(
-      listExpressRoutes(expressRouter).map((entry) => `${entry.method} ${entry.path}`),
-    );
-    expect(expressKeys.has('GET /voiceid/express-owner-presence')).toBe(true);
-    expect(expressKeys.has('GET /voiceid/capabilities')).toBe(true);
-    expect(expressKeys.has('POST /voiceid/owner-presence')).toBe(false);
   });
 
   test('route extensions cannot shadow existing Router API routes', async () => {
@@ -596,11 +523,6 @@ test.describe('Router API route surface wiring', () => {
     const expressSurface = getRouterApiRouteSurface(expressRouter);
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
     expect(expressIds.has('voice_id_health')).toBe(false);
-
-    const expressKeys = new Set(
-      listExpressRoutes(expressRouter).map((entry) => `${entry.method} ${entry.path}`),
-    );
-    expect(expressKeys.has('GET /voice-id/health')).toBe(false);
   });
 
   test('Router API modules register VoiceID routes across Cloudflare and Express', async () => {
@@ -731,13 +653,6 @@ test.describe('Router API route surface wiring', () => {
     expect(expressIds.has('voice_id_health')).toBe(true);
     expect(expressIds.has('voice_id_verification_sample')).toBe(true);
     expect(expressIds.has('voice_id_owner_presence_authorize')).toBe(true);
-
-    const expressKeys = new Set(
-      listExpressRoutes(expressRouter).map((entry) => `${entry.method} ${entry.path}`),
-    );
-    expect(expressKeys.has('GET /voice-id/health')).toBe(true);
-    expect(expressKeys.has('POST /voice-id/verification/sample')).toBe(true);
-    expect(expressKeys.has('POST /voice-id/owner-presence/authorize')).toBe(true);
   });
 
   test('Router API modules reject duplicate module ids', async () => {

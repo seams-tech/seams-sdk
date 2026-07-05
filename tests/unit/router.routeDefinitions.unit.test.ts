@@ -3,7 +3,6 @@ import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/appl
 import { authorizeConsoleRouteRequest } from '../../packages/sdk-server-ts/src/router/consoleRoutePolicy';
 import { registerCloudflareRoute } from '../../packages/sdk-server-ts/src/router/cloudflare/registerCloudflareRoute';
 import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
-import { registerExpressRoute } from '../../packages/sdk-server-ts/src/router/express/registerExpressRoute';
 import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/routeAuthPolicy';
 import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/routeExecutionContext';
 import {
@@ -41,6 +40,8 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'sync_account_verify',
   'email_recovery_prepare',
   'email_recovery_ecdsa_respond',
+  'email_recovery_ed25519_respond',
+  'email_recovery_ed25519_finalize',
   'router_ab_ed25519_healthz',
   'router_ab_ed25519_wallet_session',
   'router_ab_ecdsa_hss_healthz',
@@ -50,6 +51,7 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'wallet_registration_prepare',
   'wallet_registration_start',
   'wallet_registration_hss_respond',
+  'wallet_registration_hss_advance_state',
   'wallet_registration_finalize',
   'wallet_add_signer_start',
   'wallet_add_signer_hss_respond',
@@ -734,35 +736,7 @@ test.describe('route definition scaffolding', () => {
     const hit = await cloudflareHandler({ method: 'GET', pathname: '/wrapper/' });
     expect(hit?.status).toBe(200);
 
-    const registered: Array<{ method: string; path: string }> = [];
-    const fakeRouter = {
-      delete(path: string) {
-        registered.push({ method: 'DELETE', path });
-      },
-      get(path: string) {
-        registered.push({ method: 'GET', path });
-      },
-      patch(path: string) {
-        registered.push({ method: 'PATCH', path });
-      },
-      post(path: string) {
-        registered.push({ method: 'POST', path });
-      },
-      put(path: string) {
-        registered.push({ method: 'PUT', path });
-      },
-    };
-
-    registerExpressRoute({
-      router: fakeRouter as any,
-      route,
-      context: {},
-      handler: async () => {},
-    });
-
-    expect(registered).toEqual([
-      { method: 'GET', path: '/wrapper' },
-      { method: 'GET', path: '/wrapper/' },
-    ]);
+    const aliasHit = await cloudflareHandler({ method: 'GET', pathname: '/wrapper/' });
+    expect(aliasHit?.status).toBe(200);
   });
 });
